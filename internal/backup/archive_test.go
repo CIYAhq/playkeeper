@@ -188,6 +188,42 @@ func TestCreateAndVerifyAgreeOnLimits(t *testing.T) {
 	}
 }
 
+// The first traversal guard on its own. TestMaliciousArchivesAreRefused covers
+// it inside an otherwise consistent archive that includes a world.
+func TestValidRelRefusesUnsafePaths(t *testing.T) {
+	for _, p := range []string{"world/level.dat", "config/paper-global.yml", "world/.hidden"} {
+		if !validRel(p) {
+			t.Errorf("validRel(%q) = false, want true", p)
+		}
+	}
+	for _, p := range []string{"", "..", "../x", "../../etc/passwd", "/etc/passwd", "world/../../x", "./world", "world//x", "world/", `world\x`, "world/a\nb", "world/a\x7fb"} {
+		if validRel(p) {
+			t.Errorf("validRel(%q) = true, want false", p)
+		}
+	}
+}
+
+// The second traversal guard on its own: extractFile never writes outside its
+// destination, whatever name it is given.
+func TestExtractFileStaysInsideDestination(t *testing.T) {
+	root := t.TempDir()
+	dest := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(dest, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"../escaped.txt", "../../escaped.txt", "../b2/escaped.txt"} {
+		if _, err := extractFile(dest, rel, 1, strings.NewReader("x")); err == nil {
+			t.Errorf("extractFile accepted %q", rel)
+		}
+		if _, err := os.Stat(filepath.Join(dest, rel)); err == nil {
+			t.Errorf("%q was written outside the destination", rel)
+		}
+	}
+	if _, err := extractFile(dest, "world/level.dat", 1, strings.NewReader("x")); err != nil {
+		t.Fatalf("an ordinary entry was refused: %v", err)
+	}
+}
+
 func TestFlippedByteIsRefused(t *testing.T) {
 	arch, _ := createArchive(t, fixtureDataDir(t))
 	for _, pos := range []int{len(arch) / 3, len(arch) / 2, len(arch) - 20} {
@@ -255,8 +291,9 @@ func TestMaliciousArchivesAreRefused(t *testing.T) {
 	good := map[string]string{"world/level.dat": "ok"}
 	cases := map[string][]entry{
 		"dot-dot traversal": {
+			{name: dataPrefix + "world/level.dat", body: "ok"},
 			{name: dataPrefix + "../../etc/passwd", body: "x"},
-			{name: manifestName, body: manifestFor(map[string]string{"../../etc/passwd": "x"})},
+			{name: manifestName, body: manifestFor(map[string]string{"world/level.dat": "ok", "../../etc/passwd": "x"})},
 		},
 		"absolute path": {
 			{name: "/etc/passwd", body: "x"},
@@ -315,11 +352,12 @@ func TestMaliciousArchivesAreRefused(t *testing.T) {
 			if _, err := Verify(bytes.NewReader(arch), DefaultLimits()); err == nil {
 				t.Fatal("Verify accepted a malicious archive")
 			}
-			dest := filepath.Join(t.TempDir(), "x")
+			root := t.TempDir()
+			dest := filepath.Join(root, "a", "b")
 			if _, err := Extract(bytes.NewReader(arch), dest, DefaultLimits()); err == nil {
 				t.Fatal("Extract accepted a malicious archive")
 			}
-			if _, err := os.Stat(filepath.Join(filepath.Dir(dest), "etc")); err == nil {
+			if _, err := os.Stat(filepath.Join(root, "etc")); err == nil {
 				t.Fatal("extraction escaped its destination")
 			}
 		})

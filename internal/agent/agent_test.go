@@ -977,6 +977,65 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	e.waitFor("server running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
 }
 
+// Re-compressing a backup keeps every file and per-file hash, so only the
+// whole-archive SHA-256 recorded at backup time can notice. Both checking
+// the backup again and restoring from it must refuse.
+func TestRecompressedBackupFailsItsRecordedChecksum(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("backup op: %+v", op)
+	}
+	list, _ := e.a.listBackups(`WHERE kind = 'manual'`)
+	b := list[0]
+	recompress(t, filepath.Join(e.cfg.BackupsDir(), b.FileName))
+	e.waitFor("idle", func() bool { return !e.a.busy() })
+
+	code, out = e.call("POST", "/v1/backups/"+b.ID+"/verify", map[string]any{"actor": "admin"})
+	if code != 200 || out["verified"] != false || !strings.Contains(fmt.Sprint(out["verifyError"]), "does not match the recorded") {
+		t.Fatalf("checking a re-compressed backup again: %d %v", code, out)
+	}
+	code, out = e.call("POST", "/v1/backups/"+b.ID+"/restore", map[string]any{"actor": "admin"})
+	if code != http.StatusUnprocessableEntity || !strings.Contains(fmt.Sprint(out["error"]), "no longer matches its recorded checksum") {
+		t.Fatalf("restoring from a re-compressed backup: %d %v", code, out)
+	}
+	if entries, _ := os.ReadDir(e.cfg.StagingDir()); len(entries) != 0 {
+		t.Fatalf("the refused restore left staging data: %v", entries)
+	}
+}
+
+// recompress rewrites a gzip file with the same content but different bytes.
+func recompress(t *testing.T, path string) {
+	t.Helper()
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(orig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	zw.Header.Comment = "re-compressed"
+	zw.Write(raw)
+	zw.Close()
+	if bytes.Equal(buf.Bytes(), orig) {
+		t.Fatal("re-compressing did not change the file")
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func worldHash(t *testing.T, dir string) string {
 	t.Helper()
 	h := sha256.New()

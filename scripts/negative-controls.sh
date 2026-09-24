@@ -87,10 +87,26 @@ control "archive gzip trailer check" internal/backup/archive.go \
   'if _, err := io.Copy(io.Discard, gz); err != nil {' \
   'if _, err := io.Copy(io.Discard, gz); false && err != nil {' \
   ./internal/backup '^TestTruncatedArchiveIsRefused$'
+control "archive path check refuses .. parts" internal/backup/archive.go \
+  'if part == "" || part == "." || part == ".." {' \
+  'if part == "" || part == "." {' \
+  ./internal/backup '^(TestMaliciousArchivesAreRefused|TestValidRelRefusesUnsafePaths)$'
+control "extraction stays inside its destination" internal/backup/archive.go \
+  'if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {' \
+  'if false && !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {' \
+  ./internal/backup '^TestExtractFileStaysInsideDestination$'
 control "backup creation applies the restore rules" internal/backup/archive.go \
   'if err := tally.add(rel, size); err != nil {' \
   'if err := tally.add(rel, size); false && err != nil {' \
   ./internal/backup '^(TestCreateRefusesNamesARestoreRefuses|TestCreateAndVerifyAgreeOnLimits)$'
+control "backup check compares the whole-archive SHA-256" internal/agent/backups.go \
+  'if got := hex.EncodeToString(h.Sum(nil)); got != b.SHA256 {' \
+  'if got := hex.EncodeToString(h.Sum(nil)); false && got != b.SHA256 {' \
+  ./internal/agent '^TestRecompressedBackupFailsItsRecordedChecksum$'
+control "restore from a backup compares the whole-archive SHA-256" internal/agent/handlers.go \
+  'if p.SHA256 != b.SHA256 {' \
+  'if false && p.SHA256 != b.SHA256 {' \
+  ./internal/agent '^TestRecompressedBackupFailsItsRecordedChecksum$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \

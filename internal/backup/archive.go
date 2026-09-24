@@ -310,30 +310,36 @@ func Extract(r io.Reader, destDir string, lim Limits) (Manifest, error) {
 		return Manifest{}, err
 	}
 	return walk(r, lim, func(rel string, size int64, src io.Reader) (string, error) {
-		target := filepath.Join(destDir, filepath.FromSlash(rel))
-		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
-			return "", fmt.Errorf("entry %q escapes the destination", rel)
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-			return "", err
-		}
-		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
-		if err != nil {
-			return "", err
-		}
-		h := sha256.New()
-		n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(src, size))
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-		if err != nil {
-			return "", err
-		}
-		if n != size {
-			return "", fmt.Errorf("entry %q is truncated", rel)
-		}
-		return hex.EncodeToString(h.Sum(nil)), nil
+		return extractFile(destDir, rel, size, src)
 	})
+}
+
+// extractFile writes one entry below destDir. walk refuses unsafe names
+// first; this is the second, independent check that nothing lands outside.
+func extractFile(destDir, rel string, size int64, src io.Reader) (string, error) {
+	target := filepath.Join(destDir, filepath.FromSlash(rel))
+	if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("entry %q escapes the destination", rel)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(src, size))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	if n != size {
+		return "", fmt.Errorf("entry %q is truncated", rel)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 type sink func(rel string, size int64, r io.Reader) (sha string, err error)
