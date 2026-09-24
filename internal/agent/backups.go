@@ -36,7 +36,9 @@ func validBackupID(id string) error {
 	return nil
 }
 
-func (a *Agent) backupPath(fileName string) string { return filepath.Join(a.cfg.BackupsDir(), fileName) }
+func (a *Agent) backupPath(fileName string) string {
+	return filepath.Join(a.cfg.BackupsDir(), fileName)
+}
 
 // allowlistedSize estimates the archive input size for the disk-space check.
 func allowlistedSize(dataDir string) int64 {

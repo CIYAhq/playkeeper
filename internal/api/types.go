@@ -75,16 +75,16 @@ type ServerConfig struct {
 	// MemoryMB is the memory budget: the container's hard memory limit.
 	MemoryMB int `json:"memoryMB"`
 	// HeapMB is the Java heap (-Xms/-Xmx) derived from MemoryMB.
-	HeapMB           int       `json:"heapMB"`
-	LevelName        string    `json:"levelName"`
-	JarVerifiedAt    *time.Time `json:"jarVerifiedAt,omitempty"`
-	MOTD             string    `json:"motd"`
-	MaxPlayers       int       `json:"maxPlayers"`
-	Whitelist        bool      `json:"whitelist"`
-	EULAAcceptedAt   time.Time `json:"eulaAcceptedAt"`
-	EULAAcceptedBy   string    `json:"eulaAcceptedBy"`
-	CreatedAt        time.Time `json:"createdAt"`
-	Image            string    `json:"image"`
+	HeapMB         int        `json:"heapMB"`
+	LevelName      string     `json:"levelName"`
+	JarVerifiedAt  *time.Time `json:"jarVerifiedAt,omitempty"`
+	MOTD           string     `json:"motd"`
+	MaxPlayers     int        `json:"maxPlayers"`
+	Whitelist      bool       `json:"whitelist"`
+	EULAAcceptedAt time.Time  `json:"eulaAcceptedAt"`
+	EULAAcceptedBy string     `json:"eulaAcceptedBy"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	Image          string     `json:"image"`
 }
 
 type CreateServerRequest struct {

@@ -205,17 +205,27 @@ func TestPreflightRefusesEachCollisionWithAFix(t *testing.T) {
 		setup func(h *fakeHost)
 		id    string
 	}{
-		"game port in use":      {func(h *fakeHost) { h.listening[25565] = true }, "port-25565"},
-		"panel port in use":     {func(h *fakeHost) { h.listening[8443] = true }, "port-8443"},
-		"minecraft.service":     {func(h *fakeHost) { os.WriteFile(filepath.Join(h.root, "/etc/systemd/system/minecraft.service"), []byte("[Service]\n"), 0o644) }, "existing"},
-		"crafty install":        {func(h *fakeHost) { os.MkdirAll(filepath.Join(h.root, "/var/opt/minecraft/crafty"), 0o755) }, "existing"},
-		"running java server":   {func(h *fakeHost) { h.procs = []string{"java -Xmx2G -jar paper-1.21.11.jar nogui"} }, "existing"},
-		"other mc container":    {func(h *fakeHost) { h.dockerPresent = true; h.containers = []docker.ContainerSummary{{Names: []string{"/mc"}, Image: "itzg/minecraft-server"}} }, "existing"},
-		"low disk":              {func(h *fakeHost) { h.freeBytes = 1 << 30 }, "disk"},
-		"low memory":            {func(h *fakeHost) { h.memMB = 1900 }, "memory"},
-		"unsupported distro":    {func(h *fakeHost) { os.WriteFile(filepath.Join(h.root, "/etc/os-release"), []byte("ID=debian\nVERSION_ID=\"12\"\n"), 0o644) }, "os"},
-		"no systemd":            {func(h *fakeHost) { os.RemoveAll(filepath.Join(h.root, "/run/systemd/system")) }, "systemd"},
-		"already installed":     {func(h *fakeHost) { os.MkdirAll(filepath.Join(h.root, ConfigDir), 0o755); os.WriteFile(filepath.Join(h.root, ConfigDir, "config.json"), []byte("{}"), 0o644) }, "installed"},
+		"game port in use":  {func(h *fakeHost) { h.listening[25565] = true }, "port-25565"},
+		"panel port in use": {func(h *fakeHost) { h.listening[8443] = true }, "port-8443"},
+		"minecraft.service": {func(h *fakeHost) {
+			os.WriteFile(filepath.Join(h.root, "/etc/systemd/system/minecraft.service"), []byte("[Service]\n"), 0o644)
+		}, "existing"},
+		"crafty install":      {func(h *fakeHost) { os.MkdirAll(filepath.Join(h.root, "/var/opt/minecraft/crafty"), 0o755) }, "existing"},
+		"running java server": {func(h *fakeHost) { h.procs = []string{"java -Xmx2G -jar paper-1.21.11.jar nogui"} }, "existing"},
+		"other mc container": {func(h *fakeHost) {
+			h.dockerPresent = true
+			h.containers = []docker.ContainerSummary{{Names: []string{"/mc"}, Image: "itzg/minecraft-server"}}
+		}, "existing"},
+		"low disk":   {func(h *fakeHost) { h.freeBytes = 1 << 30 }, "disk"},
+		"low memory": {func(h *fakeHost) { h.memMB = 1900 }, "memory"},
+		"unsupported distro": {func(h *fakeHost) {
+			os.WriteFile(filepath.Join(h.root, "/etc/os-release"), []byte("ID=debian\nVERSION_ID=\"12\"\n"), 0o644)
+		}, "os"},
+		"no systemd": {func(h *fakeHost) { os.RemoveAll(filepath.Join(h.root, "/run/systemd/system")) }, "systemd"},
+		"already installed": {func(h *fakeHost) {
+			os.MkdirAll(filepath.Join(h.root, ConfigDir), 0o755)
+			os.WriteFile(filepath.Join(h.root, ConfigDir, "config.json"), []byte("{}"), 0o644)
+		}, "installed"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

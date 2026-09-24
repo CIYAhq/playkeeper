@@ -115,7 +115,9 @@ func (rt Route) NeedsSession() bool { return rt.Level == needSession || rt.Level
 
 func (s *Server) Routes() []Route {
 	g := func(p, agentPath string) Route { return Route{"GET", p, needSession, s.proxyGet(agentPath)} }
-	m := func(method, p, agentPath string) Route { return Route{method, p, needSessionCSRF, s.proxyJSON(method, agentPath)} }
+	m := func(method, p, agentPath string) Route {
+		return Route{method, p, needSessionCSRF, s.proxyJSON(method, agentPath)}
+	}
 	return []Route{
 		{"GET", "/api/health", public, s.hHealth},
 		{"GET", "/api/setup/status", public, s.hSetupStatus},

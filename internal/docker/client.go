@@ -382,11 +382,11 @@ func (s ContainerState) Finished() (time.Time, bool) {
 }
 
 type ContainerJSON struct {
-	ID      string         `json:"Id"`
-	Name    string         `json:"Name"`
-	Image   string         `json:"Image"`
-	State   ContainerState `json:"State"`
-	Config  struct {
+	ID     string         `json:"Id"`
+	Name   string         `json:"Name"`
+	Image  string         `json:"Image"`
+	State  ContainerState `json:"State"`
+	Config struct {
 		Image  string            `json:"Image"`
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
