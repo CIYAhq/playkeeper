@@ -496,12 +496,6 @@ echo "one-line install wall time (download, checksum, install): $(($(date +%s) -
 code_c=$(grep -o 'setup code: [a-z0-9-]*' "$OUT/host-c-install.txt" | awk '{print $3}')
 fetch_cert "$C" "$OUT/cert-$C.pem"
 enable_offline_harness "$C"
-lab_ssh "$C" 'sudo sha256sum /var/lib/playkeeper/agent/rcon.secret /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-c-secret-hashes"
-if grep -qxFf "$OUT/host-a-secret-hashes" "$OUT/host-c-secret-hashes"; then
-  echo "SECRETS REPEATED: host C shares an RCON password or TLS key with host A" | tee "$OUT/host-c-secrets.txt"
-  exit 1
-fi
-echo "host C's RCON password and TLS key differ from host A's (compared by SHA-256; values not recorded)" | tee "$OUT/host-c-secrets.txt"
 
 phase "HOST C: restore host A's archive in the browser"
 archive="$OUT/host-a/world-backup.tar.gz"
@@ -523,6 +517,12 @@ diff "$OUT/host-c-world-before-tamper.sums" "$OUT/host-c-world-after-tamper.sums
 pk "$C" action start --wait >/dev/null
 wait_online "$C"
 pk "$C" call GET /api/audit >"$OUT/host-c-audit.json"
+lab_ssh "$C" 'sudo sha256sum /var/lib/playkeeper/agent/rcon.secret /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-c-secret-hashes"
+if grep -qxFf "$OUT/host-a-secret-hashes" "$OUT/host-c-secret-hashes"; then
+  echo "SECRETS REPEATED: host C shares an RCON password or TLS key with host A" | tee "$OUT/host-c-secrets.txt"
+  exit 1
+fi
+echo "host C's RCON password and TLS key differ from host A's (compared by SHA-256; values not recorded)" | tee "$OUT/host-c-secrets.txt"
 shoot "$C" host-c-after-restore / /world
 lab_shutdown c
 }
