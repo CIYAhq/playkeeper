@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-sh typecheck test test-go test-web web build package dev e2e-vm clean
+.PHONY: help setup check lint lint-go lint-web lint-sh typecheck test test-go test-web test-sh web build package dev e2e-vm clean
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -34,7 +34,7 @@ lint-sh: ## shellcheck the shell scripts (needs shellcheck installed)
 typecheck: ## TypeScript type check
 	cd web && npx tsc --noEmit
 
-test: test-go test-web ## Go and web unit tests
+test: test-go test-web test-sh ## Go, web and installer-script unit tests
 
 test-go:
 	go test -count=1 $(GO_PKGS)
@@ -42,13 +42,16 @@ test-go:
 test-web:
 	cd web && npx vitest run
 
+test-sh:
+	bash packaging/get_test.sh
+
 web: ## Build the browser UI into web/dist
 	cd web && npm run build
 
 build: web ## Build ./dist/playkeeper for this machine
 	go build -trimpath -o dist/playkeeper ./cmd/playkeeper
 
-package: ## Build the release tarball dist/playkeeper-<version>-linux-amd64.tar.gz
+package: ## Build dist/playkeeper-<version>-linux-amd64.tar.gz and the one-line installer assets
 	./scripts/package.sh
 
 dev: web ## Run agent + panel locally (state in .dev/, uses your Docker)
