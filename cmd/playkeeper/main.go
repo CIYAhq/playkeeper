@@ -236,9 +236,18 @@ func runInstall(args []string) error {
 		fmt.Printf("  1. Open %s and sign in with your existing admin account.\n", res.URL)
 	}
 	fmt.Printf("  2. Your browser will warn that the certificate is self-signed. Continue only if it shows\n     this SHA-256 fingerprint:\n       %s\n", res.Fingerprint)
-	fmt.Printf("  3. Create your admin account, accept the Minecraft EULA and start your server.\n\n")
+	if res.SetupCode != "" {
+		fmt.Printf("  3. Create your admin account, accept the Minecraft EULA and start your server.\n\n")
+	} else {
+		fmt.Printf("  3. Your worlds and backups were kept; the server starts again if it was running before.\n\n")
+	}
 	fmt.Printf("If %s is not your public address, use your VPS's public IP instead.\n", strings.TrimPrefix(res.URL, "https://"))
-	fmt.Printf("Lost the setup code? sudo playkeeper setup-code\nUninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)\n")
+	if res.SetupCode != "" {
+		fmt.Printf("Lost the setup code? sudo playkeeper setup-code\n")
+	} else {
+		fmt.Printf("Forgot the password? sudo playkeeper reset-password <username>\n")
+	}
+	fmt.Printf("Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)\n")
 	fmt.Printf("Install finished in %s.\n", res.Duration.Round(time.Second))
 	return nil
 }
