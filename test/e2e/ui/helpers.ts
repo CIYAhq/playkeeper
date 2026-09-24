@@ -28,7 +28,8 @@ export async function login(page: Page) {
     await page.context().addCookies(JSON.parse(fs.readFileSync(sessionFile, 'utf8')))
     await page.goto('/')
     const ok = await page
-      .getByRole('navigation', { name: 'Main' })
+      .locator('.sidebar, .wizard')
+      .first()
       .waitFor({ state: 'visible', timeout: 10_000 })
       .then(() => true)
       .catch(() => false)
@@ -39,7 +40,8 @@ export async function login(page: Page) {
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+  // Signed in: the dashboard, or the setup wizard when no server exists yet.
+  await expect(page.locator('.sidebar, .wizard').first()).toBeVisible()
   fs.mkdirSync(outDir, { recursive: true })
   fs.writeFileSync(sessionFile, JSON.stringify(await page.context().cookies()))
 }
