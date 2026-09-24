@@ -74,7 +74,7 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   fs.mkdirSync(outDir, { recursive: true })
   fs.writeFileSync(path.join(outDir, 'join-address.txt'), copied)
 
-  for (const name of ['PkBuilder', 'PkFriend']) {
+  for (const name of ['PkBotBuilder', 'PkBotFriend']) {
     await tabTo(page, page.getByLabel('Minecraft username'))
     await page.keyboard.type(name)
     await page.keyboard.press('Enter')

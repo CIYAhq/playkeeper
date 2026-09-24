@@ -3,9 +3,9 @@
 // only: it proves real protocol logins, block placement and world state, but it
 // is not an official Minecraft client with a genuine account.
 //
-//   node bot.js place  --host H --port P --name PkBuilder --nonce N --out marker.json --panel URL --cacert C --state S
-//   node bot.js verify --host H --port P --name PkBuilder --marker marker.json
-//   node bot.js visit  --host H --port P --name PkFriend --stay 20 [--say "text"]
+//   node bot.js place  --host H --port P --name PkBotBuilder --nonce N --out marker.json --panel URL --cacert C --state S
+//   node bot.js verify --host H --port P --name PkBotBuilder --marker marker.json
+//   node bot.js visit  --host H --port P --name PkBotFriend --stay 20 [--say "text"]
 'use strict'
 const fs = require('fs')
 const https = require('https')
@@ -106,13 +106,20 @@ async function verify () {
   if (!result.ok) process.exit(1)
 }
 
+// Stays for --stay seconds, or until the server ends the connection (a backup
+// or crash with the player online), which is logged rather than treated as an error.
 async function visit () {
   const bot = await connect(a.name)
   log('joined', a.name)
+  let ended = false
+  bot.on('kicked', r => log('server disconnected', a.name + ':', JSON.stringify(r)))
+  const gone = new Promise(resolve => bot.once('end', r => { ended = true; log('connection ended', a.name + ':', String(r)); resolve() }))
   if (a.say) { await bot.waitForTicks(20); bot.chat(a.say); log('said', JSON.stringify(a.say)) }
-  await new Promise(resolve => setTimeout(resolve, Number(a.stay || 10) * 1000))
-  bot.quit('done')
-  log('left', a.name)
+  await Promise.race([new Promise(resolve => setTimeout(resolve, Number(a.stay || 10) * 1000)), gone])
+  if (!ended) {
+    bot.quit('done')
+    log('left', a.name)
+  }
   await new Promise(resolve => setTimeout(resolve, 1500))
 }
 
