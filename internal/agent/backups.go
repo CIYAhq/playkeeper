@@ -61,7 +61,7 @@ func allowlistedSize(dataDir string) int64 {
 }
 
 // createArchive writes a verified archive of the (stopped) server's data.
-func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string, downtimeStart time.Time) (*api.Backup, error) {
+func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*api.Backup, error) {
 	now := a.now().UTC()
 	id := now.Format("20060102-150405") + "-" + randomSecret(3)
 	level := backup.LevelName(a.cfg.ServerDataDir())
@@ -102,8 +102,10 @@ func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string, dow
 	mj, _ := json.Marshal(m)
 	b := &api.Backup{ID: id, Kind: kind, CreatedAt: now, FileName: fileName, SizeBytes: st.Size(), SHA256: sum, Location: "on-host",
 		MinecraftVersion: m.MinecraftVersion, LevelName: m.LevelName, FileCount: len(m.Files), CreatedBy: actor, Note: note}
-	_, err = a.db.Exec(`INSERT INTO backups(id, kind, created_at, file_name, size_bytes, sha256, manifest, created_by, note, downtime_ms) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		id, kind, now.UnixMilli(), fileName, st.Size(), sum, string(mj), actor, note, a.now().Sub(downtimeStart).Milliseconds())
+	// Downtime belongs to manual backups (set once the server is back); a
+	// rollback archive is part of a restore, which records its own downtime.
+	_, err = a.db.Exec(`INSERT INTO backups(id, kind, created_at, file_name, size_bytes, sha256, manifest, created_by, note, downtime_ms) VALUES(?,?,?,?,?,?,?,?,?,0)`,
+		id, kind, now.UnixMilli(), fileName, st.Size(), sum, string(mj), actor, note)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +246,7 @@ func (a *Agent) backupOp(ctx context.Context, h *opHandle, actor, note string) e
 		}
 	}
 	h.phase("archiving")
-	b, archiveErr := a.createArchive(*sc, "manual", actor, note, start)
+	b, archiveErr := a.createArchive(*sc, "manual", actor, note)
 	if running {
 		h.phase("restarting")
 		if err := a.startServer(ctx, h, *sc); err != nil {
@@ -483,7 +485,7 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 		}
 		if st.preview.CurrentWorld.Exists {
 			h.phase("saving_rollback")
-			rb, err := a.createArchive(*prev, "rollback", actor, "Automatic rollback archive before restoring backup "+st.preview.SHA256[:12], start)
+			rb, err := a.createArchive(*prev, "rollback", actor, "Automatic rollback archive before restoring backup "+st.preview.SHA256[:12])
 			if err != nil {
 				return fmt.Errorf("could not save a rollback archive, so nothing was replaced: %w", err)
 			}

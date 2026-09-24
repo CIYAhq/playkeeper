@@ -119,7 +119,9 @@ func (a *Agent) Status(ctx context.Context) api.ServerStatus {
 		t := reachableAt
 		st.ReachableAt = &t
 	}
-	if list, err := a.listBackups(`WHERE verified = 1`); err == nil && len(list) > 0 {
+	if list, err := a.listBackups(`WHERE verified = 1 AND kind = 'manual'`); err == nil && len(list) > 0 {
+		st.LastBackup = &list[0]
+	} else if list, err := a.listBackups(`WHERE verified = 1`); err == nil && len(list) > 0 {
 		st.LastBackup = &list[0]
 	}
 	return st
