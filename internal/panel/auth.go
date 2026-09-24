@@ -165,15 +165,23 @@ func (s *Server) userCount() (int, error) {
 	return n, err
 }
 
-func (s *Server) createUser(username, password string) (user, error) {
+var errSetupDone = errors.New("an admin account already exists")
+
+// createFirstAdmin inserts the account only if there is none, in a single
+// statement, so setups racing with the same code cannot create two admins.
+func (s *Server) createFirstAdmin(username, password string) (user, error) {
 	h, err := hashPassword(password)
 	if err != nil {
 		return user{}, err
 	}
 	now := s.now().UnixMilli()
-	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at) VALUES(?,?,?,?)`, username, h, now, now)
+	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at)
+		SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, h, now, now)
 	if err != nil {
 		return user{}, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return user{}, errSetupDone
 	}
 	id, _ := res.LastInsertId()
 	return user{ID: id, Username: username}, nil

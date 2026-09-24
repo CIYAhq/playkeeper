@@ -235,6 +235,44 @@ func TestSetupCodeIsSingleUseAndExpires(t *testing.T) {
 	}
 }
 
+// The first-admin check and the insert used to be separate steps, with a slow
+// password hash between them, so concurrent setups with one code all got in.
+func TestConcurrentSetupsCreateOneAdmin(t *testing.T) {
+	e := newEnv(t)
+	code, err := NewSetupToken(e.cfg.SetupTokenPath(), time.Hour, e.clock.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	xrw := map[string]string{"X-Requested-With": "playkeeper"}
+	const n = 4
+	statuses := make([]int, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			statuses[i] = e.do(t, "POST", "/api/setup", `{"token":"`+code+`","username":"admin`+string(rune('a'+i))+`","password":"correct horse battery"}`, xrw).status
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	ok := 0
+	for i, st := range statuses {
+		switch st {
+		case http.StatusOK:
+			ok++
+		case http.StatusConflict, http.StatusForbidden:
+		default:
+			t.Fatalf("setup %d: unexpected %d", i, st)
+		}
+	}
+	if users, _ := e.srv.userCount(); ok != 1 || users != 1 {
+		t.Fatalf("concurrent setups with one code: %d succeeded, %d admin accounts (statuses %v)", ok, users, statuses)
+	}
+}
+
 func TestNoSignupRoute(t *testing.T) {
 	e := newEnv(t)
 	for _, rt := range e.srv.Routes() {

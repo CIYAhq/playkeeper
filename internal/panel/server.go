@@ -376,7 +376,7 @@ func (s *Server) hSetup(w http.ResponseWriter, r *http.Request, _ *session) {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, err.Error(), "")
 		return
 	}
-	u, err := s.createUser(c.Username, c.Password)
+	u, err := s.createFirstAdmin(c.Username, c.Password)
 	if err != nil {
 		writeErr(w, http.StatusConflict, api.CodeConflict, "Setup is already complete. Sign in instead.", "")
 		return
