@@ -31,3 +31,9 @@ logs/
 *.tar
 *.tar.gz
 *.zip
+
+# Playkeeper local state and toolchains
+.dev/
+.tools/
+.pkclient-state.json
+test/e2e/out/
