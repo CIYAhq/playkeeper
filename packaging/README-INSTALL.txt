@@ -6,7 +6,7 @@ project README for exactly how and where it was tested).
 
 1. Check (optional; changes nothing):
 
-     ./playkeeper preflight
+     sudo ./playkeeper preflight
 
 2. Install (shows every change and asks before doing anything):
 

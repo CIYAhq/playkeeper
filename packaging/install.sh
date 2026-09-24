@@ -11,4 +11,12 @@ if [ "$(uname -s)" != "Linux" ]; then
   echo "Playkeeper installs on Linux servers only." >&2
   exit 1
 fi
+case $(uname -m) in
+  x86_64 | amd64) ;;
+  *)
+    echo "This server's CPU is $(uname -m); this Playkeeper build is for x86_64 (amd64) only." >&2
+    echo "  Fix: use an x86_64 VPS." >&2
+    exit 1
+    ;;
+esac
 exec "$here/playkeeper" install "$@"
