@@ -317,10 +317,20 @@ func Plan(f Facts, o Options) []string {
 		fmt.Sprintf("           playkeeper-panel (HTTPS on port %d)", o.PanelPort),
 		fmt.Sprintf("Ports:     %d/tcp web panel now; %d/tcp Minecraft once you create a server", o.PanelPort, o.GamePort),
 	)
+	if !f.DockerPresent {
+		p = append(p,
+			"Network:   when Docker starts it turns on IP forwarding, sets the iptables FORWARD policy to DROP,",
+			"           adds its DOCKER chains and NAT (masquerade) rules, and creates the docker0 bridge;",
+			"           uninstall puts these back as they were when it removes Docker",
+			fmt.Sprintf("           the server gets its own Docker network, 'playkeeper' (a bridge), and Docker forwards %d/tcp to it", o.GamePort),
+		)
+	} else {
+		p = append(p, fmt.Sprintf("Network:   the server gets its own Docker network, 'playkeeper' (a bridge), and Docker forwards %d/tcp to it", o.GamePort))
+	}
 	if f.UFWActive {
 		p = append(p, fmt.Sprintf("Firewall:  ufw allow %d/tcp and %d/tcp", o.PanelPort, o.GamePort))
 	}
-	p = append(p, "Untouched: your other services, existing Docker containers, SSH and firewall rules")
+	p = append(p, "Untouched: your other services, existing Docker containers, SSH, and your own firewall rules")
 	return p
 }
 
@@ -340,6 +350,9 @@ type Manifest struct {
 	FirewallRules     []string  `json:"firewallRules"`
 	ReusedData        bool      `json:"reusedData"`
 	KeptOnUninstall   []string  `json:"keptOnUninstall"`
+	// NetBeforeDocker is the host network as it was before Playkeeper
+	// installed Docker, so removing Docker can put it back.
+	NetBeforeDocker *NetSettings `json:"netBeforeDocker,omitempty"`
 }
 
 type step struct {
@@ -431,7 +444,9 @@ func (in *installer) rollback() []string {
 		s := in.done[i]
 		fmt.Fprintf(in.out, "  ↺ undo: %s\n", s.name)
 		if err := s.undo(); err != nil {
-			problems = append(problems, s.name+": "+err.Error())
+			for _, line := range strings.Split(err.Error(), "\n") {
+				problems = append(problems, s.name+": "+line)
+			}
 		}
 	}
 	return problems
@@ -466,10 +481,12 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			if before, err = installedPackages(sys); err != nil {
 				return err
 			}
-			if _, err := sys.Run("apt-get", "update"); err != nil {
+			net := readNetSettings(sys)
+			in.m.NetBeforeDocker = &net
+			if _, err := aptGet(sys, in.out, "update"); err != nil {
 				return err
 			}
-			_, err = sys.Run("apt-get", "install", "-y", "--no-install-recommends", "docker.io")
+			_, err = aptGet(sys, in.out, "install", "-y", "--no-install-recommends", "docker.io")
 			after, perr := installedPackages(sys)
 			if perr == nil {
 				for p := range after {
@@ -490,7 +507,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			if len(in.m.PackagesInstalled) == 0 {
 				return nil
 			}
-			err := purgeDocker(sys, in.m.PackagesInstalled)
+			left, err := purgeDocker(sys, in.out, in.m.PackagesInstalled, in.m.NetBeforeDocker)
 			if err == nil && !dockerGroupExisted && groupExists(sys, "docker") {
 				_, err = sys.Run("groupdel", "docker")
 			}
@@ -499,7 +516,11 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 					err = rerr
 				}
 			}
-			return err
+			errs := []error{err}
+			for _, l := range left {
+				errs = append(errs, errors.New(l))
+			}
+			return errors.Join(errs...)
 		}}); err != nil {
 			return nil, err
 		}
@@ -715,18 +736,66 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	return res, nil
 }
 
-// purgeDocker stops Docker's units before removing the packages Playkeeper
-// installed. Purging while docker.socket is active leaves a dead socket unit
-// behind, and a later reinstall's docker.service then fails to start.
-func purgeDocker(sys System, pkgs []string) error {
+// purgeDocker stops Docker's units, puts back the network settings Docker
+// changed (while its iptables is still installed), then removes the packages
+// Playkeeper installed. Purging while docker.socket is active leaves a dead
+// socket unit behind, and a later reinstall's docker.service then fails to
+// start. It returns what it could not put back, with how to do it by hand.
+func purgeDocker(sys System, out io.Writer, pkgs []string, before *NetSettings) ([]string, error) {
 	_, _ = sys.Run("systemctl", "stop", "docker.service", "docker.socket", "containerd.service")
-	_, err := sys.Run("apt-get", append([]string{"purge", "-y"}, pkgs...)...)
+	var nb NetSettings
+	if before != nil {
+		nb = *before
+	}
+	left := revertDockerNetwork(sys, nb)
+	_, err := aptGet(sys, out, append([]string{"purge", "-y"}, pkgs...)...)
 	_, _ = sys.Run("systemctl", "daemon-reload")
 	_, _ = sys.Run("systemctl", "reset-failed")
 	for _, p := range []string{"/run/docker.sock", "/run/docker", "/run/containerd"} {
 		_ = os.RemoveAll(sys.P(p))
 	}
-	return err
+	return left, err
+}
+
+// lockWait bounds how long install and uninstall wait for another package
+// manager to finish; on a new server unattended-upgrades often runs first.
+const lockWait = 15 * time.Minute
+
+// aptGet runs apt-get once no other package manager holds apt's lock, and
+// waits again if another one takes it first.
+func aptGet(sys System, out io.Writer, args ...string) (string, error) {
+	deadline := sys.Now().Add(lockWait)
+	args = append([]string{"-o", "DPkg::Lock::Timeout=60"}, args...)
+	for {
+		if err := waitForPackageLock(sys, out, deadline); err != nil {
+			return "", err
+		}
+		o, err := sys.Run("apt-get", args...)
+		if err == nil || !aptLockError(o, err) || !sys.Now().Before(deadline) {
+			return o, err
+		}
+		sys.Sleep(5 * time.Second)
+	}
+}
+
+func waitForPackageLock(sys System, out io.Writer, deadline time.Time) error {
+	told := false
+	for sys.PackageLockHeld() {
+		if !sys.Now().Before(deadline) {
+			return fmt.Errorf("another package manager has held apt's lock for over %s (on a new server this is usually unattended-upgrades); run this again when `ps -C apt,apt-get,dpkg,unattended-upgr` shows nothing", lockWait)
+		}
+		if !told {
+			fmt.Fprintln(out, "    waiting for another package manager to finish (on a new server this is usually unattended-upgrades)...")
+			told = true
+		}
+		sys.Sleep(5 * time.Second)
+	}
+	return nil
+}
+
+func aptLockError(out string, err error) bool {
+	s := out + " " + err.Error()
+	return strings.Contains(s, "Could not get lock") || strings.Contains(s, "Unable to acquire the dpkg frontend lock") || strings.Contains(s, "Unable to lock directory")
 }
 
 func groupExists(sys System, name string) bool {

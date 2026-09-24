@@ -65,8 +65,10 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	if len(m.FirewallRules) > 0 {
 		fmt.Fprintln(out, "  • ufw rules: "+strings.Join(m.FirewallRules, ", "))
 	}
-	if len(m.PackagesInstalled) > 0 && !o.KeepDocker {
+	removeDocker := len(m.PackagesInstalled) > 0 && !o.KeepDocker
+	if removeDocker {
 		fmt.Fprintln(out, "  • packages Playkeeper installed: "+strings.Join(m.PackagesInstalled, " ")+" (only if no other containers use Docker)")
+		fmt.Fprintln(out, "    and with them Docker's firewall rules and bridges; IP forwarding and the FORWARD policy go back to how they were")
 	}
 	if o.Purge {
 		fmt.Fprintln(out, "  • EVERYTHING in /var/lib/playkeeper, including your worlds and backups (--purge)")
@@ -87,6 +89,11 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			return errors.New("purge not confirmed; nothing was changed")
 		}
 	}
+	if removeDocker {
+		if err := waitForPackageLock(sys, out, sys.Now().Add(lockWait)); err != nil {
+			return fmt.Errorf("%w. Nothing was changed", err)
+		}
+	}
 	var problems []string
 	note := func(err error) {
 		if err != nil {
@@ -105,7 +112,9 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 		note(err)
 	}
 	for _, f := range m.FilesCreated {
-		note(removeIfExists(sys.P(f)))
+		if f != BinPath {
+			note(removeIfExists(sys.P(f)))
+		}
 	}
 	if len(m.Units) > 0 {
 		_, err := sys.Run("systemctl", "daemon-reload")
@@ -120,12 +129,32 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			note(err)
 		}
 	}
-	if len(m.PackagesInstalled) > 0 && !o.KeepDocker {
-		if foreign > 0 {
-			fmt.Fprintf(out, "Keeping Docker: %d other container(s) still use it.\n", foreign)
-		} else {
-			note(purgeDocker(sys, m.PackagesInstalled))
+	switch {
+	case len(m.PackagesInstalled) == 0:
+	case o.KeepDocker:
+		fmt.Fprintln(out, "Keeping Docker (--keep-docker), and with it its firewall rules and docker0 bridge.")
+	case foreign > 0:
+		fmt.Fprintf(out, "Keeping Docker: %d other container(s) still use it, so its firewall rules and docker0 bridge stay too.\n", foreign)
+	default:
+		left, err := purgeDocker(sys, out, m.PackagesInstalled, m.NetBeforeDocker)
+		problems = append(problems, left...)
+		if err != nil {
+			// Keep what a second run needs: this binary and a manifest that
+			// now lists only Docker.
+			rest := Manifest{Version: m.Version, InstalledAt: m.InstalledAt, InstallID: m.InstallID, PanelPort: m.PanelPort, GamePort: m.GamePort,
+				PackagesInstalled: m.PackagesInstalled, NetBeforeDocker: m.NetBeforeDocker, KeptOnUninstall: m.KeptOnUninstall}
+			if contains(m.FilesCreated, BinPath) {
+				rest.FilesCreated = []string{BinPath}
+			}
+			b, _ := json.MarshalIndent(rest, "", "  ")
+			note(os.WriteFile(sys.P(filepath.Join(config.DefaultDataDir, "install-manifest.json")), append(b, '\n'), 0o600))
+			problems = append(problems, fmt.Sprintf("Docker was not removed: %v", err),
+				"everything else was removed; run `sudo playkeeper uninstall` again to finish, or remove Docker by hand: sudo apt-get purge -y "+strings.Join(m.PackagesInstalled, " "))
+			return fmt.Errorf("uninstall finished with problems:\n  - %s", strings.Join(problems, "\n  - "))
 		}
+	}
+	if contains(m.FilesCreated, BinPath) {
+		note(removeIfExists(sys.P(BinPath)))
 	}
 	note(removeIfExists(sys.P(ConfigDir)))
 	note(removeIfExists(sys.P(filepath.Join(config.DefaultDataDir, "install-manifest.json"))))

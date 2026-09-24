@@ -35,15 +35,24 @@ type fakeHost struct {
 	freeBytes     int64
 	healthErr     error
 	failCmd       string
+	fw4, fw6      *fakeFirewall
+	clock         time.Time
+	lockPolls     int  // the package lock is reported held this many more times
+	lockForever   bool // the package lock is never released
+	lockFreedAt   int  // len(cmds) when a held lock was released
+	aptLockErrors int  // apt-get fails this many more times with a lock error
 }
 
 func newFakeHost(t *testing.T) *fakeHost {
 	t.Helper()
 	root := t.TempDir()
-	h := &fakeHost{root: root, users: map[string]bool{}, packages: map[string]bool{"bash": true, "coreutils": true}, listening: map[int]bool{22: true}, memMB: 3900, freeBytes: 20 << 30}
-	for _, d := range []string{"/etc/systemd/system", "/lib/systemd/system", "/run/systemd/system", "/usr/local/bin", "/usr/bin", "/var/lib", "/var/run"} {
+	h := &fakeHost{root: root, users: map[string]bool{}, packages: map[string]bool{"bash": true, "coreutils": true}, listening: map[int]bool{22: true}, memMB: 3900, freeBytes: 20 << 30,
+		fw4: parseSave(hostRulesV4), fw6: parseSave(hostRulesV6), clock: time.Now()}
+	for _, d := range []string{"/etc/systemd/system", "/lib/systemd/system", "/run/systemd/system", "/usr/local/bin", "/usr/bin", "/var/lib", "/var/run", "/sys/class/net/lo", "/sys/class/net/eth0", "/proc/sys/net/ipv4", "/proc/sys/net/ipv6/conf/all"} {
 		os.MkdirAll(filepath.Join(root, d), 0o755)
 	}
+	os.WriteFile(filepath.Join(root, "/proc/sys/net/ipv4/ip_forward"), []byte("0\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "/proc/sys/net/ipv6/conf/all/forwarding"), []byte("0\n"), 0o644)
 	os.WriteFile(filepath.Join(root, "/etc/os-release"), []byte("NAME=\"Ubuntu\"\nID=ubuntu\nVERSION_ID=\"24.04\"\n"), 0o644)
 	os.WriteFile(filepath.Join(root, "/usr/bin/apt-get"), []byte("#!/bin/sh\n"), 0o755)
 	os.WriteFile(filepath.Join(root, "/etc/group"), []byte("root:x:0:\n"), 0o644)
@@ -64,6 +73,15 @@ func (h *fakeHost) system(t *testing.T) System {
 			if h.failCmd != "" && strings.HasPrefix(line, h.failCmd) {
 				return "", errors.New("simulated failure: " + line)
 			}
+			apt := args
+			for name == "apt-get" && len(apt) >= 2 && apt[0] == "-o" {
+				apt = apt[2:]
+			}
+			if name == "apt-get" && h.aptLockErrors > 0 {
+				h.aptLockErrors--
+				msg := "E: Could not get lock /var/lib/apt/lists/lock. It is held by process 4242 (apt-get)"
+				return msg, errors.New("exit status 100: " + msg)
+			}
 			switch {
 			case name == "ufw":
 				return "Status: inactive\n", nil
@@ -73,7 +91,25 @@ func (h *fakeHost) system(t *testing.T) System {
 					list = append(list, p)
 				}
 				return strings.Join(list, "\n") + "\n", nil
-			case name == "apt-get" && len(args) > 0 && args[0] == "install":
+			case name == "iptables-save":
+				return h.fw4.save(), nil
+			case name == "ip6tables-save":
+				return h.fw6.save(), nil
+			case name == "iptables":
+				return h.fw4.run(args)
+			case name == "ip6tables":
+				return h.fw6.run(args)
+			case name == "ip" && len(args) == 3 && args[0] == "link" && args[1] == "delete":
+				if err := os.Remove(filepath.Join(h.root, "/sys/class/net", args[2])); err != nil {
+					return "", fmt.Errorf("Cannot find device %q", args[2])
+				}
+			case name == "systemctl" && len(args) > 0 && args[0] == "enable" && strings.Contains(line, "docker.service"):
+				// Docker's daemon changes the host network when it starts.
+				h.fw4.merge(dockerRulesV4)
+				h.fw6.merge(dockerRulesV6)
+				os.WriteFile(filepath.Join(h.root, "/proc/sys/net/ipv4/ip_forward"), []byte("1\n"), 0o644)
+				os.MkdirAll(filepath.Join(h.root, "/sys/class/net/docker0"), 0o755)
+			case name == "apt-get" && len(apt) > 0 && apt[0] == "install":
 				for _, p := range []string{"docker.io", "containerd", "runc", "pigz"} {
 					h.packages[p] = true
 				}
@@ -82,8 +118,8 @@ func (h *fakeHost) system(t *testing.T) System {
 				os.MkdirAll(filepath.Join(h.root, "/var/lib/docker/overlay2"), 0o710)
 				os.WriteFile(filepath.Join(h.root, "/var/lib/docker/engine-id"), []byte("id"), 0o600)
 				os.MkdirAll(filepath.Join(h.root, "/etc/docker"), 0o755)
-			case name == "apt-get" && len(args) > 0 && args[0] == "purge":
-				for _, p := range args[2:] {
+			case name == "apt-get" && len(apt) > 0 && apt[0] == "purge":
+				for _, p := range apt[2:] {
 					delete(h.packages, p)
 				}
 				h.dockerPresent = false
@@ -117,9 +153,31 @@ func (h *fakeHost) system(t *testing.T) System {
 			}
 			return DockerInfo{Version: "27.5.1", Containers: h.containers}, nil
 		},
-		Executable:  func() (string, error) { return bin, nil },
-		Chown:       func(string, int, int) error { return nil },
-		Now:         time.Now,
+		Executable: func() (string, error) { return bin, nil },
+		Chown:      func(string, int, int) error { return nil },
+		Now: func() time.Time {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			return h.clock
+		},
+		Sleep: func(d time.Duration) {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.clock = h.clock.Add(d)
+		},
+		PackageLockHeld: func() bool {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if h.lockForever {
+				return true
+			}
+			if h.lockPolls > 0 {
+				h.lockPolls--
+				h.lockFreedAt = len(h.cmds)
+				return true
+			}
+			return false
+		},
 		WaitHealthy: func(context.Context, string, string, int) error { return h.healthErr },
 	}
 }
@@ -306,10 +364,14 @@ func TestDecliningChangesNothing(t *testing.T) {
 		t.Fatalf("declining changed the host: %v", d)
 	}
 	text := out.String()
-	for _, want := range []string{"docker.io", "playkeeper-mc", BinPath, AgentUnit, "8443/tcp", "sudo playkeeper uninstall"} {
+	for _, want := range []string{"docker.io", "playkeeper-mc", BinPath, AgentUnit, "8443/tcp", "sudo playkeeper uninstall",
+		"IP forwarding", "FORWARD policy to DROP", "DOCKER chains", "NAT (masquerade)", "docker0 bridge", "'playkeeper' (a bridge)"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("plan does not mention %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "SSH and firewall rules") {
+		t.Errorf("the plan must not call the firewall untouched when Docker changes it:\n%s", text)
 	}
 }
 
@@ -318,16 +380,22 @@ func TestInjectedFailureRollsBackCompletely(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			h := newFakeHost(t)
 			before := snapshot(t, h.root)
+			fw4, fw6 := h.fw4.save(), h.fw6.save()
 			pkgs := len(h.packages)
 			t.Setenv(FailStepEnv, step)
 			o := opts("")
 			o.Yes = true
+			out := &bytes.Buffer{}
+			o.Out = out
 			_, err := Run(context.Background(), h.system(t), o, "test")
 			if err == nil || !strings.Contains(err.Error(), "injected failure") {
 				t.Fatalf("expected injected failure, got %v", err)
 			}
 			if d := diff(before, snapshot(t, h.root)); len(d) != 0 {
-				t.Fatalf("rollback left changes: %v", d)
+				t.Fatalf("rollback left changes (forwarding, bridges or files): %v", d)
+			}
+			if h.fw4.save() != fw4 || h.fw6.save() != fw6 {
+				t.Fatalf("rollback left Docker's firewall changes:\n%s\n%s", h.fw4.save(), h.fw6.save())
 			}
 			if len(h.users) != 0 {
 				t.Fatalf("rollback left users: %v", h.users)
@@ -335,19 +403,23 @@ func TestInjectedFailureRollsBackCompletely(t *testing.T) {
 			if len(h.packages) != pkgs || h.dockerPresent {
 				t.Fatalf("rollback left packages: %v", h.packages)
 			}
-			if step != "create directories" && step != "" {
-				stopIdx, purgeIdx := -1, -1
-				for i, c := range h.cmds {
-					if strings.HasPrefix(c, "systemctl stop docker.service docker.socket") && stopIdx < 0 {
-						stopIdx = i
-					}
-					if strings.HasPrefix(c, "apt-get purge") {
-						purgeIdx = i
-					}
+			if !strings.Contains(out.String(), "Rollback complete: the server is back to how it was before the install.") {
+				t.Fatalf("rollback output:\n%s", out.String())
+			}
+			stopIdx, revertIdx, purgeIdx := -1, -1, -1
+			for i, c := range h.cmds {
+				if strings.HasPrefix(c, "systemctl stop docker.service docker.socket") && stopIdx < 0 {
+					stopIdx = i
 				}
-				if stopIdx < 0 || purgeIdx < stopIdx {
-					t.Fatalf("Docker units must be stopped before purging packages: %v", h.cmds)
+				if strings.HasPrefix(c, "iptables -t") && revertIdx < 0 {
+					revertIdx = i
 				}
+				if strings.HasPrefix(c, "apt-get -o DPkg::Lock::Timeout=60 purge") {
+					purgeIdx = i
+				}
+			}
+			if stopIdx < 0 || revertIdx < stopIdx || purgeIdx < revertIdx {
+				t.Fatalf("Docker must be stopped, then its firewall changes undone while iptables is still installed, then purged: %v", h.cmds)
 			}
 		})
 	}

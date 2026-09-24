@@ -38,6 +38,10 @@ type System struct {
 	Executable func() (string, error)
 	Chown      func(path string, uid, gid int) error
 	Now        func() time.Time
+	Sleep      func(time.Duration)
+	// PackageLockHeld reports whether another program (apt, dpkg,
+	// unattended-upgrades) holds apt's or dpkg's lock.
+	PackageLockHeld func() bool
 	// WaitHealthy blocks until the agent socket and panel HTTPS answer.
 	WaitHealthy func(ctx context.Context, socket, certPath string, panelPort int) error
 }
@@ -103,11 +107,34 @@ func Real() System {
 			}
 			return DockerInfo{Version: v.Version, Containers: list}, nil
 		},
-		Executable:  os.Executable,
-		Chown:       os.Lchown,
-		Now:         time.Now,
-		WaitHealthy: waitHealthy,
+		Executable:      os.Executable,
+		Chown:           os.Lchown,
+		Now:             time.Now,
+		Sleep:           time.Sleep,
+		PackageLockHeld: func() bool { return lockHeld(aptLocks) },
+		WaitHealthy:     waitHealthy,
 	}
+}
+
+// aptLocks are the files apt and dpkg hold fcntl locks on while they work.
+var aptLocks = []string{"/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/lock"}
+
+// lockHeld reports whether another process holds an fcntl lock on any of
+// paths. It only asks; it never takes a lock.
+func lockHeld(paths []string) bool {
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		lk := syscall.Flock_t{Type: syscall.F_WRLCK}
+		err = syscall.FcntlFlock(f.Fd(), syscall.F_GETLK, &lk)
+		f.Close()
+		if err == nil && lk.Type != syscall.F_UNLCK {
+			return true
+		}
+	}
+	return false
 }
 
 func lastLines(s string, n int) string {
