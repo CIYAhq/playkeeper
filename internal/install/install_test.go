@@ -79,6 +79,9 @@ func (h *fakeHost) system(t *testing.T) System {
 				}
 				h.dockerPresent = true
 				appendLine(filepath.Join(h.root, "/etc/group"), "docker:x:999:")
+				os.MkdirAll(filepath.Join(h.root, "/var/lib/docker/overlay2"), 0o710)
+				os.WriteFile(filepath.Join(h.root, "/var/lib/docker/engine-id"), []byte("id"), 0o600)
+				os.MkdirAll(filepath.Join(h.root, "/etc/docker"), 0o755)
 			case name == "apt-get" && len(args) > 0 && args[0] == "purge":
 				for _, p := range args[2:] {
 					delete(h.packages, p)

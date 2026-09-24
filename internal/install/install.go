@@ -454,6 +454,13 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	if !in.f.DockerPresent {
 		var before map[string]bool
 		dockerGroupExisted := groupExists(sys, "docker")
+		stateDirs := []string{"/var/lib/docker", "/var/lib/containerd", "/etc/docker", "/etc/containerd"}
+		var newDirs []string
+		for _, d := range stateDirs {
+			if _, err := os.Stat(sys.P(d)); errors.Is(err, os.ErrNotExist) {
+				newDirs = append(newDirs, d)
+			}
+		}
 		if err := in.exec(step{name: "install Docker (docker.io)", do: func() error {
 			var err error
 			if before, err = installedPackages(sys); err != nil {
@@ -487,6 +494,11 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			_, err := sys.Run("apt-get", args...)
 			if err == nil && !dockerGroupExisted && groupExists(sys, "docker") {
 				_, err = sys.Run("groupdel", "docker")
+			}
+			for _, d := range newDirs {
+				if rerr := os.RemoveAll(sys.P(d)); rerr != nil && err == nil {
+					err = rerr
+				}
 			}
 			return err
 		}}); err != nil {
