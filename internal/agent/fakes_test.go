@@ -38,6 +38,7 @@ type fakeDocker struct {
 	replayAll    bool
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
+	holdImages   bool          // image inspects wait until the caller gives up
 }
 
 type fakeLine struct {
@@ -164,8 +165,12 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && strings.HasPrefix(path, "/images/") && strings.HasSuffix(path, "/json"):
 		ref := strings.TrimSuffix(strings.TrimPrefix(path, "/images/"), "/json")
 		fd.mu.Lock()
-		ok := fd.images[ref]
+		ok, hold := fd.images[ref], fd.holdImages
 		fd.mu.Unlock()
+		if hold {
+			<-r.Context().Done()
+			return
+		}
 		if !ok {
 			jsonOut(w, 404, map[string]string{"message": "No such image"})
 			return

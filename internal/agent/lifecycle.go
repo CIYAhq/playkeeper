@@ -660,11 +660,18 @@ func (a *Agent) reconcile(ctx context.Context) {
 	}
 	desired := a.desired()
 	c, err := a.docker.ContainerInspect(ctx, containerName)
+	if err != nil && !docker.IsNotFound(err) {
+		return
+	}
+	a.mu.Lock()
+	resume := a.resume
+	a.resume = false
+	a.mu.Unlock()
 	if err != nil {
 		a.mu.Lock()
 		due := len(a.crashes) < maxCrashes && a.now().After(a.nextAutoRestart)
 		a.mu.Unlock()
-		if docker.IsNotFound(err) && desired == api.DesiredRunning && due {
+		if desired == api.DesiredRunning && due {
 			a.autoStart("recover")
 		}
 		return
@@ -673,22 +680,27 @@ func (a *Agent) reconcile(ctx context.Context) {
 		return
 	}
 	fin, ok := c.State.Finished()
-	if !ok {
-		return
-	}
 	a.mu.Lock()
-	handled := a.handledExit[c.ID].Equal(fin)
+	// A container that was created but never started has no exit to count.
+	handled := !ok || a.handledExit[c.ID].Equal(fin)
 	ended := a.followEnded[c.ID]
 	intentional := a.intentional[c.ID]
 	graceful := a.sawStopping
 	a.mu.Unlock()
 	if handled {
+		// After a crash or a failed automatic start the policy retries once its
+		// backoff is over. Right after the agent starts it also finishes a
+		// start that its previous process was stopped in the middle of.
 		a.mu.Lock()
 		gaveUp := len(a.crashes) >= maxCrashes
-		due := a.crashed && !gaveUp && a.now().After(a.nextAutoRestart)
+		due := (a.crashed || resume) && !gaveUp && a.now().After(a.nextAutoRestart)
+		kind := "recover"
+		if a.crashed {
+			kind = "auto-restart"
+		}
 		a.mu.Unlock()
 		if due && desired == api.DesiredRunning {
-			a.autoStart("auto-restart")
+			a.autoStart(kind)
 		}
 		return
 	}
@@ -783,8 +795,41 @@ func (a *Agent) recordCrash(fin time.Time, st docker.ContainerState) {
 	}
 	detail := a.lastError
 	a.mu.Unlock()
+	a.saveCrashPolicy()
 	a.recordEvent(fin, "server_crashed", "", "docker", detail)
 	a.log.Warn("server crashed", "exit", st.ExitCode, "oom", st.OOMKilled, "crashes", n)
+}
+
+type crashPolicy struct {
+	Crashes         []time.Time `json:"crashes"`
+	Crashed         bool        `json:"crashed"`
+	NextAutoRestart time.Time   `json:"nextAutoRestart"`
+}
+
+// saveCrashPolicy stores the restart policy's state next to the handled exit,
+// so an agent restart keeps a pending restart, its backoff and a policy that
+// gave up. Saves are serialized, so the last one written is the latest state.
+func (a *Agent) saveCrashPolicy() {
+	a.policyMu.Lock()
+	defer a.policyMu.Unlock()
+	a.mu.Lock()
+	p := crashPolicy{Crashes: append([]time.Time(nil), a.crashes...), Crashed: a.crashed, NextAutoRestart: a.nextAutoRestart}
+	a.mu.Unlock()
+	b, _ := json.Marshal(p)
+	if err := a.kvSet(kvCrashPolicy, string(b)); err != nil {
+		a.log.Warn("could not record the restart policy", "err", err)
+	}
+}
+
+// loadCrashPolicy restores it as it was. Like in memory, old crashes are only
+// dropped when a new one is counted, so a policy that gave up waits for Start.
+func (a *Agent) loadCrashPolicy() {
+	v, ok, _ := a.kvGet(kvCrashPolicy)
+	var p crashPolicy
+	if !ok || json.Unmarshal([]byte(v), &p) != nil {
+		return
+	}
+	a.crashes, a.crashed, a.nextAutoRestart = p.Crashes, p.Crashed, p.NextAutoRestart
 }
 
 func (a *Agent) autoStart(kind string) {
@@ -794,7 +839,11 @@ func (a *Agent) autoStart(kind string) {
 			return errNotCreated()
 		}
 		if err := a.startServer(ctx, h, *sc); err != nil {
-			a.autoStartFailed(err)
+			// A start cut short because the agent itself is stopping is not a
+			// failure of the server; the next agent start finishes it.
+			if a.ctx.Err() == nil {
+				a.autoStartFailed(err)
+			}
 			return err
 		}
 		return nil
@@ -808,6 +857,7 @@ func (a *Agent) autoStart(kind string) {
 // problem (a busy port, an unreachable registry) gets the same backoff and is
 // given up after maxCrashes attempts instead of being retried every tick.
 func (a *Agent) autoStartFailed(err error) {
+	defer a.saveCrashPolicy()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()

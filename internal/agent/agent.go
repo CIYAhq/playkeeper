@@ -127,6 +127,7 @@ type Agent struct {
 	prevCPU         *docker.Stats
 	crashes         []time.Time
 	crashed         bool
+	resume          bool // the first reconcile finishes a start the previous process left unfinished
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
 	intentional     map[string]bool
@@ -135,6 +136,8 @@ type Agent struct {
 	listExtra       map[string]int
 	uuids           map[string]string
 	nextAutoRestart time.Time
+
+	policyMu sync.Mutex // serializes saveCrashPolicy
 
 	rconMu sync.Mutex
 	rcon   *minecraft.RCON
@@ -238,6 +241,8 @@ func New(opts Options) (*Agent, error) {
 	a.markInterruptedOperations()
 	a.pruneStages()
 	a.loadHandledExit()
+	a.loadCrashPolicy()
+	a.resume = true
 	return a, nil
 }
 

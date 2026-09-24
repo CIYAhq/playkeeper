@@ -38,10 +38,12 @@ type agentEnv struct {
 	ts     *httptest.Server
 	jarSum string
 	mu     sync.Mutex
-	// clockOffset moves the agent's clock (taken at start); diskFree, when
-	// set, is the free space the agent measures.
-	clockOffset time.Duration
-	diskFree    atomic.Int64
+	// clockOffset moves the agent's clock and crashBackoff, when set, replaces
+	// the zero backoff (both taken at start); diskFree, when set, is the free
+	// space the agent measures.
+	clockOffset  time.Duration
+	crashBackoff []time.Duration
+	diskFree     atomic.Int64
 }
 
 func newAgentEnv(t *testing.T) *agentEnv {
@@ -71,9 +73,13 @@ func (e *agentEnv) start() {
 		e.slp = startFakeSLP(e.t, e.rcon)
 	}
 	offset := e.clockOffset
+	backoff := e.crashBackoff
+	if backoff == nil {
+		backoff = []time.Duration{0}
+	}
 	a, err := New(Options{
 		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
-		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: []time.Duration{0},
+		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
 		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {
@@ -180,6 +186,19 @@ func (e *agentEnv) create() {
 		e.t.Fatalf("create failed: %+v", op)
 	}
 	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+}
+
+// waitExitRead waits until the log follower has read the stopped container to
+// its end.
+func (e *agentEnv) waitExitRead() {
+	e.t.Helper()
+	e.waitFor("the follower to reach the exit", func() bool {
+		c, err := e.a.docker.ContainerInspect(context.Background(), containerName)
+		fin, ok := c.State.Finished()
+		e.a.mu.Lock()
+		defer e.a.mu.Unlock()
+		return err == nil && ok && !c.State.Running && !e.a.followEnded[c.ID].Before(fin)
+	})
 }
 
 func (e *agentEnv) countRows(q string, args ...any) int {
@@ -689,13 +708,7 @@ func TestFailedStartIsCountedOnce(t *testing.T) {
 	// its end, then gives the reconcile loop a few ticks to classify the exit.
 	settled := func() {
 		t.Helper()
-		e.waitFor("the follower to reach the exit", func() bool {
-			c, err := e.a.docker.ContainerInspect(context.Background(), containerName)
-			fin, ok := c.State.Finished()
-			e.a.mu.Lock()
-			defer e.a.mu.Unlock()
-			return err == nil && ok && !c.State.Running && !e.a.followEnded[c.ID].Before(fin)
-		})
+		e.waitExitRead()
 		time.Sleep(300 * time.Millisecond)
 	}
 	run("stop", api.OpSucceeded)
@@ -731,6 +744,110 @@ func TestFailedStartIsCountedOnce(t *testing.T) {
 	if n := crashes(); n != 1 {
 		t.Fatalf("want the one real crash recorded, got %d", n)
 	}
+}
+
+// An agent restart keeps what the restart policy still owes a server that
+// should be running: a restart waiting out its backoff, and a start the agent
+// was stopped in the middle of. A policy that gave up stays given up.
+func TestAgentRestartKeepsAPendingAutomaticStart(t *testing.T) {
+	crashes := func(e *agentEnv) int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) }
+	ops := func(e *agentEnv, kind, status string) int {
+		return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = ? AND status = ?`, kind, status)
+	}
+	online := func(e *agentEnv) func() bool {
+		return func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() }
+	}
+
+	t.Run("a restart waiting out its backoff", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.stop()
+		e.crashBackoff = []time.Duration{time.Minute}
+		e.start()
+		e.create()
+		e.fd.crash(137)
+		e.waitFor("the crash to be counted", func() bool { return crashes(e) == 1 && e.status().Phase == api.PhaseCrashed })
+		// Restarted inside the backoff, the agent reads the crashed run's log
+		// again, keeps the crash and waits.
+		e.stop()
+		e.start()
+		e.waitExitRead()
+		if st := e.status(); st.Phase != api.PhaseCrashed || st.CrashCount != 1 || e.a.busy() {
+			t.Fatalf("inside the backoff: phase %s, crash count %d, busy %v", st.Phase, st.CrashCount, e.a.busy())
+		}
+		// Restarted after it, the agent restarts the server.
+		e.stop()
+		e.clockOffset = 2 * time.Minute
+		e.start()
+		e.waitFor("the automatic restart after the backoff", online(e))
+		if n, c := ops(e, "auto-restart", api.OpSucceeded), crashes(e); n != 1 || c != 1 {
+			t.Fatalf("want one automatic restart and the crash counted once, got %d and %d", n, c)
+		}
+	})
+
+	t.Run("a recover the agent was stopped in", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		inspected := e.fd.called("GET /images/")
+		e.fd.mu.Lock()
+		e.fd.holdImages = true
+		e.fd.mu.Unlock()
+		e.fd.externalStop()
+		e.waitFor("the recover to be under way", func() bool {
+			op := e.a.currentOp()
+			return op != nil && op.Kind == "recover" && e.fd.called("GET /images/") > inspected
+		})
+		e.stop()
+		e.fd.mu.Lock()
+		e.fd.holdImages = false
+		e.fd.mu.Unlock()
+		e.start()
+		e.waitFor("the recover to be finished", online(e))
+		if n := ops(e, "recover", api.OpSucceeded); n != 1 {
+			t.Fatalf("want the recover finished once, got %d", n)
+		}
+		if n := e.status().CrashCount; n != 0 {
+			t.Fatalf("stopping the agent is not a failed start, but %d failure(s) were counted", n)
+		}
+	})
+
+	t.Run("a container created but never started", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		e.stop()
+		// The agent was killed after creating the container and before starting it.
+		e.fd.mu.Lock()
+		c := e.fd.byName[containerName]
+		c.running, c.started, c.finished = false, time.Time{}, time.Time{}
+		e.fd.mu.Unlock()
+		e.start()
+		e.waitFor("the start to be finished", online(e))
+		if n := ops(e, "recover", api.OpSucceeded); n != 1 {
+			t.Fatalf("want one recover, got %d", n)
+		}
+	})
+
+	t.Run("a policy that gave up", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		for i := 1; i <= maxCrashes; i++ {
+			e.waitFor("online before the crash", online(e))
+			e.fd.crash(1)
+			e.waitFor("the crash to be counted", func() bool { return crashes(e) == i })
+		}
+		e.waitFor("the policy to give up", func() bool {
+			return strings.Contains(e.status().LastError, "stopped restarting") && !e.a.busy()
+		})
+		e.stop()
+		e.clockOffset = crashWindow + time.Minute
+		e.start()
+		time.Sleep(500 * time.Millisecond)
+		if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart')`); n != maxCrashes-1 {
+			t.Fatalf("an agent restart must not undo giving up: %d automatic starts, want %d", n, maxCrashes-1)
+		}
+		if st := e.status(); st.Phase != api.PhaseCrashed || st.CrashCount != maxCrashes {
+			t.Fatalf("after an agent restart: phase %s, crash count %d", st.Phase, st.CrashCount)
+		}
+	})
 }
 
 // The Overview warns about low disk space with the preflight's thresholds and

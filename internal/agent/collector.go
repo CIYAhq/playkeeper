@@ -181,10 +181,19 @@ func (a *Agent) ingest(container string, l docker.LogLine, runStart time.Time) {
 		a.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
 		if current {
 			a.mu.Lock()
+			// After an agent restart the follower replays the current run: the
+			// ready line of a run that crashed later does not undo the crash.
+			n := len(a.crashes)
+			cleared := a.crashed && (n == 0 || ts.After(a.crashes[n-1]))
 			a.runPhase = api.PhaseOnline
-			a.crashed = false
+			if cleared {
+				a.crashed = false
+			}
 			a.lastError, a.lastErrorHint = "", ""
 			a.mu.Unlock()
+			if cleared {
+				a.saveCrashPolicy()
+			}
 		}
 	case minecraft.EventStopping:
 		a.insertEvent(ts, "server_stopping", "", "", "server_log", "", key)
