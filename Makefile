@@ -7,7 +7,7 @@ export PATH := $(CURDIR)/.tools/go/bin:$(CURDIR)/.tools/node/bin:$(PATH)
 export CGO_ENABLED ?= 0
 
 GO_PKGS := ./cmd/... ./internal/... ./web
-SH_FILES := scripts/*.sh scripts/e2e/*.sh packaging/*.sh test/e2e/*.sh
+SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
 .PHONY: help setup check lint lint-go lint-web lint-sh typecheck test test-go test-web web build package dev e2e-vm clean
 
@@ -29,7 +29,7 @@ lint-web:
 	cd web && npx eslint .
 
 lint-sh: ## shellcheck the shell scripts (needs shellcheck installed)
-	shellcheck $(SH_FILES)
+	shellcheck -x $(SH_FILES)
 
 typecheck: ## TypeScript type check
 	cd web && npx tsc --noEmit
