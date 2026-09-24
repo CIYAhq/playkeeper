@@ -12,7 +12,7 @@ Thanks for helping make self-hosted game servers easier. **This repository is pr
 ## Set up and check (stock Ubuntu 24.04)
 
 ```bash
-sudo apt-get install -y git make curl ca-certificates xz-utils   # only if missing
+sudo apt-get update && sudo apt-get install -y git make curl ca-certificates xz-utils   # only if missing
 git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 ./scripts/setup.sh     # pinned Go 1.27.1 + Node 24.21.0 into .tools/ (checksum-verified), npm ci
 make check             # gofmt, go vet, ESLint, TypeScript, Go, web and installer-script unit tests

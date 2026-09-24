@@ -48,7 +48,7 @@ Stack: one Go binary (root agent on a Unix socket, unprivileged HTTPS panel, ins
 On a stock Ubuntu 24.04 machine:
 
 ```bash
-sudo apt-get install -y git make curl ca-certificates xz-utils   # only if missing
+sudo apt-get update && sudo apt-get install -y git make curl ca-certificates xz-utils   # only if missing
 git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 ./scripts/setup.sh    # pinned Go and Node into .tools/, npm ci
 make check            # lint, typecheck, Go, web and installer-script unit tests (what CI runs)
