@@ -32,7 +32,7 @@ func fixtureDataDir(t *testing.T) string {
 	region := make([]byte, 200_000)
 	rand.Read(region)
 	write(t, d, "server.properties", "level-name=world\nrcon.password=hunter2-secret\nmanagement-server-secret=abc123secret\nonline-mode=true\nmotd=Test\n")
-	write(t, d, "whitelist.json", `[{"uuid":"x","name":"PkFriend"}]`)
+	write(t, d, "whitelist.json", `[{"uuid":"x","name":"PkBotFriend"}]`)
 	write(t, d, "world/level.dat", "level-data")
 	write(t, d, "world/region/r.0.0.mca", string(region))
 	write(t, d, "world_nether/DIM-1/region/r.0.0.mca", "nether")

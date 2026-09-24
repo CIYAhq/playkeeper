@@ -24,7 +24,7 @@
    2026-09-24T13:35:21.486576616Z [13:35:21 INFO]: PkSpikeBot left the game
    ```
 
-   Chat is always prefixed (`<Name>`, `[Not Secure] <Name>`, `[Name]`, `* Name`), and names cannot contain spaces, so an anchored `^[hh:mm:ss INFO]: <name> joined the game$` pattern cannot be forged from chat. The login line contains the client address; with `LOG_IPS=FALSE` Paper prints `PkBuilder[IP hidden] logged in…` instead.
+   Chat is always prefixed (`<Name>`, `[Not Secure] <Name>`, `[Name]`, `* Name`), and names cannot contain spaces, so an anchored `^[hh:mm:ss INFO]: <name> joined the game$` pattern cannot be forged from chat. The login line contains the client address; with `LOG_IPS=FALSE` Paper prints `<name>[IP hidden] logged in…` instead.
 
 4. **Authoritative snapshot over RCON, never published.** RCON listened only inside the container (`RCON running on 0.0.0.0:25575`); on the host `ss -ltn` showed only `0.0.0.0:25565` and `[::]:25565`. A client on the host reached RCON via the private bridge address: `auth ok`, `list` → `There are 0 of a max of 20 players online: `.
 

@@ -145,7 +145,7 @@ func auth(cookie, csrf string) map[string]string {
 
 func samplePath(p string) string {
 	p = strings.ReplaceAll(p, "{id}", "0123456789abcdef")
-	return strings.ReplaceAll(p, "{name}", "PkFriend")
+	return strings.ReplaceAll(p, "{name}", "PkBotFriend")
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {

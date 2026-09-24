@@ -19,7 +19,7 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 	}{
 		{"[13:35:18 INFO]: PkSpikeBot joined the game", EventJoin, "PkSpikeBot"},
 		{"[13:35:21 INFO]: PkSpikeBot left the game", EventLeave, "PkSpikeBot"},
-		{"[13:35:18] [Server thread/INFO]: Steve joined the game", EventJoin, "Steve"},
+		{"[13:35:18] [Server thread/INFO]: PkBotBuilder joined the game", EventJoin, "PkBotBuilder"},
 		{"[13:35:15 INFO]: UUID of player PkSpikeBot is 5507140b-cf95-3383-b75a-47dd34196981", EventUUID, "PkSpikeBot"},
 		{`[13:34:35 INFO]: Done (11.903s)! For help, type "help"`, EventReady, ""},
 		{"[13:40:00 INFO]: Stopping server", EventStopping, ""},
@@ -39,15 +39,15 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 // Player-controlled text must never produce join/leave events.
 func TestParseIgnoresSpoofedChat(t *testing.T) {
 	spoofs := []string{
-		"[13:35:18 INFO]: <PkFriend> Foo joined the game",
-		"[13:35:18 INFO]: [Not Secure] <PkFriend> Foo joined the game",
-		"[13:35:18 INFO]: [PkFriend] Foo joined the game",
-		"[13:35:18 INFO]: * PkFriend Foo left the game",
+		"[13:35:18 INFO]: <PkBotFriend> Foo joined the game",
+		"[13:35:18 INFO]: [Not Secure] <PkBotFriend> Foo joined the game",
+		"[13:35:18 INFO]: [PkBotFriend] Foo joined the game",
+		"[13:35:18 INFO]: * PkBotFriend Foo left the game",
 		"[13:35:18 INFO]: [Server] Foo joined the game",
 		"[13:35:18 INFO]: Foo joined the game!",
 		"[13:35:18 INFO]: Foo Bar joined the game",
 		"Foo joined the game",
-		"[13:35:18 INFO]: PkFriend issued server command: /say Foo joined the game",
+		"[13:35:18 INFO]: PkBotFriend issued server command: /say Foo joined the game",
 		"[13:35:18 INFO]: ThisNameIsWayTooLongForMinecraft joined the game",
 	}
 	for _, s := range spoofs {
@@ -77,7 +77,7 @@ func TestCleanLineStripsANSI(t *testing.T) {
 }
 
 func TestValidPlayerName(t *testing.T) {
-	for _, ok := range []string{"Steve", "PkFriend", "abc", "A_b_1234567890123"[:16]} {
+	for _, ok := range []string{"PkBotBuilder", "PkBotFriend", "abc", "A_b_1234567890123"[:16]} {
 		if !ValidPlayerName(ok) {
 			t.Errorf("%q should be valid", ok)
 		}
@@ -90,8 +90,8 @@ func TestValidPlayerName(t *testing.T) {
 }
 
 func TestParseList(t *testing.T) {
-	on, max, names, ok := ParseList("There are 2 of a max of 10 players online: PkBuilder, PkFriend")
-	if !ok || on != 2 || max != 10 || len(names) != 2 || names[1] != "PkFriend" {
+	on, max, names, ok := ParseList("There are 2 of a max of 10 players online: PkBotBuilder, PkBotFriend")
+	if !ok || on != 2 || max != 10 || len(names) != 2 || names[1] != "PkBotFriend" {
 		t.Fatalf("got %d %d %v %v", on, max, names, ok)
 	}
 	on, _, names, ok = ParseList("There are 0 of a max of 20 players online: ")
@@ -242,7 +242,7 @@ func TestPing(t *testing.T) {
 		c.Read(buf)
 		status, _ := json.Marshal(map[string]any{
 			"version": map[string]any{"name": "Paper 26.1.2", "protocol": 775},
-			"players": map[string]any{"max": 10, "online": 1, "sample": []map[string]string{{"name": "PkFriend", "id": "x"}}},
+			"players": map[string]any{"max": 10, "online": 1, "sample": []map[string]string{{"name": "PkBotFriend", "id": "x"}}},
 		})
 		var body bytes.Buffer
 		writeVarInt(&body, 0)
