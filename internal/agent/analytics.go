@@ -78,6 +78,7 @@ func bucketize(samples []sample, from, to time.Time, bucket, interval time.Durat
 	for start := from; start.Before(to); start = start.Add(bucket) {
 		end := start.Add(bucket)
 		b := api.MetricsBucket{Start: start}
+		first := i
 		var n, onlineN, cpuN, memN int
 		var maxPlayers int
 		var cpuSum float64
@@ -112,7 +113,6 @@ func bucketize(samples []sample, from, to time.Time, bucket, interval time.Durat
 		if now.Before(effEnd) {
 			effEnd = now
 		}
-		expected := effEnd.Sub(effStart).Seconds() / interval.Seconds()
 		switch {
 		case since == nil || !end.After(*since):
 			b.State = "not_collected"
@@ -125,8 +125,8 @@ func bucketize(samples []sample, from, to time.Time, bucket, interval time.Durat
 		default:
 			b.State = "offline"
 		}
-		if expected > 0 {
-			b.Coverage = math.Min(1, float64(n)/math.Max(1, math.Floor(expected)))
+		if effEnd.After(effStart) {
+			b.Coverage = coveredFraction(samples[max(first-1, 0):i], effStart, effEnd, interval)
 		}
 		if cpuN > 0 {
 			v := cpuSum / float64(cpuN)
@@ -299,17 +299,40 @@ func coverage(samples []sample, from, to time.Time, interval time.Duration, sinc
 	if since.After(from) {
 		from = *since
 	}
-	expected := to.Sub(from).Seconds() / interval.Seconds()
-	if expected < 1 {
+	if to.Sub(from) < interval {
 		return 1
 	}
-	n := 0
-	for _, s := range samples {
-		if !s.ts.Before(from) && s.ts.Before(to) {
-			n++
+	return coveredFraction(samples, from, to, interval)
+}
+
+// coveredFraction is the share of [from, to) within one sample interval after
+// some sample. It measures time, not sample counts, so the extra sample taken
+// at every agent start cannot hide a gap in collection. Samples are sorted.
+func coveredFraction(samples []sample, from, to time.Time, interval time.Duration) float64 {
+	total := to.Sub(from)
+	if total <= 0 {
+		return 0
+	}
+	i := sort.Search(len(samples), func(i int) bool { return !samples[i].ts.Before(from.Add(-interval)) })
+	var covered time.Duration
+	var reach time.Time
+	for ; i < len(samples) && samples[i].ts.Before(to); i++ {
+		lo, hi := samples[i].ts, samples[i].ts.Add(interval)
+		if lo.Before(from) {
+			lo = from
+		}
+		if lo.Before(reach) {
+			lo = reach
+		}
+		if hi.After(to) {
+			hi = to
+		}
+		if hi.After(lo) {
+			covered += hi.Sub(lo)
+			reach = hi
 		}
 	}
-	return math.Min(1, float64(n)/math.Floor(expected))
+	return math.Min(1, covered.Seconds()/total.Seconds())
 }
 
 func maxTime(a, b time.Time) time.Time {
