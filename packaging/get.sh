@@ -71,7 +71,7 @@ main() {
   # The installer asks for confirmation; with "curl | sh" its input would be
   # this script, so the answer is read from the terminal instead.
   if [ "$assume_yes" = 0 ] && ! (true </dev/tty) 2>/dev/null; then
-    die "there is no terminal to confirm the install on." "Review the plan first with an interactive session, or add --yes: curl -fsSL <this script's URL> | sudo sh -s -- --yes"
+    die "there is no terminal to answer the installer's question on." "Run the command in an interactive terminal (for example over ssh), or skip the question with --yes: curl -fsSL <this script's URL> | sudo sh -s -- --yes"
   fi
 
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/playkeeper-get.XXXXXX")

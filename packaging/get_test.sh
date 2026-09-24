@@ -128,7 +128,7 @@ get PLAYKEEPER_BASE_URL=https://example.test/good FAKE_ARCH=aarch64 -- --yes
 ok "non-x86_64 CPU refused before downloading"
 
 get PLAYKEEPER_BASE_URL=https://example.test/good --
-[ "$status" != 0 ] && [[ $out == *"no terminal to confirm"* ]] && [ ! -f "$t/curl.log" ] ||
+[ "$status" != 0 ] && [[ $out == *"no terminal to answer"* ]] && [ ! -f "$t/curl.log" ] ||
   fail "without a terminal or --yes the script must stop before downloading ($status): $out"
 ok "no terminal and no --yes: stops before downloading and explains --yes"
 
