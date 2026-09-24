@@ -137,6 +137,7 @@ jobs:
           sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager > /tmp/evidence/journal.txt || true
           rm -f /tmp/evidence/code /tmp/evidence/ui/browser-session.json /tmp/evidence/a/state-a.json
           sudo chown -R "$(id -u)" /tmp/evidence
+          sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g' /tmp/evidence/install.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -196,6 +197,7 @@ jobs:
           sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager > /tmp/evidence/journal.txt || true
           rm -f /tmp/evidence/code /tmp/evidence/b/state-b.json
           sudo chown -R "$(id -u)" /tmp/evidence
+          sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g' /tmp/evidence/install.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

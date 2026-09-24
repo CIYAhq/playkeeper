@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { outDir, password, shot, tabTo } from './helpers'
+import { outDir, password, shot, shotsDir, tabTo } from './helpers'
+
+test.use({ video: { mode: 'on', size: { width: 1440, height: 900 } } })
 
 // First sign-in to a joinable server, using only the keyboard.
 test('onboarding from first sign-in to joinable, keyboard only', async ({ page, context }) => {
@@ -82,4 +84,8 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await tabTo(page, page.getByRole('button', { name: 'Go to dashboard' }))
   await page.keyboard.press('Enter')
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  await page.waitForTimeout(3000)
+  const video = page.video()
+  await page.close()
+  if (video) await video.saveAs(path.join(shotsDir, 'onboarding-walkthrough.webm'))
 })

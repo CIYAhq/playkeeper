@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
-import { login, shot, tabTo } from './helpers'
+import path from 'node:path'
+import { login, shot, shotsDir, tabTo } from './helpers'
+
+test.use({ video: { mode: 'on', size: { width: 390, height: 844 } } })
 
 // On a fresh second host: restore a downloaded Playkeeper backup entirely in
 // the browser, at phone width.
@@ -33,4 +36,8 @@ test('second host: restore a backup through onboarding', async ({ page }) => {
   await shot(page, 'restore-5-starting-narrow')
   await expect(page.getByRole('heading', { name: 'Your server is ready' })).toBeVisible({ timeout: 20 * 60_000 })
   await shot(page, 'restore-6-ready-narrow')
+  await page.waitForTimeout(2000)
+  const video = page.video()
+  await page.close()
+  if (video) await video.saveAs(path.join(shotsDir, 'restore-walkthrough-narrow.webm'))
 })
