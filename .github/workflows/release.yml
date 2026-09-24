@@ -2,9 +2,10 @@ name: Release
 
 # A v* tag builds the release with `make package`, installs the built assets
 # on a fresh runner through get.sh, publishes them as the latest (normal, not
-# pre-release) GitHub release, then runs the one-line install against the
-# live addresses. Pull requests that touch the release path, and manual runs,
-# are dry runs: the same build and install check, with the assets uploaded as
+# pre-release) GitHub release, redeploys playkeeper.io so /install serves the
+# new get.sh, then runs the README one-liner against the live address.
+# Pull requests that touch the release path, and manual runs, are dry runs:
+# the same build, install check and site build, with the assets uploaded as
 # a workflow artifact instead of released.
 
 on:
@@ -16,7 +17,9 @@ on:
       - scripts/package.sh
       - scripts/release-*.sh
       - scripts/smoke-install.sh
+      - scripts/build-site.sh
       - packaging/**
+      - site/**
       - Makefile
   workflow_dispatch:
     inputs:
@@ -85,6 +88,10 @@ jobs:
           cmp dist/get.sh packaging/get.sh
           scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY"
           scripts/release-notes.sh "$VERSION" "$GITHUB_REPOSITORY" "$INSTALL_URL" out/assets >out/release-notes.md
+      - name: The site this release would deploy
+        run: |
+          scripts/build-site.sh out/assets/get.sh out/site-preview
+          cmp out/site-preview/install out/assets/get.sh
       - name: Summary
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -94,7 +101,7 @@ jobs:
           {
             echo "## $TITLE"
             if [ "$DRY_RUN" = true ]; then
-              echo "Dry run: nothing is tagged or released. The assets and notes are in the \`release-$TAG\` artifact."
+              echo "Dry run: nothing is tagged or released. The assets, the notes and the site preview (with this get.sh as /install) are in the \`release-$TAG\` artifact."
             fi
             echo
             echo "| Release asset | SHA-256 |"
@@ -167,12 +174,30 @@ jobs:
       - name: Publish it as the latest release, not a pre-release
         run: gh release edit "$TAG" --draft=false --prerelease=false --latest
 
-  verify:
-    name: Live addresses — one-line install on a fresh runner
-    needs: [build, publish]
+  site:
+    name: Redeploy playkeeper.io with the new get.sh
+    needs: publish
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      # A release created with the workflow token triggers no other workflow,
+      # but a dispatch does. The github-pages environment only accepts
+      # deployments from the default branch unless its rules are changed.
+      - run: gh workflow run pages.yml --ref "$DEFAULT_BRANCH"
+
+  verify:
+    name: Live addresses — README one-liner on a fresh runner
+    needs: [build, site]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     env:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
@@ -194,5 +219,16 @@ jobs:
             fi
             cmp "/tmp/latest/$f" "/tmp/release/assets/$f"
           done
-      - name: One-line install from the GitHub release
-        run: scripts/smoke-install.sh "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/get.sh" "$VERSION"
+      - name: The install address serves this release's get.sh
+        run: |
+          for _ in $(seq 45); do
+            if curl -fsSL -o /tmp/install "$INSTALL_URL" && cmp -s /tmp/install /tmp/release/assets/get.sh; then
+              echo "$INSTALL_URL serves this release's get.sh"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::$INSTALL_URL does not serve this release's get.sh after 15 minutes. Check the Pages workflow run, the Pages custom domain and DNS."
+          exit 1
+      - name: README one-liner
+        run: scripts/smoke-install.sh "$INSTALL_URL" "$VERSION"

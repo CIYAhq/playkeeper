@@ -1,0 +1,75 @@
+name: Pages
+
+# Publishes playkeeper.io with GitHub Pages: the files in site/ plus
+# /install, which is the get.sh asset of the latest release, so
+# `curl -fsSL https://playkeeper.io/install | sudo sh` runs the released
+# installer. The release workflow starts this on the default branch after it
+# publishes a release; run it by hand there after changing site/. Pull
+# requests only build a preview, with packaging/get.sh standing in for
+# /install.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - site/**
+      - scripts/build-site.sh
+      - .github/workflows/pages.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: get.sh from the latest release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! tag=$(gh release view --json tagName --jq .tagName); then
+            echo "::error::There is no published release yet, so there is no get.sh to serve at /install."
+            exit 1
+          fi
+          gh release download "$tag" --pattern get.sh --dir /tmp/release
+          echo "/install serves get.sh from $tag"
+          echo "GET_SH=/tmp/release/get.sh" >>"$GITHUB_ENV"
+      - name: get.sh from this checkout (preview only)
+        if: github.event_name == 'pull_request'
+        run: echo "GET_SH=$PWD/packaging/get.sh" >>"$GITHUB_ENV"
+      - name: Assemble the site
+        run: scripts/build-site.sh "$GET_SH" _site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
