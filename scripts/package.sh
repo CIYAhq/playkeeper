@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the release tarball: a static linux/amd64 binary with the embedded
-# UI, the installer wrapper and install notes. Output goes to dist/, with the
-# one-line installer assets a release would carry: get.sh and a copy of the
-# tarball under the stable name it downloads (playkeeper-linux-amd64.tar.gz).
+# UI, the installer wrapper, install notes and the licence. Output goes to
+# dist/, with the one-line installer assets a release carries: get.sh and a
+# copy of the tarball under the stable name it downloads
+# (playkeeper-linux-amd64.tar.gz).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -31,6 +32,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
 install -m 0755 packaging/install.sh "$stage/install.sh"
 install -m 0644 packaging/README-INSTALL.txt "$stage/README-INSTALL.txt"
 install -m 0644 docs/THIRD_PARTY.md "$stage/THIRD_PARTY.md"
+install -m 0644 LICENSE "$stage/LICENSE"
 
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
   -C "$out" -czf "$out/$name.tar.gz" "$name"

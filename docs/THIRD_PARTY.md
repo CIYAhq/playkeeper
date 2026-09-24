@@ -1,6 +1,6 @@
 # Third-party components and upstream terms
 
-Checked 2026-09-24 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself has **no licence chosen yet** (see [LICENSING.md](LICENSING.md)).
+Checked 2026-09-24 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
 
 ## Compiled into the `playkeeper` binary
 

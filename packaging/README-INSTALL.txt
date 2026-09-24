@@ -27,6 +27,9 @@ Useful:
      sudo playkeeper setup-code              # new setup code (before an admin exists)
      sudo playkeeper reset-password <user>   # new random admin password
 
+Playkeeper is free software under the GNU Affero General Public License,
+version 3 (see LICENSE). Source code: https://github.com/CIYAhq/playkeeper
+
 Playkeeper is not an official Minecraft product. Not approved by or
 associated with Mojang or Microsoft. Minecraft server software is downloaded
 from PaperMC and Mojang on your server only after you accept the Minecraft
