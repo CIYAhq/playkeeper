@@ -210,6 +210,7 @@ export interface DailyActivity {
   sessions: number
   playtimeSeconds: number
   playtimeLowerBound: boolean
+  playtimeUpperBound: boolean
   coverage: number
 }
 

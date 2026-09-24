@@ -241,12 +241,16 @@ type SessionsResponse struct {
 	Sessions []Session `json:"sessions"`
 }
 
+// DailyActivity totals a day's observed sessions. The playtime is a lower
+// bound when a session's start was not seen, an upper bound when a session
+// ended in a crash, and an estimate with both.
 type DailyActivity struct {
 	Date               string  `json:"date"`
 	UniquePlayers      int     `json:"uniquePlayers"`
 	Sessions           int     `json:"sessions"`
 	PlaytimeSeconds    int64   `json:"playtimeSeconds"`
 	PlaytimeLowerBound bool    `json:"playtimeLowerBound"`
+	PlaytimeUpperBound bool    `json:"playtimeUpperBound"`
 	Coverage           float64 `json:"coverage"`
 }
 

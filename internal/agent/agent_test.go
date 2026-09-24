@@ -943,15 +943,21 @@ func TestDailySummaryFlagsIncompleteSessions(t *testing.T) {
 	e.a.kvSet(kvCollectingSince, now.Add(-48*time.Hour).Format(time.RFC3339Nano))
 	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, source) VALUES('A', ?, ?, 'left', 'server_log')`, now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli())
 	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, end_uncertain, source) VALUES('B', ?, ?, 'server_crashed', 1, 'server_log')`, now.Add(-3*time.Hour).UnixMilli(), now.Add(-150*time.Minute).UnixMilli())
+	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, start_uncertain, source) VALUES('C', ?, ?, 'left', 1, 'player_list')`, now.Add(-26*time.Hour).UnixMilli(), now.Add(-25*time.Hour).UnixMilli())
 	s, err := e.a.Summary(2, "UTC", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	today := s.Days[len(s.Days)-1]
-	if today.UniquePlayers != 2 || today.PlaytimeSeconds != 3600+1800 || !today.PlaytimeLowerBound {
-		t.Fatalf("today: %+v", today)
+	// A session that ended in a crash makes the day's total an upper bound; one
+	// whose start was not seen makes it a lower bound.
+	today, yesterday := s.Days[len(s.Days)-1], s.Days[len(s.Days)-2]
+	if today.UniquePlayers != 2 || today.PlaytimeSeconds != 3600+1800 || !today.PlaytimeUpperBound || today.PlaytimeLowerBound {
+		t.Fatalf("today, with a crash-ended session, must be an upper bound: %+v", today)
 	}
-	if s.UncertainSessions != 1 || today.Coverage >= 1 {
+	if !yesterday.PlaytimeLowerBound || yesterday.PlaytimeUpperBound {
+		t.Fatalf("yesterday, with a session whose start was not seen, must be a lower bound: %+v", yesterday)
+	}
+	if s.UncertainSessions != 2 || today.Coverage >= 1 {
 		t.Fatalf("summary must flag uncertainty and incomplete coverage: %+v", s)
 	}
 	if _, err := e.a.Summary(7, "Not/AZone", now); err == nil {
