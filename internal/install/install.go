@@ -490,8 +490,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			if len(in.m.PackagesInstalled) == 0 {
 				return nil
 			}
-			args := append([]string{"purge", "-y"}, in.m.PackagesInstalled...)
-			_, err := sys.Run("apt-get", args...)
+			err := purgeDocker(sys, in.m.PackagesInstalled)
 			if err == nil && !dockerGroupExisted && groupExists(sys, "docker") {
 				_, err = sys.Run("groupdel", "docker")
 			}
@@ -714,6 +713,20 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+// purgeDocker stops Docker's units before removing the packages Playkeeper
+// installed. Purging while docker.socket is active leaves a dead socket unit
+// behind, and a later reinstall's docker.service then fails to start.
+func purgeDocker(sys System, pkgs []string) error {
+	_, _ = sys.Run("systemctl", "stop", "docker.service", "docker.socket", "containerd.service")
+	_, err := sys.Run("apt-get", append([]string{"purge", "-y"}, pkgs...)...)
+	_, _ = sys.Run("systemctl", "daemon-reload")
+	_, _ = sys.Run("systemctl", "reset-failed")
+	for _, p := range []string{"/run/docker.sock", "/run/docker", "/run/containerd"} {
+		_ = os.RemoveAll(sys.P(p))
+	}
+	return err
 }
 
 func groupExists(sys System, name string) bool {

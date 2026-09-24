@@ -335,6 +335,20 @@ func TestInjectedFailureRollsBackCompletely(t *testing.T) {
 			if len(h.packages) != pkgs || h.dockerPresent {
 				t.Fatalf("rollback left packages: %v", h.packages)
 			}
+			if step != "create directories" && step != "" {
+				stopIdx, purgeIdx := -1, -1
+				for i, c := range h.cmds {
+					if strings.HasPrefix(c, "systemctl stop docker.service docker.socket") && stopIdx < 0 {
+						stopIdx = i
+					}
+					if strings.HasPrefix(c, "apt-get purge") {
+						purgeIdx = i
+					}
+				}
+				if stopIdx < 0 || purgeIdx < stopIdx {
+					t.Fatalf("Docker units must be stopped before purging packages: %v", h.cmds)
+				}
+			}
 		})
 	}
 }

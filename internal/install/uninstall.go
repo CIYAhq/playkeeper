@@ -124,9 +124,7 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 		if foreign > 0 {
 			fmt.Fprintf(out, "Keeping Docker: %d other container(s) still use it.\n", foreign)
 		} else {
-			args := append([]string{"purge", "-y"}, m.PackagesInstalled...)
-			_, err := sys.Run("apt-get", args...)
-			note(err)
+			note(purgeDocker(sys, m.PackagesInstalled))
 		}
 	}
 	note(removeIfExists(sys.P(ConfigDir)))

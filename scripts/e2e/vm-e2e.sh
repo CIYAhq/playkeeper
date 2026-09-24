@@ -29,7 +29,16 @@ OFFLINE_DROPIN='[Service]
 Environment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1'
 
 phase() { printf '\n==== %s  [%s]\n' "$*" "$(date -u +%H:%M:%S)"; }
-cleanup() { lab_shutdown a; lab_shutdown b; lab_shutdown c; }
+cleanup() {
+  local rc=$?
+  if [ "$rc" -ne 0 ] && [ "${KEEP_ON_FAIL:-0}" = 1 ]; then
+    lab_log "failed (exit $rc); guests kept running for inspection"
+    return
+  fi
+  lab_shutdown a
+  lab_shutdown b
+  lab_shutdown c
+}
 trap cleanup EXIT
 
 tarball=${1:-}
