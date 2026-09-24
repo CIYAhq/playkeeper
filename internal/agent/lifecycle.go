@@ -539,6 +539,11 @@ func (a *Agent) waitReady(ctx context.Context, h *opHandle, id string) error {
 		}
 		c, err := a.docker.ContainerInspect(ctx, id)
 		if err == nil && !c.State.Running {
+			// This start reports the exit; the reconcile loop must not count
+			// it a second time as a crash.
+			if fin, ok := c.State.Finished(); ok {
+				a.markExitHandled(id, fin)
+			}
 			msg := fmt.Sprintf("The server stopped while starting (exit code %d).", c.State.ExitCode)
 			if lastErr != "" {
 				msg += " " + lastErr
@@ -687,12 +692,23 @@ func (a *Agent) reconcile(ctx context.Context) {
 		}
 		return
 	}
-	if ended.Before(fin) && a.now().Sub(fin) < followerGrace {
-		return
+	// Decide only once the follower has read this container's log to its end,
+	// however long ago it exited: a clean shutdown logged while the agent was
+	// down (a host reboot) must be seen before calling it a crash. If the log
+	// cannot be read, decide anyway followerGrace after first seeing the exit.
+	if ended.Before(fin) {
+		a.mu.Lock()
+		seen := a.exitSeen[c.ID]
+		if !seen.fin.Equal(fin) {
+			seen = seenExit{fin: fin, at: a.now()}
+			a.exitSeen[c.ID] = seen
+		}
+		a.mu.Unlock()
+		if a.now().Sub(seen.at) < followerGrace {
+			return
+		}
 	}
-	a.mu.Lock()
-	a.handledExit[c.ID] = fin
-	a.mu.Unlock()
+	a.markExitHandled(c.ID, fin)
 	switch {
 	case intentional:
 		a.closeOpenSessions(fin, "server_stopped", false)
@@ -713,6 +729,30 @@ func (a *Agent) reconcile(ctx context.Context) {
 				a.autoStart("auto-restart")
 			}
 		}
+	}
+}
+
+type seenExit struct{ fin, at time.Time }
+
+// markExitHandled records that a container exit has been counted, so neither
+// the reconcile loop nor an agent restart counts it again.
+func (a *Agent) markExitHandled(id string, fin time.Time) {
+	a.mu.Lock()
+	a.handledExit[id] = fin
+	a.mu.Unlock()
+	if err := a.kvSet(kvHandledExit, id+" "+fin.UTC().Format(time.RFC3339Nano)); err != nil {
+		a.log.Warn("could not record a handled exit", "err", err)
+	}
+}
+
+func (a *Agent) loadHandledExit() {
+	v, ok, _ := a.kvGet(kvHandledExit)
+	id, ts, found := strings.Cut(v, " ")
+	if !ok || !found {
+		return
+	}
+	if fin, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		a.handledExit[id] = fin
 	}
 }
 
@@ -778,6 +818,9 @@ func (a *Agent) autoStartFailed(err error) {
 		}
 	}
 	a.crashes = append(recent, now)
+	// The reconcile loop retries after the backoff whether the failed
+	// container was removed or is still there with its exit already counted.
+	a.crashed = true
 	n := len(a.crashes)
 	if n >= maxCrashes {
 		a.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())

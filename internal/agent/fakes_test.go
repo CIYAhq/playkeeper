@@ -36,6 +36,8 @@ type fakeDocker struct {
 	jarContent   []byte
 	bootDelay    time.Duration
 	replayAll    bool
+	logDelay     time.Duration // before answering each logs request
+	bootExit     int           // when set, the server exits with it while starting
 }
 
 type fakeLine struct {
@@ -351,6 +353,13 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	}
 	version := strings.TrimSuffix(strings.TrimPrefix(env(c.cfg, "CUSTOM_SERVER"), "/data/paper-"), ".jar")
 	fd.log(c, "[12:00:00 INFO]: Starting minecraft server version "+version)
+	if fd.bootExit != 0 {
+		fd.log(c, "[12:00:00 ERROR]: Encountered an unexpected exception")
+		c.running, c.exitCode, c.finished = false, fd.bootExit, time.Now().UTC()
+		close(c.wake)
+		c.wake = make(chan struct{})
+		return
+	}
 	for _, b := range c.cfg.HostConfig.Binds {
 		if host, dst, _ := strings.Cut(b, ":"); dst == "/data" {
 			level := filepath.Join(host, "world", "level.dat")
@@ -365,6 +374,10 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 }
 
 func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContainer) {
+	fd.mu.Lock()
+	delay := fd.logDelay
+	fd.mu.Unlock()
+	time.Sleep(delay)
 	q := r.URL.Query()
 	var since time.Time
 	if s := q.Get("since"); s != "" {

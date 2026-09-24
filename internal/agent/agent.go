@@ -128,6 +128,7 @@ type Agent struct {
 	crashes         []time.Time
 	crashed         bool
 	handledExit     map[string]time.Time
+	exitSeen        map[string]seenExit
 	intentional     map[string]bool
 	followEnded     map[string]time.Time
 	listMissing     map[string]int
@@ -211,6 +212,7 @@ func New(opts Options) (*Agent, error) {
 		console:     newRing(consoleCapacity),
 		opLock:      make(chan struct{}, 1),
 		handledExit: map[string]time.Time{},
+		exitSeen:    map[string]seenExit{},
 		intentional: map[string]bool{},
 		followEnded: map[string]time.Time{},
 		listMissing: map[string]int{},
@@ -235,6 +237,7 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.markInterruptedOperations()
 	a.pruneStages()
+	a.loadHandledExit()
 	return a, nil
 }
 

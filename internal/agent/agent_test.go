@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,6 +38,10 @@ type agentEnv struct {
 	ts     *httptest.Server
 	jarSum string
 	mu     sync.Mutex
+	// clockOffset moves the agent's clock (taken at start); diskFree, when
+	// set, is the free space the agent measures.
+	clockOffset time.Duration
+	diskFree    atomic.Int64
 }
 
 func newAgentEnv(t *testing.T) *agentEnv {
@@ -65,11 +70,17 @@ func (e *agentEnv) start() {
 		e.rcon = startFakeRCON(e.t, "")
 		e.slp = startFakeSLP(e.t, e.rcon)
 	}
+	offset := e.clockOffset
 	a, err := New(Options{
-		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
 		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: []time.Duration{0},
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
-		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) { return 50 << 30, 100 << 30, nil },
+		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
+			if free := e.diskFree.Load(); free > 0 {
+				return free, 100 << 30, nil
+			}
+			return 50 << 30, 100 << 30, nil
+		},
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
 		JarSHA256: func(string) string { return e.jarSum }, StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second,
 	})
@@ -631,6 +642,94 @@ func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	})
 	if st := e.status(); st.Desired != api.DesiredRunning {
 		t.Fatalf("divergence must stay visible (desired running, observed crashed): %+v", st)
+	}
+}
+
+// A host reboot stops the server cleanly while the agent is down. However
+// long ago that was, the agent reads the log to its end before deciding, so
+// it is a clean stop and not a crash, and the server is brought back.
+func TestCleanShutdownWhileTheAgentWasDownIsNotACrash(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.stop()
+	e.fd.externalStop()
+	e.fd.mu.Lock()
+	e.fd.logDelay = 300 * time.Millisecond
+	e.fd.mu.Unlock()
+	e.clockOffset = time.Minute
+	e.start()
+	e.waitFor("the server brought back", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`); n != 0 {
+		t.Fatalf("a clean shutdown while the agent was down was recorded as %d crash(es)", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`); n != 1 {
+		t.Fatalf("want one clean external stop, got %d", n)
+	}
+}
+
+// A start that fails because the server exits while starting is one failure:
+// the start reports it, and neither the reconcile loop nor an agent restart
+// counts the same exit again as a crash. So after a real crash the restart
+// policy gives up after maxCrashes real failures, not fewer.
+func TestFailedStartIsCountedOnce(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	crashes := func() int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) }
+	run := func(verb, want string) {
+		t.Helper()
+		code, out := e.call("POST", "/v1/server/"+verb, map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", verb, code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != want {
+			t.Fatalf("%s: %+v", verb, op)
+		}
+	}
+	// settled waits until the log follower has read the stopped container to
+	// its end, then gives the reconcile loop a few ticks to classify the exit.
+	settled := func() {
+		t.Helper()
+		e.waitFor("the follower to reach the exit", func() bool {
+			c, err := e.a.docker.ContainerInspect(context.Background(), containerName)
+			fin, ok := c.State.Finished()
+			e.a.mu.Lock()
+			defer e.a.mu.Unlock()
+			return err == nil && ok && !c.State.Running && !e.a.followEnded[c.ID].Before(fin)
+		})
+		time.Sleep(300 * time.Millisecond)
+	}
+	run("stop", api.OpSucceeded)
+	e.fd.mu.Lock()
+	e.fd.bootExit = 134
+	e.fd.mu.Unlock()
+	run("start", api.OpFailed)
+	settled()
+	if n, phase := crashes(), e.status().Phase; n != 0 || phase != api.PhaseStopped {
+		t.Fatalf("the failed start was counted again: %d crash event(s), phase %s", n, phase)
+	}
+	e.stop()
+	e.start()
+	settled()
+	if n := crashes(); n != 0 {
+		t.Fatalf("an agent restart counted the old exit again: %d crash event(s)", n)
+	}
+
+	e.fd.mu.Lock()
+	e.fd.bootExit = 0
+	e.fd.mu.Unlock()
+	run("start", api.OpSucceeded)
+	e.fd.mu.Lock()
+	e.fd.bootExit = 134
+	e.fd.mu.Unlock()
+	e.fd.crash(137)
+	e.waitFor("the restart policy to give up", func() bool {
+		return strings.Contains(e.status().LastError, "stopped trying to start") && !e.a.busy()
+	})
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'auto-restart'`); n != maxCrashes-1 {
+		t.Fatalf("want %d automatic restarts after the crash before giving up, got %d", maxCrashes-1, n)
+	}
+	if n := crashes(); n != 1 {
+		t.Fatalf("want the one real crash recorded, got %d", n)
 	}
 }
 
