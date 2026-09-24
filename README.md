@@ -4,21 +4,29 @@
 
 Playkeeper is a self-hosted dashboard for setting up and running a Minecraft Java (Paper) server on a Linux VPS you already own: install it, create a server in the browser, invite friends, see real player and server activity, and keep a backup you can restore on another machine.
 
-> **Status: first release candidate, private, not released.** The installer, dashboard, backups and restore work in the rehearsals recorded in [CURRENT_STATE.md](CURRENT_STATE.md): fresh Ubuntu 24.04 KVM guests and fresh GitHub-hosted runners, with protocol-level test bots. **Not yet verified:** a real provider VPS reachable from the internet, an official Minecraft client with a genuine account, and restore on a physically separate machine. Do not rely on it for a world you care about until those are done.
+> **Status: first release candidate, private, not released.** The installer, dashboard, backups and restore work in the rehearsals recorded in [CURRENT_STATE.md](CURRENT_STATE.md): fresh Ubuntu 24.04 KVM guests and fresh GitHub-hosted runners, with protocol-level test bots. **Not yet verified:** a real provider VPS reachable from the internet, an official Minecraft client with a genuine account, restore on a physically separate machine, and the one-line install against a live public URL (nothing is published). Do not rely on it for a world you care about until those are done.
 
 ## Install on your VPS
 
-**Tested on:** Ubuntu 24.04 LTS, x86_64, systemd, in a fresh KVM guest built from the official Ubuntu cloud image (3 GB RAM, 2 vCPU, 20 GB disk) and on GitHub-hosted `ubuntu-24.04` runners. The installer refuses other distributions unless you pass `--allow-untested-os`.
+**Once a public release exists** (the owner has not published one), installing is one command on the VPS:
 
-**You need:** root (sudo) on the VPS; at least 3 GB RAM (2.3 GB is the hard minimum the installer accepts) and 5 GB free disk; TCP ports **8443** (panel) and **25565** (Minecraft) free and open in your provider's firewall; outbound HTTPS to the Ubuntu archive, Docker Hub, PaperMC and Mojang. Docker is installed from Ubuntu's `docker.io` package if missing.
+```bash
+curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo sh
+```
 
-The repository is private, so get the release tarball `playkeeper-<version>-linux-amd64.tar.gz` (and its `.sha256`) from `make package` or from the `release` artifact of a CI run. Then:
+`get.sh` downloads `playkeeper-linux-amd64.tar.gz` and its `.sha256` from the release, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`; another release location is `PLAYKEEPER_BASE_URL=<url>` or `--base-url <url>`. So far this command has run only against a local copy of the release files, in a fresh KVM guest and on a CI runner; the public URL does not work while nothing is published.
+
+**Today, while the repository is private,** copy the release tarball to the VPS instead. Get `playkeeper-<version>-linux-amd64.tar.gz` and its `.sha256` from `make package` (in `dist/`) or from the `release` artifact of a CI run, then:
 
 ```bash
 scp playkeeper-<version>-linux-amd64.tar.gz* you@your-vps:        # on your computer
 sha256sum -c playkeeper-<version>-linux-amd64.tar.gz.sha256 && tar -xzf playkeeper-<version>-linux-amd64.tar.gz   # on the VPS
 sudo ./playkeeper-<version>-linux-amd64/install.sh
 ```
+
+**Tested on:** Ubuntu 24.04 LTS, x86_64, systemd, in fresh KVM guests built from the official Ubuntu cloud image (3 GB RAM, 2 vCPU, 20 GB disk) and on GitHub-hosted `ubuntu-24.04` runners. The installer refuses other distributions and CPUs unless you pass `--allow-untested-os`.
+
+**You need:** root (sudo) on the VPS; at least 3 GB RAM (2.3 GB is the hard minimum the installer accepts) and 5 GB free disk (3 GB minimum); TCP ports **8443** (panel) and **25565** (Minecraft) free and open in your provider's firewall; outbound HTTPS to the Ubuntu archive, Docker Hub, PaperMC and Mojang. Docker is installed from Ubuntu's `docker.io` package if missing; an existing Docker is used as it is. To check a server without changing it: `sudo ./playkeeper preflight`.
 
 The installer checks the server first (changing nothing), lists every change it will make and how to undo it, and asks before continuing. It never takes over an existing Minecraft, Crafty or panel install. When it finishes it prints:
 
@@ -43,11 +51,13 @@ On a stock Ubuntu 24.04 machine:
 sudo apt-get install -y git make curl ca-certificates xz-utils   # only if missing
 git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 ./scripts/setup.sh    # pinned Go and Node into .tools/, npm ci
-make check            # lint, typecheck, Go and web unit tests (what CI runs)
+make check            # lint, typecheck, Go, web and installer-script unit tests (what CI runs)
 make dev              # agent + panel locally at https://localhost:8443 (uses your Docker)
-make package          # release tarball in dist/
-make e2e-vm           # install/backup/second-host restore rehearsal in KVM guests
+make package          # release tarball, get.sh and the stable-named copy in dist/
+make e2e-vm           # the full KVM rehearsal: install, play, backup, restore, one-line install
 ```
+
+Run `make dev` as your normal user with access to Docker (in the `docker` group), not as root: the server container runs as the calling user. `./scripts/negative-controls.sh` removes each safety guard in turn (in a throwaway worktree) and checks that its test fails.
 
 Details and the PR checklist are in [CONTRIBUTING.md](CONTRIBUTING.md). Progress and evidence: [CURRENT_STATE.md](CURRENT_STATE.md). Security model and reporting: [SECURITY.md](SECURITY.md).
 

@@ -15,17 +15,18 @@ Thanks for helping make self-hosted game servers easier. **This repository is pr
 sudo apt-get install -y git make curl ca-certificates xz-utils   # only if missing
 git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 ./scripts/setup.sh     # pinned Go 1.27.1 + Node 24.21.0 into .tools/ (checksum-verified), npm ci
-make check             # gofmt, go vet, ESLint, TypeScript, Go and web unit tests
+make check             # gofmt, go vet, ESLint, TypeScript, Go, web and installer-script unit tests
 ```
 
 CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `make check`, `make lint-sh`, `make package`), then installs the packaged tarball on fresh runners for the end-to-end jobs.
 
 ## Run it
 
-- `make dev` — agent and panel in one process with state in `.dev/`, using your Docker daemon (your user must be able to reach `/var/run/docker.sock`). Open the printed `https://localhost:8443/setup#code=…` link. Without Docker the UI still runs and honestly reports Docker as unavailable.
+- `make dev` — agent and panel in one process with state in `.dev/`, using your Docker daemon. Run it as your normal user with access to `/var/run/docker.sock` (the `docker` group), not as root: the server container runs as the calling user. Open the printed `https://localhost:8443/setup#code=…` link. Without Docker the UI still runs and honestly reports Docker as unavailable.
 - `cd web && npm run dev` — Vite dev server on port 5173 that proxies `/api` to a running `make dev`.
-- `make package` — release tarball in `dist/` (static binary with the embedded UI, installer, notes).
+- `make package` — release tarball in `dist/` (static binary with the embedded UI, installer, notes), plus the one-line installer assets a release would carry (`get.sh` and the tarball under its stable name).
 - `make e2e-vm` — full rehearsal in fresh KVM guests (needs `/dev/kvm`, qemu, cloud-image-utils, sudo; see `scripts/e2e/vm-e2e.sh`).
+- `./scripts/negative-controls.sh` — removes each safety guard in turn in a throwaway worktree and checks that the test covering it fails.
 
 Protocol-bot tests need offline mode, which only the test harness enables (`PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1` on the agent). Never set it on a real server.
 
@@ -39,6 +40,8 @@ Protocol-bot tests need offline mode, which only the test harness enables (`PLAY
 | `internal/install` | preflight, installer with rollback, uninstall |
 | `internal/backup`, `internal/minecraft`, `internal/docker` | archive format, Minecraft protocols and log parsing, Docker client |
 | `web/` | React + TypeScript UI (embedded at build time) |
+| `packaging/` | `install.sh`, the one-line installer `get.sh`, their tests, install notes |
+| `scripts/` | toolchain setup, packaging, KVM rehearsal harness, negative controls |
 | `test/e2e/` | API client, scenario driver, protocol bot, Playwright specs |
 
 ## Design principles

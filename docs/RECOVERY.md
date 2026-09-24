@@ -24,7 +24,7 @@ Follow the install steps in the [README](../README.md#install-on-your-vps). Open
 1. **Check server** → Continue. **Minecraft EULA** → tick the box → Continue.
 2. **Your server** → choose **Restore a backup** → pick the `.tar.gz` file → **Upload and check**. Every file is checked against its SHA-256 before anything changes; a damaged or foreign file is refused with the reason.
 3. Read the preview: world name, Minecraft/Paper version, size, what will happen, and what is not included. Compare the archive SHA-256 with the one from step 1.
-4. Press **Restore this world**. Playkeeper downloads the pinned Paper build from PaperMC, verifies its checksum and starts the server.
+4. Press **Restore this world**. Playkeeper downloads the pinned Paper build from PaperMC, verifies its checksum and starts the server, so the new server needs outbound HTTPS to Docker Hub, PaperMC and Mojang while it restores.
 5. When **Your server is ready** appears, give players the new join address. They are still on the allowlist from the backup.
 
 To restore over an existing world instead (World → **Restore…** or upload a file there), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
@@ -36,4 +36,4 @@ To restore over an existing world instead (World → **Restore…** or upload a 
 - Server jar and libraries (downloaded again, checksum-verified).
 - The RCON password (each server generates its own).
 
-Worlds, `server.properties` (without secrets), the allowlist, operators, bans and the `config/` and `plugins/` folders are restored.
+Worlds, `server.properties` (without secrets), the allowlist, operators, bans and the `config/` and `plugins/` folders are restored. Paper's bStats usage statistics are switched off again before the restored server starts, whatever the archive says.

@@ -4,7 +4,7 @@ Checked 2026-09-24 against the pinned versions in `go.mod`, `web/package-lock.js
 
 ## Compiled into the `playkeeper` binary
 
-Regenerate with `go run github.com/google/go-licenses/v2@latest report ./cmd/playkeeper`.
+List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd64/playkeeper` (checked against the table below for the tested build), and the licences with `go run github.com/google/go-licenses/v2@latest report ./cmd/playkeeper`.
 
 | Module | Version | Licence |
 | --- | --- | --- |
