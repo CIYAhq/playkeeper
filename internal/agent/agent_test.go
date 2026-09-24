@@ -866,6 +866,60 @@ func TestConsoleBufferIsBounded(t *testing.T) {
 	}
 }
 
+// backupAndStage makes a backup of the current world and stages it for a
+// restore, returning the restore id and its confirmation phrase.
+func (e *agentEnv) backupAndStage() (string, string) {
+	e.t.Helper()
+	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	if code != 202 {
+		e.t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		e.t.Fatalf("backup op: %+v", op)
+	}
+	e.waitFor("online after backup", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+	list, _ := e.a.listBackups(`WHERE kind = 'manual'`)
+	code, preview := e.call("POST", "/v1/backups/"+list[0].ID+"/restore", map[string]any{"actor": "admin"})
+	if code != 200 {
+		e.t.Fatalf("stage: %d %v", code, preview)
+	}
+	return preview["id"].(string), preview["confirmPhrase"].(string)
+}
+
+func (e *agentEnv) applyRestore(id, phrase string) *api.Operation {
+	e.t.Helper()
+	code, out := e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": phrase, "actor": "admin"})
+	if code != 202 {
+		e.t.Fatalf("apply: %d %v", code, out)
+	}
+	return e.waitOp(out["id"].(string))
+}
+
+func TestRestoreNeedsAVerifiedRollbackArchive(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	// The live world changes, and one of its paths is longer than archive
+	// verification accepts, so its rollback archive is written but fails the check.
+	world := filepath.Join(e.cfg.ServerDataDir(), "world")
+	deep := filepath.Join(world, strings.Repeat("a", 250), strings.Repeat("b", 250), strings.Repeat("c", 250), strings.Repeat("d", 250))
+	if err := os.MkdirAll(deep, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "later.dat"), []byte("built after the backup"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	live := worldHash(t, e.cfg.ServerDataDir())
+	op := e.applyRestore(id, phrase)
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "verified rollback archive") {
+		t.Fatalf("a restore without a verified rollback archive must refuse: %+v", op)
+	}
+	if got := worldHash(t, e.cfg.ServerDataDir()); got != live {
+		t.Fatal("the live world was replaced although its rollback archive failed verification")
+	}
+	e.waitFor("previous world running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+}
+
 func worldHash(t *testing.T, dir string) string {
 	t.Helper()
 	h := sha256.New()

@@ -481,21 +481,21 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	}
 	start := a.now()
 	var rollback *api.Backup
+	wasRunning := false
 	if prev != nil {
+		_, wasRunning, _ = a.containerRunning(ctx)
 		if err := a.stopServer(ctx, h); err != nil {
 			return err
 		}
 		if st.preview.CurrentWorld.Exists {
 			h.phase("saving_rollback")
-			rb, err := a.createArchive(*prev, "rollback", actor, "Automatic rollback archive before restoring backup "+st.preview.SHA256[:12])
+			rb, err := a.saveVerifiedRollback(*prev, actor, "Automatic rollback archive before restoring backup "+st.preview.SHA256[:12])
 			if err != nil {
-				return fmt.Errorf("could not save a rollback archive, so nothing was replaced: %w", err)
+				a.startPrevious(ctx, h, prev, wasRunning)
+				return fmt.Errorf("could not save a verified rollback archive of the current world, so nothing was replaced: %w", err)
 			}
 			rollback = rb
 			h.set("rollbackBackupId", rb.ID)
-			if _, err := a.verifyBackup(rb.ID); err != nil {
-				return err
-			}
 		}
 	}
 	h.phase("replacing_world")
@@ -568,6 +568,34 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	a.recordEvent(a.now(), "world_restored", "", "playkeeper", detail)
 	a.audit(actor, "restore.applied", st.preview.SHA256[:12], "succeeded", detail)
 	return nil
+}
+
+// saveVerifiedRollback archives the current world and reads the archive back.
+// A restore replaces the world only once this copy is known to be good.
+func (a *Agent) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (*api.Backup, error) {
+	rb, err := a.createArchive(sc, "rollback", actor, note)
+	if err != nil {
+		return nil, err
+	}
+	vb, err := a.verifyBackup(rb.ID)
+	if err != nil {
+		return nil, err
+	}
+	if vb.Verified == nil || !*vb.Verified {
+		return nil, fmt.Errorf("archive %s failed verification: %s", vb.ID, vb.VerifyError)
+	}
+	return vb, nil
+}
+
+// startPrevious brings the previous world back up after a restore gave up
+// before replacing it, if it was running when the restore began.
+func (a *Agent) startPrevious(ctx context.Context, h *opHandle, prev *api.ServerConfig, wasRunning bool) {
+	if prev == nil || !wasRunning {
+		return
+	}
+	if err := a.startServer(ctx, h, *prev); err != nil {
+		a.log.Warn("could not start the previous world again", "err", err)
+	}
 }
 
 func chownTree(root string, uid, gid int) error {
