@@ -29,7 +29,7 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 
 No fonts, icon sets, images or CSS frameworks are bundled: the UI uses system fonts, and its logo, icons and styles are original to Playkeeper. No OpenAnalytics or Ghost source, CSS, assets or branding is used.
 
-Build and test tools (Vite, TypeScript, ESLint, Vitest, Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies only and are not shipped.
+Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies only and are not shipped.
 
 ## Downloaded at runtime on the user's server (not redistributed)
 
