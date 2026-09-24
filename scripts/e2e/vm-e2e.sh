@@ -420,7 +420,8 @@ lab_ssh "$B" 'for t in iptables ip6tables; do sudo $t -I OUTPUT 1 -p tcp -m mult
 pk "$B" call GET /api/preflight | python3 -c '
 import json, sys
 for c in json.loads(sys.stdin.read().split("\n", 1)[1])["checks"]:
-    print(f"[{c[\"status\"]}] {c[\"label\"]}: {c[\"detail\"]}" + (f" -> Fix: {c[\"fix\"]}" if c.get("fix") else ""))' | tee "$OUT/host-b-blocked-egress.txt"
+    fix = " -> Fix: " + c["fix"] if c.get("fix") else ""
+    print("[" + c["status"] + "] " + c["label"] + ": " + c["detail"] + fix)' | tee "$OUT/host-b-blocked-egress.txt"
 shoot "$B" state-blocked-egress-check /
 pk "$B" create --version paper-26.1.2 | grep -E '"status"|"error"|"hint"' | tee -a "$OUT/host-b-blocked-egress.txt" || true
 shoot "$B" state-blocked-egress-failed /
@@ -451,16 +452,20 @@ lab_shutdown b
 host_c() {
 phase "HOST C: one-line install (get.sh) from a local HTTP mirror of the release assets"
 site="$OUT/site"
-mkdir -p "$site/bad"
-cmp "$tarball" "$dist/playkeeper-linux-amd64.tar.gz"
-cp "$dist/get.sh" "$dist/playkeeper-linux-amd64.tar.gz" "$dist/playkeeper-linux-amd64.tar.gz.sha256" "$site/"
-cp "$tarball" "$site/bad/playkeeper-linux-amd64.tar.gz"
-printf '%064d  playkeeper-linux-amd64.tar.gz\n' 0 >"$site/bad/playkeeper-linux-amd64.tar.gz.sha256"
+asset=playkeeper-linux-amd64.tar.gz
+mkdir -p "$site/bad" "$site/tampered" "$site/missing"
+cmp "$tarball" "$dist/$asset"
+cp "$dist/get.sh" "$dist/$asset" "$dist/$asset.sha256" "$site/"
+cp "$tarball" "$site/bad/$asset" && printf '%064d  %s\n' 0 "$asset" >"$site/bad/$asset.sha256"
+cp "$dist/$asset" "$dist/$asset.sha256" "$site/tampered/" && printf 'x' | dd of="$site/tampered/$asset" bs=1 seek=4096 conv=notrunc status=none
+cp "$dist/$asset" "$site/missing/"
 {
   echo "mirror at $SITE serves:"
-  (cd "$site" && sha256sum get.sh playkeeper-linux-amd64.tar.gz && cat playkeeper-linux-amd64.tar.gz.sha256)
+  (cd "$site" && sha256sum get.sh "$asset" && cat "$asset.sha256")
   echo "the served tarball is byte-identical to the tested artifact $name.tar.gz"
   echo "$SITE/bad serves the same tarball with a wrong .sha256"
+  echo "$SITE/tampered serves the tarball with one byte changed and its original .sha256"
+  echo "$SITE/missing serves the tarball without a .sha256 (404)"
 } | tee "$OUT/host-c-oneliner-mirror.txt"
 python3 -m http.server 8765 --bind "$LAB_HOST" --directory "$site" >"$OUT/site-server.log" 2>&1 &
 pids+=($!)
@@ -476,8 +481,11 @@ refused() { # FILE COMMAND — runs COMMAND in guest C, which must fail
   echo "exit status: $st" | tee -a "$OUT/$1"
   [ "$st" != 0 ]
 }
-refused host-c-oneliner-refusals.txt "curl -fsSL $SITE/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE/bad PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes"
+for case in bad tampered missing; do
+  refused host-c-oneliner-refusals.txt "curl -fsSL $SITE/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE/$case PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes"
+done
 refused host-c-oneliner-refusals.txt "curl -fsSL $SITE/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE PLAYKEEPER_ALLOW_HTTP=1 sh"
+lab_ssh "$C" 'echo "get.sh temporary directories left in /tmp: $(ls -d /tmp/playkeeper-get.* 2>/dev/null | wc -l)"' | tee -a "$OUT/host-c-oneliner-refusals.txt"
 unchanged "$C" host-c-snapshot-0-before host-c-snapshot-1-after-refusals host-c-oneliner-refusals.txt
 oneliner="curl -fsSL $SITE/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE PLAYKEEPER_ALLOW_HTTP=1 sh"
 echo "\$ $oneliner   # in a terminal; the installer's question is answered with y" | tee "$OUT/host-c-install.txt"
