@@ -656,7 +656,10 @@ func (a *Agent) reconcile(ctx context.Context) {
 	desired := a.desired()
 	c, err := a.docker.ContainerInspect(ctx, containerName)
 	if err != nil {
-		if docker.IsNotFound(err) && desired == api.DesiredRunning && a.now().After(a.nextAutoRestart) {
+		a.mu.Lock()
+		due := len(a.crashes) < maxCrashes && a.now().After(a.nextAutoRestart)
+		a.mu.Unlock()
+		if docker.IsNotFound(err) && desired == api.DesiredRunning && due {
 			a.autoStart("recover")
 		}
 		return
@@ -750,9 +753,46 @@ func (a *Agent) autoStart(kind string) {
 		if err != nil || sc == nil {
 			return errNotCreated()
 		}
-		return a.startServer(ctx, h, *sc)
+		if err := a.startServer(ctx, h, *sc); err != nil {
+			a.autoStartFailed(err)
+			return err
+		}
+		return nil
 	})
 	if err == nil {
 		a.log.Info("automatic start", "kind", kind)
+	}
+}
+
+// autoStartFailed counts a failed automatic start like a crash, so a lasting
+// problem (a busy port, an unreachable registry) gets the same backoff and is
+// given up after maxCrashes attempts instead of being retried every tick.
+func (a *Agent) autoStartFailed(err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.now()
+	var recent []time.Time
+	for _, t := range a.crashes {
+		if now.Sub(t) < crashWindow {
+			recent = append(recent, t)
+		}
+	}
+	a.crashes = append(recent, now)
+	n := len(a.crashes)
+	if n >= maxCrashes {
+		a.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())
+		a.lastErrorHint = "Fix the cause, then press Start."
+		return
+	}
+	a.nextAutoRestart = now.Add(a.opts.CrashBackoff[min(n-1, len(a.opts.CrashBackoff)-1)])
+}
+
+// startFailed is called when a start the user asked for did not bring the
+// server up. The error's hint tells them to fix the cause and press Start, so
+// nothing retries in the background; a container that is still running (a
+// slow start that timed out) keeps the desired state running.
+func (a *Agent) startFailed(ctx context.Context) {
+	if _, running, err := a.containerRunning(ctx); err == nil && !running {
+		_ = a.setDesired(api.DesiredStopped)
 	}
 }

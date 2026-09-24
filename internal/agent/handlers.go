@@ -221,7 +221,11 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		if err := a.setDesired(api.DesiredRunning); err != nil {
 			return err
 		}
-		return a.startServer(ctx, h, sc)
+		if err := a.startServer(ctx, h, sc); err != nil {
+			a.startFailed(ctx)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		writeError(w, err)
@@ -276,7 +280,11 @@ func (a *Agent) hStart(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		cur, _ := a.serverConfig()
-		return a.startServer(ctx, h, *cur)
+		if err := a.startServer(ctx, h, *cur); err != nil {
+			a.startFailed(ctx)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		writeError(w, err)
@@ -356,7 +364,11 @@ func (a *Agent) hRestart(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		cur, _ := a.serverConfig()
-		return a.startServer(ctx, h, *cur)
+		if err := a.startServer(ctx, h, *cur); err != nil {
+			a.startFailed(ctx)
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		writeError(w, err)

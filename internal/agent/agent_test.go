@@ -654,6 +654,14 @@ func TestPortCollisionHasActionableError(t *testing.T) {
 	if n := e.fd.containerCount(containerName); n != 0 {
 		t.Fatalf("a container whose start failed must be discarded, found %d", n)
 	}
+	// The hint says to press Start after fixing the cause; nothing retries meanwhile.
+	time.Sleep(300 * time.Millisecond)
+	if d := e.a.desired(); d != api.DesiredStopped {
+		t.Fatalf("after a failed start the desired state must be stopped, got %s", d)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart')`); n != 0 {
+		t.Fatalf("a failed start was retried in the background %d times", n)
+	}
 	e.fd.mu.Lock()
 	e.fd.startErr = ""
 	e.fd.mu.Unlock()
@@ -663,6 +671,41 @@ func TestPortCollisionHasActionableError(t *testing.T) {
 	}
 	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
 		t.Fatalf("start after freeing the port: %+v", op)
+	}
+}
+
+func TestFailedAutomaticStartsBackOffAndGiveUp(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.fd.mu.Lock()
+	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+	e.fd.mu.Unlock()
+	// The container disappears while the server should be running, and every
+	// automatic start then fails.
+	if err := e.a.docker.ContainerRemove(context.Background(), containerName, true); err != nil {
+		t.Fatal(err)
+	}
+	failed := func() int {
+		return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'recover' AND status = 'failed'`)
+	}
+	e.waitFor("automatic starts to give up", func() bool { return failed() >= maxCrashes && !e.a.busy() })
+	time.Sleep(400 * time.Millisecond)
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'recover'`); n != maxCrashes {
+		t.Fatalf("want %d automatic attempts before giving up, got %d", maxCrashes, n)
+	}
+	st := e.status()
+	if st.Desired != api.DesiredRunning || !strings.Contains(st.LastError, "stopped trying to start") {
+		t.Fatalf("the divergence and the reason must stay visible: desired=%s lastError=%q", st.Desired, st.LastError)
+	}
+	e.fd.mu.Lock()
+	e.fd.startErr = ""
+	e.fd.mu.Unlock()
+	code, out := e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("start after fixing the cause: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("start after fixing the cause: %+v", op)
 	}
 }
 

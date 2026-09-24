@@ -287,6 +287,11 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		w.WriteHeader(204)
 	case r.Method == "DELETE" && action == "":
 		fd.mu.Lock()
+		if c.running { // like Docker's force removal: kill it and end its log streams
+			c.running, c.exitCode, c.finished = false, 137, time.Now().UTC()
+			close(c.wake)
+			c.wake = make(chan struct{})
+		}
 		delete(fd.byName, c.name)
 		delete(fd.byID, c.id)
 		fd.mu.Unlock()
