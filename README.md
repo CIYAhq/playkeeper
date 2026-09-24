@@ -74,7 +74,7 @@ The interface takes *visual inspiration* from [OpenAnalytics](https://github.com
 
 ## Licence
 
-Playkeeper is free software under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`); see [LICENSE](LICENSE) and [docs/LICENSING.md](docs/LICENSING.md).
+Playkeeper is free software under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`); see [LICENSE](LICENSE) and [docs/LICENSING.md](docs/LICENSING.md). The licences of the third-party code in the binary are reproduced in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES), which every release tarball includes.
 
 Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
 

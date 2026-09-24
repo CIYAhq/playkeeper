@@ -7,7 +7,7 @@ Playkeeper is free software under the **GNU Affero General Public License, versi
 - If you change Playkeeper and let other people use your changed version over a network, offer them the source code of your version (section 13 of the licence).
 - Contributions are accepted under the same licence; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Bundled third-party code keeps its own licence; [THIRD_PARTY.md](THIRD_PARTY.md) lists it.
+Bundled third-party code keeps its own licence. [THIRD_PARTY.md](THIRD_PARTY.md) lists it, and [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes, reproduces those licences in full.
 
 ## References
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Builds the release tarball: a static linux/amd64 binary with the embedded
-# UI, the installer wrapper, install notes and the licence. Output goes to
-# dist/, with the one-line installer assets a release carries: get.sh and a
-# copy of the tarball under the stable name it downloads
-# (playkeeper-linux-amd64.tar.gz).
+# UI, the installer wrapper, install notes, the licence and the third-party
+# notices. Output goes to dist/, with the one-line installer assets a release
+# carries: get.sh and a copy of the tarball under the stable name it
+# downloads (playkeeper-linux-amd64.tar.gz).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -29,10 +29,17 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X $pkg.Version=$version -X $pkg.Commit=$commit -X $pkg.Date=$date" \
   -o "$stage/playkeeper" ./cmd/playkeeper
 
+./scripts/third-party-notices.sh --check
+go version -m "$stage/playkeeper" | awk '$1 == "dep" {print $2, $3}' | while read -r mod ver; do
+  grep -qxF "$mod $ver (Go module)" THIRD_PARTY_NOTICES ||
+    { echo "THIRD_PARTY_NOTICES has no section for $mod $ver, which the binary links" >&2; exit 1; }
+done
+
 install -m 0755 packaging/install.sh "$stage/install.sh"
 install -m 0644 packaging/README-INSTALL.txt "$stage/README-INSTALL.txt"
 install -m 0644 docs/THIRD_PARTY.md "$stage/THIRD_PARTY.md"
 install -m 0644 LICENSE "$stage/LICENSE"
+install -m 0644 THIRD_PARTY_NOTICES "$stage/THIRD_PARTY_NOTICES"
 
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" \
   -C "$out" -czf "$out/$name.tar.gz" "$name"

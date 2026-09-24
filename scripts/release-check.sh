@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Checks a directory of release assets before anything is published: the
 # three files the one-line installer downloads, a .sha256 that matches and
-# names the stable tarball, the layout get.sh expects, the licence, the
-# version the binary reports, and get.sh pointing at the repository's latest
-# release.
+# names the stable tarball, the layout get.sh expects, the licence and
+# third-party notices, the version the binary reports, and get.sh pointing at
+# the repository's latest release.
 # Usage: scripts/release-check.sh DIR VERSION OWNER/REPO
 set -euo pipefail
 
@@ -38,9 +38,11 @@ done < <(tar -tzf "$asset")
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 tar -xzf "$asset" -C "$tmp"
-for f in playkeeper install.sh README-INSTALL.txt THIRD_PARTY.md LICENSE; do
+for f in playkeeper install.sh README-INSTALL.txt THIRD_PARTY.md LICENSE THIRD_PARTY_NOTICES; do
   [ -f "$tmp/$top/$f" ] || fail "$top/$f is missing"
 done
+grep -q '^Go standard library and runtime (go' "$tmp/$top/THIRD_PARTY_NOTICES" ||
+  fail "THIRD_PARTY_NOTICES does not have the Go standard library's licence"
 if [ ! -x "$tmp/$top/playkeeper" ] || [ ! -x "$tmp/$top/install.sh" ]; then
   fail "playkeeper and install.sh must be executable"
 fi

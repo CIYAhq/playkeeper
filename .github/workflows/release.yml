@@ -18,6 +18,8 @@ on:
       - scripts/release-*.sh
       - scripts/smoke-install.sh
       - scripts/build-site.sh
+      - scripts/third-party-notices.sh
+      - THIRD_PARTY_NOTICES
       - packaging/**
       - site/**
       - Makefile
