@@ -265,7 +265,9 @@ function StartStep({ opId, status }: { opId?: string; status: PageProps['status'
   const o = op.data
   const failed = o?.status === 'failed'
   const ready = status?.phase === 'online' && status.reachable && (!o || o.status === 'succeeded')
-  const phase = o?.status === 'running' ? o.phase : status?.phase ?? ''
+  // A failed operation keeps the phase it failed in; by then the server's own
+  // phase has moved on, usually to "stopped", which is not one of the steps.
+  const phase = o && o.status !== 'succeeded' ? o.phase : status?.phase ?? ''
   const active = stepIndex(phase)
   const elapsed = o ? ((o.finishedAt ? new Date(o.finishedAt).getTime() : now) - new Date(o.startedAt).getTime()) / 1000 : 0
   const address = joinAddress(window.location.hostname, status?.gamePort ?? 25565)
@@ -320,13 +322,13 @@ function StartStep({ opId, status }: { opId?: string; status: PageProps['status'
       <ul className="checklist" aria-live="polite">
         {startSteps.map((s, i) => {
           const done = active > i || (o?.status === 'succeeded' && i < startSteps.length - 1) || (ready && i === startSteps.length - 1)
-          const cls = done ? 'done' : failed && i === Math.max(0, active) ? 'failed' : i === active ? 'active' : ''
+          const cls = done ? 'done' : failed && i === active ? 'failed' : i === active ? 'active' : ''
           return (
             <li key={s.label} className={cls}>
               <span className="mark" aria-hidden="true">{done ? '✓' : cls === 'failed' ? '✕' : i === active ? <span className="spinner" /> : i + 1}</span>
               <div>
                 {s.label}
-                {i === active && status?.phaseDetail ? <span className="detail"> — {status.phaseDetail}</span> : null}
+                {i === active && !failed && status?.phaseDetail ? <span className="detail"> — {status.phaseDetail}</span> : null}
               </div>
             </li>
           )
