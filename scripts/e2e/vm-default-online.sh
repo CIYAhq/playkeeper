@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Shipped-defaults check in a fresh KVM guest: install WITHOUT the test-harness
-# flag, create a server through the API, and confirm that online mode is on and
-# that a non-genuine (offline-mode) client is refused even when allowlisted.
+# flag, create a server through the API, and confirm that online mode is on,
+# Paper's bStats telemetry is off, and a non-genuine (offline-mode) client is
+# refused by Mojang authentication. The bot name is not a Mojang account.
 # Usage: scripts/e2e/vm-default-online.sh [path/to/playkeeper-*.tar.gz]
 # Remote commands are single-quoted on purpose so they expand in the guest.
 # shellcheck disable=SC2016
@@ -32,13 +33,17 @@ pk setup "$code" admin "$password" >/dev/null
 pk create --version paper-26.1.2 | tail -3
 pk wait-online --timeout 600 | grep -E '"phase"|"offlineModeTest"'
 echo "## shipped defaults on a fresh install (no test-harness flag)"
-lab_ssh "$D" 'sudo grep -E "^(online-mode|white-list|enforce-whitelist|log-ips)=" /var/lib/playkeeper/server/data/server.properties; sudo docker inspect playkeeper-minecraft --format "{{range .Config.Env}}{{println .}}{{end}}" | grep -E "^ONLINE_MODE="'
-pk invite PkBuilder | grep message
-echo "## an allowlisted offline-mode (non-genuine) client tries to join"
-if node "$root/test/e2e/bot/bot.js" visit --host "$D" --port 25565 --name PkBuilder --stay 5; then
+lab_ssh "$D" 'sudo grep -E "^(online-mode|white-list|enforce-whitelist|log-ips)=" /var/lib/playkeeper/server/data/server.properties; sudo docker inspect playkeeper-minecraft --format "{{range .Config.Env}}{{println .}}{{end}}" | grep -E "^(ONLINE_MODE|VERSION|SKIP_DOWNLOAD_DEFAULTS)="'
+echo "## Paper telemetry (bStats) and third-party config downloads"
+lab_ssh "$D" 'sudo grep -E "^enabled:" /var/lib/playkeeper/server/data/plugins/bStats/config.yml'
+pk call GET '/api/server/logs?limit=2000' | grep -c 'raw.githubusercontent.com' | sed 's/^/console lines mentioning raw.githubusercontent.com: /' || true
+echo "## a non-genuine (offline-mode) client tries to join; Mojang authentication runs before the allowlist check"
+if node "$root/test/e2e/bot/bot.js" visit --host "$D" --port 25565 --name PkBotNoAuth --stay 5; then
   echo "UNEXPECTED: the offline-mode client joined"
   exit 1
 fi
 echo "refused as expected"
-lab_ssh "$D" 'sudo docker logs playkeeper-minecraft 2>&1 | grep -E "PkBuilder" | tail -3'
-pk call GET '/api/events?limit=10' | grep -c '"kind": "join"' | sed 's/^/join events recorded: /'
+lab_ssh "$D" 'sudo docker logs playkeeper-minecraft 2>&1 | grep -E "PkBotNoAuth" | tail -3'
+pk call GET '/api/events?limit=10' | grep -c '"kind": "join"' | sed 's/^/join events recorded: /' || true
+echo "## root CLI on the installed host"
+lab_ssh "$D" 'sudo playkeeper status; sudo playkeeper setup-code || true; playkeeper version'
