@@ -19,7 +19,7 @@ const stepNames: { id: Step; label: string }[] = [
   { id: 'start', label: 'Start' },
 ]
 
-export function Onboarding({ status, statusError, refresh }: PageProps) {
+export function Onboarding({ status, statusError, refresh, me }: PageProps) {
   const [step, setStep] = useState<Step>()
   const [eula, setEula] = useState(false)
   const [opId, setOpId] = useState<string>()
@@ -62,7 +62,7 @@ export function Onboarding({ status, statusError, refresh }: PageProps) {
         )}
         {step === 'start' && <StartStep opId={opId} status={status} />}
       </main>
-      <Footer />
+      <Footer version={me.version} />
     </div>
   )
 }

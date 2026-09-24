@@ -106,7 +106,7 @@ shoot() { # IP NAME routes...
   (cd "$UI" && PK_URL="https://$ip:8443" PK_SHOTS="$OUT/screenshots" node shoot.mjs "$n" "$@" >/dev/null)
 }
 
-########################################################################
+host_a() {
 phase "HOST A: boot a fresh Ubuntu 24.04 guest"
 lab_boot a 10 3072
 host_facts "$A" host-a-facts.txt
@@ -230,7 +230,7 @@ lab_ssh "$A" 'nohup python3 -m http.server 25565 </dev/null >/dev/null 2>&1 & ec
 sleep 2
 pk "$A" "$OUT/state-gt.json" action start --wait | tee "$OUT/host-a-port-collision.txt" || true
 PK_PASSWORD="$PK_PASSWORD" shoot "$A" state-port-collision /
-lab_ssh "$A" "pkill -f 'http.server 25565'" || true
+lab_ssh "$A" "pkill -f 'http[.]server 25565'" || true
 pk "$A" "$OUT/state-gt.json" action start --wait >/dev/null
 wait_online "$A"
 
@@ -290,8 +290,9 @@ print("after reinstall, marker check:", c.ok("POST", "/api/server/command", {"co
 c.ok("POST", "/api/server/command", {"command": f"forceload remove {g[0]} {g[2]}"})
 PY
 lab_shutdown a
+}
 
-########################################################################
+host_b() {
 phase "HOST B: collision fixtures refuse, coexistence leaves them untouched"
 lab_boot b 11 3072
 host_facts "$B" host-b-facts.txt
@@ -309,12 +310,13 @@ sudo sha256sum /etc/systemd/system/minecraft.service /srv/minecraft/world/level.
 EOF
 lab_ssh "$B" "cd $name && sudo ./playkeeper preflight" | tee "$OUT/host-b-preflight-conflicts.txt" || true
 lab_ssh "$B" "cd $name && sudo ./install.sh --yes" | tee "$OUT/host-b-install-refused.txt" || true
-lab_ssh "$B" "pkill -f 'http.server 25565'; cd $name && sudo ./install.sh --yes --allow-existing-minecraft" | tee "$OUT/host-b-install-coexist.txt"
+lab_ssh "$B" "pkill -f 'http[.]server 25565'; cd $name && sudo ./install.sh --yes --allow-existing-minecraft" | tee "$OUT/host-b-install-coexist.txt"
 lab_ssh "$B" 'sudo playkeeper uninstall --yes' | tee "$OUT/host-b-uninstall.txt"
 lab_ssh "$B" 'sudo sha256sum -c /tmp/fixtures.sha256 && systemctl is-active minecraft.service && curl -s -o /dev/null -w "fixture still serving on 25570: %{http_code}\n" http://127.0.0.1:25570/' | tee -a "$OUT/host-b-fixtures.txt"
 lab_shutdown b
+}
 
-########################################################################
+host_c() {
 phase "HOST C: clean second host restores host A's archive in the browser"
 lab_boot c 12 3072
 host_facts "$C" host-c-facts.txt
@@ -336,5 +338,11 @@ pk "$C" "$OUT/state-c.json" login admin "$PK_PASSWORD" >/dev/null
 pk "$C" "$OUT/state-c.json" call GET /api/audit >"$OUT/host-c-audit.json"
 PK_PASSWORD="$PK_PASSWORD" shoot "$C" host-c-after-restore / /world
 lab_shutdown c
+}
 
+# HOSTS selects which guests to run; host C reuses host A's archive and marker
+# from $OUT/host-a, so "HOSTS='b c' OUT=<earlier run>" resumes a run.
+for h in ${HOSTS:-a b c}; do
+  "host_$h"
+done
 phase "DONE: evidence in $OUT"

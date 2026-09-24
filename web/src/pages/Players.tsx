@@ -27,7 +27,8 @@ const reasonText: Record<string, string> = {
 }
 
 export function PlayersPage({ status }: PageProps) {
-  const [range, setRange] = useState<Range>(() => defaultRange(status?.collectingSince))
+  const [chosen, setRange] = useState<Range>()
+  const range: Range = chosen ?? defaultRange(status?.collectingSince)
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
   const metrics = usePoll(() => get<MetricsResponse>(`/api/metrics?range=${range}`), 30_000, range)
   const sessions = usePoll(() => get<SessionsResponse>(`/api/players/sessions?range=${range}`), 15_000, range)

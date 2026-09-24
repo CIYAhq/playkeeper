@@ -14,7 +14,9 @@ const rangeText: Record<Range, string> = { '1h': 'the last hour', '24h': 'the la
 const bucketText: Record<Range, string> = { '1h': '1-minute', '24h': '10-minute', '7d': '1-hour' }
 
 export function Overview({ status, statusError, refresh }: PageProps) {
-  const [range, setRange] = useState<Range>(() => (status?.collectingSince && Date.now() - new Date(status.collectingSince).getTime() < 3 * 3600_000 ? '1h' : '24h'))
+  const [chosen, setRange] = useState<Range>()
+  // Until the user picks a range, new installs show the last hour.
+  const range: Range = chosen ?? (status?.collectingSince && Date.now() - new Date(status.collectingSince).getTime() < 3 * 3600_000 ? '1h' : '24h')
   const metrics = usePoll(() => get<MetricsResponse>(`/api/metrics?range=${range}`), 30_000, range)
   const [actionError, setActionError] = useState<ApiError>()
   const [pending, setPending] = useState(false)
@@ -128,7 +130,7 @@ export function Overview({ status, statusError, refresh }: PageProps) {
               </p>
             </>
           ) : (
-            <Empty title="No player data">{online ? 'Waiting for the first sample.' : 'The server is not running.'}</Empty>
+            <Empty title="No player data">{online ? 'Waiting for the first sample.' : ['stopped', 'crashed', 'not_created', 'docker_unavailable'].includes(status.phase) ? 'The server is not running.' : 'Shown once the server is online.'}</Empty>
           )}
         </div>
       </section>
