@@ -1,0 +1,33 @@
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Dependencies/build
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.cache/
+.tmp/
+
+# Secrets, runtime, worlds and backups
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+world/
+worlds/
+backups/
+logs/
+*.log
+*.tar
+*.tar.gz
+*.zip
