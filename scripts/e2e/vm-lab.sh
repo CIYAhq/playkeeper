@@ -8,6 +8,7 @@
 
 LAB_DIR=${LAB_DIR:-/tmp/pk-lab}
 LAB_IMAGE_URL=${LAB_IMAGE_URL:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}
+LAB_JAMMY_URL=${LAB_JAMMY_URL:-https://cloud-images.ubuntu.com/minimal/releases/jammy/release/ubuntu-22.04-minimal-cloudimg-amd64.img}
 LAB_BRIDGE=pkbr0
 LAB_NET=198.51.100
 LAB_KEY="$LAB_DIR/id_ed25519"
@@ -15,17 +16,27 @@ LAB_KEY="$LAB_DIR/id_ed25519"
 lab_log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 
 lab_image() {
-  mkdir -p "$LAB_DIR"
-  if [ ! -f "$LAB_DIR/base.img" ]; then
-    lab_log "downloading Ubuntu 24.04 cloud image"
-    curl -fsSL -o "$LAB_DIR/base.img.part" "$LAB_IMAGE_URL"
-    curl -fsSL -o "$LAB_DIR/SHA256SUMS" "$(dirname "$LAB_IMAGE_URL")/SHA256SUMS"
-    want=$(awk '$2 == "*noble-server-cloudimg-amd64.img" || $2 == "noble-server-cloudimg-amd64.img" {print $1}' "$LAB_DIR/SHA256SUMS")
-    got=$(sha256sum "$LAB_DIR/base.img.part" | awk '{print $1}')
-    [ "$want" = "$got" ] || { lab_log "cloud image checksum mismatch"; return 1; }
-    mv "$LAB_DIR/base.img.part" "$LAB_DIR/base.img"
-  fi
+  lab_image_named base "$LAB_IMAGE_URL"
   [ -f "$LAB_KEY" ] || ssh-keygen -q -t ed25519 -N '' -f "$LAB_KEY"
+}
+
+# lab_image_named NAME URL — downloads a cloud image to $LAB_DIR/NAME.img once,
+# verified against the SHA256SUMS published next to it.
+lab_image_named() {
+  local name=$1 url=$2 file want got
+  file=$(basename "$url")
+  mkdir -p "$LAB_DIR"
+  [ -f "$LAB_DIR/$name.img" ] && return 0
+  lab_log "downloading $file"
+  curl -fsSL -o "$LAB_DIR/$name.img.part" "$url"
+  curl -fsSL -o "$LAB_DIR/$name.SHA256SUMS" "$(dirname "$url")/SHA256SUMS"
+  want=$(awk -v f="$file" '$2 == "*" f || $2 == f {print $1}' "$LAB_DIR/$name.SHA256SUMS")
+  got=$(sha256sum "$LAB_DIR/$name.img.part" | awk '{print $1}')
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    lab_log "cloud image checksum mismatch for $file"
+    return 1
+  fi
+  mv "$LAB_DIR/$name.img.part" "$LAB_DIR/$name.img"
 }
 
 lab_network() {
@@ -46,13 +57,14 @@ lab_network() {
   fi
 }
 
-# lab_boot NAME OCTET MEMORY_MB — boots a fresh guest at $LAB_NET.OCTET.
+# lab_boot NAME OCTET MEMORY_MB — boots a fresh guest at $LAB_NET.OCTET from
+# $LAB_BASE_IMAGE (default: the Ubuntu 24.04 image).
 lab_boot() {
   local name=$1 octet=$2 mem=${3:-3072} dir="$LAB_DIR/$1" dns
   dns=$(awk '/^nameserver/ {print $2; exit}' /etc/resolv.conf)
   rm -rf "$dir"
   mkdir -p "$dir"
-  qemu-img create -q -f qcow2 -F qcow2 -b "$LAB_DIR/base.img" "$dir/disk.qcow2" 20G
+  qemu-img create -q -f qcow2 -F qcow2 -b "${LAB_BASE_IMAGE:-$LAB_DIR/base.img}" "$dir/disk.qcow2" 20G
   cat >"$dir/user-data" <<EOF
 #cloud-config
 hostname: pk-$name
