@@ -1,0 +1,111 @@
+// Package agentclient talks to the local agent over its Unix socket. It is
+// used by the web panel (as the panel service user) and by root CLI commands.
+package agentclient
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/api"
+)
+
+type Client struct {
+	socket string
+	hc     *http.Client
+	stream *http.Client
+}
+
+func New(socket string) *Client {
+	dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "unix", socket)
+	}
+	return &Client{
+		socket: socket,
+		hc:     &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{DialContext: dial, MaxIdleConns: 8}},
+		stream: &http.Client{Transport: &http.Transport{DialContext: dial, DisableKeepAlives: true}},
+	}
+}
+
+// Error is a non-2xx agent response, or ErrUnavailable when the socket is down.
+type Error struct {
+	Status int
+	Body   api.Error
+}
+
+func (e *Error) Error() string { return e.Body.Error }
+
+var ErrUnavailable = errors.New("the Playkeeper agent is not reachable")
+
+// Do sends a JSON request and decodes a JSON response into out (if non-nil).
+// It returns the HTTP status for successful calls.
+func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body, out any) (int, error) {
+	var r io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return 0, err
+		}
+		r = bytes.NewReader(b)
+	}
+	resp, err := c.Raw(ctx, method, path, q, r, map[string]string{"Content-Type": "application/json"}, false)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return resp.StatusCode, decodeErr(resp)
+	}
+	if out != nil && resp.StatusCode != http.StatusNoContent {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return resp.StatusCode, err
+		}
+	}
+	return resp.StatusCode, nil
+}
+
+// Raw performs a request and returns the live response (caller closes it).
+// stream selects a client without an overall timeout (uploads, downloads).
+func (c *Client) Raw(ctx context.Context, method, path string, q url.Values, body io.Reader, headers map[string]string, stream bool) (*http.Response, error) {
+	u := "http://agent" + path
+	if len(q) > 0 {
+		u += "?" + q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	hc := c.hc
+	if stream {
+		hc = c.stream
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		}
+		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	return resp, nil
+}
+
+func decodeErr(resp *http.Response) error {
+	e := &Error{Status: resp.StatusCode}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if json.Unmarshal(b, &e.Body) != nil || e.Body.Error == "" {
+		e.Body = api.Error{Error: fmt.Sprintf("agent returned HTTP %d", resp.StatusCode), Code: api.CodeInternal}
+	}
+	return e
+}
