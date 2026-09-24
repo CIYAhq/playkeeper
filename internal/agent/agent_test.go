@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1102,6 +1103,49 @@ func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
 	e.start()
 	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
 		t.Fatalf("stages from before the agent started were not pruned: %v", left)
+	}
+}
+
+// When a restore fails after the swap and putting the previous world back
+// fails too, the live directory is missing: nothing may be deleted. The
+// restored copy stays in the stage, the previous world in its aside copy,
+// and the error names both.
+func TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails(t *testing.T) {
+	for _, step := range []string{"settings save", "moving the restored world into place"} {
+		t.Run(step, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			id, phrase := e.backupAndStage()
+			live, staged := e.cfg.ServerDataDir(), filepath.Join(e.cfg.StagingDir(), id, "data")
+			if step == "settings save" {
+				for _, ev := range []string{"INSERT", "UPDATE"} {
+					if _, err := e.a.db.Exec(`CREATE TRIGGER fail_config_` + ev + ` BEFORE ` + ev + ` ON kv WHEN NEW.key = 'server_config' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			renameDir = func(from, to string) error {
+				if to == live && (strings.HasPrefix(from, live+".replaced-") || step != "settings save" && from == staged) {
+					return errors.New("injected rename failure")
+				}
+				return os.Rename(from, to)
+			}
+			t.Cleanup(func() { renameDir = os.Rename })
+			op := e.applyRestore(id, phrase)
+			if _, err := os.Stat(filepath.Join(staged, "world")); err != nil {
+				t.Fatalf("the restored copy in the stage was deleted: %+v", op)
+			}
+			asides, _ := filepath.Glob(live + ".replaced-*")
+			if len(asides) != 1 {
+				t.Fatalf("the previous world's aside copy is gone: %v", asides)
+			}
+			if _, err := os.Stat(filepath.Join(asides[0], "world")); err != nil {
+				t.Fatal("the previous world's aside copy is empty")
+			}
+			if op.Status != api.OpFailed || !strings.Contains(op.Error, asides[0]) || !strings.Contains(op.Error, staged) {
+				t.Fatalf("the error must name the previous world's copy and the restored copy: %+v", op)
+			}
+		})
 	}
 }
 
