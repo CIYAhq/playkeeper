@@ -899,14 +899,14 @@ func TestRestoreNeedsAVerifiedRollbackArchive(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	id, phrase := e.backupAndStage()
-	// The live world changes, and one of its paths is longer than archive
-	// verification accepts, so its rollback archive is written but fails the check.
 	world := filepath.Join(e.cfg.ServerDataDir(), "world")
-	deep := filepath.Join(world, strings.Repeat("a", 250), strings.Repeat("b", 250), strings.Repeat("c", 250), strings.Repeat("d", 250))
-	if err := os.MkdirAll(deep, 0o750); err != nil {
+	if err := os.WriteFile(filepath.Join(world, "later.dat"), []byte("built after the backup"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(deep, "later.dat"), []byte("built after the backup"), 0o640); err != nil {
+	// The rollback archive's recorded checksum stops matching its file, as if
+	// the disk had changed it, so the archive is written but fails its check.
+	if _, err := e.a.db.Exec(`CREATE TRIGGER damaged_rollback AFTER INSERT ON backups WHEN NEW.kind = 'rollback'
+		BEGIN UPDATE backups SET sha256 = '` + strings.Repeat("0", 64) + `' WHERE id = NEW.id; END`); err != nil {
 		t.Fatal(err)
 	}
 	live := worldHash(t, e.cfg.ServerDataDir())
@@ -945,6 +945,36 @@ func TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved(t *testing.T) {
 		t.Fatalf("the moved-aside world was left behind: %v", left)
 	}
 	e.waitFor("previous world running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+}
+
+// A world a restore would refuse is not backed up at all: the backup fails
+// before anything is written, says why, and the server comes back.
+func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	world := filepath.Join(e.cfg.ServerDataDir(), "world")
+	deep := filepath.Join(world, strings.Repeat("a", 250), strings.Repeat("b", 250), strings.Repeat("c", 250), strings.Repeat("d", 250))
+	if err := os.MkdirAll(deep, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "a restore would refuse it") || !strings.Contains(op.Error, "entry name too long") {
+		t.Fatalf("backing up a world a restore would refuse must fail and say why: %+v", op)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
+		t.Fatalf("%d backup rows recorded for a refused backup", n)
+	}
+	if files, _ := os.ReadDir(e.cfg.BackupsDir()); len(files) != 0 {
+		t.Fatalf("a refused backup left files: %v", files)
+	}
+	e.waitFor("server running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
 }
 
 func worldHash(t *testing.T, dir string) string {

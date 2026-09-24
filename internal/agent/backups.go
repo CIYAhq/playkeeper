@@ -82,7 +82,7 @@ func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*a
 		},
 		Consistency: "server stopped during archive",
 	}
-	m, err := backup.Create(io.MultiWriter(f, h), a.cfg.ServerDataDir(), meta)
+	m, err := backup.Create(io.MultiWriter(f, h), a.cfg.ServerDataDir(), meta, backup.DefaultLimits())
 	if err == nil {
 		err = f.Sync()
 	}

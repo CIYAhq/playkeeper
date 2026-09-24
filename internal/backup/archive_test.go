@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func fixtureDataDir(t *testing.T) string {
 func createArchive(t *testing.T, dataDir string) ([]byte, Manifest) {
 	t.Helper()
 	var buf bytes.Buffer
-	m, err := Create(&buf, dataDir, Manifest{CreatedAt: time.Now().UTC(), MinecraftVersion: "26.1.2", VersionID: "paper-26.1.2", PaperBuild: 74})
+	m, err := Create(&buf, dataDir, Manifest{CreatedAt: time.Now().UTC(), MinecraftVersion: "26.1.2", VersionID: "paper-26.1.2", PaperBuild: 74}, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +118,73 @@ func TestRoundTripAllowlistAndSecrets(t *testing.T) {
 func TestCreateRefusesMissingWorld(t *testing.T) {
 	d := t.TempDir()
 	write(t, d, "server.properties", "level-name=world\n")
-	if _, err := Create(&bytes.Buffer{}, d, Manifest{}); err == nil {
+	if _, err := Create(&bytes.Buffer{}, d, Manifest{}, DefaultLimits()); err == nil {
 		t.Fatal("archiving a data dir without a world must fail")
+	}
+}
+
+// A world that can be backed up must be one a restore accepts, so Create
+// refuses the file names Verify refuses instead of writing a dead archive.
+func TestCreateRefusesNamesARestoreRefuses(t *testing.T) {
+	long := "world/" + strings.Repeat("a", 250) + "/" + strings.Repeat("b", 250) + "/" + strings.Repeat("c", 250) + "/" + strings.Repeat("d", 250) + "/r.mca"
+	for name, rel := range map[string]string{
+		"path over the length limit": long,
+		"control character":          "world/region/r.0.0\n.mca",
+		"backslash":                  `world/region\r.0.0.mca`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := fixtureDataDir(t)
+			write(t, d, rel, "data")
+			var buf bytes.Buffer
+			_, err := Create(&buf, d, Manifest{CreatedAt: time.Now().UTC()}, DefaultLimits())
+			if err == nil {
+				_, verr := Verify(bytes.NewReader(buf.Bytes()), DefaultLimits())
+				t.Fatalf("Create wrote an archive that a restore refuses (Verify: %v)", verr)
+			}
+			if !strings.Contains(err.Error(), "a restore would refuse it") {
+				t.Fatalf("the error does not say why the world cannot be backed up: %v", err)
+			}
+		})
+	}
+}
+
+// At every limit Create and Verify decide the same way about the same world:
+// both accept it when the limit is exactly met and both refuse one below.
+func TestCreateAndVerifyAgreeOnLimits(t *testing.T) {
+	d := fixtureDataDir(t)
+	meta := Manifest{CreatedAt: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC), MinecraftVersion: "26.1.2"}
+	var buf bytes.Buffer
+	m, err := Create(&buf, d, meta, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	arch := buf.Bytes()
+	manifest, _ := json.MarshalIndent(m, "", "  ")
+	exact := DefaultLimits()
+	exact.MaxFiles, exact.MaxTotalBytes, exact.MaxFileBytes, exact.MaxPathLen, exact.MaxManifestBytes = len(m.Files), m.TotalBytes, 0, 0, len(manifest)
+	for _, f := range m.Files {
+		exact.MaxFileBytes = max(exact.MaxFileBytes, f.Size)
+		exact.MaxPathLen = max(exact.MaxPathLen, len(dataPrefix)+len(f.Path))
+	}
+	agree := func(name string, lim Limits, accept bool) {
+		t.Helper()
+		_, verr := Verify(bytes.NewReader(arch), lim)
+		_, cerr := Create(io.Discard, d, meta, lim)
+		if (verr == nil) != accept || (cerr == nil) != accept {
+			t.Errorf("%s: Verify error %v, Create error %v; want both to accept=%v", name, verr, cerr, accept)
+		}
+	}
+	agree("every limit exactly met", exact, true)
+	for name, tighten := range map[string]func(*Limits){
+		"file count":    func(l *Limits) { l.MaxFiles-- },
+		"total size":    func(l *Limits) { l.MaxTotalBytes-- },
+		"file size":     func(l *Limits) { l.MaxFileBytes-- },
+		"path length":   func(l *Limits) { l.MaxPathLen-- },
+		"manifest size": func(l *Limits) { l.MaxManifestBytes-- },
+	} {
+		lim := exact
+		tighten(&lim)
+		agree(name+" one below the world", lim, false)
 	}
 }
 

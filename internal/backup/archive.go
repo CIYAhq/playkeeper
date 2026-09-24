@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,16 +57,47 @@ type Manifest struct {
 	TotalBytes        int64             `json:"totalBytes"`
 }
 
-// Limits bound what an (untrusted) archive may make the agent write.
+// Limits bound what an (untrusted) archive may make the agent write. Create
+// enforces the same limits, so it never writes an archive a restore refuses.
 type Limits struct {
-	MaxFiles      int
-	MaxTotalBytes int64
-	MaxFileBytes  int64
-	MaxPathLen    int
+	MaxFiles         int
+	MaxTotalBytes    int64
+	MaxFileBytes     int64
+	MaxPathLen       int
+	MaxManifestBytes int
 }
 
 func DefaultLimits() Limits {
-	return Limits{MaxFiles: 200_000, MaxTotalBytes: 64 << 30, MaxFileBytes: 16 << 30, MaxPathLen: 1024}
+	return Limits{MaxFiles: 200_000, MaxTotalBytes: 64 << 30, MaxFileBytes: 16 << 30, MaxPathLen: 1024, MaxManifestBytes: 64 << 20}
+}
+
+// fileTally applies the rules a restore enforces on each data file and on
+// their running count and size. walk and Create share it so they agree.
+type fileTally struct {
+	lim   Limits
+	files int
+	total int64
+}
+
+func (t *fileTally) add(rel string, size int64) error {
+	if n := len(dataPrefix) + len(rel); n > t.lim.MaxPathLen {
+		return fmt.Errorf("entry name too long (%d bytes, limit %d)", n, t.lim.MaxPathLen)
+	}
+	if !validRel(rel) {
+		return fmt.Errorf("entry %q has an unsafe path", rel)
+	}
+	if size < 0 || size > t.lim.MaxFileBytes {
+		return fmt.Errorf("entry %q is too large (%d bytes, limit %d)", rel, size, t.lim.MaxFileBytes)
+	}
+	t.files++
+	if t.files > t.lim.MaxFiles {
+		return fmt.Errorf("archive has more than %d files", t.lim.MaxFiles)
+	}
+	t.total += size
+	if t.total > t.lim.MaxTotalBytes {
+		return fmt.Errorf("archive expands beyond the %d byte limit", t.lim.MaxTotalBytes)
+	}
+	return nil
 }
 
 // topFiles and topDirs are the only server files Playkeeper archives. Server
@@ -100,8 +132,9 @@ func LevelName(dataDir string) string {
 }
 
 // Create archives the allowlisted contents of dataDir to w and returns the
-// manifest written as the final entry. meta supplies descriptive fields.
-func Create(w io.Writer, dataDir string, meta Manifest) (Manifest, error) {
+// manifest written as the final entry. meta supplies descriptive fields. A
+// file or world that lim would make a restore refuse is an error.
+func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, error) {
 	level := LevelName(dataDir)
 	meta.Format = FormatVersion
 	meta.LevelName = level
@@ -151,10 +184,11 @@ func Create(w io.Writer, dataDir string, meta Manifest) (Manifest, error) {
 
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
+	tally := fileTally{lim: lim}
 	for _, rel := range rels {
-		entry, err := writeFile(tw, dataDir, rel)
+		entry, err := writeFile(tw, dataDir, rel, &tally)
 		if err != nil {
-			return meta, fmt.Errorf("archive %s: %w", rel, err)
+			return meta, fmt.Errorf("cannot back up %s: %w", shortQuote(rel), err)
 		}
 		meta.Files = append(meta.Files, entry)
 		meta.TotalBytes += entry.Size
@@ -162,6 +196,9 @@ func Create(w io.Writer, dataDir string, meta Manifest) (Manifest, error) {
 	mb, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return meta, err
+	}
+	if len(mb) > lim.MaxManifestBytes {
+		return meta, fmt.Errorf("cannot back up this world: its manifest would be %d bytes and a restore would refuse it (limit %d)", len(mb), lim.MaxManifestBytes)
 	}
 	hdr := &tar.Header{Name: manifestName, Mode: 0o644, Size: int64(len(mb)), ModTime: meta.CreatedAt, Typeflag: tar.TypeReg, Format: tar.FormatPAX}
 	if err := tw.WriteHeader(hdr); err != nil {
@@ -185,7 +222,16 @@ func containsPrefix(list []string, p string) bool {
 	return false
 }
 
-func writeFile(tw *tar.Writer, dataDir, rel string) (FileEntry, error) {
+// shortQuote quotes a path for an error message, eliding the middle of a very
+// long one.
+func shortQuote(p string) string {
+	if len(p) > 120 {
+		p = p[:60] + "…" + p[len(p)-50:]
+	}
+	return strconv.Quote(p)
+}
+
+func writeFile(tw *tar.Writer, dataDir, rel string, tally *fileTally) (FileEntry, error) {
 	full := filepath.Join(dataDir, filepath.FromSlash(rel))
 	var content io.Reader
 	var size int64
@@ -211,6 +257,9 @@ func writeFile(tw *tar.Writer, dataDir, rel string) (FileEntry, error) {
 			return FileEntry{}, err
 		}
 		content, size, modTime = f, st.Size(), st.ModTime()
+	}
+	if err := tally.add(rel, size); err != nil {
+		return FileEntry{}, fmt.Errorf("a restore would refuse it: %w", err)
 	}
 	hdr := &tar.Header{Name: dataPrefix + rel, Mode: 0o644, Size: size, ModTime: modTime, Typeflag: tar.TypeReg, Format: tar.FormatPAX}
 	if err := tw.WriteHeader(hdr); err != nil {
@@ -300,7 +349,7 @@ func walk(r io.Reader, lim Limits, write sink) (Manifest, error) {
 	defer gz.Close()
 	tr := tar.NewReader(gz)
 	seen := map[string]FileEntry{}
-	var total int64
+	tally := fileTally{lim: lim}
 	var manifestRaw []byte
 	for {
 		hdr, err := tr.Next()
@@ -328,7 +377,7 @@ func walk(r io.Reader, lim Limits, write sink) (Manifest, error) {
 			return m, fmt.Errorf("entry %q has unsupported type %q (links and devices are refused)", name, string(hdr.Typeflag))
 		}
 		if name == manifestName {
-			if hdr.Size > 64<<20 {
+			if hdr.Size > int64(lim.MaxManifestBytes) {
 				return m, errors.New("manifest too large")
 			}
 			manifestRaw, err = io.ReadAll(io.LimitReader(tr, hdr.Size))
@@ -338,21 +387,14 @@ func walk(r io.Reader, lim Limits, write sink) (Manifest, error) {
 			continue
 		}
 		rel, ok := strings.CutPrefix(name, dataPrefix)
-		if !ok || !validRel(rel) {
+		if !ok {
 			return m, fmt.Errorf("entry %q is outside the backup data directory", name)
 		}
 		if _, dup := seen[rel]; dup {
 			return m, fmt.Errorf("duplicate entry %q", rel)
 		}
-		if hdr.Size < 0 || hdr.Size > lim.MaxFileBytes {
-			return m, fmt.Errorf("entry %q is too large", rel)
-		}
-		total += hdr.Size
-		if total > lim.MaxTotalBytes {
-			return m, fmt.Errorf("archive expands beyond the %d byte limit", lim.MaxTotalBytes)
-		}
-		if len(seen)+1 > lim.MaxFiles {
-			return m, fmt.Errorf("archive has more than %d files", lim.MaxFiles)
+		if err := tally.add(rel, hdr.Size); err != nil {
+			return m, err
 		}
 		var sum string
 		if write != nil {

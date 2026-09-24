@@ -87,6 +87,10 @@ control "archive gzip trailer check" internal/backup/archive.go \
   'if _, err := io.Copy(io.Discard, gz); err != nil {' \
   'if _, err := io.Copy(io.Discard, gz); false && err != nil {' \
   ./internal/backup '^TestTruncatedArchiveIsRefused$'
+control "backup creation applies the restore rules" internal/backup/archive.go \
+  'if err := tally.add(rel, size); err != nil {' \
+  'if err := tally.add(rel, size); false && err != nil {' \
+  ./internal/backup '^(TestCreateRefusesNamesARestoreRefuses|TestCreateAndVerifyAgreeOnLimits)$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
