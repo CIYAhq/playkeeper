@@ -1,12 +1,20 @@
 # Security
 
-Playkeeper operates game servers and world data on the user's host. Treat the web panel as a sensitive administrative interface, not a public demo. There is no public release and no vulnerability-reporting inbox configured yet.
+Playkeeper operates game servers and world data on the user's host. Treat the web panel as a sensitive administrative interface, not a public demo.
 
-Do **not** publish working exploits, secrets, world backups, player identifiers or host addresses in a GitHub issue. While the repo is private, contact the repository owner through a private channel already available to you. Before public release, the owner should enable GitHub private vulnerability reporting (or publish a dedicated private contact) and update this file with exact supported versions and response expectations.
+## Reporting a vulnerability
+
+Report vulnerabilities privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability** ([direct link](https://github.com/CIYAhq/playkeeper/security/advisories/new)). The report, the discussion and the fix stay private until an advisory is published. There is no security email address.
+
+Please include the Playkeeper version (`playkeeper version`), what an attacker needs (network position, credentials) and what they gain, and steps to reproduce. Do not put working exploits, secrets, world backups, player identifiers or server addresses in public issues, pull requests or discussions.
+
+**Supported versions:** only the latest release (0.1.x today) receives security fixes, as a new release. The one-line installer always installs the latest release.
+
+## Design
 
 Implementation constraints: authenticated HTTPS management, fail-closed authorization, local allowlisted privilege boundary, no public Docker socket/host shell/RCON, redacted logs, bounded player-data retention, explicit restore preview and rollback, safe installation on previously unmodified hosts. These properties are covered by the unit tests and the end-to-end jobs in [CI](.github/workflows/ci.yml).
 
-## Exposure review (first release candidate, 2026-09-24)
+## Exposure review (v0.1.0, 2026-09-24)
 
 **Network.** Two TCP listeners: the panel on 8443 (TLS only; plain HTTP gets `400 Client sent an HTTP request to an HTTPS server`) and Minecraft on 25565 (published by Docker). RCON (25575) stays inside the container on a private bridge; the Docker API is only the local Unix socket; the agent has no TCP listener. Checked with `nmap -p-` from another host during a rehearsal install.
 
@@ -21,7 +29,7 @@ Implementation constraints: authenticated HTTPS management, fail-closed authoriz
 **Data.** Player IP addresses are never stored or shown (`log-ips=false` plus redaction); player names, UUIDs and session times are kept for 180 days, samples for 30 days, audit for 365 days, with row caps. Secrets are generated on the host: RCON password (`/var/lib/playkeeper/agent/rcon.secret`, 0600 root, plus a read-only copy for the game user), TLS key (0600 panel user), session tokens. Backups strip `rcon.password` and `management-server-secret` from `server.properties` and never include files holding the RCON password. Audit rows record actor, action, target and result, never secret values.
 
 **Outbound connections.** Playkeeper itself contacts Docker Hub (pulling the pinned image) and PaperMC (`fill.papermc.io`: the download check in onboarding, and the Paper download in a setup-only container after the EULA is accepted). The Paper server contacts Mojang (the matching vanilla jar from `piston-data.mojang.com` on its first start, Mojang services for keys and, in online mode, player authentication and allowlist name lookups) and PaperMC's version check when it starts. Playkeeper turns off two defaults that would send data elsewhere: Paper's bStats usage statistics (`plugins/bStats/config.yml` is written with `enabled: false` before every start, including after a restore) and the runtime image's download of default config files from a third-party GitHub repository (`SKIP_DOWNLOAD_DEFAULTS`).
-**One-line installer.** `get.sh` refuses plain HTTP (redirects included) unless `PLAYKEEPER_ALLOW_HTTP=1` is set for a local test mirror, and runs nothing from the download until the tarball matches its published `.sha256`. Because the checksum comes from the same release location, this catches corrupted, truncated or wrong files, not a compromised release location; to guard against that, compare the checksum with one published through another channel, or use the tarball steps.
+**One-line installer.** `https://playkeeper.io/install` is published with GitHub Pages from this repository and is byte for byte the `get.sh` of the latest release; the release workflow checks that after publishing. `get.sh` refuses plain HTTP (redirects included) unless `PLAYKEEPER_ALLOW_HTTP=1` is set for a local test mirror, and runs nothing from the download until the tarball matches its published `.sha256`. Because the checksum comes from the same GitHub release as the tarball, this catches corrupted, truncated or wrong files, not a compromised repository or release. To guard against that, read the script before running it (`curl -fsSL https://playkeeper.io/install | less`) and compare the tarball's SHA-256 with one you obtained another way, or use the tarball steps in the README.
 
 **Supply chain.** The runtime image is pinned by digest; each Paper build is pinned with the SHA-256 published by PaperMC and verified before first run; contributor toolchains are pinned by checksum; CI actions are pinned by commit SHA. Nothing proprietary is shipped (see [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)).
 

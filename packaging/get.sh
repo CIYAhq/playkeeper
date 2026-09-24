@@ -1,7 +1,10 @@
 #!/bin/sh
-# One-line Playkeeper install (works once a public release exists):
+# One-line Playkeeper install:
 #
-#   curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo sh
+#   curl -fsSL https://playkeeper.io/install | sudo sh
+#
+# playkeeper.io/install serves this file from the latest release, as does
+# https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh.
 #
 # Downloads playkeeper-linux-amd64.tar.gz and its .sha256 from the release
 # location, checks the SHA-256 before anything from the download runs, then
@@ -80,7 +83,7 @@ main() {
 
   say "Downloading $asset from $base"
   fetch "$base/$asset.sha256" "$tmp/$asset.sha256" ||
-    die "could not download $base/$asset.sha256." "Check the address. While Playkeeper has no public release, install from a release tarball as the README describes."
+    die "could not download $base/$asset.sha256." "Check the address and this server's internet access, or install from the release tarball as the README describes."
   want=$(awk 'NR == 1 {print $1}' "$tmp/$asset.sha256")
   case $want in
     *[!0-9a-f]* | '') die "$asset.sha256 does not contain a SHA-256 checksum." ;;
