@@ -353,6 +353,10 @@ type Manifest struct {
 	// NetBeforeDocker is the host network as it was before Playkeeper
 	// installed Docker, so removing Docker can put it back.
 	NetBeforeDocker *NetSettings `json:"netBeforeDocker,omitempty"`
+	// The docker group and Docker's state directories, when installing Docker
+	// created them; removing Docker removes them too.
+	DockerGroupCreated bool     `json:"dockerGroupCreated,omitempty"`
+	DockerDirsCreated  []string `json:"dockerDirsCreated,omitempty"`
 }
 
 type step struct {
@@ -483,6 +487,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			}
 			net := readNetSettings(sys)
 			in.m.NetBeforeDocker = &net
+			in.m.DockerGroupCreated, in.m.DockerDirsCreated = !dockerGroupExisted, newDirs
 			if _, err := aptGet(sys, in.out, "update"); err != nil {
 				return err
 			}
@@ -508,13 +513,8 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 				return nil
 			}
 			left, err := purgeDocker(sys, in.out, in.m.PackagesInstalled, in.m.NetBeforeDocker)
-			if err == nil && !dockerGroupExisted && groupExists(sys, "docker") {
-				_, err = sys.Run("groupdel", "docker")
-			}
-			for _, d := range newDirs {
-				if rerr := os.RemoveAll(sys.P(d)); rerr != nil && err == nil {
-					err = rerr
-				}
+			if err == nil {
+				err = removeDockerLeftovers(sys, &in.m)
 			}
 			errs := []error{err}
 			for _, l := range left {
@@ -755,6 +755,23 @@ func purgeDocker(sys System, out io.Writer, pkgs []string, before *NetSettings) 
 		_ = os.RemoveAll(sys.P(p))
 	}
 	return left, err
+}
+
+// removeDockerLeftovers deletes, once Docker is purged, the docker group and
+// the state directories that installing Docker created.
+func removeDockerLeftovers(sys System, m *Manifest) error {
+	var errs []error
+	if m.DockerGroupCreated && groupExists(sys, "docker") {
+		if _, err := sys.Run("groupdel", "docker"); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for _, d := range m.DockerDirsCreated {
+		if err := os.RemoveAll(sys.P(d)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // lockWait bounds how long install and uninstall wait for another package

@@ -296,6 +296,29 @@ func TestUninstallPutsDockersNetworkChangesBack(t *testing.T) {
 	}
 }
 
+// Installing docker.io creates the docker group and Docker's state
+// directories; purging it leaves them behind. Uninstall removes the ones the
+// install created, as rollback does.
+func TestUninstallRemovesTheDockerGroupAndDirsItsInstallCreated(t *testing.T) {
+	h := newFakeHost(t)
+	sys := h.system(t)
+	installed(t, h, sys)
+	if !groupExists(sys, "docker") {
+		t.Fatal("the fake docker.io install did not create the docker group; the test proves nothing")
+	}
+	if err := Uninstall(context.Background(), sys, UninstallOptions{Yes: true, In: strings.NewReader(""), Out: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	if groupExists(sys, "docker") {
+		t.Error("uninstall left the docker group")
+	}
+	for _, d := range []string{"/var/lib/docker", "/var/lib/containerd", "/etc/docker"} {
+		if _, err := os.Stat(filepath.Join(h.root, d)); err == nil {
+			t.Errorf("uninstall left %s", d)
+		}
+	}
+}
+
 func TestKeptDockerKeepsItsNetwork(t *testing.T) {
 	h := newFakeHost(t)
 	sys := h.system(t)

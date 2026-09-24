@@ -138,11 +138,15 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	default:
 		left, err := purgeDocker(sys, out, m.PackagesInstalled, m.NetBeforeDocker)
 		problems = append(problems, left...)
+		if err == nil {
+			note(removeDockerLeftovers(sys, m))
+		}
 		if err != nil {
 			// Keep what a second run needs: this binary and a manifest that
 			// now lists only Docker.
 			rest := Manifest{Version: m.Version, InstalledAt: m.InstalledAt, InstallID: m.InstallID, PanelPort: m.PanelPort, GamePort: m.GamePort,
-				PackagesInstalled: m.PackagesInstalled, NetBeforeDocker: m.NetBeforeDocker, KeptOnUninstall: m.KeptOnUninstall}
+				PackagesInstalled: m.PackagesInstalled, NetBeforeDocker: m.NetBeforeDocker, KeptOnUninstall: m.KeptOnUninstall,
+				DockerGroupCreated: m.DockerGroupCreated, DockerDirsCreated: m.DockerDirsCreated}
 			if contains(m.FilesCreated, BinPath) {
 				rest.FilesCreated = []string{BinPath}
 			}

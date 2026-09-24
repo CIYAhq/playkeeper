@@ -117,6 +117,7 @@ func (h *fakeHost) system(t *testing.T) System {
 				appendLine(filepath.Join(h.root, "/etc/group"), "docker:x:999:")
 				os.MkdirAll(filepath.Join(h.root, "/var/lib/docker/overlay2"), 0o710)
 				os.WriteFile(filepath.Join(h.root, "/var/lib/docker/engine-id"), []byte("id"), 0o600)
+				os.MkdirAll(filepath.Join(h.root, "/var/lib/containerd"), 0o700)
 				os.MkdirAll(filepath.Join(h.root, "/etc/docker"), 0o755)
 			case name == "apt-get" && len(apt) > 0 && apt[0] == "purge":
 				for _, p := range apt[2:] {
