@@ -506,22 +506,22 @@ func TestConcurrentStartAndStopLeaveDesiredMatchingContainer(t *testing.T) {
 func TestSessionsAreDedupedAndSpoofProof(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	e.fd.addLog("[12:01:00 INFO]: UUID of player PkFriend is 942c797e-ebb1-3405-ad03-1a1e02ead390")
-	e.fd.addLog("[12:01:00 INFO]: PkFriend joined the game")
-	e.fd.addLog("[12:01:01 INFO]: PkFriend[IP hidden] logged in with entity id 1 at ([minecraft:overworld]0.5, 70.0, 0.5)")
-	e.fd.addLog("[12:01:05 INFO]: <PkFriend> Foo joined the game")
-	e.fd.addLog("[12:01:06 INFO]: [Not Secure] <PkFriend> Foo left the game")
-	e.fd.addLog("[12:01:30 INFO]: PkFriend lost connection: Disconnected")
-	e.fd.addLog("[12:01:30 INFO]: PkFriend left the game")
+	e.fd.addLog("[12:01:00 INFO]: UUID of player PkBotFriend is d2f0fd39-4e0d-37a0-85e0-9c466776a4d7")
+	e.fd.addLog("[12:01:00 INFO]: PkBotFriend joined the game")
+	e.fd.addLog("[12:01:01 INFO]: PkBotFriend[IP hidden] logged in with entity id 1 at ([minecraft:overworld]0.5, 70.0, 0.5)")
+	e.fd.addLog("[12:01:05 INFO]: <PkBotFriend> Foo joined the game")
+	e.fd.addLog("[12:01:06 INFO]: [Not Secure] <PkBotFriend> Foo left the game")
+	e.fd.addLog("[12:01:30 INFO]: PkBotFriend lost connection: Disconnected")
+	e.fd.addLog("[12:01:30 INFO]: PkBotFriend left the game")
 	e.waitFor("session closed", func() bool {
-		return e.countRows(`SELECT COUNT(*) FROM sessions WHERE player = 'PkFriend' AND end_ts IS NOT NULL`) == 1
+		return e.countRows(`SELECT COUNT(*) FROM sessions WHERE player = 'PkBotFriend' AND end_ts IS NOT NULL`) == 1
 	})
 	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE player = 'Foo'`); n != 0 {
 		t.Fatalf("chat created %d events for a fake player", n)
 	}
 	var uuid string
-	e.a.db.QueryRow(`SELECT uuid FROM sessions WHERE player = 'PkFriend'`).Scan(&uuid)
-	if uuid != "942c797e-ebb1-3405-ad03-1a1e02ead390" {
+	e.a.db.QueryRow(`SELECT uuid FROM sessions WHERE player = 'PkBotFriend'`).Scan(&uuid)
+	if uuid != "d2f0fd39-4e0d-37a0-85e0-9c466776a4d7" {
 		t.Fatalf("uuid not attached: %q", uuid)
 	}
 	events := e.countRows(`SELECT COUNT(*) FROM events`)
@@ -542,7 +542,7 @@ func TestSessionsAreDedupedAndSpoofProof(t *testing.T) {
 func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	e.fd.addLog("[12:01:00 INFO]: PkBuilder joined the game")
+	e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
 	e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 	e.fd.crash(137)
 	e.waitFor("crash handled", func() bool {
@@ -550,7 +550,7 @@ func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	})
 	var reason string
 	var uncertain int
-	e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBuilder'`).Scan(&reason, &uncertain)
+	e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason, &uncertain)
 	if reason != "server_crashed" || uncertain != 1 {
 		t.Fatalf("crashed session: reason %q uncertain %d", reason, uncertain)
 	}
@@ -729,6 +729,26 @@ func TestDailySummaryFlagsIncompleteSessions(t *testing.T) {
 	}
 	if _, err := e.a.Summary(7, "Not/AZone", now); err == nil {
 		t.Fatal("invalid time zone accepted")
+	}
+}
+
+func TestCoverageCountsTimeNotSamples(t *testing.T) {
+	t0 := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	var s []sample
+	// The agent was down from 60 s to 100 s; its restart sampled at once (100 s)
+	// and again on the next tick (101 s), so the sample count barely drops.
+	for _, sec := range []int{0, 15, 30, 45, 100, 101, 115, 130, 145} {
+		s = append(s, sample{ts: t0.Add(time.Duration(sec) * time.Second)})
+	}
+	if got := coveredFraction(s, t0, t0.Add(160*time.Second), 15*time.Second); got < 0.749 || got > 0.751 {
+		t.Fatalf("covered fraction = %.3f, want 0.75 (120 of 160 s)", got)
+	}
+	since := t0
+	if got := coverage(s, t0, t0.Add(160*time.Second), 15*time.Second, &since); got >= 0.95 {
+		t.Fatalf("a day with a 40 s collection gap in 160 s must not look complete: %.3f", got)
+	}
+	if got := coveredFraction(s[:4], t0, t0.Add(60*time.Second), 15*time.Second); got != 1 {
+		t.Fatalf("regular samples must cover their span fully: %.3f", got)
 	}
 }
 
@@ -926,8 +946,8 @@ func craftTar(t *testing.T, files map[string]string) []byte {
 func TestNoIPsOrSecretsAreStored(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	e.fd.addLog("[12:01:00 INFO]: PkFriend[/203.0.113.9:5555] logged in with entity id 1")
-	e.fd.addLog("[12:01:00 INFO]: PkFriend joined the game")
+	e.fd.addLog("[12:01:00 INFO]: PkBotFriend[/203.0.113.9:5555] logged in with entity id 1")
+	e.fd.addLog("[12:01:00 INFO]: PkBotFriend joined the game")
 	code, _ := e.call("POST", "/v1/server/command", map[string]any{"actor": "admin", "command": "ban-ip 203.0.113.77"})
 	if code != 200 {
 		t.Fatalf("command: %d", code)
@@ -958,7 +978,7 @@ func TestNoIPsOrSecretsAreStored(t *testing.T) {
 func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	if code, out := e.call("POST", "/v1/server/whitelist", map[string]any{"actor": "admin", "name": "PkFriend"}); code != 200 {
+	if code, out := e.call("POST", "/v1/server/whitelist", map[string]any{"actor": "admin", "name": "PkBotFriend"}); code != 200 {
 		t.Fatalf("invite: %d %v", code, out)
 	}
 	if code, _ := e.call("POST", "/v1/server/whitelist", map[string]any{"actor": "admin", "name": "bad name;id"}); code != 400 {
