@@ -1,0 +1,6 @@
+os: Ubuntu 24.04.5 LTS
+kernel: 6.8.0-139-generic
+cpus: 2
+memory_mb: 2971
+disk: 19G total, 17G free
+init: systemd (running)

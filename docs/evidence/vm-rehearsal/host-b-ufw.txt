@@ -1,0 +1,12 @@
+Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere                  
+8443/tcp                   ALLOW       Anywhere                  
+25565/tcp                  ALLOW       Anywhere                  
+22/tcp (v6)                ALLOW       Anywhere (v6)             
+8443/tcp (v6)              ALLOW       Anywhere (v6)             
+25565/tcp (v6)             ALLOW       Anywhere (v6)             
+
+panel reachable from another host through ufw

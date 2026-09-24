@@ -1,0 +1,8 @@
+mirror at http://198.51.100.1:8765 serves:
+d10e60629d6b32b2293e3992583c15ae62dc3f1919710e04bf8f41cf62d83464  get.sh
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  playkeeper-linux-amd64.tar.gz
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  playkeeper-linux-amd64.tar.gz
+the served tarball is byte-identical to the tested artifact playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz
+http://198.51.100.1:8765/bad serves the same tarball with a wrong .sha256
+http://198.51.100.1:8765/tampered serves the tarball with one byte changed and its original .sha256
+http://198.51.100.1:8765/missing serves the tarball without a .sha256 (404)

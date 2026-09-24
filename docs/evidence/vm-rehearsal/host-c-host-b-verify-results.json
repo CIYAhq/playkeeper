@@ -1,0 +1,42 @@
+{
+  "checks": [
+    {
+      "ok": true,
+      "check": "console: gold block at 118 71 47 (Test passed)"
+    },
+    {
+      "ok": true,
+      "check": "console: sign at 118 72 47 carries nonce pk-53425a3c0706 (118, 72, 47 has the following block data: [\"pk-53425a3c0706\", \"\", \"\", \"\"])"
+    },
+    {
+      "ok": true,
+      "check": "client view: gold block and sign with nonce pk-53425a3c0706 at the recorded coordinates"
+    }
+  ],
+  "markerConsole": {
+    "gold": "Test passed",
+    "sign": "118, 72, 47 has the following block data: [\"pk-53425a3c0706\", \"\", \"\", \"\"]"
+  },
+  "marker": {
+    "gold": [
+      118,
+      71,
+      47
+    ],
+    "sign": [
+      118,
+      72,
+      47
+    ],
+    "nonce": "pk-53425a3c0706",
+    "placedBy": "PkBotBuilder",
+    "at": "2026-09-24T17:03:03.361Z"
+  },
+  "restoreOperation": {
+    "startedAt": "2026-09-24T17:23:09.447Z",
+    "finishedAt": "2026-09-24T17:23:40.267Z",
+    "seconds": 30.8
+  },
+  "ok": true,
+  "seconds": 6.5
+}

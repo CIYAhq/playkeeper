@@ -1,0 +1,8 @@
+15:32:08
+               total        used        free      shared  buff/cache   available
+Mem:            2971        2196         108           1         845         774
+/dev/vda1        19G  3.6G   15G  20% /
+218M	/var/lib/playkeeper
+847M	/var/lib/docker
+playkeeper-minecraft cpu=24.25% mem=1.422GiB / 1.5GiB
+ 15:32:10 up 3 min,  1 user,  load average: 0.79, 0.48, 0.20

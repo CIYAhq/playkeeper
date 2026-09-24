@@ -1,0 +1,60 @@
+{
+  "exists": true,
+  "desired": "running",
+  "phase": "online",
+  "reachable": true,
+  "reachableAt": "2026-09-24T17:03:18.796945208Z",
+  "startedAt": "2026-09-24T17:02:08.511472494Z",
+  "players": {
+    "online": 2,
+    "max": 10,
+    "names": [
+      "PkBotBuilder",
+      "PkBotFriend"
+    ],
+    "source": "rcon list",
+    "at": "2026-09-24T17:03:18.796945208Z"
+  },
+  "config": {
+    "versionId": "paper-26.1.2",
+    "minecraftVersion": "26.1.2",
+    "paperBuild": 74,
+    "memoryMB": 1536,
+    "heapMB": 1024,
+    "levelName": "world",
+    "jarVerifiedAt": "2026-09-24T17:02:08.400968083Z",
+    "motd": "A Playkeeper server",
+    "maxPlayers": 10,
+    "whitelist": true,
+    "eulaAcceptedAt": "2026-09-24T17:01:53.085179722Z",
+    "eulaAcceptedBy": "admin",
+    "createdAt": "2026-09-24T17:01:53.085179722Z",
+    "image": "docker.io/itzg/minecraft-server@sha256:e8640538dac5d54c2838d57fa9641e735ad0cf2b71fb0e8a68da3b542a315749"
+  },
+  "gamePort": 25565,
+  "offlineModeTest": true,
+  "lastOperation": {
+    "id": "6289588180368f56",
+    "kind": "create",
+    "status": "succeeded",
+    "phase": "online",
+    "actor": "admin",
+    "startedAt": "2026-09-24T17:01:53.085Z",
+    "finishedAt": "2026-09-24T17:02:32.158Z",
+    "detail": {
+      "pull": "Extracting"
+    }
+  },
+  "crashCount": 0,
+  "resources": {
+    "cpuPercent": 173.95559933222034,
+    "memBytes": 1511550976,
+    "memLimitBytes": 1610612736,
+    "diskFreeBytes": 15812296704,
+    "diskTotalBytes": 19682557952,
+    "at": "2026-09-24T17:03:18.796945208Z"
+  },
+  "pendingRestart": false,
+  "agentVersion": "0.1.0-dev+0c99fa7b6277",
+  "collectingSince": "2026-09-24T17:01:01.693346454Z"
+}

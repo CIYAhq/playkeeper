@@ -1,0 +1,1789 @@
+
+==== Artifact: playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64  [16:59:59]
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  /workspace/dist/playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz
+drwxr-xr-x 0/0               0 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/
+-rw-r--r-- 0/0            1268 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/README-INSTALL.txt
+-rw-r--r-- 0/0            3334 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/THIRD_PARTY.md
+-rwxr-xr-x 0/0             667 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/install.sh
+-rwxr-xr-x 0/0        13807776 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/playkeeper
+artifact contains no jars, keys, databases, .git or node_modules
+
+==== HOST A: boot a fresh Ubuntu 24.04 guest  [16:59:59]
+[16:59:59] booted a at 198.51.100.10 (3072 MB RAM, 2 vCPU, 20 GB disk)
+[17:00:14] 198.51.100.10 is up (ssh ready after ~8 s)
+os: Ubuntu 24.04.5 LTS
+kernel: 6.8.0-139-generic
+cpus: 2
+memory_mb: 2971
+disk: 19G total, 17G free
+init: systemd (running)
+playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz: OK
+
+==== HOST A: preflight (read-only)  [17:00:15]
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+==== HOST A: declining the plan changes nothing  [17:00:15]
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+Proceed? [y/N] Error: installation cancelled; nothing was changed
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)
+
+==== HOST A: injected mid-install failure rolls back  [17:00:16]
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+
+Installing:
+  • install Docker (docker.io)
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+
+Install failed: install and start systemd services: injected failure (PLAYKEEPER_TEST_FAIL_INSTALL_STEP)
+Rolling back:
+  ↺ undo: install and start systemd services
+  ↺ undo: generate HTTPS certificate and first-run setup code
+  ↺ undo: write /etc/playkeeper/config.json
+  ↺ undo: install /usr/local/bin/playkeeper
+  ↺ undo: create directories
+  ↺ undo: create user playkeeper-mc
+  ↺ undo: create user playkeeper
+  ↺ undo: install Docker (docker.io)
+Rollback complete: the server is back to how it was before the install.
+Error: install and start systemd services: injected failure (PLAYKEEPER_TEST_FAIL_INSTALL_STEP)
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)
+
+==== HOST A: install from the release tarball  [17:00:52]
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.4 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+
+Installing:
+  • install Docker (docker.io)
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open this link in your browser:
+       https://198.51.100.10:8443/setup#code=<redacted>
+     (setup code: <redacted> — works once, expires in 24 hours)
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       30:FE:C6:86:B4:46:F6:72:41:C6:72:55:1D:64:99:E9:54:09:9B:ED:5A:F8:74:C6:2A:DC:48:44:28:7A:D8:55
+  3. Create your admin account, accept the Minecraft EULA and start your server.
+
+If 198.51.100.10:8443 is not your public address, use your VPS's public IP instead.
+Lost the setup code? sudo playkeeper setup-code
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 10s.
+install wall time: 10 s
+{
+  "version": "0.1.0-dev+0c99fa7b6277",
+  "installedAt": "2026-09-24T17:00:52.50939699Z",
+  "installId": "b5b0a35532477586d57e099a4d16457b",
+  "panelPort": 8443,
+  "gamePort": 25565,
+  "packagesInstalled": [
+    "containerd",
+    "docker.io",
+    "runc"
+  ],
+  "usersCreated": [
+    "playkeeper",
+    "playkeeper-mc"
+  ],
+  "groupsCreated": [
+    "playkeeper",
+    "playkeeper-mc"
+  ],
+  "filesCreated": [
+    "/usr/local/bin/playkeeper",
+    "/etc/playkeeper/config.json",
+    "/etc/systemd/system/playkeeper-agent.service",
+    "/etc/systemd/system/playkeeper-panel.service"
+  ],
+  "dirsCreated": [
+    "/etc/playkeeper",
+    "/var/lib/playkeeper",
+    "/var/lib/playkeeper/agent",
+    "/var/lib/playkeeper/panel",
+    "/var/lib/playkeeper/server",
+    "/var/lib/playkeeper/server/data",
+    "/var/lib/playkeeper/backups",
+    "/var/lib/playkeeper/restore-staging"
+  ],
+  "units": [
+    "playkeeper-agent.service",
+    "playkeeper-panel.service"
+  ],
+  "firewallRules": null,
+  "reusedData": false,
+  "keptOnUninstall": [
+    "/var/lib/playkeeper/server (worlds)",
+    "/var/lib/playkeeper/backups",
+    "/var/lib/playkeeper (settings, admin account, analytics)"
+  ]
+}
+certificate fingerprint matches the installer output: 30:FE:C6:86:B4:46:F6:72:41:C6:72:55:1D:64:99:E9:54:09:9B:ED:5A:F8:74:C6:2A:DC:48:44:28:7A:D8:55
+* SSL connection using TLSv1.3 / TLS_AES_128_GCM_SHA256 / X25519 / id-ecPublicKey
+* Server certificate:
+< HTTP/2 200 
+ok
+plain HTTP on the panel port:
+HTTP/1.0 400 Bad Request
+
+Client sent an HTTP request to an HTTPS server.
+
+==== HOST A: fresh-install empty state, then keyboard-only onboarding in the browser  [17:01:03]
+
+Running 1 test using 1 worker
+
+(node:87089) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 onboarding.spec.ts:9:1 › onboarding from first sign-in to joinable, keyboard only (46.2s)
+
+  1 passed (46.8s)
+join address copied from the UI: 198.51.100.10
+
+==== HOST A: session cookie flags on a real sign-in  [17:02:53]
+HTTP/2 200 
+content-security-policy: default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+referrer-policy: no-referrer
+set-cookie: __Host-playkeeper=<redacted>; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Strict
+strict-transport-security: max-age=31536000
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+==== HOST A: protocol bots, sessions, console, backup with a player online, same-host restore, controls  [17:02:53]
+
+[17:02:54] Unauthenticated requests fail closed
+  ok: GET /api/server without a session is refused (401)
+  ok: POST /api/server/start without a session is refused (401)
+  ok: POST /api/server/command without a session is refused (401)
+  ok: GET /api/backups without a session is refused (401)
+  ok: GET /api/backups/20260101-000000-abcdef/download without a session is refused (401)
+  ok: POST /api/restore/upload without a session is refused (401)
+  ok: GET /api/audit without a session is refused (401)
+
+[17:02:54] Sign in (the browser walkthrough already created the admin and the server)
+  ok: setup cannot be repeated once an admin exists (409)
+  ok: test-harness offline mode is visible in the API (bots need it)
+  ok: allowlist contains the bots (['PkBotBuilder', 'PkBotFriend'])
+
+[17:02:54] Builder bot joins by the copied address and places the nonce marker
+2026-09-24T17:02:59.696Z spawned PkBotBuilder at 116 71 47
+2026-09-24T17:02:59.722Z console> fill 115 70 46 119 70 48 minecraft:stone => Successfully filled 15 block(s)
+2026-09-24T17:02:59.726Z console> fill 115 71 46 119 74 48 minecraft:air => No blocks were filled
+2026-09-24T17:02:59.736Z console> tp PkBotBuilder 116.5 71 47.5 -90 30 => Teleported PkBotBuilder to 116.500000, 71.000000, 47.500000
+2026-09-24T17:02:59.768Z console> give PkBotBuilder minecraft:gold_block 1 => Gave 1 [Block of Gold] to PkBotBuilder
+2026-09-24T17:02:59.774Z console> give PkBotBuilder minecraft:oak_sign 1 => Gave 1 [Oak Sign] to PkBotBuilder
+2026-09-24T17:03:01.319Z client placed gold_block at 118 71 47
+2026-09-24T17:03:03.361Z marker written {"gold":[118,71,47],"sign":[118,72,47],"nonce":"pk-53425a3c0706","placedBy":"PkBotBuilder","at":"2026-09-24T17:03:03.361Z"}
+  ok: builder bot placed a gold block and a sign with the nonce
+
+[17:03:04] Two bots online at once; the friend's chat imitates a join message
+  ok: dashboard shows 2 players online: PkBotBuilder, PkBotFriend (rcon list)
+2026-09-24T17:03:11.422Z joined PkBotBuilder
+2026-09-24T17:03:51.423Z left PkBotBuilder
+2026-09-24T17:03:51.426Z connection ended PkBotBuilder: done
+
+[17:03:52] Sessions, events and charts agree with what happened
+  ok: sessions recorded for ['PkBotBuilder', 'PkBotFriend']
+  ok: every PkBotBuilder session closed by a real leave event
+  ok: PkBotFriend's session is open while it is still online
+  ok: chat text 'Foo joined the game' created no event
+  ok: player chart has a bucket with 2 players
+
+[17:03:56] Console commands are Minecraft-only and audited
+  ok: ';id' reached Minecraft as literal text
+  ok: '$(id)' reached Minecraft as literal text
+  ok: list: There are 1 of a max of 10 players online: PkBotFriend
+  ok: console: gold block at 118 71 47 (Test passed)
+  ok: console: sign at 118 72 47 carries nonce pk-53425a3c0706 (118, 72, 47 has the following block data: ["pk-53425a3c0706", "", "", ""])
+
+[17:03:59] Stop-and-archive backup while PkBotFriend is online: graceful stop, recorded downtime, verification
+  [17:03:59] backup: running 
+  [17:04:01] backup: running stopping
+  [17:04:03] backup: running starting_container
+  [17:04:05] backup: running starting
+  [17:04:15] backup: succeeded verifying
+  ok: backup operation succeeded ()
+2026-09-24T17:03:05.339Z joined PkBotFriend
+2026-09-24T17:03:06.542Z said "Foo joined the game"
+2026-09-24T17:04:00.100Z server disconnected PkBotFriend: {"type":"string","value":"Server closed"}
+2026-09-24T17:04:00.101Z connection ended PkBotFriend: socketClosed
+  ok: PkBotFriend was disconnected by the stop
+  ok: backup verified and labelled on-host
+    17:04:00.036  [17:04:00 INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
+    17:04:00.076  [17:04:00 INFO]: Stopping server
+    17:04:00.082  [17:04:00 INFO]: Saving players
+    17:04:00.098  [17:04:00 INFO]: PkBotFriend lost connection: Server closed
+    17:04:00.131  [17:04:00 INFO]: PkBotFriend left the game
+    17:04:00.232  [17:04:00 INFO]: Saving worlds
+    17:04:01.107  [17:04:01 INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
+    17:04:13.797  [17:04:13 INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
+    17:04:13.802  [17:04:13 INFO]: Done (7.657s)! For help, type "help"
+  ok: server log shows a graceful stop: Stopping server → Saving players → Saving worlds → All dimensions are saved
+  ok: recorded downtime 14.9 s covers the logged stop-to-ready span 13.7 s (it also includes the save and the reachability check)
+  ok: PkBotFriend's session closed at the graceful stop (left)
+
+[17:04:18] Authenticated download, and an independent check of the archive
+  ok: download without a session is refused (401)
+  ok: downloaded archive SHA-256 matches the record (6613eeba8c04a111…)
+  ok: all 89 files match the manifest's SHA-256 values (recomputed with Python hashlib, not Playkeeper)
+
+[17:04:21] Restore on the same host: preview, typed confirmation, rollback archive, and rolling back
+  ok: a later change: diamond block placed at 119 71 47 after the backup
+  ok: restore the backup: backup validated file by file before anything changed
+  ok: restore the backup: preview shows the world to be replaced, a rollback archive, and the phrase 'replace world'
+  ok: restore the backup: a mistyped confirmation is refused (400)
+  [17:04:23] restore: running stopping
+  [17:04:25] restore: running downloading_server
+  [17:04:31] restore: running starting_container
+  [17:04:33] restore: running starting
+  [17:04:45] restore: running preparing_world
+  [17:04:47] restore: succeeded online
+  ok: restore the backup: restore succeeded ()
+  ok: a rollback archive of the replaced world was saved first (20260924-170424-35e219)
+  ok: console: gold block at 118 71 47 (Test passed)
+  ok: console: sign at 118 72 47 carries nonce pk-53425a3c0706 (118, 72, 47 has the following block data: ["pk-53425a3c0706", "", "", ""])
+  ok: the diamond block placed after the backup is gone
+  ok: restore the rollback archive: backup validated file by file before anything changed
+  ok: restore the rollback archive: preview shows the world to be replaced, a rollback archive, and the phrase 'replace world'
+  ok: restore the rollback archive: a mistyped confirmation is refused (400)
+  [17:04:55] restore: running stopping
+  [17:04:57] restore: running downloading_server
+  [17:05:03] restore: running starting_container
+  [17:05:05] restore: running starting
+  [17:05:17] restore: succeeded online
+  ok: restore the rollback archive: restore succeeded ()
+  ok: restoring the rollback archive brought the diamond block back
+
+[17:05:23] Controls are idempotent, serialized and state-aware
+  ok: start while running is a no-op (200)
+  ok: concurrent start and stop: responses {'stop': 202, 'start': 409}, then desired=stopped phase=stopped
+  ok: stop while stopped is a no-op (200)
+  ok: restart while stopped is refused as a conflict (409: The server is not running, so it cannot be restarted.)
+  [17:05:25] start: running 
+  [17:05:27] start: running starting
+  [17:05:37] start: running preparing_world
+  [17:05:39] start: succeeded online
+  ok: start after stop succeeded
+
+[17:05:51] State changes need the session's CSRF token and a same-origin request
+  ok: POST /api/server/stop with the session cookie but no CSRF token is refused (403)
+  ok: POST /api/backups with the session cookie but no CSRF token is refused (403)
+  ok: POST /api/server/command with the session cookie but no CSRF token is refused (403)
+  ok: POST /api/server/settings with the session cookie but no CSRF token is refused (403)
+  ok: POST /api/auth/logout with the session cookie but no CSRF token is refused (403)
+  ok: POST with a valid token from another origin is refused (403)
+
+[17:05:51] A settings change is applied and audited
+  ok: MOTD change accepted (200)
+  ok: new MOTD recorded
+
+[17:05:51] Audit log and daily summary
+  ok: audit log has setup
+  ok: audit log has eula.accepted
+  ok: audit log has create
+  ok: audit log has whitelist.add
+  ok: audit log has console.command
+  ok: audit log has backup.created
+  ok: audit log has backup.downloaded
+  ok: audit log has restore.staged
+  ok: audit log has restore.applied
+  ok: audit log has start
+  ok: audit log has stop
+  ok: audit log has settings.changed
+  ok: audit log has login
+  ok: daily summary recomputes from sessions: 2 players, 3 sessions, 98 s observed, 100% collected
+
+host-a: PASSED (72 checks ok) in 177.3 s
+2026-09-24T17:04:00+00:00 pk-a playkeeper[4487]: time=2026-09-24T17:04:00.035Z level=INFO msg="world saved before stop" reply="Saving the game (this may take a moment!)Saved the game"
+2026-09-24T17:04:24+00:00 pk-a playkeeper[4487]: time=2026-09-24T17:04:24.061Z level=INFO msg="world saved before stop" reply="Saving the game (this may take a moment!)Saved the game"
+2026-09-24T17:04:55+00:00 pk-a playkeeper[4487]: time=2026-09-24T17:04:55.748Z level=INFO msg="world saved before stop" reply="Saving the game (this may take a moment!)Saved the game"
+2026-09-24T17:05:23+00:00 pk-a playkeeper[4487]: time=2026-09-24T17:05:23.376Z level=INFO msg="world saved before stop" reply="Saving the game (this may take a moment!)Saved the game"
+## containers managed by Playkeeper after repeated start/stop/restore (docker ps -a)
+playkeeper-minecraft: Up 26 seconds (healthy)
+
+==== HOST A: browser-only operation (console command, backup, download)  [17:05:52]
+
+Running 1 test using 1 worker
+
+(node:88199) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 operate.spec.ts:9:1 › browser only: console command, backup and download (15.8s)
+
+  1 passed (16.2s)
+playkeeper-world-20260924-170554-8ce0c4.tar.gz sha256 1ada600ddc4001e2524950364c43072957a7e0ee877e23204a7d140ab314a7b4 (matches the backup record)
+
+==== HOST A: screenshots of every view, accessibility and keyboard checks  [17:06:09]
+
+Running 4 tests using 1 worker
+
+(node:88325) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 views.spec.ts:18:1 › main views in order, desktop and narrow, with no serious accessibility violations (32.3s)
+  ✓  2 views.spec.ts:36:1 › keyboard: skip link, navigation, dialog focus trap and Esc (392ms)
+  ✓  3 views.spec.ts:64:1 › keyboard: restore preview and typed confirmation are reachable (658ms)
+  ✓  4 views.spec.ts:84:1 › reduced motion disables animation (145ms)
+
+  4 passed (34.0s)
+
+==== HOST A: exposure and privilege checks  [17:06:43]
+Starting Nmap 7.94SVN ( https://nmap.org ) at 2026-09-24 17:06 UTC
+Nmap scan report for 198.51.100.10
+Host is up (0.000088s latency).
+Not shown: 65532 closed tcp ports (conn-refused)
+PORT      STATE SERVICE
+22/tcp    open  ssh
+8443/tcp  open  https-alt
+25565/tcp open  minecraft
+
+Nmap done: 1 IP address (1 host up) scanned in 0.56 seconds
+## listeners (ss -ltnup)
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                
+udp   UNCONN 0      0         127.0.0.54:53         0.0.0.0:*    users:(("systemd-resolve",pid=491,fd=16))             
+udp   UNCONN 0      0      127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=491,fd=14))             
+tcp   LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=491,fd=15))             
+tcp   LISTEN 0      4096         0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=1007,fd=3),("systemd",pid=1,fd=93))
+tcp   LISTEN 0      4096       127.0.0.1:41683      0.0.0.0:*    users:(("containerd",pid=3782,fd=14))                 
+tcp   LISTEN 0      4096      127.0.0.54:53         0.0.0.0:*    users:(("systemd-resolve",pid=491,fd=17))             
+tcp   LISTEN 0      4096         0.0.0.0:25565      0.0.0.0:*    users:(("docker-proxy",pid=8607,fd=7))                
+tcp   LISTEN 0      4096            [::]:22            [::]:*    users:(("sshd",pid=1007,fd=4),("systemd",pid=1,fd=95))
+tcp   LISTEN 0      4096               *:8443             *:*    users:(("playkeeper",pid=4264,fd=9))                  
+tcp   LISTEN 0      4096            [::]:25565         [::]:*    users:(("docker-proxy",pid=8612,fd=7))                
+## agent socket
+u_str LISTEN 0      4096                                                           /run/playkeeper/agent.sock 23309            * 0    users:(("playkeeper",pid=4487,fd=12))                                                         
+srw-rw---- root:playkeeper /run/playkeeper/agent.sock
+## processes
+playkee+    4264 /usr/local/bin/playkeeper panel --config /etc/playkeeper/config.json
+root        4487 /usr/local/bin/playkeeper agent --config /etc/playkeeper/config.json
+## panel user
+uid=999(playkeeper) gid=988(playkeeper) groups=988(playkeeper)
+## docker.sock among panel fds: 0
+bash: line 8: /proc/4264/environ: Permission denied
+## DOCKER_HOST in panel environment: 0
+## panel user reaching the Docker socket:
+curl: (7) Failed to connect to d port 80 after 0 ms: Couldn't connect to server
+## unprivileged user reaching the agent socket:
+curl: (7) Failed to connect to a port 80 after 0 ms: Couldn't connect to server
+## agent allowlist probes (as the panel user)
+POST /v1/rm -> 404
+{"error":"Invalid request body: json: unknown field \"cmd\"","code":"invalid_request"}
+ <- extra argument
+{"error":"invalid backup id","code":"invalid_request"}
+ <- traversal id
+## minecraft container
+Privileged=false NetworkMode=playkeeper PidMode= CapAdd=[] CapDrop=[ALL] Memory=1610612736 MemorySwap=1610612736 User=997:987 Ports={"25565/tcp":[{"HostIp":"","HostPort":"25565"}]} Mounts=/var/lib/playkeeper/server/data->/data(true) /var/lib/playkeeper/server/rcon_password->/run/secrets/rcon_password(false) 
+VERSION=26.1.2
+TYPE=CUSTOM
+CUSTOM_SERVER=/data/paper-26.1.2-74.jar
+SKIP_DOWNLOAD_DEFAULTS=TRUE
+MEMORY=1024M
+ONLINE_MODE=FALSE
+ENABLE_WHITELIST=TRUE
+LOG_IPS=FALSE
+## image
+docker.io/itzg/minecraft-server@sha256:e8640538dac5d54c2838d57fa9641e735ad0cf2b71fb0e8a68da3b542a315749
+## JVM heap flags
+-Xms1024M
+-Xmx1024M
+## server.properties
+enable-rcon=true
+enforce-whitelist=true
+log-ips=false
+online-mode=false
+server-port=25565
+white-list=true
+## Paper bStats telemetry
+enabled: false
+## secret files
+600 root /var/lib/playkeeper/agent/rcon.secret
+600 playkeeper /var/lib/playkeeper/panel/tls/key.pem
+600 playkeeper /var/lib/playkeeper/panel/panel.db
+600 root /var/lib/playkeeper/agent/agent.db
+## IP addresses in databases
+/var/lib/playkeeper/agent/agent.db IPv4-like strings: none
+/var/lib/playkeeper/panel/panel.db IPv4-like strings: none
+## RCON password in logs or databases
+journal: 0
+container log: 0
+cat: '/var/lib/playkeeper/agent/agent.db*': No such file or directory
+cat: '/var/lib/playkeeper/panel/panel.db*': No such file or directory
+databases: 0
+## established connections right now (the agent's RCON link to the container on the Docker bridge)
+Recv-Q Send-Q Local Address:Port  Peer Address:Port Process                               
+0      0         <private-ip>:59450   <private-ip>:25575 users:(("playkeeper",pid=4487,fd=16))
+admin password occurrences in journal: 0
+console lines mentioning raw.githubusercontent.com: 0
+
+==== HOST A: overview numbers against ground truth  [17:06:45]
+200
+{
+  "exists": true,
+  "desired": "running",
+  "phase": "online",
+  "reachable": true,
+  "reachableAt": "2026-09-24T17:06:48.796341279Z",
+  "startedAt": "2026-09-24T17:05:54.709659935Z",
+  "players": {
+    "online": 0,
+    "max": 10,
+    "names": [],
+    "source": "rcon list",
+    "at": "2026-09-24T17:06:48.796341279Z"
+  },
+  "config": {
+    "versionId": "paper-26.1.2",
+    "minecraftVersion": "26.1.2",
+    "paperBuild": 74,
+    "memoryMB": 1536,
+    "heapMB": 1024,
+    "levelName": "world",
+    "jarVerifiedAt": "2026-09-24T17:05:02.478136692Z",
+    "motd": "Playkeeper E2E (renamed)",
+    "maxPlayers": 10,
+    "whitelist": true,
+    "eulaAcceptedAt": "2026-09-24T17:01:53.085179722Z",
+    "eulaAcceptedBy": "admin",
+    "createdAt": "2026-09-24T17:01:53.085179722Z",
+    "image": "docker.io/itzg/minecraft-server@sha256:e8640538dac5d54c2838d57fa9641e735ad0cf2b71fb0e8a68da3b542a315749"
+  },
+  "gamePort": 25565,
+  "offlineModeTest": true,
+  "lastOperation": {
+    "id": "7f0e062302e71609",
+    "kind": "backup",
+    "status": "succeeded",
+    "phase": "verifying",
+    "actor": "admin",
+    "startedAt": "2026-09-24T17:05:53.757Z",
+    "finishedAt": "2026-09-24T17:06:06.907Z",
+    "detail": {
+      "backupId": "20260924-170554-8ce0c4",
+      "downtimeMs": 13084
+    }
+  },
+  "crashCount": 0,
+  "resources": {
+    "cpuPercent": 2.616095459065297,
+    "memBytes": 1384566784,
+    "memLimitBytes": 1610612736,
+    "diskFreeBytes": 15776894976,
+    "diskTotalBytes": 19682557952,
+    "at": "2026-09-24T17:06:48.796341279Z"
+  },
+  "lastBackup": {
+    "id": "20260924-170554-8ce0c4",
+    "kind": "manual",
+    "createdAt": "2026-09-24T17:05:54.461Z",
+    "fileName": "playkeeper-world-20260924-170554-8ce0c4.tar.gz",
+    "sizeBytes": 5742432,
+    "sha256": "1ada600ddc4001e2524950364c43072957a7e0ee877e23204a7d140ab314a7b4",
+    "location": "on-host",
+    "verified": true,
+    "verifiedAt": "2026-09-24T17:06:06.907Z",
+    "downtimeMs": 13084,
+    "minecraftVersion": "26.1.2",
+    "levelName": "world",
+    "fileCount": 89,
+    "createdBy": "admin",
+    "downloadedAt": "2026-09-24T17:06:08.905Z",
+    "note": "browser backup"
+  },
+  "pendingRestart": false,
+  "agentVersion": "0.1.0-dev+0c99fa7b6277",
+  "collectingSince": "2026-09-24T17:01:01.693346454Z"
+}
+docker stats: cpu=2.66% mem=1.29GiB / 1.5GiB
+StartedAt=2026-09-24T17:05:54.709659935Z
+/dev/vda1      19682557952 3888893952 15776886784  20% /
+[17:06:05 INFO]: Starting minecraft server version 26.1.2
+{
+  "output": "There are 0 of a max of 10 players online: "
+}
+
+==== HOST A: restarting the agent does not duplicate events or sessions  [17:06:59]
+events and sessions before the agent restart: 22 3; after: 22 3
+no duplicates after replaying the server log
+
+==== HOST A: agent unavailable  [17:07:25]
+503
+{
+  "error": "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.",
+  "code": "agent_unavailable",
+  "hint": "On the server, check: sudo systemctl status playkeeper-agent"
+}
+
+==== HOST A: crash (kill -9 java) with a player online, and the recovery policy  [17:07:46]
+200
+{
+  "exists": true,
+  "desired": "running",
+  "phase": "starting_container",
+  "reachable": true,
+  "reachableAt": "2026-09-24T17:07:56.713284163Z",
+  "startedAt": "2026-09-24T17:07:59.800696242Z",
+  "players": {
+    "online": 1,
+    "max": 10,
+    "names": [
+      "PkBotFriend"
+    ],
+    "source": "rcon list",
+    "at": "2026-09-24T17:07:56.713284163Z"
+  },
+  "config": {
+    "versionId": "paper-26.1.2",
+    "minecraftVersion": "26.1.2",
+    "paperBuild": 74,
+    "memoryMB": 1536,
+    "heapMB": 1024,
+    "levelName": "world",
+    "jarVerifiedAt": "2026-09-24T17:05:02.478136692Z",
+    "motd": "Playkeeper E2E (renamed)",
+    "maxPlayers": 10,
+    "whitelist": true,
+    "eulaAcceptedAt": "2026-09-24T17:01:53.085179722Z",
+    "eulaAcceptedBy": "admin",
+    "createdAt": "2026-09-24T17:01:53.085179722Z",
+    "image": "docker.io/itzg/minecraft-server@sha256:e8640538dac5d54c2838d57fa9641e735ad0cf2b71fb0e8a68da3b542a315749"
+  },
+  "gamePort": 25565,
+  "offlineModeTest": true,
+  "operation": {
+    "id": "2b534f28332f0e7e",
+    "kind": "auto-restart",
+    "status": "running",
+    "phase": "starting_container",
+    "actor": "playkeeper",
+    "startedAt": "2026-09-24T17:07:59.71474978Z"
+  },
+  "lastOperation": {
+    "id": "7f0e062302e71609",
+    "kind": "backup",
+    "status": "succeeded",
+    "phase": "verifying",
+    "actor": "admin",
+    "startedAt": "2026-09-24T17:05:53.757Z",
+    "finishedAt": "2026-09-24T17:06:06.907Z",
+    "detail": {
+      "backupId": "20260924-170554-8ce0c4",
+      "downtimeMs": 13084
+    }
+  },
+  "crashCount": 1,
+  "resources": {
+    "cpuPercent": 71.16783747481531,
+    "memBytes": 1443610624,
+    "memLimitBytes": 1610612736,
+    "diskFreeBytes": 15778922496,
+    "diskTotalBytes": 19682557952,
+    "at": "2026-09-24T17:07:56.713284163Z"
+  },
+  "lastBackup": {
+    "id": "20260924-170554-8ce0c4",
+    "kind": "manual",
+    "createdAt": "2026-09-24T17:05:54.461Z",
+    "fileName": "playkeeper-world-20260924-170554-8ce0c4.tar.gz",
+    "sizeBytes": 5742432,
+    "sha256": "1ada600ddc4001e2524950364c43072957a7e0ee877e23204a7d140ab314a7b4",
+    "location": "on-host",
+    "verified": true,
+    "verifiedAt": "2026-09-24T17:06:06.907Z",
+    "downtimeMs": 13084,
+    "minecraftVersion": "26.1.2",
+    "levelName": "world",
+    "fileCount": 89,
+    "createdBy": "admin",
+    "downloadedAt": "2026-09-24T17:06:08.905Z",
+    "note": "browser backup"
+  },
+  "pendingRestart": false,
+  "agentVersion": "0.1.0-dev+0c99fa7b6277",
+  "collectingSince": "2026-09-24T17:01:01.693346454Z"
+}
+2026-09-24T17:07:48.060Z joined PkBotFriend
+2026-09-24T17:07:57.398Z connection ended PkBotFriend: socketClosed
+200
+[
+  {
+    "id": 27,
+    "ts": "2026-09-24T17:08:12.047Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.835s"
+  },
+  {
+    "id": 26,
+    "ts": "2026-09-24T17:07:57.398Z",
+    "kind": "server_crashed",
+    "source": "docker",
+    "detail": "The server stopped unexpectedly (exit code 137) without shutting down cleanly."
+  },
+  {
+    "id": 25,
+    "ts": "2026-09-24T17:07:47.971Z",
+    "kind": "join",
+    "player": "PkBotFriend",
+    "source": "server_log"
+  },
+  {
+    "id": 22,
+    "ts": "2026-09-24T17:06:06.595Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.595s"
+  },
+  {
+    "id": 21,
+    "ts": "2026-09-24T17:05:53.845Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 20,
+    "ts": "2026-09-24T17:05:37.104Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.619s"
+  },
+  {
+    "id": 19,
+    "ts": "2026-09-24T17:05:23.429Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 18,
+    "ts": "2026-09-24T17:05:17.221Z",
+    "kind": "world_restored",
+    "source": "playkeeper",
+    "detail": "restored world (sha256 91857c0779ffabf0261a28dcd3fe50f1a0c4af4223c4ae964a0349f2d91c3774); rollback archive 20260924-170456-06eb3b"
+  },
+  {
+    "id": 17,
+    "ts": "2026-09-24T17:05:17.081Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.524s"
+  },
+  {
+    "id": 16,
+    "ts": "2026-09-24T17:05:02.478Z",
+    "kind": "server_software_verified",
+    "source": "playkeeper",
+    "detail": "paper-26.1.2-74.jar sha256 1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7"
+  },
+  {
+    "id": 15,
+    "ts": "2026-09-24T17:04:55.808Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 14,
+    "ts": "2026-09-24T17:04:46.172Z",
+    "kind": "world_restored",
+    "source": "playkeeper",
+    "detail": "restored world (sha256 6613eeba8c04a1115aef3da08b8812fea839c804f51816487515fac60df351fe); rollback archive 20260924-170424-35e219"
+  },
+  {
+    "id": 13,
+    "ts": "2026-09-24T17:04:45.667Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.492s"
+  },
+  {
+    "id": 12,
+    "ts": "2026-09-24T17:04:30.959Z",
+    "kind": "server_software_verified",
+    "source": "playkeeper",
+    "detail": "paper-26.1.2-74.jar sha256 1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7"
+  },
+  {
+    "id": 11,
+    "ts": "2026-09-24T17:04:24.096Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 10,
+    "ts": "2026-09-24T17:04:13.802Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.657s"
+  },
+  {
+    "id": 9,
+    "ts": "2026-09-24T17:04:00.131Z",
+    "kind": "leave",
+    "player": "PkBotFriend",
+    "source": "server_log"
+  },
+  {
+    "id": 8,
+    "ts": "2026-09-24T17:04:00.076Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 7,
+    "ts": "2026-09-24T17:03:51.454Z",
+    "kind": "leave",
+    "player": "PkBotBuilder",
+    "source": "server_log"
+  },
+  {
+    "id": 6,
+    "ts": "2026-09-24T17:03:11.379Z",
+    "kind": "join",
+    "player": "PkBotBuilder",
+    "source": "server_log"
+  }
+]
+session of the player online during the crash: {'start': '2026-09-24T17:07:47.971Z', 'end': '2026-09-24T17:07:57.398Z', 'endReason': 'server_crashed', 'endUncertain': True}
+marked as ended by a crash, end time uncertain; no leave event invented
+
+==== HOST A: port collision gives an actionable error  [17:08:14]
+started-listener
+  [17:08:19] start: running 
+  [17:08:21] start: failed starting_container
+{
+  "id": "0d79e8911b73f0d3",
+  "kind": "start",
+  "status": "failed",
+  "phase": "starting_container",
+  "actor": "admin",
+  "startedAt": "2026-09-24T17:08:19.314Z",
+  "finishedAt": "2026-09-24T17:08:19.626Z",
+  "error": "Port 25565 is already in use by another program, so the server cannot accept players.",
+  "hint": "Stop the program using port 25565 (see: sudo ss -ltnp 'sport = :25565'), then press Start."
+}
+
+==== HOST A: low disk space  [17:08:43]
+/dev/vda1        19G   19G  300M  99% /
+202
+{
+  "id": "e56b29c2574e07c3",
+  "kind": "backup",
+  "status": "running",
+  "phase": "",
+  "actor": "admin",
+  "startedAt": "2026-09-24T17:08:44.118072946Z"
+}
+  "lastOperation": {
+    "error": "Not enough disk space for a backup: 300.0 MiB free, about 529.0 MiB needed.",
+    "hint": "Delete old backups (after downloading any you want to keep) or free disk space, then try again."
+
+==== HOST A: server offline for 3 minutes (chart shows a gap, not zeros)  [17:09:02]
+
+==== HOST A: reboot; the desired state comes back and analytics show the outage  [17:12:34]
+[17:12:55] 198.51.100.10 is up (ssh ready after ~2 s)
+  "desired": "running",
+  "phase": "starting",
+  "startedAt": "2026-09-24T17:12:51.913858099Z",
+    "phase": "starting",
+    "startedAt": "2026-09-24T17:12:51.792742824Z"
+    "phase": "online",
+    "startedAt": "2026-09-24T17:12:19.924Z",
+1h buckets by state: {'online': 7, 'not_collected': 48, 'offline': 5}
+gaps: [('server_offline', '17:01:01', '17:02:18'), ('server_offline', '17:08:26', '17:08:41'), ('server_offline', '17:09:11', '17:12:26'), ('server_offline', '17:12:48', '17:12:48')]
+today: 2 players, 4 sessions, 107 s observed playtime, data collected 97.5%
+
+==== HOST A: uninstall keeps worlds and backups; reinstall picks them up  [17:13:10]
+Playkeeper uninstall will remove:
+  • services: playkeeper-agent.service, playkeeper-panel.service
+  • the Minecraft container 'playkeeper-minecraft', the 'playkeeper' Docker network and the pinned server image
+  • /usr/local/bin/playkeeper
+  • /etc/playkeeper/config.json
+  • /etc/systemd/system/playkeeper-agent.service
+  • /etc/systemd/system/playkeeper-panel.service
+  • users: playkeeper, playkeeper-mc
+  • packages Playkeeper installed: containerd docker.io runc (only if no other containers use Docker)
+It will keep /var/lib/playkeeper (your worlds, backups and settings), so a reinstall can pick them up.
+Kept /var/lib/playkeeper (worlds in server/data, backups in backups/).
+Playkeeper was removed.
+uninstall wall time: 16 s
+world and backup checksums unchanged (80 files)
+## after uninstall
+0
+id: ‘playkeeper’: no such user
+ls: cannot access '/usr/local/bin/playkeeper': No such file or directory
+ls: cannot access '/etc/playkeeper': No such file or directory
+LISTEN 0      4096         0.0.0.0:22 0.0.0.0:*
+LISTEN 0      4096   127.0.0.53%lo:53 0.0.0.0:*
+LISTEN 0      4096      127.0.0.54:53 0.0.0.0:*
+LISTEN 0      4096            [::]:22    [::]:*
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Previous Playkeeper data   Found worlds and backups from an earlier Playkeeper install in /var/lib/playkeeper; they will be reused, not changed.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      reuse /var/lib/playkeeper (existing worlds and backups are kept as they are)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+
+Installing:
+  • install Docker (docker.io)
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open https://198.51.100.10:8443 and sign in with your existing admin account.
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       30:FE:C6:86:B4:46:F6:72:41:C6:72:55:1D:64:99:E9:54:09:9B:ED:5A:F8:74:C6:2A:DC:48:44:28:7A:D8:55
+  3. Your worlds and backups were kept; the server starts again if it was running before.
+
+If 198.51.100.10:8443 is not your public address, use your VPS's public IP instead.
+Forgot the password? sudo playkeeper reset-password <username>
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 9s.
+after reinstall, marker check: 118, 72, 47 has the following block data: ["pk-53425a3c0706", "", "", ""]
+
+==== HOST B: an existing Minecraft service, Crafty-style directory, Docker container and ufw firewall  [17:14:01]
+[17:14:02] booted b at 198.51.100.11 (3072 MB RAM, 2 vCPU, 20 GB disk)
+[17:14:16] 198.51.100.11 is up (ssh ready after ~8 s)
+os: Ubuntu 24.04.5 LTS
+kernel: 6.8.0-139-generic
+cpus: 2
+memory_mb: 2971
+disk: 19G total, 17G free
+init: systemd (running)
+playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz: OK
+Created symlink /etc/systemd/system/multi-user.target.wants/minecraft.service → /etc/systemd/system/minecraft.service.
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+1cc1c36eb610d779046ce49ddd38216dbbd5f301409382a05b71cf6c849a9f65  /etc/systemd/system/minecraft.service
+c5133e371b1a1e1fa96e3f72cc357b7b115ae68f047991894b27cc9a43c69aa1  /srv/minecraft/world/level.dat
+a37c21d1349d8e40bd22e1f98407363cbd9f5b76324103c4a3f8c3470239b32b  /var/opt/minecraft/crafty/app/config/config.json
+existing container: existing-minecraft local/minecraft-fixture:1 Up 2 seconds
+ufw: Status: active
+ufw: 
+ufw: To                         Action      From
+ufw: --                         ------      ----
+ufw: 22/tcp                     ALLOW       Anywhere                  
+ufw: 22/tcp (v6)                ALLOW       Anywhere (v6)             
+ufw: 
+
+==== HOST B: low disk space is refused with a fix (read-only)  [17:14:39]
+/dev/vda1        19G   16G  2.5G  87% /
+Error: this host is not ready for Playkeeper (see FAIL items)
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [FAIL] Disk space                 Only 2.4 GB free under /var/lib; at least 3 GB is needed.
+         → Fix: Free disk space (for example: sudo apt-get clean; sudo journalctl --vacuum-size=200M) or use a larger disk.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [FAIL] Port 25565                 Port 25565 (for the Minecraft players) is already used by another program.
+         → Fix: See what uses it with: sudo ss -ltnp 'sport = :25565'. Stop that program, or choose another port with --game-port.
+  [FAIL] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not take over or run next to an existing Minecraft setup by default.
+         → Fix: Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+==== HOST B: collisions refused; coexistence with --allow-existing-minecraft  [17:14:40]
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [FAIL] Port 25565                 Port 25565 (for the Minecraft players) is already used by another program.
+         → Fix: See what uses it with: sudo ss -ltnp 'sport = :25565'. Stop that program, or choose another port with --game-port.
+  [FAIL] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not take over or run next to an existing Minecraft setup by default.
+         → Fix: Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Error: this host is not ready for Playkeeper (see FAIL items)
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+Error: preflight failed; fix the items marked FAIL above. Nothing was changed
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [FAIL] Port 25565                 Port 25565 (for the Minecraft players) is already used by another program.
+         → Fix: See what uses it with: sudo ss -ltnp 'sport = :25565'. Stop that program, or choose another port with --game-port.
+  [FAIL] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not take over or run next to an existing Minecraft setup by default.
+         → Fix: Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [WARN] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not touch them (--allow-existing-minecraft).
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Firewall:  ufw allow 8443/tcp and 25565/tcp
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+
+Installing:
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • allow panel and game ports in ufw
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open this link in your browser:
+       https://198.51.100.11:8443/setup#code=<redacted>
+     (setup code: <redacted> — works once, expires in 24 hours)
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       A6:63:E8:58:6C:D1:C1:91:EC:6F:98:B1:38:63:68:38:E7:9A:55:2B:F2:46:13:E6:0F:DE:D3:DE:A4:D2:66:52
+  3. Create your admin account, accept the Minecraft EULA and start your server.
+
+If 198.51.100.11:8443 is not your public address, use your VPS's public IP instead.
+Lost the setup code? sudo playkeeper setup-code
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 2s.
+Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere                  
+8443/tcp                   ALLOW       Anywhere                  
+25565/tcp                  ALLOW       Anywhere                  
+22/tcp (v6)                ALLOW       Anywhere (v6)             
+8443/tcp (v6)              ALLOW       Anywhere (v6)             
+25565/tcp (v6)             ALLOW       Anywhere (v6)             
+
+panel reachable from another host through ufw
+
+==== HOST B: blocked outbound HTTPS gives actionable errors; after unblocking, Start recovers  [17:14:43]
+  File "<string>", line 4
+    print(f"[{c[\"status\"]}] {c[\"label\"]}: {c[\"detail\"]}" + (f" -> Fix: {c[\"fix\"]}" if c.get("fix") else ""))
+                 ^
+SyntaxError: unexpected character after line continuation character
+Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>
+BrokenPipeError: [Errno 32] Broken pipe
+
+==== Artifact: playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64  [17:16:56]
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  /workspace/dist/playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz
+drwxr-xr-x 0/0               0 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/
+-rw-r--r-- 0/0            1268 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/README-INSTALL.txt
+-rw-r--r-- 0/0            3334 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/THIRD_PARTY.md
+-rwxr-xr-x 0/0             667 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/install.sh
+-rwxr-xr-x 0/0        13807776 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/playkeeper
+artifact contains no jars, keys, databases, .git or node_modules
+
+==== HOST B: an existing Minecraft service, Crafty-style directory, Docker container and ufw firewall  [17:16:56]
+[17:16:57] booted b at 198.51.100.11 (3072 MB RAM, 2 vCPU, 20 GB disk)
+[17:17:12] 198.51.100.11 is up (ssh ready after ~10 s)
+os: Ubuntu 24.04.5 LTS
+kernel: 6.8.0-139-generic
+cpus: 2
+memory_mb: 2971
+disk: 19G total, 17G free
+init: systemd (running)
+playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz: OK
+Created symlink /etc/systemd/system/multi-user.target.wants/minecraft.service → /etc/systemd/system/minecraft.service.
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+1cc1c36eb610d779046ce49ddd38216dbbd5f301409382a05b71cf6c849a9f65  /etc/systemd/system/minecraft.service
+c5133e371b1a1e1fa96e3f72cc357b7b115ae68f047991894b27cc9a43c69aa1  /srv/minecraft/world/level.dat
+a37c21d1349d8e40bd22e1f98407363cbd9f5b76324103c4a3f8c3470239b32b  /var/opt/minecraft/crafty/app/config/config.json
+existing container: existing-minecraft local/minecraft-fixture:1 Up 2 seconds
+ufw: Status: active
+ufw: 
+ufw: To                         Action      From
+ufw: --                         ------      ----
+ufw: 22/tcp                     ALLOW       Anywhere                  
+ufw: 22/tcp (v6)                ALLOW       Anywhere (v6)             
+ufw: 
+
+==== HOST B: low disk space is refused with a fix (read-only)  [17:17:40]
+/dev/vda1        19G   16G  2.5G  87% /
+Error: this host is not ready for Playkeeper (see FAIL items)
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [FAIL] Disk space                 Only 2.4 GB free under /var/lib; at least 3 GB is needed.
+         → Fix: Free disk space (for example: sudo apt-get clean; sudo journalctl --vacuum-size=200M) or use a larger disk.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [FAIL] Port 25565                 Port 25565 (for the Minecraft players) is already used by another program.
+         → Fix: See what uses it with: sudo ss -ltnp 'sport = :25565'. Stop that program, or choose another port with --game-port.
+  [FAIL] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not take over or run next to an existing Minecraft setup by default.
+         → Fix: Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+==== HOST B: collisions refused; coexistence with --allow-existing-minecraft  [17:17:41]
+Error: this host is not ready for Playkeeper (see FAIL items)
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [FAIL] Port 25565                 Port 25565 (for the Minecraft players) is already used by another program.
+         → Fix: See what uses it with: sudo ss -ltnp 'sport = :25565'. Stop that program, or choose another port with --game-port.
+  [FAIL] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not take over or run next to an existing Minecraft setup by default.
+         → Fix: Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+Error: preflight failed; fix the items marked FAIL above. Nothing was changed
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [FAIL] Port 25565                 Port 25565 (for the Minecraft players) is already used by another program.
+         → Fix: See what uses it with: sudo ss -ltnp 'sport = :25565'. Stop that program, or choose another port with --game-port.
+  [FAIL] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not take over or run next to an existing Minecraft setup by default.
+         → Fix: Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [WARN] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not touch them (--allow-existing-minecraft).
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Firewall:  ufw allow 8443/tcp and 25565/tcp
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+
+Installing:
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • allow panel and game ports in ufw
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open this link in your browser:
+       https://198.51.100.11:8443/setup#code=<redacted>
+     (setup code: <redacted> — works once, expires in 24 hours)
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       14:F2:A9:94:DF:0F:19:DD:C9:51:EA:F0:24:BD:B5:AA:8D:0A:4F:07:8A:14:E1:FB:BA:7F:D1:05:D9:06:B8:3C
+  3. Create your admin account, accept the Minecraft EULA and start your server.
+
+If 198.51.100.11:8443 is not your public address, use your VPS's public IP instead.
+Lost the setup code? sudo playkeeper setup-code
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 2s.
+Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere                  
+8443/tcp                   ALLOW       Anywhere                  
+25565/tcp                  ALLOW       Anywhere                  
+22/tcp (v6)                ALLOW       Anywhere (v6)             
+8443/tcp (v6)              ALLOW       Anywhere (v6)             
+25565/tcp (v6)             ALLOW       Anywhere (v6)             
+
+panel reachable from another host through ufw
+
+==== HOST B: blocked outbound HTTPS gives actionable errors; after unblocking, Start recovers  [17:17:45]
+[pass] Docker: Docker 29.1.3 (API 1.52) is running.
+[pass] Memory: 2.9 GB RAM. Suggested server budget: 1.5 GB.
+[pass] Disk space: 16.1 GB free.
+[pass] Game port: Port 25565 is free for Minecraft players.
+[fail] Download access: Cannot reach PaperMC (fill.papermc.io): Head "https://fill.papermc.io/v3/projects/paper": dial tcp <upstream-ip>:443: connect: connection refused -> Fix: Allow outbound HTTPS from this server to fill.papermc.io, piston-data.mojang.com and registry-1.docker.io.
+[warn] Other Minecraft containers: Found: existing-minecraft (running). Playkeeper will not touch them. -> Fix: Make sure they do not use port 25565 or compete for memory.
+  "status": "failed",
+  "error": "Could not download the Minecraft runtime image: docker: failed to resolve reference \"docker.io/itzg/minecraft-server@sha256:e8640538dac5d54c2838d57fa9641e735ad0cf2b71fb0e8a68da3b542a315749\": failed to do request: Head \"https://registry-1.docker.io/v2/itzg/minecraft-server/manifests/sha256:e8640538dac5d54c2838d57fa9641e735ad0cf2b71fb0e8a68da3b542a315749\": dial tcp <upstream-ip>:443: connect: connection refused (HTTP 500)",
+  "hint": "Check that this host can reach Docker Hub (registry-1.docker.io), then press Start again."
+## outbound HTTPS allowed again; pressing Start as the hint says
+  "kind": "start",
+  "status": "succeeded",
+server online after the fix
+
+==== HOST B: purge needs the typed phrase; existing services, container and firewall rules survive  [17:18:40]
+  • EVERYTHING in /var/lib/playkeeper, including your worlds and backups (--purge)
+Deleting worlds cannot be undone. Type "delete my worlds" to confirm: Error: purge not confirmed; nothing was changed
+after the refused purge: active active ; data dir present: yes
+Playkeeper uninstall will remove:
+  • services: playkeeper-agent.service, playkeeper-panel.service
+  • the Minecraft container 'playkeeper-minecraft', the 'playkeeper' Docker network and the pinned server image
+  • /usr/local/bin/playkeeper
+  • /etc/playkeeper/config.json
+  • /etc/systemd/system/playkeeper-agent.service
+  • /etc/systemd/system/playkeeper-panel.service
+  • users: playkeeper, playkeeper-mc
+  • ufw rules: 8443/tcp, 25565/tcp
+  • EVERYTHING in /var/lib/playkeeper, including your worlds and backups (--purge)
+Deleting worlds cannot be undone. Type "delete my worlds" to confirm: Deleted /var/lib/playkeeper.
+Playkeeper was removed.
+## after install, blocked-egress test and purge
+/etc/systemd/system/minecraft.service: OK
+/srv/minecraft/world/level.dat: OK
+/var/opt/minecraft/crafty/app/config/config.json: OK
+minecraft.service: active
+fixture still serving on 25570: 200
+existing container: existing-minecraft local/minecraft-fixture:1 Up About a minute
+existing container still serving on 25580: 200
+docker still installed: /usr/bin/docker
+/var/lib/playkeeper after purge: removed
+ufw: Status: active
+ufw: 
+ufw: To                         Action      From
+ufw: --                         ------      ----
+ufw: 22/tcp                     ALLOW       Anywhere                  
+ufw: 22/tcp (v6)                ALLOW       Anywhere (v6)             
+ufw: 
+
+==== HOST C: one-line install (get.sh) from a local HTTP mirror of the release assets  [17:18:44]
+mirror at http://198.51.100.1:8765 serves:
+d10e60629d6b32b2293e3992583c15ae62dc3f1919710e04bf8f41cf62d83464  get.sh
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  playkeeper-linux-amd64.tar.gz
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  playkeeper-linux-amd64.tar.gz
+the served tarball is byte-identical to the tested artifact playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz
+http://198.51.100.1:8765/bad serves the same tarball with a wrong .sha256
+http://198.51.100.1:8765/tampered serves the tarball with one byte changed and its original .sha256
+http://198.51.100.1:8765/missing serves the tarball without a .sha256 (404)
+[17:18:45] booted c at 198.51.100.12 (3072 MB RAM, 2 vCPU, 20 GB disk)
+[17:19:00] 198.51.100.12 is up (ssh ready after ~10 s)
+os: Ubuntu 24.04.5 LTS
+kernel: 6.8.0-139-generic
+cpus: 2
+memory_mb: 2971
+disk: 19G total, 17G free
+init: systemd (running)
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/bad PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/bad (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/bad
+Playkeeper install stopped: the download does not match its published checksum (expected 0000000000000000000000000000000000000000000000000000000000000000, got 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71). Nothing was installed.
+  Fix: Try again later; if it keeps happening, do not install from this location.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/tampered PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/tampered (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/tampered
+Playkeeper install stopped: the download does not match its published checksum (expected 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71, got 37579644387fd73b382859962742f1ef468505505edef97d90f101b958ce8d2a). Nothing was installed.
+  Fix: Try again later; if it keeps happening, do not install from this location.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/missing PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/missing (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/missing
+curl: (22) The requested URL returned error: 404
+Playkeeper install stopped: could not download http://198.51.100.1:8765/missing/playkeeper-linux-amd64.tar.gz.sha256.
+  Fix: Check the address. While Playkeeper has no public release, install from a release tarball as the README describes.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh
+Warning: downloading over plain HTTP from http://198.51.100.1:8765 (PLAYKEEPER_ALLOW_HTTP=1).
+Playkeeper install stopped: there is no terminal to answer the installer's question on.
+  Fix: Run the command in an interactive terminal (for example over ssh), or skip the question with --yes: curl -fsSL <this script's URL> | sudo sh -s -- --yes
+exit status: 1
+get.sh temporary directories left in /tmp: 0
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh   # in a terminal; the installer's question is answered with y
+Warning: downloading over plain HTTP from http://198.51.100.1:8765 (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765
+SHA-256 verified: 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71
+Starting the installer from playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+Proceed? [y/N] y
+
+Installing:
+  • install Docker (docker.io)
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open this link in your browser:
+       https://198.51.100.12:8443/setup#code=<redacted>
+     (setup code: <redacted> — works once, expires in 24 hours)
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       6A:37:5A:ED:A5:DA:5D:A3:0F:53:5C:CE:1B:F5:29:F9:F6:28:54:FC:70:2D:D5:97:21:02:05:FB:6D:06:7B:42
+  3. Create your admin account, accept the Minecraft EULA and start your server.
+
+If 198.51.100.12:8443 is not your public address, use your VPS's public IP instead.
+Lost the setup code? sudo playkeeper setup-code
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 21s.
+one-line install wall time (download, checksum, install): 22 s
+sha256sum: /var/lib/playkeeper/agent/rcon.secret: No such file or directory
+
+==== Artifact: playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64  [17:22:25]
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  /workspace/dist/playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz
+drwxr-xr-x 0/0               0 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/
+-rw-r--r-- 0/0            1268 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/README-INSTALL.txt
+-rw-r--r-- 0/0            3334 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/THIRD_PARTY.md
+-rwxr-xr-x 0/0             667 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/install.sh
+-rwxr-xr-x 0/0        13807776 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/playkeeper
+artifact contains no jars, keys, databases, .git or node_modules
+
+==== HOST C: one-line install (get.sh) from a local HTTP mirror of the release assets  [17:22:25]
+mirror at http://198.51.100.1:8765 serves:
+d10e60629d6b32b2293e3992583c15ae62dc3f1919710e04bf8f41cf62d83464  get.sh
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  playkeeper-linux-amd64.tar.gz
+6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71  playkeeper-linux-amd64.tar.gz
+the served tarball is byte-identical to the tested artifact playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz
+http://198.51.100.1:8765/bad serves the same tarball with a wrong .sha256
+http://198.51.100.1:8765/tampered serves the tarball with one byte changed and its original .sha256
+http://198.51.100.1:8765/missing serves the tarball without a .sha256 (404)
+[17:22:27] booted c at 198.51.100.12 (3072 MB RAM, 2 vCPU, 20 GB disk)
+[17:22:41] 198.51.100.12 is up (ssh ready after ~8 s)
+os: Ubuntu 24.04.5 LTS
+kernel: 6.8.0-139-generic
+cpus: 2
+memory_mb: 2971
+disk: 19G total, 17G free
+init: systemd (running)
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/bad PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/bad (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/bad
+Playkeeper install stopped: the download does not match its published checksum (expected 0000000000000000000000000000000000000000000000000000000000000000, got 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71). Nothing was installed.
+  Fix: Try again later; if it keeps happening, do not install from this location.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/tampered PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/tampered (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/tampered
+Playkeeper install stopped: the download does not match its published checksum (expected 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71, got 37579644387fd73b382859962742f1ef468505505edef97d90f101b958ce8d2a). Nothing was installed.
+  Fix: Try again later; if it keeps happening, do not install from this location.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/missing PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/missing (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/missing
+curl: (22) The requested URL returned error: 404
+Playkeeper install stopped: could not download http://198.51.100.1:8765/missing/playkeeper-linux-amd64.tar.gz.sha256.
+  Fix: Check the address. While Playkeeper has no public release, install from a release tarball as the README describes.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh
+Warning: downloading over plain HTTP from http://198.51.100.1:8765 (PLAYKEEPER_ALLOW_HTTP=1).
+Playkeeper install stopped: there is no terminal to answer the installer's question on.
+  Fix: Run the command in an interactive terminal (for example over ssh), or skip the question with --yes: curl -fsSL <this script's URL> | sudo sh -s -- --yes
+exit status: 1
+get.sh temporary directories left in /tmp: 0
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh   # in a terminal; the installer's question is answered with y
+Warning: downloading over plain HTTP from http://198.51.100.1:8765 (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765
+SHA-256 verified: 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71
+Starting the installer from playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+Proceed? [y/N] y
+
+Installing:
+  • install Docker (docker.io)
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open this link in your browser:
+       https://198.51.100.12:8443/setup#code=<redacted>
+     (setup code: <redacted> — works once, expires in 24 hours)
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       61:52:9D:6F:31:60:9A:92:89:0B:85:51:A3:CC:46:E4:D0:FE:34:BE:C6:D3:91:7D:F3:AD:80:01:AB:0B:D7:1A
+  3. Create your admin account, accept the Minecraft EULA and start your server.
+
+If 198.51.100.12:8443 is not your public address, use your VPS's public IP instead.
+Lost the setup code? sudo playkeeper setup-code
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 22s.
+one-line install wall time (download, checksum, install): 23 s
+
+==== HOST C: restore host A's archive in the browser  [17:23:06]
+
+[17:23:07] Second host: unauthenticated requests fail closed
+  ok: GET /api/server without a session is refused (401)
+  ok: POST /api/server/start without a session is refused (401)
+  ok: POST /api/server/command without a session is refused (401)
+  ok: GET /api/backups without a session is refused (401)
+  ok: GET /api/backups/20260101-000000-abcdef/download without a session is refused (401)
+  ok: POST /api/restore/upload without a session is refused (401)
+  ok: GET /api/audit without a session is refused (401)
+
+[17:23:07] First-run setup on the second host
+  ok: setup with a wrong code is refused (403)
+  ok: the setup code cannot be used twice (409)
+  ok: fresh host has no server
+  ok: fresh host shows no earlier history (no backfill)
+
+[17:23:07] EULA gate on the second host: nothing is created before acceptance
+  ok: create without EULA refused (400 eula_required)
+
+[17:23:07] A corrupted copy of the archive is refused before anything changes
+  ok: flipped-byte archive refused (422: This file cannot be restored: archive is corrupt: gzip: invalid checksum)
+
+[17:23:07] Upload the archive (moved as a file) and review the preview
+  ok: archive validated file by file
+  ok: archive SHA-256 on host B matches host A (6613eeba8c04a111…)
+  ok: preview asks for the EULA and shows no existing world
+  ok: restore without EULA acceptance refused
+  ok: refusals left the host unchanged (still no server)
+
+host-b: PASSED (18 checks ok) in 0.3 s
+
+Running 1 test using 1 worker
+
+(node:92778) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 restore.spec.ts:9:1 › second host: restore a backup through onboarding (47.7s)
+
+  1 passed (48.2s)
+
+[17:23:56] The distinctive world state survived: console and client view
+  ok: console: gold block at 118 71 47 (Test passed)
+  ok: console: sign at 118 72 47 carries nonce pk-53425a3c0706 (118, 72, 47 has the following block data: ["pk-53425a3c0706", "", "", ""])
+2026-09-24T17:24:01.190Z client view {"gold":"gold_block","sign":"oak_sign","signText":"pk-53425a3c0706\n\n\n","expectedNonce":"pk-53425a3c0706","ok":true}
+  ok: client view: gold block and sign with nonce pk-53425a3c0706 at the recorded coordinates
+  restore operation took 30.8 s from confirmation to joinable
+
+host-b: PASSED (3 checks ok) in 6.5 s
+
+==== HOST C: damaged archives are refused and the live world stays byte-identical  [17:24:02]
+
+[17:24:05] Damaged archives are refused while a world is live (the server is stopped so its files hold still)
+  ok: archive truncated to half its size: refused (422: This file cannot be restored: archive is corrupt: unexpected EOF)
+  ok: archive an entry that climbs out with ../: refused (422: This file cannot be restored: entry "playkeeper-backup/data/../../../etc/cron.d/evil" is o)
+  ok: archive an absolute path entry: refused (422: This file cannot be restored: entry "/etc/cron.d/evil" is outside the backup data director)
+  ok: archive level.dat changed after the manifest was written: refused (422: This file cannot be restored: file "world/level.dat" does not match its recorded checksum)
+
+host-b: PASSED (4 checks ok) in 1.0 s
+live world and backups unchanged after the refusals (72 files compared by SHA-256)
+host C's RCON password and TLS key differ from host A's (compared by SHA-256; values not recorded)
+
+==== HOST LOWMEM: a 2 GB guest; preflight and the installer refuse and change nothing  [17:24:36]
+[17:24:36] booted lowmem at 198.51.100.14 (2048 MB RAM, 2 vCPU, 20 GB disk)
+[17:24:51] 198.51.100.14 is up (ssh ready after ~8 s)
+os: Ubuntu 24.04.5 LTS
+kernel: 6.8.0-139-generic
+cpus: 2
+memory_mb: 1966
+disk: 19G total, 17G free
+init: systemd (running)
+playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz: OK
+Error: this host is not ready for Playkeeper (see FAIL items)
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [FAIL] Memory                     1966 MB RAM; at least 2304 MB is needed (1.5 GB for Minecraft plus room for the system).
+         → Fix: Use a VPS with at least 3 GB of RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Error: preflight failed; fix the items marked FAIL above. Nothing was changed
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)
+
+==== HOST JAMMY: Ubuntu 22.04; preflight and the installer refuse an untested OS and change nothing  [17:24:53]
+[17:24:53] booted jammy at 198.51.100.15 (3072 MB RAM, 2 vCPU, 20 GB disk)
+[17:25:15] 198.51.100.15 is up (ssh ready after ~20 s)
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+os: Ubuntu 22.04.5 LTS
+kernel: 5.15.0-1108-kvm
+cpus: 2
+memory_mb: 2995
+disk: 20G total, 19G free
+init: systemd (running)
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64.tar.gz: OK
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+Error: this host is not ready for Playkeeper (see FAIL items)
+  [ok  ] Administrator rights       Running as root.
+  [FAIL] Operating system           Found ubuntu 22.04. Playkeeper is only tested on Ubuntu 24.04 LTS.
+         → Fix: Use an Ubuntu 24.04 LTS server, or pass --allow-untested-os to try anyway (unsupported).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2995 MB RAM.
+  [ok  ] Disk space                 18.3 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Error: preflight failed; fix the items marked FAIL above. Nothing was changed
+bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)
+
+==== CONTAINERS: preflight where systemd is not running (Ubuntu 24.04 and Debian 12 containers)  [17:25:17]
+## ubuntu:24.04 container (root, no systemd)
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [FAIL] Service manager            systemd is not running; Playkeeper's services need it.
+         → Fix: Use a standard Ubuntu 24.04 server (not a container) with systemd.
+  [ok  ] Memory                     16014 MB RAM.
+  [ok  ] Disk space                 227.2 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Error: this host is not ready for Playkeeper (see FAIL items)
+## debian:12 container (root, no systemd)
+Unable to find image 'debian:12' locally
+12: Pulling from library/debian
+eaac70c68abd: Pulling fs layer
+a883fdaf3d94: Download complete
+eaac70c68abd: Download complete
+eaac70c68abd: Pull complete
+Digest: sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26
+Status: Downloaded newer image for debian:12
+Error: this host is not ready for Playkeeper (see FAIL items)
+  [ok  ] Administrator rights       Running as root.
+  [FAIL] Operating system           Found debian 12. Playkeeper is only tested on Ubuntu 24.04 LTS.
+         → Fix: Use an Ubuntu 24.04 LTS server, or pass --allow-untested-os to try anyway (unsupported).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [FAIL] Service manager            systemd is not running; Playkeeper's services need it.
+         → Fix: Use a standard Ubuntu 24.04 server (not a container) with systemd.
+  [ok  ] Memory                     16014 MB RAM.
+  [ok  ] Disk space                 227.0 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+==== DNS: names the guests looked up during the run  [17:25:21]
+Queries (A/AAAA) captured on the lab bridge; counts are lookups, not connections.
+
+host C:
+  api.minecraftservices.com  (4)
+  api.snapcraft.io  (2)
+  archive.ubuntu.com  (3)
+  auth.docker.io  (2)
+  changelogs.ubuntu.com  (2)
+  contracts.canonical.com  (2)
+  docker-images-prod.s3.dualstack.us-east-1.amazonaws.com  (2)
+  entropy.ubuntu.com  (2)
+  esm.ubuntu.com  (2)
+  fill-data.papermc.io  (1)
+  fill.papermc.io  (2)
+  livepatch.canonical.com  (2)
+  motd.ubuntu.com  (2)
+  ntp.ubuntu.com  (2)
+  piston-data.mojang.com  (2)
+  registry-1.docker.io  (2)
+  security.ubuntu.com  (2)
+
+host jammy:
+  api.snapcraft.io  (2)
+  changelogs.ubuntu.com  (2)
+  entropy.ubuntu.com  (2)
+  ntp.ubuntu.com  (2)
+
+host lowmem:
+  api.snapcraft.io  (2)
+  changelogs.ubuntu.com  (2)
+  entropy.ubuntu.com  (2)
+
+==== DONE: evidence in /workspace/test/e2e/out/vm-run7  [17:25:21]

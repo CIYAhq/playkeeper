@@ -1,0 +1,14 @@
+{
+  "name": "playkeeper-e2e-ui",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Browser walkthrough, screenshots, keyboard and accessibility checks against a running Playkeeper panel.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0"
+  }
+}

@@ -1,0 +1,142 @@
+## stock ubuntu:24.04 container: Ubuntu 24.04.5 LTS, 4 CPUs
+## container prep (a stock Ubuntu machine has sudo and a normal user): install sudo, add user 'dev', then empty the apt lists again
+debconf: delaying package configuration, since apt-utils is not installed
+apt lists after prep: 0 files
+## README 'Build and contribute', verbatim (clone source: a bundle of the PR head)
+
+$ sudo apt-get update && sudo apt-get install -y git make curl ca-certificates xz-utils
+[apt took 15 s; 51 packages set up]
+Note: switching to '403e8cdc3718da00739faa65f219bb7b34c3a1c5'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+checkout: 403e8cd test: negative controls for the restore verification, swap undo and one-admin guards
+
+$ ./scripts/setup.sh
+Downloading go1.27.1.linux-amd64.tar.gz
+Downloading node-v24.21.0-linux-x64.tar.xz
+Go:   go version go1.27.1 linux/amd64
+Node: v24.21.0, npm 11.19.0
+
+added 186 packages in 2s
+npm notice
+npm notice New major version of npm available! 11.19.0 -> 12.1.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.1.0
+npm notice To update run: npm install -g npm@12.1.0
+npm notice
+
+Setup complete. Toolchains are in .tools/ (the Makefile uses them automatically).
+Next:
+  make check    # lint, typecheck and unit tests (what CI runs)
+  make dev      # run the panel and agent locally: https://localhost:8443
+  make package  # build the release tarball in dist/
+[./scripts/setup.sh took 7 s]
+
+$ make check
+go vet ./cmd/... ./internal/... ./web
+cd web && npx eslint .
+cd web && npx tsc --noEmit
+go test -count=1 ./cmd/... ./internal/... ./web
+ok  	github.com/CIYAhq/playkeeper/cmd/playkeeper	0.109s
+ok  	github.com/CIYAhq/playkeeper/internal/agent	71.886s
+?   	github.com/CIYAhq/playkeeper/internal/agentclient	[no test files]
+?   	github.com/CIYAhq/playkeeper/internal/api	[no test files]
+ok  	github.com/CIYAhq/playkeeper/internal/backup	0.060s
+?   	github.com/CIYAhq/playkeeper/internal/config	[no test files]
+ok  	github.com/CIYAhq/playkeeper/internal/docker	0.002s
+ok  	github.com/CIYAhq/playkeeper/internal/install	0.127s
+ok  	github.com/CIYAhq/playkeeper/internal/minecraft	0.003s
+ok  	github.com/CIYAhq/playkeeper/internal/panel	1.511s
+?   	github.com/CIYAhq/playkeeper/internal/store	[no test files]
+?   	github.com/CIYAhq/playkeeper/internal/version	[no test files]
+?   	github.com/CIYAhq/playkeeper/web	[no test files]
+cd web && npx vitest run
+
+ RUN  v5.0.1 /home/dev/playkeeper/web
+
+ ✓ src/lib/lib.test.ts (9 tests) 5ms
+ ✓ src/pages/range.test.tsx (2 tests) 40ms
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  18:04:55
+   Duration  459ms (environment 48%, transform 29%, import 11%, tests 10%, worker 2%)
+
+bash packaging/get_test.sh
+ok: checksum verified, install.sh ran with the flags passed through
+ok: --base-url overrides the release location and is not passed to install.sh
+ok: checksum mismatch refused; nothing from the download ran
+ok: missing checksum file refused
+ok: archive with an unexpected layout refused
+ok: plain HTTP refused unless PLAYKEEPER_ALLOW_HTTP=1
+ok: non-root refused before downloading
+ok: non-x86_64 CPU refused before downloading
+ok: no terminal and no --yes: stops before downloading and explains --yes
+ok: installer exit status passed on
+ok: install.sh refuses a non-x86_64 CPU with a fix
+get.sh and install.sh: 11 checks passed
+[make check took 96 s]
+
+$ make package
+./scripts/package.sh
+vite v8.3.1 building client environment for production...
+transforming...
+✓ 33 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.55 kB │ gzip:  0.32 kB
+dist/assets/index-DyK4Cqxd.css   14.08 kB │ gzip:  3.70 kB
+dist/assets/index-DRhFEkwu.js   291.87 kB │ gzip: 88.14 kB
+
+✓ built in 140ms
+Built /home/dev/playkeeper/dist/playkeeper-0.1.0-dev+403e8cdc3718-linux-amd64.tar.gz (one-line installer assets: /home/dev/playkeeper/dist/get.sh, /home/dev/playkeeper/dist/playkeeper-linux-amd64.tar.gz)
+c42be4f341cedec419ef21ebb16a4ff4dcebbd3bea60c4f2c3207f9ba193cc57  playkeeper-0.1.0-dev+403e8cdc3718-linux-amd64.tar.gz
+[make package took 18 s]
+
+$ make dev   # smoke test only: this container has no Docker
+  Open: https://localhost:8443/setup#code=<redacted>
+GET /api/health -> {"ok":true,"version":"dev"}
+
+$ ./scripts/negative-controls.sh
+negative controls at 403e8cdc3718
+caught   CSRF token check: panel_test.go:166: POST /api/auth/logout without CSRF token: got 204, want 403
+caught   session required: panel_test.go:158: GET /api/auth/me without a session: got 200, want 401
+caught   idle and absolute session expiry: panel_test.go:296: session idle for 61m (limit 60m) still valid: 200
+caught   per-address sign-in and setup rate limit: panel_test.go:378: sign-ins with a new username each time were never rate limited for the address
+caught   agent socket peer allowlist: agent_test.go:276: peer uid allowed=[13346]: got 200, want 403
+caught   agent closed operation list: agent_test.go:231: rm verb: POST /v1/server/rm -> 200 map[ok:true], want 404
+caught   EULA gate: agent_test.go:185: create without EULA: 202 map[actor:admin id:d08ea76fa9e06b78 kind:create phase: startedAt:2026-09-24T18:05:24.633847763Z status:running]
+caught   restore typed confirmation: agent_test.go:1033: wrong confirmation accepted: 202
+caught   restore needs a verified rollback archive: agent_test.go:915: a restore without a verified rollback archive must refuse: &{ID:4a434c254b6287b0 Kind:restore Status:succeeded Phase:online Actor:admin StartedAt:2026-09-24 18:05:34.382 +0000 UTC FinishedAt:2026-09-24 18:05:36.457 +0000 UTC Error: Hint: Detail:map[downtimeMs:2074 rollbackBackupId:20260924-180534-2afa47]}
+caught   restore undoes the swap when settings cannot be saved: agent_test.go:942: the restored world was left in place without its settings
+caught   one admin from concurrent setups: panel_test.go:272: concurrent setups with one code: 4 succeeded, 4 admin accounts (statuses [200 200 200 200])
+caught   archive per-file checksums: archive_test.go:250: Verify accepted a malicious archive
+caught   archive gzip trailer check: archive_test.go:140: archive truncated to 202436 bytes was accepted
+caught   preflight port collision: install_test.go:241: preflight passed despite the collision
+caught   preflight existing Minecraft setups: install_test.go:241: preflight passed despite the collision
+caught   start/stop no-op under the operation lock: agent_test.go:523: iteration 1 (start 202, stop 200): desired stopped but container running=true
+every guard's test failed without it
+[./scripts/negative-controls.sh took 76 s]
+
+## extra, for CI parity: make lint-sh needs shellcheck, which the README's apt line does not install
+debconf: delaying package configuration, since apt-utils is not installed
+
+$ make lint-sh
+shellcheck -x scripts/negative-controls.sh scripts/package.sh scripts/setup.sh scripts/e2e/collect-evidence.sh scripts/e2e/vm-default-online.sh scripts/e2e/vm-e2e.sh scripts/e2e/vm-lab.sh packaging/get.sh packaging/get_test.sh packaging/install.sh
+[make lint-sh took 1 s]
+
+working tree after the run: 0 changed files
+contributor flow wall time: 224 s

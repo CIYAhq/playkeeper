@@ -1,0 +1,6 @@
+
+Running 1 test using 1 worker
+
+  ✓  1 restore.spec.ts:9:1 › second host: restore a backup through onboarding (47.7s)
+
+  1 passed (48.2s)

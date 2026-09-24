@@ -1,0 +1,220 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  check:
+    name: Lint, typecheck, unit tests and package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains (same command contributors run)
+        run: ./scripts/setup.sh
+      - name: make check
+        run: make check
+      - name: make lint-sh
+        run: make lint-sh
+      - name: make package
+        run: make package
+      - name: Inspect the artifact outside the checkout
+        run: |
+          mkdir -p /tmp/artifact
+          cp dist/playkeeper-*-linux-amd64.tar.gz dist/playkeeper-*-linux-amd64.tar.gz.sha256 /tmp/artifact/
+          cd /tmp/artifact
+          sha256sum -c ./*.sha256
+          tar -tzvf ./*.tar.gz
+          if tar -tzf ./*.tar.gz | grep -Ei '\.(jar|pem|key|env|db|sqlite)$|/\.git'; then echo "unexpected file in artifact"; exit 1; fi
+          tar -xzf ./*.tar.gz
+          ./playkeeper-*/playkeeper version
+          file ./playkeeper-*/playkeeper
+          cmp "$GITHUB_WORKSPACE"/dist/playkeeper-*-linux-amd64.tar.gz "$GITHUB_WORKSPACE/dist/playkeeper-linux-amd64.tar.gz"
+          (cd "$GITHUB_WORKSPACE/dist" && sha256sum -c playkeeper-linux-amd64.tar.gz.sha256)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: |
+            dist/playkeeper-*-linux-amd64.tar.gz*
+            dist/playkeeper-linux-amd64.tar.gz*
+            dist/get.sh
+          retention-days: 7
+
+  install-and-play:
+    name: Fresh runner — install, onboarding, two bots, backup, uninstall
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: /tmp/release
+      - name: Test tools (Node for the protocol bots and the browser tests)
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          (cd test/e2e/bot && ../../../.tools/node/bin/npm ci --no-audit --no-fund)
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: Install from the release tarball (outside the checkout)
+        run: |
+          mkdir -p /tmp/evidence
+          cd /tmp/release
+          sha256sum -c ./playkeeper-*-linux-amd64.tar.gz.sha256
+          tar -xzf ./playkeeper-*-linux-amd64.tar.gz
+          cd playkeeper-*-linux-amd64
+          sudo ./playkeeper preflight | tee /tmp/evidence/preflight.txt
+          start=$(date +%s)
+          sudo ./install.sh --yes | tee /tmp/evidence/install.txt
+          echo "install wall time: $(( $(date +%s) - start )) s" | tee -a /tmp/evidence/install.txt
+          sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
+          grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' > /tmp/evidence/code
+      - name: Enable the offline test harness (protocol bots have no Mojang accounts)
+        run: |
+          sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
+          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
+          sudo systemctl daemon-reload
+          sudo systemctl restart playkeeper-agent
+      - name: Keyboard-only onboarding in the browser
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          PK_SHOTS: /tmp/evidence/screenshots
+          PK_OUT: /tmp/evidence/ui
+        run: |
+          export PK_SETUP_CODE="$(cat /tmp/evidence/code)"
+          cd test/e2e/ui && npx playwright test onboarding.spec.ts --reporter=list
+      - name: Protocol bots, sessions, console, backup and download
+        env:
+          PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 test/e2e/scenario.py host-a --existing --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem \
+            --code "$(cat /tmp/evidence/code)" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
+      - name: Every view, accessibility and keyboard checks
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          PK_SHOTS: /tmp/evidence/screenshots
+          PK_OUT: /tmp/evidence/ui
+        run: cd test/e2e/ui && npx playwright test views.spec.ts --reporter=list
+      - name: Exposure and privilege checks
+        run: |
+          set -x
+          sudo ss -ltnup
+          stat -c '%A %U:%G %n' /run/playkeeper/agent.sock
+          ps -o user=,pid=,cmd= -C playkeeper
+          id playkeeper
+          panel=$(pgrep -f 'playkeeper panel')
+          test "$(sudo ls -l /proc/$panel/fd | grep -c docker.sock)" = 0
+          if sudo -u playkeeper curl -sS --unix-socket /var/run/docker.sock http://d/version; then echo "panel user can reach Docker"; exit 1; fi
+          test "$(sudo -u playkeeper curl -sS -o /dev/null -w '%{http_code}' -X POST --unix-socket /run/playkeeper/agent.sock http://a/v1/rm)" = 404
+          sudo docker inspect playkeeper-minecraft --format 'Privileged={{.HostConfig.Privileged}} CapAdd={{.HostConfig.CapAdd}} CapDrop={{.HostConfig.CapDrop}} Memory={{.HostConfig.Memory}} User={{.Config.User}} Ports={{json .HostConfig.PortBindings}}'
+          sudo grep -E '^(online-mode|white-list|enforce-whitelist|log-ips)=' /var/lib/playkeeper/server/data/server.properties
+          curl -sS -i http://127.0.0.1:8443/ | head -1
+      - name: Uninstall keeps the world and backups
+        run: |
+          sudo find /var/lib/playkeeper/server/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/data-before.txt
+          sudo playkeeper uninstall --yes | tee /tmp/evidence/uninstall.txt
+          sudo find /var/lib/playkeeper/server/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/data-after.txt
+          diff /tmp/evidence/data-before.txt /tmp/evidence/data-after.txt
+          if systemctl list-unit-files | grep playkeeper; then echo "units left behind"; exit 1; fi
+          if sudo ss -ltnH | grep -E ':(8443|25565) '; then echo "listeners left behind"; exit 1; fi
+      - name: Collect evidence
+        if: always()
+        run: |
+          sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager > /tmp/evidence/journal.txt || true
+          rm -f /tmp/evidence/code /tmp/evidence/ui/browser-session.json /tmp/evidence/a/state-a.json
+          sudo chown -R "$(id -u)" /tmp/evidence
+          sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g' /tmp/evidence/install.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: evidence-host-a
+          path: /tmp/evidence
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: world-backup
+          path: |
+            /tmp/evidence/a/world-backup.tar.gz
+            /tmp/evidence/a/marker.json
+            /tmp/evidence/a/host-a-results.json
+          retention-days: 7
+
+  restore-second-host:
+    name: Second fresh runner — one-line install, restore the backup, verify the marker
+    needs: install-and-play
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: /tmp/release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: world-backup
+          path: /tmp/backup
+      - name: Test tools (Node for the protocol bot)
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          (cd test/e2e/bot && ../../../.tools/node/bin/npm ci --no-audit --no-fund)
+      - name: One-line install (get.sh) from a local mirror of the release assets
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/evidence /tmp/mirror/bad
+          cp /tmp/release/get.sh /tmp/release/playkeeper-linux-amd64.tar.gz /tmp/release/playkeeper-linux-amd64.tar.gz.sha256 /tmp/mirror/
+          cp /tmp/release/playkeeper-linux-amd64.tar.gz /tmp/mirror/bad/
+          printf '%064d  playkeeper-linux-amd64.tar.gz\n' 0 > /tmp/mirror/bad/playkeeper-linux-amd64.tar.gz.sha256
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/mirror > /tmp/evidence/mirror-log.txt 2>&1 &
+          sleep 1
+          if curl -fsSL http://127.0.0.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://127.0.0.1:8765/bad PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes 2>&1 | tee /tmp/evidence/oneliner-bad-checksum.txt; then
+            echo "a tarball with a wrong checksum was installed"; exit 1
+          fi
+          grep -q 'does not match its published checksum' /tmp/evidence/oneliner-bad-checksum.txt
+          test ! -e /usr/local/bin/playkeeper
+          curl -fsSL http://127.0.0.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://127.0.0.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes | tee /tmp/evidence/install.txt
+          sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
+          grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' > /tmp/evidence/code
+          sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
+          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
+          sudo systemctl daemon-reload && sudo systemctl restart playkeeper-agent
+      - name: Guarded restore and marker verification (console and client view)
+        env:
+          PK_ADMIN_PASSWORD: ci-b-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          sha=$(python3 -c "import json; print(json.load(open('/tmp/backup/host-a-results.json'))['backup']['sha256'])")
+          python3 test/e2e/scenario.py host-b --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --code "$(cat /tmp/evidence/code)" \
+            --game-host 127.0.0.1 --archive /tmp/backup/world-backup.tar.gz --marker /tmp/backup/marker.json --expect-sha256 "$sha" --out /tmp/evidence/b
+      - name: Collect evidence
+        if: always()
+        run: |
+          sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager > /tmp/evidence/journal.txt || true
+          rm -f /tmp/evidence/code /tmp/evidence/b/state-b.json
+          sudo chown -R "$(id -u)" /tmp/evidence
+          sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g' /tmp/evidence/install.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: evidence-host-b
+          path: /tmp/evidence
+          retention-days: 7

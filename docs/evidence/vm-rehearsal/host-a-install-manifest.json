@@ -1,0 +1,47 @@
+{
+  "version": "0.1.0-dev+0c99fa7b6277",
+  "installedAt": "2026-09-24T17:00:52.50939699Z",
+  "installId": "b5b0a35532477586d57e099a4d16457b",
+  "panelPort": 8443,
+  "gamePort": 25565,
+  "packagesInstalled": [
+    "containerd",
+    "docker.io",
+    "runc"
+  ],
+  "usersCreated": [
+    "playkeeper",
+    "playkeeper-mc"
+  ],
+  "groupsCreated": [
+    "playkeeper",
+    "playkeeper-mc"
+  ],
+  "filesCreated": [
+    "/usr/local/bin/playkeeper",
+    "/etc/playkeeper/config.json",
+    "/etc/systemd/system/playkeeper-agent.service",
+    "/etc/systemd/system/playkeeper-panel.service"
+  ],
+  "dirsCreated": [
+    "/etc/playkeeper",
+    "/var/lib/playkeeper",
+    "/var/lib/playkeeper/agent",
+    "/var/lib/playkeeper/panel",
+    "/var/lib/playkeeper/server",
+    "/var/lib/playkeeper/server/data",
+    "/var/lib/playkeeper/backups",
+    "/var/lib/playkeeper/restore-staging"
+  ],
+  "units": [
+    "playkeeper-agent.service",
+    "playkeeper-panel.service"
+  ],
+  "firewallRules": null,
+  "reusedData": false,
+  "keptOnUninstall": [
+    "/var/lib/playkeeper/server (worlds)",
+    "/var/lib/playkeeper/backups",
+    "/var/lib/playkeeper (settings, admin account, analytics)"
+  ]
+}

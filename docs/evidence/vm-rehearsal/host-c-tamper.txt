@@ -1,0 +1,9 @@
+
+[17:24:05] Damaged archives are refused while a world is live (the server is stopped so its files hold still)
+  ok: archive truncated to half its size: refused (422: This file cannot be restored: archive is corrupt: unexpected EOF)
+  ok: archive an entry that climbs out with ../: refused (422: This file cannot be restored: entry "playkeeper-backup/data/../../../etc/cron.d/evil" is o)
+  ok: archive an absolute path entry: refused (422: This file cannot be restored: entry "/etc/cron.d/evil" is outside the backup data director)
+  ok: archive level.dat changed after the manifest was written: refused (422: This file cannot be restored: file "world/level.dat" does not match its recorded checksum)
+
+host-b: PASSED (4 checks ok) in 1.0 s
+live world and backups unchanged after the refusals (72 files compared by SHA-256)

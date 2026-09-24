@@ -1,0 +1,78 @@
+{
+  "checks": [
+    {
+      "ok": true,
+      "check": "GET /api/server without a session is refused (401)"
+    },
+    {
+      "ok": true,
+      "check": "POST /api/server/start without a session is refused (401)"
+    },
+    {
+      "ok": true,
+      "check": "POST /api/server/command without a session is refused (401)"
+    },
+    {
+      "ok": true,
+      "check": "GET /api/backups without a session is refused (401)"
+    },
+    {
+      "ok": true,
+      "check": "GET /api/backups/20260101-000000-abcdef/download without a session is refused (401)"
+    },
+    {
+      "ok": true,
+      "check": "POST /api/restore/upload without a session is refused (401)"
+    },
+    {
+      "ok": true,
+      "check": "GET /api/audit without a session is refused (401)"
+    },
+    {
+      "ok": true,
+      "check": "setup with a wrong code is refused (403)"
+    },
+    {
+      "ok": true,
+      "check": "the setup code cannot be used twice (409)"
+    },
+    {
+      "ok": true,
+      "check": "fresh host has no server"
+    },
+    {
+      "ok": true,
+      "check": "fresh host shows no earlier history (no backfill)"
+    },
+    {
+      "ok": true,
+      "check": "create without EULA refused (400 eula_required)"
+    },
+    {
+      "ok": true,
+      "check": "flipped-byte archive refused (422: This file cannot be restored: archive is corrupt: gzip: invalid checksum)"
+    },
+    {
+      "ok": true,
+      "check": "archive validated file by file"
+    },
+    {
+      "ok": true,
+      "check": "archive SHA-256 on host B matches host A (6613eeba8c04a111\u2026)"
+    },
+    {
+      "ok": true,
+      "check": "preview asks for the EULA and shows no existing world"
+    },
+    {
+      "ok": true,
+      "check": "restore without EULA acceptance refused"
+    },
+    {
+      "ok": true,
+      "check": "refusals left the host unchanged (still no server)"
+    }
+  ],
+  "ok": true,
+  "seconds": 0.3
+}

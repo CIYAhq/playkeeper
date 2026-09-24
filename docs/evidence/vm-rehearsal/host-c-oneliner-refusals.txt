@@ -1,0 +1,26 @@
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/bad PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/bad (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/bad
+Playkeeper install stopped: the download does not match its published checksum (expected 0000000000000000000000000000000000000000000000000000000000000000, got 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71). Nothing was installed.
+  Fix: Try again later; if it keeps happening, do not install from this location.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/tampered PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/tampered (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/tampered
+Playkeeper install stopped: the download does not match its published checksum (expected 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71, got 37579644387fd73b382859962742f1ef468505505edef97d90f101b958ce8d2a). Nothing was installed.
+  Fix: Try again later; if it keeps happening, do not install from this location.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765/missing PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes
+Warning: downloading over plain HTTP from http://198.51.100.1:8765/missing (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765/missing
+curl: (22) The requested URL returned error: 404
+Playkeeper install stopped: could not download http://198.51.100.1:8765/missing/playkeeper-linux-amd64.tar.gz.sha256.
+  Fix: Check the address. While Playkeeper has no public release, install from a release tarball as the README describes.
+exit status: 1
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh
+Warning: downloading over plain HTTP from http://198.51.100.1:8765 (PLAYKEEPER_ALLOW_HTTP=1).
+Playkeeper install stopped: there is no terminal to answer the installer's question on.
+  Fix: Run the command in an interactive terminal (for example over ssh), or skip the question with --yes: curl -fsSL <this script's URL> | sudo sh -s -- --yes
+exit status: 1
+get.sh temporary directories left in /tmp: 0
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)

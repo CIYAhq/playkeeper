@@ -1,0 +1,28 @@
+1cc1c36eb610d779046ce49ddd38216dbbd5f301409382a05b71cf6c849a9f65  /etc/systemd/system/minecraft.service
+c5133e371b1a1e1fa96e3f72cc357b7b115ae68f047991894b27cc9a43c69aa1  /srv/minecraft/world/level.dat
+a37c21d1349d8e40bd22e1f98407363cbd9f5b76324103c4a3f8c3470239b32b  /var/opt/minecraft/crafty/app/config/config.json
+existing container: existing-minecraft local/minecraft-fixture:1 Up 2 seconds
+ufw: Status: active
+ufw: 
+ufw: To                         Action      From
+ufw: --                         ------      ----
+ufw: 22/tcp                     ALLOW       Anywhere                  
+ufw: 22/tcp (v6)                ALLOW       Anywhere (v6)             
+ufw: 
+## after install, blocked-egress test and purge
+/etc/systemd/system/minecraft.service: OK
+/srv/minecraft/world/level.dat: OK
+/var/opt/minecraft/crafty/app/config/config.json: OK
+minecraft.service: active
+fixture still serving on 25570: 200
+existing container: existing-minecraft local/minecraft-fixture:1 Up About a minute
+existing container still serving on 25580: 200
+docker still installed: /usr/bin/docker
+/var/lib/playkeeper after purge: removed
+ufw: Status: active
+ufw: 
+ufw: To                         Action      From
+ufw: --                         ------      ----
+ufw: 22/tcp                     ALLOW       Anywhere                  
+ufw: 22/tcp (v6)                ALLOW       Anywhere (v6)             
+ufw: 

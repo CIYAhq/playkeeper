@@ -1,0 +1,22 @@
+{
+  "checks": [
+    {
+      "ok": true,
+      "check": "archive truncated to half its size: refused (422: This file cannot be restored: archive is corrupt: unexpected EOF)"
+    },
+    {
+      "ok": true,
+      "check": "archive an entry that climbs out with ../: refused (422: This file cannot be restored: entry \"playkeeper-backup/data/../../../etc/cron.d/evil\" is o)"
+    },
+    {
+      "ok": true,
+      "check": "archive an absolute path entry: refused (422: This file cannot be restored: entry \"/etc/cron.d/evil\" is outside the backup data director)"
+    },
+    {
+      "ok": true,
+      "check": "archive level.dat changed after the manifest was written: refused (422: This file cannot be restored: file \"world/level.dat\" does not match its recorded checksum)"
+    }
+  ],
+  "ok": true,
+  "seconds": 1.0
+}

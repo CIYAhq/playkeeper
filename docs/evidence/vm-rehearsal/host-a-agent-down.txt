@@ -1,0 +1,6 @@
+503
+{
+  "error": "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.",
+  "code": "agent_unavailable",
+  "hint": "On the server, check: sudo systemctl status playkeeper-agent"
+}

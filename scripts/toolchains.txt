@@ -1,0 +1,8 @@
+# Pinned contributor toolchains, installed into .tools/ by scripts/setup.sh.
+# Checksums are the official values from go.dev/dl and nodejs.org/dist.
+go 1.27.1
+node 24.21.0
+63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  go1.27.1.linux-amd64.tar.gz
+3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec  go1.27.1.linux-arm64.tar.gz
+fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6  node-v24.21.0-linux-x64.tar.xz
+6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2  node-v24.21.0-linux-arm64.tar.xz

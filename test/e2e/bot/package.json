@@ -1,0 +1,14 @@
+{
+  "name": "playkeeper-e2e-bot",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Protocol-level Minecraft test client for Playkeeper end-to-end tests (offline-mode harness only; not an official client).",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0",
+    "vec3": "0.1.10"
+  }
+}
