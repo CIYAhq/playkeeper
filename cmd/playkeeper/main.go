@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -228,28 +229,34 @@ func runInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nPlaykeeper is running.\n\n")
-	if res.SetupCode != "" {
-		fmt.Printf("  1. Open this link in your browser:\n       %s/setup#code=%s\n", res.URL, res.SetupCode)
-		fmt.Printf("     (setup code: %s — works once, expires in 24 hours)\n", res.SetupCode)
-	} else {
-		fmt.Printf("  1. Open %s and sign in with your existing admin account.\n", res.URL)
-	}
-	fmt.Printf("  2. Your browser will warn that the certificate is self-signed. Continue only if it shows\n     this SHA-256 fingerprint:\n       %s\n", res.Fingerprint)
-	if res.SetupCode != "" {
-		fmt.Printf("  3. Create your admin account, accept the Minecraft EULA and start your server.\n\n")
-	} else {
-		fmt.Printf("  3. Your worlds and backups were kept; the server starts again if it was running before.\n\n")
-	}
-	fmt.Printf("If %s is not your public address, use your VPS's public IP instead.\n", strings.TrimPrefix(res.URL, "https://"))
-	if res.SetupCode != "" {
-		fmt.Printf("Lost the setup code? sudo playkeeper setup-code\n")
-	} else {
-		fmt.Printf("Forgot the password? sudo playkeeper reset-password <username>\n")
-	}
-	fmt.Printf("Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)\n")
-	fmt.Printf("Install finished in %s.\n", res.Duration.Round(time.Second))
+	writeInstallSummary(os.Stdout, res)
 	return nil
+}
+
+// writeInstallSummary tells the user what to do next. A reinstall that kept an
+// admin account gets sign-in instructions instead of a setup code.
+func writeInstallSummary(w io.Writer, res *install.Result) {
+	fmt.Fprintf(w, "\nPlaykeeper is running.\n\n")
+	if res.SetupCode != "" {
+		fmt.Fprintf(w, "  1. Open this link in your browser:\n       %s/setup#code=%s\n", res.URL, res.SetupCode)
+		fmt.Fprintf(w, "     (setup code: %s — works once, expires in 24 hours)\n", res.SetupCode)
+	} else {
+		fmt.Fprintf(w, "  1. Open %s and sign in with your existing admin account.\n", res.URL)
+	}
+	fmt.Fprintf(w, "  2. Your browser will warn that the certificate is self-signed. Continue only if it shows\n     this SHA-256 fingerprint:\n       %s\n", res.Fingerprint)
+	if res.SetupCode != "" {
+		fmt.Fprintf(w, "  3. Create your admin account, accept the Minecraft EULA and start your server.\n\n")
+	} else {
+		fmt.Fprintf(w, "  3. Your worlds and backups were kept; the server starts again if it was running before.\n\n")
+	}
+	fmt.Fprintf(w, "If %s is not your public address, use your VPS's public IP instead.\n", strings.TrimPrefix(res.URL, "https://"))
+	if res.SetupCode != "" {
+		fmt.Fprintf(w, "Lost the setup code? sudo playkeeper setup-code\n")
+	} else {
+		fmt.Fprintf(w, "Forgot the password? sudo playkeeper reset-password <username>\n")
+	}
+	fmt.Fprintf(w, "Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)\n")
+	fmt.Fprintf(w, "Install finished in %s.\n", res.Duration.Round(time.Second))
 }
 
 func runUninstall(args []string) error {
