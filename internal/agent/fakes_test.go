@@ -35,6 +35,7 @@ type fakeDocker struct {
 	failedStarts int
 	jarContent   []byte
 	bootDelay    time.Duration
+	replayAll    bool
 }
 
 type fakeLine struct {
@@ -52,6 +53,7 @@ type fakeContainer struct {
 	finished time.Time
 	logs     []fakeLine
 	wake     chan struct{}
+	rotated  chan struct{}
 }
 
 func startFakeDocker(t *testing.T, sock string) *fakeDocker {
@@ -79,6 +81,21 @@ func (fd *fakeDocker) addLog(text string) {
 	defer fd.mu.Unlock()
 	c := fd.byName[containerName]
 	fd.log(c, text)
+}
+
+// rotate simulates json-file log rotation: all but the last keep lines are
+// gone, open follow streams end (as some Docker versions do on rotation) and,
+// with replay, the next follow request returns the whole current file again.
+func (fd *fakeDocker) rotate(keep int, replay bool) {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	c := fd.byName[containerName]
+	if len(c.logs) > keep {
+		c.logs = append([]fakeLine(nil), c.logs[len(c.logs)-keep:]...)
+	}
+	close(c.rotated)
+	c.rotated = make(chan struct{})
+	fd.replayAll = replay
 }
 
 // crash kills the server without a clean shutdown (like `kill -9 java`).
@@ -223,7 +240,7 @@ func (fd *fakeDocker) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fd.nextID++
-	c := &fakeContainer{id: fmt.Sprintf("c%063d", fd.nextID), name: name, cfg: cfg, wake: make(chan struct{})}
+	c := &fakeContainer{id: fmt.Sprintf("c%063d", fd.nextID), name: name, cfg: cfg, wake: make(chan struct{}), rotated: make(chan struct{})}
 	fd.byName[name], fd.byID[c.id] = c, c
 	jsonOut(w, 201, map[string]string{"Id": c.id})
 }
@@ -363,6 +380,10 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 	flusher, _ := w.(http.Flusher)
 	sent := 0
 	fd.mu.Lock()
+	if follow && fd.replayAll {
+		since, fd.replayAll = time.Time{}, false
+	}
+	rotated := c.rotated
 	lines := c.logs
 	if tail > 0 && len(lines) > tail {
 		lines = lines[len(lines)-tail:]
@@ -407,6 +428,8 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 		}
 		select {
 		case <-wake:
+		case <-rotated:
+			return
 		case <-r.Context().Done():
 			return
 		case <-time.After(time.Second):

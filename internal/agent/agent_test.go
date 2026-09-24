@@ -564,6 +564,39 @@ func TestSessionsAreDedupedAndSpoofProof(t *testing.T) {
 	}
 }
 
+// The server log is json-file with rotation (10 MB, 3 files). Some Docker
+// versions end a follow stream on rotation and return the current file again
+// on the next request; neither may double count or stop collection.
+func TestLogRotationNeitherDuplicatesNorStalls(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.fd.addLog("[12:01:00 INFO]: PkBotFriend joined the game")
+	e.waitFor("join recorded", func() bool { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'join'`) == 1 })
+	e.fd.rotate(1, true)
+	e.fd.addLog("[12:02:00 INFO]: PkBotFriend left the game")
+	e.fd.addLog("[12:02:10 INFO]: PkBotBuilder joined the game")
+	e.waitFor("lines after the first rotation recorded", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM events WHERE player = 'PkBotBuilder'`) == 1
+	})
+	e.fd.rotate(0, false)
+	e.fd.addLog("[12:03:00 INFO]: PkBotBuilder left the game")
+	e.waitFor("lines after the second rotation recorded", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM events WHERE player = 'PkBotBuilder' AND kind = 'leave'`) == 1
+	})
+	time.Sleep(500 * time.Millisecond)
+	for q, want := range map[string]int{
+		`SELECT COUNT(*) FROM events WHERE player = 'PkBotFriend' AND kind = 'join'`:  1,
+		`SELECT COUNT(*) FROM events WHERE player = 'PkBotFriend' AND kind = 'leave'`: 1,
+		`SELECT COUNT(*) FROM events WHERE player = 'PkBotBuilder'`:                   2,
+		`SELECT COUNT(*) FROM sessions`:                                               2,
+		`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`:                          0,
+	} {
+		if got := e.countRows(q); got != want {
+			t.Errorf("%s = %d, want %d", q, got, want)
+		}
+	}
+}
+
 func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
