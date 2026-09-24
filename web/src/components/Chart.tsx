@@ -139,7 +139,7 @@ export function Chart({ buckets, bucketSeconds, value, format, label, height = 1
         {showTable ? 'Hide table' : 'Show as table'}
       </button>
       {showTable && (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0}>
           <table>
             <caption className="sr-only">{label}</caption>
             <thead>

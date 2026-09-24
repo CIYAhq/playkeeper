@@ -131,8 +131,24 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
     if (open && !d.open) d.showModal()
     if (!open && d.open) d.close()
   }, [open])
+  // The browser makes the page inert, but Tab can still leave for the browser
+  // chrome after the last control; keep focus cycling inside the dialog.
+  function trapTab(e: React.KeyboardEvent<HTMLDialogElement>) {
+    if (e.key !== 'Tab') return
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+    const first = items[0]
+    const last = items[items.length - 1]
+    if (!first || !last) return
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
   return (
-    <dialog ref={ref} aria-labelledby={id} onClose={onClose} onCancel={onClose}>
+    <dialog ref={ref} aria-labelledby={id} onClose={onClose} onCancel={onClose} onKeyDown={trapTab}>
       {open && (
         <div className="dialog-body">
           <h2 id={id}>{title}</h2>

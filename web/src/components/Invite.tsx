@@ -62,7 +62,7 @@ export function InviteFriends({ online }: { online: boolean }) {
       {!online && <p className="muted small">Start the server to change who can join.</p>}
       {msg && <Banner tone={msg.tone} title={msg.text}>{msg.hint}</Banner>}
       {list && list.length > 0 && (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0}>
           <table>
             <thead>
               <tr>

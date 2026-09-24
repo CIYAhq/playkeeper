@@ -165,7 +165,7 @@ function Audit() {
         audit.data.length === 0 ? (
           <Empty title="Nothing recorded yet" />
         ) : (
-          <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
+          <div className="table-wrap" tabIndex={0} style={{ maxHeight: 420, overflowY: 'auto' }}>
             <table>
               <thead>
                 <tr>

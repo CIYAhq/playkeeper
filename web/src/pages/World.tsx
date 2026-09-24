@@ -121,7 +121,7 @@ export function WorldPage({ status, refresh }: PageProps) {
           backups.data.length === 0 ? (
             <Empty title="No backups yet">Make your first backup above, then download it.</Empty>
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>

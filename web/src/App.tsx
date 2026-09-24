@@ -135,6 +135,10 @@ function Shell({ me, route, onSignedOut }: { me: Me; route: Route; onSignedOut: 
   const agentDown = poll.error?.code === 'agent_unavailable'
 
   useEffect(() => {
+    if (route === '/login' || route === '/setup') navigate('/', true)
+  }, [route])
+
+  useEffect(() => {
     if (status && !status.exists && route !== '/welcome' && route !== '/settings' && !status.operation) navigate('/welcome', true)
   }, [status, route])
 

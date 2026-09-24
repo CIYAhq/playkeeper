@@ -66,7 +66,7 @@ export function PlayersPage({ status }: PageProps) {
             summary.data.days.every((d) => d.sessions === 0) ? (
               <Empty title="No sessions observed yet">When players join, their sessions appear here.</Empty>
             ) : (
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0}>
                 <table>
                   <thead>
                     <tr>
@@ -115,7 +115,7 @@ export function PlayersPage({ status }: PageProps) {
           (sessions.data.sessions.length === 0 ? (
             <Empty title="No sessions in this period" />
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -153,7 +153,7 @@ export function PlayersPage({ status }: PageProps) {
       </Card>
       {summary.data && summary.data.players.length > 0 && (
         <Card title="Players seen">
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table>
               <thead>
                 <tr>
