@@ -278,6 +278,31 @@ func TestSocketRejectsUnlistedPeers(t *testing.T) {
 	}
 }
 
+func TestServeLeavesOtherFilesAlone(t *testing.T) {
+	e := newAgentEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// In `playkeeper dev` the panel creates files in the same process while the
+	// agent starts listening; a directory made at that moment keeps its mode.
+	probe := filepath.Join(e.dir, "made-while-listening")
+	orig := listenUnix
+	t.Cleanup(func() { listenUnix = orig })
+	listenUnix = func(path string) (net.Listener, error) {
+		if err := os.Mkdir(probe, 0o700); err != nil {
+			return nil, err
+		}
+		return orig(path)
+	}
+	go e.a.Serve(ctx)
+	e.waitFor("agent socket", func() bool { _, err := os.Stat(e.cfg.SocketPath); return err == nil })
+	if st, err := os.Stat(probe); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("a directory created while the agent started listening got mode %v (%v)", st.Mode(), err)
+	}
+	if st, err := os.Stat(e.cfg.SocketPath); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("socket must be owner-only outside a root install: %v %v", st.Mode(), err)
+	}
+}
+
 func TestCreateStartStopAreIdempotent(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()

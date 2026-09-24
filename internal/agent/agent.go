@@ -276,22 +276,26 @@ func (a *Agent) Serve(ctx context.Context) error {
 	if st, err := os.Lstat(sock); err == nil && st.Mode()&os.ModeSocket != 0 {
 		os.Remove(sock)
 	}
-	oldMask := umask(0o177)
-	ln, err := net.Listen("unix", sock)
-	umask(oldMask)
+	// No umask change here: it is process-wide, and in `playkeeper dev` the
+	// panel creates its files in the same process. Every connection is still
+	// checked against the peer-UID allowlist; the mode only narrows who may
+	// connect at all.
+	ln, err := listenUnix(sock)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", sock, err)
 	}
+	mode := os.FileMode(0o600)
 	if u, err := user.Lookup(a.cfg.PanelUser); err == nil && os.Geteuid() == 0 {
 		gid, _ := strconv.Atoi(u.Gid)
 		if err := os.Chown(sock, 0, gid); err != nil {
 			ln.Close()
 			return err
 		}
-		if err := os.Chmod(sock, 0o660); err != nil {
-			ln.Close()
-			return err
-		}
+		mode = 0o660
+	}
+	if err := os.Chmod(sock, mode); err != nil {
+		ln.Close()
+		return err
 	}
 	srv := &http.Server{
 		Handler:           a.Handler(),
@@ -351,6 +355,8 @@ func (a *Agent) routes() http.Handler {
 	})
 	return recoverer(a.log, mux)
 }
+
+var listenUnix = func(path string) (net.Listener, error) { return net.Listen("unix", path) }
 
 // Route is one allowlisted agent operation.
 type Route struct {

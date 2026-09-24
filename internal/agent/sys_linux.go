@@ -30,8 +30,6 @@ func peerUID(c net.Conn) (uint32, error) {
 	return cred.Uid, nil
 }
 
-func umask(m int) int { return syscall.Umask(m) }
-
 func statfs(path string) (free, total int64, err error) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
