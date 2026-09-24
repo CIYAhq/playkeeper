@@ -147,32 +147,34 @@ func (a *Agent) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Conta
 	if a.offline() {
 		online = "FALSE"
 	}
-	env := []string{
-		"EULA=TRUE",
-		"TYPE=PAPER",
-		"VERSION=" + sc.MinecraftVersion,
-		"PAPER_BUILD=" + strconv.Itoa(sc.PaperBuild),
-		"MEMORY=" + strconv.Itoa(minecraft.HeapMB(sc.MemoryMB)) + "M",
-		"MOTD=" + sc.MOTD,
-		"MAX_PLAYERS=" + strconv.Itoa(sc.MaxPlayers),
-		"ONLINE_MODE=" + online,
+	// Only the setup-only container downloads Paper. The server container runs
+	// the jar that was verified against the pinned checksum, so a start never
+	// depends on PaperMC or DNS being reachable.
+	env := []string{"EULA=TRUE"}
+	if setupOnly {
+		env = append(env, "TYPE=PAPER", "VERSION="+sc.MinecraftVersion, "PAPER_BUILD="+strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE")
+	} else {
+		env = append(env, "TYPE=CUSTOM", "CUSTOM_SERVER=/data/"+filepath.Base(a.jarPath(sc)))
+	}
+	env = append(env,
+		"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",
+		"MOTD="+sc.MOTD,
+		"MAX_PLAYERS="+strconv.Itoa(sc.MaxPlayers),
+		"ONLINE_MODE="+online,
 		"ENABLE_WHITELIST=TRUE",
 		"ENFORCE_WHITELIST=TRUE",
 		"ENABLE_RCON=TRUE",
-		"RCON_PORT=" + strconv.Itoa(rconPort),
+		"RCON_PORT="+strconv.Itoa(rconPort),
 		"RCON_PASSWORD_FILE=/run/secrets/rcon_password",
 		"BROADCAST_RCON_TO_OPS=FALSE",
 		"LOG_IPS=FALSE",
 		"ENABLE_QUERY=FALSE",
 		"ENABLE_AUTOPAUSE=FALSE",
-		"LEVEL=" + a.levelName(sc),
+		"LEVEL="+a.levelName(sc),
 		"SERVER_PORT=25565",
 		"TZ=UTC",
 		"USE_AIKAR_FLAGS=TRUE",
-	}
-	if setupOnly {
-		env = append(env, "SETUP_ONLY=TRUE")
-	}
+	)
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
 	stop := int(a.opts.StopTimeout.Seconds())
@@ -441,6 +443,9 @@ func (a *Agent) startServer(ctx context.Context, h *opHandle, sc api.ServerConfi
 	a.resetRun(api.PhaseStartingContainer)
 	a.resetRCON()
 	if err := a.docker.ContainerStart(ctx, id); err != nil {
+		// A container whose start failed (for example on a busy port) can keep
+		// broken network state; discard it so the next start creates it fresh.
+		_ = a.docker.ContainerRemove(context.Background(), id, true)
 		return classifyStartError(err, a.cfg.GamePort)
 	}
 	a.mu.Lock()

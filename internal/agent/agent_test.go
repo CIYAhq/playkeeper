@@ -295,6 +295,9 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 	if cfg.HostConfig.Memory != 1536<<20 || cfg.HostConfig.MemorySwap != 1536<<20 || env(cfg, "MEMORY") != "1024M" {
 		t.Fatalf("memory limit/heap not applied: %d %s", cfg.HostConfig.Memory, env(cfg, "MEMORY"))
 	}
+	if env(cfg, "TYPE") != "CUSTOM" || env(cfg, "CUSTOM_SERVER") != "/data/paper-26.1.2-74.jar" || env(cfg, "SETUP_ONLY") != "" {
+		t.Fatalf("the server container must run the verified jar without downloading: TYPE=%s CUSTOM_SERVER=%s", env(cfg, "TYPE"), env(cfg, "CUSTOM_SERVER"))
+	}
 	if len(cfg.HostConfig.CapAdd) != 0 || cfg.HostConfig.CapDrop[0] != "ALL" || cfg.User == "" || env(cfg, "ONLINE_MODE") != "TRUE" || cfg.HostConfig.NetworkMode != networkName {
 		t.Fatalf("container not hardened as designed: %+v", cfg)
 	}
@@ -540,6 +543,19 @@ func TestPortCollisionHasActionableError(t *testing.T) {
 	op := e.waitOp(out["id"].(string))
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "25565") || !strings.Contains(op.Hint, "ss -ltnp") {
 		t.Fatalf("port collision: %+v", op)
+	}
+	if n := e.fd.containerCount(containerName); n != 0 {
+		t.Fatalf("a container whose start failed must be discarded, found %d", n)
+	}
+	e.fd.mu.Lock()
+	e.fd.startErr = ""
+	e.fd.mu.Unlock()
+	code, out = e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("start after freeing the port: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("start after freeing the port: %+v", op)
 	}
 }
 

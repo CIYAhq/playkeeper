@@ -22,18 +22,19 @@ import (
 // fakeDocker implements the subset of the Docker Engine API the agent uses and
 // simulates the Minecraft container's log output.
 type fakeDocker struct {
-	t          *testing.T
-	mu         sync.Mutex
-	images     map[string]bool
-	pulls      int
-	networks   map[string]map[string]string
-	byName     map[string]*fakeContainer
-	byID       map[string]*fakeContainer
-	nextID     int
-	calls      []string
-	startErr   string
-	jarContent []byte
-	bootDelay  time.Duration
+	t            *testing.T
+	mu           sync.Mutex
+	images       map[string]bool
+	pulls        int
+	networks     map[string]map[string]string
+	byName       map[string]*fakeContainer
+	byID         map[string]*fakeContainer
+	nextID       int
+	calls        []string
+	startErr     string
+	failedStarts int
+	jarContent   []byte
+	bootDelay    time.Duration
 }
 
 type fakeLine struct {
@@ -259,6 +260,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		fd.mu.Lock()
 		if fd.startErr != "" && len(c.cfg.HostConfig.PortBindings) > 0 {
 			msg := fd.startErr
+			fd.failedStarts++
 			fd.mu.Unlock()
 			jsonOut(w, 500, map[string]string{"message": msg})
 			return
@@ -325,7 +327,8 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 		c.wake = make(chan struct{})
 		return
 	}
-	fd.log(c, "[12:00:00 INFO]: Starting minecraft server version "+env(c.cfg, "VERSION"))
+	version := strings.TrimSuffix(strings.TrimPrefix(env(c.cfg, "CUSTOM_SERVER"), "/data/paper-"), ".jar")
+	fd.log(c, "[12:00:00 INFO]: Starting minecraft server version "+version)
 	for _, b := range c.cfg.HostConfig.Binds {
 		if host, dst, _ := strings.Cut(b, ":"); dst == "/data" {
 			level := filepath.Join(host, "world", "level.dat")
