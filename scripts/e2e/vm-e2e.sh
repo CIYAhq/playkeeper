@@ -24,6 +24,7 @@ A=198.51.100.10
 B=198.51.100.11
 C=198.51.100.12
 export PK_PASSWORD=${PK_PASSWORD:-"lab-$(head -c 9 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"}
+export PK_ADMIN_PASSWORD="$PK_PASSWORD"
 UI="$root/test/e2e/ui"
 OFFLINE_DROPIN='[Service]
 Environment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1'

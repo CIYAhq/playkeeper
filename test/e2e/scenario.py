@@ -23,7 +23,7 @@ from pkclient import Client  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOT = os.path.join(HERE, "bot", "bot.js")
-PASSWORD = os.environ.get("PK_ADMIN_PASSWORD", "e2e-" + secrets.token_hex(8))
+PASSWORD = os.environ.get("PK_ADMIN_PASSWORD") or os.environ.get("PK_PASSWORD") or "e2e-" + secrets.token_hex(8)
 results = {"checks": []}
 
 
