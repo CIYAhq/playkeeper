@@ -161,14 +161,16 @@ func (a *Agent) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Conta
 	}
 	// Only the setup-only container downloads Paper. The server container runs
 	// the jar that was verified against the pinned checksum, so a start never
-	// depends on PaperMC or DNS being reachable.
-	env := []string{"EULA=TRUE"}
+	// re-downloads Paper. SKIP_DOWNLOAD_DEFAULTS stops the image fetching
+	// unpinned default config files from a third-party repository.
+	env := []string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}
 	if setupOnly {
-		env = append(env, "TYPE=PAPER", "VERSION="+sc.MinecraftVersion, "PAPER_BUILD="+strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE")
+		env = append(env, "TYPE=PAPER", "PAPER_BUILD="+strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE")
 	} else {
 		env = append(env, "TYPE=CUSTOM", "CUSTOM_SERVER=/data/"+filepath.Base(a.jarPath(sc)))
 	}
 	env = append(env,
+		"SKIP_DOWNLOAD_DEFAULTS=TRUE",
 		"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",
 		"MOTD="+sc.MOTD,
 		"MAX_PLAYERS="+strconv.Itoa(sc.MaxPlayers),
@@ -297,6 +299,46 @@ func (a *Agent) ensureRCONSecret() error {
 	return nil
 }
 
+// bStatsConfig switches off the bStats usage statistics that Paper enables by
+// default and would send from the user's server to bstats.org.
+const bStatsConfig = "# Written by Playkeeper: Paper's bStats usage statistics are off,\n# so this server does not report to bstats.org.\nenabled: false\n"
+
+// ensureTelemetryOff runs before every start because restored archives carry
+// the plugins directory, including whatever bStats setting they were made with.
+func (a *Agent) ensureTelemetryOff() error {
+	dir := filepath.Join(a.cfg.ServerDataDir(), "plugins", "bStats")
+	path := filepath.Join(dir, "config.yml")
+	if b, err := os.ReadFile(path); err == nil && bStatsOff(b) {
+		return nil
+	}
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			return err
+		}
+		if os.Geteuid() == 0 {
+			if err := os.Chown(d, a.cfg.GameUID, a.cfg.GameGID); err != nil {
+				return err
+			}
+		}
+	}
+	if err := os.WriteFile(path, []byte(bStatsConfig), 0o640); err != nil {
+		return err
+	}
+	if os.Geteuid() == 0 {
+		return os.Chown(path, a.cfg.GameUID, a.cfg.GameGID)
+	}
+	return nil
+}
+
+func bStatsOff(b []byte) bool {
+	for _, line := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(k) == "enabled" {
+			return strings.TrimSpace(v) == "false"
+		}
+	}
+	return false
+}
+
 func (a *Agent) rconPassword() (string, error) {
 	b, err := os.ReadFile(a.cfg.RCONSecretPath())
 	return strings.TrimSpace(string(b)), err
@@ -422,6 +464,9 @@ func (a *Agent) startServer(ctx context.Context, h *opHandle, sc api.ServerConfi
 		return err
 	}
 	if err := a.ensureServerSoftware(ctx, h, &sc); err != nil {
+		return err
+	}
+	if err := a.ensureTelemetryOff(); err != nil {
 		return err
 	}
 	spec, hash := a.containerSpec(sc, false)

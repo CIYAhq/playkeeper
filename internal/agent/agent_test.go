@@ -298,6 +298,9 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 	if env(cfg, "TYPE") != "CUSTOM" || env(cfg, "CUSTOM_SERVER") != "/data/paper-26.1.2-74.jar" || env(cfg, "SETUP_ONLY") != "" {
 		t.Fatalf("the server container must run the verified jar without downloading: TYPE=%s CUSTOM_SERVER=%s", env(cfg, "TYPE"), env(cfg, "CUSTOM_SERVER"))
 	}
+	if env(cfg, "VERSION") != "26.1.2" || env(cfg, "SKIP_DOWNLOAD_DEFAULTS") != "TRUE" {
+		t.Fatalf("the server container must name the pinned version and skip third-party default configs: VERSION=%s SKIP_DOWNLOAD_DEFAULTS=%s", env(cfg, "VERSION"), env(cfg, "SKIP_DOWNLOAD_DEFAULTS"))
+	}
 	if len(cfg.HostConfig.CapAdd) != 0 || cfg.HostConfig.CapDrop[0] != "ALL" || cfg.User == "" || env(cfg, "ONLINE_MODE") != "TRUE" || cfg.HostConfig.NetworkMode != networkName {
 		t.Fatalf("container not hardened as designed: %+v", cfg)
 	}
@@ -353,6 +356,43 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 	e.waitFor("online again", func() bool { return e.status().Phase == api.PhaseOnline })
 	if n := e.fd.containerCount(containerName); n != 1 {
 		t.Fatalf("containers after restart cycle: %d", n)
+	}
+}
+
+func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
+	e := newAgentEnv(t)
+	sc := api.ServerConfig{VersionID: "paper-26.1.2", MinecraftVersion: "26.1.2", PaperBuild: 74, MemoryMB: 1536, MaxPlayers: 10, LevelName: "world"}
+	setup, _ := e.a.containerSpec(sc, true)
+	for k, want := range map[string]string{"TYPE": "PAPER", "VERSION": "26.1.2", "PAPER_BUILD": "74", "SETUP_ONLY": "TRUE", "SKIP_DOWNLOAD_DEFAULTS": "TRUE"} {
+		if got := env(setup, k); got != want {
+			t.Errorf("setup container %s=%q, want %q", k, got, want)
+		}
+	}
+	e.create()
+	path := filepath.Join(e.cfg.ServerDataDir(), "plugins", "bStats", "config.yml")
+	if b, err := os.ReadFile(path); err != nil || !bStatsOff(b) {
+		t.Fatalf("bStats must be off before the first start: %q %v", b, err)
+	}
+	// A restored archive can carry bStats switched on; the next start turns it off.
+	if err := os.WriteFile(path, []byte("enabled: true\nserverUuid: 00000000-0000-0000-0000-000000000000\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range []string{"stop", "start"} {
+		code, out := e.call("POST", "/v1/server/"+verb, map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", verb, code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+			t.Fatalf("%s failed: %+v", verb, op)
+		}
+	}
+	if b, _ := os.ReadFile(path); !bStatsOff(b) {
+		t.Fatalf("bStats was left on after a start: %q", b)
+	}
+	for _, s := range []string{"enabled: true", "enabled:false", "# enabled: false\nenabled: true", ""} {
+		if bStatsOff([]byte(s)) != (s == "enabled:false") {
+			t.Errorf("bStatsOff(%q) = %v", s, !(s == "enabled:false"))
+		}
 	}
 }
 
