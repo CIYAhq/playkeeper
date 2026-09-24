@@ -733,6 +733,32 @@ func TestFailedStartIsCountedOnce(t *testing.T) {
 	}
 }
 
+// The Overview warns about low disk space with the preflight's thresholds and
+// advice, and a backup refused for space records how much it needed, so its
+// failure can be dropped once that much is free again.
+func TestStatusWarnsAboutLowDiskWithThePreflightAdvice(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	if w := e.status().DiskWarning; w != nil {
+		t.Fatalf("50 GB free needs no warning: %+v", w)
+	}
+	e.diskFree.Store(4 << 30)
+	if w := e.status().DiskWarning; w == nil || w.Status != "warn" || !strings.Contains(w.Fix, "Keep at least 5 GB free") {
+		t.Fatalf("4 GB free: %+v", w)
+	}
+	e.diskFree.Store(1 << 20)
+	if w := e.status().DiskWarning; w == nil || w.Status != "fail" || !strings.Contains(w.Fix, "Free at least 5 GB") {
+		t.Fatalf("1 MB free: %+v", w)
+	}
+	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || op.Detail["neededBytes"] == nil {
+		t.Fatalf("a backup refused for space must record how much it needed: %+v", op)
+	}
+}
+
 func TestExternalCleanStopIsRestored(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()

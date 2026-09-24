@@ -67,6 +67,11 @@ export function Overview({ status, statusError, refresh }: PageProps) {
           {status.lastErrorHint}
         </Banner>
       )}
+      {status.diskWarning && (
+        <Banner tone={status.diskWarning.status === 'fail' ? 'bad' : 'warn'} title={`Low disk space: ${status.diskWarning.detail}`}>
+          {status.diskWarning.fix}
+        </Banner>
+      )}
       {divergence && !status.operation && !status.lastError && (
         <Banner tone="warn" title="The server should be running but is not">
           Playkeeper expected it to be running ({status.phase}). Press Start to try again, or check the Console.

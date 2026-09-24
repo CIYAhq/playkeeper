@@ -253,6 +253,8 @@ func (a *Agent) backupOp(ctx context.Context, h *opHandle, actor, note string) e
 	}
 	need := allowlistedSize(a.cfg.ServerDataDir())
 	if free, _, err := a.opts.DiskUsage(a.cfg.BackupsDir()); err == nil && free < need+minFreeAfterBackup {
+		// Lets the UI drop this failure once enough space is free again.
+		h.set("neededBytes", need+minFreeAfterBackup)
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space for a backup: %s free, about %s needed.", humanBytes(free), humanBytes(need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
 	}

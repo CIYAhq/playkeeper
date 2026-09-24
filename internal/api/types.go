@@ -45,6 +45,7 @@ type ServerStatus struct {
 	LastOperation   *Operation      `json:"lastOperation,omitempty"`
 	CrashCount      int             `json:"crashCount"`
 	Resources       *Resources      `json:"resources,omitempty"`
+	DiskWarning     *PreflightCheck `json:"diskWarning,omitempty"`
 	LastBackup      *Backup         `json:"lastBackup,omitempty"`
 	PendingRestart  bool            `json:"pendingRestart"`
 	AgentVersion    string          `json:"agentVersion"`

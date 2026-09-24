@@ -94,6 +94,7 @@ export interface ServerStatus {
   gamePort: number
   lastError?: string
   lastErrorHint?: string
+  diskWarning?: PreflightCheck
   offlineModeTest: boolean
   operation?: Operation
   lastOperation?: Operation

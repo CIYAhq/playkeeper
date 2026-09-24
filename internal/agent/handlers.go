@@ -56,6 +56,11 @@ func (a *Agent) Status(ctx context.Context) api.ServerStatus {
 	st.Desired = a.desired()
 	st.Operation = a.currentOp()
 	st.LastOperation = a.lastFinishedOperation()
+	if free, _, err := a.opts.DiskUsage(a.cfg.DataDir); err == nil {
+		if dc := diskCheck(free); dc.Status != "pass" {
+			st.DiskWarning = &dc
+		}
+	}
 	c, err := a.docker.ContainerInspect(ctx, containerName)
 	a.mu.Lock()
 	runPhase, detail := a.runPhase, a.runPhaseDetail

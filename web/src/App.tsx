@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ApiError, get, onUnauthorized, post, setCsrfToken } from './api/client'
-import type { Me, ServerStatus } from './api/types'
+import type { Me, Operation, ServerStatus } from './api/types'
 import { Banner, Icon, Logo, Spinner, StatusPill } from './components/ui'
 import { navigate, useRoute, type Route } from './lib/router'
 import { usePoll } from './lib/usePoll'
@@ -229,7 +229,17 @@ export function Footer({ version }: { version?: string }) {
   )
 }
 
-function GlobalBanners({ status, agentDown }: { status: ServerStatus | undefined; agentDown: boolean }) {
+// recovered reports whether what an operation failed to do has happened
+// since: the server is online after a failed start, or enough disk is free
+// after a backup refused for space.
+function recovered(op: Operation, status: ServerStatus): boolean {
+  if (['create', 'start', 'restart', 'recover', 'auto-restart'].includes(op.kind)) return status.phase === 'online'
+  const needed = op.detail?.neededBytes
+  if (op.kind === 'backup' && typeof needed === 'number') return (status.resources?.diskFreeBytes ?? 0) >= needed
+  return false
+}
+
+export function GlobalBanners({ status, agentDown }: { status: ServerStatus | undefined; agentDown: boolean }) {
   const [dismissed, setDismissed] = useState<string>()
   if (agentDown) {
     return (
@@ -240,7 +250,8 @@ function GlobalBanners({ status, agentDown }: { status: ServerStatus | undefined
   }
   if (!status) return null
   const last = status.lastOperation
-  const recentFailure = last && last.status === 'failed' && last.finishedAt && Date.now() - new Date(last.finishedAt).getTime() < 15 * 60_000 && dismissed !== last.id
+  const recentFailure =
+    last && last.status === 'failed' && last.finishedAt && Date.now() - new Date(last.finishedAt).getTime() < 15 * 60_000 && dismissed !== last.id && !recovered(last, status)
   return (
     <>
       {status.offlineModeTest && (
