@@ -535,7 +535,14 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy = a.now().UTC(), actor
 	}
 	if err := a.saveServerConfig(sc); err != nil {
-		return err
+		_ = os.Rename(live, st.data)
+		if hadLive {
+			if rerr := os.Rename(aside, live); rerr != nil {
+				return fmt.Errorf("could not record the restored server's settings (%v), and moving the previous world back failed: %w; it is at %s", err, rerr, aside)
+			}
+		}
+		a.startPrevious(ctx, h, prev, wasRunning)
+		return fmt.Errorf("could not record the restored server's settings, so the previous world was put back: %w", err)
 	}
 	_ = a.setDesired(api.DesiredRunning)
 	startErr := a.startServer(ctx, h, sc)

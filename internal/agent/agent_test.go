@@ -920,6 +920,33 @@ func TestRestoreNeedsAVerifiedRollbackArchive(t *testing.T) {
 	e.waitFor("previous world running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
 }
 
+func TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	world := filepath.Join(e.cfg.ServerDataDir(), "world")
+	if err := os.WriteFile(filepath.Join(world, "later.dat"), []byte("built after the backup"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	live := worldHash(t, e.cfg.ServerDataDir())
+	for _, ev := range []string{"INSERT", "UPDATE"} {
+		if _, err := e.a.db.Exec(`CREATE TRIGGER fail_config_` + ev + ` BEFORE ` + ev + ` ON kv WHEN NEW.key = 'server_config' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	op := e.applyRestore(id, phrase)
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "previous world was put back") {
+		t.Fatalf("a restore whose settings cannot be saved must fail and say so: %+v", op)
+	}
+	if got := worldHash(t, e.cfg.ServerDataDir()); got != live {
+		t.Fatal("the restored world was left in place without its settings")
+	}
+	if left, _ := filepath.Glob(e.cfg.ServerDataDir() + ".replaced-*"); len(left) != 0 {
+		t.Fatalf("the moved-aside world was left behind: %v", left)
+	}
+	e.waitFor("previous world running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+}
+
 func worldHash(t *testing.T, dir string) string {
 	t.Helper()
 	h := sha256.New()
