@@ -421,6 +421,48 @@ func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	}
 }
 
+func TestConcurrentStartAndStopLeaveDesiredMatchingContainer(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	for i := 0; i < 16; i++ {
+		paths := []string{"/v1/server/start", "/v1/server/stop"}
+		codes := make([]int, len(paths))
+		outs := make([]map[string]any, len(paths))
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for j, p := range paths {
+			wg.Add(1)
+			go func(j int, p string) {
+				defer wg.Done()
+				<-start
+				codes[j], outs[j] = e.call("POST", p, map[string]any{"actor": "admin"})
+			}(j, p)
+		}
+		close(start)
+		wg.Wait()
+		for j, code := range codes {
+			switch {
+			case code == 202:
+				e.waitOp(outs[j]["id"].(string))
+			case code == 200 && outs[j]["noop"] == true:
+			case code == 409 && outs[j]["code"] == api.CodeBusy:
+			default:
+				t.Fatalf("iteration %d: %s -> %d %v", i, paths[j], code, outs[j])
+			}
+		}
+		_, running, err := e.a.containerRunning(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if desired := e.a.desired(); (desired == api.DesiredRunning) != running {
+			t.Fatalf("iteration %d (start %d, stop %d): desired %s but container running=%v", i, codes[0], codes[1], desired, running)
+		}
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart')`); n != 0 {
+		t.Fatalf("concurrent start/stop left a divergence the reconciler had to repair (%d operations)", n)
+	}
+}
+
 func TestSessionsAreDedupedAndSpoofProof(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()

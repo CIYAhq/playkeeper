@@ -73,6 +73,18 @@ func (a *Agent) busyError() error {
 	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
 }
 
+// holdOpLock takes the operation lock for a short decision, such as a start
+// or stop that turns out to be a no-op, so it cannot interleave with an
+// operation that changes the desired state.
+func (a *Agent) holdOpLock() (release func(), ok bool) {
+	select {
+	case a.opLock <- struct{}{}:
+		return func() { <-a.opLock }, true
+	default:
+		return nil, false
+	}
+}
+
 // beginOp runs fn as the single exclusive operation. Concurrent requests get
 // 409 with the operation that is in progress.
 func (a *Agent) beginOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {

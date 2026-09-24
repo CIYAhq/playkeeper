@@ -249,15 +249,21 @@ func (a *Agent) hStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotCreated())
 		return
 	}
-	if a.busy() {
+	release, ok := a.holdOpLock()
+	if !ok {
 		writeError(w, a.busyError())
 		return
 	}
-	if _, running, err := a.containerRunning(r.Context()); err != nil {
+	_, running, err := a.containerRunning(r.Context())
+	if err == nil && running {
+		_ = a.setDesired(api.DesiredRunning)
+	}
+	release()
+	if err != nil {
 		writeError(w, err)
 		return
-	} else if running {
-		_ = a.setDesired(api.DesiredRunning)
+	}
+	if running {
 		a.audit(actor, "start", "server", "no-op", "already running")
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already running."})
 		return
@@ -289,18 +295,24 @@ func (a *Agent) hStop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotCreated())
 		return
 	}
-	if a.busy() {
+	release, ok := a.holdOpLock()
+	if !ok {
 		writeError(w, a.busyError())
 		return
 	}
-	if _, running, err := a.containerRunning(r.Context()); err != nil {
-		writeError(w, err)
-		return
-	} else if !running {
+	_, running, err := a.containerRunning(r.Context())
+	if err == nil && !running {
 		_ = a.setDesired(api.DesiredStopped)
 		a.mu.Lock()
 		a.crashed = false
 		a.mu.Unlock()
+	}
+	release()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !running {
 		a.audit(actor, "stop", "server", "no-op", "already stopped")
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already stopped."})
 		return
