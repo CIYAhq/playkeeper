@@ -2,7 +2,7 @@
 
 Raw text output from the runs summarised in [CURRENT_STATE.md](../../CURRENT_STATE.md). Screenshots and the two walkthrough videos are attached to [PR #1](https://github.com/CIYAhq/playkeeper/pull/1). One-time setup codes and lab passwords are redacted; guests use the documentation range 198.51.100.0/24 (the lab bridge), Docker bridge addresses are replaced with `<private-ip>`, and the public addresses of upstream services that appear in error messages with `<upstream-ip>`.
 
-## `vm-rehearsal/` — run 7, the tested commit `0c99fa7` (`scripts/e2e/vm-e2e.sh`)
+## `vm-rehearsal/` — run 7, the rehearsed commit `0c99fa7` (`scripts/e2e/vm-e2e.sh`)
 
 Fresh guests from official Ubuntu cloud images (2 vCPU, 3 GB RAM, 20 GB disk unless noted) on the Cloud Agent VM, one at a time, reached over a private bridge from the Cloud Agent VM acting as the admin's computer and as the players' network. Only the release tarball (or, for host C, the one-line installer) reached each guest. These are rehearsals for a VPS, not provider hosts. Run 7 stopped twice on bugs in the rehearsal script, not the product: at host B's blocked-egress report (fixed in `f2e1bde`, resumed from host B) and at host C's secret comparison, which ran before host C's server existed (fixed in `eed3013`, resumed from host C). Each resume used the same tarball; `run-log.txt` shows all three parts.
 
@@ -35,7 +35,7 @@ A fresh guest installed from the same tarball without the test-harness flag: `on
 
 ## `contributor/`
 
-The README's contributor commands in a stock `ubuntu:24.04` container as a normal user, from a git bundle of the PR head at `eed3013` (same product code as `0c99fa7`; the repository is private, so the container has no GitHub credentials): setup 7 s, `make check` 84 s, `make lint-sh`, `make package` 17 s, a `make dev` smoke test (agent and panel start from the fresh checkout and the panel answers `/api/health`; the container has no Docker) and `./scripts/negative-controls.sh` (all 12 guards caught, 72 s); 202 s in total.
+The README's contributor commands, verbatim, in a stock `ubuntu:24.04` container as a normal user with sudo, from a git bundle of the PR head at `403e8cd` (the repository is private, so the container has no GitHub credentials; the clone source is the only change). The container's apt lists were emptied before the run, as on a stock image. `sudo apt-get update && sudo apt-get install …` 15 s, setup 7 s, `make check` 96 s, `make package` 18 s, a `make dev` smoke test (agent and panel start from the fresh checkout and the panel answers `/api/health`; the container has no Docker), `./scripts/negative-controls.sh` (all 16 guards caught, 76 s) and `make lint-sh` (shellcheck installed separately; the README's apt line does not include it); 224 s in total, working tree clean afterwards. Terminal colour codes are stripped from the transcript. An earlier attempt of the same script stopped at the apt step with exit code 100; its apt output stayed inside the removed container, so the cause is unknown. The harness now prints apt's output on failure, and the next attempt, above, passed.
 
 ## `resources/`
 
