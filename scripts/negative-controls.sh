@@ -71,7 +71,7 @@ control "restore needs a verified rollback archive" internal/agent/backups.go \
 		return nil, fmt.Errorf(' \
   ./internal/agent '^TestRestoreNeedsAVerifiedRollbackArchive$'
 control "restore undoes the swap when settings cannot be saved" internal/agent/backups.go \
-  'if rerr := renameDir(live, st.data); rerr != nil {' \
+  'if rerr := renameDir(live, failedAt); rerr != nil {' \
   'if rerr := error(nil); rerr != nil {' \
   ./internal/agent '^TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved$'
 control "one admin from concurrent setups" internal/panel/auth.go \

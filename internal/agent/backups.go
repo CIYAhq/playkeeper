@@ -556,17 +556,27 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 		hadLive = true
 	}
 	worldSafe = false
+	// A restored world that has to make way goes to failedAt, next to the live
+	// directory and outside the staging folder the agent clears at start.
+	failedAt := live + ".failed-restore-" + a.now().UTC().Format("20060102-150405")
 	// putBack moves the previous world back into place once the restored one
-	// is out of the way. If that fails, nothing is deleted and both copies are
-	// named, because the live directory is then missing.
+	// is out of the way, at restoredAt. If that fails the live directory is
+	// missing: nothing is deleted, the restored copy leaves the stage, and the
+	// error names where both copies are.
 	putBack := func(restoredAt string, cause error) error {
-		if hadLive {
-			if err := renameDir(aside, live); err != nil {
-				return fmt.Errorf("%v; putting the previous world back also failed (%v), so nothing was deleted: the previous world is at %s and the restored world at %s", cause, err, aside, restoredAt)
-			}
+		if !hadLive {
+			worldSafe = true
+			return nil
 		}
-		worldSafe = true
-		return nil
+		err := renameDir(aside, live)
+		if err == nil {
+			worldSafe = true
+			return nil
+		}
+		if restoredAt == st.data && renameDir(st.data, failedAt) == nil {
+			restoredAt = failedAt
+		}
+		return fmt.Errorf("%v; putting the previous world back also failed (%v), so nothing was deleted: the previous world is at %s and the restored world at %s", cause, err, aside, restoredAt)
 	}
 	if err := renameDir(st.data, live); err != nil {
 		if perr := putBack(st.data, fmt.Errorf("could not move the restored world into place: %w", err)); perr != nil {
@@ -595,14 +605,22 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy = a.now().UTC(), actor
 	}
 	if err := a.saveServerConfig(sc); err != nil {
-		restoredAt := st.data
-		if rerr := renameDir(live, st.data); rerr != nil {
-			restoredAt = live
+		cause := fmt.Errorf("could not record the restored server's settings: %w", err)
+		if rerr := renameDir(live, failedAt); rerr != nil {
+			where := "there was no previous world"
+			if hadLive {
+				where = "the previous world is at " + aside
+			}
+			return fmt.Errorf("%v; moving the restored world out of the way also failed (%v), so nothing was deleted: the restored world is at %s and %s", cause, rerr, live, where)
 		}
-		if perr := putBack(restoredAt, fmt.Errorf("could not record the restored server's settings: %w", err)); perr != nil {
+		if perr := putBack(failedAt, cause); perr != nil {
 			return perr
 		}
+		os.RemoveAll(failedAt)
 		a.startPrevious(ctx, h, prev, wasRunning)
+		if !hadLive {
+			return fmt.Errorf("%v, so the restore was undone", cause)
+		}
 		return fmt.Errorf("could not record the restored server's settings, so the previous world was put back: %w", err)
 	}
 	_ = a.setDesired(api.DesiredRunning)
@@ -610,18 +628,17 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	if startErr != nil && hadLive && prev != nil {
 		h.phase("reverting")
 		_ = a.stopServer(ctx, h)
-		failed := live + ".failed-restore-" + a.now().UTC().Format("20060102-150405")
-		if err := renameDir(live, failed); err != nil {
+		if err := renameDir(live, failedAt); err != nil {
 			return fmt.Errorf("the restored world did not start (%v), and moving it aside failed (%v), so nothing was deleted: the restored world is at %s and the previous world at %s", startErr, err, live, aside)
 		}
-		if err := putBack(failed, fmt.Errorf("the restored world did not start: %w", startErr)); err != nil {
+		if err := putBack(failedAt, fmt.Errorf("the restored world did not start: %w", startErr)); err != nil {
 			return err
 		}
 		_ = a.saveServerConfig(*prev)
 		if err := a.startServer(ctx, h, *prev); err != nil {
-			return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. The failed restore was kept at " + failed + " for inspection."}
+			return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. The failed restore was kept at " + failedAt + " for inspection."}
 		}
-		return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed restore was kept at " + failed + " for inspection."}
+		return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed restore was kept at " + failedAt + " for inspection."}
 	}
 	worldSafe = true
 	if startErr != nil {

@@ -1108,8 +1108,9 @@ func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
 
 // When a restore fails after the swap and putting the previous world back
 // fails too, the live directory is missing: nothing may be deleted. The
-// restored copy stays in the stage, the previous world in its aside copy,
-// and the error names both.
+// previous world stays in its aside copy, the restored copy is moved out of
+// the staging folder (which the agent clears at start), the stage is kept,
+// and the error names both copies.
 func TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails(t *testing.T) {
 	for _, step := range []string{"settings save", "moving the restored world into place"} {
 		t.Run(step, func(t *testing.T) {
@@ -1132,19 +1133,30 @@ func TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails(t *testing.T
 			}
 			t.Cleanup(func() { renameDir = os.Rename })
 			op := e.applyRestore(id, phrase)
-			if _, err := os.Stat(filepath.Join(staged, "world")); err != nil {
-				t.Fatalf("the restored copy in the stage was deleted: %+v", op)
+			copies := func() (restored, previous string) {
+				t.Helper()
+				failed, _ := filepath.Glob(live + ".failed-restore-*")
+				asides, _ := filepath.Glob(live + ".replaced-*")
+				if len(failed) != 1 || len(asides) != 1 {
+					t.Fatalf("want the restored copy outside the stage and the previous world's aside copy, got %v and %v: %+v", failed, asides, op)
+				}
+				for _, dir := range []string{failed[0], asides[0]} {
+					if _, err := os.Stat(filepath.Join(dir, "world")); err != nil {
+						t.Fatalf("%s has no world: %+v", dir, op)
+					}
+				}
+				return failed[0], asides[0]
 			}
-			asides, _ := filepath.Glob(live + ".replaced-*")
-			if len(asides) != 1 {
-				t.Fatalf("the previous world's aside copy is gone: %v", asides)
+			restored, previous := copies()
+			if _, err := os.Stat(filepath.Join(e.cfg.StagingDir(), id)); err != nil {
+				t.Fatal("the stage must be kept when the undo fails")
 			}
-			if _, err := os.Stat(filepath.Join(asides[0], "world")); err != nil {
-				t.Fatal("the previous world's aside copy is empty")
-			}
-			if op.Status != api.OpFailed || !strings.Contains(op.Error, asides[0]) || !strings.Contains(op.Error, staged) {
+			if op.Status != api.OpFailed || !strings.Contains(op.Error, previous) || !strings.Contains(op.Error, restored) {
 				t.Fatalf("the error must name the previous world's copy and the restored copy: %+v", op)
 			}
+			e.stop()
+			e.start()
+			copies()
 		})
 	}
 }
