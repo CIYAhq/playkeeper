@@ -2,6 +2,7 @@
 # Negative controls: removes one safety guard at a time in a throwaway git
 # worktree and runs the tests that cover it. Every run must FAIL; a control
 # that still passes means the guard is untested. Nothing is committed.
+# The worktree is made from HEAD, so commit changes before running it.
 # Usage: scripts/negative-controls.sh
 set -euo pipefail
 
@@ -43,6 +44,10 @@ control "idle and absolute session expiry" internal/panel/auth.go \
   'if !now.Before(sess.ExpiresAt) || now.Sub(sess.LastSeen) >= s.opts.IdleTimeout {' \
   'if false && (!now.Before(sess.ExpiresAt) || now.Sub(sess.LastSeen) >= s.opts.IdleTimeout) {' \
   ./internal/panel '^TestSessionIdleAndAbsoluteExpiry$'
+control "per-address sign-in and setup rate limit" internal/panel/server.go \
+  'if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); !ok {' \
+  'if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); false && !ok {' \
+  ./internal/panel '^TestSignInAndSetupAreRateLimitedPerAddress$'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
   'if false && (err != nil || !a.allowed[uid]) {' \

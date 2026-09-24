@@ -319,6 +319,55 @@ func TestLoginRateLimitAndLockout(t *testing.T) {
 	}
 }
 
+// A different username on every attempt never trips the per-account lockout,
+// so only the per-address limit stops these; it also guards wrong setup codes.
+func TestSignInAndSetupAreRateLimitedPerAddress(t *testing.T) {
+	xrw := map[string]string{"X-Requested-With": "playkeeper"}
+	e := newEnv(t)
+	e.setup(t)
+	limited := false
+	for i := 0; i < 15 && !limited; i++ {
+		r := e.do(t, "POST", "/api/auth/login", `{"username":"guess`+strings.Repeat("x", i)+`","password":"wrong password!"}`, xrw)
+		switch r.status {
+		case http.StatusTooManyRequests:
+			limited = true
+		case http.StatusUnauthorized:
+		default:
+			t.Fatalf("sign-in attempt %d: %d", i, r.status)
+		}
+	}
+	if !limited {
+		t.Fatal("sign-ins with a new username each time were never rate limited for the address")
+	}
+
+	f := newEnv(t)
+	code, err := NewSetupToken(f.cfg.SetupTokenPath(), time.Hour, f.clock.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	limited = false
+	for i := 0; i < 15 && !limited; i++ {
+		r := f.do(t, "POST", "/api/setup", `{"token":"wrong-`+strings.Repeat("x", i)+`","username":"admin","password":"correct horse battery"}`, xrw)
+		switch r.status {
+		case http.StatusTooManyRequests:
+			limited = true
+		case http.StatusForbidden:
+		default:
+			t.Fatalf("setup attempt %d: %d", i, r.status)
+		}
+	}
+	if !limited {
+		t.Fatal("wrong setup codes from one address were never rate limited")
+	}
+	if r := f.do(t, "POST", "/api/setup", `{"token":"`+code+`","username":"admin","password":"correct horse battery"}`, xrw); r.status != http.StatusTooManyRequests {
+		t.Fatalf("the right code must wait out the limit too: %d", r.status)
+	}
+	f.clock.add(20 * time.Minute)
+	if r := f.do(t, "POST", "/api/setup", `{"token":"`+code+`","username":"admin","password":"correct horse battery"}`, xrw); r.status != 200 {
+		t.Fatalf("setup after the limit expired: %d %v", r.status, r.body)
+	}
+}
+
 func TestControlActionsAreRateLimited(t *testing.T) {
 	e := newEnv(t)
 	cookie, csrf := e.setup(t)
