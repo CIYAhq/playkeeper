@@ -140,8 +140,11 @@ def host_a_play(a, c, anon):
     marker = json.load(open(os.path.join(out, "marker.json")))
 
     step("Two bots online at once; the friend's chat imitates a join message")
-    friend = bot(["visit", "--host", a.game_host, "--port", str(a.game_port), "--name", "PkFriend", "--stay", "45", "--say", "Foo joined the game"], background=True)
-    builder = bot(["visit", "--host", a.game_host, "--port", str(a.game_port), "--name", "PkBuilder", "--stay", "35"], background=True)
+    # Both bots connect from the test host's single address, and Paper throttles
+    # repeat connections from one address within 4 s, so the joins are staggered.
+    friend = bot(["visit", "--host", a.game_host, "--port", str(a.game_port), "--name", "PkFriend", "--stay", "75", "--say", "Foo joined the game"], background=True)
+    time.sleep(6)
+    builder = bot(["visit", "--host", a.game_host, "--port", str(a.game_port), "--name", "PkBuilder", "--stay", "55"], background=True)
     both = None
     for _ in range(40):
         time.sleep(1.5)
