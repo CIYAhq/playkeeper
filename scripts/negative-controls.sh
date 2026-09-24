@@ -64,6 +64,21 @@ control "restore typed confirmation" internal/agent/handlers.go \
   'if strings.TrimSpace(req.Confirm) != p.ConfirmPhrase {' \
   'if false && strings.TrimSpace(req.Confirm) != p.ConfirmPhrase {' \
   ./internal/agent '^TestBackupRestoreRollbackAndRefusals$'
+control "restore needs a verified rollback archive" internal/agent/backups.go \
+  'if vb.Verified == nil || !*vb.Verified {
+		return nil, fmt.Errorf(' \
+  'if false {
+		return nil, fmt.Errorf(' \
+  ./internal/agent '^TestRestoreNeedsAVerifiedRollbackArchive$'
+control "restore undoes the swap when settings cannot be saved" internal/agent/backups.go \
+  '_ = os.Rename(live, st.data)
+		if hadLive {' \
+  'if false && hadLive {' \
+  ./internal/agent '^TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved$'
+control "one admin from concurrent setups" internal/panel/auth.go \
+  'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
+  'SELECT ?, ?, ?, ?' \
+  ./internal/panel '^TestConcurrentSetupsCreateOneAdmin$' 3
 control "archive per-file checksums" internal/backup/archive.go \
   'if got.Size != f.Size || got.SHA256 != f.SHA256 {' \
   'if false && (got.Size != f.Size || got.SHA256 != f.SHA256) {' \
