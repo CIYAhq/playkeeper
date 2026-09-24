@@ -3,7 +3,7 @@
 **As of 2026-09-24 (Asia/Nicosia): FOUNDATION ONLY.**
 
 - Brand: Playkeeper; owner reported purchasing `playkeeper.io`.
-- Repository: intended private `CIYAhq/playkeeper`. Confirm the URL, visibility and commit in GitHub after push; this document does not assert the remote exists until verified.
+- Repository: [CIYAhq/playkeeper](https://github.com/CIYAhq/playkeeper), `main`, verified private on GitHub after the foundation push. The first foundation commit is `0b6ef717f6feddac947348194a5dbe3054cd08b9`.
 - Application code: none. Build/test/CI/deployment: none. No game server or VPS was touched.
 - Scope and outcome: [product brief](docs/PRODUCT.md); autonomous implementation mandate: [goal](goals/GOAL.md).
 - Main unresolved decisions: product licence before public release/outside contributions; supported distro/resource minimum after a spike; off-host backup storage/retention; isolated host access for real second-machine recovery proof.
@@ -13,7 +13,7 @@
 
 | Stage | Evidence | Status |
 | --- | --- | --- |
-| Spec foundation | Versioned docs on main | Pending push verification |
+| Spec foundation | [Versioned docs on `main`](https://github.com/CIYAhq/playkeeper/tree/main) | Verified private remote, first commit `0b6ef717` |
 | Local app build/tests | Commands and logs linked to commit | Not started |
 | Isolated Minecraft join | Client/protocol evidence and screenshots | Not started |
 | Backup + second-host restore | Archive integrity + distinctive world state after join | Not started |
