@@ -1,0 +1,18 @@
+  [ok  ] Administrator rights       Running as root.
+  [FAIL] Operating system           Found ubuntu 22.04. Playkeeper is only tested on Ubuntu 24.04 LTS.
+         → Fix: Use an Ubuntu 24.04 LTS server, or pass --allow-untested-os to try anyway (unsupported).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2995 MB RAM.
+  [ok  ] Disk space                 18.3 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Error: preflight failed; fix the items marked FAIL above. Nothing was changed
+host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)

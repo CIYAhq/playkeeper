@@ -1,0 +1,49 @@
+{
+  "id": "a20327610e80beed",
+  "source": "upload",
+  "receivedAt": "2026-09-24T17:23:07.335626347Z",
+  "sizeBytes": 5711923,
+  "sha256": "6613eeba8c04a1115aef3da08b8812fea839c804f51816487515fac60df351fe",
+  "manifest": {
+    "createdAt": "2026-09-24T17:04:01.59270573Z",
+    "playkeeperVersion": "0.1.0-dev+0c99fa7b6277",
+    "minecraftVersion": "26.1.2",
+    "paperBuild": 74,
+    "versionId": "paper-26.1.2",
+    "levelName": "world",
+    "fileCount": 89,
+    "totalBytes": 17222366,
+    "sourceInstall": "b5b0a355",
+    "settings": {
+      "maxPlayers": "10",
+      "memoryMB": "1536",
+      "motd": "A Playkeeper server",
+      "whitelist": "true"
+    }
+  },
+  "compatible": true,
+  "problems": [],
+  "warnings": [
+    "This backup was made on a different Playkeeper host.",
+    "You must accept the Minecraft EULA on this host before restoring."
+  ],
+  "currentWorld": {
+    "exists": false,
+    "sizeBytes": 0
+  },
+  "willCreateRollback": false,
+  "needsEula": true,
+  "memoryMB": 1536,
+  "confirmPhrase": "restore",
+  "steps": [
+    "Install the world \"world\" from the backup",
+    "Download Paper 26.1.2 from PaperMC and verify its checksum",
+    "Start the server and wait until it is online"
+  ],
+  "notRestored": [
+    "Playkeeper sign-in accounts and sessions (this host keeps its own)",
+    "Player analytics, sessions and the audit log from the source host",
+    "Server jar and libraries (downloaded again from PaperMC after checksum verification)",
+    "The RCON password (this host generates its own)"
+  ]
+}

@@ -1,0 +1,57 @@
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.1 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [WARN] Existing Minecraft setups  Found Docker container existing-minecraft (local/minecraft-fixture:1); directory /var/opt/minecraft/crafty; service minecraft.service. Playkeeper will not touch them (--allow-existing-minecraft).
+  [ok  ] Docker                     Docker 29.1.3 is running; Playkeeper only manages its own container.
+  [info] Firewall (ufw)             ufw is active; the installer will allow ports 8443 and 25565.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Firewall:  ufw allow 8443/tcp and 25565/tcp
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+
+Installing:
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • allow panel and game ports in ufw
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open this link in your browser:
+       https://198.51.100.11:8443/setup#code=<redacted>
+     (setup code: <redacted> — works once, expires in 24 hours)
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       14:F2:A9:94:DF:0F:19:DD:C9:51:EA:F0:24:BD:B5:AA:8D:0A:4F:07:8A:14:E1:FB:BA:7F:D1:05:D9:06:B8:3C
+  3. Create your admin account, accept the Minecraft EULA and start your server.
+
+If 198.51.100.11:8443 is not your public address, use your VPS's public IP instead.
+Lost the setup code? sudo playkeeper setup-code
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 2s.

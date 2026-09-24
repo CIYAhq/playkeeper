@@ -1,0 +1,13 @@
+  [17:08:19] start: running 
+  [17:08:21] start: failed starting_container
+{
+  "id": "0d79e8911b73f0d3",
+  "kind": "start",
+  "status": "failed",
+  "phase": "starting_container",
+  "actor": "admin",
+  "startedAt": "2026-09-24T17:08:19.314Z",
+  "finishedAt": "2026-09-24T17:08:19.626Z",
+  "error": "Port 25565 is already in use by another program, so the server cannot accept players.",
+  "hint": "Stop the program using port 25565 (see: sudo ss -ltnp 'sport = :25565'), then press Start."
+}

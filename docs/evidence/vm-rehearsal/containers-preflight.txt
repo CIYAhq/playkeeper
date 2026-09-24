@@ -1,0 +1,39 @@
+## ubuntu:24.04 container (root, no systemd)
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [FAIL] Service manager            systemd is not running; Playkeeper's services need it.
+         → Fix: Use a standard Ubuntu 24.04 server (not a container) with systemd.
+  [ok  ] Memory                     16014 MB RAM.
+  [ok  ] Disk space                 227.2 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+Error: this host is not ready for Playkeeper (see FAIL items)
+## debian:12 container (root, no systemd)
+Unable to find image 'debian:12' locally
+12: Pulling from library/debian
+eaac70c68abd: Pulling fs layer
+a883fdaf3d94: Download complete
+eaac70c68abd: Download complete
+eaac70c68abd: Pull complete
+Digest: sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26
+Status: Downloaded newer image for debian:12
+Error: this host is not ready for Playkeeper (see FAIL items)
+  [ok  ] Administrator rights       Running as root.
+  [FAIL] Operating system           Found debian 12. Playkeeper is only tested on Ubuntu 24.04 LTS.
+         → Fix: Use an Ubuntu 24.04 LTS server, or pass --allow-untested-os to try anyway (unsupported).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [FAIL] Service manager            systemd is not running; Playkeeper's services need it.
+         → Fix: Use a standard Ubuntu 24.04 server (not a container) with systemd.
+  [ok  ] Memory                     16014 MB RAM.
+  [ok  ] Disk space                 227.0 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.

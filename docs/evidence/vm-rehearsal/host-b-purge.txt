@@ -1,0 +1,15 @@
+  • EVERYTHING in /var/lib/playkeeper, including your worlds and backups (--purge)
+Deleting worlds cannot be undone. Type "delete my worlds" to confirm: Error: purge not confirmed; nothing was changed
+after the refused purge: active active ; data dir present: yes
+Playkeeper uninstall will remove:
+  • services: playkeeper-agent.service, playkeeper-panel.service
+  • the Minecraft container 'playkeeper-minecraft', the 'playkeeper' Docker network and the pinned server image
+  • /usr/local/bin/playkeeper
+  • /etc/playkeeper/config.json
+  • /etc/systemd/system/playkeeper-agent.service
+  • /etc/systemd/system/playkeeper-panel.service
+  • users: playkeeper, playkeeper-mc
+  • ufw rules: 8443/tcp, 25565/tcp
+  • EVERYTHING in /var/lib/playkeeper, including your worlds and backups (--purge)
+Deleting worlds cannot be undone. Type "delete my worlds" to confirm: Deleted /var/lib/playkeeper.
+Playkeeper was removed.

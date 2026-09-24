@@ -1,0 +1,32 @@
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+Proceed? [y/N] host unchanged (snapshot identical: packages, users, groups, units, paths, containers, listeners)

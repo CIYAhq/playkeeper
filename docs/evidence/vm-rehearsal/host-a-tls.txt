@@ -1,0 +1,9 @@
+certificate fingerprint matches the installer output: 30:FE:C6:86:B4:46:F6:72:41:C6:72:55:1D:64:99:E9:54:09:9B:ED:5A:F8:74:C6:2A:DC:48:44:28:7A:D8:55
+* SSL connection using TLSv1.3 / TLS_AES_128_GCM_SHA256 / X25519 / id-ecPublicKey
+* Server certificate:
+< HTTP/2 200 
+ok
+plain HTTP on the panel port:
+HTTP/1.0 400 Bad Request
+
+Client sent an HTTP request to an HTTPS server.

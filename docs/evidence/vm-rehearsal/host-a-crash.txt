@@ -1,0 +1,229 @@
+200
+{
+  "exists": true,
+  "desired": "running",
+  "phase": "starting_container",
+  "reachable": true,
+  "reachableAt": "2026-09-24T17:07:56.713284163Z",
+  "startedAt": "2026-09-24T17:07:59.800696242Z",
+  "players": {
+    "online": 1,
+    "max": 10,
+    "names": [
+      "PkBotFriend"
+    ],
+    "source": "rcon list",
+    "at": "2026-09-24T17:07:56.713284163Z"
+  },
+  "config": {
+    "versionId": "paper-26.1.2",
+    "minecraftVersion": "26.1.2",
+    "paperBuild": 74,
+    "memoryMB": 1536,
+    "heapMB": 1024,
+    "levelName": "world",
+    "jarVerifiedAt": "2026-09-24T17:05:02.478136692Z",
+    "motd": "Playkeeper E2E (renamed)",
+    "maxPlayers": 10,
+    "whitelist": true,
+    "eulaAcceptedAt": "2026-09-24T17:01:53.085179722Z",
+    "eulaAcceptedBy": "admin",
+    "createdAt": "2026-09-24T17:01:53.085179722Z",
+    "image": "docker.io/itzg/minecraft-server@sha256:e8640538dac5d54c2838d57fa9641e735ad0cf2b71fb0e8a68da3b542a315749"
+  },
+  "gamePort": 25565,
+  "offlineModeTest": true,
+  "operation": {
+    "id": "2b534f28332f0e7e",
+    "kind": "auto-restart",
+    "status": "running",
+    "phase": "starting_container",
+    "actor": "playkeeper",
+    "startedAt": "2026-09-24T17:07:59.71474978Z"
+  },
+  "lastOperation": {
+    "id": "7f0e062302e71609",
+    "kind": "backup",
+    "status": "succeeded",
+    "phase": "verifying",
+    "actor": "admin",
+    "startedAt": "2026-09-24T17:05:53.757Z",
+    "finishedAt": "2026-09-24T17:06:06.907Z",
+    "detail": {
+      "backupId": "20260924-170554-8ce0c4",
+      "downtimeMs": 13084
+    }
+  },
+  "crashCount": 1,
+  "resources": {
+    "cpuPercent": 71.16783747481531,
+    "memBytes": 1443610624,
+    "memLimitBytes": 1610612736,
+    "diskFreeBytes": 15778922496,
+    "diskTotalBytes": 19682557952,
+    "at": "2026-09-24T17:07:56.713284163Z"
+  },
+  "lastBackup": {
+    "id": "20260924-170554-8ce0c4",
+    "kind": "manual",
+    "createdAt": "2026-09-24T17:05:54.461Z",
+    "fileName": "playkeeper-world-20260924-170554-8ce0c4.tar.gz",
+    "sizeBytes": 5742432,
+    "sha256": "1ada600ddc4001e2524950364c43072957a7e0ee877e23204a7d140ab314a7b4",
+    "location": "on-host",
+    "verified": true,
+    "verifiedAt": "2026-09-24T17:06:06.907Z",
+    "downtimeMs": 13084,
+    "minecraftVersion": "26.1.2",
+    "levelName": "world",
+    "fileCount": 89,
+    "createdBy": "admin",
+    "downloadedAt": "2026-09-24T17:06:08.905Z",
+    "note": "browser backup"
+  },
+  "pendingRestart": false,
+  "agentVersion": "0.1.0-dev+0c99fa7b6277",
+  "collectingSince": "2026-09-24T17:01:01.693346454Z"
+}
+2026-09-24T17:07:48.060Z joined PkBotFriend
+2026-09-24T17:07:57.398Z connection ended PkBotFriend: socketClosed
+200
+[
+  {
+    "id": 27,
+    "ts": "2026-09-24T17:08:12.047Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.835s"
+  },
+  {
+    "id": 26,
+    "ts": "2026-09-24T17:07:57.398Z",
+    "kind": "server_crashed",
+    "source": "docker",
+    "detail": "The server stopped unexpectedly (exit code 137) without shutting down cleanly."
+  },
+  {
+    "id": 25,
+    "ts": "2026-09-24T17:07:47.971Z",
+    "kind": "join",
+    "player": "PkBotFriend",
+    "source": "server_log"
+  },
+  {
+    "id": 22,
+    "ts": "2026-09-24T17:06:06.595Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.595s"
+  },
+  {
+    "id": 21,
+    "ts": "2026-09-24T17:05:53.845Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 20,
+    "ts": "2026-09-24T17:05:37.104Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.619s"
+  },
+  {
+    "id": 19,
+    "ts": "2026-09-24T17:05:23.429Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 18,
+    "ts": "2026-09-24T17:05:17.221Z",
+    "kind": "world_restored",
+    "source": "playkeeper",
+    "detail": "restored world (sha256 91857c0779ffabf0261a28dcd3fe50f1a0c4af4223c4ae964a0349f2d91c3774); rollback archive 20260924-170456-06eb3b"
+  },
+  {
+    "id": 17,
+    "ts": "2026-09-24T17:05:17.081Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.524s"
+  },
+  {
+    "id": 16,
+    "ts": "2026-09-24T17:05:02.478Z",
+    "kind": "server_software_verified",
+    "source": "playkeeper",
+    "detail": "paper-26.1.2-74.jar sha256 1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7"
+  },
+  {
+    "id": 15,
+    "ts": "2026-09-24T17:04:55.808Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 14,
+    "ts": "2026-09-24T17:04:46.172Z",
+    "kind": "world_restored",
+    "source": "playkeeper",
+    "detail": "restored world (sha256 6613eeba8c04a1115aef3da08b8812fea839c804f51816487515fac60df351fe); rollback archive 20260924-170424-35e219"
+  },
+  {
+    "id": 13,
+    "ts": "2026-09-24T17:04:45.667Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.492s"
+  },
+  {
+    "id": 12,
+    "ts": "2026-09-24T17:04:30.959Z",
+    "kind": "server_software_verified",
+    "source": "playkeeper",
+    "detail": "paper-26.1.2-74.jar sha256 1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7"
+  },
+  {
+    "id": 11,
+    "ts": "2026-09-24T17:04:24.096Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 10,
+    "ts": "2026-09-24T17:04:13.802Z",
+    "kind": "server_ready",
+    "source": "server_log",
+    "detail": "7.657s"
+  },
+  {
+    "id": 9,
+    "ts": "2026-09-24T17:04:00.131Z",
+    "kind": "leave",
+    "player": "PkBotFriend",
+    "source": "server_log"
+  },
+  {
+    "id": 8,
+    "ts": "2026-09-24T17:04:00.076Z",
+    "kind": "server_stopping",
+    "source": "server_log"
+  },
+  {
+    "id": 7,
+    "ts": "2026-09-24T17:03:51.454Z",
+    "kind": "leave",
+    "player": "PkBotBuilder",
+    "source": "server_log"
+  },
+  {
+    "id": 6,
+    "ts": "2026-09-24T17:03:11.379Z",
+    "kind": "join",
+    "player": "PkBotBuilder",
+    "source": "server_log"
+  }
+]
+session of the player online during the crash: {'start': '2026-09-24T17:07:47.971Z', 'end': '2026-09-24T17:07:57.398Z', 'endReason': 'server_crashed', 'endUncertain': True}
+marked as ended by a crash, end time uncertain; no leave event invented

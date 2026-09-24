@@ -1,0 +1,64 @@
+$ curl -fsSL http://198.51.100.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://198.51.100.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh   # in a terminal; the installer's question is answered with y
+Warning: downloading over plain HTTP from http://198.51.100.1:8765 (PLAYKEEPER_ALLOW_HTTP=1).
+Downloading playkeeper-linux-amd64.tar.gz from http://198.51.100.1:8765
+SHA-256 verified: 6bbf2474726c13de51fedf5c824c313958c00b57894f60211f4b4e78cb8ecf71
+Starting the installer from playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64
+Playkeeper 0.1.0-dev+0c99fa7b6277 installer
+
+Checking this server (nothing is changed yet):
+  [ok  ] Administrator rights       Running as root.
+  [ok  ] Operating system           Ubuntu 24.04 LTS (the tested platform).
+  [ok  ] CPU architecture           x86_64 (amd64).
+  [ok  ] Service manager            systemd is running.
+  [ok  ] Memory                     2971 MB RAM.
+  [ok  ] Disk space                 16.7 GB free under /var/lib.
+  [ok  ] Port 8443                  Free for the web panel (HTTPS).
+  [ok  ] Port 25565                 Free for the Minecraft players.
+  [ok  ] Existing Minecraft setups  None found.
+  [info] Docker                     Docker is not installed. The installer will install Ubuntu's docker.io package.
+  [info] Firewall                   No active ufw firewall. If your provider has a cloud firewall, allow these ports there: 8443/tcp and 25565/tcp.
+  [info] HTTPS                      A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.
+
+Playkeeper will make these changes:
+  Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)
+  Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)
+             create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)
+  Files:     /usr/local/bin/playkeeper
+             /etc/playkeeper/config.json
+             /etc/systemd/system/playkeeper-agent.service and /etc/systemd/system/playkeeper-panel.service
+  Data:      /var/lib/playkeeper (worlds, backups, settings)
+  Services:  playkeeper-agent (root; local Unix socket only, no network port)
+             playkeeper-panel (HTTPS on port 8443)
+  Ports:     8443/tcp web panel now; 25565/tcp Minecraft once you create a server
+  Untouched: your other services, existing Docker containers, SSH and firewall rules
+
+To undo later: sudo playkeeper uninstall   (removes Playkeeper, keeps your worlds and backups)
+
+Proceed? [y/N] y
+
+Installing:
+  • install Docker (docker.io)
+  • create user playkeeper
+  • create user playkeeper-mc
+  • create directories
+  • install /usr/local/bin/playkeeper
+  • write /etc/playkeeper/config.json
+  • generate HTTPS certificate and first-run setup code
+  • install and start systemd services
+  • write install manifest
+
+Playkeeper is running.
+
+  1. Open this link in your browser:
+       https://198.51.100.12:8443/setup#code=<redacted>
+     (setup code: <redacted> — works once, expires in 24 hours)
+  2. Your browser will warn that the certificate is self-signed. Continue only if it shows
+     this SHA-256 fingerprint:
+       61:52:9D:6F:31:60:9A:92:89:0B:85:51:A3:CC:46:E4:D0:FE:34:BE:C6:D3:91:7D:F3:AD:80:01:AB:0B:D7:1A
+  3. Create your admin account, accept the Minecraft EULA and start your server.
+
+If 198.51.100.12:8443 is not your public address, use your VPS's public IP instead.
+Lost the setup code? sudo playkeeper setup-code
+Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)
+Install finished in 22s.
+one-line install wall time (download, checksum, install): 23 s

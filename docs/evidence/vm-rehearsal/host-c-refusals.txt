@@ -1,0 +1,30 @@
+
+[17:23:07] Second host: unauthenticated requests fail closed
+  ok: GET /api/server without a session is refused (401)
+  ok: POST /api/server/start without a session is refused (401)
+  ok: POST /api/server/command without a session is refused (401)
+  ok: GET /api/backups without a session is refused (401)
+  ok: GET /api/backups/20260101-000000-abcdef/download without a session is refused (401)
+  ok: POST /api/restore/upload without a session is refused (401)
+  ok: GET /api/audit without a session is refused (401)
+
+[17:23:07] First-run setup on the second host
+  ok: setup with a wrong code is refused (403)
+  ok: the setup code cannot be used twice (409)
+  ok: fresh host has no server
+  ok: fresh host shows no earlier history (no backfill)
+
+[17:23:07] EULA gate on the second host: nothing is created before acceptance
+  ok: create without EULA refused (400 eula_required)
+
+[17:23:07] A corrupted copy of the archive is refused before anything changes
+  ok: flipped-byte archive refused (422: This file cannot be restored: archive is corrupt: gzip: invalid checksum)
+
+[17:23:07] Upload the archive (moved as a file) and review the preview
+  ok: archive validated file by file
+  ok: archive SHA-256 on host B matches host A (6613eeba8c04a111…)
+  ok: preview asks for the EULA and shows no existing world
+  ok: restore without EULA acceptance refused
+  ok: refusals left the host unchanged (still no server)
+
+host-b: PASSED (18 checks ok) in 0.3 s
