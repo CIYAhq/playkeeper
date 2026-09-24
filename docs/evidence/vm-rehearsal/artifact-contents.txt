@@ -1,6 +1,0 @@
-drwxr-xr-x 0/0               0 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/
--rw-r--r-- 0/0            1268 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/README-INSTALL.txt
--rw-r--r-- 0/0            3334 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/THIRD_PARTY.md
--rwxr-xr-x 0/0             667 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/install.sh
--rwxr-xr-x 0/0        13807776 2026-09-24 16:59 playkeeper-0.1.0-dev+0c99fa7b6277-linux-amd64/playkeeper
-artifact contains no jars, keys, databases, .git or node_modules

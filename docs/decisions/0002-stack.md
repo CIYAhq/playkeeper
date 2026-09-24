@@ -28,7 +28,7 @@ The only long-running services are the two systemd units and the one container. 
 ## Rejected alternatives
 
 - **Next.js/Node panel:** needs a Node runtime on the VPS and a second process manager story.
-- **Docker Compose stack for panel + agent:** would require mounting the Docker socket into a container, the thing the brief forbids for the management plane.
+- **Docker Compose stack for panel + agent:** would require mounting the Docker socket into a container, which the [architecture](../ARCHITECTURE.md) rules out for the management plane.
 - **Paper plugin for events:** unnecessary given reliable log lines and RCON; adds a JVM build and plugin supply chain.
 - **Pterodactyl/Pelican-style Wings daemon:** designed for multi-node hosting; far heavier than one server on one VPS.
 - **Proxying RCON to the browser:** would expose a remote console protocol; instead console commands go through the audited agent API.

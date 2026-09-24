@@ -1,7 +1,0 @@
-
-Running 1 test using 1 worker
-
-  ✓  1 onboarding.spec.ts:9:1 › onboarding from first sign-in to joinable, keyboard only (46.2s)
-
-  1 passed (46.8s)
-join address copied from the UI: 198.51.100.10

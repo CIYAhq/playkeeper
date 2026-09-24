@@ -1,6 +1,0 @@
-os: Ubuntu 22.04.5 LTS
-kernel: 5.15.0-1108-kvm
-cpus: 2
-memory_mb: 2995
-disk: 20G total, 19G free
-init: systemd (running)

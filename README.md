@@ -4,7 +4,7 @@
 
 Playkeeper is a self-hosted dashboard for setting up and running a Minecraft Java (Paper) server on a Linux VPS you already own: install it, create a server in the browser, invite friends, see real player and server activity, and keep a backup you can restore on another machine.
 
-> **Status: first release candidate, private, not released.** The installer, dashboard, backups and restore work in the rehearsals recorded in [CURRENT_STATE.md](CURRENT_STATE.md): fresh Ubuntu 24.04 KVM guests and fresh GitHub-hosted runners, with protocol-level test bots. **Not yet verified:** a real provider VPS reachable from the internet, an official Minecraft client with a genuine account, restore on a physically separate machine, and the one-line install against a live public URL (nothing is published). Do not rely on it for a world you care about until those are done.
+> **Status: first release candidate, private, not released.** The installer, dashboard, backups and restore work in rehearsals on fresh Ubuntu 24.04 KVM guests and fresh GitHub-hosted runners, with protocol-level test bots. **Not yet verified:** a real provider VPS reachable from the internet, an official Minecraft client with a genuine account, restore on a physically separate machine, and the one-line install against a live public URL (nothing is published). Do not rely on it for a world you care about until those are done.
 
 ## Install on your VPS
 
@@ -59,7 +59,7 @@ make e2e-vm           # the full KVM rehearsal: install, play, backup, restore, 
 
 Run `make dev` as your normal user with access to Docker (in the `docker` group), not as root: the server container runs as the calling user. `./scripts/negative-controls.sh` removes each safety guard in turn (in a throwaway worktree) and checks that its test fails.
 
-Details and the PR checklist are in [CONTRIBUTING.md](CONTRIBUTING.md). Progress and evidence: [CURRENT_STATE.md](CURRENT_STATE.md). Security model and reporting: [SECURITY.md](SECURITY.md).
+Details and the PR checklist are in [CONTRIBUTING.md](CONTRIBUTING.md). Security model and reporting: [SECURITY.md](SECURITY.md).
 
 ## Scope of this release
 

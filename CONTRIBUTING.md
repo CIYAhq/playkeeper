@@ -4,7 +4,7 @@ Thanks for helping make self-hosted game servers easier. **This repository is pr
 
 ## First steps
 
-1. Read [README.md](README.md), [CURRENT_STATE.md](CURRENT_STATE.md), and the [product brief](docs/PRODUCT.md). The [stack decision](docs/decisions/0002-stack.md) explains how the pieces fit.
+1. Read [README.md](README.md) and the [product brief](docs/PRODUCT.md). The [stack decision](docs/decisions/0002-stack.md) explains how the pieces fit.
 2. Pick one concrete user-facing outcome. Open or discuss an issue before large architecture changes; ordinary fixes can go straight to a focused PR.
 3. Make the smallest coherent change, add tests for changed behavior, and run the checks below. If a check cannot run in your environment, say so in the PR rather than claiming a green build.
 4. In your PR, say what changed, how you tested it, what you *didn't* test, and include screenshots for UI changes. Do not include real worlds, player data, credentials, or public server addresses.
