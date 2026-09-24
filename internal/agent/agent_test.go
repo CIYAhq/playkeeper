@@ -1001,6 +1001,9 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "a restore would refuse it") || !strings.Contains(op.Error, "entry name too long") {
 		t.Fatalf("backing up a world a restore would refuse must fail and say why: %+v", op)
 	}
+	if !strings.Contains(op.Hint, "Rename or remove that file in "+e.cfg.ServerDataDir()) {
+		t.Fatalf("the refusal must say what to do: %q", op.Hint)
+	}
 	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
 		t.Fatalf("%d backup rows recorded for a refused backup", n)
 	}
@@ -1066,6 +1069,39 @@ func recompress(t *testing.T, path string) {
 	}
 	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A stage holds an archive copy and its extracted world. A failed restore
+// deletes its stage (the backup or uploaded file is still there to retry
+// from), and the agent deletes stages left from before it started.
+func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	for _, ev := range []string{"INSERT", "UPDATE"} {
+		if _, err := e.a.db.Exec(`CREATE TRIGGER fail_config_` + ev + ` BEFORE ` + ev + ` ON kv WHEN NEW.key = 'server_config' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if op := e.applyRestore(id, phrase); op.Status != api.OpFailed {
+		t.Fatalf("the restore should fail: %+v", op)
+	}
+	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
+		t.Fatalf("the failed restore left its stage: %v", left)
+	}
+	e.waitFor("idle", func() bool { return !e.a.busy() })
+	list, _ := e.a.listBackups(`WHERE kind = 'manual'`)
+	if code, out := e.call("POST", "/v1/backups/"+list[0].ID+"/restore", map[string]any{"actor": "admin"}); code != 200 {
+		t.Fatalf("stage: %d %v", code, out)
+	}
+	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 1 {
+		t.Fatalf("expected the new preview's stage, got %v", left)
+	}
+	e.stop()
+	e.start()
+	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
+		t.Fatalf("stages from before the agent started were not pruned: %v", left)
 	}
 }
 

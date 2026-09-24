@@ -91,6 +91,10 @@ func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*a
 	}
 	if err != nil {
 		os.Remove(tmp)
+		var refused *backup.RefusedError
+		if errors.As(err, &refused) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("writing the archive failed: %w", err)
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
@@ -112,6 +116,21 @@ func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*a
 		return nil, err
 	}
 	return b, nil
+}
+
+// withRefusalHint adds what to do to an error from a backup the archive rules
+// refused: rename or remove the named file, or trim the world.
+func (a *Agent) withRefusalHint(err error) error {
+	var refused *backup.RefusedError
+	if !errors.As(err, &refused) {
+		return err
+	}
+	hint := fmt.Sprintf("Rename or remove that file in %s, then try again.", a.cfg.ServerDataDir())
+	if refused.File == "" {
+		hint = fmt.Sprintf("Remove files the world does not need from %s, then try again.", a.cfg.ServerDataDir())
+	}
+	msg := err.Error()
+	return &apiError{Msg: strings.ToUpper(msg[:1]) + msg[1:], Hint: hint}
 }
 
 func sanitizeName(s string) string {
@@ -253,13 +272,13 @@ func (a *Agent) backupOp(ctx context.Context, h *opHandle, actor, note string) e
 		h.phase("restarting")
 		if err := a.startServer(ctx, h, *sc); err != nil {
 			if archiveErr != nil {
-				return archiveErr
+				return a.withRefusalHint(archiveErr)
 			}
 			return &apiError{Msg: "The backup was saved, but the server did not start again: " + err.Error(), Hint: "Press Start on the Overview."}
 		}
 	}
 	if archiveErr != nil {
-		return archiveErr
+		return a.withRefusalHint(archiveErr)
 	}
 	downtime := int64(0)
 	if running {
@@ -304,6 +323,21 @@ type stage struct {
 }
 
 func (a *Agent) stageDir(id string) string { return filepath.Join(a.cfg.StagingDir(), id) }
+
+// pruneStages deletes restore stages left by an earlier run of the agent (a
+// preview nobody applied or discarded, or an interrupted restore). Each holds
+// an archive copy and its extracted world, and nothing can be using them yet.
+func (a *Agent) pruneStages() {
+	entries, _ := os.ReadDir(a.cfg.StagingDir())
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(a.cfg.StagingDir(), e.Name())); err != nil {
+			a.log.Warn("could not remove a leftover restore stage", "stage", e.Name(), "err", err)
+		}
+	}
+	if len(entries) > 0 {
+		a.log.Info("removed leftover restore stages", "count", len(entries))
+	}
+}
 
 // stageArchive copies an archive into staging, then verifies and extracts it
 // there. The live world is not touched; failures delete the staging dir.
@@ -468,8 +502,10 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 
 // restoreOp replaces the world with a staged, verified archive. A rollback
 // archive of the current world is written first, and a restored world that
-// fails to start is swapped back out automatically.
+// fails to start is swapped back out automatically. The stage is deleted
+// however the restore ends; a failed one is retried from the backup or file.
 func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.RestoreApplyRequest, actor string) error {
+	defer os.RemoveAll(st.dir)
 	m := st.manifest
 	entry, ok := minecraft.LookupMinecraft(m.MinecraftVersion)
 	if !ok {
@@ -492,7 +528,7 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 			rb, err := a.saveVerifiedRollback(*prev, actor, "Automatic rollback archive before restoring backup "+st.preview.SHA256[:12])
 			if err != nil {
 				a.startPrevious(ctx, h, prev, wasRunning)
-				return fmt.Errorf("could not save a verified rollback archive of the current world, so nothing was replaced: %w", err)
+				return a.withRefusalHint(fmt.Errorf("could not save a verified rollback archive of the current world, so nothing was replaced: %w", err))
 			}
 			rollback = rb
 			h.set("rollbackBackupId", rb.ID)
@@ -566,7 +602,6 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	if hadLive {
 		os.RemoveAll(aside)
 	}
-	os.RemoveAll(st.dir)
 	detail := fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, st.preview.SHA256)
 	if rollback != nil {
 		detail += "; rollback archive " + rollback.ID

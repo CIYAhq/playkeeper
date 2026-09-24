@@ -71,6 +71,29 @@ func DefaultLimits() Limits {
 	return Limits{MaxFiles: 200_000, MaxTotalBytes: 64 << 30, MaxFileBytes: 16 << 30, MaxPathLen: 1024, MaxManifestBytes: 64 << 20}
 }
 
+// RefusedError is Create's error for a world a restore would refuse. File is
+// the file to rename or remove, or empty when the world as a whole is over a
+// limit.
+type RefusedError struct {
+	File   string
+	Reason error
+}
+
+func (e *RefusedError) Error() string {
+	what := "this world"
+	if e.File != "" {
+		what = shortQuote(e.File)
+	}
+	return fmt.Sprintf("cannot back up %s: a restore would refuse it: %v", what, e.Reason)
+}
+
+func (e *RefusedError) Unwrap() error { return e.Reason }
+
+// archiveLimitError is a limit on the archive as a whole, not on one file.
+type archiveLimitError string
+
+func (e archiveLimitError) Error() string { return string(e) }
+
 // fileTally applies the rules a restore enforces on each data file and on
 // their running count and size. walk and Create share it so they agree.
 type fileTally struct {
@@ -91,11 +114,11 @@ func (t *fileTally) add(rel string, size int64) error {
 	}
 	t.files++
 	if t.files > t.lim.MaxFiles {
-		return fmt.Errorf("archive has more than %d files", t.lim.MaxFiles)
+		return archiveLimitError(fmt.Sprintf("archive has more than %d files", t.lim.MaxFiles))
 	}
 	t.total += size
 	if t.total > t.lim.MaxTotalBytes {
-		return fmt.Errorf("archive expands beyond the %d byte limit", t.lim.MaxTotalBytes)
+		return archiveLimitError(fmt.Sprintf("archive expands beyond the %d byte limit", t.lim.MaxTotalBytes))
 	}
 	return nil
 }
@@ -187,6 +210,10 @@ func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, e
 	tally := fileTally{lim: lim}
 	for _, rel := range rels {
 		entry, err := writeFile(tw, dataDir, rel, &tally)
+		var refused *RefusedError
+		if errors.As(err, &refused) {
+			return meta, err
+		}
 		if err != nil {
 			return meta, fmt.Errorf("cannot back up %s: %w", shortQuote(rel), err)
 		}
@@ -198,7 +225,7 @@ func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, e
 		return meta, err
 	}
 	if len(mb) > lim.MaxManifestBytes {
-		return meta, fmt.Errorf("cannot back up this world: its manifest would be %d bytes and a restore would refuse it (limit %d)", len(mb), lim.MaxManifestBytes)
+		return meta, &RefusedError{Reason: fmt.Errorf("its manifest would be %d bytes (limit %d)", len(mb), lim.MaxManifestBytes)}
 	}
 	hdr := &tar.Header{Name: manifestName, Mode: 0o644, Size: int64(len(mb)), ModTime: meta.CreatedAt, Typeflag: tar.TypeReg, Format: tar.FormatPAX}
 	if err := tw.WriteHeader(hdr); err != nil {
@@ -259,7 +286,12 @@ func writeFile(tw *tar.Writer, dataDir, rel string, tally *fileTally) (FileEntry
 		content, size, modTime = f, st.Size(), st.ModTime()
 	}
 	if err := tally.add(rel, size); err != nil {
-		return FileEntry{}, fmt.Errorf("a restore would refuse it: %w", err)
+		refused := &RefusedError{File: rel, Reason: err}
+		var whole archiveLimitError
+		if errors.As(err, &whole) {
+			refused.File = ""
+		}
+		return FileEntry{}, refused
 	}
 	hdr := &tar.Header{Name: dataPrefix + rel, Mode: 0o644, Size: size, ModTime: modTime, Typeflag: tar.TypeReg, Format: tar.FormatPAX}
 	if err := tw.WriteHeader(hdr); err != nil {

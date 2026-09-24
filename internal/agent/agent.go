@@ -234,6 +234,7 @@ func New(opts Options) (*Agent, error) {
 		}
 	}
 	a.markInterruptedOperations()
+	a.pruneStages()
 	return a, nil
 }
 
