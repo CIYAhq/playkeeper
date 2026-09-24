@@ -5,13 +5,22 @@ Use this when a server is lost, when you move to another VPS, or to go back to a
 ## 1. Get the archive off the old server
 
 - **Panel still works:** World → pick a verified backup → **Download**. Note the SHA-256 shown next to it.
-- **Panel does not work but you can SSH in:** archives are in `/var/lib/playkeeper/backups/`, each with a `.sha256` file next to it:
+- **Panel does not work but you can SSH in:** archives are in `/var/lib/playkeeper/backups/`, each with a `.sha256` file next to it. Only root can read them, so log in as your normal user, list them with sudo and copy the one you want to your home directory (use the full file name; `*` does not work in a folder only root can read):
 
   ```bash
   sudo ls -l /var/lib/playkeeper/backups/
-  scp root@OLD-SERVER:/var/lib/playkeeper/backups/playkeeper-world-*.tar.gz* .
-  sha256sum -c playkeeper-world-*.tar.gz.sha256
+  B=/var/lib/playkeeper/backups/playkeeper-world-20260924-183128-0eaf9f.tar.gz   # the name from the list
+  sudo install -m 600 -o "$USER" "$B" "$B.sha256" ~/
   ```
+
+  Then, on the computer you copy it to:
+
+  ```bash
+  scp YOU@OLD-SERVER:'playkeeper-world-20260924-183128-0eaf9f.tar.gz*' .
+  sha256sum -c playkeeper-world-20260924-183128-0eaf9f.tar.gz.sha256
+  ```
+
+  Afterwards delete the copies in your home directory on the old server (`rm ~/playkeeper-world-*.tar.gz*`).
 
 - **Server and disk are gone:** only copies you downloaded earlier can help. Archives kept on the server itself are not disaster recovery.
 
