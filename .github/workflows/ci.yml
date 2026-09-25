@@ -167,6 +167,90 @@ jobs:
             /tmp/evidence/a/host-a-results.json
           retention-days: 7
 
+  update:
+    name: Fresh runner — current release, upgrade and dashboard update to this build, failed update rolls back
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PK_ADMIN_PASSWORD: ci-u-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: Install the current release with its one-line installer from GitHub
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/evidence/update
+          curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/get.sh" | sudo sh -s -- --yes | tee /tmp/evidence/install-release.txt
+          playkeeper version | tee /tmp/evidence/release-version.txt
+          sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
+          grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install-release.txt | awk '{print $3}' > /tmp/evidence/code
+      - name: Give the current release data to keep (settings, world marker, backup)
+        run: |
+          python3 test/e2e/update.py prepare --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update \
+            --code "$(cat /tmp/evidence/code)"
+          sudo find /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/backups-before.txt
+      - name: Build this commit as signed test releases (a signing key made for this run only)
+        run: |
+          current=$(playkeeper version | awk '{print $2}')
+          IFS=. read -r major minor patch <<<"${current%%[-+]*}"
+          base="$major.$minor.$((patch + 1))"
+          { echo "PK_A=$base-ci.1"; echo "PK_B=$base-ci.2"; echo "PK_C=$base-ci.3"; } >> "$GITHUB_ENV"
+          scripts/e2e/update-releases.sh /tmp/releases key
+          scripts/e2e/update-releases.sh /tmp/releases build a "$base-ci.1"
+          scripts/e2e/update-releases.sh /tmp/releases build b "$base-ci.2"
+      - name: Serve the test releases on 127.0.0.1:8765 (a/ for the one-line installer, latest/ for update checks)
+        run: |
+          mkdir -p /tmp/mirror/latest
+          cp -r /tmp/releases/a /tmp/mirror/a
+          cp /tmp/releases/b/* /tmp/mirror/latest/
+          nohup python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/mirror > /tmp/evidence/mirror-log.txt 2>&1 &
+          sleep 1
+          curl -fsS http://127.0.0.1:8765/latest/playkeeper-release.json
+      - name: One-line upgrade from the current release to this build keeps everything
+        run: |
+          set -o pipefail
+          curl -fsSL http://127.0.0.1:8765/a/get.sh | sudo PLAYKEEPER_BASE_URL=http://127.0.0.1:8765/a PLAYKEEPER_ALLOW_HTTP=1 \
+            sh -s -- --yes --release-url http://127.0.0.1:8765/latest | tee /tmp/evidence/upgrade.txt
+          grep -q "upgrades it to $PK_A in place" /tmp/evidence/upgrade.txt
+          test "$(playkeeper version | awk '{print $2}')" = "$PK_A"
+          systemctl is-enabled playkeeper-update.path && systemctl is-active playkeeper-update.path
+          python3 test/e2e/update.py verify --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update --expect-version "$PK_A"
+      - name: Update from the dashboard to the next build
+        run: |
+          python3 test/e2e/update.py update --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update --to "$PK_B"
+          test "$(playkeeper version | awk '{print $2}')" = "$PK_B"
+          python3 test/e2e/update.py verify --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update --expect-version "$PK_B"
+      - name: A signed release that never comes up healthy is rolled back automatically
+        run: |
+          sudo playkeeper units --config /etc/playkeeper/config.json > /tmp/releases/units.json
+          scripts/e2e/update-releases.sh /tmp/releases broken c "$PK_C" /tmp/releases/units.json
+          rm -f /tmp/mirror/latest/*
+          cp /tmp/releases/c/* /tmp/mirror/latest/
+          installed() { sudo sha256sum /usr/local/bin/playkeeper /etc/playkeeper/config.json /etc/systemd/system/playkeeper-*; }
+          installed > /tmp/evidence/installed-before-rollback.txt
+          python3 test/e2e/update.py update --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update --to "$PK_C" --expect rolled_back
+          installed > /tmp/evidence/installed-after-rollback.txt
+          diff /tmp/evidence/installed-before-rollback.txt /tmp/evidence/installed-after-rollback.txt
+          sudo journalctl -u playkeeper-update --no-pager | grep -q "Result: rolled_back"
+          python3 test/e2e/update.py verify --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update --expect-version "$PK_B"
+          sudo find /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/backups-after.txt
+          diff /tmp/evidence/backups-before.txt /tmp/evidence/backups-after.txt
+      - name: Collect evidence
+        if: always()
+        run: |
+          sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager > /tmp/evidence/journal.txt || true
+          sudo journalctl -u playkeeper-update --no-pager > /tmp/evidence/updater.txt || true
+          rm -f /tmp/evidence/code /tmp/evidence/update/state.json
+          sudo chown -R "$(id -u)" /tmp/evidence
+          sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g' /tmp/evidence/install-release.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: evidence-update
+          path: /tmp/evidence
+          retention-days: 7
+
   restore-second-host:
     name: Second fresh runner — one-line install, restore the backup, verify the marker
     needs: install-and-play

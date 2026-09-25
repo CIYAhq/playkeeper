@@ -14,7 +14,7 @@ One statically linked Go binary, `playkeeper`, plays every role; the browser UI 
 
 State is local SQLite (`modernc.org/sqlite`, pure Go): `/var/lib/playkeeper/agent/agent.db` (server config, samples, events, sessions, backups, audit) and `/var/lib/playkeeper/panel/panel.db` (admin account, sessions, panel audit). World data lives in `/var/lib/playkeeper/server/data`, archives in `/var/lib/playkeeper/backups`. No external database, hosted control plane, telemetry or cloud API.
 
-The only long-running services are the two systemd units and the one container. There is no plugin, adapter or multi-server layer: the code manages exactly one Paper server.
+The only long-running services are the two systemd units and the one container. There is no plugin, adapter or multi-server layer: the code manages exactly one Paper server. (From 0.2.0, `playkeeper-update.path` watches for an update the agent has verified and staged, and starts the root oneshot `playkeeper-update.service` only while it installs it; see [ARCHITECTURE.md](../ARCHITECTURE.md).)
 
 ## Why
 

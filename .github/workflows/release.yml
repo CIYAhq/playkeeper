@@ -1,14 +1,16 @@
 name: Release
 
-# A v* tag builds the release with `make package`, installs the built assets
-# on a fresh runner through get.sh, publishes them as the latest (normal, not
-# pre-release) GitHub release, then checks the live addresses: the GitHub
-# release URLs and the one-line install from them must work, and
-# https://playkeeper.io/install should redirect to the new get.sh (a warning
-# only, since that site runs on its own server).
+# A v* tag builds the release with `make package`, signs its manifest with the
+# PLAYKEEPER_RELEASE_SIGNING_KEY secret (the key must match
+# internal/update/release.pub, which installed versions check updates
+# against), installs the built assets on a fresh runner through get.sh,
+# publishes them as the latest (normal, not pre-release) GitHub release, then
+# checks the live addresses: the GitHub release URLs and the one-line install
+# from them must work, and https://playkeeper.io/install should redirect to
+# the new get.sh (a warning only, since that site runs on its own server).
 # Pull requests that touch the release path, and manual runs, are dry runs:
-# the same build and install check, with the assets uploaded as a workflow
-# artifact instead of released.
+# the same build and install check, signed with a throwaway key, with the
+# assets uploaded as a workflow artifact instead of released.
 
 on:
   push:
@@ -16,8 +18,11 @@ on:
   pull_request:
     paths:
       - .github/workflows/release.yml
+      - CHANGELOG.md
+      - cmd/release-sign/**
       - scripts/package.sh
       - scripts/release-*.sh
+      - scripts/sign-release.sh
       - scripts/smoke-install.sh
       - scripts/third-party-notices.sh
       - THIRD_PARTY_NOTICES
@@ -67,6 +72,10 @@ jobs:
             exit 1
           fi
           version=${TAG#v}
+          if [[ $GITHUB_EVENT_NAME == push ]] && ! grep -q "^## ${version} *\$" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' section. Add what changed in $TAG: the dashboard shows it when it offers the update."
+            exit 1
+          fi
           title="Playkeeper $TAG"
           if [[ $version == 0.* ]]; then title+=" (early release)"; fi
           { echo "tag=$TAG"; echo "version=$version"; echo "title=$title"; } >>"$GITHUB_OUTPUT"
@@ -80,15 +89,20 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: make package
+      - name: Sign the release manifest
+        env:
+          DRY_RUN: ${{ github.event_name != 'push' }}
+          PLAYKEEPER_RELEASE_SIGNING_KEY: ${{ github.event_name == 'push' && secrets.PLAYKEEPER_RELEASE_SIGNING_KEY || '' }}
+        run: scripts/sign-release.sh dist "$RUNNER_TEMP/release-keys.pub"
       - name: Collect and check the release assets and notes
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p out/assets
-          cp dist/get.sh dist/playkeeper-linux-amd64.tar.gz dist/playkeeper-linux-amd64.tar.gz.sha256 out/assets/
+          cp dist/get.sh dist/playkeeper-linux-amd64.tar.gz dist/playkeeper-linux-amd64.tar.gz.sha256 dist/playkeeper-release.json dist/playkeeper-release.json.sig out/assets/
           cmp dist/playkeeper-linux-amd64.tar.gz "dist/playkeeper-$VERSION-linux-amd64.tar.gz"
           cmp dist/get.sh packaging/get.sh
-          scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY"
+          scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/release-keys.pub"
           scripts/release-notes.sh "$VERSION" "$GITHUB_REPOSITORY" "$INSTALL_URL" out/assets >out/release-notes.md
       - name: Summary
         env:
@@ -158,12 +172,12 @@ jobs:
         with:
           name: release-${{ needs.build.outputs.tag }}
           path: release
-      - name: Create a draft release with the three assets
+      - name: Create a draft release with the five assets
         working-directory: release/assets
         run: |
           sha256sum -c playkeeper-linux-amd64.tar.gz.sha256
           gh release create "$TAG" --verify-tag --draft --title "$TITLE" --notes-file ../release-notes.md \
-            get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256
+            get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256 playkeeper-release.json playkeeper-release.json.sig
       - name: Check the draft carries exactly the built assets
         run: |
           gh release download "$TAG" --dir draft
@@ -192,7 +206,7 @@ jobs:
         run: |
           latest=https://github.com/$GITHUB_REPOSITORY/releases/latest/download
           mkdir -p /tmp/latest
-          for f in get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256; do
+          for f in get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256 playkeeper-release.json playkeeper-release.json.sig; do
             if ! curl -fsSL --retry 5 --retry-all-errors -o "/tmp/latest/$f" "$latest/$f"; then
               echo "::error::$latest/$f cannot be downloaded without signing in. Is the repository public?"
               exit 1

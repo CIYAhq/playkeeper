@@ -44,6 +44,12 @@ type System struct {
 	PackageLockHeld func() bool
 	// WaitHealthy blocks until the agent socket and panel HTTPS answer.
 	WaitHealthy func(ctx context.Context, socket, certPath string, panelPort int) error
+	// WaitVersion blocks until the agent and the panel both answer and report
+	// version want.
+	WaitVersion func(ctx context.Context, socket, certPath string, panelPort int, want string) error
+	// Version runs a playkeeper binary's `version` command and returns the
+	// version it reports.
+	Version func(binary string) (string, error)
 }
 
 type DockerInfo struct {
@@ -113,7 +119,30 @@ func Real() System {
 		Sleep:           time.Sleep,
 		PackageLockHeld: func() bool { return lockHeld(aptLocks) },
 		WaitHealthy:     waitHealthy,
+		WaitVersion:     waitVersion,
+		Version:         binaryVersion,
 	}
+}
+
+// binaryVersion runs `<binary> version`, which prints
+// "playkeeper VERSION (COMMIT, DATE)".
+func binaryVersion(binary string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, binary, "version").Output()
+	if err != nil {
+		return "", fmt.Errorf("%s version: %w", binary, err)
+	}
+	return ParseVersionLine(string(out))
+}
+
+// ParseVersionLine reads the version from `playkeeper version` output.
+func ParseVersionLine(out string) (string, error) {
+	f := strings.Fields(out)
+	if len(f) < 2 || f[0] != "playkeeper" {
+		return "", fmt.Errorf("unexpected version output %q", strings.TrimSpace(out))
+	}
+	return f[1], nil
 }
 
 // aptLocks are the files apt and dpkg hold fcntl locks on while they work.

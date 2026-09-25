@@ -1,11 +1,5 @@
 package minecraft
 
-import (
-	"fmt"
-
-	"github.com/CIYAhq/playkeeper/internal/api"
-)
-
 // Image is the Minecraft runtime container, pinned by digest. The image
 // downloads Paper (and Paper downloads Mojang's server) from upstream at first
 // start, only after the user has accepted the Minecraft EULA in Playkeeper.
@@ -14,54 +8,26 @@ const (
 	ImageTag = "itzg/minecraft-server:2026.9.1-java25"
 )
 
-// versions lists the only server builds Playkeeper offers. Each is pinned to a
-// Paper build and the SHA-256 PaperMC's Fill v3 API publishes for its jar, so a
-// restore on another host runs byte-identical server software.
-var versions = []api.CatalogEntry{
-	{
-		ID:               "paper-26.1.2",
-		Label:            "Paper 26.1.2",
-		MinecraftVersion: "26.1.2",
-		PaperBuild:       74,
-		JarSHA256:        "1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7",
-		Java:             25,
-		Recommended:      true,
-		Notes:            "Recommended. Java Edition 26.1.x clients can join.",
-	},
-	{
-		ID:               "paper-1.21.11",
-		Label:            "Paper 1.21.11",
-		MinecraftVersion: "1.21.11",
-		PaperBuild:       132,
-		JarSHA256:        "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba",
-		Java:             21,
-		Notes:            "For friends or plugins still on 1.21.11.",
-	},
+// knownBuilds are the builds Playkeeper 0.1.0 pinned, with the SHA-256
+// PaperMC's Fill v3 API publishes for their jars. Servers created by 0.1.0
+// do not record the checksum in their settings, so it comes from here.
+var knownBuilds = []struct {
+	mc     string
+	build  int
+	sha256 string
+}{
+	{"26.1.2", 74, "1d70b1dab9cf4a6de615209a536f3a45a2186240253c428213ce2188ab95e5f7"},
+	{"1.21.11", 132, "5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba"},
 }
 
-func Versions() []api.CatalogEntry {
-	out := make([]api.CatalogEntry, len(versions))
-	copy(out, versions)
-	return out
-}
-
-func LookupVersion(id string) (api.CatalogEntry, error) {
-	for _, v := range versions {
-		if v.ID == id {
-			return v, nil
+// KnownJarSHA256 returns the checksum 0.1.0 pinned for a build.
+func KnownJarSHA256(mcVersion string, build int) (string, bool) {
+	for _, k := range knownBuilds {
+		if k.mc == mcVersion && k.build == build {
+			return k.sha256, true
 		}
 	}
-	return api.CatalogEntry{}, fmt.Errorf("unknown server version %q", id)
-}
-
-// LookupMinecraft finds the catalog entry that runs the given game version.
-func LookupMinecraft(mcVersion string) (api.CatalogEntry, bool) {
-	for _, v := range versions {
-		if v.MinecraftVersion == mcVersion {
-			return v, true
-		}
-	}
-	return api.CatalogEntry{}, false
+	return "", false
 }
 
 // HostReserveMB is memory kept free for the OS, Docker and Playkeeper.

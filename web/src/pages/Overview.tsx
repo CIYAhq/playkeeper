@@ -233,6 +233,8 @@ export function opText(kind: string) {
       restore: 'Restore in progress',
       recover: 'Restarting after an outside stop',
       'auto-restart': 'Restarting after a crash',
+      update: 'Updating Playkeeper',
+      'update-version': 'Updating Minecraft',
     }[kind] ?? kind
   )
 }
@@ -254,6 +256,9 @@ export function phaseText(p: string) {
       saving_rollback: 'saving a rollback archive',
       replacing_world: 'replacing the world',
       reverting: 'putting the previous world back',
+      checking: 'checking the release',
+      downloading: 'downloading',
+      backing_up: 'taking a backup first',
       '': 'working',
     }[p] ?? p
   )

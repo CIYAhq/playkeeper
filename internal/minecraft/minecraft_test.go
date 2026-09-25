@@ -119,17 +119,15 @@ func TestMemoryBudgets(t *testing.T) {
 	}
 }
 
-func TestCatalogIsPinned(t *testing.T) {
+func TestImageAndKnownBuildsArePinned(t *testing.T) {
 	if !strings.Contains(Image, "@sha256:") {
 		t.Fatalf("image must be pinned by digest: %s", Image)
 	}
-	for _, v := range Versions() {
-		if v.PaperBuild == 0 || len(v.JarSHA256) != 64 || strings.Contains(strings.ToLower(v.ID), "latest") {
-			t.Errorf("version %s is not fully pinned: %+v", v.ID, v)
-		}
+	if sum, ok := KnownJarSHA256("26.1.2", 74); !ok || len(sum) != 64 {
+		t.Fatalf("0.1.0's build of 26.1.2 must keep its checksum: %q %v", sum, ok)
 	}
-	if _, err := LookupVersion("latest; id"); err == nil {
-		t.Fatal("unknown version must be rejected")
+	if _, ok := KnownJarSHA256("26.1.2", 75); ok {
+		t.Fatal("another build must not borrow a known checksum")
 	}
 }
 

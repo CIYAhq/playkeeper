@@ -100,11 +100,22 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			problems = append(problems, err.Error())
 		}
 	}
-	for _, u := range []string{PanelUnit, AgentUnit} {
-		if contains(m.Units, u) {
+	// The updater's units are removed whenever they exist, even if an upgrade
+	// could not record them in the manifest.
+	updater := map[string]bool{}
+	for _, u := range []string{UpdatePathUnit, UpdateServiceUnit} {
+		if _, err := os.Stat(sys.P(UnitDir + "/" + u)); err == nil {
+			updater[u] = true
+		}
+	}
+	for _, u := range []string{UpdatePathUnit, UpdateServiceUnit, PanelUnit, AgentUnit} {
+		if contains(m.Units, u) || updater[u] {
 			_, err := sys.Run("systemctl", "disable", "--now", u)
 			note(err)
 		}
+	}
+	for u := range updater {
+		note(removeIfExists(sys.P(UnitDir + "/" + u)))
 	}
 	foreign := removeDockerObjects(ctx, sys, note)
 	for _, r := range m.FirewallRules {
@@ -116,6 +127,8 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			note(removeIfExists(sys.P(f)))
 		}
 	}
+	// Staged updates and the copy of the previous version are not user data.
+	note(os.RemoveAll(sys.P(UpdateDir(config.Default()))))
 	if len(m.Units) > 0 {
 		_, err := sys.Run("systemctl", "daemon-reload")
 		note(err)

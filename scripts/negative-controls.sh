@@ -131,6 +131,148 @@ control "start/stop no-op under the operation lock" internal/agent/handlers.go \
 	if err == nil && !running {' \
   ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 5
 
+control "release manifest signature" internal/update/manifest.go \
+  'if !verified {' \
+  'if false && !verified {' \
+  ./internal/update '^TestOnlyManifestsSignedByATrustedKeyAreAccepted$'
+control "update download size" internal/update/fetch.go \
+  'if n != a.Size {' \
+  'if false && n != a.Size {' \
+  ./internal/update '^TestDownloadsAreCheckedAgainstTheSignedManifest$'
+control "update download stops at the signed size" internal/update/fetch.go \
+  'io.LimitReader(body, a.Size+1)' \
+  'body' \
+  ./internal/update '^TestDownloadsAreCheckedAgainstTheSignedManifest$'
+control "update download SHA-256" internal/update/fetch.go \
+  'if got := hex.EncodeToString(h.Sum(nil)); got != a.SHA256 {' \
+  'if got := hex.EncodeToString(h.Sum(nil)); false && got != a.SHA256 {' \
+  ./internal/update '^TestDownloadsAreCheckedAgainstTheSignedManifest$'
+control "update binary SHA-256" internal/update/fetch.go \
+  'if got := hex.EncodeToString(h.Sum(nil)); got != want {' \
+  'if got := hex.EncodeToString(h.Sum(nil)); false && got != want {' \
+  ./internal/update '^TestExtractBinaryReadsOnlyTheSignedBinary$'
+control "release location must be HTTPS unless it is this machine" internal/update/fetch.go \
+  'return nil, fmt.Errorf("release location %s is not HTTPS (plain HTTP is only allowed for this machine)", raw)' \
+  'return u, nil' \
+  ./internal/update '^TestReleaseLocationsMustBeHTTPSUnlessLocal$'
+control "agent installs only newer releases" internal/agent/update.go \
+  'if c, err := update.CompareVersions(m.Version, current); err != nil || c <= 0 {' \
+  'if c, err := update.CompareVersions(m.Version, current); false && (err != nil || c <= 0) {' \
+  ./internal/agent '^TestUpdateRefusesDownloadsThatDoNotMatchAndStaleChoices$'
+control "updater checks the staged release again" internal/install/selfupdate.go \
+  'if err := verifyStaged(staged, bin, req.Version); err != nil {' \
+  'if err := verifyStaged(staged, bin, req.Version); false && err != nil {' \
+  ./internal/install '^TestUpdaterRefusesAnythingItCannotVerify$'
+control "updater installs only newer releases" internal/install/selfupdate.go \
+  'if c, err := update.CompareVersions(req.Version, current); err != nil || c <= 0 {' \
+  'if c, err := update.CompareVersions(req.Version, current); false && (err != nil || c <= 0) {' \
+  ./internal/install '^TestUpdaterRefusesAnythingItCannotVerify$'
+control "updater refuses stale requests" internal/install/selfupdate.go \
+  'age > update.StaleAfter || age < -update.StaleAfter {' \
+  'false && (age > update.StaleAfter || age < -update.StaleAfter) {' \
+  ./internal/install '^TestUpdaterRefusesAnythingItCannotVerify$'
+control "updater refuses requests for another installed version" internal/install/selfupdate.go \
+  'if req.From != current {' \
+  'if false && req.From != current {' \
+  ./internal/install '^TestUpdaterRefusesAnythingItCannotVerify$'
+control "upgrades write only Playkeeper's systemd units" internal/install/upgrade.go \
+  'if !allowed[name] {' \
+  'if false && !allowed[name] {' \
+  ./internal/install '^TestUpdaterRefusesAnythingItCannotVerify$'
+control "upgrade waits for the new version to be healthy" internal/install/upgrade.go \
+  'func() error { return u.waitHealthy(ctx, u.o.NewVersion) }' \
+  'func() error { return nil }' \
+  ./internal/install '^(TestUnhealthyUpgradePutsTheOldVersionBack|TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne)$'
+control "upgrade checks the new version again after it answers" internal/install/upgrade.go \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); err != nil {' \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); false && err != nil {' \
+  ./internal/install '^TestUpgradeRollsBackAVersionThatStopsRightAfterAnswering$'
+control "rollback puts the databases back" internal/install/upgrade.go \
+  'errs = append(errs, u.restoreDatabases())' \
+  'errs = append(errs, nil)' \
+  ./internal/install '^TestUnhealthyUpgradePutsTheOldVersionBack$'
+control "the installer never goes back to an older version" internal/install/inplace.go \
+  'case cmp < 0:' \
+  'case false:' \
+  ./internal/install '^TestInstallerNeverGoesBackAndLeavesTheCurrentVersionAlone$'
+control "an update handed to the updater keeps running until it reports" internal/agent/lifecycle.go \
+  'case h.continues:' \
+  'case false:' \
+  ./internal/agent '^TestUpdateIsVerifiedStagedAndHandedToTheUpdater$'
+control "an update the updater is installing is not marked interrupted" internal/agent/state.go \
+  'keep = a.upd.opID' \
+  'keep = ""' \
+  ./internal/agent '^TestAnUpdateKeepsRunningAcrossAgentRestartsUntilTheUpdaterReports$'
+control "an updater that never reports fails its update" internal/agent/update.go \
+  'if waited > updaterRunTimeout {' \
+  'if false && waited > updaterRunTimeout {' \
+  ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "a restart does not wait again for an update the agent gave up on" internal/agent/update.go \
+  'if req.OpID != "" && req.OpID == abandoned {' \
+  'if false && req.OpID == abandoned {' \
+  ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "a restart does not start the handoff timeouts over" internal/agent/update.go \
+  'since = st.ModTime()' \
+  'since = a.now()' \
+  ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "an updater that waited does not install over what the installer installed" internal/install/selfupdate.go \
+  'if installed != current {' \
+  'if false && installed != current {' \
+  ./internal/install '^TestAnUpdaterThatWaitedForTheInstallerDoesNotInstallOverIt$'
+control "the installer refuses while a dashboard update is pending" internal/install/inplace.go \
+  'if msg := pendingUpdate(sys, cfg); msg != "" {' \
+  'if msg := pendingUpdate(sys, cfg); false && msg != "" {' \
+  ./internal/install '^TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime$'
+control "the installer takes the upgrade lock" internal/install/inplace.go \
+  'unlock, err := lockUpgrades(sys, cfg, false)' \
+  'unlock, err := func() {}, error(nil)' \
+  ./internal/install '^TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime$'
+control "the updater waits for the upgrade lock" internal/install/selfupdate.go \
+  'unlock, err := lockUpgrades(sys, cfg, true)' \
+  'unlock, err := func() {}, error(nil)' \
+  ./internal/install '^TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime$'
+control "a kept interrupted update is recorded in the install manifest" internal/install/upgrade.go \
+  'u.recordVersion(want)' \
+  '_ = want' \
+  ./internal/install '^TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne$'
+control "an install manifest problem does not fail a finished update" internal/install/upgrade.go \
+  'u.recordVersion(o.NewVersion)
+		return nil' \
+  'return u.updateManifest(o.NewVersion)' \
+  ./internal/install '^TestAnUpdateThatCannotRecordItsVersionIsStillAnUpdate$'
+control "uninstall disables the updater even if the manifest misses it" internal/install/uninstall.go \
+  'if contains(m.Units, u) || updater[u] {' \
+  'if contains(m.Units, u) {' \
+  ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
+control "Paper versions are sorted newest first" internal/minecraft/fill.go \
+  'return CompareMinecraft(b.Version.ID, a.Version.ID)' \
+  'return 0' \
+  ./internal/minecraft '^TestCatalogDoesNotDependOnTheOrderPaperMCListsVersionsIn$'
+control "experimental versions need consent" internal/agent/handlers.go \
+  'if entry.Experimental && !req.AcceptExperimental {' \
+  'if false && entry.Experimental && !req.AcceptExperimental {' \
+  ./internal/agent '^TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent$'
+control "version changes to experimental versions need consent" internal/agent/versions.go \
+  'if e.Experimental && !req.AcceptExperimental {' \
+  'if false && e.Experimental && !req.AcceptExperimental {' \
+  ./internal/agent '^TestVersionChangesNeverGoBack$'
+control "Minecraft never goes back to an older version" internal/agent/versions.go \
+  '	case c < 0:' \
+  '	case false:' \
+  ./internal/agent '^TestVersionChangesNeverGoBack$'
+control "a version that does not start gets the world back" internal/agent/versions.go \
+  'if err := a.putBackupBack(b); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestVersionThatDoesNotStartPutsTheWorldBack$'
+control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
+  'if !ok || !reSHA256.MatchString(d.Checksums.SHA256) {' \
+  'if !ok || false && !reSHA256.MatchString(d.Checksums.SHA256) {' \
+  ./internal/minecraft '^TestCatalogSkipsBuildsWithoutAChecksumAndVersionsTheImageCannotRun$'
+control "Paper jar checksum" internal/agent/lifecycle.go \
+  'if sum != want {' \
+  'if false && sum != want {' \
+  ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

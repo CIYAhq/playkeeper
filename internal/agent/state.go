@@ -154,10 +154,17 @@ func (a *Agent) scanOperation(row *sql.Row) (*api.Operation, error) {
 
 // markInterruptedOperations fails operations left "running" by a previous
 // agent process (crash or reboot mid-operation) so the UI never shows a
-// phantom in-progress task.
+// phantom in-progress task. An update the updater is still installing keeps
+// running; its result is recorded when the updater reports.
 func (a *Agent) markInterruptedOperations() {
+	a.upd.mu.Lock()
+	keep := ""
+	if a.upd.installing != "" {
+		keep = a.upd.opID
+	}
+	a.upd.mu.Unlock()
 	_, err := a.db.Exec(`UPDATE operations SET status = 'failed', finished_at = ?, error = 'Interrupted: the Playkeeper agent restarted while this was running.'
-		WHERE status = 'running'`, a.now().UnixMilli())
+		WHERE status = 'running' AND id != ?`, a.now().UnixMilli(), keep)
 	if err != nil {
 		a.log.Error("mark interrupted operations", "err", err)
 	}

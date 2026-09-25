@@ -20,13 +20,13 @@ git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 make check             # gofmt, go vet, ESLint, TypeScript, Go, web and installer-script unit tests
 ```
 
-CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `make check`, `make lint-sh`, `make package`), then installs the packaged tarball on fresh runners for the end-to-end jobs. Pull requests from forks run the same CI; a maintainer may need to approve a first-time contributor's run.
+CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `make check`, `make lint-sh`, `make package`), then installs the packaged tarball on fresh runners for the end-to-end jobs. One of them installs the current release, upgrades it to the commit under test with the one-line installer, updates it from the dashboard, and forces a failed update to check the rollback; its test releases are signed with a key made for that run (`scripts/e2e/update-releases.sh`). Pull requests from forks run the same CI; a maintainer may need to approve a first-time contributor's run.
 
 ## Run it
 
 - `make dev` — agent and panel in one process with state in `.dev/`, using your Docker daemon. Run it as your normal user with access to `/var/run/docker.sock` (the `docker` group), not as root: the server container runs as the calling user. Open the printed `https://localhost:8443/setup#code=…` link. Without Docker the UI still runs and honestly reports Docker as unavailable.
 - `cd web && npm run dev` — Vite dev server on port 5173 that proxies `/api` to a running `make dev`.
-- `make package` — release tarball in `dist/` (static binary with the embedded UI, installer, notes), plus the one-line installer assets a release would carry (`get.sh` and the tarball under its stable name).
+- `make package` — release tarball in `dist/` (static binary with the embedded UI, installer, notes), plus the other assets a release would carry: `get.sh`, the tarball under its stable name, and the release manifest `playkeeper-release.json`, which the release workflow signs.
 - `make e2e-vm` — full rehearsal in fresh KVM guests (needs `/dev/kvm`, qemu, cloud-image-utils, sudo; see `scripts/e2e/vm-e2e.sh`).
 - `./scripts/negative-controls.sh` — removes each safety guard in turn in a throwaway worktree and checks that the test covering it fails.
 - `scripts/site-check.sh` — builds the playkeeper.io container from `site/` and checks `/`, `/healthz` and the `/install` redirect (needs Docker; CI runs it too). Hosting it is described in [site/README.md](site/README.md).
@@ -36,7 +36,16 @@ Protocol-bot tests need offline mode, which only the test harness enables (`PLAY
 
 ## Releases (maintainers)
 
-Pushing a `vMAJOR.MINOR.PATCH` tag runs [the release workflow](.github/workflows/release.yml): `make check` and `make package` with the version from the tag, an install of the built assets on a fresh runner, then a normal (not pre-release) GitHub release with `get.sh`, `playkeeper-linux-amd64.tar.gz` and its `.sha256`, which becomes the latest release. It then runs the one-line install from the GitHub release URL on a fresh runner and checks that `https://playkeeper.io/install`, a redirect to the latest release's `get.sh`, resolves to the new one; that last check only warns, because the site runs on its own server and needs no redeploy for a release. 0.x releases are labelled early. For a dry run, start the release workflow by hand or open a pull request that touches the release path: it builds and checks everything and uploads the assets as an artifact instead of releasing them.
+**Once, before the first signed release,** make the release signing key and store it as the repository secret the release workflow signs with:
+
+```bash
+go run ./cmd/release-sign keygen | gh secret set PLAYKEEPER_RELEASE_SIGNING_KEY --repo CIYAhq/playkeeper
+git add internal/update/release.pub && git commit -m "Add the release signing key" && git push
+```
+
+`keygen` adds the public key to `internal/update/release.pub`, which is compiled into every build, and writes the private key only to standard output, here straight into the secret. Keep an offline copy in a password manager if you want one; nothing else needs it. Installed versions only install updates signed with a key compiled into them, and the release workflow refuses to sign with a key missing from the released commit's `release.pub`, so every release can verify the next one. Replacing the key takes two releases; see the known limitations in [SECURITY.md](SECURITY.md).
+
+**Each release:** add a `## MAJOR.MINOR.PATCH` section to [CHANGELOG.md](CHANGELOG.md) saying what changed (the dashboard shows it when it offers the update), then push a `vMAJOR.MINOR.PATCH` tag. That runs [the release workflow](.github/workflows/release.yml): `make check` and `make package` with the version from the tag, the signature of `playkeeper-release.json`, an install of the built assets on a fresh runner, then a normal (not pre-release) GitHub release with five assets, `get.sh`, `playkeeper-linux-amd64.tar.gz` and its `.sha256`, and `playkeeper-release.json` and its `.sig`, which becomes the latest release. Installed versions from 0.2.0 on offer it in the dashboard within 12 hours. The workflow then runs the one-line install from the GitHub release URL on a fresh runner and checks that `https://playkeeper.io/install`, a redirect to the latest release's `get.sh`, resolves to the new one; that last check only warns, because the site runs on its own server and needs no redeploy for a release. 0.x releases are labelled early. For a dry run, start the release workflow by hand or open a pull request that touches the release path: it builds and checks everything, signs with a throwaway key, and uploads the assets as an artifact instead of releasing them.
 
 ## Where things live
 
@@ -45,8 +54,9 @@ Pushing a `vMAJOR.MINOR.PATCH` tag runs [the release workflow](.github/workflows
 | `cmd/playkeeper` | the single binary (install, agent, panel, recovery commands) |
 | `internal/agent` | root agent: socket API, Docker lifecycle, collector, backups/restore |
 | `internal/panel` | HTTPS panel: auth, sessions, CSRF, rate limits, API proxy |
-| `internal/install` | preflight, installer with rollback, uninstall |
-| `internal/backup`, `internal/minecraft`, `internal/docker` | archive format, Minecraft protocols and log parsing, Docker client |
+| `internal/install` | preflight, installer with rollback, in-place upgrade, the updater, uninstall |
+| `internal/update`, `cmd/release-sign` | signed release manifests (the release key is in `internal/update/release.pub`), version order, update downloads; the maintainer tool that makes and signs them |
+| `internal/backup`, `internal/minecraft`, `internal/docker` | archive format, Minecraft protocols, log parsing and PaperMC's version list, Docker client |
 | `web/` | React + TypeScript UI (embedded at build time) |
 | `packaging/` | `install.sh`, the one-line installer `get.sh`, their tests, install notes |
 | `scripts/` | toolchain setup, packaging, release checks, site check, KVM rehearsal harness, negative controls |

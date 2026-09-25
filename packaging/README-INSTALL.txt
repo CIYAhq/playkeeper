@@ -18,6 +18,11 @@ project README for exactly how and where it was tested).
 3. Open the link, create your admin account, accept the Minecraft EULA and
    start your server. Everything after this happens in the browser.
 
+Already running Playkeeper? The same installer upgrades it in place and
+keeps your worlds, backups, settings and admin account. From 0.2.0 on,
+Settings in the dashboard installs new releases (signed ones only) and puts
+the previous version back if the new one is not healthy.
+
 Uninstall (keeps your worlds and backups in /var/lib/playkeeper):
 
      sudo playkeeper uninstall

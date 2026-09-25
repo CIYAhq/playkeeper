@@ -41,6 +41,9 @@ type Config struct {
 	GameUID   int    `json:"gameUID"`
 	GameGID   int    `json:"gameGID"`
 	InstallID string `json:"installID"`
+	// ReleaseURL is where the agent looks for updates; empty means the latest
+	// GitHub release. Updates are only installed if they are signed.
+	ReleaseURL string `json:"releaseURL,omitempty"`
 	// Dev relaxes host checks for `playkeeper dev`; never set by the installer.
 	Dev bool `json:"dev,omitempty"`
 }

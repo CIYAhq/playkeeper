@@ -33,17 +33,23 @@ func (a *Agent) hPreflight(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.Preflight(r.Context()))
 }
 
-func (a *Agent) catalog() api.Catalog {
+func (a *Agent) catalogInfo(ctx context.Context) api.Catalog {
 	host := a.opts.HostMemoryMB()
 	opts, rec, max := minecraft.MemoryOptions(host)
 	if opts == nil {
 		opts = []int{}
 	}
-	return api.Catalog{Versions: minecraft.Versions(), MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max, Image: minecraft.ImageTag}
+	c := api.Catalog{Versions: []api.CatalogEntry{}, MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max, Image: minecraft.ImageTag}
+	if v, err := a.versionCatalog(ctx); err != nil {
+		c.VersionsError = "Could not load the Minecraft versions from PaperMC: " + err.Error() + ". Check that this server can reach fill.papermc.io."
+	} else {
+		c.Versions = v
+	}
+	return c
 }
 
 func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.catalog())
+	writeJSON(w, http.StatusOK, a.catalogInfo(r.Context()))
 }
 
 // Status assembles desired and observed state. Nothing here is cached from
@@ -56,6 +62,10 @@ func (a *Agent) Status(ctx context.Context) api.ServerStatus {
 	st.Desired = a.desired()
 	st.Operation = a.currentOp()
 	st.LastOperation = a.lastFinishedOperation()
+	if info := a.updateInfo(); info.Available {
+		st.UpdateAvailable = info.Latest
+	}
+	st.UpdateInstalling = a.installingUpdate()
 	if free, _, err := a.opts.DiskUsage(a.cfg.DataDir); err == nil {
 		if dc := diskCheck(free); dc.Status != "pass" {
 			st.DiskWarning = &dc
@@ -191,9 +201,13 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("A server already exists. Playkeeper runs one Minecraft server per host.", "Use Start on the Overview, or restore a backup from the World page."))
 		return
 	}
-	entry, err := minecraft.LookupVersion(req.VersionID)
+	entry, err := a.catalogEntry(r.Context(), req.VersionID)
 	if err != nil {
-		writeError(w, errInvalid("Unknown server version. Choose one of the listed versions."))
+		writeError(w, err)
+		return
+	}
+	if entry.Experimental && !req.AcceptExperimental {
+		writeError(w, errInvalid("%s is experimental. Confirm that you accept the risk to your world to use it.", entry.Label))
 		return
 	}
 	if err := a.validMemory(req.MemoryMB); err != nil {
@@ -211,10 +225,10 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := a.now().UTC()
-	sc := api.ServerConfig{
-		VersionID: entry.ID, MinecraftVersion: entry.MinecraftVersion, PaperBuild: entry.PaperBuild, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
-		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now, Image: minecraft.Image,
-	}
+	sc := withBuild(api.ServerConfig{
+		MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
+		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
+	}, entry)
 	op, err := a.beginOp("create", actor, func(ctx context.Context, h *opHandle) error {
 		if cur, _ := a.serverConfig(); cur != nil {
 			return errConflict("A server already exists.", "")

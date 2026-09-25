@@ -24,6 +24,10 @@ import (
 type opHandle struct {
 	a  *Agent
 	op *api.Operation
+	// continues is set by an operation that goes on outside the agent (an
+	// update handed to the updater): it stays running until its result is
+	// recorded.
+	continues bool
 }
 
 func (h *opHandle) phase(p string) {
@@ -56,12 +60,14 @@ func (a *Agent) currentOp() *api.Operation {
 	return &c
 }
 
-func (a *Agent) busy() bool { return a.currentOp() != nil }
+// busy is true while an operation runs or an update is being installed.
+func (a *Agent) busy() bool { return a.currentOp() != nil || a.installingUpdate() != "" }
 
 var opLabels = map[string]string{
 	"create": "creating the server", "start": "starting the server", "stop": "stopping the server",
 	"restart": "restarting the server", "backup": "a backup", "restore": "a restore", "recover": "an automatic restart",
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
+	"update": "a Playkeeper update", "update-version": "updating Minecraft",
 }
 
 func (a *Agent) busyError() error {
@@ -93,6 +99,10 @@ func (a *Agent) beginOp(kind, actor string, fn func(ctx context.Context, h *opHa
 	default:
 		return nil, a.busyError()
 	}
+	if v := a.installingUpdate(); v != "" {
+		<-a.opLock
+		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
+	}
 	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}
 	a.opMu.Lock()
 	a.op = op
@@ -116,22 +126,27 @@ func (a *Agent) beginOp(kind, actor string, fn func(ctx context.Context, h *opHa
 		}()
 		a.opMu.Lock()
 		fin := a.now().UTC()
-		op.FinishedAt = &fin
-		if err != nil {
+		switch {
+		case err != nil:
+			op.FinishedAt = &fin
 			op.Status = api.OpFailed
 			op.Error = err.Error()
 			var ae *apiError
 			if errors.As(err, &ae) {
 				op.Hint = ae.Hint
 			}
-		} else {
+		case h.continues:
+		default:
+			op.FinishedAt = &fin
 			op.Status = api.OpSucceeded
 		}
 		done := *op
 		a.op = nil
 		a.opMu.Unlock()
 		a.saveOperation(&done)
-		a.audit(actor, kind, "server", done.Status, done.Error)
+		if done.Status != api.OpRunning {
+			a.audit(actor, kind, "server", done.Status, done.Error)
+		}
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}
@@ -366,13 +381,14 @@ func fileSHA256(path string) (string, error) {
 }
 
 // ensureServerSoftware downloads Paper with a setup-only container (the
-// server does not run) and verifies the jar against the pinned Fill v3
-// checksum before the server is ever started with it.
+// server does not run) and verifies the jar against the checksum PaperMC's
+// Fill v3 API published for the build, before the server is ever started
+// with it.
 func (a *Agent) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.ServerConfig) error {
-	if _, err := minecraft.LookupVersion(sc.VersionID); err != nil {
-		return err
+	want, err := jarChecksum(*sc)
+	if err != nil {
+		return &apiError{Msg: "The server's software cannot be verified: " + err.Error() + ".", Hint: "Choose a version under Settings, or restore a backup."}
 	}
-	want := a.opts.JarSHA256(sc.VersionID)
 	jar := a.jarPath(*sc)
 	if sum, err := fileSHA256(jar); err == nil && sum == want {
 		return nil

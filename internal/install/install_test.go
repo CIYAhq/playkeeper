@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 )
 
@@ -41,6 +42,17 @@ type fakeHost struct {
 	lockForever   bool // the package lock is never released
 	lockFreedAt   int  // len(cmds) when a held lock was released
 	aptLockErrors int  // apt-get fails this many more times with a lock error
+	// unhealthy makes the health check for a version fail; healthChecks
+	// records the versions checked.
+	unhealthy    map[string]error
+	healthChecks []string
+	// stopsAfterAnswering is a version that passes its first health check
+	// and fails the next ones: it crashed right after starting.
+	stopsAfterAnswering string
+	// onStart runs when Playkeeper's services are started; unitsJSON is what
+	// a playkeeper binary's `units` command prints (default: this version's).
+	onStart   func()
+	unitsJSON string
 }
 
 func newFakeHost(t *testing.T) *fakeHost {
@@ -83,6 +95,16 @@ func (h *fakeHost) system(t *testing.T) System {
 				return msg, errors.New("exit status 100: " + msg)
 			}
 			switch {
+			case name == "systemctl" && len(args) > 1 && args[0] == "start" && args[1] == AgentUnit:
+				if h.onStart != nil {
+					h.onStart()
+				}
+			case strings.HasSuffix(name, "/playkeeper") && len(args) > 0 && args[0] == "units":
+				if h.unitsJSON != "" {
+					return h.unitsJSON, nil
+				}
+				b, _ := json.Marshal(Units(config.Default()))
+				return string(b), nil
 			case name == "ufw":
 				return "Status: inactive\n", nil
 			case name == "dpkg-query":
@@ -180,6 +202,30 @@ func (h *fakeHost) system(t *testing.T) System {
 			return false
 		},
 		WaitHealthy: func(context.Context, string, string, int) error { return h.healthErr },
+		WaitVersion: func(_ context.Context, _, _ string, _ int, want string) error {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if want == h.stopsAfterAnswering {
+				for _, v := range h.healthChecks {
+					if v == want {
+						h.healthChecks = append(h.healthChecks, want)
+						return errors.New("the agent exited")
+					}
+				}
+			}
+			h.healthChecks = append(h.healthChecks, want)
+			if err := h.unhealthy[want]; err != nil {
+				return err
+			}
+			return h.healthErr
+		},
+		Version: func(bin string) (string, error) {
+			b, err := os.ReadFile(bin)
+			if err != nil {
+				return "", err
+			}
+			return ParseVersionLine(string(b))
+		},
 	}
 }
 

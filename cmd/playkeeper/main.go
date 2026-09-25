@@ -25,6 +25,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/install"
 	"github.com/CIYAhq/playkeeper/internal/panel"
+	"github.com/CIYAhq/playkeeper/internal/update"
 	"github.com/CIYAhq/playkeeper/internal/version"
 	"github.com/CIYAhq/playkeeper/web"
 )
@@ -33,6 +34,7 @@ const usage = `Playkeeper — your VPS, your game servers, your worlds.
 
 Usage:
   sudo playkeeper install     [--panel-port 8443] [--game-port 25565] [--yes]
+                              (on a server that has Playkeeper, upgrades it in place)
   sudo playkeeper uninstall   [--yes] [--purge] [--keep-docker]
        playkeeper preflight   [--json]            check this host without changing it
   sudo playkeeper status                          show the server state from the agent
@@ -42,8 +44,10 @@ Usage:
        playkeeper dev         [--dir .dev]        run agent + panel locally for development
 
 Services (started by systemd after install):
-  playkeeper agent  --config /etc/playkeeper/config.json
-  playkeeper panel  --config /etc/playkeeper/config.json
+  playkeeper agent        --config /etc/playkeeper/config.json
+  playkeeper panel        --config /etc/playkeeper/config.json
+  playkeeper self-update  --config /etc/playkeeper/config.json   installs an update the agent verified
+  playkeeper units        --config /etc/playkeeper/config.json   prints this version's systemd units (JSON)
 `
 
 func main() {
@@ -74,6 +78,10 @@ func main() {
 		err = runSetupCode(args)
 	case "reset-password":
 		err = runResetPassword(args)
+	case "self-update":
+		err = runSelfUpdate(args)
+	case "units":
+		err = runUnits(args)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
@@ -213,6 +221,7 @@ func installFlags(fs *flag.FlagSet) *install.Options {
 	fs.BoolVar(&o.Yes, "yes", false, "do not ask for confirmation")
 	fs.BoolVar(&o.AllowUntestedOS, "allow-untested-os", false, "continue on an operating system or CPU Playkeeper is not tested on")
 	fs.BoolVar(&o.AllowExistingMinecraft, "allow-existing-minecraft", false, "continue although another Minecraft setup exists (Playkeeper never touches it)")
+	fs.StringVar(&o.ReleaseURL, "release-url", "", "where the installed Playkeeper looks for updates (default: the latest GitHub release); get.sh sets it when it downloads from elsewhere")
 	return o
 }
 
@@ -223,14 +232,64 @@ func runInstall(args []string) error {
 	if o.PanelPort == o.GamePort {
 		return errors.New("--panel-port and --game-port must differ")
 	}
+	if o.ReleaseURL != "" {
+		if _, err := update.CheckReleaseURL(o.ReleaseURL); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
 	res, err := install.Run(ctx, install.Real(), *o, version.Version)
 	if err != nil {
 		return err
 	}
-	writeInstallSummary(os.Stdout, res)
+	switch {
+	case res.UpToDate:
+	case res.Upgraded:
+		writeUpgradeSummary(os.Stdout, res)
+	default:
+		writeInstallSummary(os.Stdout, res)
+	}
 	return nil
+}
+
+func writeUpgradeSummary(w io.Writer, res *install.Result) {
+	fmt.Fprintf(w, "\nPlaykeeper was upgraded from %s to %s in %s. Your worlds, backups and settings were kept.\n", res.FromVersion, version.Version, res.Duration.Round(time.Second))
+	fmt.Fprintf(w, "Open %s and sign in as before", res.URL)
+	if res.Fingerprint != "" {
+		fmt.Fprintf(w, " (certificate fingerprint %s)", res.Fingerprint)
+	}
+	fmt.Fprintf(w, ".\nFrom now on, Playkeeper shows new versions in the dashboard (Settings) and installs them from there.\n")
+}
+
+// runSelfUpdate is the updater that playkeeper-update.service starts.
+func runSelfUpdate(args []string) error {
+	fs := flag.NewFlagSet("self-update", flag.ExitOnError)
+	path := fs.String("config", config.DefaultPath, "config file")
+	fs.Parse(args)
+	if os.Geteuid() != 0 {
+		return errors.New("the updater runs as root (systemd starts it as playkeeper-update.service)")
+	}
+	cfg, err := config.Load(*path)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := signalContext()
+	defer cancel()
+	return install.SelfUpdate(ctx, install.Real(), cfg, version.Version, os.Stdout)
+}
+
+// runUnits prints the systemd units this version installs, so an updater
+// running the previous version can install them.
+func runUnits(args []string) error {
+	fs := flag.NewFlagSet("units", flag.ExitOnError)
+	path := fs.String("config", config.DefaultPath, "config file")
+	fs.Parse(args)
+	cfg, err := config.Load(*path)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(install.Units(cfg))
 }
 
 // writeInstallSummary tells the user what to do next. A reinstall that kept an
