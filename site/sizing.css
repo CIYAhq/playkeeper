@@ -184,7 +184,7 @@ footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 48px; color: var(--m
   th, td { padding: 10px 8px; }
   thead th { font-size: 11px; line-height: 15px; }
   .more { font-size: 12px; line-height: 17px; }
-  .more .part { display: block; }
+  .more .part { display: block; white-space: normal; }
   .more .dot { display: none; }
   .rules div { grid-template-columns: 64px minmax(0, 1fr); }
   .cmd { flex-direction: column; }
