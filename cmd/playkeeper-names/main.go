@@ -22,16 +22,20 @@ import (
 const usage = `Usage:
   playkeeper-names serve
       Runs the service. It is configured with environment variables:
-        NAMES_CLOUDFLARE_API_TOKEN  Cloudflare API token with DNS edit rights on the zone (required)
-        NAMES_CLOUDFLARE_ZONE_ID    the zone's ID (required)
-        NAMES_BASE_DOMAIN           domain names live under (default playkeeper.io)
-        NAMES_DATA_DIR              database and daily snapshots (default /data)
-        NAMES_LISTEN                listen address (default :8080)
-        NAMES_TRUSTED_PROXIES       networks of the reverse proxy, e.g. 10.0.1.0/24 (default none)
-        NAMES_MAX_NAMES_PER_KEY     names one install may hold (default 1)
-        NAMES_CLAIMS_PER_DAY        new names per day across everyone (default 30)
-        NAMES_RECORD_RESERVE        DNS records new names must leave free in the zone (default 10)
-        NAMES_BLOCKLIST_FILE        file of names nobody may have, one per line (optional)
+        NAMES_CLOUDFLARE_API_TOKEN      Cloudflare API token with DNS edit rights on the zone (required)
+        NAMES_CLOUDFLARE_ZONE_ID        the zone's ID (required)
+        NAMES_BASE_DOMAIN               domain names live under (default playkeeper.io)
+        NAMES_DATA_DIR                  database and daily snapshots (default /data)
+        NAMES_LISTEN                    listen address (default :8080)
+        NAMES_TRUSTED_PROXIES           the reverse proxy's own address, e.g. 10.0.1.5 (default none)
+        NAMES_MAX_NAMES_PER_KEY         names one install may hold (default 1)
+        NAMES_MAX_NAMES_PER_NETWORK     names one IPv4 /24 or IPv6 /48 may hold (default 3)
+        NAMES_CLAIMS_PER_DAY            new names per day across everyone (default 30)
+        NAMES_RECORD_RESERVE            DNS records the service always leaves free in the zone (default 10)
+        NAMES_RECORD_QUOTA              most DNS records the zone may hold (default 200, Cloudflare Free)
+        NAMES_NEW_CERTIFICATES_PER_WEEK names that may get their first certificate in 7 days, 1 to 50 (default 40)
+        NAMES_BLOCKLIST_FILE            file of names nobody may have, one per line (optional)
+        NAMES_ALERT_WEBHOOK_URL         https:// webhook, e.g. Discord's, for the owner's alerts (optional)
   playkeeper-names healthcheck
       Exits 0 if the service on NAMES_LISTEN answers /healthz (Docker's HEALTHCHECK).
 `
@@ -91,7 +95,7 @@ func serve() error {
 	go func() { errc <- srv.ListenAndServe() }()
 	log.Info("playkeeper-names is listening", "address", cfg.Listen, "base", cfg.Base, "trusted_proxies", len(cfg.TrustedProxies))
 	if len(cfg.TrustedProxies) == 0 {
-		log.Warn(service.EnvTrustedProxies + " is empty, so X-Forwarded-For is ignored; behind a reverse proxy, set it to the proxy's network")
+		log.Warn(service.EnvTrustedProxies + " is empty, so X-Forwarded-For is ignored; behind a reverse proxy, set it to the proxy's own address")
 	}
 	select {
 	case err = <-errc:

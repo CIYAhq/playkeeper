@@ -386,9 +386,9 @@ control "challenge records per name" internal/names/service/handlers.go \
   'if false && others >= maxChallenges {' \
   ./internal/names/service '^TestClaimRefreshServersChallengesAndReleaseEndToEnd$'
 control "the zone keeps a reserve of free records" internal/names/service/dns.go \
-  'u.Usage+n+s.cfg.RecordReserve <= *u.Quota' \
-  'u.Usage+n <= *u.Quota' \
-  ./internal/names/service '^TestAFullZoneRefusesNewNamesAndServerAddresses$'
+  'keep := s.cfg.RecordReserve' \
+  'keep := 0' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
 control "challenge records expire after an hour" internal/names/service/jobs.go \
   'SELECT DISTINCT name FROM challenges WHERE expires_at <= ?' \
   'SELECT DISTINCT name FROM challenges WHERE expires_at <= ? AND 0' \
@@ -406,9 +406,169 @@ control "Cloudflare errors never show the token" internal/names/service/cloudfla
   'scrub(nil, c.token)' \
   ./internal/names/service '^TestCloudflareErrorsNeverShowTheToken$'
 control "names service follows no redirects from Cloudflare" internal/names/service/service.go \
-  'CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },' \
+  'CheckRedirect: noRedirects,' \
   'CheckRedirect: nil,' \
   ./internal/names/service '^TestTheServiceFollowsNoRedirects$'
+control "names claimed from one network are limited" internal/names/service/handlers.go \
+  'if n < s.cfg.MaxNamesPerNetwork {' \
+  'if n <= s.cfg.MaxNamesPerNetwork {' \
+  ./internal/names/service '^TestNamesPerNetworkAreLimited$'
+control "server addresses per install are limited" internal/names/service/handlers.go \
+  'case byKey >= serversPerKey:' \
+  'case false:' \
+  ./internal/names/service '^TestServerAddressesPerInstallAndPerNetworkAreLimited$'
+control "server addresses per network are limited" internal/names/service/handlers.go \
+  'case byNetwork >= serversPerNetwork:' \
+  'case false:' \
+  ./internal/names/service '^TestServerAddressesPerInstallAndPerNetworkAreLimited$'
+control "server addresses wait until the name is 3 days old" internal/names/service/handlers.go \
+  '.Add(serverAddressAge); s.now().Before(from) {' \
+  '.Add(serverAddressAge); false && s.now().Before(from) {' \
+  ./internal/names/service '^TestServerAddressesWaitUntilTheNameIsThreeDaysOld$'
+control "server addresses wait for the dashboard's first answer" internal/names/service/handlers.go \
+  'if row.AliveAt == 0 {' \
+  'if false && row.AliveAt == 0 {' \
+  ./internal/names/service '^TestServerAddressesWaitForTheFirstAnswer$'
+control "the zone holds no more records than the quota setting" internal/names/service/dns.go \
+  'quota := s.cfg.RecordQuota' \
+  'quota := 1 << 30' \
+  ./internal/names/service '^TestTheRecordQuotaSettingAppliesWhenCloudflareReportsNoneOrMore$'
+control "Cloudflare's record quota wins when it is lower" internal/names/service/dns.go \
+  'if u.Quota != nil && *u.Quota < quota {' \
+  'if false && u.Quota != nil && *u.Quota < quota {' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
+control "new names leave room for certificate challenges" internal/names/service/dns.go \
+  'keep += challengeRoom' \
+  'keep += 0' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
+control "server addresses leave room for new names" internal/names/service/dns.go \
+  'keep += nameRoom' \
+  'keep += 0' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
+control "the alert webhook must be HTTPS" internal/names/service/config.go \
+  'if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {' \
+  'if err != nil || u.Host == "" || u.User != nil {' \
+  ./internal/names/service '^TestNewRefusesAWebhookThatIsNotHTTPS$'
+control "alerts follow no redirects" internal/names/service/service.go \
+  'CheckRedirect: noRedirects, Transport: cfg.alertTransport' \
+  'Transport: cfg.alertTransport' \
+  ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
+control "alert failures never show the webhook URL" internal/names/service/alert.go \
+  'if errors.As(err, &ue) {' \
+  'if false && errors.As(err, &ue) {' \
+  ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
+control "each kind of alert goes out at most every 6 hours" internal/names/service/alert.go \
+  'if t, ok := a.last[kind]; ok && now.Sub(t) < alertEvery {' \
+  'if t, ok := a.last[kind]; false && ok && now.Sub(t) < alertEvery {' \
+  ./internal/names/service '^TestAlertsReachTheWebhookAtMostOncePerKindEverySixHours$'
+control "names lapse when their dashboard stops answering" internal/names/service/alive.go \
+  'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ?' \
+  'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ? AND 0' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "a name lapses only after a week without an answer" internal/names/service/alive.go \
+  'names.StateActive, minFailedChecks, now.Add(-unansweredAfter).Unix())' \
+  'names.StateActive, minFailedChecks, now.Unix())' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "a name lapses only after 4 failed checks" internal/names/service/alive.go \
+  'AND failed_checks >= ? AND' \
+  'AND (failed_checks >= ? OR 1) AND' \
+  ./internal/names/service '^TestANameLapsesOnlyAfterFourFailedChecksInARow$'
+control "an answer starts the failed checks again" internal/names/service/alive.go \
+  'UPDATE names SET checked_at = ?, alive_at = ?, failed_checks = 0' \
+  'UPDATE names SET checked_at = ?, alive_at = ?, failed_checks = failed_checks' \
+  ./internal/names/service '^TestANameLapsesOnlyAfterFourFailedChecksInARow$'
+control "names do not lapse while no address answers" internal/names/service/alive.go \
+  'return last > now.Add(-checkHealthy).Unix(), err' \
+  'return true, err' \
+  ./internal/names/service '^TestNamesDoNotLapseForNotAnsweringWhileNoAddressAnswers$'
+control "a lapsed name stays off until its dashboard answers" internal/names/service/handlers.go \
+  'WHERE name = ? AND key = ? AND (state != ? OR lapse_reason != ? OR ? > 0)' \
+  'WHERE name = ? AND key = ? AND (1 OR state != ? OR lapse_reason != ? OR ? > 0)' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "a name that answered before is held for 60 days" internal/names/service/jobs.go \
+  'lapse_reason = ? AND alive_at = 0 AND lapsed_at <= ?' \
+  'lapse_reason = ? AND lapsed_at <= ?' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "liveness answers must be signed with the name's key" internal/names/service/alive.go \
+  'if a.Name != name || !names.VerifyAlive(ed25519.PublicKey(pub), s.base, name, nonce, a.Signature) {' \
+  'if false {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness checks follow no redirects" internal/names/service/alive.go \
+  'CheckRedirect: noRedirects,' \
+  'CheckRedirect: nil,' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness answers are limited to 1 KiB" internal/names/service/alive.go \
+  'if resp.ContentLength > maxAliveAnswer || len(body) > maxAliveAnswer {' \
+  'if false {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness checks connect only to public addresses" internal/names/service/alive.go \
+  'if !publicUnicast(addr) || inAny(cloudflareEdge, addr) {' \
+  'if inAny(cloudflareEdge, addr) {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness checks never connect to Cloudflare's proxy" internal/names/service/alive.go \
+  'if !publicUnicast(addr) || inAny(cloudflareEdge, addr) {' \
+  'if !publicUnicast(addr) {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "a lapsed name's address is rechecked at most 6 times an hour" internal/names/service/alive.go \
+  'if ok, wait := s.rechecks.allow(row.Name); !ok {' \
+  'if ok, wait := s.rechecks.allow(row.Name); false && !ok {' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "each name is checked every 6 hours, not more often" internal/names/service/alive.go \
+  'names.StateActive, now.Add(-checkEvery).Unix())' \
+  'names.StateActive, now.Unix())' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "at most 20 liveness checks a minute" internal/names/service/alive.go \
+  'for len(due) < checksPerTick && rows.Next() {' \
+  'for rows.Next() {' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "one liveness check per address at a time" internal/names/service/alive.go \
+  'if seen[first] {' \
+  'if false && seen[first] {' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "names crowding one address do not hold up the others' checks" internal/names/service/alive.go \
+  'ORDER BY checked_at, name`' \
+  'ORDER BY checked_at, name LIMIT 20`' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "certificate attempts per name are limited" internal/names/service/certs.go \
+  'if sets >= certSetsPerName {' \
+  'if false && sets >= certSetsPerName {' \
+  ./internal/names/service '^TestCertificateAttemptsPerNameAreLimited$'
+control "new certificates have a weekly budget" internal/names/service/certs.go \
+  'if budget := s.cfg.NewCertificates; used >= budget {' \
+  'if budget := s.cfg.NewCertificates; false && used >= budget {' \
+  ./internal/names/service '^TestNewCertificatesHaveAWeeklyBudgetThatRenewalsDoNotUse$'
+control "a challenge value joins an attempt only within its hour" internal/names/service/certs.go \
+  'row.Name, now.Add(-certSetWindow).Unix(), challengesPerSet)' \
+  'row.Name, now.Add(-100*certSetWindow).Unix(), challengesPerSet)' \
+  ./internal/names/service '^TestCertificateAttemptsPerNameAreLimited$'
+control "an attempt holds at most 4 challenge values" internal/names/service/certs.go \
+  'row.Name, now.Add(-certSetWindow).Unix(), challengesPerSet)' \
+  'row.Name, now.Add(-certSetWindow).Unix(), 1000)' \
+  ./internal/names/service '^TestCertificateAttemptsPerNameAreLimited$'
+control "a name's next holder renews none of the last holder's certificates" internal/names/service/certs.go \
+  'row.Name, row.ClaimedAt, now.Add(-renewalLookback).Unix()).Scan(&earlier)' \
+  'row.Name, 0, now.Add(-renewalLookback).Unix()).Scan(&earlier)' \
+  ./internal/names/service '^TestANamesFirstCertificateSinceItsClaimOrInNinetyDaysIsNew$'
+control "a certificate after 90 days without one is new" internal/names/service/certs.go \
+  'row.Name, row.ClaimedAt, now.Add(-renewalLookback).Unix()).Scan(&earlier)' \
+  'row.Name, row.ClaimedAt, 0).Scan(&earlier)' \
+  ./internal/names/service '^TestANamesFirstCertificateSinceItsClaimOrInNinetyDaysIsNew$'
+control "certificate attempts are forgotten after 90 days" internal/names/service/jobs.go \
+  'DELETE FROM cert_sets WHERE started_at <= ?' \
+  'DELETE FROM cert_sets WHERE started_at <= ? AND 0' \
+  ./internal/names/service '^TestANamesFirstCertificateSinceItsClaimOrInNinetyDaysIsNew$'
+control "trusting a whole network is warned about" internal/names/service/service.go \
+  'if p.Bits() < p.Addr().BitLen() {' \
+  'if false && p.Bits() < p.Addr().BitLen() {' \
+  ./internal/names/service '^TestTrustingAWholeNetworkIsWarnedAbout$'
+control "requests through an unlisted proxy alert the owner" internal/names/service/addr.go \
+  'if r.Header.Get("X-Forwarded-For") != "" && (addr.IsPrivate() || addr.IsLoopback()) {' \
+  'if false && r.Header.Get("X-Forwarded-For") != "" && (addr.IsPrivate() || addr.IsLoopback()) {' \
+  ./internal/names/service '^TestForwardedForIsOnlyBelievedFromTrustedProxies$'
+control "trusted proxies that would trust every address are refused" internal/names/service/config.go \
+  'if p.Bits() == 0 {' \
+  'if false && p.Bits() == 0 {' \
+  ./internal/names/service '^TestParsePrefixes$'
 control "names request signature" internal/names/sign.go \
   'if !ed25519.Verify(' \
   'if false && !ed25519.Verify(' \
@@ -433,6 +593,18 @@ control "names client follows no redirects" internal/names/client.go \
   'CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },' \
   'CheckRedirect: nil,' \
   ./internal/names '^TestRedirectsAreNotFollowed$'
+control "names client believes a Retry-After of at most 8 days" internal/names/client.go \
+  ' && time.Duration(s) <= maxRetryAfter/time.Second {' \
+  ' {' \
+  ./internal/names '^TestServiceRefusalsKeepTheirCodeHintParamsAndRetryAfter$'
+control "liveness answers can never pass as signed requests" internal/names/alive.go \
+  'const aliveContext = "playkeeper-names-alive-v1"' \
+  'const aliveContext = signingContext' \
+  ./internal/names '^TestAliveAnswersCanNeverPassAsSignedRequests$'
+control "the dashboard signs only well-formed liveness nonces" internal/names/alive.go \
+  'if !reNonce.MatchString(nonce) {' \
+  'if false && !reNonce.MatchString(nonce) {' \
+  ./internal/names '^TestAliveHandlerAnswersOnlyForTheNamesItHolds$'
 
 # Wave 2: two-factor sign-in.
 control "a pending sign-in is not a session" internal/panel/auth.go \

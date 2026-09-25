@@ -73,6 +73,10 @@ func TestClaimRefreshServersChallengesAndReleaseEndToEnd(t *testing.T) {
 		t.Errorf("the AAAA record stayed after IPv6 went away: %+v", aaaa)
 	}
 
+	if _, err := c.SetServer(ctx, "", 25565); codeOf(err) != names.CodeServerNotYet {
+		t.Fatalf("a server address for a new name: got %v, want %s", err, names.CodeServerNotYet)
+	}
+	e.grown()
 	s, err := c.SetServer(ctx, "", 25565)
 	if err != nil || s.Address != aliceFQD || s.Port != 25565 || s.DNS != names.DNSOK {
 		t.Fatalf("SetServer: %+v, %v", s, err)
@@ -265,7 +269,8 @@ func TestForwardedForIsOnlyBelievedFromTrustedProxies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{cfg: Config{TrustedProxies: proxies}, log: slog.New(slog.NewTextHandler(log, nil))}
+	logger := slog.New(slog.NewTextHandler(log, nil))
+	s := &Service{cfg: Config{TrustedProxies: proxies}, log: logger, alerts: &alerter{log: logger, now: time.Now, last: map[string]time.Time{}}}
 	for _, tc := range []struct {
 		peer string
 		xff  []string
@@ -312,8 +317,17 @@ func TestForwardedForIsOnlyBelievedFromTrustedProxies(t *testing.T) {
 			t.Errorf("an untrusted proxy: got %s, %v", got, err)
 		}
 	}
-	if n := strings.Count(log.String(), "does not list"); n != 1 {
-		t.Errorf("warned %d times about an unlisted proxy, want once", n)
+	if n := strings.Count(log.String(), "does not list"); n != 1 || !strings.Contains(log.String(), "alert="+alertProxy) {
+		t.Errorf("alerted %d times about an unlisted proxy, want once", n)
+	}
+}
+
+func TestTrustingAWholeNetworkIsWarnedAbout(t *testing.T) {
+	e := newEnv(t, func(e *testEnv) {
+		e.cfg.TrustedProxies = mustPrefixes("127.0.0.1/32", "10.0.1.0/24", "fd00::7/128")
+	})
+	if log := e.log.String(); strings.Count(log, "lists a whole network") != 1 || !strings.Contains(log, "network=10.0.1.0/24") {
+		t.Errorf("warnings about trusted networks: %s", log)
 	}
 }
 
@@ -492,9 +506,15 @@ func TestRateLimitsPerAddressPerKeyAndForNewNames(t *testing.T) {
 		t.Errorf("request over the per-key limit: got %#v", err)
 	}
 
+	// Released names leave the network's limit, not the daily one.
 	for i, addr := range []string{"2a01:4f8:c012:6f01::1", "2a01:4f8:c012:6f02::1", "2a01:4f8:c012:6f03::1"} {
-		if _, err := e.install(fmt.Sprintf("v6-%d", i), newMachine("", addr)).Claim(ctx, fmt.Sprintf("net-%d", i)); err != nil {
+		c := e.install(fmt.Sprintf("v6-%d", i), newMachine("", addr))
+		if _, err := c.Claim(ctx, fmt.Sprintf("net-%d", i)); err != nil {
 			t.Fatalf("claim %d from one /56: %v", i+1, err)
+		}
+		c.Name = fmt.Sprintf("net-%d", i)
+		if _, err := c.Release(ctx); err != nil {
+			t.Fatal(err)
 		}
 	}
 	_, err := e.install("v6-3", newMachine("", "2a01:4f8:c012:6fff::1")).Claim(ctx, "net-3")
@@ -520,6 +540,9 @@ func TestNewNamesPerDayAcrossEveryone(t *testing.T) {
 	_, err := e.install("three", newMachine("5.75.163.9", "")).Claim(ctx, "three")
 	if codeOf(err) != names.CodeRateLimited || !strings.Contains(err.Error(), "new names today") {
 		t.Errorf("a third new name in a day: got %v", err)
+	}
+	if !strings.Contains(e.log.String(), "alert=claims_budget") {
+		t.Error("the owner is not alerted when the daily budget runs out")
 	}
 	e.clk.Add(12 * time.Hour)
 	if _, err := e.install("three", newMachine("5.75.163.9", "")).Claim(ctx, "three"); err != nil {
@@ -592,6 +615,7 @@ func TestCloudflareRateLimitPausesChangesUntilRetryAfter(t *testing.T) {
 	ctx := context.Background()
 	m := newMachine(aliceV4, "")
 	c := e.claimed("alice", "alice", m)
+	e.grown()
 	e.cf.fail(fakeFailure{method: http.MethodPost, status: http.StatusTooManyRequests, fixture: "error_rate_limited.json", retryAfter: "30", left: 1})
 	m.set(aliceV4, aliceV6)
 	n, err := c.Refresh(ctx)
@@ -619,46 +643,21 @@ func TestCloudflareRateLimitPausesChangesUntilRetryAfter(t *testing.T) {
 	}
 }
 
-func TestAFullZoneRefusesNewNamesAndServerAddresses(t *testing.T) {
-	quota := 18 + 2 + DefaultRecordReserve + 2
-	e := newEnv(t, func(e *testEnv) { e.cf.setQuota(&quota) })
-	ctx := context.Background()
-	c := e.claimed("alice", "alice", newMachine(aliceV4, ""))
-	for _, label := range []string{"", "b", "c"} {
-		if _, err := c.SetServer(ctx, label, 25565); err != nil {
-			t.Fatalf("server %q: %v", label, err)
-		}
-	}
-	if _, err := c.SetServer(ctx, "d", 25565); codeOf(err) != names.CodeZoneFull {
-		t.Errorf("a server address in a full zone: got %v, want %s", err, names.CodeZoneFull)
-	}
-	if _, err := c.SetServer(ctx, "c", 25570); err != nil {
-		t.Errorf("changing an existing server's port in a full zone: %v", err)
-	}
-	bob := e.install("bob", newMachine("5.75.161.7", ""))
-	if _, err := bob.Claim(ctx, "bob"); codeOf(err) != names.CodeZoneFull {
-		t.Errorf("a new name in a full zone: got %v, want %s", err, names.CodeZoneFull)
-	}
-	if !strings.Contains(e.log.String(), "almost out of DNS records") {
-		t.Error("a full zone is not logged")
-	}
-	e.cf.setQuota(nil)
-	if _, err := bob.Claim(ctx, "bob"); err != nil {
-		t.Errorf("a new name in a zone without a quota: %v", err)
-	}
-}
-
 func TestServerAddressesPerNameAreLimited(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	c := e.claimed("alice", "alice", newMachine(aliceV4, ""))
-	for i := range maxServers {
+	e.grown()
+	for i := range serversPerKey {
 		if _, err := c.SetServer(ctx, fmt.Sprintf("s%d", i), 25565+i); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := c.SetServer(ctx, "one-more", 25600); codeOf(err) != names.CodeTooManyServers {
-		t.Errorf("server address %d: got %v, want %s", maxServers+1, err, names.CodeTooManyServers)
+		t.Errorf("server address %d: got %v, want %s", serversPerKey+1, err, names.CodeTooManyServers)
+	}
+	if _, err := c.SetServer(ctx, "s0", 25610); err != nil {
+		t.Errorf("changing a port with all server addresses in use: %v", err)
 	}
 	req := e.signedRequest(http.MethodPut, "/v1/names/alice/servers/s0", nil, testKey("alice"), e.clk.Now(), aliceV4)
 	if resp, body := e.send(req); resp.StatusCode != http.StatusBadRequest || body.Code != names.CodeInvalidRequest {
@@ -682,6 +681,10 @@ func TestNamesLapseAndAreFreedWhenNotRefreshed(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	c := e.claimed("alice", "alice", newMachine(aliceV4, ""))
+	e.grown()
+	if _, err := c.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
 	fqdn := names.ChallengeFQDN("alice", testBase)
 	if _, err := c.SetServer(ctx, "", 25565); err != nil {
 		t.Fatal(err)
@@ -861,6 +864,7 @@ func TestHandMadeRecordsAtTheNamesAddressesBlockThemUntilRemoved(t *testing.T) {
 	ctx := context.Background()
 	m := newMachine(aliceV4, "")
 	c := e.claimed("alice", "alice", m)
+	e.grown()
 	e.cf.addByHand("CNAME", "www."+aliceFQD, "example.net", "")
 	e.cf.addByHand("TXT", aliceFQD, `"hello"`, "")
 	if _, err := c.SetServer(ctx, "", 25565); err != nil {

@@ -188,6 +188,16 @@ func TestServiceRefusalsKeepTheirCodeHintParamsAndRetryAfter(t *testing.T) {
 	if err.Error() != "This key sent too many requests. Try again in 2 minutes." {
 		t.Errorf("message %q", err.Error())
 	}
+
+	for header, want := range map[string]time.Duration{"604800": 7 * 24 * time.Hour, "777600": 0, "-5": 0, "soon": 0} {
+		c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Retry-After", header)
+			writeJSON(w, http.StatusTooManyRequests, ErrorBody{Error: "This week's certificates are used up.", Code: CodeCertificateLimit})
+		})
+		if err := c.SetTXT(context.Background(), ChallengeFQDN("alice", DefaultBase), challengeValue()); !errors.As(err, &e) || e.RetryAfter != want {
+			t.Errorf("Retry-After %q: got %#v, want %s", header, err, want)
+		}
+	}
 }
 
 func TestUnexpectedAnswersAreReportedPlainly(t *testing.T) {

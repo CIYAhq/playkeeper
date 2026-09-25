@@ -30,12 +30,24 @@ const (
 const (
 	// StateActive: the name's records point at the install.
 	StateActive = "active"
-	// StateLapsed: the install stopped refreshing, so the records were
-	// removed; the name is still the install's until it is freed.
+	// StateLapsed: the install stopped refreshing or its address stopped
+	// answering (see Name.LapseReason), so the records were removed; the
+	// name is still the install's until it is freed.
 	StateLapsed = "lapsed"
 	// StateReleased: the install gave the name up; it is held from others
 	// for a while so nobody can take over its players at once.
 	StateReleased = "released"
+)
+
+// Why a name lapsed, in Name.LapseReason.
+const (
+	// LapseNotRefreshed: the install did not refresh the address in time.
+	// A refresh brings the name back.
+	LapseNotRefreshed = "not_refreshed"
+	// LapseNoAnswer: the address did not answer the liveness checks (see
+	// AlivePath) for a week. A refresh brings the name back once the
+	// address answers again.
+	LapseNoAnswer = "no_answer"
 )
 
 // DNS states in answers: whether Cloudflare already has the change.
@@ -137,8 +149,16 @@ type Name struct {
 	// lapsed name if it is not refreshed before, for a released one when
 	// its hold ends.
 	FreedAt time.Time `json:"freedAt"`
-	Servers []Server  `json:"servers"`
-	DNS     string    `json:"dns"`
+	// LapseReason says why a lapsed name lost its records.
+	LapseReason string `json:"lapseReason,omitempty"`
+	// AnsweredAt is when the address last answered the liveness check;
+	// zero if it has not since the name was claimed.
+	AnsweredAt time.Time `json:"answeredAt,omitzero"`
+	// AnswerBy is the earliest an active name lapses if its address does
+	// not answer before then.
+	AnswerBy time.Time `json:"answerBy,omitzero"`
+	Servers  []Server  `json:"servers"`
+	DNS      string    `json:"dns"`
 }
 
 // Server is a Minecraft server with its own address under a name, reached

@@ -21,28 +21,36 @@ func TestFromEnvReadsSettingsAndDefaults(t *testing.T) {
 	}
 	if cfg.Base != "playkeeper.io" || cfg.CloudflareToken != testToken || cfg.CloudflareZone != testZoneID ||
 		cfg.DataDir != DefaultDataDir || cfg.Listen != DefaultListen || cfg.TrustedProxies != nil || cfg.BlocklistFile != "" ||
-		cfg.MaxNamesPerKey != DefaultMaxNamesPerKey || cfg.ClaimsPerDay != DefaultClaimsPerDay || cfg.RecordReserve != DefaultRecordReserve {
+		cfg.MaxNamesPerKey != DefaultMaxNamesPerKey || cfg.ClaimsPerDay != DefaultClaimsPerDay || cfg.RecordReserve != DefaultRecordReserve ||
+		cfg.MaxNamesPerNetwork != DefaultMaxNamesPerNetwork || cfg.RecordQuota != DefaultRecordQuota || cfg.AlertWebhook != "" ||
+		cfg.NewCertificates != DefaultNewCertificates {
 		t.Errorf("defaults: %+v", cfg)
 	}
 
 	cfg, err = FromEnv(envOf(map[string]string{
-		EnvBase:           "Example.COM.",
-		EnvToken:          testToken,
-		EnvZone:           testZoneID,
-		EnvDataDir:        "/srv/names",
-		EnvListen:         "127.0.0.1:9000",
-		EnvTrustedProxies: "10.0.1.0/24, 172.18.0.1",
-		EnvMaxNamesPerKey: "3",
-		EnvClaimsPerDay:   "500",
-		EnvRecordReserve:  "0",
-		EnvBlocklist:      "/data/blocklist.txt",
+		EnvBase:               "Example.COM.",
+		EnvToken:              testToken,
+		EnvZone:               testZoneID,
+		EnvDataDir:            "/srv/names",
+		EnvListen:             "127.0.0.1:9000",
+		EnvTrustedProxies:     "10.0.1.0/24, 172.18.0.1",
+		EnvMaxNamesPerKey:     "3",
+		EnvMaxNamesPerNetwork: "5",
+		EnvClaimsPerDay:       "500",
+		EnvRecordReserve:      "0",
+		EnvRecordQuota:        "1000",
+		EnvNewCertificates:    "50",
+		EnvBlocklist:          "/data/blocklist.txt",
+		EnvAlertWebhook:       "https://discord.com/api/webhooks/123/abc",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []netip.Prefix{netip.MustParsePrefix("10.0.1.0/24"), netip.MustParsePrefix("172.18.0.1/32")}
 	if cfg.Base != "example.com" || cfg.DataDir != "/srv/names" || cfg.Listen != "127.0.0.1:9000" || !slices.Equal(cfg.TrustedProxies, want) ||
-		cfg.MaxNamesPerKey != 3 || cfg.ClaimsPerDay != 500 || cfg.RecordReserve != 0 || cfg.BlocklistFile != "/data/blocklist.txt" {
+		cfg.MaxNamesPerKey != 3 || cfg.ClaimsPerDay != 500 || cfg.RecordReserve != 0 || cfg.BlocklistFile != "/data/blocklist.txt" ||
+		cfg.MaxNamesPerNetwork != 5 || cfg.RecordQuota != 1000 || cfg.AlertWebhook != "https://discord.com/api/webhooks/123/abc" ||
+		cfg.NewCertificates != 50 {
 		t.Errorf("settings: %+v", cfg)
 	}
 }
@@ -77,6 +85,13 @@ func TestFromEnvNamesTheVariableButNeverTheValue(t *testing.T) {
 		{valid(map[string]string{EnvMaxNamesPerKey: "two"}), []string{EnvMaxNamesPerKey}},
 		{valid(map[string]string{EnvClaimsPerDay: "-5"}), []string{EnvClaimsPerDay}},
 		{valid(map[string]string{EnvRecordReserve: "1e3"}), []string{EnvRecordReserve}},
+		{valid(map[string]string{EnvMaxNamesPerNetwork: "0"}), []string{EnvMaxNamesPerNetwork, "1 to 10000"}},
+		{valid(map[string]string{EnvRecordQuota: "0"}), []string{EnvRecordQuota}},
+		{valid(map[string]string{EnvNewCertificates: "51"}), []string{EnvNewCertificates, "1 to 50"}},
+		{valid(map[string]string{EnvNewCertificates: "0"}), []string{EnvNewCertificates}},
+		{valid(map[string]string{EnvAlertWebhook: "http://discord.com/api/webhooks/123/secret-part"}), []string{EnvAlertWebhook, "https://"}},
+		{valid(map[string]string{EnvAlertWebhook: "https://user:secret-part@discord.com/api/webhooks/123"}), []string{EnvAlertWebhook}},
+		{valid(map[string]string{EnvAlertWebhook: "discord.com/api/webhooks/123/secret-part"}), []string{EnvAlertWebhook}},
 	} {
 		_, err := FromEnv(envOf(tc.env))
 		if err == nil {
@@ -89,9 +104,12 @@ func TestFromEnvNamesTheVariableButNeverTheValue(t *testing.T) {
 			}
 		}
 		for k, v := range tc.env {
-			if (k == EnvToken || k == EnvZone) && strings.Contains(err.Error(), v) {
+			if (k == EnvToken || k == EnvZone || k == EnvAlertWebhook) && strings.Contains(err.Error(), v) {
 				t.Errorf("the error shows the value of %s: %q", k, err)
 			}
+		}
+		if strings.Contains(err.Error(), "secret-part") || strings.Contains(err.Error(), "/api/webhooks") {
+			t.Errorf("the error shows part of the webhook URL: %q", err)
 		}
 	}
 }

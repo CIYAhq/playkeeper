@@ -18,6 +18,7 @@ const keepBackups = 7
 func (s *Service) tick(ctx context.Context) {
 	now := s.now()
 	s.block.reload(s.log)
+	s.checkNames(ctx, now)
 	s.expire(ctx, now)
 	s.retry(ctx, now)
 	s.backup(now)
@@ -29,13 +30,16 @@ func (s *Service) logErr(what string, err error) {
 	}
 }
 
-// expire removes challenge records that were never cleared, takes the
-// records away from names that stopped refreshing, releases blocklisted
-// names, and frees names whose grace period or hold is over.
+// expire removes challenge records that were never cleared and certificate
+// sets older than renewalLookback, takes the records away from names that
+// stopped refreshing or answering, releases blocklisted names, and frees
+// names whose grace period or hold is over.
 func (s *Service) expire(ctx context.Context, now time.Time) {
 	t := now.Unix()
 	_, err := s.db.ExecContext(ctx, `DELETE FROM nonces WHERE expires_at < ?`, t)
 	s.logErr("Could not forget old nonces", err)
+	_, err = s.db.ExecContext(ctx, `DELETE FROM cert_sets WHERE started_at <= ?`, now.Add(-renewalLookback).Unix())
+	s.logErr("Could not forget old certificates", err)
 
 	expired, err := s.nameStrings(ctx, `SELECT DISTINCT name FROM challenges WHERE expires_at <= ?`, t)
 	s.logErr("Could not list expired challenges", err)
@@ -51,16 +55,9 @@ func (s *Service) expire(ctx context.Context, now time.Time) {
 	stale, err := s.nameStrings(ctx, `SELECT name FROM names WHERE state = ? AND refreshed_at <= ?`, names.StateActive, now.Add(-lapseAfter).Unix())
 	s.logErr("Could not list names to lapse", err)
 	for _, name := range stale {
-		err := s.bump(ctx, name, `UPDATE names SET state = ?, lapsed_at = ? WHERE name = ? AND state = ?`, names.StateLapsed, t, name, names.StateActive)
-		if err == nil {
-			_, err = s.db.ExecContext(ctx, `DELETE FROM challenges WHERE name = ?`, name)
-		}
-		s.logErr("Could not lapse a name", err)
-		if err == nil {
-			s.log.Info("A name was not refreshed in time; its records are removed", "name", name)
-			_ = s.sync(ctx, name)
-		}
+		s.lapse(ctx, now, name, names.LapseNotRefreshed, "A name was not refreshed in time; its records are removed")
 	}
+	s.lapseSilent(ctx, now)
 
 	held, err := s.nameStrings(ctx, `SELECT name FROM names WHERE state != ?`, names.StateReleased)
 	s.logErr("Could not list names", err)
@@ -76,8 +73,9 @@ func (s *Service) expire(ctx context.Context, now time.Time) {
 	}
 
 	res, err := s.db.ExecContext(ctx, `DELETE FROM names WHERE synced >= version AND
-		((state = ? AND lapsed_at <= ?) OR (state = ? AND released_at <= ?))`,
-		names.StateLapsed, now.Add(-freeAfter).Unix(), names.StateReleased, now.Add(-releaseHold).Unix())
+		((state = ? AND lapsed_at <= ?) OR (state = ? AND lapse_reason = ? AND alive_at = 0 AND lapsed_at <= ?) OR (state = ? AND released_at <= ?))`,
+		names.StateLapsed, now.Add(-freeAfter).Unix(), names.StateLapsed, names.LapseNoAnswer, now.Add(-freeSilentAfter).Unix(),
+		names.StateReleased, now.Add(-releaseHold).Unix())
 	s.logErr("Could not free names", err)
 	if err == nil {
 		if n, _ := res.RowsAffected(); n > 0 {
