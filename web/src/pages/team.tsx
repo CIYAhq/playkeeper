@@ -39,10 +39,11 @@ const abilities: { key: MessageKey; role: ProjectRole }[] = [
   { key: 'team.can.team', role: 'admin' },
 ]
 
-const avatarTones = ['', 'bg-info/10 text-info-foreground ring-info/20', 'bg-warm text-warning-foreground ring-warning/25']
+const avatarLetters = ['text-primary', 'text-info-foreground', 'text-warning-foreground']
 
+/** Every avatar is the same pale green disc; the letter's colour tells people apart. */
 function avatarTone(name: string): string {
-  return avatarTones[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % avatarTones.length] ?? ''
+  return cn('bg-primary/10 ring-0', avatarLetters[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % avatarLetters.length])
 }
 
 function inviteName(inv: TeamInvite): string {
