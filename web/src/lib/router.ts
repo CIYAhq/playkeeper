@@ -15,8 +15,11 @@ export type Route =
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
+  // A friends' pack page, public; token is "" for a link that can't be one.
+  | { name: 'pack'; token: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
+const rePackToken = /^[A-Za-z0-9]{22}$/
 
 export function parse(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
@@ -48,6 +51,8 @@ export function parse(pathname: string): Route {
     case 'machines':
       if (second && /^[a-z2-9]{10}$/.test(second) && !third) return { name: 'machine', id: second }
       return { name: 'home' }
+    case 'packs':
+      return { name: 'pack', token: second && rePackToken.test(second) && !third ? second : '' }
   }
   return { name: 'home' }
 }
@@ -74,6 +79,8 @@ export function href(route: Route): string {
       return '/more'
     case 'legacy':
       return `/${route.tab}`
+    case 'pack':
+      return `/packs/${route.token}`
     default: {
       const unreachable: never = route
       return unreachable

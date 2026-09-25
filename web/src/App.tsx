@@ -14,6 +14,7 @@ import { MachinePage } from '@/pages/machine'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
 import { AccountStep, Onboarding } from '@/pages/onboarding'
+import { PackPage } from '@/pages/pack'
 import { ServerPage } from '@/pages/server'
 import { GlobalSettingsPage } from '@/pages/settings'
 
@@ -150,6 +151,8 @@ function page(route: Route) {
       return <GlobalSettingsPage />
     case 'more':
       return <MorePage />
+    case 'pack':
+      return <PackPage token={route.token} />
     default: {
       const unreachable: never = route
       return unreachable

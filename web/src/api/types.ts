@@ -817,6 +817,109 @@ export interface ModpackRef {
   versionId: string
 }
 
+// Wave 4: sharing a modded server's pack with friends.
+
+/** Text from the share: key and params pick the wording, text is the English. */
+export interface ShareText {
+  key: string
+  params?: Record<string, string>
+  text: string
+}
+
+export type ShareNeed = 'required' | 'optional' | 'server_only' | 'unknown'
+
+export interface SharePack {
+  name: string
+  version: string
+  source: string
+  page?: string
+  need: ShareNeed
+  label: ShareText
+}
+
+export interface ShareMod {
+  name: string
+  version?: string
+  path: string
+  from: 'user' | 'pack'
+  source?: string
+  project?: string
+  dependencyOf?: string
+  page?: string
+  onServer: boolean
+  need: ShareNeed
+  label: ShareText
+  inFile: boolean
+  byHand?: boolean
+}
+
+/** A mod friends get by hand, because the file can't link it. */
+export interface ShareYourself {
+  name: string
+  path: string
+  page?: string
+  need: ShareNeed
+  reason: ShareText
+}
+
+/** What friends get from a server, server-only mods included. */
+export interface FriendsShare {
+  server: string
+  type: string
+  minecraftVersion: string
+  loaderVersion: string
+  pack?: SharePack
+  notice: ShareText
+  mods: ShareMod[]
+  yourself?: ShareYourself[]
+}
+
+/** A server's friends' pack; token is set while the page is shared. */
+export interface PackShare {
+  public: boolean
+  token?: string
+  file: string
+  size: number
+  loaderName: string
+  share: FriendsShare
+}
+
+export interface PackPageMod {
+  name: string
+  version?: string
+  from: 'user' | 'pack'
+  page?: string
+  need: ShareNeed
+  label: ShareText
+  inFile: boolean
+  neededBy?: string
+}
+
+export interface PackLauncher {
+  id: string
+  name: string
+  site: string
+  steps: ShareText[]
+}
+
+/** The public /packs/<token> page: only what friends get. */
+export interface PackPage {
+  server: string
+  minecraftVersion: string
+  loader: string
+  loaderName: string
+  loaderVersion: string
+  pack?: SharePack
+  notice: ShareText
+  steps: ShareText[]
+  launchers: PackLauncher[]
+  mods: PackPageMod[]
+  yourself?: ShareYourself[]
+  download: { url: string; name: string; size: number; type: string }
+  address?: string
+  hasIcon: boolean
+}
+
 export interface ServerModpack {
   source: ModpackSource
   projectId: string
