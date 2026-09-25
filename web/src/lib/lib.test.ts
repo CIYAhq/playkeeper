@@ -5,7 +5,7 @@ import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
-import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
+import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
 import { memorySegments } from './memory'
 import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
 import { href, parse, type Route } from './router'
@@ -131,10 +131,23 @@ describe('formatting', () => {
     expect(relativeTime(undefined, now)).toBe('never')
   })
 
+  it('says how long ago in weeks and months for rare changes', () => {
+    const now = Date.parse('2026-09-25T12:00:00Z')
+    expect(relativeAge('2026-09-20T12:00:00Z', now)).toBe('5 days ago')
+    expect(relativeAge('2026-09-04T12:00:00Z', now)).toBe('3 weeks ago')
+    expect(relativeAge('2026-05-25T12:00:00Z', now)).toBe('4 months ago')
+    expect(relativeAge('2023-09-25T12:00:00Z', now)).toBe('3 years ago')
+  })
+
   it('builds the join address players type', () => {
     expect(joinAddress('198.51.100.10', 25565)).toBe('198.51.100.10')
     expect(joinAddress('198.51.100.10', 25567)).toBe('198.51.100.10:25567')
     expect(joinAddress('2001:db8::1', 25566)).toBe('[2001:db8::1]:25566')
+  })
+
+  it('prefers the friendly join address once it works', () => {
+    expect(serverJoinAddress({ gamePort: 25566 }, '198.51.100.10')).toBe('198.51.100.10:25566')
+    expect(serverJoinAddress({ gamePort: 25566, joinAddress: 'creative.alex.playkeeper.io' }, '198.51.100.10')).toBe('creative.alex.playkeeper.io')
   })
 })
 

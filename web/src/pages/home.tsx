@@ -13,7 +13,7 @@ import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatBytes, formatMB, formatPercent, formatSpan, joinAddress } from '@/lib/format'
+import { formatBytes, formatMB, formatPercent, formatSpan, serverJoinAddress } from '@/lib/format'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
@@ -186,7 +186,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
 
 function ServerCard({ server: s, update }: { server: ServerStatus; update?: CatalogEntry }) {
   const { stale } = useWorkspace()
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = serverJoinAddress(s)
   const stopped = phaseTone(s.phase) !== 'online'
   return (
     <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">

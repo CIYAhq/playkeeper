@@ -105,3 +105,18 @@ export function joinAddress(hostname: string, gamePort: number): string {
   const host = hostname.includes(':') && !hostname.startsWith('[') ? `[${hostname}]` : hostname
   return gamePort === 25565 ? host : `${host}:${gamePort}`
 }
+
+/** A server's join address: its friendly name once that works, else the panel's host with the port. */
+export function serverJoinAddress(s: { joinAddress?: string; gamePort: number }, hostname: string = window.location.hostname): string {
+  return s.joinAddress || joinAddress(hostname, s.gamePort)
+}
+
+/** How long ago, for things that change rarely: "just now", "5 days ago", "3 weeks ago", "4 months ago". */
+export function relativeAge(iso: string | undefined, now: number = Date.now()): string {
+  if (!iso) return t('time.never')
+  const days = Math.floor((now - new Date(iso).getTime()) / 86_400_000)
+  if (days < 14) return relativeTime(iso, now)
+  if (days < 60) return t('time.weeksAgo', { count: Math.floor(days / 7) })
+  if (days < 730) return t('time.monthsAgo', { count: Math.floor(days / 30) })
+  return t('time.yearsAgo', { count: Math.floor(days / 365) })
+}

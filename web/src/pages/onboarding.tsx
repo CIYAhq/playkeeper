@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatBytes, formatMB, joinAddress } from '@/lib/format'
+import { formatBytes, formatMB, serverJoinAddress } from '@/lib/format'
 import { createStepOf, isSettingUp } from '@/lib/phase'
 import { navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
@@ -657,7 +657,7 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [added, setAdded] = useState<string[]>([])
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = serverJoinAddress(s)
   const dashboard = () => navigate({ name: 'server', slug: s.slug, tab: 'overview' }, true)
 
   async function invite(e: FormEvent) {
