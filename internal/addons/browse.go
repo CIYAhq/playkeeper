@@ -186,3 +186,20 @@ func sameAddon(c Card, rec Installed) bool {
 func InstalledCard(c Card, installed []Installed) bool {
 	return slices.ContainsFunc(installed, func(rec Installed) bool { return sameAddon(c, rec) })
 }
+
+// InstalledRecord is the record in installed for the card's add-on: the one
+// from the same source first, else the same project listed on the other
+// source. It is nil when the add-on isn't installed.
+func InstalledRecord(c Card, installed []Installed) *Installed {
+	for i, rec := range installed {
+		if rec.Source == c.Source && rec.ProjectID == c.ProjectID {
+			return &installed[i]
+		}
+	}
+	for i, rec := range installed {
+		if sameAddon(c, rec) {
+			return &installed[i]
+		}
+	}
+	return nil
+}

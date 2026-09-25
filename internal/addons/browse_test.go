@@ -115,6 +115,22 @@ func TestInstalledCardMatchesAcrossSources(t *testing.T) {
 	}
 }
 
+func TestInstalledRecordPrefersTheSameSource(t *testing.T) {
+	installed := []Installed{
+		{Source: Hangar, ProjectID: "31", Name: "ViaVersion"},
+		{Source: Modrinth, ProjectID: "P1OZGk5p", Name: "ViaVersion"},
+	}
+	if rec := InstalledRecord(Card{Source: Modrinth, ProjectID: "P1OZGk5p", Name: "ViaVersion"}, installed); rec == nil || rec.Source != Modrinth {
+		t.Errorf("record = %+v, want Modrinth's", rec)
+	}
+	if rec := InstalledRecord(Card{Source: Modrinth, ProjectID: "other", Name: "Via Version"}, installed[:1]); rec == nil || rec.ProjectID != "31" {
+		t.Errorf("record = %+v, want Hangar's by name", rec)
+	}
+	if rec := InstalledRecord(Card{Source: Modrinth, ProjectID: "x", Name: "LuckPerms"}, installed); rec != nil {
+		t.Errorf("record = %+v, want none", rec)
+	}
+}
+
 func TestInstallReportsProgress(t *testing.T) {
 	f := newFakes(t)
 	l := f.library()
