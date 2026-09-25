@@ -32,7 +32,7 @@ CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `ma
 - `scripts/site-check.sh` — builds the playkeeper.io container from `site/` and checks `/`, `/healthz` and the `/install` redirect (needs Docker; CI runs it too). Hosting it is described in [site/README.md](site/README.md).
 - `make notices` — regenerates `THIRD_PARTY_NOTICES`, the licence texts of the third-party code in the binary. Run it after changing Go or npm dependencies and commit the result; `make check` fails while it is out of date.
 
-Protocol-bot tests need offline mode, which only the test harness enables (`PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1` on the agent). Never set it on a real server.
+Protocol-bot tests need offline mode, which only the test harness enables (`PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1` on the agent). Never set it on a real server. The harness sets it in `/etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf`. `playkeeper uninstall` keeps that file, even with `--purge`, because Playkeeper did not create it, so `make e2e-vm` removes it after uninstalling; if you add it by hand, remove it yourself or the next install on that machine starts in offline mode.
 
 ## Releases (maintainers)
 
