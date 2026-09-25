@@ -640,6 +640,8 @@ type Note struct {
 	Key    string            `json:"key"`
 	Params map[string]string `json:"params,omitempty"`
 	Text   string            `json:"text"`
+	// At is when it happened, for notes about an event such as joining.
+	At *time.Time `json:"at,omitempty"`
 }
 
 // WhitelistChange answers adding a player to or removing one from the

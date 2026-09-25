@@ -190,8 +190,8 @@ func TestFriendInviteLetsFriendsIn(t *testing.T) {
 	if st := e.get(t, "/api/servers/"+sampleServer+"/whitelist", own.cookie, &list); st != 200 || len(list) != 2 || list[1]["joined"] != nil {
 		t.Fatalf("allowlist: %d %v", st, list)
 	}
-	if joined, _ := list[0]["joined"].(map[string]any); !strings.Contains(joined["text"].(string), "Discord crew") {
-		t.Fatalf("the allowlist says how they got in: %v", list[0])
+	if joined, _ := list[0]["joined"].(map[string]any); !strings.Contains(joined["text"].(string), "Discord crew") || joined["at"] == nil {
+		t.Fatalf("the allowlist says how and when they got in: %v", list[0])
 	}
 	var links invitesBody
 	if st := e.get(t, "/api/servers/"+sampleServer+"/invites", own.cookie, &links); st != 200 || len(links.Invites) != 1 || links.Invites[0].Uses != 1 || *links.Invites[0].UsesLeft != 1 || links.Link.Friendly {

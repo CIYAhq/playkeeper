@@ -232,7 +232,8 @@ func (s *Server) origins(serverID string) (map[string]*api.Note, error) {
 	for _, x := range list {
 		inv, _ := s.inviteByID(x.o.InviteID)
 		step := x.o.Note(inv)
-		note := &api.Note{Key: step.Key, Params: step.Params, Text: step.Text}
+		at := x.o.JoinedAt
+		note := &api.Note{Key: step.Key, Params: step.Params, Text: step.Text, At: &at}
 		out[x.o.PlayerUUID] = note
 		out["name:"+strings.ToLower(x.name)] = note
 	}
