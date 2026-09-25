@@ -24,6 +24,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/install"
+	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/panel"
 	"github.com/CIYAhq/playkeeper/internal/update"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -34,10 +35,14 @@ const usage = `Playkeeper — your VPS, your game servers, your worlds.
 
 Usage:
   sudo playkeeper install     [--panel-port 8443] [--game-port 25565] [--yes]
+                              [--join ADDRESS --code CODE --fingerprint FP [--name NAME]]
                               (on a server that has Playkeeper, upgrades it in place)
   sudo playkeeper uninstall   [--yes] [--purge] [--keep-docker]
        playkeeper preflight   [--json]            check this host without changing it
   sudo playkeeper status                          show the server state from the agent
+  sudo playkeeper join ADDRESS --code CODE --fingerprint FP [--name NAME]
+                                                  connect this machine to another dashboard
+  sudo playkeeper leave       [--force]           disconnect it from that dashboard
   sudo playkeeper setup-code                      new one-time setup code (before the first admin exists)
   sudo playkeeper reset-password <username>       print a new random password for an admin
   sudo playkeeper mcp                             serve the tools to an AI assistant over stdio (for SSH)
@@ -47,6 +52,7 @@ Usage:
 Services (started by systemd after install):
   playkeeper agent        --config /etc/playkeeper/config.json
   playkeeper panel        --config /etc/playkeeper/config.json
+  playkeeper link         --config /etc/playkeeper/config.json   keeps a joined machine's link to its dashboard
   playkeeper self-update  --config /etc/playkeeper/config.json   installs an update the agent verified
   playkeeper units        --config /etc/playkeeper/config.json   prints this version's systemd units (JSON)
 `
@@ -75,6 +81,12 @@ func main() {
 		err = runPreflight(args)
 	case "status":
 		err = runStatus(args)
+	case "join":
+		err = runJoin(args)
+	case "leave":
+		err = runLeave(args)
+	case "link":
+		err = runLink(args)
 	case "setup-code":
 		err = runSetupCode(args)
 	case "reset-password":
@@ -225,12 +237,17 @@ func installFlags(fs *flag.FlagSet) *install.Options {
 	fs.BoolVar(&o.AllowUntestedOS, "allow-untested-os", false, "continue on an operating system or CPU Playkeeper is not tested on")
 	fs.BoolVar(&o.AllowExistingMinecraft, "allow-existing-minecraft", false, "continue although another Minecraft setup exists (Playkeeper never touches it)")
 	fs.StringVar(&o.ReleaseURL, "release-url", "", "where the installed Playkeeper looks for updates (default: the latest GitHub release); get.sh sets it when it downloads from elsewhere")
+	fs.StringVar(&o.Join, "join", "", "after installing, join the dashboard at this address (from its join command); no dashboard runs here then")
 	return o
 }
 
 func runInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	o := installFlags(fs)
+	j := joinArgs{config: config.DefaultPath}
+	fs.StringVar(&j.code, "code", "", "with --join: the join code from the dashboard's command")
+	fs.StringVar(&j.fingerprint, "fingerprint", "", "with --join: the dashboard's fingerprint from its command")
+	fs.StringVar(&j.name, "name", "", "with --join: what the dashboard calls this machine (default: its host name)")
 	fs.Parse(args)
 	if o.PanelPort == o.GamePort {
 		return errors.New("--panel-port and --game-port must differ")
@@ -239,6 +256,17 @@ func runInstall(args []string) error {
 		if _, err := update.CheckReleaseURL(o.ReleaseURL); err != nil {
 			return err
 		}
+	}
+	switch {
+	case o.Join == "" && (j.code != "" || j.fingerprint != "" || j.name != ""):
+		return errors.New("--code, --fingerprint and --name go with --join ADDRESS; copy the whole command from the dashboard (Settings › Machines)")
+	case o.Join != "" && (j.code == "" || j.fingerprint == ""):
+		return errors.New("--join needs --code and --fingerprint too; copy the whole command from the dashboard (Settings › Machines)")
+	case o.Join != "":
+		if _, err := machinelink.NewCommand(o.Join, j.code, j.fingerprint); err != nil {
+			return linkError(err)
+		}
+		j.address = o.Join
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
@@ -250,14 +278,34 @@ func runInstall(args []string) error {
 	case res.UpToDate:
 	case res.Upgraded:
 		writeUpgradeSummary(os.Stdout, res)
+	case res.NoPanel:
+		fmt.Printf("\nPlaykeeper is installed (in %s).\n\n", res.Duration.Round(time.Second))
 	default:
 		writeInstallSummary(os.Stdout, res)
 	}
-	return nil
+	if o.Join == "" {
+		return nil
+	}
+	cfg, err := config.Load(config.DefaultPath)
+	if err != nil {
+		return err
+	}
+	err = join(ctx, os.Stdout, cfg, j)
+	switch {
+	case err == nil:
+		return nil
+	case machinelink.CodeOf(err) == machinelink.CodeMachineAlreadyJoined:
+		return linkError(err)
+	}
+	return fmt.Errorf("%v\nPlaykeeper is installed, but this machine didn't join the dashboard. Once that's fixed, make a new code there\n(Settings › Machines › Connect a machine), switch to the command for a machine that already runs Playkeeper, and run it here.", linkError(err))
 }
 
 func writeUpgradeSummary(w io.Writer, res *install.Result) {
 	fmt.Fprintf(w, "\nPlaykeeper was upgraded from %s to %s in %s. Your worlds, backups and settings were kept.\n", res.FromVersion, version.Version, res.Duration.Round(time.Second))
+	if res.NoPanel {
+		fmt.Fprintf(w, "This machine has no dashboard of its own: its servers are in the dashboard it joined (sudo playkeeper status says which).\n")
+		return
+	}
 	fmt.Fprintf(w, "Open %s and sign in as before", res.URL)
 	if res.Fingerprint != "" {
 		fmt.Fprintf(w, " (certificate fingerprint %s)", res.Fingerprint)
@@ -361,6 +409,7 @@ func runStatus(args []string) error {
 	if err != nil {
 		return err
 	}
+	writeLinkStatus(os.Stdout, cfg, *path, time.Now())
 	var servers []api.ServerStatus
 	if _, err := agentclient.New(cfg.SocketPath).Do(context.Background(), "GET", "/v1/servers", nil, nil, &servers); err != nil {
 		return err
