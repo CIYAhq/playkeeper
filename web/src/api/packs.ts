@@ -54,7 +54,8 @@ export type PackPageState = { kind: 'loading' } | { kind: 'ready'; page: PackPag
 
 /**
  * The public page's data. The panel answers every link that doesn't open a
- * shared pack alike, so all of them are "gone".
+ * shared pack with one 404, so all of them are "gone"; "busy" is the panel
+ * turning away too many requests, or no answer at all.
  */
 export function usePackPage(token: string) {
   const [state, setState] = useState<{ token: string; value: PackPageState }>({ token, value: { kind: 'loading' } })
@@ -65,7 +66,7 @@ export function usePackPage(token: string) {
     fetch(`/packs/${token}/page`, { credentials: 'omit', cache: 'no-store' })
       .then(async (res): Promise<PackPageState> => {
         if (res.ok) return { kind: 'ready', page: (await res.json()) as PackPage }
-        return res.status === 503 ? { kind: 'busy' } : { kind: 'gone' }
+        return res.status === 429 || res.status === 503 ? { kind: 'busy' } : { kind: 'gone' }
       })
       .catch((): PackPageState => ({ kind: 'busy' }))
       .then((value) => !cancelled && setState({ token, value }))

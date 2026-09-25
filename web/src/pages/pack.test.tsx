@@ -222,8 +222,8 @@ describe('the friends’ pack page', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('offers to try again when the pack can’t be made right now', async () => {
-    const calls = answerPage({ status: 503 }, { status: 200, body: page })
+  it('offers to try again when the panel turns the request away', async () => {
+    const calls = answerPage({ status: 429 }, { status: 200, body: page })
     const shown = await render(<PackPage token={token} />)
     expect(shown).toContain('Playkeeper can’t make this pack right now')
     expect(shown).toContain('Try again in a few minutes.')
