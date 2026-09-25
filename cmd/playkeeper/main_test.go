@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/install"
+	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
 // Regression for 1e19a0a: a reinstall that kept the admin account printed
@@ -29,5 +31,26 @@ func TestInstallSummaryForFirstInstallAndReinstall(t *testing.T) {
 		if strings.Contains(again.String(), bad) {
 			t.Errorf("reinstall summary must not mention %q:\n%s", bad, again.String())
 		}
+	}
+}
+
+func TestDevStaysOffTheRealNamesServiceAndLetsEncrypt(t *testing.T) {
+	cfg := config.Default()
+	devDefaults(&cfg)
+	if cfg.NamesURL != devNamesURL || cfg.ACMEDirectoryURL != devACMEDirectoryURL {
+		t.Fatalf("dev defaults: names %q, ACME %q", cfg.NamesURL, cfg.ACMEDirectoryURL)
+	}
+	if _, err := names.CheckServiceURL(cfg.NamesURL); err != nil {
+		t.Fatalf("the names client refuses the dev names service: %v", err)
+	}
+	if strings.Contains(cfg.NamesURL, "playkeeper.io") || !strings.Contains(cfg.ACMEDirectoryURL, "staging") {
+		t.Fatalf("dev reaches the real services: names %q, ACME %q", cfg.NamesURL, cfg.ACMEDirectoryURL)
+	}
+
+	cfg = config.Default()
+	cfg.NamesURL, cfg.ACMEDirectoryURL = "https://names.example.org", "https://ca.example.org/directory"
+	devDefaults(&cfg)
+	if cfg.NamesURL != "https://names.example.org" || cfg.ACMEDirectoryURL != "https://ca.example.org/directory" {
+		t.Fatalf("dev replaced the services .dev/config.json names: names %q, ACME %q", cfg.NamesURL, cfg.ACMEDirectoryURL)
 	}
 }

@@ -171,6 +171,7 @@ func runDev(args []string) error {
 		cfg.InstallID = fmt.Sprintf("dev-%d", time.Now().Unix())
 	}
 	cfg.Dev = true
+	devDefaults(&cfg)
 	cfg.DataDir = filepath.Join(abs, "data")
 	cfg.SocketPath = filepath.Join(abs, "agent.sock")
 	cfg.PanelUser = u.Username
@@ -214,6 +215,24 @@ func runDev(args []string) error {
 		return nil
 	case err := <-errc:
 		return err
+	}
+}
+
+// A dev install talks to a names service on this computer (where
+// scripts/names-check.sh runs one) and Let's Encrypt's staging CA unless
+// .dev/config.json names others, so make dev never claims real names or
+// certificates by accident.
+const (
+	devNamesURL         = "http://127.0.0.1:8081"
+	devACMEDirectoryURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
+)
+
+func devDefaults(cfg *config.Config) {
+	if cfg.NamesURL == "" {
+		cfg.NamesURL = devNamesURL
+	}
+	if cfg.ACMEDirectoryURL == "" {
+		cfg.ACMEDirectoryURL = devACMEDirectoryURL
 	}
 }
 
