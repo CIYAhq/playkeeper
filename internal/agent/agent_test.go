@@ -201,6 +201,16 @@ func (e *agentEnv) waitExitRead() {
 	})
 }
 
+func (e *agentEnv) onlineIdle() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() }
+
+func (e *agentEnv) crashEvents() int {
+	return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`)
+}
+
+func (e *agentEnv) opsOf(kind, status string) int {
+	return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = ? AND status = ?`, kind, status)
+}
+
 func (e *agentEnv) countRows(q string, args ...any) int {
 	var n int
 	if err := e.a.db.QueryRow(q, args...).Scan(&n); err != nil {
@@ -664,25 +674,50 @@ func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	}
 }
 
-// A host reboot stops the server cleanly while the agent is down. However
-// long ago that was, the agent reads the log to its end before deciding, so
-// it is a clean stop and not a crash, and the server is brought back.
-func TestCleanShutdownWhileTheAgentWasDownIsNotACrash(t *testing.T) {
-	e := newAgentEnv(t)
-	e.create()
-	e.stop()
-	e.fd.externalStop()
-	e.fd.mu.Lock()
-	e.fd.logDelay = 300 * time.Millisecond
-	e.fd.mu.Unlock()
-	e.clockOffset = time.Minute
-	e.start()
-	e.waitFor("the server brought back", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
-	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`); n != 0 {
-		t.Fatalf("a clean shutdown while the agent was down was recorded as %d crash(es)", n)
-	}
-	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`); n != 1 {
-		t.Fatalf("want one clean external stop, got %d", n)
+// When the server stops while the agent is down, for example during a host
+// reboot, the agent does not know how it stopped, so it counts no crash. It
+// reads the log to its end first, however long ago the exit was, so a leave
+// logged meanwhile closes its session; a session still open ends at the exit,
+// uncertain. The server is brought back.
+func TestExitWhileTheAgentWasDownIsNotCounted(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		stop      func(fd *fakeDocker)
+		reason    string
+		uncertain int
+	}{
+		{"clean shutdown", func(fd *fakeDocker) {
+			fd.addLog("[12:02:00 INFO]: PkBotBuilder left the game")
+			fd.externalStop()
+		}, "left", 0},
+		{"crash", func(fd *fakeDocker) { fd.crash(137) }, "server_stopped", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+			e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
+			e.stop()
+			tc.stop(e.fd)
+			e.fd.mu.Lock()
+			e.fd.logDelay = 300 * time.Millisecond
+			e.fd.mu.Unlock()
+			e.clockOffset = time.Minute
+			e.start()
+			e.waitFor("the server brought back", e.onlineIdle)
+			if n := e.crashEvents(); n != 0 {
+				t.Fatalf("an exit while the agent was down was counted as %d crash(es)", n)
+			}
+			if n := e.opsOf("recover", api.OpSucceeded); n != 1 {
+				t.Fatalf("want one recover, got %d", n)
+			}
+			var reason string
+			var uncertain int
+			e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason, &uncertain)
+			if reason != tc.reason || uncertain != tc.uncertain {
+				t.Fatalf("session ended with reason %q, uncertain %d; want %q, %d", reason, uncertain, tc.reason, tc.uncertain)
+			}
+		})
 	}
 }
 
@@ -746,41 +781,24 @@ func TestFailedStartIsCountedOnce(t *testing.T) {
 	}
 }
 
-// An agent restart keeps what the restart policy still owes a server that
-// should be running: a restart waiting out its backoff, and a start the agent
-// was stopped in the middle of. A policy that gave up stays given up.
-func TestAgentRestartKeepsAPendingAutomaticStart(t *testing.T) {
-	crashes := func(e *agentEnv) int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) }
-	ops := func(e *agentEnv, kind, status string) int {
-		return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = ? AND status = ?`, kind, status)
-	}
-	online := func(e *agentEnv) func() bool {
-		return func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() }
-	}
-
-	t.Run("a restart waiting out its backoff", func(t *testing.T) {
+// After an agent restart the restart policy starts over, so a server that
+// should be running is brought back: after a crash that was waiting out its
+// backoff, after a start the agent was stopped in the middle of, and after the
+// policy gave up. If the cause is still there, it gives up again and says why.
+func TestAgentRestartBringsBackAServerThatShouldBeRunning(t *testing.T) {
+	t.Run("a crash waiting out its backoff", func(t *testing.T) {
 		e := newAgentEnv(t)
 		e.stop()
 		e.crashBackoff = []time.Duration{time.Minute}
 		e.start()
 		e.create()
 		e.fd.crash(137)
-		e.waitFor("the crash to be counted", func() bool { return crashes(e) == 1 && e.status().Phase == api.PhaseCrashed })
-		// Restarted inside the backoff, the agent reads the crashed run's log
-		// again, keeps the crash and waits.
+		e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == 1 && e.status().Phase == api.PhaseCrashed })
 		e.stop()
 		e.start()
-		e.waitExitRead()
-		if st := e.status(); st.Phase != api.PhaseCrashed || st.CrashCount != 1 || e.a.busy() {
-			t.Fatalf("inside the backoff: phase %s, crash count %d, busy %v", st.Phase, st.CrashCount, e.a.busy())
-		}
-		// Restarted after it, the agent restarts the server.
-		e.stop()
-		e.clockOffset = 2 * time.Minute
-		e.start()
-		e.waitFor("the automatic restart after the backoff", online(e))
-		if n, c := ops(e, "auto-restart", api.OpSucceeded), crashes(e); n != 1 || c != 1 {
-			t.Fatalf("want one automatic restart and the crash counted once, got %d and %d", n, c)
+		e.waitFor("the server brought back", e.onlineIdle)
+		if n, c := e.opsOf("recover", api.OpSucceeded), e.crashEvents(); n != 1 || c != 1 {
+			t.Fatalf("want one recover and the crash counted once, got %d and %d", n, c)
 		}
 	})
 
@@ -801,8 +819,8 @@ func TestAgentRestartKeepsAPendingAutomaticStart(t *testing.T) {
 		e.fd.holdImages = false
 		e.fd.mu.Unlock()
 		e.start()
-		e.waitFor("the recover to be finished", online(e))
-		if n := ops(e, "recover", api.OpSucceeded); n != 1 {
+		e.waitFor("the recover to be finished", e.onlineIdle)
+		if n := e.opsOf("recover", api.OpSucceeded); n != 1 {
 			t.Fatalf("want the recover finished once, got %d", n)
 		}
 		if n := e.status().CrashCount; n != 0 {
@@ -820,8 +838,8 @@ func TestAgentRestartKeepsAPendingAutomaticStart(t *testing.T) {
 		c.running, c.started, c.finished = false, time.Time{}, time.Time{}
 		e.fd.mu.Unlock()
 		e.start()
-		e.waitFor("the start to be finished", online(e))
-		if n := ops(e, "recover", api.OpSucceeded); n != 1 {
+		e.waitFor("the start to be finished", e.onlineIdle)
+		if n := e.opsOf("recover", api.OpSucceeded); n != 1 {
 			t.Fatalf("want one recover, got %d", n)
 		}
 	})
@@ -830,23 +848,111 @@ func TestAgentRestartKeepsAPendingAutomaticStart(t *testing.T) {
 		e := newAgentEnv(t)
 		e.create()
 		for i := 1; i <= maxCrashes; i++ {
-			e.waitFor("online before the crash", online(e))
+			e.waitFor("online before the crash", e.onlineIdle)
 			e.fd.crash(1)
-			e.waitFor("the crash to be counted", func() bool { return crashes(e) == i })
+			e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == i })
 		}
 		e.waitFor("the policy to give up", func() bool {
 			return strings.Contains(e.status().LastError, "stopped restarting") && !e.a.busy()
 		})
 		e.stop()
-		e.clockOffset = crashWindow + time.Minute
+		e.fd.mu.Lock()
+		e.fd.bootExit = 134
+		e.fd.mu.Unlock()
 		e.start()
-		time.Sleep(500 * time.Millisecond)
-		if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart')`); n != maxCrashes-1 {
-			t.Fatalf("an agent restart must not undo giving up: %d automatic starts, want %d", n, maxCrashes-1)
+		e.waitFor("the policy to give up again", func() bool {
+			return strings.Contains(e.status().LastError, "stopped trying to start") && !e.a.busy()
+		})
+		if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart') AND status = 'failed'`); n != maxCrashes {
+			t.Fatalf("want %d failed automatic starts after the agent restart, got %d", maxCrashes, n)
 		}
-		if st := e.status(); st.Phase != api.PhaseCrashed || st.CrashCount != maxCrashes {
-			t.Fatalf("after an agent restart: phase %s, crash count %d", st.Phase, st.CrashCount)
+		if n := e.crashEvents(); n != maxCrashes {
+			t.Fatalf("the crashes from before the agent restart were counted again: %d crash events", n)
 		}
+	})
+}
+
+// Right after an agent restart the follower replays the previous run's log,
+// whose ready line is history. A start that begins meanwhile, by the reconcile
+// loop or by the user, succeeds only once the new run is ready.
+func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
+	slowReplay := func(e *agentEnv, bootExit int) {
+		e.fd.mu.Lock()
+		e.fd.logDelay = 150 * time.Millisecond
+		e.fd.bootExit = bootExit
+		e.fd.mu.Unlock()
+	}
+	userStart := func(e *agentEnv) *api.Operation {
+		code, out := e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+		if code != 202 {
+			e.t.Fatalf("start: %d %v", code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	// crashedAndStopped leaves a run that was ready, crashed, and was then
+	// stopped by the user, so nothing restarts it and its log ends with "Done".
+	crashedAndStopped := func(t *testing.T) *agentEnv {
+		e := newAgentEnv(t)
+		e.stop()
+		e.crashBackoff = []time.Duration{time.Minute}
+		e.start()
+		e.create()
+		e.fd.crash(137)
+		e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == 1 })
+		if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 200 {
+			t.Fatalf("stop: %d %v", code, out)
+		}
+		return e
+	}
+
+	t.Run("an automatic start whose new run fails", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		inspected := e.fd.called("GET /images/")
+		e.fd.mu.Lock()
+		e.fd.holdImages = true
+		e.fd.mu.Unlock()
+		e.fd.crash(137)
+		e.waitFor("the automatic restart to be under way", func() bool {
+			op := e.a.currentOp()
+			return op != nil && op.Kind == "auto-restart" && e.fd.called("GET /images/") > inspected
+		})
+		e.stop()
+		e.fd.mu.Lock()
+		e.fd.holdImages = false
+		e.fd.mu.Unlock()
+		slowReplay(e, 134)
+		e.start()
+		e.waitFor("the automatic starts to stop", func() bool {
+			return strings.Contains(e.status().LastError, "stopped") && !e.a.busy()
+		})
+		if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart') AND status = 'succeeded'`); n != 0 {
+			t.Fatalf("%d automatic start(s) succeeded although every new run failed", n)
+		}
+		if st := e.status(); !strings.Contains(st.LastError, "stopped trying to start") {
+			t.Fatalf("want the failed starts given up, got %q", st.LastError)
+		}
+	})
+
+	t.Run("a start the user asks for whose new run fails", func(t *testing.T) {
+		e := crashedAndStopped(t)
+		e.stop()
+		slowReplay(e, 134)
+		e.start()
+		if op := userStart(e); op.Status != api.OpFailed {
+			t.Fatalf("the start succeeded although the new run failed: %+v", op)
+		}
+	})
+
+	t.Run("a start the user asks for that comes up", func(t *testing.T) {
+		e := crashedAndStopped(t)
+		e.stop()
+		slowReplay(e, 0)
+		e.start()
+		if op := userStart(e); op.Status != api.OpSucceeded {
+			t.Fatalf("start: %+v", op)
+		}
+		e.waitFor("online", e.onlineIdle)
 	})
 }
 

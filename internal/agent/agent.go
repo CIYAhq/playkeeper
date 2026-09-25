@@ -102,6 +102,7 @@ type Agent struct {
 	docker  *docker.Client
 	log     *slog.Logger
 	now     func() time.Time
+	started time.Time // when this agent process started
 	console *ring
 
 	ctx    context.Context
@@ -127,7 +128,6 @@ type Agent struct {
 	prevCPU         *docker.Stats
 	crashes         []time.Time
 	crashed         bool
-	resume          bool // the first reconcile finishes a start the previous process left unfinished
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
 	intentional     map[string]bool
@@ -136,8 +136,6 @@ type Agent struct {
 	listExtra       map[string]int
 	uuids           map[string]string
 	nextAutoRestart time.Time
-
-	policyMu sync.Mutex // serializes saveCrashPolicy
 
 	rconMu sync.Mutex
 	rcon   *minecraft.RCON
@@ -212,6 +210,7 @@ func New(opts Options) (*Agent, error) {
 		docker:      docker.New(cfg.DockerSocket),
 		log:         opts.Logger,
 		now:         opts.Now,
+		started:     opts.Now(),
 		console:     newRing(consoleCapacity),
 		opLock:      make(chan struct{}, 1),
 		handledExit: map[string]time.Time{},
@@ -240,9 +239,6 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.markInterruptedOperations()
 	a.pruneStages()
-	a.loadHandledExit()
-	a.loadCrashPolicy()
-	a.resume = true
 	return a, nil
 }
 

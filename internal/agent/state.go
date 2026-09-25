@@ -17,8 +17,6 @@ const (
 	kvCollectingSince = "collecting_since"
 	kvLogCursor       = "log_cursor"
 	kvPendingRecreate = "pending_recreate"
-	kvHandledExit     = "handled_exit"
-	kvCrashPolicy     = "crash_policy"
 )
 
 func (a *Agent) kvGet(key string) (string, bool, error) {

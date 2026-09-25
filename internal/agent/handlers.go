@@ -280,7 +280,6 @@ func (a *Agent) hStart(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.crashes, a.crashed, a.nextAutoRestart = nil, false, time.Time{}
 	a.mu.Unlock()
-	a.saveCrashPolicy()
 	op, err := a.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
 		if err := a.setDesired(api.DesiredRunning); err != nil {
 			return err
@@ -320,7 +319,6 @@ func (a *Agent) hStop(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.crashed = false
 		a.mu.Unlock()
-		a.saveCrashPolicy()
 	}
 	release()
 	if err != nil {
