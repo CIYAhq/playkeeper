@@ -110,7 +110,7 @@ func runAgent(args []string) error {
 	if err != nil {
 		return err
 	}
-	a, err := agent.New(agent.Options{Config: cfg, Logger: logger(), OfflineModeTest: os.Getenv(agent.OfflineModeEnv) == "1"})
+	a, err := agent.New(agent.Options{Config: cfg, Logger: logger(), UpdateKeys: update.TrustedKeys(), OfflineModeTest: os.Getenv(agent.OfflineModeEnv) == "1"})
 	if err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func runDev(args []string) error {
 		return err
 	}
 	log := logger()
-	a, err := agent.New(agent.Options{Config: cfg, Logger: log, AllowedUIDs: []uint32{uint32(os.Getuid())}, OfflineModeTest: os.Getenv(agent.OfflineModeEnv) == "1"})
+	a, err := agent.New(agent.Options{Config: cfg, Logger: log, AllowedUIDs: []uint32{uint32(os.Getuid())}, UpdateKeys: update.TrustedKeys(), OfflineModeTest: os.Getenv(agent.OfflineModeEnv) == "1"})
 	if err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func runSelfUpdate(args []string) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return install.SelfUpdate(ctx, install.Real(), cfg, version.Version, os.Stdout)
+	return install.SelfUpdate(ctx, install.Real(), cfg, version.Version, update.TrustedKeys(), os.Stdout)
 }
 
 // runUnits prints the systemd units this version installs, so an updater

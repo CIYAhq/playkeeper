@@ -300,19 +300,12 @@ func (s *stagedRelease) result(t *testing.T) update.Result {
 	return r
 }
 
-func trust(t *testing.T, keys []ed25519.PublicKey) {
-	old := trustedKeys
-	trustedKeys = func() []ed25519.PublicKey { return keys }
-	t.Cleanup(func() { trustedKeys = old })
-}
-
 func TestUpdaterInstallsAVerifiedStagedRelease(t *testing.T) {
 	h := newFakeHost(t)
 	cfg := installedAt(t, h, "0.2.0", true)
 	s := stage(t, h, cfg, "0.2.0", "0.2.1")
-	trust(t, s.keys)
 	var out bytes.Buffer
-	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", &out); err != nil {
+	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", s.keys, &out); err != nil {
 		t.Fatalf("update failed: %v\n%s", err, out.String())
 	}
 	if r := s.result(t); r.Outcome != update.OutcomeUpdated || r.OpID != "op1" || r.From != "0.2.0" || r.To != "0.2.1" {
@@ -326,7 +319,7 @@ func TestUpdaterInstallsAVerifiedStagedRelease(t *testing.T) {
 			t.Errorf("%s must be cleaned up", gone)
 		}
 	}
-	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.1", &out); err != nil {
+	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.1", s.keys, &out); err != nil {
 		t.Fatalf("without a request the updater has nothing to do: %v", err)
 	}
 }
@@ -336,6 +329,9 @@ func TestUpdaterRefusesAnythingItCannotVerify(t *testing.T) {
 		prepare func(t *testing.T, h *fakeHost, s *stagedRelease)
 		why     string
 	}{
+		"no release key in this build": {func(t *testing.T, h *fakeHost, s *stagedRelease) {
+			s.keys = nil
+		}, "no release signing key"},
 		"signed by another key": {func(t *testing.T, h *fakeHost, s *stagedRelease) {
 			_, other, _ := ed25519.GenerateKey(rand.Reader)
 			m, _ := os.ReadFile(filepath.Join(s.dir, update.StagedDir, update.ManifestFile))
@@ -361,10 +357,9 @@ func TestUpdaterRefusesAnythingItCannotVerify(t *testing.T) {
 			h := newFakeHost(t)
 			cfg := installedAt(t, h, "0.2.0", true)
 			s := stage(t, h, cfg, "0.2.0", "0.2.1")
-			trust(t, s.keys)
 			tc.prepare(t, h, s)
 			before := snapshot(t, filepath.Join(h.root, "usr"))
-			err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", &bytes.Buffer{})
+			err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", s.keys, &bytes.Buffer{})
 			r := s.result(t)
 			if err == nil || r.Outcome != update.OutcomeRefused || !strings.Contains(r.Error, tc.why) {
 				t.Fatalf("want refused because %q, got %+v (%v)", tc.why, r, err)
@@ -383,9 +378,8 @@ func TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne(t *testin
 	h := newFakeHost(t)
 	cfg := installedAt(t, h, "0.2.0", true)
 	s := stage(t, h, cfg, "0.2.0", "0.2.1")
-	trust(t, s.keys)
 	h.unhealthy = map[string]error{"0.2.1": errors.New("panel did not answer")}
-	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", &bytes.Buffer{}); err == nil {
+	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", s.keys, &bytes.Buffer{}); err == nil {
 		t.Fatal("an unhealthy update must report failure")
 	}
 	if r := s.result(t); r.Outcome != update.OutcomeRolledBack || !strings.Contains(r.Error, "panel did not answer") {
@@ -405,7 +399,7 @@ func TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne(t *testin
 	}
 	os.WriteFile(filepath.Join(h2.root, BinPath), []byte("playkeeper 0.2.1 (staged)\n"), 0o755)
 	os.Rename(filepath.Join(s2.dir, update.RequestFile), filepath.Join(s2.dir, update.ApplyingFile))
-	if err := SelfUpdate(context.Background(), h2.system(t), cfg2, "0.2.1", &bytes.Buffer{}); err != nil {
+	if err := SelfUpdate(context.Background(), h2.system(t), cfg2, "0.2.1", s2.keys, &bytes.Buffer{}); err != nil {
 		t.Fatalf("a healthy interrupted update must be kept: %v", err)
 	}
 	if r := s2.result(t); r.Outcome != update.OutcomeUpdated || r.From != "0.2.0" {
@@ -417,7 +411,7 @@ func TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne(t *testin
 	}
 	h2.unhealthy = map[string]error{"0.2.1": errors.New("crash loop")}
 	os.WriteFile(filepath.Join(s2.dir, update.ApplyingFile), []byte(`{"opId":"op2","version":"0.2.1","from":"0.2.0"}`), 0o600)
-	SelfUpdate(context.Background(), h2.system(t), cfg2, "0.2.1", &bytes.Buffer{})
+	SelfUpdate(context.Background(), h2.system(t), cfg2, "0.2.1", s2.keys, &bytes.Buffer{})
 	if r := s2.result(t); r.Outcome != update.OutcomeRolledBack || read(t, h2, BinPath) != "playkeeper 0.2.0 (installed)\n" {
 		t.Fatalf("an unhealthy interrupted update must be rolled back: %+v", r)
 	}
@@ -427,7 +421,6 @@ func TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime(t *testing.T) {
 	h := newFakeHost(t)
 	cfg := installedAt(t, h, "0.2.0", true)
 	s := stage(t, h, cfg, "0.2.0", "0.2.1")
-	trust(t, s.keys)
 	sys := h.system(t)
 	bin := newBinary(t, "0.2.2")
 	sys.Executable = func() (string, error) { return bin, nil }
@@ -465,7 +458,7 @@ func TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime(t *testing.T) {
 	}
 	updater := h.system(t)
 	done := make(chan error, 1)
-	go func() { done <- SelfUpdate(context.Background(), updater, cfg, "0.2.0", &bytes.Buffer{}) }()
+	go func() { done <- SelfUpdate(context.Background(), updater, cfg, "0.2.0", s.keys, &bytes.Buffer{}) }()
 	select {
 	case err := <-done:
 		t.Fatalf("the updater must wait for the installer to finish: %v", err)
@@ -531,10 +524,9 @@ func TestAnUpdaterThatWaitedForTheInstallerDoesNotInstallOverIt(t *testing.T) {
 	// While the installer waits for its answer, the dashboard stages 0.2.1
 	// and the updater (still 0.2.0) starts.
 	s := stage(t, h, cfg, "0.2.0", "0.2.1")
-	trust(t, s.keys)
 	updaterSys := h.system(t)
 	updater := make(chan error, 1)
-	go func() { updater <- SelfUpdate(context.Background(), updaterSys, cfg, "0.2.0", &bytes.Buffer{}) }()
+	go func() { updater <- SelfUpdate(context.Background(), updaterSys, cfg, "0.2.0", s.keys, &bytes.Buffer{}) }()
 	select {
 	case err := <-updater:
 		t.Fatalf("the updater must wait while the installer holds the lock: %v", err)
@@ -557,10 +549,9 @@ func TestAnUpdateThatCannotRecordItsVersionIsStillAnUpdate(t *testing.T) {
 	h := newFakeHost(t)
 	cfg := installedAt(t, h, "0.2.0", true)
 	s := stage(t, h, cfg, "0.2.0", "0.2.1")
-	trust(t, s.keys)
 	os.WriteFile(filepath.Join(h.root, cfg.ManifestPath()), []byte("not json"), 0o600)
 	var out bytes.Buffer
-	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", &out); err != nil {
+	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", s.keys, &out); err != nil {
 		t.Fatalf("a running, healthy new version is an update: %v\n%s", err, out.String())
 	}
 	if r := s.result(t); r.Outcome != update.OutcomeUpdated || read(t, h, BinPath) != "playkeeper 0.2.1 (staged)\n" {
