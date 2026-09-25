@@ -194,19 +194,24 @@ function Step({ state, title, hint, bar }: { state: StepState; title: string; hi
 }
 
 export function CopyRestoreDialog({ restore, copies, place }: { restore: ReturnType<typeof useCopyRestore>; copies: OffsiteCopy[]; place: string }) {
-  const phone = useIsPhone()
-  const { op, open, loadError } = restore
+  const { op } = restore
   if (!op) return null
   const name = typeof op.detail?.name === 'string' ? op.detail.name : ''
   const copy = copies.find((c) => c.name === name)
-  const size = copy ? formatBytes(copy.copySizeBytes || copy.sizeBytes) : ''
+  return <CopyJobDialog op={op} open={restore.open} loadError={restore.loadError} onHide={restore.hide} date={copy?.createdAt} sizeBytes={copy && (copy.copySizeBytes || copy.sizeBytes)} place={place} />
+}
+
+/** Download, decrypt and check a copy, then the usual look at what's inside. */
+export function CopyJobDialog({ op, open, loadError, onHide, date, sizeBytes, place, background = t('offsiteRestore.background') }: { op: Operation; open: boolean; loadError?: string; onHide: () => void; date?: string; sizeBytes?: number; place: string; background?: string }) {
+  const phone = useIsPhone()
+  const size = sizeBytes ? formatBytes(sizeBytes) : ''
   const failed = op.status === 'failed' || !!loadError
   const checking = op.phase === 'checking' || op.status === 'succeeded'
   const downloadState: StepState = checking ? 'done' : failed ? 'failed' : 'active'
   const checkState: StepState = op.status === 'succeeded' ? 'done' : !checking ? 'waiting' : failed ? 'failed' : 'active'
-  const title = copy ? t('offsiteRestore.title', { date: formatDate(copy.createdAt) }) : t('offsiteRestore.titleAny')
+  const title = date ? t('offsiteRestore.title', { date: formatDate(date) }) : t('offsiteRestore.titleAny')
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && restore.hide()}>
+    <Dialog open={open} onOpenChange={(o) => !o && onHide()}>
       <DialogPopup className="sm:max-w-[400px]" showCloseButton={phone}>
         <div className="flex items-center gap-3 px-6 pt-6">
           <Pip pose={failed ? 'hurt' : 'hardhat'} size={52} />
@@ -227,10 +232,10 @@ export function CopyRestoreDialog({ restore, copies, place }: { restore: ReturnT
           {!failed && (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <InfoIcon className="size-3.5 shrink-0" aria-hidden="true" />
-              {t('offsiteRestore.background')}
+              {background}
             </p>
           )}
-          <Button variant="outline" size={phone ? 'touch' : 'default'} className={cn(failed && 'sm:ml-auto')} onClick={restore.hide}>
+          <Button variant="outline" size={phone ? 'touch' : 'default'} className={cn(failed && 'sm:ml-auto')} onClick={onHide}>
             {t('common.close')}
           </Button>
         </DialogFooter>

@@ -13,6 +13,7 @@ import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
+import { RecoverPage } from '@/pages/recover'
 import { AccountStep, Onboarding } from '@/pages/onboarding'
 import { ServerPage } from '@/pages/server'
 import { GlobalSettingsPage } from '@/pages/settings'
@@ -150,6 +151,8 @@ function page(route: Route) {
       return <GlobalSettingsPage />
     case 'more':
       return <MorePage />
+    case 'recover':
+      return <RecoverPage />
     default: {
       const unreachable: never = route
       return unreachable

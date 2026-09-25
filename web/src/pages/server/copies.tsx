@@ -21,7 +21,7 @@ import { useOffsite } from './backups'
 
 // The panel refuses anyone else (mayHoldBackupKeys); this only greys out
 // what it would refuse.
-const holdsBackupKeys = (role: string) => role === 'owner'
+export const holdsBackupKeys = (role: string) => role === 'owner'
 
 const ntpCommand = 'sudo timedatectl set-ntp true'
 const savedDots = '•'.repeat(16)
@@ -44,13 +44,13 @@ interface Draft {
   hostKey: string
 }
 
-type HostKey = NonNullable<OffsiteTestResult['hostKey']>
+export type HostKey = NonNullable<OffsiteTestResult['hostKey']>
 interface Changed {
   confirmed: string
   now: string
   key?: HostKey
 }
-interface Problem {
+export interface Problem {
   msg: string
   hint?: string
   field?: string
@@ -390,7 +390,7 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
 
 type Copies = ReturnType<typeof useCopies>
 
-function Field({ id, label, className, children }: { id: string; label: string; className?: string; children: ReactNode }) {
+export function Field({ id, label, className, children }: { id: string; label: string; className?: string; children: ReactNode }) {
   return (
     <div className={cn('min-w-0', className)}>
       <label htmlFor={id} className="text-[13px] font-medium">
@@ -545,7 +545,7 @@ function CommandBox({ command, phone, className }: { command: string; phone?: bo
   )
 }
 
-function ProblemLine({ problem }: { problem: Problem }) {
+export function ProblemLine({ problem }: { problem: Problem }) {
   return (
     <div role="alert" className="flex items-start gap-2 text-[13px]">
       <CircleXIcon className="mt-0.5 size-4 shrink-0 text-destructive-foreground" aria-hidden="true" />
@@ -776,7 +776,7 @@ function FingerprintBox({ rows }: { rows: { label: string; value: string; red?: 
   )
 }
 
-function HostKeyDialog({ host, hostKey, phone, busy, onConfirm, onClose }: { host: string; hostKey: HostKey; phone: boolean; busy: boolean; onConfirm: () => void; onClose: () => void }) {
+export function HostKeyDialog({ host, hostKey, phone, busy, onConfirm, onClose }: { host: string; hostKey: HostKey; phone: boolean; busy: boolean; onConfirm: () => void; onClose: () => void }) {
   const kind = hostKeyKind(hostKey.type)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

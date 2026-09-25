@@ -22,6 +22,8 @@ export type Route =
   | { name: 'machine'; id: string; sub?: MachineSub }
   | { name: 'settings' }
   | { name: 'more' }
+  // Wave 7: bring a server back from its copies with its recovery key.
+  | { name: 'recover' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
 
@@ -43,6 +45,8 @@ export function parse(pathname: string): Route {
       return { name: 'settings' }
     case 'more':
       return { name: 'more' }
+    case 'recover':
+      return second ? { name: 'home' } : { name: 'recover' }
     case 'console':
     case 'players':
     case 'world':
@@ -86,6 +90,8 @@ export function href(route: Route): string {
       return '/settings'
     case 'more':
       return '/more'
+    case 'recover':
+      return '/recover'
     case 'legacy':
       return `/${route.tab}`
     default: {

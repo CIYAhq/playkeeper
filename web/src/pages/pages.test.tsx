@@ -9,6 +9,7 @@ import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
+import { RecoverPage } from './recover'
 import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
@@ -444,5 +445,87 @@ describe('World backups with copies', () => {
     expect(text).toContain('The copy couldn’t be restored')
     expect(text).toContain('That copy is no longer there.')
     expect(text).toContain('Restore another copy.')
+  })
+})
+
+describe('Restore from a recovery key', () => {
+  const keyText = ['# Playkeeper recovery key for Survival', '#', '# Made 2026-09-24 18:47 UTC. The newest key comes first.', '', '# public key: age1new', 'AGE-SECRET-KEY-1NEWKEY', '', '# public key: age1old', 'AGE-SECRET-KEY-1OLDKEY', ''].join('\n')
+  const copies = Array.from({ length: 5 }, (_, i) => ({ name: `survival-2026092${5 - i}-184700-abcd.tar.gz.age`, sizeBytes: (318 - i) * 2 ** 20, createdAt: `2026-09-2${5 - i}T18:47:00Z` }))
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+  const typeInto = async (id: string, value: string) => {
+    const el = document.getElementById(id) as HTMLInputElement
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    await act(async () => {
+      setValue?.call(el, value)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))
+    if (!button) throw new Error(`no button "${label}"`)
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+  async function pickKeyFile() {
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no file input')
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File([keyText], 'playkeeper-recovery-key-survival.txt', { type: 'text/plain' })] })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await act(async () => {})
+  }
+
+  it('reads the key file, finds the copies and fetches the one picked', async () => {
+    vi.mocked(client.post).mockImplementation(((path: string) =>
+      Promise.resolve(path.endsWith('/recover/restore') ? { id: 'op-recover', kind: 'offsite-recover', status: 'running', phase: 'listing', actor: 'siya', startedAt: '2026-09-25T19:00:00Z', detail: {} } : { server: 'Survival', keys: 2, place: 'Backblaze B2', copies })) as typeof client.post)
+    await render(<RecoverPage />, workspace({ servers: [] }))
+    expect(document.body.textContent).toContain('Choose the recovery key file')
+    await pickKeyFile()
+    expect(document.body.textContent).toContain('playkeeper-recovery-key-survival.txt')
+    expect(document.body.textContent).toContain('Survival · 2 keys')
+    await typeInto('recover-endpoint', 's3.eu-central-003.backblazeb2.com')
+    await typeInto('recover-bucket', 'siya-minecraft')
+    await typeInto('recover-keyid', '003a8f91c2')
+    await typeInto('recover-secret', 'not-a-real-secret')
+    await click('Find the copies')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/offsite/recover', {
+      recoveryKey: keyText,
+      config: { type: 's3', s3: { endpoint: 's3.eu-central-003.backblazeb2.com', bucket: 'siya-minecraft', accessKeyId: '003a8f91c2' } },
+      secretKey: 'not-a-real-secret',
+    })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Connected · 5 copies of Survival found')
+    expect(text).toContain('Show all 5')
+    expect(text).toContain('318 MB · encrypted')
+    await click('Next: check what’s inside')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/machines/m2345abcde/offsite/recover/restore', expect.objectContaining({ recoveryKey: keyText, name: copies[0]?.name }))
+    expect(document.body.textContent).toContain('Keep this page open until it’s done.')
+  })
+
+  it('asks before trusting an SFTP host key it has not seen', async () => {
+    const refusal = new client.ApiError(400, { error: 'Playkeeper has not seen this host key yet.', code: 'invalid', reason: 'host_key_unknown', params: { hostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey', keyType: 'ssh-ed25519', fingerprint: 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA' } })
+    const answers: (() => Promise<unknown>)[] = [() => Promise.reject(refusal), () => Promise.resolve({ server: 'Survival', keys: 2, place: 'vault.example.net', copies })]
+    vi.mocked(client.post).mockImplementation((() => answers.shift()?.()) as typeof client.post)
+    await render(<RecoverPage />, workspace({ servers: [] }))
+    await pickKeyFile()
+    const sftp = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Another machine over SFTP'))
+    await act(async () => sftp?.click())
+    await typeInto('recover-host', 'vault.example.net')
+    await typeInto('recover-user', 'playkeeper')
+    await typeInto('recover-password', 'not-a-real-password')
+    await click('Find the copies')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
+    expect(document.body.textContent).toContain('SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA')
+    await click('It matches, confirm')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/machines/m2345abcde/offsite/recover', expect.objectContaining({ password: 'not-a-real-password', hostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey' }))
+    expect(document.body.textContent).toContain('Connected · 5 copies of Survival found')
+  })
+
+  it('is the owner’s alone', async () => {
+    const text = await render(<RecoverPage />, workspace({ servers: [], me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(text).toContain('Only the owner can restore from a recovery key.')
+    expect(document.querySelector('input[type=file]')).toBeNull()
   })
 })
