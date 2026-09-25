@@ -1,0 +1,10 @@
+{
+ "error": "request_error",
+ "description": "searching projects",
+ "details": [
+  "searching projects",
+  "executing `Self::build_filter`",
+  "failed to parse facets",
+  "invalid filter at byte 8: found end of input but expected one of \"E\", \"i\", \"<\", \">\", \"I\", \"N\", \"!\", \"n\", \"e\", \"=\""
+ ]
+}
