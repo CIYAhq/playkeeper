@@ -56,7 +56,6 @@ func (h packHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hdr := w.Header()
 	hdr.Set("Content-Type", "application/zip")
 	hdr.Set("ETag", `"`+sum+`"`)
-	hdr.Set("Cache-Control", "no-store")
 	hdr.Set("X-Content-Type-Options", "nosniff")
 	hdr.Set("Content-Disposition", `attachment; filename="`+sum+`.zip"`)
 	http.ServeContent(w, r, "", st.ModTime(), f)

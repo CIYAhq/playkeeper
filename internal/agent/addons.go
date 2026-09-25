@@ -62,6 +62,32 @@ func parseAddonKey(source, project string) (addons.Key, error) {
 	return addons.Key{Source: addons.Source(source), ProjectID: project}, nil
 }
 
+// updateKeys checks the add-ons an update request names.
+func updateKeys(in []api.AddonKey) ([]addons.Key, error) {
+	if len(in) > maxUpdateKeys {
+		return nil, errInvalid("At most %d add-ons can be updated at once.", maxUpdateKeys)
+	}
+	var keys []addons.Key
+	for _, k := range in {
+		key, err := parseAddonKey(k.Source, k.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
+
+// confirmedPlan requires the fingerprint of the plan the user confirmed on
+// every install and update: the library skips its check without one.
+func confirmedPlan(fingerprint string) error {
+	if !reFingerprint.MatchString(fingerprint) {
+		return &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: "This request doesn't include the plan you confirmed.",
+			Hint: "Reload the page, check what it will do, and confirm again."}
+	}
+	return nil
+}
+
 // serverType is the type add-ons must fit: the server's recorded type.
 func (s *server) serverType(sc *api.ServerConfig) string {
 	if r, err := s.row(); err == nil && r.Type != "" {
@@ -623,7 +649,7 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 	case rec != nil:
 		a := apiAddon(*rec)
 		out.Installed = &a
-		if p, err := lib.PreviewUninstall(srv, installed, rec.Key()); err == nil {
+		if p, err := lib.PreviewUninstall(r.Context(), srv, installed, rec.Key()); err == nil {
 			out.Changed, out.Missing = p.Changed, p.Missing
 		}
 		l := d.Latest
@@ -661,7 +687,7 @@ func (s *server) hAddonRemovePreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	p, err := s.lib().PreviewUninstall(srv, installed, key)
+	p, err := s.lib().PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
 		return
@@ -690,8 +716,8 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if req.Fingerprint != "" && !reFingerprint.MatchString(req.Fingerprint) {
-		writeError(w, errInvalid("invalid plan fingerprint"))
+	if err := confirmedPlan(req.Fingerprint); err != nil {
+		writeError(w, err)
 		return
 	}
 	if _, _, _, err := s.addonContext(); err != nil {
@@ -710,6 +736,40 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
+// hAddonUpdatePlan says what an update would do, for the user to confirm.
+func (s *server) hAddonUpdatePlan(w http.ResponseWriter, r *http.Request) {
+	var req api.AddonUpdatePlanRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := validActor(req.Actor); err != nil {
+		writeError(w, err)
+		return
+	}
+	keys, err := updateKeys(req.Addons)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	_, srv, _, err := s.addonContext()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	installed, err := s.installedAddons()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.lib().PlanUpdate(r.Context(), srv, installed, addons.UpdateRequest{Keys: keys, Changed: req.Changed})
+	if err != nil {
+		writeError(w, addonError(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, apiPlan(p, installed))
+}
+
 func (s *server) hAddonUpdate(w http.ResponseWriter, r *http.Request) {
 	var req api.AddonUpdateRequest
 	if err := decode(r, &req); err != nil {
@@ -721,18 +781,14 @@ func (s *server) hAddonUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if len(req.Addons) > maxUpdateKeys {
-		writeError(w, errInvalid("At most %d add-ons can be updated at once.", maxUpdateKeys))
+	keys, err := updateKeys(req.Addons)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
-	var keys []addons.Key
-	for _, k := range req.Addons {
-		key, err := parseAddonKey(k.Source, k.ProjectID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		keys = append(keys, key)
+	if err := confirmedPlan(req.Fingerprint); err != nil {
+		writeError(w, err)
+		return
 	}
 	if _, _, _, err := s.addonContext(); err != nil {
 		writeError(w, err)
@@ -740,7 +796,7 @@ func (s *server) hAddonUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	op, err := s.beginOp("addon-update", actor, func(ctx context.Context, h *opHandle) error {
 		return s.addonJob(ctx, h, actor, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
-			return s.lib().Update(ctx, srv, installed, addons.UpdateRequest{Keys: keys, Changed: req.Changed, OnProgress: progress})
+			return s.lib().Update(ctx, srv, installed, addons.UpdateRequest{Keys: keys, Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress})
 		})
 	})
 	if err != nil {
@@ -922,7 +978,7 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lib := s.lib()
-	preview, err := lib.PreviewUninstall(srv, installed, key)
+	preview, err := lib.PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
 		return
@@ -934,7 +990,7 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	target := string(key.Source) + ":" + key.ProjectID
-	rm, err := lib.Uninstall(srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
+	rm, err := lib.Uninstall(r.Context(), srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
 	if err != nil {
 		s.audit(actor, "addon.removed", target, "refused", err.Error())
 		writeError(w, addonError(err))
@@ -945,7 +1001,7 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 	warnings := rm.Warnings
 	rest := slices.DeleteFunc(slices.Clone(installed), func(rec addons.Installed) bool { return rec.Key() == key })
 	for _, k := range extra {
-		orm, err := lib.Uninstall(srv, rest, k, addons.UninstallOptions{RemoveConfig: !req.KeepConfig})
+		orm, err := lib.Uninstall(r.Context(), srv, rest, k, addons.UninstallOptions{RemoveConfig: !req.KeepConfig})
 		if err != nil {
 			if n := noticeOf(err); n != nil {
 				warnings = append(warnings, addons.Notice{Kind: addons.Kind(n.Kind), Params: n.Params, Msg: n.Message, Hint: n.Hint})
@@ -1079,7 +1135,7 @@ func (s *server) hAddonForget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	p, err := s.lib().PreviewUninstall(srv, installed, key)
+	p, err := s.lib().PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
 		return

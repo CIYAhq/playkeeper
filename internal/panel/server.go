@@ -221,6 +221,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/addons/project/{source}/{project}/removal", "/v1/servers/{id}/addons/project/{source}/{project}/removal"),
 		view("/api/servers/{id}/addons/icon", s.hAddonIcon),
 		sm("POST", "/api/servers/{id}/addons/install", "/v1/servers/{id}/addons/install"),
+		sm("POST", "/api/servers/{id}/addons/update/plan", "/v1/servers/{id}/addons/update/plan"),
 		sm("POST", "/api/servers/{id}/addons/update", "/v1/servers/{id}/addons/update"),
 		sm("POST", "/api/servers/{id}/addons/remove", "/v1/servers/{id}/addons/remove"),
 		sm("POST", "/api/servers/{id}/addons/adopt", "/v1/servers/{id}/addons/adopt"),
