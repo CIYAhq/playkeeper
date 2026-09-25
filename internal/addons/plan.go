@@ -699,8 +699,13 @@ func external(c candidate, parent *Step, t Target) ManualStep {
 		host = u.Hostname()
 	}
 	if parent == nil {
+		// Some Hangar versions are named after the project, e.g. Geyser's.
+		label := c.Name
+		if c.Number != "" && c.Number != c.Name {
+			label += " " + c.Number
+		}
 		return ManualStep{Notice: notice(KindExternal, kv("name", c.Name, "version", c.Number, "host", host, "folder", t.Folder),
-			fmt.Sprintf("%s %s is only offered on %s, so Playkeeper cannot install it for you.", c.Name, c.Number, host),
+			fmt.Sprintf("%s is only offered on %s, so Playkeeper cannot install it for you.", label, host),
 			fmt.Sprintf("Download it from that page and upload it to the %s folder.", t.Folder)), URL: link}
 	}
 	return ManualStep{Notice: notice(KindDepExternal, kv("name", parent.Name, "dependency", c.Name, "host", host, "folder", t.Folder),

@@ -26,8 +26,9 @@ type Removal struct {
 	// has one; ConfigRemoved says whether it was deleted.
 	ConfigFolder  string `json:"configFolder,omitempty"`
 	ConfigRemoved bool   `json:"configRemoved"`
-	// Orphans were installed only for the removed add-on, and nothing else
-	// installed needs them now. The UI can offer to remove them as well.
+	// Orphans are dependencies that were there only for the removed add-on;
+	// nothing else installed needs them now. The UI can offer to remove them
+	// as well.
 	Orphans       []Installed `json:"orphans"`
 	Warnings      []Notice    `json:"warnings"`
 	RestartNeeded bool        `json:"restartNeeded"`
@@ -116,25 +117,30 @@ func neededBy(installed []Installed, rec Installed) []string {
 		if o.Key() == rec.Key() || o.Source != rec.Source {
 			continue
 		}
-		if slices.Contains(o.Requires, rec.ProjectID) || rec.DependencyOf == o.ProjectID {
+		if slices.Contains(o.Requires, rec.ProjectID) {
 			out = append(out, o.Name)
 		}
 	}
 	return out
 }
 
-// orphans are the add-ons installed for rec that nothing else installed
-// needs.
+// orphans are the dependencies rec kept on the server, installed for it or
+// needed by it after the add-on they came with was removed, that nothing
+// else installed needs.
 func orphans(installed []Installed, rec Installed) []Installed {
 	out := []Installed{}
 	for _, o := range installed {
-		if o.Source != rec.Source || o.DependencyOf != rec.ProjectID || o.Key() == rec.Key() {
+		if o.Source != rec.Source || o.DependencyOf == "" || o.Key() == rec.Key() {
 			continue
 		}
+		forRec := o.DependencyOf == rec.ProjectID
+		parentGone := forRec || !slices.ContainsFunc(installed, func(x Installed) bool {
+			return x.Source == o.Source && x.ProjectID == o.DependencyOf
+		})
 		needed := slices.ContainsFunc(installed, func(x Installed) bool {
 			return x.Key() != rec.Key() && x.Key() != o.Key() && x.Source == o.Source && slices.Contains(x.Requires, o.ProjectID)
 		})
-		if !needed {
+		if parentGone && (forRec || slices.Contains(rec.Requires, o.ProjectID)) && !needed {
 			out = append(out, o)
 		}
 	}
