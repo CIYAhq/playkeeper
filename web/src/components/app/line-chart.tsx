@@ -94,7 +94,7 @@ export function LineChart({
       {yLabels && (
         <div className={cn('relative w-8 shrink-0 text-right text-[11px] leading-none text-muted-foreground tabular-nums', plotClassName)} aria-hidden="true">
           {yLabels.map((text, i) => (
-            <span key={i} className={cn('absolute right-0 -translate-y-1/2', i === 0 ? 'top-0' : i === 1 ? 'top-1/2' : 'top-full')}>
+            <span key={i} className={cn('absolute right-0 -translate-y-1/2 whitespace-nowrap', i === 0 ? 'top-0' : i === 1 ? 'top-1/2' : 'top-full')}>
               {text}
             </span>
           ))}
