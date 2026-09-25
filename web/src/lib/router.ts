@@ -4,11 +4,11 @@ export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'settings
 export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'settings']
 
 // Wave 7: pages inside a server's tab, and the machine's Disk space page.
-export type ServerSub = 'schedules' | 'backup-rules' | 'backup-rules-edit'
+export type ServerSub = 'schedules' | 'backup-rules' | 'backup-copies'
 const serverSubs: Record<ServerSub, { tab: ServerTab; path: string }> = {
   schedules: { tab: 'settings', path: 'schedules' },
   'backup-rules': { tab: 'world', path: 'backup-rules' },
-  'backup-rules-edit': { tab: 'world', path: 'backup-rules/edit' },
+  'backup-copies': { tab: 'world', path: 'backup-rules/copies' },
 }
 export type MachineSub = 'disk'
 

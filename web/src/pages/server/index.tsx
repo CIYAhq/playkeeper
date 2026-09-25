@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
+import { BackupRulesPage, BackupRulesPhonePage } from './backups'
 import { SchedulesPhonePage } from './schedules'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
@@ -69,7 +70,7 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
       body = <PlayersPage server={server} />
       break
     case 'world':
-      body = <WorldPage server={server} />
+      body = sub === 'backup-rules' || sub === 'backup-copies' ? phone ? <BackupRulesPhonePage server={server} /> : <BackupRulesPage server={server} /> : <WorldPage server={server} />
       break
     case 'settings':
       body = phone && sub === 'schedules' ? <SchedulesPhonePage server={server} /> : <ServerSettingsPage server={server} focus={sub} />
