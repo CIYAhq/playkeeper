@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.0
+
+- **Disk space**, opened from the machine's Disk meter, shows what fills the disk and what each server uses, with ways to free space: old backups, logs and crash reports, unused server versions, folders set aside by restores and updates, and unfinished backups. Nothing is deleted until you've reviewed it, and off-site copies stay.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
