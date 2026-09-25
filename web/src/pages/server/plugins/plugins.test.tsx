@@ -1,0 +1,295 @@
+// @vitest-environment happy-dom
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import * as client from '@/api/client'
+import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonRemovePreview, Addons, MachineView, Me, Operation, ServerConfig, ServerStatus } from '@/api/types'
+import { WorkspaceContext, type Workspace } from '@/api/workspace'
+import type { ServerSub } from '@/lib/router'
+import { PluginsPage } from '.'
+
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof client>()),
+  get: vi.fn(() => new Promise(() => {})),
+  post: vi.fn(() => Promise.resolve({})),
+}))
+
+const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
+const machine = { id: 'm2345abcde', projectId: 'p2345abcde', name: 'my-vps', kind: 'local' } as MachineView
+const config = { versionId: 'paper-26.1.2', minecraftVersion: '26.1.2', paperBuild: 74, memoryMB: 4096, heapMB: 3072, levelName: 'world', motd: 'Hi', maxPlayers: 10, whitelist: true } as ServerConfig
+
+function server(over: Partial<ServerStatus> = {}): ServerStatus {
+  return {
+    id: 'abcdefghjk',
+    name: 'Survival',
+    slug: 'survival',
+    game: 'minecraft-java',
+    type: 'paper',
+    createdAt: '2026-09-20T10:00:00Z',
+    exists: true,
+    desired: 'running',
+    phase: 'online',
+    reachable: true,
+    gamePort: 25565,
+    offlineModeTest: false,
+    crashCount: 0,
+    pendingRestart: false,
+    gameplay: {},
+    config,
+    firstSteps: { backedUp: false, downloaded: false },
+    ...over,
+  }
+}
+
+function workspace(): Workspace {
+  return {
+    me,
+    servers: [server()],
+    serversError: undefined,
+    machine,
+    machines: [machine],
+    prefs: {},
+    setPrefs: async () => {},
+    refresh: async () => {},
+    updating: undefined,
+    updatingSince: undefined,
+    agentDown: false,
+    stale: false,
+    lastSeenAt: undefined,
+    machineName: 'my-vps',
+    lastSlug: undefined,
+    setLastSlug: () => {},
+    signOut: async () => {},
+  }
+}
+
+function addon(name: string, over: Partial<Addon> = {}): Addon {
+  const id = name.toLowerCase().replace(/[^a-z]/g, '')
+  return { source: 'modrinth', projectId: id, slug: id, name, summary: `${name} does things`, versionId: `${id}-1`, versionNumber: '1.0.0', channel: 'release', published: '2026-09-01T00:00:00Z', fileName: `${name}.jar`, size: 1000, installedAt: '2026-09-02T00:00:00Z', ...over }
+}
+
+const chunky = addon('Chunky', { source: 'hangar', projectId: '81', versionNumber: '1.4.36' })
+const core = addon('Multiverse-Core', { versionNumber: '5.0.2' })
+const protect = addon('CoreProtect', { versionNumber: '23.1' })
+const voice = addon('Simple Voice Chat', { versionNumber: '2.5.26' })
+const gone = addon('LuckPerms', { versionNumber: '5.4.150' })
+
+const target: Addons['target'] = { kind: 'plugin', folder: 'plugins', sources: ['modrinth', 'hangar'], categories: ['admin', 'world'], minecraftVersion: '26.1.2' }
+
+const installed: Addons = {
+  target,
+  files: [
+    { fileName: chunky.fileName, size: 1, status: 'managed', addon: chunky },
+    { fileName: core.fileName, size: 1, status: 'managed', addon: core, pending: true },
+    { fileName: protect.fileName, size: 1, status: 'managed', addon: protect },
+    { fileName: voice.fileName, size: 1, status: 'modified', addon: voice },
+    { fileName: 'Vault.jar', size: 1, status: 'unknown', name: 'Vault', version: '1.7.3' },
+    { fileName: 'homes.jar', size: 1, status: 'unknown', name: 'Homes', version: '0.9' },
+  ],
+  missing: [gone],
+  warnings: [],
+  restartNeeded: true,
+}
+
+const version = (n: string) => ({ versionId: `v-${n}`, versionNumber: n, channel: 'release', published: '2026-09-20T00:00:00Z' })
+
+const checks: AddonChecks = {
+  updates: [
+    { source: 'hangar', projectId: '81', available: true, latest: version('1.4.40') },
+    { source: 'modrinth', projectId: 'coreprotect', available: true, latest: version('23.2') },
+    { source: 'modrinth', projectId: 'simplevoicechat', available: true, latest: version('2.6.0') },
+  ],
+  identified: [{ fileName: 'Vault.jar', size: 1, status: 'identified', addon: addon('Vault', { versionNumber: '1.7.3' }) }],
+  checkedAt: '2026-09-25T00:00:00Z',
+}
+
+function card(name: string, over: Partial<AddonCard> = {}): AddonCard {
+  const id = name.toLowerCase().replace(/[^a-z]/g, '')
+  return { source: 'modrinth', projectId: id, slug: id, name, summary: `${name} summary`, categories: [], downloads: 1000, updated: '2026-09-20T00:00:00Z', pageUrl: `https://modrinth.com/plugin/${id}`, installed: false, ...over }
+}
+
+/** Answers GETs by the first path fragment they contain; anything else never resolves. */
+function answer(routes: [string, unknown][]) {
+  vi.mocked(client.get).mockImplementation(((path: string) => {
+    const hit = routes.find(([part]) => path.includes(part))
+    return hit ? Promise.resolve(hit[1]) : new Promise(() => {})
+  }) as typeof client.get)
+}
+
+let root: Root | undefined
+
+async function render(s: ServerStatus, tab: 'plugins' | 'mods' = 'plugins', sub?: ServerSub): Promise<string> {
+  document.body.innerHTML = ''
+  const r = createRoot(document.body.appendChild(document.createElement('div')))
+  root = r
+  await act(async () => r.render(<WorkspaceContext.Provider value={workspace()}><PluginsPage server={s} tab={tab} sub={sub} /></WorkspaceContext.Provider>))
+  await act(async () => {})
+  await act(async () => {})
+  return document.body.textContent ?? ''
+}
+
+function button(text: string): HTMLElement {
+  const b = [...document.querySelectorAll<HTMLElement>('button, a')].find((el) => el.textContent?.includes(text))
+  if (!b) throw new Error(`no button with ${text}`)
+  return b
+}
+
+async function click(text: string): Promise<string> {
+  await act(async () => button(text).click())
+  await act(async () => {})
+  await act(async () => {})
+  return document.body.textContent ?? ''
+}
+
+beforeAll(() => {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+})
+
+afterEach(async () => {
+  await act(async () => root?.unmount())
+  root = undefined
+  document.body.innerHTML = ''
+  vi.mocked(client.get).mockReset()
+  vi.mocked(client.get).mockImplementation(() => new Promise(() => {}))
+  vi.mocked(client.post).mockReset()
+  vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+})
+
+describe('Plugins tab', () => {
+  it('lists what’s installed, each file’s state and the one restart line', async () => {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    const text = await render(server())
+    expect(text).toContain('Plugins on Survival')
+    expect(text).toContain('Restart Survival to load 1 new plugin')
+    expect(text).toContain('Update all')
+    expect(text).toContain('Update available · 1.4.40')
+    expect(text).toContain('New')
+    expect(text).toContain('Changed since it was installed')
+    expect(text).toContain('Asks before updating')
+    expect(text).toContain('File missing')
+    expect(text).toContain('Reinstall')
+    expect(text).toContain('Found on Modrinth')
+    expect(text).toContain('Let Playkeeper manage it')
+    expect(text).toContain('Not in the library')
+    expect(text).toContain('homes.jar')
+    expect(text.indexOf('Chunky')).toBeLessThan(text.indexOf('Vault'))
+  })
+
+  it('updates all unchanged add-ons and follows the job', async () => {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    const op: Operation = {
+      id: 'op1',
+      kind: 'addon-update',
+      status: 'running',
+      phase: 'downloading',
+      actor: 'siya',
+      startedAt: '',
+      detail: {
+        files: [
+          { name: 'Chunky', versionNumber: '1.4.40', was: '1.4.36', size: 1_400_000, received: 1_400_000, state: 'verified' },
+          { name: 'CoreProtect', versionNumber: '23.2', was: '23.1', size: 1_400_000, received: 900_000, state: 'downloading' },
+        ],
+      },
+    }
+    vi.mocked(client.post).mockImplementation((() => Promise.resolve(op)) as typeof client.post)
+    await render(server())
+    const text = await click('Update all')
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/update', {
+      addons: [
+        { source: 'hangar', projectId: '81' },
+        { source: 'modrinth', projectId: 'coreprotect' },
+      ],
+      changed: undefined,
+    })
+    expect(text).toContain('Updating 2 plugins')
+    expect(text).toContain('Downloaded Chunky 1.4.40')
+    expect(text).toContain('Was 1.4.36 · checksum matched')
+    expect(text).toContain('Downloading CoreProtect 23.2')
+    expect(text).toContain('Restart Survival to load them')
+    expect(text).toContain('Keeps going if you close this.')
+  })
+
+  it('says nothing is installed yet', async () => {
+    answer([['/addons', { ...installed, files: [], missing: [], restartNeeded: false }]])
+    const text = await render(server())
+    expect(text).toContain('No plugins yet')
+    expect(text).toContain('Browse plugins')
+  })
+
+  it('calls them mods on mod servers', async () => {
+    answer([['/addons', { ...installed, target: { ...target, kind: 'mod', folder: 'mods' }, files: [], missing: [] }]])
+    const text = await render(server({ type: 'fabric' }), 'mods')
+    expect(text).toContain('No mods yet')
+    expect(text).toContain('Browse mods')
+  })
+
+  it('shows an installed add-on’s details with Update and Remove', async () => {
+    const details: AddonDetails = {
+      card: card('Chunky', { source: 'hangar', projectId: '81', author: 'pop4959', license: 'GPL-3.0', pageUrl: 'https://hangar.papermc.io/pop4959/Chunky' }),
+      latest: version('1.4.40'),
+      installed: chunky,
+      updateAvailable: true,
+    }
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/project/', details],
+      ['/addons', installed],
+    ])
+    await render(server())
+    const text = await click('Chunky')
+    expect(text).toContain('by pop4959')
+    expect(text).toContain('1.4.36, from Hangar')
+    expect(text).toContain('1.4.40 for Paper 26.1.2')
+    expect(text).toContain('What’s new in 1.4.40')
+    expect(text).toContain('Update to 1.4.40')
+    expect(text).toContain('Loads after a restart.')
+    expect(document.querySelector('a[href="https://hangar.papermc.io/pop4959/Chunky/versions/1.4.40"]')).not.toBeNull()
+  })
+
+  it('offers Remove anyway when another plugin needs it', async () => {
+    const details: AddonDetails = { card: card('Multiverse-Core'), latest: version('5.0.2'), installed: core }
+    const preview: AddonRemovePreview = { addon: core, neededBy: ['Multiverse-Portals'], orphans: [], configFolder: 'plugins/Multiverse-Core', changed: false, missing: false }
+    answer([
+      ['/removal', preview],
+      ['/addons/checks', checks],
+      ['/addons/project/', details],
+      ['/addons', installed],
+    ])
+    await render(server())
+    await click('Multiverse-Core')
+    const text = await click('Remove')
+    expect(text).toContain('Remove Multiverse-Core?')
+    expect(text).toContain('Multiverse-Portals needs it')
+    expect(text).toContain('Keep its settings')
+    expect(text).toContain('Keep Multiverse-Core')
+    vi.mocked(client.post).mockImplementation((() => Promise.resolve({ removed: ['Multiverse-Core.jar'], warnings: [] })) as typeof client.post)
+    await click('Remove anyway')
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/remove', { source: 'modrinth', projectId: 'multiversecore', keepConfig: true, force: true, changed: undefined, orphans: undefined })
+  })
+
+  it('browses the library, marking what’s already installed', async () => {
+    const browse: AddonBrowse = {
+      cards: [card('BlueMap', { author: 'BlueColored', downloads: 2_100_000 }), card('Chunky', { source: 'hangar', projectId: '81', installed: true })],
+      more: false,
+      unanswered: [],
+    }
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/search', browse],
+      ['/addons', installed],
+    ])
+    const text = await render(server(), 'plugins', 'browse')
+    expect(text).toContain('Browse plugins')
+    expect(text).toContain('For Paper 26.1.2')
+    expect(text).toContain('by BlueColored')
+    expect(text).toContain('2.1M downloads')
+    expect(text).toContain('Installed')
+    expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search')).toBe(true)
+  })
+})
