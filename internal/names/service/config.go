@@ -32,6 +32,7 @@ const (
 	EnvClaimsPerDay       = "NAMES_CLAIMS_PER_DAY"
 	EnvRecordReserve      = "NAMES_RECORD_RESERVE"
 	EnvRecordQuota        = "NAMES_RECORD_QUOTA"
+	EnvNewCertificates    = "NAMES_NEW_CERTIFICATES_PER_WEEK"
 	EnvBlocklist          = "NAMES_BLOCKLIST_FILE"
 	EnvAlertWebhook       = "NAMES_ALERT_WEBHOOK_URL"
 )
@@ -45,7 +46,12 @@ const (
 	DefaultClaimsPerDay       = 30
 	DefaultRecordReserve      = 10
 	DefaultRecordQuota        = 200
+	DefaultNewCertificates    = 40
 )
+
+// letsEncryptWeekly is how many new certificates Let's Encrypt issues for
+// one registered domain in 7 days.
+const letsEncryptWeekly = 50
 
 // Config is what the service needs to run.
 type Config struct {
@@ -74,6 +80,10 @@ type Config struct {
 	// RecordQuota is the most records the zone may hold. Cloudflare's own
 	// quota wins when it is lower.
 	RecordQuota int
+	// NewCertificates bounds the names that start their first certificate
+	// (see certSetWindow) in any 7 days, below Let's Encrypt's limit for
+	// the base domain.
+	NewCertificates int
 	// BlocklistFile optionally lists names nobody may claim, one per line;
 	// claimed names on it are taken away.
 	BlocklistFile string
@@ -150,6 +160,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	cfg.ClaimsPerDay = number(EnvClaimsPerDay, DefaultClaimsPerDay, 1, 100000)
 	cfg.RecordReserve = number(EnvRecordReserve, DefaultRecordReserve, 0, 100000)
 	cfg.RecordQuota = number(EnvRecordQuota, DefaultRecordQuota, 1, 1000000)
+	cfg.NewCertificates = number(EnvNewCertificates, DefaultNewCertificates, 1, letsEncryptWeekly)
 	return cfg, errors.Join(errs...)
 }
 

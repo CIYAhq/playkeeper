@@ -56,6 +56,16 @@ ALTER TABLE names ADD COLUMN checked_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE names ADD COLUMN failed_checks INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE names ADD COLUMN lapse_reason TEXT NOT NULL DEFAULT '';
 CREATE INDEX names_by_check ON names (state, checked_at);
+`, `
+CREATE TABLE cert_sets (
+	id         INTEGER PRIMARY KEY,
+	name       TEXT NOT NULL,
+	started_at INTEGER NOT NULL,
+	first      INTEGER NOT NULL,
+	challenges INTEGER NOT NULL
+) STRICT;
+CREATE INDEX cert_sets_by_name ON cert_sets (name, started_at);
+CREATE INDEX cert_sets_by_start ON cert_sets (started_at);
 `}
 
 type queryer interface {

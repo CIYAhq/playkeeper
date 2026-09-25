@@ -62,6 +62,18 @@ const (
 	// names. The owner is alerted once server addresses are refused.
 	challengeRoom = 10
 	nameRoom      = 40
+
+	// Certificates: the challenge values a name publishes within
+	// certSetWindow of the first, up to challengesPerSet, are one set: one
+	// attempt at a certificate. A name may start certSetsPerName sets in 7
+	// days. Its first set since its claim, or since renewalLookback without
+	// one, is a new certificate and counts against Config.NewCertificates;
+	// later sets are renewals.
+	certSetWindow    = time.Hour
+	challengesPerSet = 4
+	certSetsPerName  = 3
+	renewalLookback  = 90 * 24 * time.Hour
+	week             = 7 * 24 * time.Hour
 )
 
 // Service is the names service. Handler serves its API; Run does the
@@ -119,6 +131,9 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	}
 	if cfg.RecordQuota == 0 {
 		cfg.RecordQuota = DefaultRecordQuota
+	}
+	if cfg.NewCertificates == 0 {
+		cfg.NewCertificates = DefaultNewCertificates
 	}
 	if cfg.dialAlive == nil {
 		cfg.dialAlive = (&net.Dialer{Timeout: 5 * time.Second}).DialContext

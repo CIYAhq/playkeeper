@@ -30,13 +30,16 @@ func (s *Service) logErr(what string, err error) {
 	}
 }
 
-// expire removes challenge records that were never cleared, takes the
-// records away from names that stopped refreshing or answering, releases
-// blocklisted names, and frees names whose grace period or hold is over.
+// expire removes challenge records that were never cleared and certificate
+// sets older than renewalLookback, takes the records away from names that
+// stopped refreshing or answering, releases blocklisted names, and frees
+// names whose grace period or hold is over.
 func (s *Service) expire(ctx context.Context, now time.Time) {
 	t := now.Unix()
 	_, err := s.db.ExecContext(ctx, `DELETE FROM nonces WHERE expires_at < ?`, t)
 	s.logErr("Could not forget old nonces", err)
+	_, err = s.db.ExecContext(ctx, `DELETE FROM cert_sets WHERE started_at <= ?`, now.Add(-renewalLookback).Unix())
+	s.logErr("Could not forget old certificates", err)
 
 	expired, err := s.nameStrings(ctx, `SELECT DISTINCT name FROM challenges WHERE expires_at <= ?`, t)
 	s.logErr("Could not list expired challenges", err)

@@ -583,6 +583,7 @@ func (s *Service) setChallenge(w http.ResponseWriter, r *http.Request, c *call) 
 			return err
 		}
 	}
+	var set certSet
 	err = s.writeTx(ctx, func(q queryer) error {
 		var others int
 		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM challenges WHERE name = ? AND value != ? AND expires_at > ?`, row.Name, value, now.Unix()).Scan(&others); err != nil {
@@ -592,6 +593,12 @@ func (s *Service) setChallenge(w http.ResponseWriter, r *http.Request, c *call) 
 			return &names.Error{Status: http.StatusConflict, Code: names.CodeTooManyTXT, Params: map[string]any{"max": maxChallenges},
 				Message: fmt.Sprintf("A name can have at most %d challenge records at once.", maxChallenges),
 				Hint:    "Clear the old ones first; they also go away on their own after an hour."}
+		}
+		if live == 0 {
+			var err error
+			if set, err = s.countChallenge(ctx, q, row, now); err != nil {
+				return err
+			}
 		}
 		if _, err := q.ExecContext(ctx, `INSERT INTO challenges (name, value, expires_at) VALUES (?, ?, ?)
 			ON CONFLICT (name, value) DO UPDATE SET expires_at = excluded.expires_at`, row.Name, value, expires.Unix()); err != nil {
@@ -603,6 +610,7 @@ func (s *Service) setChallenge(w http.ResponseWriter, r *http.Request, c *call) 
 	if err != nil {
 		return err
 	}
+	s.logCertSet(ctx, row.Name, set, now)
 	return s.respondChallenge(w, r, row.Name, value, expires)
 }
 

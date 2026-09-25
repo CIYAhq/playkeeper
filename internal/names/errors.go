@@ -26,6 +26,7 @@ const (
 	CodeTooManyServers   = "too_many_servers"
 	CodeServerNotYet     = "server_address_not_yet"
 	CodeTooManyTXT       = "too_many_challenges"
+	CodeCertificateLimit = "certificate_limit"
 	CodeZoneFull         = "zone_full"
 	CodeNotPublic        = "not_public_address"
 	CodeMisconfigured    = "service_misconfigured"

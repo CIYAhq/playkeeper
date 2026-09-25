@@ -20,6 +20,7 @@ const (
 	alertZoneFull       = "zone_full"
 	alertChallenges     = "challenges_refused"
 	alertChecks         = "liveness_checks"
+	alertCertificates   = "certificate_budget"
 )
 
 const (

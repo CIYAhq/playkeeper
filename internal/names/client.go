@@ -21,6 +21,10 @@ import (
 // maxResponse bounds what the client reads from the service.
 const maxResponse = 64 << 10
 
+// maxRetryAfter bounds the Retry-After the client believes. The longest
+// wait the service asks for is a week, for the certificate limits.
+const maxRetryAfter = 8 * 24 * time.Hour
+
 // Family is the IP version a request goes over.
 type Family int
 
@@ -178,7 +182,7 @@ func (c *Client) do(ctx context.Context, f Family, method, path string, in, out 
 
 func responseError(resp *http.Response, b []byte) error {
 	e := &Error{Status: resp.StatusCode}
-	if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 && s <= 2*86400 {
+	if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 && time.Duration(s) <= maxRetryAfter/time.Second {
 		e.RetryAfter = time.Duration(s) * time.Second
 	}
 	var body ErrorBody
