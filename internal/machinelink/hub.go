@@ -666,6 +666,10 @@ func (h *Hub) CancelJoinCode(ctx context.Context, id string) error {
 	return h.store.DeleteJoinCode(ctx, id)
 }
 
+// JoinPause is how long joining stays paused for everyone after too many
+// wrong codes, or 0. Machines that already joined aren't affected.
+func (h *Hub) JoinPause() time.Duration { return h.guard.paused(h.now()) }
+
 // newID returns an id in the panel's format: 10 characters of a-z and
 // 2-9 without l, o, 0 and 1.
 func newID() string {

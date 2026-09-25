@@ -1,5 +1,6 @@
-// Package agentclient talks to the local agent over its Unix socket. It is
-// used by the web panel (as the panel service user) and by root CLI commands.
+// Package agentclient talks to an agent: the local one over its Unix socket,
+// or a joined machine's over its link. It is used by the web panel (as the
+// panel service user) and by root CLI commands.
 package agentclient
 
 import (
@@ -18,7 +19,6 @@ import (
 )
 
 type Client struct {
-	socket string
 	hc     *http.Client
 	stream *http.Client
 }
@@ -29,9 +29,18 @@ func New(socket string) *Client {
 		return d.DialContext(ctx, "unix", socket)
 	}
 	return &Client{
-		socket: socket,
 		hc:     &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{DialContext: dial, MaxIdleConns: 8}},
 		stream: &http.Client{Transport: &http.Transport{DialContext: dial, DisableKeepAlives: true}},
+	}
+}
+
+// Via returns a client whose requests go through rt, such as a machine
+// link's transport. The link's own errors stay in the chain of the
+// ErrUnavailable it returns.
+func Via(rt http.RoundTripper) *Client {
+	return &Client{
+		hc:     &http.Client{Timeout: 60 * time.Second, Transport: rt},
+		stream: &http.Client{Transport: rt},
 	}
 }
 
@@ -92,11 +101,7 @@ func (c *Client) Raw(ctx context.Context, method, path string, q url.Values, bod
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		var ne net.Error
-		if errors.As(err, &ne) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
-		}
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	return resp, nil
 }

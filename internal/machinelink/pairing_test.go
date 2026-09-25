@@ -146,11 +146,37 @@ func TestJoinTotalLimit(t *testing.T) {
 	})
 	code := th.code(t)
 	for range 3 {
+		if d := th.JoinPause(); d != 0 {
+			t.Fatalf("joining paused for %v before the limit", d)
+		}
 		_, err := th.try(mustIdentity(t), otherCode(code))
 		wantCode(t, err, CodeJoinCodeWrong)
 	}
 	_, err := th.try(mustIdentity(t), code)
 	wantCode(t, err, CodeJoinRateLimited)
+	if d := th.JoinPause(); d != time.Minute {
+		t.Fatalf("joining paused for %v, want the whole minute", d)
+	}
+	th.clock.Add(40 * time.Second)
+	if d := th.JoinPause(); d != 20*time.Second {
+		t.Fatalf("joining paused for %v after 40s, want 20s", d)
+	}
+	th.clock.Add(20 * time.Second)
+	if d := th.JoinPause(); d != 0 {
+		t.Fatalf("joining still paused for %v once the window passed", d)
+	}
+}
+
+func TestJoinPauseIgnoresOneNoisyAddress(t *testing.T) {
+	th := startHub(t, nil)
+	code := th.code(t)
+	for range 5 {
+		_, err := th.try(mustIdentity(t), otherCode(code))
+		wantCode(t, err, CodeJoinCodeWrong)
+	}
+	if d := th.JoinPause(); d != 0 {
+		t.Fatalf("one address's wrong codes pause joining for everyone for %v", d)
+	}
 }
 
 // A machine in the middle can present only its own key. The machine sees

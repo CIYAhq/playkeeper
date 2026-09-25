@@ -161,9 +161,8 @@ func newGuard(l Limits) *guard {
 func (g *guard) wait(now time.Time, addr netip.Prefix) time.Duration {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.prune(now)
-	if len(g.fails) >= g.limits.TotalFailures {
-		return g.fails[len(g.fails)-g.limits.TotalFailures].at.Add(g.limits.Window).Sub(now)
+	if d := g.pausedLocked(now); d > 0 {
+		return d
 	}
 	var mine []time.Time
 	for _, f := range g.fails {
@@ -173,6 +172,21 @@ func (g *guard) wait(now time.Time, addr netip.Prefix) time.Duration {
 	}
 	if len(mine) >= g.limits.AddressFailures {
 		return mine[len(mine)-g.limits.AddressFailures].Add(g.limits.Window).Sub(now)
+	}
+	return 0
+}
+
+// paused returns how long joins from everyone must wait, or 0.
+func (g *guard) paused(now time.Time) time.Duration {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.pausedLocked(now)
+}
+
+func (g *guard) pausedLocked(now time.Time) time.Duration {
+	g.prune(now)
+	if len(g.fails) >= g.limits.TotalFailures {
+		return g.fails[len(g.fails)-g.limits.TotalFailures].at.Add(g.limits.Window).Sub(now)
 	}
 	return 0
 }
