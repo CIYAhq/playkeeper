@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.0
+
+- Try Playkeeper before you install it: the live demo at playkeeper.io/demo is the dashboard with sample servers, players, console, backups and settings, running in your browser. Nothing in it is real, and it starts over every hour.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
