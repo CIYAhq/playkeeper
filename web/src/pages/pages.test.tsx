@@ -322,7 +322,7 @@ describe('How it’s running', () => {
     expect(rows).toHaveLength(3)
     expect(rows[0]).toContain('New land is being built as players explore')
     expect(rows[0]).toContain('1,240 new chunks in the last 10 minutes')
-    expect(rows[1]).toContain('Even after cleaning up, 91% of its memory stayed in use, so Java keeps pausing.')
+    expect(rows[1]).toContain('Survival used 2.7 GB of its 3 GB, so Java keeps pausing.')
     expect(rows[1]).toContain('Pauses took 9% of the last 10 minutes')
     expect(rows[2]).toContain('View distance is 16 chunks, a lot of land per player.')
     expect(rows[2]).toContain('1,089 chunks in view per player')

@@ -146,7 +146,9 @@ export function causeText(c: LagCause, ctx: CauseContext): CauseText {
       return { title: t('running.hostSmall', { machine: ctx.machine }), body: t('running.hostSmallBody', { server: ctx.server, machine: ctx.machine }), evidence: line }
     }
     case 'memory_pressure': {
-      const after = num(evidence(c.evidence, 'heap_after_gc'), 'percent')
+      const after = evidence(c.evidence, 'heap_after_gc')
+      const used = num(after, 'used_mb')
+      const heap = num(after, 'heap_mb')
       const pauses = num(evidence(c.evidence, 'gc_pauses'), 'percent')
       const full = num(evidence(c.evidence, 'full_gc'), 'count')
       const ranOut = num(evidence(c.evidence, 'evacuation_failure'), 'count')
@@ -154,7 +156,8 @@ export function causeText(c: LagCause, ctx: CauseContext): CauseText {
       if (pauses !== undefined) line = t('running.memoryPauses', { percent: formatPercent(pauses), minutes: ctx.minutes })
       else if (full) line = t('running.memoryFull', { count: full, minutes: ctx.minutes })
       else if (ranOut) line = t('running.memoryRanOut', { count: ranOut })
-      return { title: t('running.memory'), body: after !== undefined ? t('running.memoryBody', { percent: formatPercent(after) }) : t('running.memoryBodyPlain'), evidence: line }
+      const body = used !== undefined && heap ? t('running.memoryBody', { server: ctx.server, used: formatMB(used), heap: formatMB(heap) }) : t('running.memoryBodyPlain')
+      return { title: t('running.memory'), body, evidence: line }
     }
     case 'chunk_generation': {
       const count = num(p, 'count')

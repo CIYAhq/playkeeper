@@ -400,7 +400,7 @@ export const en = {
   'running.hostSmall': '{machine} needs a faster processor',
   'running.hostSmallBody': '{server} needs more processor than {machine} has.',
   'running.memory': 'Memory is nearly full',
-  'running.memoryBody': 'Even after cleaning up, {percent} of its memory stayed in use, so Java keeps pausing.',
+  'running.memoryBody': '{server} used {used} of its {heap}, so Java keeps pausing.',
   'running.memoryBodyPlain': 'Java keeps pausing the game to free memory.',
   'running.memoryPauses': 'Pauses took {percent} of the last {minutes} minutes',
   'running.memoryFull': { one: '1 full clean-up in the last {minutes} minutes', other: '{count} full clean-ups in the last {minutes} minutes' },
