@@ -234,6 +234,49 @@ describe('Home', () => {
   })
 })
 
+describe('Home for team members', () => {
+  const both = () => [server(), server({ id: 'bcdefghjkm', name: 'Creative', slug: 'creative', phase: 'stopped', desired: 'stopped', startedAt: undefined })]
+
+  it('welcomes a new moderator once, without the owner’s buttons', async () => {
+    const setPrefs = vi.fn(async () => {})
+    const text = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: both(), prefs: { 'home.welcome': '1' }, setPrefs }))
+    expect(text).toContain('Welcome, mara')
+    expect(text).toContain('You help run Survival and Creative as a Moderator.')
+    expect(text).not.toContain('New server')
+    expect(text).not.toContain('Full audit log')
+    await click(button('Dismiss'))
+    expect(setPrefs).toHaveBeenCalledWith({ 'home.welcome': '' })
+    expect(page()).not.toContain('Welcome, mara')
+  })
+
+  it('names the team once it has a name, and stays quiet after the welcome', async () => {
+    const named = member('viewer', ['view', 'account.manage'], { team: 'Friends', servers: { all: true } })
+    const text = await render(<HomePage />, workspace({ me: named, servers: both(), prefs: { 'home.welcome': '1' } }))
+    expect(text).toContain('Welcome to Friends, mara')
+    expect(text).toContain('You can see all the servers as a Viewer.')
+    expect(await render(<HomePage />, workspace({ me: named, servers: both() }))).not.toContain('Welcome')
+  })
+
+  it('asks an admin without two-factor sign-in to turn it on, as the one notice', async () => {
+    const text = await render(<HomePage />, workspace({ me: member('admin', moderatorCan, { servers: { all: true }, needsTwoFactor: true }), servers: both(), prefs: { 'home.welcome': '1' } }))
+    expect(text).toContain('Turn on two-factor sign-in to use your Admin rights')
+    expect(text).toContain('Until then you have Moderator rights.')
+    expect(link('Turn it on').getAttribute('href')).toBe('/account/two-factor')
+    expect(text).not.toContain('Welcome, mara')
+  })
+
+  it('gives a viewer no Start button and a member no first steps', async () => {
+    const stopped = [server({ phase: 'stopped', desired: 'stopped', startedAt: undefined })]
+    await render(<HomePage />, workspace({ servers: stopped }))
+    expect(buttons('Start')).toHaveLength(1)
+    await render(<HomePage />, workspace({ me: member('viewer', ['view', 'account.manage']), servers: stopped }))
+    expect(buttons('Start')).toHaveLength(0)
+    const empty = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: [] }))
+    expect(empty).toContain('Servers you help run show up here.')
+    expect(empty).not.toContain('Create your first server')
+  })
+})
+
 describe('Overview notices', () => {
   // Regression for item 66: a failure notice stayed up to 15 minutes after its
   // cause cleared, such as "Start failed" next to Online and Joinable.

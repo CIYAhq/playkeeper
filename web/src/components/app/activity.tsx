@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
-import type { Activity, ActivityKind, ServerStatus } from '@/api/types'
+import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { t } from '@/i18n'
+import { projectRoles, roleName } from '@/lib/access'
 import { relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -42,6 +43,8 @@ function icon(kind: ActivityKind): ReactNode {
       return <RotateCwIcon />
     case 'settings':
       return <SlidersHorizontalIcon />
+    case 'team_joined':
+      return <UserPlusIcon />
     default: {
       const unreachable: never = kind
       return unreachable
@@ -88,6 +91,10 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return t('activity.restarted', { server })
     case 'settings':
       return t('activity.settings', { actor, server })
+    case 'team_joined': {
+      const role = projectRoles.find((r): r is ProjectRole => r === a.detail)
+      return t('activity.teamJoined', { name: a.actor ?? '', role: role ? roleName(role) : (a.detail ?? '') })
+    }
     default: {
       const unreachable: never = a.kind
       return unreachable

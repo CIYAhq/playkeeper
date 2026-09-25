@@ -394,6 +394,7 @@ export type ActivityKind =
   | 'restarted'
   | 'settings'
   // Wave 5: someone joined the team with a team invite; detail is their role.
+  | 'team_joined'
 
 export interface Activity {
   ts: string
