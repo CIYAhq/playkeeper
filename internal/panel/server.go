@@ -253,6 +253,11 @@ func (s *Server) Routes() []Route {
 		// Wave 4: templates.
 		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
 		{"POST", "/api/machines/{mid}/templates/plan", needSessionCSRF, actManageServers, s.rawUpload("/v1/templates/plan", "text/plain")},
+		// Wave 4: sharing the pack with friends; the public page is in
+		// publicRoutes.
+		sg("/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		sm("POST", "/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		view("/api/servers/{id}/mods/share.mrpack", s.hPackShareFile),
 	}
 }
 

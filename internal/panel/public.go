@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 )
 
@@ -17,6 +18,8 @@ import (
 func (s *Server) publicRoutes() []publicRoute {
 	return []publicRoute{
 		{packs.PathPrefix, packLimits, packs.NewHandler(packs.Store{Dir: s.cfg.ResourcePacksDir()}, s.activePacks.has)},
+		// Wave 4: the friends' pack pages, /packs/<token>.
+		{share.PathPrefix, friendsPackLimits, s.friendsPacks()},
 	}
 }
 
