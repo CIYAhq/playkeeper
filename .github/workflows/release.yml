@@ -2,11 +2,13 @@ name: Release
 
 # A v* tag builds the release with `make package`, installs the built assets
 # on a fresh runner through get.sh, publishes them as the latest (normal, not
-# pre-release) GitHub release, redeploys playkeeper.io so /install serves the
-# new get.sh, then runs the README one-liner against the live address.
+# pre-release) GitHub release, then checks the live addresses: the GitHub
+# release URLs and the one-line install from them must work, and
+# https://playkeeper.io/install should redirect to the new get.sh (a warning
+# only, since that site runs on its own server).
 # Pull requests that touch the release path, and manual runs, are dry runs:
-# the same build, install check and site build, with the assets uploaded as
-# a workflow artifact instead of released.
+# the same build and install check, with the assets uploaded as a workflow
+# artifact instead of released.
 
 on:
   push:
@@ -17,11 +19,9 @@ on:
       - scripts/package.sh
       - scripts/release-*.sh
       - scripts/smoke-install.sh
-      - scripts/build-site.sh
       - scripts/third-party-notices.sh
       - THIRD_PARTY_NOTICES
       - packaging/**
-      - site/**
       - Makefile
   workflow_dispatch:
     inputs:
@@ -90,10 +90,6 @@ jobs:
           cmp dist/get.sh packaging/get.sh
           scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY"
           scripts/release-notes.sh "$VERSION" "$GITHUB_REPOSITORY" "$INSTALL_URL" out/assets >out/release-notes.md
-      - name: The site this release would deploy
-        run: |
-          scripts/build-site.sh out/assets/get.sh out/site-preview
-          cmp out/site-preview/install out/assets/get.sh
       - name: Summary
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -103,7 +99,7 @@ jobs:
           {
             echo "## $TITLE"
             if [ "$DRY_RUN" = true ]; then
-              echo "Dry run: nothing is tagged or released. The assets, the notes and the site preview (with this get.sh as /install) are in the \`release-$TAG\` artifact."
+              echo "Dry run: nothing is tagged or released. The assets and the notes are in the \`release-$TAG\` artifact."
             fi
             echo
             echo "| Release asset | SHA-256 |"
@@ -176,30 +172,12 @@ jobs:
       - name: Publish it as the latest release, not a pre-release
         run: gh release edit "$TAG" --draft=false --prerelease=false --latest
 
-  site:
-    name: Redeploy playkeeper.io with the new get.sh
-    needs: publish
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-    steps:
-      # A release created with the workflow token triggers no other workflow,
-      # but a dispatch does. The github-pages environment only accepts
-      # deployments from the default branch unless its rules are changed.
-      - run: gh workflow run pages.yml --ref "$DEFAULT_BRANCH"
-
   verify:
-    name: Live addresses — README one-liner on a fresh runner
-    needs: [build, site]
+    name: Live addresses — one-line install on a fresh runner
+    needs: [build, publish]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
@@ -221,16 +199,14 @@ jobs:
             fi
             cmp "/tmp/latest/$f" "/tmp/release/assets/$f"
           done
-      - name: The install address serves this release's get.sh
+      - name: playkeeper.io/install resolves to this release's get.sh (warning only)
         run: |
-          for _ in $(seq 45); do
-            if curl -fsSL -o /tmp/install "$INSTALL_URL" && cmp -s /tmp/install /tmp/release/assets/get.sh; then
-              echo "$INSTALL_URL serves this release's get.sh"
-              exit 0
-            fi
-            sleep 20
-          done
-          echo "::error::$INSTALL_URL does not serve this release's get.sh after 15 minutes. Check the Pages workflow run, the Pages custom domain and DNS."
-          exit 1
-      - name: README one-liner
-        run: scripts/smoke-install.sh "$INSTALL_URL" "$VERSION"
+          if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/install "$INSTALL_URL" &&
+            cmp -s /tmp/install /tmp/release/assets/get.sh; then
+            echo "$INSTALL_URL resolves to this release's get.sh"
+          else
+            answer=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$INSTALL_URL" 2>&1 || true)
+            echo "::warning::$INSTALL_URL does not resolve to this release's get.sh (it answered: $answer). Check the playkeeper.io application in Coolify (site/README.md) and its DNS. Installs from the GitHub release URL are not affected."
+          fi
+      - name: One-line install from the GitHub release
+        run: scripts/smoke-install.sh "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/get.sh" "$VERSION"
