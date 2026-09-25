@@ -138,6 +138,9 @@ func TestTableWorksWithoutJavaScript(t *testing.T) {
 	if !strings.Contains(string(index), installCommand) {
 		t.Errorf("site/index.html no longer shows %q; keep the sizing guide's install command the same", installCommand)
 	}
+	if !strings.Contains(string(index), `id="install"`) {
+		t.Errorf(`site/index.html has no id="install", which the sizing guide's links to /#install open at`)
+	}
 }
 
 func TestDataHasEveryAnswerInThePagesOrder(t *testing.T) {
