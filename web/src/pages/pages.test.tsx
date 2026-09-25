@@ -146,8 +146,7 @@ describe('Home', () => {
     expect(text).toContain('Paper 26.1.2')
     expect(text).toContain('3 playing')
     expect(text).toContain(window.location.hostname)
-    expect(text).toContain('1 server on my-vps')
-    expect(text).toContain('3 people playing right now')
+    expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
   it('says when the agent stopped answering, keeping names but not numbers', async () => {

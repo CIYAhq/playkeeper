@@ -58,7 +58,8 @@ export function HomePage() {
   }
 
   const players = playersOnline(servers)
-  const subtitle = servers ? `${t('home.servers', { count: servers.length, machine: ws.machineName })}${t('common.dot')}${t('home.playing', { count: players })}` : undefined
+  const count = servers ? t('home.servers', { count: servers.length, machine: ws.machineName }) : undefined
+  const subtitle = count && !ws.stale ? `${count}${t('common.dot')}${t('home.playing', { count: players })}` : count
   return (
     <>
       <PageHeader title={t('home.title')} subtitle={subtitle} actions={newButton} phoneAction={<PhoneMoreButton />} />
