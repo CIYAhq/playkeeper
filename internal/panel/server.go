@@ -241,13 +241,13 @@ func (s *Server) Routes() []Route {
 // page makes. Every answer is no-store.
 func (s *Server) publicPages() []Route {
 	return []Route{
-		{"GET", "/map/{slug}", public, "", s.hMapPage},
-		{"GET", "/api/public/map/{slug}", public, "", s.publicMap(mapPart(""))},
-		{"GET", "/api/public/map/{slug}/worlds", public, "", s.publicMap(mapPart("worlds"))},
-		{"GET", "/api/public/map/{slug}/players", public, "", s.publicMap(mapPart("players"))},
-		{"GET", "/api/public/map/{slug}/icon", public, "", s.publicMap(mapPart("icon"))},
-		{"GET", "/api/public/map/{slug}/tiles/{world}/{zoom}/{tile}", public, "", s.publicMap(mapTile)},
-		{"GET", "/api/public/map/{slug}/faces/{name}", public, "", s.hPublicMapFace},
+		{"GET", "/map/{token}", public, "", s.hMapPage},
+		{"GET", "/api/public/map/{token}", public, "", s.publicMap(mapPart(""))},
+		{"GET", "/api/public/map/{token}/worlds", public, "", s.publicMap(mapPart("worlds"))},
+		{"GET", "/api/public/map/{token}/players", public, "", s.publicMap(mapPart("players"))},
+		{"GET", "/api/public/map/{token}/icon", public, "", s.publicMap(mapPart("icon"))},
+		{"GET", "/api/public/map/{token}/tiles/{world}/{zoom}/{tile}", public, "", s.publicMap(mapTile)},
+		{"GET", "/api/public/map/{token}/faces/{name}", public, "", s.hPublicMapFace},
 	}
 }
 
@@ -375,7 +375,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
 		if strings.HasPrefix(r.URL.Path, "/api/") || sw.status >= 400 {
-			s.log.Info("request", "method", r.Method, "path", r.URL.Path, "status", sw.status, "ms", time.Since(start).Milliseconds())
+			s.log.Info("request", "method", r.Method, "path", redactMapToken(r.URL.Path), "status", sw.status, "ms", time.Since(start).Milliseconds())
 		}
 	})
 }

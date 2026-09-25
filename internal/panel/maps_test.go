@@ -41,6 +41,13 @@ func (a *scriptedAgent) forget() {
 
 func newScriptedEnv(t *testing.T, h http.HandlerFunc) (*env, *scriptedAgent) {
 	t.Helper()
+	return newScriptedEnvLogging(t, h, io.Discard)
+}
+
+// newScriptedEnvLogging is newScriptedEnv with the panel's log written to
+// logs.
+func newScriptedEnvLogging(t *testing.T, h http.HandlerFunc, logs io.Writer) (*env, *scriptedAgent) {
+	t.Helper()
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "agent.sock")
 	ln, err := net.Listen("unix", sock)
@@ -60,7 +67,7 @@ func newScriptedEnv(t *testing.T, h http.HandlerFunc) (*env, *scriptedAgent) {
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = sock
 	clk := &clock{t: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
-	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(sock),
+	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(logs, nil)), Agent: agentclient.New(sock),
 		IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour, Static: fstest.MapFS{"index.html": {Data: []byte(indexPage)}}})
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +171,16 @@ func TestMapTabCallsReachTheServersAgent(t *testing.T) {
 	}
 }
 
-// sharedMapAgent plays the agent's shared map for one server, "survival".
+// Link tokens for the shared map tests: the map's token, the one it had
+// before sharing was switched off and on, and one nobody has.
+const (
+	mapToken   = "Ab3dEf6hIj9lMn2pQr5tUv"
+	oldToken   = "Zy9xWv8uTs7rQp6oNm5lKj"
+	otherToken = "Qq1wEe2rTt3yUu4iOo5pAa"
+)
+
+// sharedMapAgent plays the agent's shared map for one server, "Survival",
+// under mapToken. Like the agent, it lists nobody while players are hidden.
 type sharedMapAgent struct {
 	mu      sync.Mutex
 	shared  bool
@@ -188,7 +204,7 @@ func (m *sharedMapAgent) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	rest, ok := strings.CutPrefix(r.URL.Path, "/v1/public-maps/survival")
+	rest, ok := strings.CutPrefix(r.URL.Path, "/v1/public-maps/"+mapToken)
 	if !ok || !shared {
 		agentUnavailable(w)
 		return
@@ -202,7 +218,10 @@ func (m *sharedMapAgent) serve(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"worlds":[{"name":"minecraft_overworld"}],"tileSize":512}`)
 	case rest == "/players" && players:
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"players":[{"name":"Alex","uuid":"4566e69f-c907-48ee-8d71-d7ba5aa00d20","world":"minecraft_overworld","x":1,"z":2}]}`)
+		io.WriteString(w, `{"players":[{"name":"Alex","uuid":"4566e69f-c907-48ee-8d71-d7ba5aa00d20","world":"minecraft_overworld","x":1,"z":2}],"updatedAt":"2026-09-24T12:00:00Z"}`)
+	case rest == "/players":
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"players":[],"updatedAt":"2026-09-24T12:00:00Z"}`)
 	case rest == "/icon":
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(tilePNG)
@@ -232,8 +251,9 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 		}
 		return r, body
 	}
-	_, pageOff := get("/map/survival")
-	_, apiOff := get("/api/public/map/survival")
+	page, pub := "/map/"+mapToken, "/api/public/map/"+mapToken
+	_, pageOff := get(page)
+	_, apiOff := get(pub)
 	unavailable := func(what string, paths ...string) {
 		t.Helper()
 		for _, p := range paths {
@@ -251,68 +271,127 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 		t.Fatalf("unavailable answers: %s / %s", apiOff, pageOff)
 	}
 
-	unavailable("not shared", "/map/survival", "/api/public/map/survival/worlds", "/api/public/map/survival/tiles/minecraft_overworld/3/0_0.png", "/api/public/map/survival/icon")
-	unavailable("unknown link", "/map/creative", "/api/public/map/creative", "/api/public/map/creative/worlds")
+	unavailable("not shared", page, pub+"/worlds", pub+"/tiles/minecraft_overworld/3/0_0.png", pub+"/icon", pub+"/players")
+	unavailable("unknown link", "/map/"+otherToken, "/api/public/map/"+otherToken, "/api/public/map/"+otherToken+"/worlds")
 
 	sm.set(true, false)
-	r, body := get("/map/survival")
+	r, body := get(page)
 	if r.StatusCode != 200 || string(body) != indexPage || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("shared page: %d %v %s", r.StatusCode, r.Header, body)
 	}
-	if r, body := get("/api/public/map/survival"); r.StatusCode != 200 || string(body) != `{"name":"Survival","players":false}` {
+	if r, body := get(pub); r.StatusCode != 200 || string(body) != `{"name":"Survival","players":false}` {
 		t.Fatalf("shared details: %d %s", r.StatusCode, body)
 	}
-	if r, body := get("/api/public/map/survival/tiles/minecraft_overworld/3/-1_2.png"); r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, tilePNG) {
+	if r, body := get(pub + "/tiles/minecraft_overworld/3/-1_2.png"); r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, tilePNG) {
 		t.Fatalf("shared tile: %d %v", r.StatusCode, r.Header)
 	}
-	if r, _ := get("/api/public/map/survival/icon"); r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" {
+	if r, _ := get(pub + "/icon"); r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" {
 		t.Fatalf("shared icon: %d %v", r.StatusCode, r.Header)
 	}
-	unavailable("players off", "/api/public/map/survival/players", "/api/public/map/survival/faces/Alex")
-	unavailable("wrong link", "/map/not-survival", "/api/public/map/not-survival")
+	if r, body := get(pub + "/players"); r.StatusCode != 200 || !bytes.Contains(body, []byte(`"players":[]`)) {
+		t.Fatalf("players while they are hidden: %d %s", r.StatusCode, body)
+	}
+	unavailable("faces while players are hidden", pub+"/faces/Alex", pub+"/faces/alex")
+	unavailable("old link", "/map/"+oldToken, "/api/public/map/"+oldToken, "/api/public/map/"+oldToken+"/players")
 
 	agent.forget()
-	unavailable("invalid paths", "/map/Bad_Slug", "/api/public/map/Bad_Slug", "/api/public/map/survival%3Fx/worlds",
-		"/api/public/map/survival/tiles/..%2Fplugins/3/0_0.png", "/api/public/map/survival/tiles/minecraft_overworld/99x/0_0.png",
-		"/api/public/map/survival/tiles/minecraft_overworld/3/0_0.jpg", "/api/public/map/survival/faces/no%20name")
+	unavailable("the server's slug", "/map/survival", "/api/public/map/survival", "/api/public/map/survival/worlds", "/api/public/map/survival/players")
+	unavailable("invalid paths", "/map/Bad_Slug", "/map/"+mapToken[1:], "/map/"+mapToken+"x", "/api/public/map/"+mapToken[1:], "/api/public/map/"+mapToken+"x/worlds",
+		"/api/public/map/"+mapToken+"%3Fx/worlds", "/api/public/map/"+mapToken[:21]+"-/worlds",
+		pub+"/tiles/..%2Fplugins/3/0_0.png", pub+"/tiles/minecraft_overworld/99x/0_0.png",
+		pub+"/tiles/minecraft_overworld/3/0_0.jpg", pub+"/faces/no%20name", "/api/public/map/survival/faces/Alex")
 	if hits := agent.seen(); len(hits) != 0 {
 		t.Fatalf("invalid paths reached the agent: %v", hits)
 	}
 
 	sm.set(true, true)
-	if r, body := get("/api/public/map/survival/players"); r.StatusCode != 200 || !bytes.Contains(body, []byte(`"Alex"`)) {
+	if r, body := get(pub + "/players"); r.StatusCode != 200 || !bytes.Contains(body, []byte(`"Alex"`)) {
 		t.Fatalf("shared players: %d %s", r.StatusCode, body)
 	}
-	if r, body := get("/api/public/map/survival/faces/alex"); r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, face) {
+	if r, body := get(pub + "/faces/alex"); r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, face) {
 		t.Fatalf("a listed player's face: %d %v", r.StatusCode, r.Header)
 	}
-	unavailable("someone not on the map", "/api/public/map/survival/faces/Steve")
+	unavailable("someone not on the map", pub+"/faces/Steve")
 
 	sm.set(false, true)
-	unavailable("turned off", "/map/survival", "/api/public/map/survival", "/api/public/map/survival/players", "/api/public/map/survival/faces/Alex")
+	unavailable("turned off", page, pub, pub+"/players", pub+"/faces/Alex")
 
 	sm.set(true, true)
 	sm.mu.Lock()
 	sm.down = true
 	sm.mu.Unlock()
-	unavailable("agent down", "/map/survival", "/api/public/map/survival", "/api/public/map/survival/tiles/minecraft_overworld/3/0_0.png")
+	unavailable("agent down", page, pub, pub+"/tiles/minecraft_overworld/3/0_0.png")
+}
+
+// lockedBuffer is a log destination the panel's handlers may write to
+// while a test reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// A link token in the request log would let whoever reads it open the map.
+func TestSharedMapTokensStayOutOfTheLog(t *testing.T) {
+	sm := &sharedMapAgent{}
+	sm.set(true, false)
+	logs := &lockedBuffer{}
+	e, _ := newScriptedEnvLogging(t, sm.serve, logs)
+	for _, p := range []string{
+		"/map/" + mapToken, "/map/" + oldToken, "/MAP/" + mapToken, "/map/" + mapToken[:21],
+		"/api/public/map/" + mapToken, "/api/public/map/" + mapToken + "/tiles/minecraft_overworld/3/0_0.png",
+		"/api/public/map/" + oldToken + "/players", "/api/public/map/" + mapToken + "x/worlds", "/api/public//map/" + mapToken + "/worlds",
+	} {
+		e.raw(t, "GET", p, nil, nil)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "path=/api/public/map/[token]/tiles/minecraft_overworld/3/0_0.png") || !strings.Contains(out, "path=/map/[token]") {
+		t.Fatalf("request log:\n%s", out)
+	}
+	for _, tok := range []string{mapToken[:21], oldToken[:21], mapToken[1:]} {
+		if strings.Contains(out, tok) {
+			t.Fatalf("the request log holds a link token:\n%s", out)
+		}
+	}
+	for _, tc := range []struct{ in, want string }{
+		{"/map/" + mapToken, "/map/[token]"},
+		{"/api/public/map/" + mapToken + "/faces/Alex", "/api/public/map/[token]/faces/Alex"},
+		{"/api/servers/abcdefghjk/map/worlds", "/api/servers/abcdefghjk/map/worlds"},
+		{"/mapped", "/mapped"},
+		{"/map/", "/map/"},
+	} {
+		if got := redactMapToken(tc.in); got != tc.want {
+			t.Errorf("redactMapToken(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
 }
 
 func TestSharedMapIsRateLimitedPerAddress(t *testing.T) {
 	e, _ := newScriptedEnv(t, func(w http.ResponseWriter, r *http.Request) { agentUnavailable(w) })
 	for i := 0; i < publicMapRequests; i++ {
-		if r, _ := e.raw(t, "GET", "/api/public/map/survival", nil, nil); r.StatusCode != 404 {
+		if r, _ := e.raw(t, "GET", "/api/public/map/"+mapToken, nil, nil); r.StatusCode != 404 {
 			t.Fatalf("request %d: %d", i, r.StatusCode)
 		}
 	}
-	for _, p := range []string{"/api/public/map/survival/worlds", "/map/survival"} {
+	for _, p := range []string{"/api/public/map/" + mapToken + "/worlds", "/map/" + mapToken, "/map/survival"} {
 		r, _ := e.raw(t, "GET", p, nil, nil)
 		if r.StatusCode != http.StatusTooManyRequests || r.Header.Get("Retry-After") == "" || r.Header.Get("Cache-Control") != "no-store" {
 			t.Fatalf("%s over the limit: %d %v", p, r.StatusCode, r.Header)
 		}
 	}
 	e.clock.add(time.Minute)
-	if r, _ := e.raw(t, "GET", "/map/survival", nil, nil); r.StatusCode != 404 {
+	if r, _ := e.raw(t, "GET", "/map/"+mapToken, nil, nil); r.StatusCode != 404 {
 		t.Fatalf("a minute later: %d", r.StatusCode)
 	}
 }
