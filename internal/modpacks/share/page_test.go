@@ -32,16 +32,20 @@ func TestEnabled(t *testing.T) {
 // packServer is what the panel knows about a server for its public pages.
 type packServer struct {
 	on      bool // the owner's switch
+	slug    string
 	address string
 	share   *Share
 }
 
+// tok is a link token for the tests.
+const tok = "Qm9ZbGx3dW5kZXJmdWwxMj"
+
 // publicPacks is the panel's public route for pack pages, in miniature:
 // it asks Enabled on every request, and answers what Enabled refuses
-// exactly as it answers a slug no server has.
+// exactly as it answers a token no server has.
 func publicPacks(servers map[string]*packServer) http.Handler {
 	find := func(w http.ResponseWriter, r *http.Request) *packServer {
-		s := servers[r.PathValue("slug")]
+		s := servers[r.PathValue("token")]
 		if s == nil || !Enabled(s.on, s.share.Type) {
 			http.NotFound(w, r)
 			return nil
@@ -49,12 +53,12 @@ func publicPacks(servers map[string]*packServer) http.Handler {
 		return s
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/public/packs/{slug}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /packs/{token}/page", func(w http.ResponseWriter, r *http.Request) {
 		s := find(w, r)
 		if s == nil {
 			return
 		}
-		p, err := s.share.Page(r.PathValue("slug"), s.address)
+		p, err := s.share.Page(r.PathValue("token"), s.slug, s.address)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -63,16 +67,16 @@ func publicPacks(servers map[string]*packServer) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(p)
 	})
-	mux.HandleFunc("GET /api/public/packs/{slug}/{file}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /packs/{token}/{file}", func(w http.ResponseWriter, r *http.Request) {
 		s := find(w, r)
 		if s == nil {
 			return
 		}
-		if r.PathValue("file") != FileName(r.PathValue("slug")) {
+		if r.PathValue("file") != FileName(s.slug) {
 			http.NotFound(w, r)
 			return
 		}
-		s.share.ServeFile(w, r, r.PathValue("slug"))
+		s.share.ServeFile(w, r, s.slug)
 	})
 	return mux
 }
@@ -86,10 +90,10 @@ func get(h http.Handler, method, target string) *httptest.ResponseRecorder {
 func TestOffSwitch(t *testing.T) {
 	f := newFake(t)
 	sh := build(t, f.builder(), f.setup())
-	srv := &packServer{on: true, address: "203.0.113.10", share: sh}
-	h := publicPacks(map[string]*packServer{"adrenaline-smp": srv})
+	srv := &packServer{on: true, slug: "adrenaline-smp", address: "203.0.113.10", share: sh}
+	h := publicPacks(map[string]*packServer{tok: srv})
 
-	page := get(h, http.MethodGet, "/api/public/packs/adrenaline-smp")
+	page := get(h, http.MethodGet, "/packs/"+tok+"/page")
 	if page.Code != http.StatusOK {
 		t.Fatalf("page: %d", page.Code)
 	}
@@ -102,14 +106,14 @@ func TestOffSwitch(t *testing.T) {
 	if file.Code != http.StatusOK || !bytes.Equal(file.Body.Bytes(), want) || int64(file.Body.Len()) != p.Download.Size {
 		t.Errorf("file: %d, %d bytes", file.Code, file.Body.Len())
 	}
-	if w := get(h, http.MethodGet, "/api/public/packs/adrenaline-smp/other.mrpack"); w.Code != http.StatusNotFound {
+	if w := get(h, http.MethodGet, "/packs/"+tok+"/other.mrpack"); w.Code != http.StatusNotFound {
 		t.Errorf("another file name: %d", w.Code)
 	}
 
 	srv.on = false
 	for _, c := range [][2]string{
-		{"/api/public/packs/adrenaline-smp", "/api/public/packs/no-such-server"},
-		{"/api/public/packs/adrenaline-smp/adrenaline-smp.mrpack", "/api/public/packs/no-such-server/no-such-server.mrpack"},
+		{"/packs/" + tok + "/page", "/packs/NoSuchTokenNoSuchToken/page"},
+		{"/packs/" + tok + "/adrenaline-smp.mrpack", "/packs/NoSuchTokenNoSuchToken/adrenaline-smp.mrpack"},
 	} {
 		off, unknown := get(h, http.MethodGet, c[0]), get(h, http.MethodGet, c[1])
 		if off.Code != http.StatusNotFound || off.Code != unknown.Code || off.Body.String() != unknown.Body.String() ||
@@ -128,7 +132,7 @@ func TestOffSwitch(t *testing.T) {
 	// A server that no longer runs mods has no page, whatever the switch.
 	srv.on = true
 	srv.share.Type = "paper"
-	if w := get(h, http.MethodGet, "/api/public/packs/adrenaline-smp"); w.Code != http.StatusNotFound {
+	if w := get(h, http.MethodGet, "/packs/"+tok+"/page"); w.Code != http.StatusNotFound {
 		t.Errorf("a Paper server's page: %d", w.Code)
 	}
 }
@@ -138,7 +142,7 @@ func TestServeFile(t *testing.T) {
 	sh := build(t, f.builder(), f.setup())
 	want, _ := sh.File()
 	w := httptest.NewRecorder()
-	sh.ServeFile(w, httptest.NewRequest(http.MethodGet, "/api/public/packs/adrenaline-smp/adrenaline-smp.mrpack", nil), "adrenaline-smp")
+	sh.ServeFile(w, httptest.NewRequest(http.MethodGet, "/packs/"+tok+"/adrenaline-smp.mrpack", nil), "adrenaline-smp")
 	h := w.Header()
 	if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), want) || h.Get("Content-Type") != "application/x-modrinth-modpack+zip" ||
 		h.Get("Content-Disposition") != "attachment; filename=adrenaline-smp.mrpack" || h.Get("Cache-Control") != "no-store" ||
@@ -146,7 +150,7 @@ func TestServeFile(t *testing.T) {
 		t.Errorf("%d %v", w.Code, h)
 	}
 	w = httptest.NewRecorder()
-	sh.ServeFile(w, httptest.NewRequest(http.MethodHead, "/api/public/packs/adrenaline-smp/adrenaline-smp.mrpack", nil), "adrenaline-smp")
+	sh.ServeFile(w, httptest.NewRequest(http.MethodHead, "/packs/"+tok+"/adrenaline-smp.mrpack", nil), "adrenaline-smp")
 	if w.Code != http.StatusOK || w.Body.Len() != 0 || w.Header().Get("Content-Length") == "" {
 		t.Errorf("HEAD: %d, %d bytes, %v", w.Code, w.Body.Len(), w.Header())
 	}
@@ -156,7 +160,7 @@ func TestPage(t *testing.T) {
 	f := newFake(t)
 	sh := build(t, f.builder(), f.setup())
 	asked := len(f.log())
-	p, err := sh.Page("adrenaline-smp", "203.0.113.10:25565")
+	p, err := sh.Page(tok, "adrenaline-smp", "203.0.113.10:25565")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +173,7 @@ func TestPage(t *testing.T) {
 		p.Pack != sh.Pack || !reflect.DeepEqual(p.Notice, sh.Notice) || p.Address != "203.0.113.10:25565" {
 		t.Errorf("page: %+v", p)
 	}
-	if want := (Download{URL: "/api/public/packs/adrenaline-smp/adrenaline-smp.mrpack", Name: "adrenaline-smp.mrpack", Size: int64(len(file)),
+	if want := (Download{URL: "/packs/" + tok + "/adrenaline-smp.mrpack", Name: "adrenaline-smp.mrpack", Size: int64(len(file)),
 		Type: "application/x-modrinth-modpack+zip"}); p.Download != want {
 		t.Errorf("download: %+v", p.Download)
 	}
@@ -227,7 +231,7 @@ func TestPageWithoutAnAddress(t *testing.T) {
 	f := newFake(t)
 	sh := build(t, f.builder(), f.setup())
 	for _, address := range []string{"", "not an address", "play.example.org:99999", "203.0.113.10:0", "http://203.0.113.10", "<b>203.0.113.10</b>"} {
-		p, err := sh.Page("adrenaline-smp", address)
+		p, err := sh.Page(tok, "adrenaline-smp", address)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -237,18 +241,53 @@ func TestPageWithoutAnAddress(t *testing.T) {
 	}
 }
 
+func TestPageNamesWhatADependencyIsFor(t *testing.T) {
+	f := newFake(t)
+	sh := build(t, f.builder(), f.setup())
+	p, err := sh.Page(tok, "adrenaline-smp", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]string{}
+	for _, m := range p.Mods {
+		by[m.Name] = m.NeededBy
+	}
+	var waystones string
+	for _, m := range sh.Mods {
+		if m.Project == "LOpKHB2A" {
+			waystones = m.Name
+		}
+	}
+	if waystones == "" || by["Balm"] != waystones || by[waystones] != "" {
+		t.Errorf("needed by: %v", by)
+	}
+}
+
+func TestPageRefusesBadTokens(t *testing.T) {
+	f := newFake(t)
+	sh := build(t, f.builder(), f.setup())
+	for _, token := range []string{"", "adrenaline-smp", tok[:TokenLen-1], tok + "a", "../" + tok[3:], tok[:TokenLen-1] + "-"} {
+		if _, err := sh.Page(token, "adrenaline-smp", ""); err == nil {
+			t.Errorf("%q: no error", token)
+		}
+		if FilePath(token, "adrenaline-smp") != "" {
+			t.Errorf("%q: a file path", token)
+		}
+	}
+}
+
 func TestPageRefusesBadSlugs(t *testing.T) {
 	f := newFake(t)
 	sh := build(t, f.builder(), f.setup())
 	for _, slug := range []string{"", "Adrenaline", "../adrenaline", "adrenaline smp", "-adrenaline", "adrenaline/x", strings.Repeat("a", 41), "adrenaline.mrpack"} {
-		_, err := sh.Page(slug, "")
+		_, err := sh.Page(tok, slug, "")
 		wantKind(t, err, addons.KindInvalid)
-		if FilePath(slug) != "" || FileName(slug) != "server.mrpack" {
-			t.Errorf("%q: %q, %q", slug, FilePath(slug), FileName(slug))
+		if FilePath(tok, slug) != "" || FileName(slug) != "server.mrpack" {
+			t.Errorf("%q: %q, %q", slug, FilePath(tok, slug), FileName(slug))
 		}
 	}
 	for _, slug := range []string{"a", "0", "adrenaline-smp", strings.Repeat("a", 40)} {
-		if _, err := sh.Page(slug, ""); err != nil || FileName(slug) != slug+".mrpack" || FilePath(slug) != "/api/public/packs/"+slug+"/"+slug+".mrpack" {
+		if _, err := sh.Page(tok, slug, ""); err != nil || FileName(slug) != slug+".mrpack" || FilePath(tok, slug) != "/packs/"+tok+"/"+slug+".mrpack" {
 			t.Errorf("%q: %v", slug, err)
 		}
 	}

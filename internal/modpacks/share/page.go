@@ -9,22 +9,28 @@ import (
 )
 
 // Enabled reports whether a server's public page and its file answer: the
-// owner's switch is on and the server runs mods. The panel checks it on every
-// public request, with the switch as stored, and answers 404 exactly as for
-// an unknown slug when it is false, so turning the switch off works at once.
-// Signed-in users' downloads don't depend on it.
+// owner's switch is on and the server runs mods. It is checked on every
+// public request, with the switch as stored, and a false answers exactly as
+// an unknown token does, so turning the switch off works at once. Signed-in
+// users' downloads don't depend on it.
 func Enabled(on bool, serverType string) bool { return on && Supported(serverType) }
 
-// FilePath is the public route of a server's file, or "" for a slug that
-// isn't valid.
-func FilePath(slug string) string {
-	if !ValidSlug(slug) {
+// PathPrefix is where public pack pages live: the page at /packs/<token>,
+// its data at /packs/<token>/page, the server's emblem at
+// /packs/<token>/icon and the file at /packs/<token>/<slug>.mrpack. The
+// token is random (see NewToken), never the server's name.
+const PathPrefix = "/packs/"
+
+// FilePath is the public route of a server's file, or "" for a token or slug
+// that isn't valid.
+func FilePath(token, slug string) string {
+	if !ValidToken(token) || !ValidSlug(slug) {
 		return ""
 	}
-	return "/api/public/packs/" + slug + "/" + FileName(slug)
+	return PathPrefix + token + "/" + FileName(slug)
 }
 
-// Page is the data of the public /packs/<slug> page. It lists only what
+// Page is the data of the public /packs/<token> page. It lists only what
 // friends get; server-only mods stay off it.
 type Page struct {
 	Server           string `json:"server"`
@@ -55,6 +61,9 @@ type PageMod struct {
 	Need    Need   `json:"need"`
 	Label   Text   `json:"label"`
 	InFile  bool   `json:"inFile"`
+	// NeededBy names the user's mod this one was added for, as in "Needed by
+	// Waystones".
+	NeededBy string `json:"neededBy,omitempty"`
 }
 
 // Launcher is how to add the file in one launcher.
@@ -73,10 +82,13 @@ type Download struct {
 	Type string `json:"type"`
 }
 
-// Page returns the public page's data for the server with slug. address is
-// the server's join address as players type it, or "" when there is none to
-// show. It asks no one.
-func (s *Share) Page(slug, address string) (*Page, error) {
+// Page returns the data of the public page at token, for the server with
+// slug. address is the server's join address as players type it, or "" when
+// there is none to show. It asks no one.
+func (s *Share) Page(token, slug, address string) (*Page, error) {
+	if !ValidToken(token) {
+		return nil, fail(addons.KindInvalid, kv("field", "token"), "That is not a pack's link.", "")
+	}
 	if !ValidSlug(slug) {
 		return nil, fail(addons.KindInvalid, kv("field", "slug"), "That is not a server's link name.", "")
 	}
@@ -89,14 +101,28 @@ func (s *Share) Page(slug, address string) (*Page, error) {
 		Server: s.Server, MinecraftVersion: s.MinecraftVersion, Loader: s.Type, LoaderName: loaderName(s.Type), LoaderVersion: s.LoaderVersion,
 		Pack: s.Pack, Notice: s.Notice, Steps: Steps(file, address, false), Launchers: Launchers(file),
 		Mods: []PageMod{}, Yourself: s.Yourself, Address: address,
-		Download: Download{URL: FilePath(slug), Name: file, Size: int64(len(b)), Type: ContentType},
+		Download: Download{URL: FilePath(token, slug), Name: file, Size: int64(len(b)), Type: ContentType},
 	}
 	for _, m := range s.Mods {
 		if m.InFile || m.ByHand {
-			p.Mods = append(p.Mods, PageMod{Name: m.Name, Version: m.Version, From: m.From, Page: m.Page, Need: m.Need, Label: m.Label, InFile: m.InFile})
+			p.Mods = append(p.Mods, PageMod{Name: m.Name, Version: m.Version, From: m.From, Page: m.Page, Need: m.Need, Label: m.Label, InFile: m.InFile,
+				NeededBy: s.neededBy(m)})
 		}
 	}
 	return p, nil
+}
+
+// neededBy is the name of the user's mod that m was added for, or "".
+func (s *Share) neededBy(m Mod) string {
+	if m.From != FromUser || m.DependencyOf == "" {
+		return ""
+	}
+	for _, o := range s.Mods {
+		if o.From == FromUser && o.Source == m.Source && o.Project == m.DependencyOf {
+			return o.Name
+		}
+	}
+	return ""
 }
 
 // Steps are what friends do, in short. link is set for the owner's share

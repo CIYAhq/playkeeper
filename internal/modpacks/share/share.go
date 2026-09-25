@@ -1,7 +1,8 @@
 // Package share builds what friends need to play on a modded server: a label
 // per mod saying whether friends' games need it, the notice at the top of the
 // Mods tab ("Friends need the pack plus Waystones"), a client .mrpack made
-// from the server's setup, and the data of the public /packs/<slug> page.
+// from the server's setup, and the data of the public /packs/<token> page,
+// whose token is random so a link never names the server.
 //
 // The .mrpack holds one file, modrinth.index.json: each mod's path, size,
 // hashes and download address on Modrinth's CDN, and the Minecraft and loader
