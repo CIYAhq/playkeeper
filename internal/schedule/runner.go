@@ -16,6 +16,10 @@ var (
 	// ErrNotRunning is Server.Run's error when a restart finds the server
 	// stopped. The run is recorded as skipped.
 	ErrNotRunning = errors.New("the server is not running")
+	// ErrNobodyPlayed is Server.Run's error when a backup asked for
+	// Operation.OnlyIfPlayed finds nobody played since the last backup. The
+	// run is recorded as skipped.
+	ErrNobodyPlayed = errors.New("nobody played since the last backup")
 )
 
 // OperationKind is an agent operation a schedule starts.
@@ -35,6 +39,9 @@ type Operation struct {
 	Due        time.Time
 	// Note is a backup's note; empty for restarts.
 	Note string
+	// OnlyIfPlayed makes a backup happen only if someone played since the
+	// last backup.
+	OnlyIfPlayed bool
 }
 
 // ServerState is what the runner needs to know about its server.
@@ -306,7 +313,7 @@ func (r *Runner) execute(ctx context.Context, j Job) Run {
 	case KindRestart:
 		return r.restart(ctx, j)
 	case KindBackup:
-		return r.operation(ctx, j, Operation{Kind: OpBackup, Note: j.Schedule.Payload.Note})
+		return r.backup(ctx, j)
 	case KindAnnouncement:
 		return r.announce(ctx, j)
 	case KindCommand:
@@ -330,7 +337,24 @@ func stateFailed(err error) Run {
 	return Run{Result: ResultFailed, Reason: ReasonError, Detail: cleanOutput("Could not check the server: " + err.Error())}
 }
 
-func (r *Runner) restart(ctx context.Context, j Job) Run {
+// players is the player count in st, when known.
+func players(st ServerState) *int {
+	if !st.PlayersKnown {
+		return nil
+	}
+	n := st.Players
+	return &n
+}
+
+// peoplePlaying is the skipped run for a schedule that skips while people
+// play, with its retry an hour later.
+func (r *Runner) peoplePlaying(j Job, st ServerState) Run {
+	return Run{Result: ResultSkipped, Reason: ReasonPeoplePlaying, Players: players(st), RetryAt: j.Schedule.retryAt(j.Due, r.cfg.Now())}
+}
+
+// restart warns players and restarts the server. The run records the last
+// player count seen before the restart.
+func (r *Runner) restart(ctx context.Context, j Job) (res Run) {
 	p := j.Schedule.Payload
 	st, err := r.cfg.Server.State(ctx)
 	if err != nil {
@@ -339,6 +363,15 @@ func (r *Runner) restart(ctx context.Context, j Job) Run {
 	if skip, ok := offline(st); ok {
 		return skip
 	}
+	if p.SkipIfPlaying && st.PlayersKnown && st.Players > 0 {
+		return r.peoplePlaying(j, st)
+	}
+	seen := players(st)
+	defer func() {
+		if res.Players == nil {
+			res.Players = seen
+		}
+	}()
 	if st.PlayersKnown && st.Players == 0 {
 		switch p.IfEmpty {
 		case IfEmptySkip:
@@ -358,6 +391,9 @@ func (r *Runner) restart(ctx context.Context, j Job) Run {
 		if st, err := r.cfg.Server.State(ctx); err == nil {
 			if skip, ok := offline(st); ok {
 				return skip
+			}
+			if n := players(st); n != nil {
+				seen = n
 			}
 			if p.IfEmpty == IfEmptyNow && st.PlayersKnown && st.Players == 0 {
 				emptied = true
@@ -382,15 +418,34 @@ func (r *Runner) restart(ctx context.Context, j Job) Run {
 			if skip, ok := offline(st); ok {
 				return skip
 			}
+			if n := players(st); n != nil {
+				seen = n
+			}
 		}
 		if warned {
 			_, _ = r.cfg.Server.Command(ctx, restartNow())
 		}
 	}
-	res := r.operation(ctx, j, Operation{Kind: OpRestart})
+	res = r.operation(ctx, j, Operation{Kind: OpRestart})
 	if warned && res.Result == ResultFailed && res.Reason != ReasonInterrupted {
 		_, _ = r.cfg.Server.Command(ctx, restartCalledOff())
 	}
+	return res
+}
+
+// backup backs the world up. It doesn't need the server running: a stopped
+// or sleeping server's world is backed up as it is.
+func (r *Runner) backup(ctx context.Context, j Job) Run {
+	p := j.Schedule.Payload
+	var seen *int
+	if st, err := r.cfg.Server.State(ctx); err == nil {
+		if p.SkipIfPlaying && st.PlayersKnown && st.Players > 0 {
+			return r.peoplePlaying(j, st)
+		}
+		seen = players(st)
+	}
+	res := r.operation(ctx, j, Operation{Kind: OpBackup, Note: p.Note, OnlyIfPlayed: p.OnlyIfPlayed})
+	res.Players = seen
 	return res
 }
 
@@ -466,6 +521,8 @@ func (r *Runner) operation(ctx context.Context, j Job, op Operation) Run {
 			return Run{Result: ResultSucceeded, OperationID: id}
 		case errors.Is(err, ErrNotRunning):
 			return Run{Result: ResultSkipped, Reason: ReasonServerStopped, OperationID: id}
+		case errors.Is(err, ErrNobodyPlayed):
+			return Run{Result: ResultSkipped, Reason: ReasonNobodyPlayed}
 		case ctx.Err() != nil:
 			return Run{Result: ResultFailed, Reason: ReasonInterrupted, OperationID: id}
 		case !errors.Is(err, ErrBusy):
@@ -487,17 +544,22 @@ func (r *Runner) announce(ctx context.Context, j Job) Run {
 	if skip, ok := offline(st); ok {
 		return skip
 	}
+	return r.chat(ctx, st, j.Schedule.Payload.Message, colorAnnouncement)
+}
+
+// chat shows text to everyone online; nobody online skips it.
+func (r *Runner) chat(ctx context.Context, st ServerState, text, color string) Run {
 	if st.PlayersKnown && st.Players == 0 {
-		return Run{Result: ResultSkipped, Reason: ReasonNobodyOnline}
+		return Run{Result: ResultSkipped, Reason: ReasonNobodyOnline, Players: players(st)}
 	}
-	cmd, err := tellraw(j.Schedule.Payload.Message, colorAnnouncement)
+	cmd, err := tellraw(text, color)
 	if err != nil {
 		return Run{Result: ResultFailed, Reason: ReasonInvalid, Detail: err.Error()}
 	}
 	if _, err := r.cfg.Server.Command(ctx, cmd); err != nil {
-		return Run{Result: ResultFailed, Reason: ReasonError, Detail: cleanOutput(err.Error())}
+		return Run{Result: ResultFailed, Reason: ReasonError, Detail: cleanOutput(err.Error()), Players: players(st)}
 	}
-	return Run{Result: ResultSucceeded}
+	return Run{Result: ResultSucceeded, Players: players(st)}
 }
 
 func (r *Runner) command(ctx context.Context, j Job) Run {
@@ -508,14 +570,17 @@ func (r *Runner) command(ctx context.Context, j Job) Run {
 	if skip, ok := offline(st); ok {
 		return skip
 	}
+	if text, ok := sayText(j.Schedule.Payload.Command); ok {
+		return r.chat(ctx, st, sayPrefix+text, colorSay)
+	}
 	out, err := r.cfg.Server.Command(ctx, j.Schedule.Payload.Command)
 	if err != nil {
-		return Run{Result: ResultFailed, Reason: ReasonError, Detail: cleanOutput(err.Error())}
+		return Run{Result: ResultFailed, Reason: ReasonError, Detail: cleanOutput(err.Error()), Players: players(st)}
 	}
 	if rejected(out) {
-		return Run{Result: ResultFailed, Reason: ReasonRejected, Detail: cleanOutput(out)}
+		return Run{Result: ResultFailed, Reason: ReasonRejected, Detail: cleanOutput(out), Players: players(st)}
 	}
-	return Run{Result: ResultSucceeded, Detail: cleanOutput(out)}
+	return Run{Result: ResultSucceeded, Detail: cleanOutput(out), Players: players(st)}
 }
 
 type woke int

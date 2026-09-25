@@ -187,3 +187,52 @@ func TestNextRun(t *testing.T) {
 		t.Fatalf("NextRun of a disabled schedule = %v", n)
 	}
 }
+
+func TestPlanRetriesAnHourAfterPeoplePlaying(t *testing.T) {
+	s := planned("r1", KindRestart, dailyUTC("04:00"), Payload{WarnSeconds: []int{600}, SkipIfPlaying: true})
+	due, skipped := utc("2026-06-01T04:00:00Z"), utc("2026-06-01T03:50:00Z")
+	s.LastRun = &Run{Due: due, Finished: skipped, Result: ResultSkipped, Reason: ReasonPeoplePlaying, RetryAt: s.retryAt(due, skipped)}
+	if want := utc("2026-06-01T05:00:00Z"); !s.LastRun.RetryAt.Equal(want) {
+		t.Fatalf("retryAt = %v, want %v", s.LastRun.RetryAt, want)
+	}
+	d := Plan([]Schedule{s}, utc("2026-06-01T04:10:00Z"), created)
+	if len(d.Due) != 0 || !d.Wake.Equal(utc("2026-06-01T04:50:00Z")) {
+		t.Fatalf("Plan = %+v, want to wake for the retry's first warning", d)
+	}
+	d = Plan([]Schedule{s}, utc("2026-06-01T04:50:00Z"), created)
+	if len(d.Due) != 1 || !d.Due[0].Due.Equal(utc("2026-06-01T05:00:00Z")) || !d.Due[0].Start.Equal(utc("2026-06-01T04:50:00Z")) {
+		t.Fatalf("Plan = %+v, want the retry due", d)
+	}
+	if next := NextRun(s, utc("2026-06-01T04:10:00Z")); !next.Equal(utc("2026-06-01T05:00:00Z")) {
+		t.Fatalf("NextRun = %v, want the retry", next)
+	}
+	edited := s
+	edited.UpdatedAt = utc("2026-06-01T04:20:00Z")
+	if next := NextRun(edited, utc("2026-06-01T04:30:00Z")); !next.Equal(utc("2026-06-02T04:00:00Z")) {
+		t.Fatalf("NextRun after an edit = %v, want tomorrow's run: editing drops the retry", next)
+	}
+	if d := Plan([]Schedule{edited}, utc("2026-06-01T04:50:00Z"), created); len(d.Due) != 0 {
+		t.Fatalf("Plan after an edit = %+v, want no retry", d)
+	}
+}
+
+func TestRetryNeverOvertakesTheNextRun(t *testing.T) {
+	every := planned("b1", KindBackup, Timing{Kind: Interval, TimeZone: "UTC", At: "00:00", EveryHours: 1}, Payload{SkipIfPlaying: true})
+	if rt := every.retryAt(utc("2026-06-01T04:00:00Z"), utc("2026-06-01T04:00:00Z")); !rt.IsZero() {
+		t.Fatalf("an hourly backup retries at %v; its next run comes first", rt)
+	}
+	two := planned("b2", KindBackup, Timing{Kind: Interval, TimeZone: "UTC", At: "00:00", EveryHours: 2}, Payload{SkipIfPlaying: true})
+	if rt := two.retryAt(utc("2026-06-01T04:00:00Z"), utc("2026-06-01T04:00:05Z")); !rt.Equal(utc("2026-06-01T05:00:05Z")) {
+		t.Fatalf("retryAt = %v", rt)
+	}
+	daily := planned("r1", KindRestart, dailyUTC("04:00"), Payload{SkipIfPlaying: true})
+	daily.LastRun = &Run{Due: utc("2026-06-01T04:00:00Z"), Finished: utc("2026-06-01T04:00:00Z"), Result: ResultSkipped,
+		Reason: ReasonPeoplePlaying, RetryAt: utc("2026-06-02T04:30:00Z")}
+	if next := NextRun(daily, utc("2026-06-01T12:00:00Z")); !next.Equal(utc("2026-06-02T04:00:00Z")) {
+		t.Fatalf("NextRun = %v, want the regular run before a later retry", next)
+	}
+	d := Plan([]Schedule{daily}, utc("2026-06-02T04:00:00Z"), created)
+	if len(d.Due) != 1 || !d.Due[0].Due.Equal(utc("2026-06-02T04:00:00Z")) {
+		t.Fatalf("Plan = %+v, want the regular run", d)
+	}
+}

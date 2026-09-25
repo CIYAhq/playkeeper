@@ -112,12 +112,55 @@ func TestWarningText(t *testing.T) {
 	}
 }
 
+func TestWarningTemplate(t *testing.T) {
+	const msg = "Survival restarts in {minutes} minutes. Hang tight, it's quick!"
+	cases := []struct {
+		remaining time.Duration
+		message   string
+		want      string
+	}{
+		{10 * time.Minute, msg, "Survival restarts in 10 minutes. Hang tight, it's quick!"},
+		{time.Minute, msg, "Survival restarts in 1 minute. Hang tight, it's quick!"},
+		{30 * time.Second, msg, "Survival restarts in 30 seconds. Hang tight, it's quick!"},
+		{7*time.Minute + 42*time.Second, msg, "Survival restarts in about 7 minutes. Hang tight, it's quick!"},
+		{5 * time.Minute, "Restart in {minutes} minute(s)", "Restart in 5 minutes(s)"},
+		{5 * time.Minute, "Restart: {minutes}m", "Restart: 5m"},
+		{7*time.Minute + 42*time.Second, "T-{minutes}", "T-8"},
+		{10 * time.Second, "T-{minutes}", "T-10 seconds"},
+		{2 * time.Minute, "{minutes} minutes, then {minutes} minutes", "2 minutes, then 2 minutes"},
+	}
+	for _, c := range cases {
+		cmd, err := restartWarning(c.remaining, c.message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := component(t, cmd)["text"]; got != c.want {
+			t.Errorf("warning(%v, %q) = %q, want %q", c.remaining, c.message, got, c.want)
+		}
+	}
+}
+
+func TestSayText(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"say Weekend build contest starts now!": "Weekend build contest starts now!",
+		"say @a is here":                        "@a is here",
+		"say":                                   "",
+		"save-all":                              "",
+	} {
+		got, ok := sayText(cmd)
+		if got != want || ok != (want != "") {
+			t.Errorf("sayText(%q) = %q, %v", cmd, got, ok)
+		}
+	}
+}
+
 func TestCheckCommand(t *testing.T) {
 	for _, ok := range []string{
 		"save-all", "save-all flush", "weather clear", "weather rain 600", "weather thunder 1d", "time set day",
 		"time set midnight", "time set 6000", "time add 100t", "difficulty hard", "gamerule keepInventory true",
 		"gamerule minecraft:keep_inventory false", "gamerule randomTickSpeed 3", "setidletimeout 30",
-		"kill @e[type=item]", "kill @e[type=minecraft:item]",
+		"kill @e[type=item]", "kill @e[type=minecraft:item]", "say hi", "say Weekend build contest starts now!",
+		"say @a \"quoted\" {curly}",
 	} {
 		if err := CheckCommand(ok); err != nil {
 			t.Errorf("CheckCommand(%q): %v", ok, err)
@@ -126,7 +169,7 @@ func TestCheckCommand(t *testing.T) {
 	for _, bad := range []string{
 		"", "stop", "restart", "op Steve", "deop Steve", "save-all now", "weather clear forever", "time set day; stop",
 		"time query daytime", "gamerule keepInventory true extra", "kill @e", "kill @a", "kill @e[type=item] extra",
-		"say hi", "tellraw @a {}", "execute run stop", "/save-all", "save-all\nstop", "difficulty hard\x00",
+		"say", "say a\u202eb", "say a\u2028b", "SAY hi", "tellraw @a {}", "execute run stop", "/save-all", "save-all\nstop", "difficulty hard\x00",
 		"whitelist off", "ban Steve", "gamerule a;b true", "gamerule keepInventory maybe", "weather clear 99999999",
 		"save-all  flush", "SAVE-ALL", "reload", "save-off", strings.Repeat("a", 300),
 	} {

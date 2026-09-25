@@ -674,3 +674,98 @@ func TestNewRunnerNeedsCallbacks(t *testing.T) {
 		t.Fatal("NewRunner accepted a config without callbacks")
 	}
 }
+
+func TestRunnerSkipsRestartWhilePeoplePlayAndRetries(t *testing.T) {
+	p := Payload{WarnSeconds: []int{600}, Message: "Survival restarts in {minutes} minutes.", SkipIfPlaying: true}
+	h := setup(t, "03:45", func(h *harness) []Schedule { return []Schedule{h.sched("r1", KindRestart, "04:00", p)} })
+	h.until("04:30")
+	h.expectTimeline()
+	r := h.expectLast("r1", ResultSkipped, ReasonPeoplePlaying)
+	if !r.RetryAt.Equal(h.at("05:00")) || r.Players == nil || *r.Players != 3 {
+		t.Fatalf("skipped run = %+v, want a retry at 05:00 with 3 players", r)
+	}
+	if next := NextRun(h.store.schedules[0], h.clock.Now()); !next.Equal(h.at("05:00")) {
+		t.Fatalf("NextRun = %v, want the retry at 05:00", next)
+	}
+	h.server.setState(ServerState{Running: true, Players: 0, PlayersKnown: true})
+	h.until("05:01")
+	h.expectTimeline(
+		"04:50:00 Survival restarts in 10 minutes.",
+		"05:00:00 The server is restarting now.",
+		"05:00:00 op restart schedule:r1",
+	)
+	r = h.expectLast("r1", ResultSucceeded, "")
+	if !r.Due.Equal(h.at("05:00")) || r.Players == nil || *r.Players != 0 || !r.RetryAt.IsZero() {
+		t.Fatalf("retried run = %+v", r)
+	}
+}
+
+func TestRunnerKeepsRetryingHourlyWhilePeoplePlay(t *testing.T) {
+	p := Payload{WarnSeconds: []int{60}, SkipIfPlaying: true}
+	h := setup(t, "03:58", func(h *harness) []Schedule { return []Schedule{h.sched("r1", KindRestart, "04:00", p)} })
+	h.until("06:30")
+	h.expectTimeline()
+	var retries []string
+	for _, r := range h.store.runs("r1") {
+		if r.Result == ResultSkipped {
+			retries = append(retries, r.Due.In(h.loc).Format("15:04")+"→"+r.RetryAt.In(h.loc).Format("15:04"))
+		}
+	}
+	if want := []string{"04:00→05:00", "05:00→06:00", "06:00→07:00"}; !slices.Equal(retries, want) {
+		t.Fatalf("skips %v, want %v", retries, want)
+	}
+}
+
+func TestRunnerBackupSkipsWhilePeoplePlay(t *testing.T) {
+	h := setup(t, "03:59", func(h *harness) []Schedule {
+		return []Schedule{h.sched("b1", KindBackup, "04:00", Payload{SkipIfPlaying: true})}
+	})
+	h.until("04:30")
+	h.expectTimeline()
+	if r := h.expectLast("b1", ResultSkipped, ReasonPeoplePlaying); !r.RetryAt.Equal(h.at("05:00")) {
+		t.Fatalf("skipped backup = %+v", r)
+	}
+	h.server.setState(ServerState{})
+	h.until("05:10")
+	h.expectTimeline("05:00:00 op backup schedule:b1")
+	if r := h.expectLast("b1", ResultSucceeded, ""); r.Players != nil {
+		t.Fatalf("a stopped server's backup records players %d", *r.Players)
+	}
+}
+
+func TestRunnerBackupOnlyIfPlayed(t *testing.T) {
+	h := setup(t, "03:59", func(h *harness) []Schedule {
+		return []Schedule{h.sched("b1", KindBackup, "04:00", Payload{OnlyIfPlayed: true, Note: "Automatic"})}
+	})
+	h.server.mu.Lock()
+	h.server.runErrs = []error{fmt.Errorf("backup: %w", ErrNobodyPlayed)}
+	h.server.mu.Unlock()
+	h.until("04:10")
+	h.expectTimeline("04:00:00 op backup schedule:b1")
+	if op := h.server.ops[0]; !op.OnlyIfPlayed || op.Note != "Automatic" {
+		t.Fatalf("op = %+v, want OnlyIfPlayed with the note", op)
+	}
+	if r := h.expectLast("b1", ResultSkipped, ReasonNobodyPlayed); !r.RetryAt.IsZero() || r.Players == nil || *r.Players != 3 {
+		t.Fatalf("run = %+v", r)
+	}
+}
+
+func TestRunnerSayGoesOutAsTellraw(t *testing.T) {
+	h := setup(t, "19:59", func(h *harness) []Schedule {
+		return []Schedule{
+			h.sched("c1", KindCommand, "20:00", Payload{Command: "say Weekend build contest starts now! @a"}),
+			h.sched("c2", KindCommand, "21:00", Payload{Command: "say Nobody hears this"}),
+		}
+	})
+	h.until("20:30")
+	h.server.setState(ServerState{Running: true, Players: 0, PlayersKnown: true})
+	h.until("21:30")
+	h.expectTimeline("20:00:00 [Server] Weekend build contest starts now! @a")
+	if want := `tellraw @a {"text":"[Server] Weekend build contest starts now! @a","color":"white"}`; h.server.commands[0] != want {
+		t.Fatalf("sent %s, want %s", h.server.commands[0], want)
+	}
+	if r := h.expectLast("c1", ResultSucceeded, ""); r.Players == nil || *r.Players != 3 {
+		t.Fatalf("run = %+v, want 3 players", r)
+	}
+	h.expectLast("c2", ResultSkipped, ReasonNobodyOnline)
+}

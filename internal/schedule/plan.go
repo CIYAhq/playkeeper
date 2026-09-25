@@ -66,6 +66,15 @@ func Plan(schedules []Schedule, now, since time.Time) Decision {
 		for t := r.next(cursor); !t.IsZero() && !t.After(horizon); t = r.next(t) {
 			latest = t
 		}
+		// A retry after a run skipped because people were playing is one
+		// more occurrence; a regular one after it supersedes it.
+		if rt := s.pendingRetry(); rt.After(cursor) && latest.Before(rt) {
+			if rt.After(horizon) {
+				d.Wake = earliest(d.Wake, rt.Add(-lead))
+			} else {
+				latest = rt
+			}
+		}
 		if latest.IsZero() {
 			if next := r.next(cursor); !next.IsZero() {
 				d.Wake = earliest(d.Wake, next.Add(-lead))
@@ -102,7 +111,12 @@ func NextRun(s Schedule, now time.Time) time.Time {
 	if err != nil {
 		return time.Time{}
 	}
-	return r.next(later(s.cursor(), now))
+	cursor := later(s.cursor(), now)
+	next := r.next(cursor)
+	if rt := s.pendingRetry(); rt.After(cursor) && (next.IsZero() || rt.Before(next)) {
+		return rt
+	}
+	return next
 }
 
 // cursor is the time at or before which s never runs.
@@ -112,6 +126,30 @@ func (s Schedule) cursor() time.Time {
 		c = later(c, s.LastRun.Due)
 	}
 	return c
+}
+
+// pendingRetry is when the last run, skipped because people were playing,
+// tries again; zero if it doesn't, or if the schedule changed since.
+func (s Schedule) pendingRetry() time.Time {
+	if s.LastRun == nil || s.LastRun.RetryAt.IsZero() || s.UpdatedAt.After(s.LastRun.Finished) {
+		return time.Time{}
+	}
+	return s.LastRun.RetryAt
+}
+
+// retryAt is when a run of s due at due, skipped at now because people were
+// playing, tries again: an hour later, unless its next regular run comes
+// first.
+func (s Schedule) retryAt(due, now time.Time) time.Time {
+	at := later(due, now).Add(retryAfter)
+	r, err := s.Timing.compile()
+	if err != nil {
+		return time.Time{}
+	}
+	if next := r.next(due); !next.IsZero() && !next.After(at) {
+		return time.Time{}
+	}
+	return at
 }
 
 // order breaks ties between jobs due at the same moment: quick ones first,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,12 +15,15 @@ import (
 // In-game text goes out with tellraw as a text component. User text only
 // ever appears inside the component's "text" string, where only \ and " need
 // escaping, and the result is valid both as JSON (before 1.21.5) and as SNBT
-// (1.21.5 and later). `say` is never used for user text: it expands target
-// selectors such as @a in its message.
+// (1.21.5 and later). `say` is never sent with user text: it expands target
+// selectors such as @a in its message. A scheduled `say` goes out as tellraw
+// with the same "[Server]" prefix players know.
 
 const (
 	colorWarning      = "gold"
 	colorAnnouncement = "yellow"
+	colorSay          = "white"
+	sayPrefix         = "[Server] "
 	// maxCommandBytes is the largest command one RCON request carries.
 	maxCommandBytes = 1446
 	maxCommandLen   = 256
@@ -77,13 +81,41 @@ func tellraw(text, color string) (string, error) {
 }
 
 // restartWarning is the in-game warning with remaining time left before a
-// restart, followed by the schedule's own message.
-func restartWarning(remaining time.Duration, extra string) (string, error) {
+// restart. A message with MinutesPlaceholder is the whole warning; any other
+// message follows the standard one.
+func restartWarning(remaining time.Duration, message string) (string, error) {
+	if strings.Contains(message, MinutesPlaceholder) {
+		return tellraw(fillMinutes(message, remaining), colorWarning)
+	}
 	text := "The server restarts in " + durationWords(remaining) + "."
-	if extra != "" {
-		text += " " + extra
+	if message != "" {
+		text += " " + message
 	}
 	return tellraw(text, colorWarning)
+}
+
+// fillMinutes puts the time left into a message. "{minutes} minutes" becomes
+// the whole phrase, so it still reads right for "1 minute" or "30 seconds";
+// a placeholder on its own becomes the number of minutes.
+func fillMinutes(message string, remaining time.Duration) string {
+	words := durationWords(remaining)
+	for _, unit := range []string{" minutes", " minute"} {
+		message = strings.ReplaceAll(message, MinutesPlaceholder+unit, words)
+	}
+	n := words
+	if secs := int((remaining + time.Second/2) / time.Second); secs >= 60 {
+		n = strconv.Itoa((secs + 30) / 60)
+	}
+	return strings.ReplaceAll(message, MinutesPlaceholder, n)
+}
+
+// sayText is the message of a `say` command.
+func sayText(cmd string) (string, bool) {
+	text, ok := strings.CutPrefix(cmd, "say ")
+	if !ok || text == "" {
+		return "", false
+	}
+	return text, true
 }
 
 func restartNow() string {
@@ -130,10 +162,19 @@ func CheckCommand(cmd string) error {
 		return &ValidationError{Field: field, Code: "command_use_restart",
 			Msg: "Use a restart schedule instead, so Playkeeper knows the server was restarted on purpose."}
 	}
+	if f[0] == "say" {
+		if len(f) == 1 {
+			return &ValidationError{Field: field, Code: "say_required", Msg: "Write what to say after say."}
+		}
+		if !chatSafe(cmd) {
+			return &ValidationError{Field: field, Code: "command_invalid", Msg: "Commands can't contain line breaks or control characters."}
+		}
+		return nil
+	}
 	if !allowedCommand(f) {
 		return &ValidationError{Field: field, Code: "command_not_allowed",
 			Msg:    fmt.Sprintf("%s can't run on a schedule.", quote(cmd)),
-			Hint:   "Scheduled commands can be save-all, weather, time set, time add, difficulty, gamerule, setidletimeout and kill @e[type=item]. Announcements, restarts and backups have their own schedule types.",
+			Hint:   "Scheduled commands can be say, save-all, weather, time set, time add, difficulty, gamerule, setidletimeout and kill @e[type=item]. Restarts and backups have their own schedule types.",
 			Params: map[string]any{"command": f[0]}}
 	}
 	return nil

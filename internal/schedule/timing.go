@@ -34,8 +34,8 @@ const (
 //     runs the first time only.
 type Timing struct {
 	Kind TimingKind `json:"kind"`
-	// TimeZone is an IANA name such as "Europe/Berlin". It is copied from the
-	// project when the schedule is saved, so the agent can plan on its own.
+	// TimeZone is an IANA name such as "Europe/Berlin": the time zone of
+	// whoever saved the schedule, so the agent can plan on its own.
 	TimeZone string `json:"timeZone"`
 	// At is "HH:MM" (24-hour) for every kind except Cron.
 	At string `json:"at,omitempty"`

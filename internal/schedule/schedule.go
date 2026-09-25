@@ -79,7 +79,21 @@ type Payload struct {
 	Command string `json:"command,omitempty"`
 	// Note is a backup's note.
 	Note string `json:"note,omitempty"`
+	// SkipIfPlaying skips a restart or a backup while people are playing;
+	// it tries again an hour later unless the next run comes first.
+	SkipIfPlaying bool `json:"skipIfPlaying,omitempty"`
+	// OnlyIfPlayed skips a backup when nobody played since the last backup.
+	OnlyIfPlayed bool `json:"onlyIfPlayed,omitempty"`
 }
+
+// MinutesPlaceholder in a restart's message makes the message the whole
+// warning, with the time left in its place: "Survival restarts in {minutes}
+// minutes." becomes "Survival restarts in 5 minutes.", "… in 1 minute.".
+const MinutesPlaceholder = "{minutes}"
+
+// retryAfter is how long a run skipped because people were playing waits
+// before it tries again.
+const retryAfter = time.Hour
 
 // DefaultWarnings are the warnings a new restart schedule starts with: 10
 // minutes, 5 minutes, 1 minute, 30 seconds and 10 seconds before.
@@ -113,6 +127,12 @@ const (
 	// ReasonTurnedOff is a restart called off during its warnings because its
 	// schedule was turned off or deleted.
 	ReasonTurnedOff Reason = "turned_off"
+	// ReasonPeoplePlaying is a restart or backup skipped because people were
+	// playing and its schedule says to skip it then.
+	ReasonPeoplePlaying Reason = "people_playing"
+	// ReasonNobodyPlayed is a backup skipped because nobody played since the
+	// last backup.
+	ReasonNobodyPlayed Reason = "nobody_played"
 )
 
 // Run records one occurrence: the last_run and last_result columns.
@@ -127,6 +147,12 @@ type Run struct {
 	Detail string `json:"detail,omitempty"`
 	// OperationID is the agent operation the run started, if any.
 	OperationID string `json:"operationId,omitempty"`
+	// Players is how many players were online when the run started, if the
+	// runner knew.
+	Players *int `json:"players,omitempty"`
+	// RetryAt is when a run skipped because people were playing tries again;
+	// zero when it doesn't. Editing the schedule drops the retry.
+	RetryAt time.Time `json:"retryAt,omitzero"`
 }
 
 // Text describes the run in English, for logs and the audit trail. The UI
@@ -175,6 +201,10 @@ func (r Reason) Text() string {
 		return "the schedule is not valid any more."
 	case ReasonTurnedOff:
 		return "the schedule was turned off before the restart."
+	case ReasonPeoplePlaying:
+		return "people were playing."
+	case ReasonNobodyPlayed:
+		return "nobody played since the last backup."
 	}
 	return string(r)
 }
@@ -233,13 +263,13 @@ func (p Payload) normalize(k Kind) Payload {
 		w := slices.Clone(p.WarnSeconds)
 		slices.Sort(w)
 		slices.Reverse(w)
-		return Payload{WarnSeconds: slices.Compact(w), Message: strings.TrimSpace(p.Message), IfEmpty: p.IfEmpty}
+		return Payload{WarnSeconds: slices.Compact(w), Message: strings.TrimSpace(p.Message), IfEmpty: p.IfEmpty, SkipIfPlaying: p.SkipIfPlaying}
 	case KindAnnouncement:
 		return Payload{Message: strings.TrimSpace(p.Message)}
 	case KindCommand:
 		return Payload{Command: normCommand(p.Command)}
 	case KindBackup:
-		return Payload{Note: strings.TrimSpace(p.Note)}
+		return Payload{Note: strings.TrimSpace(p.Note), SkipIfPlaying: p.SkipIfPlaying, OnlyIfPlayed: p.OnlyIfPlayed}
 	}
 	return p
 }
