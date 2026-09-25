@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { RefreshCwIcon, RotateCwIcon, Trash2Icon, XIcon } from 'lucide-react'
+import { CircleArrowUpIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { ApiError, get, post } from '@/api/client'
-import type { AddonKey, AddonProgress, AddonRemoval, AddonRemovePreview } from '@/api/types'
+import type { AddonKey, AddonProgress, AddonRemoval, AddonRemovePreview, AddonStep } from '@/api/types'
 import { errorText, serverApi } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Notice } from '@/components/app/bits'
@@ -48,6 +48,11 @@ function fileHint(f: AddonProgress): string {
 
 const fileState: Record<AddonProgress['state'], StepState> = { waiting: 'todo', downloading: 'current', verified: 'done', failed: 'failed' }
 
+/** A file the plan downloads, before the agent reports on it. */
+function planned(s: AddonStep): AddonProgress {
+  return { name: s.name, versionNumber: s.versionNumber, was: s.was, neededBy: s.neededBy, size: s.size, received: 0, state: 'waiting' }
+}
+
 /** An install or update as it runs, then what's next: a restart, or why nothing was installed. */
 export function JobDialog() {
   const a = useAddons()
@@ -65,12 +70,16 @@ function JobBody({ job }: { job: Job }) {
   const a = useAddons()
   const phone = useIsPhone()
   const [restarting, setRestarting] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const op = job.op
-  const files = opFiles(op)
-  const failed = op.status === 'failed'
-  const running = op.status === 'running'
+  // Until the agent reports its files, the rows are the plan's.
+  const reported = op ? opFiles(op) : []
+  const files = reported.length > 0 ? reported : (job.plan?.steps ?? []).map(planned)
+  const failed = op?.status === 'failed'
+  const running = op?.status === 'running'
+  const waiting = !op
   const online = a.server.phase === 'online'
-  const restartNeeded = !failed && (running ? online : opRestartNeeded(op))
+  const restartNeeded = !failed && (running || waiting ? online : opRestartNeeded(op))
   const notice = opNotice(op)
   const size = phone ? 'touch' : 'default'
 
@@ -79,26 +88,31 @@ function JobBody({ job }: { job: Job }) {
     const gone = files.filter((f) => f.state === 'verified' || f.state === 'failed').length
     const removed = gone === 2 ? t('addons.downloadsRemovedBoth') : gone > 0 ? t('addons.downloadsRemoved', { count: gone }) : undefined
     const bad = files.find((f) => f.state === 'failed')
-    for (const f of files) if (f.state === 'verified') steps.push({ title: fileTitle(f), hint: fileHint(f), state: 'done' })
+    for (const f of reported) if (f.state === 'verified') steps.push({ title: fileTitle(f), hint: fileHint(f), state: 'done' })
     const title =
       checksumFailed(notice) && (bad || notice?.params?.name)
         ? t('addons.failedChecksum', { name: bad?.name ?? notice?.params?.name ?? '', version: bad?.versionNumber ?? '' })
-        : (notice?.message ?? op.error ?? '')
-    steps.push({ title, hint: removed ?? notice?.hint ?? op.hint, state: 'failed' })
+        : (notice?.message ?? op?.error ?? '')
+    steps.push({ title, hint: removed ?? notice?.hint ?? op?.hint, state: 'failed' })
   } else {
     if (files.length === 0 && running) steps.push({ title: t('common.loading'), state: 'current' })
     for (const f of files) {
       const pct = f.size > 0 ? (f.received / f.size) * 100 : 0
       steps.push({ title: fileTitle(f), hint: fileHint(f), state: fileState[f.state], progress: f.state === 'downloading' ? pct : undefined })
     }
-    if (restartNeeded) steps.push({ title: t('addons.restartToLoadThem', { server: a.server.name }), state: running ? 'todo' : 'current' })
+    if (restartNeeded) steps.push({ title: t('addons.restartToLoadThem', { server: a.server.name }), state: running || waiting ? 'todo' : 'current' })
   }
-  const manual = Array.isArray(op.detail?.manual) ? (op.detail.manual as { message: string }[]) : []
+  const manual = !op ? (job.plan?.manual ?? []) : Array.isArray(op.detail?.manual) ? (op.detail.manual as { message: string }[]) : []
 
   const restart = async () => {
     setRestarting(true)
     await a.restart()
     setRestarting(false)
+  }
+  const confirm = async () => {
+    setConfirming(true)
+    await job.confirm?.()
+    setConfirming(false)
   }
 
   return (
@@ -143,9 +157,26 @@ function JobBody({ job }: { job: Job }) {
             <Button variant="ghost" size={size} onClick={a.closeJob}>
               {t('common.close')}
             </Button>
-            <Button size={size} onClick={job.retry}>
-              <RefreshCwIcon />
-              {t('common.tryAgain')}
+            {notice?.kind === 'plan_changed' && job.lookAgain ? (
+              <Button size={size} onClick={job.lookAgain}>
+                <RefreshCwIcon />
+                {t('addons.lookAgain')}
+              </Button>
+            ) : (
+              <Button size={size} onClick={job.retry}>
+                <RefreshCwIcon />
+                {t('common.tryAgain')}
+              </Button>
+            )}
+          </>
+        ) : waiting ? (
+          <>
+            <Button variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
+              {t('common.close')}
+            </Button>
+            <Button size={size} onClick={() => void confirm()} loading={confirming} disabled={!job.confirm || !!a.server.operation}>
+              <CircleArrowUpIcon />
+              {t('addons.update')}
             </Button>
           </>
         ) : restartNeeded ? (
@@ -153,7 +184,7 @@ function JobBody({ job }: { job: Job }) {
             <Button variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
               {t('common.later')}
             </Button>
-            <Button size={size} onClick={() => void restart()} loading={restarting} disabled={!!a.server.operation && a.server.operation.id !== op.id}>
+            <Button size={size} onClick={() => void restart()} loading={restarting} disabled={!!a.server.operation && a.server.operation.id !== op?.id}>
               <RotateCwIcon />
               {t('addons.restartNow')}
             </Button>

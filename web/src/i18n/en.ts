@@ -1070,6 +1070,8 @@ export const en = {
   'addons.reinstall': 'Reinstall',
   'addons.forget': 'Forget',
   'addons.updateTo': 'Update to {version}',
+  'addons.update': 'Update',
+  'addons.lookAgain': 'Look again',
   'addons.updateAsk': 'Update {name}?',
   'addons.openSource': 'Open source page',
   'addons.menuFor': 'More actions for {name}',

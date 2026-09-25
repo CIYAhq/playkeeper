@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonRemovePreview, Addons, MachineView, Me, Operation, ServerConfig, ServerStatus } from '@/api/types'
+import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, MachineView, Me, Operation, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import type { ServerSub } from '@/lib/router'
 import { PluginsPage } from '.'
@@ -116,6 +116,25 @@ function answer(routes: [string, unknown][]) {
   }) as typeof client.get)
 }
 
+/** Answers POSTs by the end of their path. */
+function reply(routes: [string, (body: unknown) => unknown][]) {
+  vi.mocked(client.post).mockImplementation(((path: string, body: unknown) => {
+    const hit = routes.find(([end]) => path.endsWith(end))
+    return Promise.resolve(hit ? hit[1](body) : {})
+  }) as typeof client.post)
+}
+
+function step(name: string, versionNumber: string, was?: string, neededBy?: string): AddonStep {
+  const id = name.toLowerCase().replace(/[^a-z]/g, '')
+  return { action: was ? 'update' : 'install', source: 'modrinth', projectId: id, name, versionNumber, channel: 'release', fileName: `${name}.jar`, size: 1_400_000, was, neededBy }
+}
+
+const updated = [
+  { source: 'hangar', projectId: '81' },
+  { source: 'modrinth', projectId: 'coreprotect' },
+]
+const updatePlan: AddonPlan = { steps: [step('Chunky', '1.4.40', '1.4.36'), step('CoreProtect', '23.2', '23.1')], manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'fp1' }
+
 let root: Root | undefined
 
 async function render(s: ServerStatus, tab: 'plugins' | 'mods' = 'plugins', sub?: ServerSub): Promise<string> {
@@ -129,7 +148,8 @@ async function render(s: ServerStatus, tab: 'plugins' | 'mods' = 'plugins', sub?
 }
 
 function button(text: string): HTMLElement {
-  const b = [...document.querySelectorAll<HTMLElement>('button, a')].find((el) => el.textContent?.includes(text))
+  const all = [...document.querySelectorAll<HTMLElement>('button, a')]
+  const b = all.find((el) => el.textContent?.trim() === text) ?? all.find((el) => el.textContent?.includes(text))
   if (!b) throw new Error(`no button with ${text}`)
   return b
 }
@@ -197,22 +217,69 @@ describe('Plugins tab', () => {
         ],
       },
     }
-    vi.mocked(client.post).mockImplementation((() => Promise.resolve(op)) as typeof client.post)
+    reply([
+      ['/addons/update/plan', () => updatePlan],
+      ['/addons/update', () => op],
+    ])
     await render(server())
     const text = await click('Update all')
-    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/update', {
-      addons: [
-        { source: 'hangar', projectId: '81' },
-        { source: 'modrinth', projectId: 'coreprotect' },
-      ],
-      changed: undefined,
-    })
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/update/plan', { addons: updated, changed: undefined })
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/update', { addons: updated, changed: undefined, fingerprint: 'fp1' })
     expect(text).toContain('Updating 2 plugins')
     expect(text).toContain('Downloaded Chunky 1.4.40')
     expect(text).toContain('Was 1.4.36 · checksum matched')
     expect(text).toContain('Downloading CoreProtect 23.2')
     expect(text).toContain('Was 23.1 · 0.9 of 1.3 MB')
     expect(text).toContain('Restart Survival to load them')
+    expect(text).toContain('Keeps going if you close this.')
+  })
+
+  it('shows the planned files until the agent reports its own', async () => {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    reply([
+      ['/addons/update/plan', () => updatePlan],
+      ['/addons/update', () => ({ id: 'op1', kind: 'addon-update', status: 'running', phase: '', actor: 'siya', startedAt: '' })],
+    ])
+    await render(server())
+    const text = await click('Update all')
+    expect(text).toContain('Downloading Chunky 1.4.40')
+    expect(text).toContain('Downloading CoreProtect 23.2')
+    expect(text).not.toContain('Loading')
+  })
+
+  it('says plainly when the plan changed, and confirms the new one before updating', async () => {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    const changed = 'What this would do has changed since you confirmed it.'
+    const refused: Operation = {
+      id: 'op3',
+      kind: 'addon-update',
+      status: 'failed',
+      phase: '',
+      actor: 'siya',
+      startedAt: '',
+      error: changed,
+      detail: { notice: { kind: 'plan_changed', message: changed, hint: 'Review the new plan and confirm again.' } },
+    }
+    const plans = [updatePlan, { ...updatePlan, steps: [...updatePlan.steps, step('Chunky Border', '1.2', undefined, 'Chunky')], fingerprint: 'fp2' }]
+    reply([
+      ['/addons/update/plan', () => plans.shift()],
+      ['/addons/update', (body) => ((body as { fingerprint: string }).fingerprint === 'fp1' ? refused : { ...refused, id: 'op4', status: 'running', error: undefined, detail: undefined })],
+    ])
+    await render(server())
+    let text = await click('Update all')
+    expect(text).toContain(changed)
+    expect(text).toContain('Review the new plan and confirm again.')
+    text = await click('Look again')
+    expect(text).toContain('Downloading Chunky Border 1.2')
+    expect(client.post).toHaveBeenCalledTimes(3)
+    text = await click('Update')
+    expect(client.post).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/addons/update', { addons: updated, changed: undefined, fingerprint: 'fp2' })
     expect(text).toContain('Keeps going if you close this.')
   })
 
@@ -243,10 +310,13 @@ describe('Plugins tab', () => {
       startedAt: '',
       detail: { files: [{ name: 'LuckPerms', versionNumber: '5.4.150', was: '5.4.150', size: 1000, received: 1000, state: 'verified' }] },
     }
-    vi.mocked(client.post).mockImplementation((() => Promise.resolve(op)) as typeof client.post)
+    reply([
+      ['/addons/update/plan', () => ({ ...updatePlan, steps: [step('LuckPerms', '5.4.150', '5.4.150')], fingerprint: 'fp4' })],
+      ['/addons/update', () => op],
+    ])
     await render(server())
     const text = await click('Reinstall')
-    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/update', { addons: [{ source: 'modrinth', projectId: 'luckperms' }], changed: undefined })
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/update', { addons: [{ source: 'modrinth', projectId: 'luckperms' }], changed: undefined, fingerprint: 'fp4' })
     expect(text).toContain('Installing LuckPerms')
     expect(text).toContain('Downloaded LuckPerms 5.4.150')
     expect(text).toContain('Checksum matched')

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PackageIcon } from 'lucide-react'
 import { ApiError, get, post } from '@/api/client'
-import type { AddonChecks, AddonDetails, AddonKey, Addons, Operation, ServerStatus } from '@/api/types'
+import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Operation, ServerStatus } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
@@ -19,9 +19,16 @@ export const motion = {
 
 /** An install or update the dialog follows. */
 export interface Job {
-  op: Operation
+  /** Absent while a new plan waits for a yes. */
+  op?: Operation
+  /** What the job does, shown until the agent reports its files. */
+  plan?: AddonPlan
   title: string
   retry: () => void
+  /** After the plan changed: fetch the new one to confirm. */
+  lookAgain?: () => void
+  /** Carries out the plan once it's confirmed. */
+  confirm?: () => Promise<void>
 }
 
 /** The add-on the detail sheet shows; adoptFile is set for a file added by hand that Modrinth knows. */
@@ -77,6 +84,12 @@ function toastError(e: unknown) {
   toastManager.add({ title: errorText(e), type: 'error' })
 }
 
+/** Why a plan can't go ahead: its first blocker, or what it needs done by hand. */
+function notReady(plan: AddonPlan) {
+  const n: AddonNotice | undefined = plan.blockers[0] ?? plan.manual[0]
+  toastManager.add({ title: n?.message ?? t('addons.failedTitle'), description: n?.hint, type: 'error' })
+}
+
 export const detailsPath = (serverId: string, k: AddonKey) => serverApi(serverId, `/addons/project/${k.source}/${encodeURIComponent(k.projectId)}`)
 
 export function AddonsProvider({ server, kind, children }: { server: ServerStatus; kind: AddonKind; children: ReactNode }) {
@@ -106,15 +119,15 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
   // Follow the job's operation once a second: its files are published at
   // most that often.
   const machineId = server.machineId ?? ws.machine?.id
-  const jobId = job?.op.id
-  const jobRunning = job?.op.status === 'running'
+  const jobId = job?.op?.id
+  const jobRunning = job?.op?.status === 'running'
   useEffect(() => {
     if (!jobId || !jobRunning || !machineId) return
     let stopped = false
     const tick = async () => {
       try {
         const op = await get<Operation>(machineApi(machineId, `/operations/${jobId}`))
-        if (!stopped) setJob((j) => (j && j.op.id === op.id ? { ...j, op } : j))
+        if (!stopped) setJob((j) => (j && j.op?.id === op.id ? { ...j, op } : j))
       } catch {
         // The next tick tries again; the dialog keeps the last state.
       }
@@ -146,21 +159,18 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
       try {
         const op = await post<Operation>(serverApi(id, '/addons/install'), { source: key.source, projectId: key.projectId, fingerprint })
         setDetail(undefined)
-        setJob({
-          op,
-          title: t('addons.installing', { name }),
-          retry: () => {
-            // The plan may have changed since: confirm the new one, or show why not.
-            void get<AddonDetails>(detailsPath(id, key))
-              .then((d) => {
-                const f = footerFor(d)
-                if (f.kind === 'install' && d.plan && d.plan.steps.length <= 1) return void install(key, name, f.fingerprint)
-                setJob(undefined)
-                setDetail({ key, details: d })
-              })
-              .catch(toastError)
-          },
-        })
+        // The plan may have changed since: confirm the new one, or show why not.
+        const again = () => {
+          void get<AddonDetails>(detailsPath(id, key))
+            .then((d) => {
+              const f = footerFor(d)
+              if (f.kind === 'install' && d.plan && d.plan.steps.length <= 1) return void install(key, name, f.fingerprint)
+              setJob(undefined)
+              setDetail({ key, details: d })
+            })
+            .catch(toastError)
+        }
+        setJob({ op, title: t('addons.installing', { name }), retry: again, lookAgain: again })
         return true
       } catch (e) {
         toastError(e)
@@ -172,11 +182,34 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
 
   const update = useCallback(
     async (keys: AddonKey[] | undefined, title: string, changed = false): Promise<boolean> => {
+      const body = { addons: keys?.map(keyFrom), changed: changed || undefined }
+      const retry = () => void update(keys, title, changed)
+      // The update carries the fingerprint of the plan it shows; the agent
+      // refuses it when the plan has changed since.
+      async function send(plan: AddonPlan) {
+        const op = await post<Operation>(serverApi(id, '/addons/update'), { ...body, fingerprint: plan.fingerprint })
+        setJob({ op, plan, title, retry, lookAgain })
+      }
+      function lookAgain() {
+        post<AddonPlan>(serverApi(id, '/addons/update/plan'), body)
+          .then((plan) => {
+            if (!plan.ready) {
+              setJob(undefined)
+              return notReady(plan)
+            }
+            setJob({ plan, title, retry, confirm: () => send(plan).catch(toastError) })
+          })
+          .catch(toastError)
+      }
       try {
-        const op = await post<Operation>(serverApi(id, '/addons/update'), { addons: keys?.map(keyFrom), changed: changed || undefined })
+        const plan = await post<AddonPlan>(serverApi(id, '/addons/update/plan'), body)
+        if (!plan.ready) {
+          notReady(plan)
+          return false
+        }
+        await send(plan)
         setDetail(undefined)
         setAsking(undefined)
-        setJob({ op, title, retry: () => void update(keys, title, changed) })
         return true
       } catch (e) {
         toastError(e)
