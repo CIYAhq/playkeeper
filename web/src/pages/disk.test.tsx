@@ -3,9 +3,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { DiskCandidate, DiskReport, DiskWay, MachineView, Me, OffsiteView, Operation } from '@/api/types'
+import type { DiskCandidate, DiskReport, DiskWay, MachineView, Me, OffsiteView, Operation, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import * as controls from '@/components/app/controls'
+import { AppShell } from '@/components/app/shell'
 import { toastManager } from '@/components/ui/toast'
 import { formatLocale } from '@/i18n'
 import { formatClock, formatDate } from '@/lib/format'
@@ -60,7 +61,7 @@ const machine: MachineView = {
   },
 }
 
-function workspace(): Workspace {
+function workspace(over: Partial<Workspace> = {}): Workspace {
   return {
     me,
     servers: [],
@@ -79,6 +80,7 @@ function workspace(): Workspace {
     lastSlug: undefined,
     setLastSlug: () => {},
     signOut: async () => {},
+    ...over,
   }
 }
 
@@ -184,10 +186,10 @@ const gets = () => vi.mocked(client.get).mock.calls.map(([path]) => path)
 
 let root: Root | undefined
 
-async function render(node = <DiskPage id="m2345abcde" />): Promise<string> {
+async function render(node = <DiskPage id="m2345abcde" />, ws: Workspace = workspace()): Promise<string> {
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
-  await act(async () => r.render(<WorkspaceContext.Provider value={workspace()}>{node}</WorkspaceContext.Provider>))
+  await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{node}</WorkspaceContext.Provider>))
   await act(async () => {})
   return text()
 }
@@ -464,6 +466,20 @@ describe('Disk space on a phone', () => {
     expect(dialog().textContent).toContain('Left by a backup, download or restore that stopped')
     expect(button('Delete · 310 MB', dialog())).toBeTruthy()
     expect(client.post).not.toHaveBeenCalled()
+  })
+
+  it('keeps the server tabs with More chosen, since the machine opens from More', async () => {
+    answer({ '/disk?': report() })
+    const survivalServer = { id: survival, name: 'Survival', slug: 'survival', phase: 'online' } as ServerStatus
+    await render(
+      <AppShell route={{ name: 'machine', id: 'm2345abcde', sub: 'disk' }}>
+        <DiskPage id="m2345abcde" />
+      </AppShell>,
+      workspace({ servers: [survivalServer] }),
+    )
+    const tabs = document.querySelector('nav[aria-label="Server pages"]')
+    expect(tabs?.querySelector('[aria-current="page"]')?.textContent).toBe('More')
+    expect(tabs?.querySelector('a[href="/servers/survival"]')).not.toBeNull()
   })
 
   it('keeps the unreadable disk short', async () => {
