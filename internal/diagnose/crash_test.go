@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -512,5 +513,52 @@ func TestFinishRecommendsExactlyOneFixAndAddsTheExitCodeOnce(t *testing.T) {
 	}
 	if d := newCrashCtx(CrashInput{}).finish(CrashDiagnosis{}); len(d.Evidence) != 0 {
 		t.Errorf("exit code 0 is not evidence: %+v", d.Evidence)
+	}
+}
+
+func shownText(lines []ShownLine) string {
+	var out []string
+	for _, l := range lines {
+		out = append(out, strings.Join(slices.DeleteFunc([]string{l.Time, l.Level, l.Text}, func(s string) bool { return s == "" }), " "))
+	}
+	return strings.Join(out, "\n")
+}
+
+func TestExplainCrashShowsTheQuotedLinesThenStoppingServer(t *testing.T) {
+	portIn := paperCrash(nil)
+	portIn.DockerError = "driver failed programming external connectivity on endpoint pk: Bind for 0.0.0.0:25565 failed: port is already allocated"
+	many := []string{"[09:00:00 INFO]: Loading 3 plugins"}
+	for i := range 5 {
+		many = append(many, fmt.Sprintf("[09:00:0%d ERROR]: Could not load 'plugins/Broken%d.jar' in folder 'plugins'", i+1, i), "org.bukkit.plugin.InvalidPluginException: broken")
+	}
+	many = append(many, "[09:00:07 INFO]: Done (3.1s)! For help, type \"help\"", "[09:10:00 ERROR]: Encountered an unexpected exception", "java.lang.IllegalStateException: boom", "[09:10:01 INFO]: Stopping server", "[09:10:01 INFO]: Saving players")
+	tests := []struct {
+		name string
+		in   CrashInput
+		want string
+	}{
+		{"quoted lines, with a stack trace's line under its entry, then the stop", paperCrash(crashConsole(t, "paper_heap_oom.txt")),
+			"03:11:30 ERROR java.lang.OutOfMemoryError: Java heap space\n03:11:31 Stopping server"},
+		{"no quoted lines: the last lines with a log prefix, addresses redacted", paperCrash([]string{
+			"[21:03:12 INFO]: Alex[/198.51.100.4:50122] logged in with entity id 7",
+			"\tat some.Frame(Frame.java:1)",
+			"[21:30:40 WARN]: Can't keep up! Is the server overloaded? Running 2400ms or 48 ticks behind",
+		}), "21:03:12 Alex[/[ip redacted]] logged in with entity id 7\n21:30:40 WARN Can't keep up! Is the server overloaded? Running 2400ms or 48 ticks behind"},
+		{"a Docker error stands in for a server that printed nothing", portIn,
+			"ERROR driver failed programming external connectivity on endpoint pk: Bind for [ip redacted] failed: port is already allocated"},
+		{"at most three quoted lines", paperCrash(many), ""},
+	}
+	for _, tt := range tests {
+		d := ExplainCrash(tt.in)
+		got := shownText(d.Lines)
+		if tt.want == "" {
+			if len(d.Lines) > maxShownLines || len(d.Lines) == 0 || d.Lines[len(d.Lines)-1].Text != "Stopping server" {
+				t.Errorf("%s: %s\n%s", tt.name, d.Kind, got)
+			}
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("%s (%s):\n got %s\nwant %s", tt.name, d.Kind, got, tt.want)
+		}
 	}
 }

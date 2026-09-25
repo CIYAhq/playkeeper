@@ -531,6 +531,7 @@ func (a *Agent) routeTable() []Route {
 		{"DELETE", "/v1/servers/{id}/backups/{bid}", srv((*server).hBackupDelete)},
 		{"POST", "/v1/servers/{id}/backups/{bid}/restore", srv((*server).hRestoreFromBackup)},
 		{"POST", "/v1/servers/{id}/saving/resume", srv((*server).hSavingResume)},
+		{"POST", "/v1/servers/{id}/addons/remove", srv((*server).hRemoveAddon)},
 		{"POST", "/v1/servers/{id}/restore/upload", srv((*server).hRestoreUpload)},
 		{"POST", "/v1/restore/upload", a.hRestoreUploadNew},
 		{"GET", "/v1/restore/{id}", a.hRestorePreview},

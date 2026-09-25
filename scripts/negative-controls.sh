@@ -167,6 +167,26 @@ control "chunk counts read region folders only" internal/agent/running.go \
   'path.Base(path.Dir(p)) != "region"' \
   'path.Base(path.Dir(p)) == ""' \
   ./internal/agent '^TestNewChunksComeFromRegionFiles$'
+control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
+  'graceful := s.sawStopping && !s.sawCrash' \
+  'graceful := s.sawStopping' \
+  ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
+control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
+  'in.Console = s.runLog(ctx, id, runStart)' \
+  'in.Console = nil' \
+  ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
+control "a crash report from an earlier run explains nothing" internal/agent/crash.go \
+  'info.ModTime().Before(since.Add(-time.Second)) ||' \
+  'false ||' \
+  ./internal/agent '^TestCrashReportIsTheOneThisRunWrote$'
+control "add-on file names are validated" internal/agent/crash.go \
+  'return errInvalid("That is not the name of a plugin or mod file.")' \
+  'return nil' \
+  ./internal/agent '^TestRemoveAddonMovesOnlyThatJarAside$'
+control "add-on removal never follows a symlinked folder" internal/agent/crash.go \
+  'if st, err := root.Lstat(rel); err != nil || !st.Mode().IsRegular() {' \
+  'if st, err := os.Lstat(s.dataDir() + "/" + rel); err != nil || !st.Mode().IsRegular() {' \
+  ./internal/agent '^TestRemoveAddonMovesOnlyThatJarAside$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \

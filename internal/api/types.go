@@ -72,6 +72,44 @@ type ServerStatus struct {
 	// no operation runs: progress since then is lost if the server stops
 	// unexpectedly. Playkeeper keeps trying to turn saving back on.
 	SavingPausedSince *time.Time `json:"savingPausedSince,omitempty"`
+	// Crash is why the server last stopped unexpectedly or could not start,
+	// shown while it is stopped and no operation runs.
+	Crash *Crash `json:"crash,omitempty"`
+}
+
+// Crash explains a run that ended unexpectedly: a crash, or a start that
+// failed. It is kept until the server is online again or someone stops or
+// starts it.
+type Crash struct {
+	At time.Time `json:"at"`
+	// Start: the server did not come up, rather than stopping while it ran.
+	Start       bool                `json:"start"`
+	Kind        string              `json:"kind"`
+	Params      map[string]any      `json:"params,omitempty"`
+	Certain     bool                `json:"certain"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Fixes       []DiagnosisAction   `json:"fixes"`
+	// Lines are the last lines before it stopped, oldest first, redacted.
+	Lines []CrashLine `json:"lines"`
+	// RoomMB is how much more memory the machine could give the server.
+	RoomMB int `json:"roomMB"`
+}
+
+// CrashLine is a console line shown with a crash.
+type CrashLine struct {
+	Time  string `json:"time,omitempty"`  // as the server printed it, e.g. "18:52:40"
+	Level string `json:"level,omitempty"` // WARN, ERROR or FATAL; "" for INFO
+	Text  string `json:"text"`
+}
+
+// RemoveAddonRequest moves a plugin or mod jar out of a stopped server, and
+// starts it afterwards when Start is set.
+type RemoveAddonRequest struct {
+	Actor string `json:"actor"`
+	Jar   string `json:"jar"`
+	Start bool   `json:"start,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.

@@ -30,6 +30,13 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{`[13:34:28 INFO]: Preparing level "world"`, EventPreparing, ""},
 		{"[init] [ERROR] Failed to download paper", EventInitError, ""},
 		{"java.lang.OutOfMemoryError: Java heap space", EventOOM, ""},
+		{"[03:11:30 ERROR]: Encountered an unexpected exception", EventCrashed, ""},
+		{"[03:11:31 ERROR]: This crash report has been saved to: /data/./crash-reports/crash-2026-09-25_03.11.31-server.txt", EventCrashed, ""},
+		{"[21:40:12 ERROR]: The server has stopped responding! This is (probably) not a Paper bug.", EventCrashed, ""},
+		{"[12:00:00] [Server Watchdog/FATAL]: A single server tick took 60.00 seconds (should be max 0.05)", EventCrashed, ""},
+		{"[12:00:00] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server", EventCrashed, ""},
+		{"[03:11:30 INFO]: Encountered an unexpected exception", EventNone, ""},
+		{"[03:11:30 ERROR]: <PkBotFriend> Encountered an unexpected exception", EventNone, ""},
 	}
 	for _, c := range cases {
 		p := Parse(c.line)

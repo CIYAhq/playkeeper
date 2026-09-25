@@ -85,6 +85,7 @@ var opLabels = map[string]string{
 	"restart": "restarting", "backup": "a backup", "restore": "a restore", "recover": "an automatic restart",
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
+	"remove-addon": "removing a plugin or mod",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -589,6 +590,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		// A container whose start failed (for example on a busy port) can keep
 		// broken network state; discard it so the next start creates it fresh.
 		_ = s.docker.ContainerRemove(context.Background(), id, true)
+		msg := err.Error()
+		if ae := (*docker.APIError)(nil); errors.As(err, &ae) {
+			msg = ae.Message
+		}
+		s.explainCrash("", docker.ContainerState{}, true, msg)
 		return classifyStartError(err, s.gamePort)
 	}
 	s.mu.Lock()
@@ -630,6 +636,7 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 			if fin, ok := c.State.Finished(); ok {
 				s.markExitHandled(id, fin)
 			}
+			s.explainCrash(id, c.State, true, "")
 			msg := fmt.Sprintf("The server stopped while starting (exit code %d).", c.State.ExitCode)
 			if lastErr != "" {
 				msg += " " + lastErr
@@ -709,7 +716,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping = false
+	s.sawStopping, s.sawCrash = false, false
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }
@@ -769,7 +776,8 @@ func (s *server) reconcile(ctx context.Context) {
 	handled := ok && last.Equal(fin)
 	ended := s.followEnded[c.ID]
 	intentional := s.intentional[c.ID]
-	graceful := s.sawStopping
+	// A crashing server logs "Stopping server" too, after the error.
+	graceful := s.sawStopping && !s.sawCrash
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()
@@ -829,6 +837,7 @@ func (s *server) reconcile(ctx context.Context) {
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
 		s.recordCrash(fin, c.State)
+		s.explainCrash(c.ID, c.State, false, "")
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
 			due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)

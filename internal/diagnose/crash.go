@@ -84,6 +84,7 @@ type CrashDiagnosis struct {
 	Explanation string         `json:"explanation"`
 	Evidence    []Evidence     `json:"evidence"`
 	Fixes       []Action       `json:"fixes,omitempty"`
+	Lines       []ShownLine    `json:"lines,omitempty"`
 }
 
 // Paper's watchdog prints the server thread before a dump of every thread,
@@ -102,11 +103,13 @@ const (
 func ExplainCrash(in CrashInput) CrashDiagnosis {
 	c := newCrashCtx(in)
 	for _, r := range crashRules {
+		c.shown = c.shown[:0]
 		if d, ok := r.explain(c); ok {
 			d.Certain = d.Certain || r.certain
 			return c.finish(d)
 		}
 	}
+	c.shown = c.shown[:0]
 	return c.finish(c.unknown())
 }
 
@@ -116,6 +119,7 @@ type crashCtx struct {
 	lines  []string
 	split  []logLine
 	report []string
+	shown  []int // console lines the diagnosis quotes
 }
 
 func newCrashCtx(in CrashInput) *crashCtx {
@@ -280,6 +284,7 @@ func (c *crashCtx) evidence(f found) Evidence {
 	if f.inReport() {
 		return Evidence{Kind: EvidenceCrashReport, Params: map[string]any{"file": c.in.CrashReportName, "line": line}, Text: line}
 	}
+	c.shown = append(c.shown, f.idx)
 	return logEvidence(line)
 }
 
@@ -447,6 +452,7 @@ func (c *crashCtx) finish(d CrashDiagnosis) CrashDiagnosis {
 	if !seen && len(d.Fixes) > 0 {
 		d.Fixes[0].Recommended = true
 	}
+	d.Lines = c.shownLines(d)
 	return d
 }
 

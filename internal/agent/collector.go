@@ -141,7 +141,7 @@ func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
 		return
 	}
 	s.runStartedAt = runStart
-	s.sawStopping = false
+	s.sawStopping, s.sawCrash = false, false
 	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
 		s.runPhase = api.PhaseStartingContainer
 	}
@@ -193,7 +193,7 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		if current {
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
-			s.crashed = false
+			s.crashed, s.crash = false, nil
 			s.lastError, s.lastErrorHint = "", ""
 			s.mu.Unlock()
 		}
@@ -225,6 +225,12 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 			s.mu.Lock()
 			s.lastError = "The server could not download or install its software: " + p.Detail
 			s.lastErrorHint = "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."
+			s.mu.Unlock()
+		}
+	case minecraft.EventCrashed:
+		if current {
+			s.mu.Lock()
+			s.sawCrash = true
 			s.mu.Unlock()
 		}
 	case minecraft.EventOOM:

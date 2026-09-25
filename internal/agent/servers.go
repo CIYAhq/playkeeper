@@ -63,6 +63,7 @@ type server struct {
 	runPhaseDetail  string
 	runStartedAt    time.Time
 	sawStopping     bool
+	sawCrash        bool
 	lastError       string
 	lastErrorHint   string
 	reachable       bool
@@ -72,6 +73,7 @@ type server struct {
 	prevCPU         *docker.Stats
 	crashes         []time.Time
 	crashed         bool
+	crash           *api.Crash
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
 	intentional     map[string]bool

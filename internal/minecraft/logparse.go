@@ -22,6 +22,9 @@ const (
 	EventInitError   EventKind = "init_error"
 	EventOOM         EventKind = "out_of_memory"
 	EventBindFailed  EventKind = "bind_failed"
+	// EventCrashed is the server reporting that it crashed. It may still
+	// log "Stopping server" afterwards, as a clean stop does.
+	EventCrashed EventKind = "crashed"
 )
 
 // Parsed is the structured meaning of one log line.
@@ -47,6 +50,9 @@ var (
 	reStarting  = regexp.MustCompile(prefix + `Starting minecraft server version (\S+)`)
 	rePreparing = regexp.MustCompile(prefix + `(?:Preparing level "|Preparing start region|Preparing spawn area)`)
 	reBind      = regexp.MustCompile(`FAILED TO BIND TO PORT`)
+	// Only ERROR and FATAL entries, which players cannot write.
+	reCrashed = regexp.MustCompile(`^\[\d{2}:\d{2}:\d{2}(?: (?:ERROR|FATAL)\]|\] \[[^\]]{1,64}/(?:ERROR|FATAL)\])(?: \[[^\]]{1,120}\])?: ` +
+		`(?:Encountered an unexpected exception|This crash report has been saved to: |The server has stopped responding!|Failed to start the minecraft server|A single server tick took )`)
 	reOOM       = regexp.MustCompile(`java\.lang\.OutOfMemoryError`)
 	reANSI      = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\[[0-9;]{1,8}m`)
 	reIPv4Port  = regexp.MustCompile(`/?\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b`)
@@ -102,6 +108,9 @@ func Parse(line string) Parsed {
 	}
 	if reStopping.MatchString(line) {
 		return Parsed{Kind: EventStopping}
+	}
+	if reCrashed.MatchString(line) {
+		return Parsed{Kind: EventCrashed}
 	}
 	if m := reStarting.FindStringSubmatch(line); m != nil {
 		return Parsed{Kind: EventStarting, Detail: m[1]}

@@ -137,7 +137,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	s.mu.Lock()
 	runPhase, detail := s.runPhase, s.runPhaseDetail
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
-	crashed := s.crashed
+	crashed, crash := s.crashed, s.crash
 	st.CrashCount = len(s.crashes)
 	players, res := s.players, s.resources
 	reachable, reachableAt := s.reachable, s.reachableAt
@@ -217,6 +217,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	st.FirstSteps = s.firstSteps()
 	if st.Operation == nil {
 		st.SavingPausedSince = s.savingPausedSince()
+		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {
+			st.Crash = crash
+		}
 	}
 	return st
 }
@@ -397,28 +400,37 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already running."})
 		return
 	}
-	s.mu.Lock()
-	s.crashes, s.crashed, s.nextAutoRestart = nil, false, time.Time{}
-	s.mu.Unlock()
-	op, err := s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
-		if err := s.setDesired(api.DesiredRunning); err != nil {
-			return err
-		}
-		cur, _ := s.serverConfig()
-		if cur == nil {
-			return errNotCreated()
-		}
-		if err := s.startServer(ctx, h, *cur); err != nil {
-			s.startFailed(ctx)
-			return err
-		}
-		return nil
-	})
+	s.forgetCrashes()
+	op, err := s.beginOp("start", actor, s.startNow)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// forgetCrashes starts the crash policy over for a start someone asked for.
+func (s *server) forgetCrashes() {
+	s.mu.Lock()
+	s.crashes, s.crashed, s.crash, s.nextAutoRestart = nil, false, nil, time.Time{}
+	s.mu.Unlock()
+}
+
+// startNow is a start someone asked for: the server is to keep running, or
+// stays stopped if it does not come up.
+func (s *server) startNow(ctx context.Context, h *opHandle) error {
+	if err := s.setDesired(api.DesiredRunning); err != nil {
+		return err
+	}
+	cur, _ := s.serverConfig()
+	if cur == nil {
+		return errNotCreated()
+	}
+	if err := s.startServer(ctx, h, *cur); err != nil {
+		s.startFailed(ctx)
+		return err
+	}
+	return nil
 }
 
 func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
@@ -436,7 +448,7 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 		s.mu.Lock()
-		s.crashed = false
+		s.crashed, s.crash = false, nil
 		s.mu.Unlock()
 	}
 	release()
