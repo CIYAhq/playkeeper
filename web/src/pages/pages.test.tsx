@@ -3,11 +3,13 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, SignInNotice } from '@/api/types'
+import type { Address, MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, SignInNotice } from '@/api/types'
 import { WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { formatLongDate } from '@/lib/format'
 import { HomePage } from './home'
+import { MachinePage } from './machine'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
@@ -360,6 +362,34 @@ describe('Onboarding', () => {
     expect(text).toContain('Port 25565 is free')
     expect(text).toContain('Your provider’s firewall')
     expect(text).toContain('6 of 7 look good')
+  })
+})
+
+describe('Machine page', () => {
+  const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.io', servers: [], names: { url: 'https://names.playkeeper.io' } }
+  const day = 24 * 3600_000
+  const certificate = { names: ['alex.playkeeper.io'], challenge: 'dns-01', notBefore: new Date(Date.now() - 30 * day).toISOString(), notAfter: new Date(Date.now() + 60 * day).toISOString() }
+  const free: Address = { ...none, kind: 'playkeeper', host: 'alex.playkeeper.io', certificate }
+
+  const health = async (address: Address) => {
+    answer({ '/address': address })
+    await render(<MachinePage id={machine.id} />)
+    const line = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes('Dashboard certificate'))
+    if (!line) throw new Error('the machine page has no certificate line')
+    return line
+  }
+
+  it('says the dashboard’s certificate is self-signed until there’s an address, and links to Machine settings', async () => {
+    const line = await health(none)
+    expect(line.textContent).toBe('Dashboard certificateSelf-signed')
+    expect(line.getAttribute('href')).toBe(`/machines/${machine.id}/settings`)
+  })
+
+  it('names the real certificate with the day it runs out, and a failed renewal', async () => {
+    expect((await health(free)).textContent).toContain(`Let’s Encrypt until ${formatLongDate(certificate.notAfter)}`)
+    const renewal = { ...certificate, problem: { code: 'port80_unreachable', message: 'Port 80 is closed.' } }
+    expect((await health({ ...free, certificate: renewal })).textContent).toContain('Couldn’t renew the certificate')
+    expect((await health({ ...free, certificate: { ...renewal, notAfter: undefined, notBefore: undefined } })).textContent).toContain('Couldn’t get a certificate')
   })
 })
 

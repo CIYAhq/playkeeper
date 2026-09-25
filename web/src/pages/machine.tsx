@@ -9,10 +9,13 @@ import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
-import { formatBytes, formatMB, formatPercent } from '@/lib/format'
+import { certState, type CertState } from '@/lib/address'
+import { formatBytes, formatLongDate, formatMB, formatPercent } from '@/lib/format'
 import { phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 import { newerStable, softwareLabel } from '@/lib/servers'
+import { cn } from '@/lib/utils'
+import { certProblemText } from './machine-settings/parts'
 import { Group } from './more'
 
 export function MachinePage({ id }: { id: string }) {
@@ -20,6 +23,7 @@ export function MachinePage({ id }: { id: string }) {
   const phone = useIsPhone()
   const m = ws.machines.find((x) => x.id === id) ?? (ws.machine?.id === id ? ws.machine : undefined)
   const { catalog } = useCatalog(m?.id)
+  const address = useAddress(m?.id)
   if (!m) {
     return (
       <PageBody>
@@ -47,7 +51,7 @@ export function MachinePage({ id }: { id: string }) {
         }
       />
       <PageBody className="grid gap-4 lg:grid-cols-2">
-        {phone && <AddressRow id={m.id} />}
+        {phone && <AddressRow id={m.id} address={address} />}
         <Card>
           <CardTitle>{t('machine.resources')}</CardTitle>
           <CardHint>{t('machine.resourcesHint')}</CardHint>
@@ -60,6 +64,7 @@ export function MachinePage({ id }: { id: string }) {
           ) : (
             <p className="mt-3 text-[13px] text-muted-foreground">{ws.agentDown ? t('nav.notAnswering') : t('common.loading')}</p>
           )}
+          {address && <CertificateLine id={m.id} address={address} />}
           <div className="mt-auto flex flex-wrap justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
             <span>{t('machine.sampled')}</span>
             {live && (
@@ -112,19 +117,59 @@ export function MachinePage({ id }: { id: string }) {
   )
 }
 
-/** The phone's way to the machine's address, with the address it has. */
-function AddressRow({ id }: { id: string }) {
-  const [host, setHost] = useState<string | null>()
+/** The machine's address; undefined while loading or when it can't be read. */
+function useAddress(id: string | undefined): Address | undefined {
+  const [address, setAddress] = useState<Address>()
   useEffect(() => {
+    if (!id) return
     let cancelled = false
     get<Address>(machineApi(id, '/address')).then(
-      (a) => !cancelled && setHost(a.kind ? (a.host ?? null) : null),
+      (a) => !cancelled && setAddress(a),
       () => undefined,
     )
     return () => {
       cancelled = true
     }
   }, [id])
+  return address
+}
+
+/** The Health line: which certificate the dashboard shows, linking to where that's set up. */
+function CertificateLine({ id, address }: { id: string; address: Address }) {
+  const now = Date.now()
+  const state = certState(address, now)
+  const value = certificateValue(address, state, now)
+  return (
+    <a {...linkProps({ name: 'machine-settings', id })} className="mt-4 mb-3 flex items-center justify-between gap-3 rounded-md text-[13px] outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+      <span className="font-medium">{t('machine.certificate')}</span>
+      <span className={cn('flex min-w-0 items-center gap-1', state === 'problem' ? 'text-warning-foreground' : 'text-muted-foreground')}>
+        <span className="truncate">{value}</span>
+        <ChevronRightIcon className="size-4 shrink-0" aria-hidden="true" />
+      </span>
+    </a>
+  )
+}
+
+function certificateValue(a: Address, state: CertState, now: number): string {
+  switch (state) {
+    case 'none':
+      return t('machine.certSelfSigned')
+    case 'getting':
+      return t('address.certGettingShort')
+    case 'active':
+      return t('machine.certActive', { date: formatLongDate(a.certificate?.notAfter ?? '') })
+    case 'problem':
+      return certProblemText(a, now)?.title ?? t('address.certProblem')
+    default: {
+      const never: never = state
+      return never
+    }
+  }
+}
+
+/** The phone's way to the machine's address, with the address it has. */
+function AddressRow({ id, address }: { id: string; address: Address | undefined }) {
+  const host = address ? (address.kind ? (address.host ?? null) : null) : undefined
   return (
     <Group>
       <li>

@@ -1057,6 +1057,11 @@ export const en = {
   'address.stopBodyNoIp': 'The addresses stop working right away.',
   'address.stopped': 'Stopped using {domain}',
 
+  // Machine page › Health: the dashboard's certificate
+  'machine.certificate': 'Dashboard certificate',
+  'machine.certSelfSigned': 'Self-signed',
+  'machine.certActive': 'Let’s Encrypt until {date}',
+
   // Playkeeper updates
   'update.title': 'Update Playkeeper to {version}',
   'update.meta': 'You have {current} · takes about a minute',
