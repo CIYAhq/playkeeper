@@ -13,6 +13,29 @@ Playkeeper 2 is playful and guided: every screen says what to do next. It is bui
 - **Recognisable visuals.** Real server software logos in one consistent tile, original pixel art for anything Minecraft, and real player faces. Never Mojang's logo, textures or art.
 - **Honest data.** Charts break at gaps instead of drawing zeros, and every number says where it came from.
 
+## Motion
+
+Motion shows what changed, quickly and plainly: no bounce, no overshoot, nothing that moves just to be noticed. Every timing comes from these CSS variables in `web/src/styles.css`:
+
+| Token | Value | For |
+| --- | --- | --- |
+| `--motion-fast` | 120 ms | hover, press, focus, checkboxes, menus, closing overlays |
+| `--motion-standard` | 200 ms | opening dialogs and sheets, switches, list rows, status changes |
+| `--motion-slow` | 280 ms | page and tab changes, progress bars and meters |
+| `--motion-ease-standard` | `cubic-bezier(0.2, 0, 0, 1)` | things that change in place |
+| `--motion-ease-enter` | `cubic-bezier(0, 0, 0.2, 1)` | things that appear |
+| `--motion-ease-exit` | `cubic-bezier(0.4, 0, 1, 1)` | things that go away |
+| `--motion-press-scale` | `0.98` | how far a pressed button shrinks |
+
+In Tailwind they are `duration-(--motion-fast)`, `ease-standard`, `ease-enter`, `ease-exit`, `scale-(--motion-press-scale)` and the `animate-page`, `animate-enter` and `animate-fade` animations.
+
+- **Press and hover.** Buttons shade on hover and shrink to `--motion-press-scale` while pressed. Links and hand-made controls dim while pressed; cards that wrap a radio, checkbox or switch dim a little less. Disabled controls don't react.
+- **Pages and tabs.** A new page or server tab fades in while rising 6 px; the server header stays put between tabs.
+- **Overlays.** Dialogs, sheets, menus and selects animate through Base UI's `data-starting-style` and `data-ending-style`: dialogs fade in from 98% size, sheets slide in from their edge, menus and selects fade in from 97%. Menus and selects open fast; everything closes fast with the exit easing.
+- **Lists.** Rows added after a list first shows fade in from 4 px above (`data-entering`); removed rows fade out where they were before the list closes up (`data-leaving`). `useListPresence` in `web/src/lib/presence.ts` handles both.
+- **State changes.** Switch thumbs slide, status dots and labels fade to their new state, and progress bars ease to their new value.
+- **Reduced motion.** When the system asks for less motion, every transition is instant, nothing shrinks when pressed, and spinners and pulses hold still.
+
 ## Screens
 
 - **Home:** every server as a card (status, what's happening, join address), activity across servers, and the machine's memory, CPU and disk.

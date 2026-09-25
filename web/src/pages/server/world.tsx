@@ -16,6 +16,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
 import { whyNot } from '@/lib/phase'
+import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
@@ -30,6 +31,8 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   const [preview, setPreview] = useState<RestorePreview>()
   const [restoreSheet, setRestoreSheet] = useState(false)
   const list = backups.data ?? []
+  const rows = useListPresence(backups.data, (b) => b.id)
+  const newest = list[0]?.id
   const refresh = () => void backups.refresh()
 
   async function restoreFrom(b: Backup) {
@@ -62,13 +65,13 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             {verified && `${t('common.dot')}${t('world.allVerified')}`}
           </SectionLabel>
           <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-            {list.map((b, i) => (
-              <li key={b.id} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
+            {rows.map(({ key, item: b, state }) => (
+              <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
                 <span className="min-w-0 flex-1">
                   <span className="block text-base">{formatDay(b.createdAt)}</span>
                   <span className="block text-[13px] text-muted-foreground">{[b.note, formatBytes(b.sizeBytes), b.downloadedAt ? t('world.phoneDownloaded') : t('world.phoneNotDownloaded')].filter(Boolean).join(t('common.dot'))}</span>
                 </span>
-                <Button size="lg" variant={i === 0 && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
+                <Button size="lg" variant={b.id === newest && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
                   <DownloadIcon />
                   {t('common.download')}
                 </Button>
@@ -150,8 +153,8 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
               </tr>
             </thead>
             <tbody>
-              {list.map((b, i) => (
-                <BackupRow key={b.id} server={s} backup={b} newest={i === 0} onRestore={() => void restoreFrom(b)} onChanged={refresh} />
+              {rows.map(({ key, item: b, state }) => (
+                <BackupRow key={key} server={s} backup={b} state={state} newest={b.id === newest} onRestore={() => void restoreFrom(b)} onChanged={refresh} />
               ))}
             </tbody>
           </table>
@@ -280,7 +283,7 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
   )
 }
 
-function BackupRow({ server: s, backup: b, newest, onRestore, onChanged }: { server: ServerStatus; backup: Backup; newest: boolean; onRestore: () => void; onChanged: () => void }) {
+function BackupRow({ server: s, backup: b, state, newest, onRestore, onChanged }: { server: ServerStatus; backup: Backup; state: Presence; newest: boolean; onRestore: () => void; onChanged: () => void }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -311,7 +314,7 @@ function BackupRow({ server: s, backup: b, newest, onRestore, onChanged }: { ser
   const detail = [kind, b.downtimeMs > 0 ? t('world.offline', { time: formatMs(b.downtimeMs) }) : undefined, t('unit.files', { count: b.fileCount })].filter(Boolean).join(t('common.dot'))
   const when = formatDay(b.createdAt)
   return (
-    <tr className="h-12 border-t border-border">
+    <tr {...presenceProps(state)} className="h-12 border-t border-border">
       <td className="px-3 py-2">
         <span className="block">
           <span className="font-semibold">{when}</span>
