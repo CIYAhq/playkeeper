@@ -57,6 +57,8 @@ type Server struct {
 	control *limiter
 	locks   *lockout
 	heads   *headFetcher
+	// Wave 6: requests per viewer address to shared maps.
+	mapViews *limiter
 }
 
 func New(opts Options) (*Server, error) {
@@ -92,6 +94,8 @@ func New(opts Options) (*Server, error) {
 		control: newLimiter(30, time.Minute, opts.Now),
 		locks:   newLockout(opts.Now),
 		heads:   newHeadFetcher(src),
+		// Wave 6
+		mapViews: newLimiter(publicMapRequests, time.Minute, opts.Now),
 	}
 	if err := s.ensureWorkspace(); err != nil {
 		db.Close()
@@ -146,7 +150,7 @@ func (s *Server) Routes() []Route {
 	mm := func(method, p, agentPath string, act action) Route {
 		return Route{method, p, needSessionCSRF, act, s.machineProxy(method, agentPath)}
 	}
-	return []Route{
+	routes := []Route{
 		{"GET", "/api/health", public, "", s.hHealth},
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
 		{"POST", "/api/setup", publicMutation, "", s.hSetup},
@@ -206,6 +210,44 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
 		view("/api/server", s.hLegacyStatus),
+	}
+	// Wave 6: each server's live map, and worlds people upload, for a new
+	// server or to replace a server's world.
+	routes = append(routes, []Route{
+		sg("/api/servers/{id}/map", "/v1/servers/{id}/map"),
+		view("/api/servers/{id}/map/worlds", s.mapProxy("/v1/servers/{id}/map/worlds")),
+		view("/api/servers/{id}/map/players", s.mapProxy("/v1/servers/{id}/map/players")),
+		view("/api/servers/{id}/map/tiles/{world}/{zoom}/{tile}", s.mapProxy("/v1/servers/{id}/map/tiles/{world}/{zoom}/{tile}")),
+		sm("POST", "/api/servers/{id}/map/enable", "/v1/servers/{id}/map/enable"),
+		sm("POST", "/api/servers/{id}/map/disable", "/v1/servers/{id}/map/disable"),
+		sm("POST", "/api/servers/{id}/map/share", "/v1/servers/{id}/map/share"),
+		sm("POST", "/api/servers/{id}/map/restart-later", "/v1/servers/{id}/map/restart-later"),
+		sm("POST", "/api/servers/{id}/world-imports", "/v1/servers/{id}/world-imports"),
+		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),
+		mg("/api/machines/{mid}/world-imports/{imp}", "/v1/world-imports/{imp}"),
+		mm("DELETE", "/api/machines/{mid}/world-imports/{imp}", "/v1/world-imports/{imp}", actManageServers),
+		mm("POST", "/api/machines/{mid}/world-imports/{imp}/files", "/v1/world-imports/{imp}/files", actManageServers),
+		{"PUT", "/api/machines/{mid}/world-imports/{imp}/files/{n}", needSessionCSRF, actManageServers, s.hWorldUpload},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/inspect", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/inspect")},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/preview", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/preview")},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/apply", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/apply")},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")},
+	}...)
+	return append(routes, s.publicPages()...)
+}
+
+// publicPages are the only routes anyone can use without signing in,
+// besides health, setup and login: the shared live map and the calls its
+// page makes. Every answer is no-store.
+func (s *Server) publicPages() []Route {
+	return []Route{
+		{"GET", "/map/{slug}", public, "", s.hMapPage},
+		{"GET", "/api/public/map/{slug}", public, "", s.publicMap(mapPart(""))},
+		{"GET", "/api/public/map/{slug}/worlds", public, "", s.publicMap(mapPart("worlds"))},
+		{"GET", "/api/public/map/{slug}/players", public, "", s.publicMap(mapPart("players"))},
+		{"GET", "/api/public/map/{slug}/icon", public, "", s.publicMap(mapPart("icon"))},
+		{"GET", "/api/public/map/{slug}/tiles/{world}/{zoom}/{tile}", public, "", s.publicMap(mapTile)},
+		{"GET", "/api/public/map/{slug}/faces/{name}", public, "", s.hPublicMapFace},
 	}
 }
 

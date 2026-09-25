@@ -767,8 +767,8 @@ func (a *Agent) hPublicMap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.PublicMap{Name: s.name(), Players: rec.publicPlayers})
 }
 
-// hPublicMapProxy serves the shared map's worlds and tiles, and its players
-// only while the second switch is on.
+// hPublicMapProxy serves the shared map's worlds, tiles and the server's
+// icon, and its players only while the second switch is on.
 func (a *Agent) hPublicMapProxy(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	s, rec, l, ok := a.sharedMap(r.Context(), slug)
@@ -776,12 +776,23 @@ func (a *Agent) hPublicMapProxy(w http.ResponseWriter, r *http.Request) {
 		writeMapUnavailable(w)
 		return
 	}
+	if r.PathValue("rest") == "icon" {
+		b, err := os.ReadFile(s.iconPath())
+		if err != nil {
+			writeMapUnavailable(w)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(b)
+		return
+	}
 	http.StripPrefix("/v1/public-maps/"+slug, s.webMap(s.serverType(), l.addr)).ServeHTTP(w, r)
 }
 
 func publicMapPath(rest string, players bool) bool {
 	switch {
-	case rest == "worlds":
+	case rest == "worlds", rest == "icon":
 		return true
 	case rest == "players":
 		return players

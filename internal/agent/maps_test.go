@@ -401,6 +401,14 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 	if code, h, _ := e.get(pub + "/tiles/minecraft_overworld/3/0_0.png"); code != 200 || h.Get("Content-Type") != "image/png" {
 		t.Fatalf("shared tile: %d %v", code, h)
 	}
+	same("no icon of its own", pub+"/icon")
+	icon := []byte("\x89PNG\r\n\x1a\nserver icon")
+	if err := os.WriteFile(e.srv().iconPath(), icon, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, h, body := e.get(pub + "/icon"); code != 200 || h.Get("Content-Type") != "image/png" || h.Get("Cache-Control") != "no-store" || !bytes.Equal(body, icon) {
+		t.Fatalf("shared icon: %d %v %q", code, h, body)
+	}
 	same("players hidden", pub+"/players")
 	same("other paths", pub+"/settings")
 	same("wrong link", "/v1/public-maps/not-"+slug)
@@ -431,6 +439,7 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 	e.srv().forgetMapLive()
 	same("stopped", pub)
 	same("stopped tiles", pub+"/tiles/minecraft_overworld/3/0_0.png")
+	same("stopped icon", pub+"/icon")
 
 	if code, _ := e.call("POST", e.sp("/map/share"), map[string]any{"public": false, "actor": "admin"}); code != 200 {
 		t.Fatalf("unshare: %d", code)
