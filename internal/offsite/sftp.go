@@ -548,7 +548,12 @@ func (c *sftpClient) get(ctx context.Context, op, name string, fn func(r io.Read
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			_, err := f.WriteTo(pw)
+			// WriteTo ends without an error at a read that fails with
+			// io.EOF, as one sent while the connection closes does.
+			n, err := f.WriteTo(pw)
+			if err == nil && n < fi.Size() {
+				err = io.ErrUnexpectedEOF
+			}
 			pw.CloseWithError(err)
 		}()
 		err = fn(pr, fi.Size())
