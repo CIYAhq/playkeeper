@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
@@ -324,11 +325,11 @@ func kv(pairs ...string) map[string]string {
 }
 
 // printable makes text from a pack safe to show: no control or format
-// characters, at most 80 characters.
+// characters, no line breaks, at most 80 characters.
 func printable(s string) string {
 	s = strings.ToValidUTF8(s, "?")
 	s = strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || r >= 0x200b && r <= 0x200f || r >= 0x202a && r <= 0x202e || r >= 0x2066 && r <= 0x2069 || r == 0xfeff {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return '?'
 		}
 		return r

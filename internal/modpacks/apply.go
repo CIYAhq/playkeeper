@@ -81,11 +81,17 @@ func (l *Library) apply(ctx context.Context, srv Server, pl *Plan) (*Result, err
 	defer os.RemoveAll(stage)
 	staged := map[string]string{}
 	var total int64
+	// A Modrinth pack lists its files' hashes; CurseForge lists them for
+	// the mods a CurseForge pack names.
+	listedBy := "the pack"
+	if pl.Pack.Source == CurseForge {
+		listedBy = "CurseForge"
+	}
 	for _, o := range pl.ops {
 		if o.file == nil || o.file.origin != Download || o.action != ActionAdd && o.action != ActionReplace {
 			continue
 		}
-		file, n, err := l.download(ctx, pl.Pack.Name, o.file, stage, lim, total)
+		file, n, err := l.download(ctx, pl.Pack.Name, listedBy, o.file, stage, lim, total)
 		if err != nil {
 			return nil, err
 		}
@@ -138,9 +144,9 @@ func (l *Library) apply(ctx context.Context, srv Server, pl *Plan) (*Result, err
 }
 
 // download fetches one pack file into dir from the first of its addresses
-// that delivers it with the pack's hashes. total is what the pack has
+// that delivers it with the listed hashes. total is what the pack has
 // downloaded so far.
-func (l *Library) download(ctx context.Context, pack string, f *packFile, dir string, lim Limits, total int64) (string, int64, error) {
+func (l *Library) download(ctx context.Context, pack, listedBy string, f *packFile, dir string, lim Limits, total int64) (string, int64, error) {
 	room := min(lim.File, lim.Downloads-total)
 	if room <= 0 {
 		return "", 0, packTooLarge(pack, lim.Downloads)
@@ -171,7 +177,7 @@ func (l *Library) download(ctx context.Context, pack string, f *packFile, dir st
 	if errors.As(first, &tl) && room < lim.File {
 		return "", 0, packTooLarge(pack, lim.Downloads)
 	}
-	return "", 0, downloadError(pack, f.path, "the pack", first, room)
+	return "", 0, downloadError(pack, f.path, listedBy, first, room)
 }
 
 func packTooLarge(pack string, max int64) *addons.Error {
@@ -209,7 +215,7 @@ func (tx *txn) run(ops []op, staged map[string]string) (map[string]int64, error)
 		if o.action != ActionAdd && o.action != ActionReplace {
 			continue
 		}
-		if err := tx.mkdirs(path.Dir(o.path)); err != nil {
+		if err := tx.mkdirs(o.path); err != nil {
 			return nil, err
 		}
 		n, err := tx.place(o, staged[o.path])
@@ -238,12 +244,9 @@ func (tx *txn) hide(o op) error {
 }
 
 // mkdirs makes the folders above a pack file that do not exist yet.
-func (tx *txn) mkdirs(dir string) error {
-	if dir == "." {
-		return nil
-	}
-	parts := strings.Split(dir, "/")
-	for i := range parts {
+func (tx *txn) mkdirs(file string) error {
+	parts := strings.Split(file, "/")
+	for i := range len(parts) - 1 {
 		p := strings.Join(parts[:i+1], "/")
 		fi, err := tx.root.Lstat(p)
 		switch {
@@ -258,7 +261,7 @@ func (tx *txn) mkdirs(dir string) error {
 		case err != nil:
 			return serverFolderError(err)
 		case !fi.IsDir():
-			return &addons.Error{Notice: inTheWay(tx.pack, p, dir)}
+			return &addons.Error{Notice: inTheWay(tx.pack, p, file)}
 		}
 	}
 	return nil

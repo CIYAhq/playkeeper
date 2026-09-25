@@ -241,8 +241,8 @@ func (ix *Index) Loader() (id, version string, err error) {
 
 // CheckPath checks a path from a pack, either a file entry's path or a file
 // inside an overrides folder: relative, forward slashes only, no empty, "."
-// or ".." parts, no drive letters or colons, no control or invisible
-// formatting characters, and bounded in length.
+// or ".." parts, no drive letters or colons, no control, line-break or
+// invisible formatting characters, and bounded in length.
 func CheckPath(p string) error {
 	fail := func(reason string) error { return &PathError{Path: printable(p), Reason: reason} }
 	switch {
@@ -260,7 +260,7 @@ func CheckPath(p string) error {
 		return fail("contains a colon or drive letter")
 	}
 	for _, r := range p {
-		if r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r) || r == utf8.RuneError {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {
 			return fail("contains control or invisible characters")
 		}
 	}
@@ -284,7 +284,7 @@ func CheckPath(p string) error {
 func printable(s string) string {
 	s = strings.ToValidUTF8(s, "?")
 	s = strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r) {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return '?'
 		}
 		return r

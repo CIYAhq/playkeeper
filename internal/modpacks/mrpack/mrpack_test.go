@@ -195,6 +195,7 @@ func TestCheckPath(t *testing.T) {
 		"", "/etc/passwd", "../x", "mods/../../x", "mods/..", "./mods/x.jar", "mods/./x.jar", "mods//x.jar", "mods/",
 		`mods\x.jar`, `\\server\share\x`, "C:/x.jar", "c:x.jar", "mods/x.jar:stream",
 		"mods/x\x00.jar", "mods/x\n.jar", "mods/\u202egpj.jar", "mods/zero\u200bwidth.jar", "mods/\xff.jar",
+		"mods/x\u009b.jar", "mods/x\u0085.jar", "mods/x\u2028.jar", "mods/x\u061c.jar",
 		"mods/" + strings.Repeat("a", 256), strings.Repeat("a/", 600) + "x",
 	}
 	for _, p := range bad {
@@ -204,7 +205,7 @@ func TestCheckPath(t *testing.T) {
 			t.Errorf("CheckPath(%q) = %v, want a PathError", p, err)
 			continue
 		}
-		if strings.ContainsAny(err.Error(), "\x00\n\u202e") {
+		if strings.ContainsAny(err.Error(), "\x00\n\u202e\u009b\u0085\u2028\u061c") {
 			t.Errorf("CheckPath(%q) message carries raw control characters: %q", p, err)
 		}
 	}

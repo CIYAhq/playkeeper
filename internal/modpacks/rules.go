@@ -34,11 +34,12 @@ var (
 	startFiles = []string{".jar", ".sh", ".bat", ".cmd", ".ps1", ".exe", ".command"}
 )
 
-// classify sorts a checked pack path. world is the server's world folder.
+// classify sorts a checked pack path. world is the server's world folder;
+// packs name theirs "world".
 func classify(p, world string) class {
 	first, _, nested := strings.Cut(p, "/")
 	switch {
-	case first == world || first == world+"_nether" || first == world+"_the_end" || first == "world":
+	case inWorld(p, world) || inWorld(p, "world"):
 		return classWorld
 	case strings.HasPrefix(first, "."), strings.Contains(path.Base(p), ".playkeeper-"):
 		return classProtected
@@ -56,6 +57,18 @@ func classify(p, world string) class {
 	return classPack
 }
 
+// inWorld reports whether p is in one of the world's folders: the world
+// itself and the Nether and End folders Paper and Purpur keep beside it.
+// level-name may name a folder inside another folder.
+func inWorld(p, world string) bool {
+	for _, dir := range [...]string{world, world + "_nether", world + "_the_end"} {
+		if p == dir || strings.HasPrefix(p, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // suggestible are the server.properties settings a pack may suggest: how the
 // game plays, never how the server is reached, who may join or where the
 // world is.
@@ -70,10 +83,9 @@ var suggestible = []string{
 
 // suggestions reads the server.properties a pack ships. It returns the
 // settings a pack may suggest and the names of the others, which are
-// dropped.
+// dropped. As in Java, a setting's last line wins.
 func suggestions(b []byte) (map[string]string, []string) {
-	props := map[string]string{}
-	var dropped []string
+	raw := map[string]string{}
 	for line := range strings.SplitSeq(string(b), "\n") {
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		if line == "" || line[0] == '#' || line[0] == '!' {
@@ -83,18 +95,18 @@ func suggestions(b []byte) (map[string]string, []string) {
 		if i <= 0 {
 			continue
 		}
-		k := strings.TrimSpace(line[:i])
-		v, ok := unescape(strings.TrimSpace(line[i+1:]))
-		if !propertyName(k) {
-			continue
+		if k := strings.TrimSpace(line[:i]); propertyName(k) {
+			raw[k] = strings.TrimSpace(line[i+1:])
 		}
-		if !ok || !slices.Contains(suggestible, k) {
-			if !slices.Contains(dropped, k) {
-				dropped = append(dropped, k)
-			}
-			continue
+	}
+	props := map[string]string{}
+	var dropped []string
+	for k, v := range raw {
+		if v, ok := unescape(v); ok && slices.Contains(suggestible, k) {
+			props[k] = v
+		} else {
+			dropped = append(dropped, k)
 		}
-		props[k] = v
 	}
 	slices.Sort(dropped)
 	return props, dropped

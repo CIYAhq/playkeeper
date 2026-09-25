@@ -279,7 +279,7 @@ func channel(versionType string) string {
 
 func (l *Library) readModrinth(ctx context.Context, proj *modrinth.Project, v *modrinth.Version, world string) (*pack, error) {
 	name := printable(proj.Title)
-	if _, _, why := l.modrinthTarget(name, v); why != nil && why.Kind == KindForge {
+	if _, _, why := l.modrinthTarget(name, v); why != nil {
 		return nil, &addons.Error{Notice: *why}
 	}
 	file, ok := mrpackFile(v)
@@ -399,18 +399,18 @@ func (l *Library) addIndexFile(p *pack, f *mrpack.File, world string, hosts fetc
 		return
 	}
 	p.files[f.Path] = &packFile{
-		path: f.Path, origin: Download, project: modrinthProject(urls), name: path.Base(f.Path),
+		path: f.Path, origin: Download, project: l.modrinthProject(urls), name: path.Base(f.Path),
 		optional: env == mrpack.Optional, on: true, world: c == classWorld, size: f.FileSize,
 		sums: map[string]string{"sha512": f.Hashes.SHA512, "sha1": f.Hashes.SHA1}, urls: urls, hosts: hosts,
 	}
 }
 
-// modrinthProject reads the project id out of a Modrinth CDN address,
-// cdn.modrinth.com/data/<project>/versions/<version>/<file>.
-func modrinthProject(urls []string) string {
+// modrinthProject reads the project id out of an address on Modrinth's file
+// hosts, cdn.modrinth.com/data/<project>/versions/<version>/<file>.
+func (l *Library) modrinthProject(urls []string) string {
 	for _, raw := range urls {
 		u, err := url.Parse(raw)
-		if err != nil || u.Hostname() != modrinth.CDNHost {
+		if err != nil || !l.modrinthFiles().Allows(u) {
 			continue
 		}
 		parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
@@ -504,9 +504,14 @@ func (l *Library) finishPack(p *pack, lim Limits) error {
 	}
 	if n := len(p.unknownEnv); n > 0 {
 		slices.Sort(p.unknownEnv)
-		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name, "count", strconv.Itoa(n), "first", printable(p.unknownEnv[0])),
-			fmt.Sprintf("%s does not say whether %d of its files (such as %s) belong on a server, so Playkeeper includes them.", p.info.Name, n, printable(p.unknownEnv[0])),
-			"If the server fails to start, one of them may be for the game client only."))
+		first := printable(p.unknownEnv[0])
+		msg, hint := fmt.Sprintf("%s does not say whether %s belongs on a server, so Playkeeper includes it.", p.info.Name, first),
+			"If the server fails to start, it may be for the game client only."
+		if n > 1 {
+			msg, hint = fmt.Sprintf("%s does not say whether %d of its files (such as %s) belong on a server, so Playkeeper includes them.", p.info.Name, n, first),
+				"If the server fails to start, one of them may be for the game client only."
+		}
+		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name, "count", strconv.Itoa(n), "first", first), msg, hint))
 	}
 	return nil
 }
@@ -651,7 +656,7 @@ func cfChannel(releaseType int) string {
 
 func (l *Library) readCurseForge(ctx context.Context, mod *curseforge.Mod, f *curseforge.File, world string) (*pack, error) {
 	name := printable(mod.Name)
-	if _, _, why := l.curseForgeTarget(name, f); why != nil && why.Kind == KindForge {
+	if _, _, why := l.curseForgeTarget(name, f); why != nil {
 		return nil, &addons.Error{Notice: *why}
 	}
 	switch {

@@ -108,7 +108,7 @@ type InstallRequest struct {
 	Ref
 	// Include turns files on or off by path: optional files (Modrinth's are
 	// on and CurseForge's off unless listed) and, on update, pack files the
-	// user deleted (off unless listed).
+	// user deleted (off unless listed). Other files cannot be turned off.
 	Include map[string]bool `json:"include,omitempty"`
 	// Keep lists files the pack would overwrite (changes with Yours set)
 	// that should stay as they are.
@@ -326,27 +326,30 @@ func (l *Library) plan(root *os.Root, srv Server, p *pack, old *Record, include 
 	if err := l.checkServer(pl, root, srv); err != nil {
 		return nil, err
 	}
+	// World files only go into a server that has no world yet.
+	worldless := old == nil && !topExists(root, srv.world())
 	for _, rel := range slices.Sorted(maps.Keys(p.files)) {
 		f := p.files[rel]
+		gone := matches(removed, f)
 		on, why := true, addons.Kind("")
-		if f.optional {
-			on = f.on && !matches(removed, f)
-		} else if matches(removed, f) {
+		switch {
+		case f.optional:
+			on, why = f.on && !gone, KindOptionalOff
+		case gone:
 			on, why = false, KindUserRemoved
 		}
-		if v, ok := include[rel]; ok {
+		if v, ok := include[rel]; ok && (f.optional || gone) {
 			on = v
 		}
 		if f.optional {
 			pl.Optional = append(pl.Optional, Optional{Path: rel, Name: f.name, Project: f.project, Size: f.size, Included: on})
-			why = KindOptionalOff
 		}
 		if !on {
 			pl.Skipped = append(pl.Skipped, Skipped{Path: rel, Reason: why})
 			pl.excluded = append(pl.excluded, Excluded{Path: rel, Project: f.project})
 			continue
 		}
-		if err := l.planFile(pl, root, f, oldFiles[rel], old != nil, slices.Contains(keep, rel)); err != nil {
+		if err := l.planFile(pl, root, f, oldFiles[rel], worldless, slices.Contains(keep, rel)); err != nil {
 			return nil, err
 		}
 	}
@@ -389,7 +392,7 @@ func matches(ex []Excluded, f *packFile) bool {
 	})
 }
 
-func (l *Library) planFile(pl *Plan, root *os.Root, f *packFile, old *File, update, keep bool) error {
+func (l *Library) planFile(pl *Plan, root *os.Root, f *packFile, old *File, worldless, keep bool) error {
 	algo := f.algo()
 	algos := []string{algo}
 	if old != nil && old.HashAlgo != algo && (old.HashAlgo == "sha1" || old.HashAlgo == "sha512") {
@@ -404,7 +407,7 @@ func (l *Library) planFile(pl *Plan, root *os.Root, f *packFile, old *File, upda
 	case st.blocked != "":
 		pl.Blockers = append(pl.Blockers, inTheWay(pl.Pack.Name, st.blocked, f.path))
 		return nil
-	case f.world && (update || st.exists || topExists(root, f.path)):
+	case f.world && (!worldless || st.exists || topExists(root, f.path)):
 		pl.Skipped = append(pl.Skipped, Skipped{Path: f.path, Reason: KindWorld})
 		return nil
 	case !st.exists:
@@ -463,14 +466,17 @@ func topExists(root *os.Root, p string) bool {
 func (l *Library) checkServer(pl *Plan, root *os.Root, srv Server) error {
 	r := pl.Requirements
 	if srv.Type != "" && srv.Type != r.Type || srv.MinecraftVersion != "" && srv.MinecraftVersion != r.MinecraftVersion {
-		hint := ""
+		hint, step := "", "install"
 		if srv.Type == "paper" || srv.Type == "purpur" {
 			hint = fmt.Sprintf("Plugins in the plugins folder do not load on a %s server.", typeName(r.Type))
 		}
+		if pl.Current != nil {
+			step = "update"
+		}
 		pl.Warnings = append(pl.Warnings, notice(KindTypeChange,
 			kv("pack", pl.Pack.Name, "type", r.Type, "minecraft", r.MinecraftVersion, "serverType", srv.Type, "serverMinecraft", srv.MinecraftVersion),
-			fmt.Sprintf("%s needs a %s server on Minecraft %s; this server runs %s %s, and the install switches it.",
-				pl.Pack.Name, typeName(r.Type), r.MinecraftVersion, typeName(srv.Type), printable(srv.MinecraftVersion)), hint))
+			fmt.Sprintf("%s needs a %s server on Minecraft %s; this server runs %s %s, and the %s switches it.",
+				pl.Pack.Name, typeName(r.Type), r.MinecraftVersion, typeName(srv.Type), printable(srv.MinecraftVersion), step), hint))
 	}
 	if srv.MinecraftVersion == "" || minecraft.CompareMinecraft(r.MinecraftVersion, srv.MinecraftVersion) >= 0 {
 		return nil
@@ -509,14 +515,24 @@ func (l *Library) extraMods(pl *Plan, root *os.Root, p *pack) {
 		return
 	}
 	slices.Sort(extra)
-	pl.Warnings = append(pl.Warnings, notice(KindExtraMods, kv("pack", pl.Pack.Name, "count", strconv.Itoa(len(extra)), "first", printable(extra[0])),
-		fmt.Sprintf("The mods folder already has %d mods that are not part of %s, such as %s. They stay, and may clash with the pack's mods.", len(extra), pl.Pack.Name, printable(extra[0])),
-		"Remove the ones the pack does not need before starting the server."))
+	first := printable(extra[0])
+	msg, hint := fmt.Sprintf("The mods folder already has a mod that is not part of %s, %s. It stays, and may clash with the pack's mods.", pl.Pack.Name, first),
+		"Remove it before starting the server if the pack does not need it."
+	if len(extra) > 1 {
+		msg, hint = fmt.Sprintf("The mods folder already has %d mods that are not part of %s, such as %s. They stay, and may clash with the pack's mods.", len(extra), pl.Pack.Name, first),
+			"Remove the ones the pack does not need before starting the server."
+	}
+	pl.Warnings = append(pl.Warnings, notice(KindExtraMods, kv("pack", pl.Pack.Name, "count", strconv.Itoa(len(extra)), "first", first), msg, hint))
 }
 
+// inTheWay explains that blocker, the path p itself or a folder above it,
+// is something the pack cannot write through.
 func inTheWay(pack, blocker, p string) addons.Notice {
-	return notice(KindInTheWay, kv("pack", pack, "path", printable(blocker), "file", printable(p)),
-		fmt.Sprintf("%s needs to write %s, but %s on the server is a folder, a link or a special file.", pack, printable(p), printable(blocker)),
+	msg := fmt.Sprintf("%s needs to write %s, but a folder, a link or a special file is in its place on the server.", pack, printable(p))
+	if blocker != p {
+		msg = fmt.Sprintf("%s needs to write %s, but %s on the server is a file or a link, not a folder.", pack, printable(p), printable(blocker))
+	}
+	return notice(KindInTheWay, kv("pack", pack, "path", printable(blocker), "file", printable(p)), msg,
 		"Move it out of the way in the file manager, then try again.")
 }
 
@@ -543,8 +559,10 @@ type UpdateCheck struct {
 	// server type, or nil when the installed version is the newest.
 	Latest *Version `json:"latest,omitempty"`
 	// Newest is the pack's newest version Playkeeper can run, when it needs
-	// another Minecraft version or server type: moving to it changes the
-	// server, and a newer Minecraft version upgrades the world for good.
+	// a newer Minecraft version or another server type: moving to it changes
+	// the server, and a newer Minecraft version upgrades the world for good.
+	// Versions for older Minecraft versions are never offered, as Minecraft
+	// cannot open a world in an older version.
 	Newest *Version `json:"newest,omitempty"`
 }
 
@@ -569,7 +587,8 @@ func (l *Library) CheckUpdate(ctx context.Context, rec Record, allowPre bool) (*
 		if same && out.Latest == nil {
 			out.Latest = v
 		}
-		if !same && out.Newest == nil && (out.Latest == nil || v.Published.After(out.Latest.Published)) {
+		older := minecraft.CompareMinecraft(v.MinecraftVersion, rec.Requirements.MinecraftVersion) < 0
+		if !same && !older && out.Newest == nil && (out.Latest == nil || v.Published.After(out.Latest.Published)) {
 			out.Newest = v
 		}
 	}
