@@ -431,9 +431,12 @@ func fromACME(e *acme.Error, s situation, now time.Time) *Problem {
 	case "unauthorized", "incorrectresponse":
 		switch {
 		case txt:
-			if strings.Contains(lower, "no txt record") {
+			switch {
+			case strings.Contains(lower, "no txt record"):
 				p = named(CodeDNS01NotVisible, "fqdn", fqdn)
-			} else {
+			case strings.Contains(lower, "error retrieving txt"):
+				p = named(CodeDNSServersFailing)
+			default:
 				p = named(CodeDNS01RecordWrong, "fqdn", fqdn)
 			}
 		case s.challenge == "http-01" || containsAny(lower, "acme-challenge", "invalid response", "key authorization", "status code"):

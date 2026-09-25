@@ -123,6 +123,18 @@ func TestFromACMEDetails(t *testing.T) {
 	if p := fromACME(e, situation{}, now); p.Code != CodePaused || p.Params["name"] != "mc.example.com" || p.Params["url"] != "https://portal.letsencrypt.org/sfe/v1/unpause?jwt=abc.def.ghi" || strings.Contains(p.Detail, "abc.def") {
 		t.Errorf("paused, whatever the type: %+v", p)
 	}
+
+	pebbleDNS01 := map[string]string{
+		"No TXT records found for DNS challenge":    CodeDNS01NotVisible,
+		"Correct value not found for DNS challenge": CodeDNS01RecordWrong,
+		`Error retrieving TXT records for DNS challenge ("DNS lookup for \"_acme-challenge.alex.playkeeper.io.\" returned an unsuccessful response: 2")`: CodeDNSServersFailing,
+	}
+	for detail, code := range pebbleDNS01 {
+		e = &acme.Error{StatusCode: 403, ProblemType: "urn:ietf:params:acme:error:unauthorized", Detail: detail}
+		if p := fromACME(e, situation{name: "alex.playkeeper.io", challenge: "dns-01"}, now); p.Code != code {
+			t.Errorf("Pebble's %q = %s, want %s", detail, p.Code, code)
+		}
+	}
 }
 
 func TestRateLimitUntil(t *testing.T) {
