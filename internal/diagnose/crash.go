@@ -32,6 +32,7 @@ const (
 	CrashEULA              CrashKind = "eula"
 	CrashPermissionDenied  CrashKind = "permission_denied"
 	CrashKilled            CrashKind = "killed"
+	CrashRefusedFile       CrashKind = "refused_file"
 	CrashUnknown           CrashKind = "unknown"
 )
 
@@ -64,6 +65,18 @@ type CrashInput struct {
 	FreeDiskMB *int64  // free space on the data disk
 	HasBackup  bool    // a backup exists that can be restored
 	Port       int     // the server's public port
+
+	// Refused is the file Playkeeper would not check or write before the
+	// start, so the server did not run; nil otherwise.
+	Refused *RefusedFile
+}
+
+// RefusedFile is a file in the server's files that internal/gamefiles
+// refused, such as a link or a named pipe the game or a plugin put there.
+type RefusedFile struct {
+	Path   string // in the data directory, e.g. "plugins/bStats/config.yml"
+	Reason string // internal/gamefiles' kind: "link", "special_file"…
+	Text   string // its English message and what to do
 }
 
 // Addon is an installed plugin or mod jar.
