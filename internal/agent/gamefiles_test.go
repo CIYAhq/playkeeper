@@ -222,3 +222,40 @@ func TestAHugeSparseJarDoesNotHoldUpTheStart(t *testing.T) {
 		t.Fatalf("the jar was not downloaded again: %v %v", fi, err)
 	}
 }
+
+// A restored world is given to the game's user file by file. A link in it
+// is given as it is, so what it leads to keeps its mode.
+func TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks(t *testing.T) {
+	host, world := t.TempDir(), t.TempDir()
+	for name, content := range map[string]string{
+		filepath.Join(host, "panel.db"):            "secret",
+		filepath.Join(world, "world", "level.dat"): "level",
+	} {
+		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(host, "panel.db"), filepath.Join(world, "world", "level.dat_old")); err != nil {
+		t.Fatal(err)
+	}
+	before := tree(t, host)
+	time.Sleep(20 * time.Millisecond)
+	if err := giveTree(world, os.Getuid(), os.Getgid()); err != nil {
+		t.Fatal(err)
+	}
+	if after := tree(t, host); !maps.Equal(after, before) {
+		t.Fatalf("giving the world to the game changed what a link in it leads to:\n%v\nwas\n%v", after, before)
+	}
+	for rel, want := range map[string]fs.FileMode{"world": 0o750, "world/level.dat": 0o640} {
+		fi, err := os.Lstat(filepath.Join(world, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != want {
+			t.Errorf("%s has mode %o, want %o", rel, fi.Mode().Perm(), want)
+		}
+	}
+}
