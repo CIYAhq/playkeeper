@@ -550,13 +550,34 @@ func (e *agentEnv) address() api.Address {
 // claim claims name and waits for the address to be published.
 func (e *agentEnv) claim(name string) api.Address {
 	e.t.Helper()
+	published := func() (n int) {
+		for _, a := range e.auditActions() {
+			if strings.HasPrefix(a, "address.publish ") {
+				n++
+			}
+		}
+		return n
+	}
+	before := published()
 	var v api.Address
 	code := e.callInto("POST", "/v1/address/claim", map[string]any{"name": name, "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}, &v)
-	if code != http.StatusOK || v.Operation == nil || v.Operation.Kind != "address.publish" {
+	if code != http.StatusOK || v.Kind != api.AddressPlaykeeper || (v.Operation != nil && v.Operation.Kind != "address.publish") {
 		e.t.Fatalf("claim %s: %d %+v", name, code, v)
 	}
-	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
-		e.t.Fatalf("publishing %s: %+v", name, op)
+	if v.Operation != nil {
+		if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
+			e.t.Fatalf("publishing %s: %+v", name, op)
+		}
+		return e.address()
+	}
+	// A quick publish can be over before the claim answers.
+	for deadline := time.Now().Add(10 * time.Second); published() == before; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			e.t.Fatalf("publishing %s never finished", name)
+		}
+	}
+	if !slices.Contains(e.auditActions(), "address.publish succeeded") {
+		e.t.Fatalf("publishing %s: %v", name, e.auditActions())
 	}
 	return e.address()
 }
