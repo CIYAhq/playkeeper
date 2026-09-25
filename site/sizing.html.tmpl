@@ -112,11 +112,11 @@
     <section class="more-servers" aria-labelledby="several-title">
       <h2 id="several-title">More than one server on the VPS?</h2>
       <p>They add up. Every server counts, running or not: Playkeeper keeps a stopped server's memory, so it can always start.</p>
-      <ul>
-        <li><strong>Memory:</strong> add up what each server gets for the world, then {{.SystemGB}} GB for Ubuntu, Docker and Playkeeper once, and pick the next size up.</li>
-        <li><strong>CPU:</strong> the busiest server's cores, plus one for each other server.</li>
-        <li><strong>Disk:</strong> add up each server's.</li>
-      </ul>
+      <dl class="rules">
+        <div><dt>Memory</dt><dd>Add up what each server gets for the world, then {{.SystemGB}} GB for Ubuntu, Docker and Playkeeper once, and pick the next size up.</dd></div>
+        <div><dt>CPU</dt><dd>The busiest server's cores, plus one for each other server.</dd></div>
+        <div><dt>Disk</dt><dd>Add up each server's.</dd></div>
+      </dl>
       <p>{{.Example}}</p>
     </section>
 

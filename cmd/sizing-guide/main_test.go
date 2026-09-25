@@ -164,8 +164,12 @@ func TestDataHasEveryAnswerInThePagesOrder(t *testing.T) {
 	}
 
 	// The script fills in each reason's value and text under the label the page shows.
+	reasons := regexp.MustCompile(`(?s)<dl class="reasons">.*?</dl>`).FindString(string(files[pageFile]))
+	if reasons == "" {
+		t.Fatal(`the page has no <dl class="reasons"> for the script to fill in`)
+	}
 	var labels []string
-	for _, m := range regexp.MustCompile(`<dt>(.*?)</dt>`).FindAllStringSubmatch(string(files[pageFile]), -1) {
+	for _, m := range regexp.MustCompile(`<dt>(.*?)</dt>`).FindAllStringSubmatch(reasons, -1) {
 		labels = append(labels, m[1])
 	}
 	count := 0
