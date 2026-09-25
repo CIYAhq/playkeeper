@@ -63,13 +63,14 @@ code=$(curl -sS -o "$page" -w '%{http_code}' "$base/")
 [ "$code" = 200 ] || fail "/ answered $code, not 200"
 grep -qF 'curl -fsSL https://playkeeper.io/install | sudo sh' "$page" || fail "/ does not show the install command"
 grep -qF 'href="/sizing"' "$page" || fail "/ does not link to the sizing guide"
+grep -qF 'href="/demo/"' "$page" || fail "/ does not link to the live demo"
 check_files / "$page"
 
 code=$(curl -sS -o "$page" -w '%{http_code}' "$base/sizing")
 [ "$code" = 200 ] || fail "/sizing answered $code, not 200"
 for text in 'How big a VPS do you need?' 'Every size at a glance' '<td id="size-5-10-vanilla">' \
   'Playkeeper itself needs at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.' \
-  'curl -fsSL https://playkeeper.io/install | sudo sh' 'href="/#install"'; do
+  'curl -fsSL https://playkeeper.io/install | sudo sh' 'href="/#install"' 'href="/demo/">Live demo<'; do
   grep -qF "$text" "$page" || fail "/sizing does not show '$text'"
 done
 if grep -qE '<script>|<style|[[:space:]](style|on[a-z]+)=' "$page"; then
