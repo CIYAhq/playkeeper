@@ -2,6 +2,16 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.3.1
+
+- Every button, link, switch and menu item does something, or is greyed out with a short reason. A click-through now checks this on every page, on desktop and phone.
+- Fixed: hiding the first steps didn't stick, and opening "Older versions" or "Show options" on the New server page crashed it.
+- Buttons react when pressed, and pages, tabs, dialogs, sheets, switches, lists and progress bars move smoothly between states. Nothing moves if your device asks for reduced motion.
+- While something loads, grey shapes show where it will appear instead of "Loading…".
+- Adding or removing a player, making someone an operator and hiding the first steps show at once, and are put back with a short message if Minecraft or Playkeeper says no.
+- Less text on every screen: one short line where there was a paragraph.
+- Home no longer shows an old player count while the agent isn't answering.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
