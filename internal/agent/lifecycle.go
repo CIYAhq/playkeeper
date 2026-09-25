@@ -24,6 +24,10 @@ import (
 type opHandle struct {
 	a  *Agent
 	op *api.Operation
+	// continues is set by an operation that goes on outside the agent (an
+	// update handed to the updater): it stays running until its result is
+	// recorded.
+	continues bool
 }
 
 func (h *opHandle) phase(p string) {
@@ -122,22 +126,27 @@ func (a *Agent) beginOp(kind, actor string, fn func(ctx context.Context, h *opHa
 		}()
 		a.opMu.Lock()
 		fin := a.now().UTC()
-		op.FinishedAt = &fin
-		if err != nil {
+		switch {
+		case err != nil:
+			op.FinishedAt = &fin
 			op.Status = api.OpFailed
 			op.Error = err.Error()
 			var ae *apiError
 			if errors.As(err, &ae) {
 				op.Hint = ae.Hint
 			}
-		} else {
+		case h.continues:
+		default:
+			op.FinishedAt = &fin
 			op.Status = api.OpSucceeded
 		}
 		done := *op
 		a.op = nil
 		a.opMu.Unlock()
 		a.saveOperation(&done)
-		a.audit(actor, kind, "server", done.Status, done.Error)
+		if done.Status != api.OpRunning {
+			a.audit(actor, kind, "server", done.Status, done.Error)
+		}
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}

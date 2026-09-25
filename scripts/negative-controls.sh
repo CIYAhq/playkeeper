@@ -195,6 +195,47 @@ control "the installer never goes back to an older version" internal/install/inp
   'case cmp < 0:' \
   'case false:' \
   ./internal/install '^TestInstallerNeverGoesBackAndLeavesTheCurrentVersionAlone$'
+control "an update handed to the updater keeps running until it reports" internal/agent/lifecycle.go \
+  'case h.continues:' \
+  'case false:' \
+  ./internal/agent '^TestUpdateIsVerifiedStagedAndHandedToTheUpdater$'
+control "an update the updater is installing is not marked interrupted" internal/agent/state.go \
+  'keep = a.upd.opID' \
+  'keep = ""' \
+  ./internal/agent '^TestAnUpdateKeepsRunningAcrossAgentRestartsUntilTheUpdaterReports$'
+control "an updater that never reports fails its update" internal/agent/update.go \
+  'if waited > updaterRunTimeout {' \
+  'if false && waited > updaterRunTimeout {' \
+  ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "the installer refuses while a dashboard update is pending" internal/install/inplace.go \
+  'if msg := pendingUpdate(sys, cfg); msg != "" {' \
+  'if msg := pendingUpdate(sys, cfg); false && msg != "" {' \
+  ./internal/install '^TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime$'
+control "the installer takes the upgrade lock" internal/install/inplace.go \
+  'unlock, err := lockUpgrades(sys, cfg, false)' \
+  'unlock, err := func() {}, error(nil)' \
+  ./internal/install '^TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime$'
+control "the updater waits for the upgrade lock" internal/install/selfupdate.go \
+  'unlock, err := lockUpgrades(sys, cfg, true)' \
+  'unlock, err := func() {}, error(nil)' \
+  ./internal/install '^TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime$'
+control "a kept interrupted update is recorded in the install manifest" internal/install/upgrade.go \
+  'u.recordVersion(want)' \
+  '_ = want' \
+  ./internal/install '^TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne$'
+control "an install manifest problem does not fail a finished update" internal/install/upgrade.go \
+  'u.recordVersion(o.NewVersion)
+		return nil' \
+  'return u.updateManifest(o.NewVersion)' \
+  ./internal/install '^TestAnUpdateThatCannotRecordItsVersionIsStillAnUpdate$'
+control "uninstall disables the updater even if the manifest misses it" internal/install/uninstall.go \
+  'if contains(m.Units, u) || updater[u] {' \
+  'if contains(m.Units, u) {' \
+  ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
+control "Paper versions are sorted newest first" internal/minecraft/fill.go \
+  'return CompareMinecraft(b.Version.ID, a.Version.ID)' \
+  'return 0' \
+  ./internal/minecraft '^TestCatalogDoesNotDependOnTheOrderPaperMCListsVersionsIn$'
 control "experimental versions need consent" internal/agent/handlers.go \
   'if entry.Experimental && !req.AcceptExperimental {' \
   'if false && entry.Experimental && !req.AcceptExperimental {' \

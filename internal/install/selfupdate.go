@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/update"
@@ -16,12 +17,68 @@ import (
 // trustedKeys are the release keys the updater accepts (tests replace it).
 var trustedKeys = update.TrustedKeys
 
+// lockFile in the update directory is held by whoever is upgrading.
+const lockFile = "upgrade.lock"
+
+// errUpgradeRunning means the updater or the one-line installer is upgrading.
+var errUpgradeRunning = errors.New("another Playkeeper upgrade is running")
+
+// lockUpgrades keeps the updater and the one-line installer from upgrading at
+// the same time. The updater waits for the lock; the installer does not.
+func lockUpgrades(sys System, cfg config.Config, wait bool) (unlock func(), err error) {
+	dir := sys.P(UpdateDir(cfg))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, lockFile), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	how := syscall.LOCK_EX
+	if !wait {
+		how |= syscall.LOCK_NB
+	}
+	if err := syscall.Flock(int(f.Fd()), how); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errUpgradeRunning
+		}
+		return nil, err
+	}
+	return func() { f.Close() }, nil
+}
+
+// pendingUpdate describes a dashboard update that is waiting for the updater
+// or did not finish, if there is one.
+func pendingUpdate(sys System, cfg config.Config) string {
+	dir := sys.P(UpdateDir(cfg))
+	version := func(f string) string {
+		var req update.Request
+		if readJSONFile(filepath.Join(dir, f), &req) != nil || req.Version == "" {
+			return "update"
+		}
+		return req.Version
+	}
+	if _, err := os.Stat(filepath.Join(dir, update.RequestFile)); err == nil {
+		return fmt.Sprintf("Playkeeper %s from the dashboard is about to be installed. Nothing was changed; run the installer again when it has finished", version(update.RequestFile))
+	}
+	if _, err := os.Stat(filepath.Join(dir, update.ApplyingFile)); err == nil {
+		return fmt.Sprintf("the update to Playkeeper %s from the dashboard did not finish. Nothing was changed. Finish it first with: sudo systemctl start %s, then run the installer again", version(update.ApplyingFile), UpdateServiceUnit)
+	}
+	return ""
+}
+
 // SelfUpdate is the updater. playkeeper-update.service runs it with the
 // installed binary when the agent has staged a verified update, and again if
 // an update was interrupted. It checks the staged release once more against
 // the keys compiled into this (the installed) version, upgrades, and leaves
 // a result for the agent to report.
 func SelfUpdate(ctx context.Context, sys System, cfg config.Config, current string, out io.Writer) error {
+	unlock, err := lockUpgrades(sys, cfg, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	dir := sys.P(UpdateDir(cfg))
 	work := filepath.Join(dir, update.ApplyingFile)
 	resuming := false

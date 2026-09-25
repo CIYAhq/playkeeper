@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -120,6 +121,26 @@ func TestCatalogOffersTheLatestStableFirstAndExperimentalWithAWarning(t *testing
 			if strings.Contains(p, skipped) {
 				t.Errorf("%s was fetched although it is not offered", p)
 			}
+		}
+	}
+}
+
+func TestCatalogDoesNotDependOnTheOrderPaperMCListsVersionsIn(t *testing.T) {
+	reversed := slices.Clone(fillToday)
+	slices.Reverse(reversed)
+	shuffled := []fakeVersion{fillToday[5], fillToday[2], fillToday[8], fillToday[0], fillToday[6], fillToday[3], fillToday[4], fillToday[1], fillToday[7]}
+	for name, versions := range map[string][]fakeVersion{"oldest first": reversed, "shuffled": shuffled} {
+		_, fill := startFakeFill(t, versions)
+		got, err := fill.Catalog(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, e := range got {
+			ids = append(ids, fmt.Sprintf("%s#%d", e.MinecraftVersion, e.PaperBuild))
+		}
+		if want := "26.3#41 26.2#129 26.1.2#74 1.21.11#132"; strings.Join(ids, " ") != want || !got[1].Recommended {
+			t.Errorf("%s: offered %v, want %s with 26.2 recommended", name, ids, want)
 		}
 	}
 }

@@ -261,9 +261,10 @@ func New(opts Options) (*Agent, error) {
 			a.allowed[uint32(os.Getuid())] = true
 		}
 	}
+	a.loadUpdateState()
+	a.collectUpdateResult()
 	a.markInterruptedOperations()
 	a.pruneStages()
-	a.loadUpdateState()
 	return a, nil
 }
 

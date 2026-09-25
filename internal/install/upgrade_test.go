@@ -409,11 +409,112 @@ func TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne(t *testin
 	if r := s2.result(t); r.Outcome != update.OutcomeUpdated || r.From != "0.2.0" {
 		t.Fatalf("result: %+v", r)
 	}
+	var m Manifest
+	if json.Unmarshal([]byte(read(t, h2, cfg2.ManifestPath())), &m); m.Version != "0.2.1" {
+		t.Fatalf("a kept interrupted update must be recorded in the install manifest: %+v", m)
+	}
 	h2.unhealthy = map[string]error{"0.2.1": errors.New("crash loop")}
 	os.WriteFile(filepath.Join(s2.dir, update.ApplyingFile), []byte(`{"opId":"op2","version":"0.2.1","from":"0.2.0"}`), 0o600)
 	SelfUpdate(context.Background(), h2.system(t), cfg2, "0.2.1", &bytes.Buffer{})
 	if r := s2.result(t); r.Outcome != update.OutcomeRolledBack || read(t, h2, BinPath) != "playkeeper 0.2.0 (installed)\n" {
 		t.Fatalf("an unhealthy interrupted update must be rolled back: %+v", r)
+	}
+}
+
+func TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime(t *testing.T) {
+	h := newFakeHost(t)
+	cfg := installedAt(t, h, "0.2.0", true)
+	s := stage(t, h, cfg, "0.2.0", "0.2.1")
+	trust(t, s.keys)
+	sys := h.system(t)
+	bin := newBinary(t, "0.2.2")
+	sys.Executable = func() (string, error) { return bin, nil }
+	oneLiner := func() error {
+		o := opts("")
+		o.Yes = true
+		_, err := Run(context.Background(), sys, o, "0.2.2")
+		return err
+	}
+	if err := oneLiner(); err == nil || !strings.Contains(err.Error(), "0.2.1 from the dashboard is about to be installed") {
+		t.Fatalf("a staged dashboard update must stop the installer: %v", err)
+	}
+	os.Rename(filepath.Join(s.dir, update.RequestFile), filepath.Join(s.dir, update.ApplyingFile))
+	if err := oneLiner(); err == nil || !strings.Contains(err.Error(), "did not finish") || !strings.Contains(err.Error(), "systemctl start playkeeper-update.service") {
+		t.Fatalf("an unfinished dashboard update must stop the installer: %v", err)
+	}
+	os.Remove(filepath.Join(s.dir, update.ApplyingFile))
+	unlock, err := lockUpgrades(sys, cfg, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := oneLiner(); err == nil || !strings.Contains(err.Error(), "installing an update from the dashboard right now") {
+		t.Fatalf("a running updater must stop the installer: %v", err)
+	}
+	unlock()
+	if read(t, h, BinPath) != "playkeeper 0.2.0 (installed)\n" || strings.Contains(strings.Join(h.cmds, "\n"), "systemctl stop") {
+		t.Fatal("the installer must change nothing while a dashboard update is under way")
+	}
+
+	// The updater waits while the installer holds the lock.
+	s.request(t, h, update.Request{OpID: "op1", Version: "0.2.1", From: "0.2.0", Actor: "admin", RequestedAt: time.Now()})
+	unlock, err = lockUpgrades(sys, cfg, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updater := h.system(t)
+	done := make(chan error, 1)
+	go func() { done <- SelfUpdate(context.Background(), updater, cfg, "0.2.0", &bytes.Buffer{}) }()
+	select {
+	case err := <-done:
+		t.Fatalf("the updater must wait for the installer to finish: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatalf("the updater must go on once the installer is done: %v", err)
+	}
+	if r := s.result(t); r.Outcome != update.OutcomeUpdated {
+		t.Fatalf("result: %+v", r)
+	}
+}
+
+func TestAnUpdateThatCannotRecordItsVersionIsStillAnUpdate(t *testing.T) {
+	h := newFakeHost(t)
+	cfg := installedAt(t, h, "0.2.0", true)
+	s := stage(t, h, cfg, "0.2.0", "0.2.1")
+	trust(t, s.keys)
+	os.WriteFile(filepath.Join(h.root, cfg.ManifestPath()), []byte("not json"), 0o600)
+	var out bytes.Buffer
+	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.0", &out); err != nil {
+		t.Fatalf("a running, healthy new version is an update: %v\n%s", err, out.String())
+	}
+	if r := s.result(t); r.Outcome != update.OutcomeUpdated || read(t, h, BinPath) != "playkeeper 0.2.1 (staged)\n" {
+		t.Fatalf("result: %+v", r)
+	}
+	if !strings.Contains(out.String(), "install manifest") {
+		t.Fatalf("the manifest problem must be reported:\n%s", out.String())
+	}
+}
+
+func TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt(t *testing.T) {
+	h := newFakeHost(t)
+	cfg := installedAt(t, h, "0.2.0", true)
+	var m Manifest
+	json.Unmarshal([]byte(read(t, h, cfg.ManifestPath())), &m)
+	m.Units = []string{AgentUnit, PanelUnit}
+	m.FilesCreated = []string{BinPath, ConfigDir + "/config.json", UnitDir + "/" + AgentUnit, UnitDir + "/" + PanelUnit}
+	b, _ := json.Marshal(m)
+	os.WriteFile(filepath.Join(h.root, cfg.ManifestPath()), b, 0o600)
+	if err := Uninstall(context.Background(), h.system(t), UninstallOptions{Yes: true, In: strings.NewReader(""), Out: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range unitNames {
+		if _, err := os.Stat(filepath.Join(h.root, UnitDir, u)); err == nil {
+			t.Errorf("%s left behind", u)
+		}
+	}
+	if !strings.Contains(strings.Join(h.cmds, "\n"), "systemctl disable --now playkeeper-update.path") {
+		t.Fatal("the updater trigger must be disabled")
 	}
 }
 

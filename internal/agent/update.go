@@ -267,6 +267,7 @@ func (a *Agent) stageUpdate(ctx context.Context, h *opHandle, want, actor string
 		a.clearInstalling()
 		return fail(err)
 	}
+	h.continues = true
 	h.set("from", current)
 	h.phase("restarting")
 	a.audit(actor, "update.requested", m.Version, "handed to the updater", "from "+current)
@@ -331,9 +332,10 @@ func (a *Agent) collectUpdateResult() {
 	a.log.Info("update finished", "outcome", res.Outcome, "from", res.From, "to", res.To)
 }
 
-// watchHandoff gives up on a staged update the updater never picked up (for
-// example when playkeeper-update.path is not enabled), so the dashboard is
-// not blocked forever.
+// watchHandoff gives up on an update the updater never picked up (for
+// example when playkeeper-update.path is not enabled) or never reported on,
+// so the dashboard is not blocked forever and the operation says what
+// happened. A result that arrives later still replaces it.
 func (a *Agent) watchHandoff() {
 	u := &a.upd
 	u.mu.Lock()
@@ -347,31 +349,34 @@ func (a *Agent) watchHandoff() {
 	if _, err := os.Stat(filepath.Join(dir, update.RequestFile)); err == nil && waited > updaterStartTimeout {
 		os.Remove(filepath.Join(dir, update.RequestFile))
 		os.RemoveAll(filepath.Join(dir, update.StagedDir))
-		a.finishUnstartedUpdate(opID, installing)
+		a.abandonUpdate(opID, installing, update.OutcomeRefused,
+			fmt.Sprintf("Playkeeper %s was downloaded and verified, but the updater did not start, so nothing was changed.", installing),
+			"On the server, check: sudo systemctl status playkeeper-update.path")
 		return
 	}
 	if waited > updaterRunTimeout {
 		a.log.Warn("the updater has not reported after a long time", "version", installing)
-		a.clearInstalling()
+		a.abandonUpdate(opID, installing, update.OutcomeFailed,
+			fmt.Sprintf("The updater has not said how the update to Playkeeper %s ended after %d minutes. Playkeeper %s is running.", installing, int(updaterRunTimeout.Minutes()), version.Version),
+			"On the server, check: sudo journalctl -u playkeeper-update. See docs/RECOVERY.md (\"A Playkeeper update went wrong\").")
 	}
 }
 
-func (a *Agent) finishUnstartedUpdate(opID, v string) {
-	msg := fmt.Sprintf("Playkeeper %s was downloaded and verified, but the updater did not start, so nothing was changed.", v)
-	hint := "On the server, check: sudo systemctl status playkeeper-update.path"
+// abandonUpdate finishes an update operation the updater did not report on.
+func (a *Agent) abandonUpdate(opID, v, outcome, msg, hint string) {
 	if op, err := a.loadOperation(opID); err == nil {
 		fin := a.now().UTC()
-		op.Status, op.Error, op.Hint, op.Phase, op.FinishedAt = api.OpFailed, msg, hint, update.OutcomeRefused, &fin
+		op.Status, op.Error, op.Hint, op.Phase, op.FinishedAt = api.OpFailed, msg, hint, outcome, &fin
 		a.saveOperation(op)
 	}
-	r := api.UpdateResult{From: version.Version, To: v, Outcome: update.OutcomeRefused, Error: msg, FinishedAt: a.now().UTC()}
+	r := api.UpdateResult{From: version.Version, To: v, Outcome: outcome, Error: msg, FinishedAt: a.now().UTC()}
 	rb, _ := json.Marshal(r)
 	_ = a.kvSet(kvUpdateResult, string(rb))
 	a.upd.mu.Lock()
 	a.upd.lastResult = &r
 	a.upd.installing, a.upd.opID = "", ""
 	a.upd.mu.Unlock()
-	a.audit("playkeeper", "update.refused", v, "refused", msg)
+	a.audit("playkeeper", "update."+outcome, v, outcome, msg)
 }
 
 // updateLoop reports updater results, times out a handoff nobody picked up,

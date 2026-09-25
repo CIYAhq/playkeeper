@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -108,12 +109,20 @@ func (f Fill) Catalog(ctx context.Context) ([]api.CatalogEntry, error) {
 	if err := f.get(ctx, "/v3/projects/paper/versions", &list); err != nil {
 		return nil, err
 	}
+	var releases []fillVersion
+	for _, v := range list.Versions {
+		if reRelease.MatchString(v.Version.ID) {
+			releases = append(releases, v)
+		}
+	}
+	// Newest first, whatever order PaperMC lists them in.
+	slices.SortStableFunc(releases, func(a, b fillVersion) int { return CompareMinecraft(b.Version.ID, a.Version.ID) })
 	stableFamily := map[string]bool{}
 	var out []api.CatalogEntry
-	for _, v := range list.Versions {
+	for _, v := range releases {
 		id := v.Version.ID
 		fam := family(id)
-		if !reRelease.MatchString(id) || stableFamily[fam] || compareParts(parts(fam), oldestFamily) < 0 || v.Version.Java.Version.Minimum > ImageJava {
+		if stableFamily[fam] || compareParts(parts(fam), oldestFamily) < 0 || v.Version.Java.Version.Minimum > ImageJava {
 			continue
 		}
 		supported := v.Version.Support.Status == "SUPPORTED"

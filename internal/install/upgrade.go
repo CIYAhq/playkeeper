@@ -121,7 +121,8 @@ func Upgrade(ctx context.Context, sys System, cfg config.Config, o UpgradeOption
 	}
 	err := u.apply(ctx)
 	if err == nil {
-		return u.updateManifest()
+		u.recordVersion(o.NewVersion)
+		return nil
 	}
 	fmt.Fprintf(u.out, "  ! %v\n  Putting Playkeeper %s back:\n", err, o.OldVersion)
 	if rerr := u.restore(ctx, o.OldVersion); rerr != nil {
@@ -315,22 +316,31 @@ func (u *upgrader) restore(ctx context.Context, version string) error {
 	return u.waitHealthy(ctx, version)
 }
 
-// updateManifest records the new version and its units for uninstall.
-func (u *upgrader) updateManifest() error {
+// recordVersion records the running version and its units in the install
+// manifest, for uninstall. The upgrade has succeeded either way, so a
+// failure is reported, not returned.
+func (u *upgrader) recordVersion(version string) {
+	if err := u.updateManifest(version); err != nil {
+		fmt.Fprintf(u.out, "  ! Playkeeper %s is running, but the install manifest %s could not be updated: %v\n", version, u.cfg.ManifestPath(), err)
+	}
+}
+
+func (u *upgrader) updateManifest(version string) error {
 	path := u.sys.P(u.cfg.ManifestPath())
 	var m Manifest
 	if err := readJSONFile(path, &m); err != nil {
-		return fmt.Errorf("Playkeeper %s is installed and running, but the install manifest could not be read: %w", u.o.NewVersion, err)
+		return err
 	}
-	m.Version = u.o.NewVersion
+	m.Version = version
 	for _, name := range unitNames {
-		if _, ok := u.o.Units[name]; !ok {
+		f := UnitDir + "/" + name
+		if _, err := os.Stat(u.sys.P(f)); err != nil {
 			continue
 		}
 		if !contains(m.Units, name) {
 			m.Units = append(m.Units, name)
 		}
-		if f := UnitDir + "/" + name; !contains(m.FilesCreated, f) {
+		if !contains(m.FilesCreated, f) {
 			m.FilesCreated = append(m.FilesCreated, f)
 		}
 	}
@@ -351,6 +361,7 @@ func Recover(ctx context.Context, sys System, cfg config.Config, want string, ou
 	switch installed {
 	case want:
 		if u.waitHealthy(ctx, want) == nil {
+			u.recordVersion(want)
 			return true, nil
 		}
 	case snap.Version:

@@ -102,13 +102,32 @@ func (e *agentEnv) updateInfo() api.UpdateInfo {
 	return info
 }
 
+// applyUpdate starts an update and waits until the agent's part is done: the
+// release is handed to the updater (the operation keeps running) or refused.
 func (e *agentEnv) applyUpdate(v string) *api.Operation {
 	e.t.Helper()
 	code, out := e.call("POST", "/v1/update/apply", map[string]any{"version": v, "actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("apply: %d %v", code, out)
 	}
-	return e.waitOp(out["id"].(string))
+	id := out["id"].(string)
+	var op *api.Operation
+	e.waitFor("the update to be handed to the updater or refused", func() bool {
+		if cur := e.a.currentOp(); cur != nil && cur.ID == id {
+			return false
+		}
+		op, _ = e.a.loadOperation(id)
+		return op != nil && (op.Status != api.OpRunning || op.Phase == "restarting")
+	})
+	return op
+}
+
+func (e *agentEnv) writeUpdateResult(res update.Result) {
+	e.t.Helper()
+	rb, _ := json.Marshal(res)
+	if err := os.WriteFile(filepath.Join(e.cfg.AgentDir(), "update", update.ResultFile), rb, 0o600); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 func TestUpdateChecksOnlyTrustSignedNewerReleases(t *testing.T) {
@@ -145,8 +164,8 @@ func TestUpdateIsVerifiedStagedAndHandedToTheUpdater(t *testing.T) {
 	e, rel, _ := updateEnv(t)
 	e.create()
 	op := e.applyUpdate("0.2.1")
-	if op.Status != api.OpSucceeded || op.Phase != "restarting" {
-		t.Fatalf("op: %+v", op)
+	if op.Status != api.OpRunning || op.Phase != "restarting" || op.FinishedAt != nil {
+		t.Fatalf("an update handed to the updater must keep running until the updater reports: %+v", op)
 	}
 	dir := filepath.Join(e.cfg.AgentDir(), "update")
 	if b, _ := os.ReadFile(filepath.Join(dir, update.StagedDir, update.BinaryFile)); !bytes.Equal(b, rel.binary) {
@@ -169,9 +188,7 @@ func TestUpdateIsVerifiedStagedAndHandedToTheUpdater(t *testing.T) {
 		t.Fatal("the status must show the update being installed")
 	}
 
-	res := update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeUpdated, Actor: "admin", FinishedAt: time.Now().UTC()}
-	rb, _ := json.Marshal(res)
-	os.WriteFile(filepath.Join(dir, update.ResultFile), rb, 0o600)
+	e.writeUpdateResult(update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeUpdated, Actor: "admin", FinishedAt: time.Now().UTC()})
 	e.waitFor("the result to be reported", func() bool {
 		o, _ := e.a.loadOperation(op.ID)
 		return o.Phase == update.OutcomeUpdated
@@ -189,6 +206,33 @@ func TestUpdateIsVerifiedStagedAndHandedToTheUpdater(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, update.ResultFile)); err == nil {
 		t.Fatal("the result is reported once")
+	}
+}
+
+func TestAnUpdateKeepsRunningAcrossAgentRestartsUntilTheUpdaterReports(t *testing.T) {
+	e, _, _ := updateEnv(t)
+	e.create()
+	op := e.applyUpdate("0.2.1")
+	dir := filepath.Join(e.cfg.AgentDir(), "update")
+	// The updater takes the request and restarts the agent.
+	e.stop()
+	if err := os.Rename(filepath.Join(dir, update.RequestFile), filepath.Join(dir, update.ApplyingFile)); err != nil {
+		t.Fatal(err)
+	}
+	e.start()
+	if o, _ := e.a.loadOperation(op.ID); o.Status != api.OpRunning {
+		t.Fatalf("an update the updater is still installing must not be marked interrupted: %+v", o)
+	}
+	if e.status().UpdateInstalling != "0.2.1" {
+		t.Fatal("the restarted agent must know the update is still being installed")
+	}
+	// The updater reports while the agent is down; the agent records it as it starts.
+	e.stop()
+	e.writeUpdateResult(update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeUpdated, Actor: "admin", FinishedAt: time.Now().UTC()})
+	os.Remove(filepath.Join(dir, update.ApplyingFile))
+	e.start()
+	if o, _ := e.a.loadOperation(op.ID); o.Status != api.OpSucceeded || o.Phase != update.OutcomeUpdated {
+		t.Fatalf("the updater's result must be recorded, not an interruption: %+v", o)
 	}
 }
 
@@ -228,9 +272,7 @@ func TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard(t *testing.T) {
 	e.create()
 	dir := filepath.Join(e.cfg.AgentDir(), "update")
 	op := e.applyUpdate("0.2.1")
-	res := update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeRolledBack, Error: "wait until Playkeeper 0.2.1 is healthy: no healthy answer in time (last error: the agent exited)", FinishedAt: time.Now().UTC()}
-	rb, _ := json.Marshal(res)
-	os.WriteFile(filepath.Join(dir, update.ResultFile), rb, 0o600)
+	e.writeUpdateResult(update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeRolledBack, Error: "wait until Playkeeper 0.2.1 is healthy: no healthy answer in time (last error: the agent exited)", FinishedAt: time.Now().UTC()})
 	e.waitFor("the rollback to be reported", func() bool {
 		o, _ := e.a.loadOperation(op.ID)
 		return o.Phase == update.OutcomeRolledBack
@@ -252,6 +294,25 @@ func TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, update.RequestFile)); err == nil {
 		t.Fatal("the unpicked request must be withdrawn")
 	}
+
+	// The updater takes the request but never reports.
+	op = e.applyUpdate("0.2.1")
+	if err := os.Rename(filepath.Join(dir, update.RequestFile), filepath.Join(dir, update.ApplyingFile)); err != nil {
+		t.Fatal(err)
+	}
+	e.a.upd.mu.Lock()
+	e.a.upd.since = e.a.now().Add(-updaterRunTimeout - time.Second)
+	e.a.upd.mu.Unlock()
+	e.waitFor("the silent updater to be given up on", func() bool { return e.a.installingUpdate() == "" })
+	if o, _ := e.a.loadOperation(op.ID); o.Status != api.OpFailed || o.Phase != update.OutcomeFailed || !strings.Contains(o.Error, "has not said how the update to Playkeeper 0.2.1 ended") || !strings.Contains(o.Hint, "journalctl -u playkeeper-update") {
+		t.Fatalf("an update the updater never reported on must not look successful: %+v", o)
+	}
+	code, out := e.call("GET", "/v1/update", nil)
+	if last, _ := out["lastResult"].(map[string]any); code != 200 || last["outcome"] != update.OutcomeFailed || last["to"] != "0.2.1" {
+		t.Fatalf("Settings must show that the update did not finish: %v", out)
+	}
+	os.Remove(filepath.Join(dir, update.ApplyingFile))
+
 	if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 202 {
 		t.Fatalf("operations must work again: %d %v", code, out)
 	}

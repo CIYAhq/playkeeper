@@ -59,6 +59,17 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	if err := upgradeChecks(sys, o); err != nil {
 		return nil, err
 	}
+	unlock, err := lockUpgrades(sys, cfg, false)
+	if errors.Is(err, errUpgradeRunning) {
+		return nil, errors.New("Playkeeper is installing an update from the dashboard right now. Nothing was changed; run the installer again when it has finished")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot lock %s: %w. Nothing was changed", UpdateDir(cfg), err)
+	}
+	defer unlock()
+	if msg := pendingUpdate(sys, cfg); msg != "" {
+		return nil, errors.New(msg)
+	}
 	if kind := busyWith(ctx, sys, cfg); kind != "" {
 		return nil, fmt.Errorf("Playkeeper is busy (%s). Nothing was changed; run the installer again when it has finished", kind)
 	}
@@ -106,15 +117,22 @@ func upgradeChecks(sys System, o Options) error {
 	return nil
 }
 
-// busyWith names the operation the agent is running, if it is reachable.
+// busyWith names what the agent is doing, if it is reachable: an operation,
+// or an update it has handed to the updater.
 func busyWith(ctx context.Context, sys System, cfg config.Config) string {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var st api.ServerStatus
-	if _, err := agentclient.New(sys.P(cfg.SocketPath)).Do(cctx, "GET", "/v1/server", nil, nil, &st); err != nil || st.Operation == nil {
+	if _, err := agentclient.New(sys.P(cfg.SocketPath)).Do(cctx, "GET", "/v1/server", nil, nil, &st); err != nil {
 		return ""
 	}
-	return st.Operation.Kind
+	switch {
+	case st.UpdateInstalling != "":
+		return "installing Playkeeper " + st.UpdateInstalling
+	case st.Operation != nil:
+		return st.Operation.Kind
+	}
+	return ""
 }
 
 func upgradePlan(sys System, cfg config.Config, old, newVersion string) []string {
