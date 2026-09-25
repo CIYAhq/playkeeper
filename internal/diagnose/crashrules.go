@@ -466,9 +466,26 @@ func (c *crashCtx) permission() (CrashDiagnosis, bool) {
 			what = p
 		}
 	}
+	d.Certain = c.fatal(f)
+	if d.Certain {
+		d.Explanation = fmt.Sprintf("The server stopped because it wasn't allowed to read or write %s, which happens when files were copied in or edited as a different user.", what)
+		return d, true
+	}
 	d.Explanation = fmt.Sprintf("The server wasn't allowed to read or write %s, which happens when files were copied in or edited as a different user. "+
 		"That is the clearest problem in the console, so it is the most likely reason it stopped.", what)
 	return d, true
+}
+
+var reFatal = regexp.MustCompile(`^(?:Failed to start the minecraft server|Encountered an unexpected exception)$`)
+
+// fatal reports whether a console line belongs to the error the server
+// stopped with: the entry Minecraft logs when starting or running fails.
+func (c *crashCtx) fatal(f found) bool {
+	if f.inReport() {
+		return false
+	}
+	s := c.entryStart(f.idx)
+	return c.split[s].prefixed && reFatal.MatchString(c.split[s].msg)
 }
 
 func (c *crashCtx) chunks() (CrashDiagnosis, bool) {

@@ -103,7 +103,7 @@ func ExplainCrash(in CrashInput) CrashDiagnosis {
 	c := newCrashCtx(in)
 	for _, r := range crashRules {
 		if d, ok := r.explain(c); ok {
-			d.Certain = r.certain
+			d.Certain = d.Certain || r.certain
 			return c.finish(d)
 		}
 	}
