@@ -26,7 +26,7 @@ func (w Workload) Description() string {
 	case Vanilla:
 		return "The normal game, or Paper with a few plugins"
 	case AddOns:
-		return "Paper with many plugins, or Fabric or NeoForge with a handful of mods"
+		return "Paper with many plugins, or Fabric or NeoForge"
 	case Modpack:
 		return "Hundreds of mods, like All the Mods"
 	}
@@ -41,6 +41,21 @@ func (w Workload) phrase() string {
 		return "using lots of plugins or a few mods"
 	case Modpack:
 		return "on a big modpack"
+	}
+	return ""
+}
+
+// Label is the topic as the guide's answer names it.
+func (t Topic) Label() string {
+	switch t {
+	case Memory:
+		return "Memory"
+	case CPU:
+		return "CPU"
+	case Disk:
+		return "Disk"
+	case Network:
+		return "Network"
 	}
 	return ""
 }

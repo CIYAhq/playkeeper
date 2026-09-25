@@ -51,7 +51,7 @@ func TestTableHasEveryCombinationOnce(t *testing.T) {
 			t.Fatalf("%s: %d reasons, want %d", name(r), len(r.Reasons), len(topics))
 		}
 		for j, reason := range r.Reasons {
-			if reason.Topic != topics[j] || reason.Value == "" || reason.Code == "" || len(reason.Params) == 0 || !strings.HasSuffix(reason.Text, ".") {
+			if reason.Topic != topics[j] || reason.Topic.Label() == "" || reason.Value == "" || reason.Code == "" || len(reason.Params) == 0 || !strings.HasSuffix(reason.Text, ".") {
 				t.Errorf("%s: reason %d = %+v, want a complete %s reason", name(r), j, reason, topics[j])
 			}
 		}
