@@ -167,7 +167,11 @@ function page(route: Route) {
     case 'machine':
       return <MachinePage id={route.id} />
     case 'settings':
-      return <GlobalSettingsPage />
+      return <GlobalSettingsPage section="general" />
+    case 'team':
+      return <GlobalSettingsPage section="team" />
+    case 'discord':
+      return <GlobalSettingsPage section="discord" />
     case 'more':
       return <MorePage />
     default: {

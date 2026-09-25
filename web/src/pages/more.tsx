@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, MessageSquareIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -7,6 +7,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { Avatar, PageHeader, roleLabel } from '@/components/app/shell'
 import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { checklist, complete, progress } from '@/lib/checklist'
 import { formatMB } from '@/lib/format'
 import { linkProps, navigate, type Route } from '@/lib/router'
@@ -73,7 +74,7 @@ export function MorePage() {
   return (
     <div className="flex flex-col gap-5 pb-6">
       <PageHeader title={t('more.title')} />
-      {(available || ws.updating) && (
+      {(available || ws.updating) && can(ws.me, 'machine.manage') && (
         <Group>
           <li>
             <Row
@@ -85,7 +86,7 @@ export function MorePage() {
           </li>
         </Group>
       )}
-      {server && (
+      {server && can(ws.me, 'servers.manage') && (
         <Group label={server.name}>
           <li>
             <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
@@ -106,13 +107,29 @@ export function MorePage() {
             <Row icon={<ServerIcon />} title={ws.machineName} hint={t('more.machineHint', { status: healthy ? t('nav.healthy') : t('nav.notAnswering'), memory: live ? formatMB(live.memoryTotalMB) : '' })} to={{ name: 'machine', id: ws.machine.id }} />
           </li>
         )}
-        <li>
-          <Row icon={<PlusIcon />} title={t('nav.newServer')} to={{ name: 'new-server' }} />
-        </li>
+        {can(ws.me, 'servers.create') && (
+          <li>
+            <Row icon={<PlusIcon />} title={t('nav.newServer')} to={{ name: 'new-server' }} />
+          </li>
+        )}
       </Group>
+      {can(ws.me, 'team.manage') || can(ws.me, 'machine.manage') ? (
+        <Group label={t('global.title')}>
+          {can(ws.me, 'team.manage') && (
+            <li>
+              <Row icon={<UsersIcon />} title={t('global.nav.team')} hint={t('more.teamHint')} to={{ name: 'team' }} />
+            </li>
+          )}
+          {can(ws.me, 'machine.manage') && (
+            <li>
+              <Row icon={<MessageSquareIcon />} title={t('global.nav.discord')} hint={t('more.discordHint')} to={{ name: 'discord' }} />
+            </li>
+          )}
+        </Group>
+      ) : null}
       <Group label={t('more.you')}>
         <li>
-          <Row icon={<Avatar name={ws.me.user.username} className="size-7" />} title={ws.me.user.username} hint={t('more.accountHint', { role: roleLabel(ws.me.user.role) })} to={{ name: 'settings' }} />
+          <Row icon={<Avatar name={ws.me.user.username} className="size-7" />} title={ws.me.user.username} hint={t('more.accountHint', { role: roleLabel(ws.me) })} to={{ name: 'settings' }} />
         </li>
         <li>
           <Row icon={<CircleHelpIcon />} title={t('nav.help')} href={t('nav.helpUrl')} />

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, CircleHelpIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, LogOutIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, SquareTerminalIcon, UsersIcon } from 'lucide-react'
-import type { ServerStatus } from '@/api/types'
+import type { Me, ServerStatus } from '@/api/types'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { BrandMark } from '@/components/app/art'
 import { Dot, Kbd, Spinner } from '@/components/app/bits'
@@ -10,6 +10,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
+import { can, roleName, settingsHome } from '@/lib/access'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -200,14 +201,16 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
             {s.name}
           </SideItem>
         ))}
-        <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
-          {t('nav.newServer')}
-        </SideItem>
+        {can(ws.me, 'servers.create') && (
+          <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
+            {t('nav.newServer')}
+          </SideItem>
+        )}
       </nav>
       <div className="flex flex-col gap-0.5 pt-2">
-        <GetStartedCard route={route} className="mb-2" />
-        <UpdateRow />
-        <SideItem to={{ name: 'settings' }} active={route.name === 'settings'} icon={<SettingsIcon />}>
+        {can(ws.me, 'servers.create') && <GetStartedCard route={route} className="mb-2" />}
+        {can(ws.me, 'machine.manage') && <UpdateRow />}
+        <SideItem to={settingsHome(ws.me)} active={route.name === 'settings' || route.name === 'team' || route.name === 'discord'} icon={<SettingsIcon />}>
           {t('nav.settings')}
         </SideItem>
         <UserRow />
@@ -216,8 +219,12 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   )
 }
 
-export function roleLabel(role: string): string {
-  return role === 'member' ? t('nav.role.member') : t('nav.role.owner')
+/** The account's role as its user row says it: "Admin", "Moderator" or "Admin · two-factor off". */
+export function roleLabel(me: Me): string {
+  if (me.user.role !== 'member') return t('nav.role.owner')
+  if (me.access.needsTwoFactor) return t('nav.role.adminNoTwoFactor')
+  if (me.access.awaitingConfirmation) return t('nav.role.adminUnconfirmed')
+  return roleName(me.access.role)
 }
 
 function UserRow() {
@@ -229,7 +236,7 @@ function UserRow() {
         <Avatar name={name} />
         <span className="min-w-0 leading-tight">
           <span className="block truncate text-[13px] font-semibold">{name}</span>
-          <span className="block text-xs text-muted-foreground">{roleLabel(me.user.role)}</span>
+          <span className="block text-xs text-muted-foreground">{roleLabel(me)}</span>
         </span>
       </a>
       <a href={t('nav.helpUrl')} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('nav.help') })} className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
@@ -261,9 +268,10 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const inServer = route.name === 'server' || route.name === 'player' || (route.name === 'more' && !!phoneServer)
+  const underMore = route.name === 'more' || route.name === 'team' || route.name === 'discord'
+  const inServer = route.name === 'server' || route.name === 'player' || (underMore && !!phoneServer)
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
-  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : route.name === 'player' ? 'players' : route.name === 'more' ? 'more' : undefined
+  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : route.name === 'player' ? 'players' : underMore ? 'more' : undefined
   const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">

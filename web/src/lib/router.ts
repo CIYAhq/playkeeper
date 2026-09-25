@@ -18,6 +18,8 @@ export type Route =
   // Wave 5: invite links, player profiles, the team and Discord.
   | { name: 'join'; code: string }
   | { name: 'player'; slug: string; player: string }
+  | { name: 'team' }
+  | { name: 'discord' }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reCode = /^[A-Za-z0-9]{1,64}$/
@@ -38,6 +40,8 @@ export function parse(pathname: string): Route {
     case 'join':
       return { name: 'join', code: second && reCode.test(second) && !third ? second : '' }
     case 'settings':
+      if (second === 'team' && !third) return { name: 'team' }
+      if (second === 'discord' && !third) return { name: 'discord' }
       return { name: 'settings' }
     case 'more':
       return { name: 'more' }
@@ -88,6 +92,10 @@ export function href(route: Route): string {
       return route.code ? `/join/${route.code}` : '/join'
     case 'player':
       return `/servers/${route.slug}/players/${route.player}`
+    case 'team':
+      return '/settings/team'
+    case 'discord':
+      return '/settings/discord'
     default: {
       const unreachable: never = route
       return unreachable

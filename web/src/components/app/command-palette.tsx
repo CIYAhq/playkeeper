@@ -1,7 +1,7 @@
 import { Fragment, useMemo, type KeyboardEvent, type ReactNode } from 'react'
 import { ArchiveIcon, ArrowDownIcon, ArrowUpIcon, BookOpenIcon, CopyIcon, CornerDownLeftIcon, ExternalLinkIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, RotateCwIcon, ServerIcon, SettingsIcon, SlidersHorizontalIcon, SquareTerminalIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
-import type { ServerStatus } from '@/api/types'
+import type { Me, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { copyText, Kbd } from '@/components/app/bits'
 import {
@@ -21,6 +21,7 @@ import {
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
+import { can, settingsHome } from '@/lib/access'
 import { joinAddress } from '@/lib/format'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
@@ -57,10 +58,10 @@ async function act(server: ServerStatus, path: string, done: string) {
   }
 }
 
-function actionsFor(s: ServerStatus): PaletteItem[] {
+function actionsFor(s: ServerStatus, me: Me): PaletteItem[] {
   const c = controls(s)
   const items: PaletteItem[] = []
-  if (s.exists && !c.busy && s.phase !== 'docker_unavailable') {
+  if (s.exists && !c.busy && s.phase !== 'docker_unavailable' && can(me, 'backups.make')) {
     const stopped = s.phase !== 'online'
     items.push({
       value: `backup:${s.id}`,
@@ -70,8 +71,9 @@ function actionsFor(s: ServerStatus): PaletteItem[] {
       run: () => void act(s, '/backups', t('op.backup', { server: s.name })),
     })
   }
-  if (c.canRestart) items.push({ value: `restart:${s.id}`, label: t('cmd.restart', { server: s.name }), hint: t('cmd.restartHint'), icon: <RotateCwIcon />, run: () => void act(s, '/restart', t('op.restart', { server: s.name })) })
-  if (c.canStart) items.push({ value: `start:${s.id}`, label: t('cmd.start', { server: s.name }), icon: <PlayIcon />, run: () => void act(s, '/start', t('op.start', { server: s.name })) })
+  const run = can(me, 'servers.run')
+  if (c.canRestart && run) items.push({ value: `restart:${s.id}`, label: t('cmd.restart', { server: s.name }), hint: t('cmd.restartHint'), icon: <RotateCwIcon />, run: () => void act(s, '/restart', t('op.restart', { server: s.name })) })
+  if (c.canStart && run) items.push({ value: `start:${s.id}`, label: t('cmd.start', { server: s.name }), icon: <PlayIcon />, run: () => void act(s, '/start', t('op.start', { server: s.name })) })
   items.push({
     value: `copy:${s.id}`,
     label: t('cmd.copyAddress', { server: s.name }),
@@ -80,7 +82,7 @@ function actionsFor(s: ServerStatus): PaletteItem[] {
     run: () =>
       void copyText(joinAddress(window.location.hostname, s.gamePort)).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
   })
-  items.push({ value: `add:${s.id}`, label: t('cmd.addPlayer', { server: s.name }), icon: <UserPlusIcon />, run: () => navigate(`/servers/${s.slug}/players#add`) })
+  if (can(me, 'players.manage')) items.push({ value: `add:${s.id}`, label: t('cmd.addPlayer', { server: s.name }), icon: <UserPlusIcon />, run: () => navigate(`/servers/${s.slug}/players#add`) })
   return items
 }
 
@@ -117,23 +119,23 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
     for (const s of ordered) {
       for (const p of tabPages) go.push({ value: `go:${s.id}:${p.tab}`, label: t('cmd.page', { server: s.name, page: t(p.key) }), icon: p.icon, run: () => navigate({ name: 'server', slug: s.slug, tab: p.tab }) })
     }
-    go.push({ value: 'go:new', label: t('cmd.pageNew'), icon: <PlusIcon />, run: () => navigate({ name: 'new-server' }) })
+    if (can(ws.me, 'servers.create')) go.push({ value: 'go:new', label: t('cmd.pageNew'), icon: <PlusIcon />, run: () => navigate({ name: 'new-server' }) })
     if (ws.machine) {
       const id = ws.machine.id
       go.push({ value: 'go:machine', label: t('cmd.pageMachine', { machine: ws.machineName }), icon: <ServerIcon />, run: () => navigate({ name: 'machine', id }) })
     }
-    go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate({ name: 'settings' }) })
+    go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate(settingsHome(ws.me)) })
     const help: PaletteItem[] = [
       { value: 'help:backups', label: t('cmd.docBackups'), hint: t('cmd.docBackupsHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('cmd.docBackupsUrl'), '_blank', 'noreferrer') },
       { value: 'help:readme', label: t('cmd.docReadme'), hint: t('cmd.docReadmeHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('nav.helpUrl'), '_blank', 'noreferrer') },
     ]
-    const actions = ws.agentDown ? [] : ordered.flatMap(actionsFor)
+    const actions = ws.agentDown ? [] : ordered.flatMap((s) => actionsFor(s, ws.me))
     return [
       { value: 'actions', label: t('cmd.actions'), items: actions },
       { value: 'go', label: t('cmd.goTo'), items: go },
       { value: 'help', label: t('cmd.help'), items: help },
     ].filter((g) => g.items.length > 0)
-  }, [current, servers, serversOnly, tab, ws.agentDown, ws.machine, ws.machineName])
+  }, [current, servers, serversOnly, tab, ws.agentDown, ws.machine, ws.machineName, ws.me])
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>

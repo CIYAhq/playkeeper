@@ -13,6 +13,7 @@ import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
 import { controls, isSettingUp, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
@@ -136,7 +137,7 @@ function useCopyAddress(server: ServerStatus) {
 }
 
 function PrimaryAction({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale, me } = useWorkspace()
   const [busy, setBusy] = useState(false)
   const c = controls(server)
   const run = async (action: 'start' | 'restart') => {
@@ -144,6 +145,7 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
     await serverAction(server, action)
     setBusy(false)
   }
+  if (!can(me, 'servers.run')) return null
   if (stale) {
     return (
       <Button variant="outline" disabled>
@@ -170,35 +172,45 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 }
 
 function MoreMenu({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale, me } = useWorkspace()
   const c = controls(server)
+  const run = can(me, 'servers.run')
+  const backUp = can(me, 'backups.make')
+  const remove = can(me, 'servers.create')
+  if (!run && !backUp && !remove) return null
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>
         <EllipsisIcon />
       </MenuTrigger>
       <MenuPopup align="end" className="min-w-52">
-        {c.canRestart && (
+        {run && c.canRestart && (
           <MenuItem onClick={() => void serverAction(server, 'restart')}>
             <RotateCwIcon />
             {t('server.restart')}
           </MenuItem>
         )}
-        {c.canStop && (
+        {run && c.canStop && (
           <MenuItem onClick={() => void serverAction(server, 'stop')}>
             <SquareIcon />
             {t('server.stop')}
           </MenuItem>
         )}
-        <MenuItem disabled={stale || c.busy || !server.exists || server.phase === 'docker_unavailable'} onClick={() => void serverAction(server, 'backups')}>
-          <ArchiveIcon />
-          {t('server.backUp')}
-        </MenuItem>
-        <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
-          <Trash2Icon />
-          {t('server.deleteMenu')}
-        </MenuItem>
+        {backUp && (
+          <MenuItem disabled={stale || c.busy || !server.exists || server.phase === 'docker_unavailable'} onClick={() => void serverAction(server, 'backups')}>
+            <ArchiveIcon />
+            {t('server.backUp')}
+          </MenuItem>
+        )}
+        {remove && (
+          <>
+            {(run || backUp) && <MenuSeparator />}
+            <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
+              <Trash2Icon />
+              {t('server.deleteMenu')}
+            </MenuItem>
+          </>
+        )}
       </MenuPopup>
     </Menu>
   )
@@ -234,11 +246,15 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
                   {o.id === s.id && <CheckIcon className="text-primary" />}
                 </MenuItem>
               ))}
-              <MenuSeparator />
-              <MenuItem onClick={() => navigate({ name: 'new-server' })}>
-                <PlusIcon />
-                {t('nav.newServer')}
-              </MenuItem>
+              {can(ws.me, 'servers.create') && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem onClick={() => navigate({ name: 'new-server' })}>
+                    <PlusIcon />
+                    {t('nav.newServer')}
+                  </MenuItem>
+                </>
+              )}
             </MenuPopup>
           </Menu>
         </nav>
@@ -267,7 +283,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
-        {tabs.map((x) => {
+        {tabs.filter((x) => x.tab !== 'settings' || can(ws.me, 'servers.manage')).map((x) => {
           const active = x.tab === tab
           const cls = cn(
             'inline-flex h-10 shrink-0 items-center gap-2 border-b-2 text-sm font-medium outline-none [&_svg]:size-4',
@@ -362,16 +378,18 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           ))}
         </ul>
         <ul className="mt-3 mb-2 overflow-hidden rounded-3xl border border-border bg-white">
-          <li className="border-b border-border">
-            <button type="button" onClick={() => go({ name: 'new-server' })} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left">
-              <PlusIcon className="size-5 text-primary" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-base">{t('nav.newServer')}</span>
-                {live && <span className="block text-[13px] text-muted-foreground">{t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
-              </span>
-              <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-            </button>
-          </li>
+          {can(ws.me, 'servers.create') && (
+            <li className="border-b border-border">
+              <button type="button" onClick={() => go({ name: 'new-server' })} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left">
+                <PlusIcon className="size-5 text-primary" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base">{t('nav.newServer')}</span>
+                  {live && <span className="block text-[13px] text-muted-foreground">{t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
+                </span>
+                <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </li>
+          )}
           <li>
             <a {...linkPath('/')} onClick={(e) => { e.preventDefault(); go({ name: 'home' }) }} className="flex min-h-14 w-full items-center gap-3 px-4 py-2">
               <HouseIcon className="size-5 text-muted-foreground" aria-hidden="true" />

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { CircleArrowUpIcon, ExternalLinkIcon, LogOutIcon, RefreshCwIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { AuditEntry, UpdateInfo } from '@/api/types'
@@ -10,12 +10,86 @@ import { UpdateDialog, useUpdateInfo } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can, settingsHome, settingsSections } from '@/lib/access'
 import { formatDateTime, relativeTime } from '@/lib/format'
+import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { DiscordSettingsSection } from './discord'
 import { PasswordField } from './onboarding'
+import { TeamSection } from './team'
 
-export function GlobalSettingsPage() {
+export type SettingsPage = 'general' | 'team' | 'discord'
+
+export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
+  switch (section) {
+    case 'general':
+      return <AccountSettings />
+    case 'team':
+      return (
+        <SettingsSection current="team">
+          <TeamSection />
+        </SettingsSection>
+      )
+    case 'discord':
+      return (
+        <SettingsSection current="discord">
+          <DiscordSettingsSection />
+        </SettingsSection>
+      )
+    default: {
+      const unreachable: never = section
+      return unreachable
+    }
+  }
+}
+
+/** A Settings section: the sections list beside it on desktop, a back link to More on phones. */
+function SettingsSection({ current, children }: { current: 'team' | 'discord'; children: ReactNode }) {
+  const ws = useWorkspace()
+  const phone = useIsPhone()
+  const sections = settingsSections.filter((s) => can(ws.me, s.act))
+  const here = sections.find((s) => s.route.name === current)
+  useEffect(() => {
+    if (!here) navigate(settingsHome(ws.me), true)
+  }, [here, ws.me])
+  if (!here) return null
+  if (phone) {
+    return (
+      <>
+        <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t(here.label)} />
+        <div className="flex flex-col gap-4 pt-2">{children}</div>
+      </>
+    )
+  }
+  return (
+    <>
+      <PageHeader title={t('global.title')} />
+      <PageBody className="grid max-w-[1240px] grid-cols-[200px_minmax(0,1fr)] items-start gap-7">
+        <nav aria-label={t('global.nav.label')} className="flex flex-col gap-0.5">
+          {sections.map((s) => (
+            <a
+              key={s.route.name}
+              {...linkProps(s.route)}
+              aria-current={s === here ? 'page' : undefined}
+              className={cn(
+                'flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+                s === here && 'bg-muted text-foreground',
+              )}
+            >
+              {t(s.label)}
+            </a>
+          ))}
+        </nav>
+        <div className="flex min-w-0 flex-col gap-5">{children}</div>
+      </PageBody>
+    </>
+  )
+}
+
+/** Your account, Playkeeper itself and the audit log. */
+function AccountSettings() {
+  const ws = useWorkspace()
   const phone = useIsPhone()
   const hash = window.location.hash
   useEffect(() => {
@@ -29,7 +103,7 @@ export function GlobalSettingsPage() {
       <PageBody className="flex max-w-[860px] flex-col gap-4">
         <AccountCard />
         <PlaykeeperCard />
-        <AuditCard />
+        {can(ws.me, 'audit.view') && <AuditCard />}
         <Card as="section" aria-labelledby="about-title">
           <CardTitle id="about-title">{t('global.about')}</CardTitle>
           <p className="mt-1 text-[13px] text-muted-foreground">{t('global.aboutBody')}</p>
@@ -83,7 +157,7 @@ function AccountCard() {
           <CardHint>
             {t('global.signedInAs', { name: ws.me.user.username })}
             {t('common.dot')}
-            {roleLabel(ws.me.user.role)}
+            {roleLabel(ws.me)}
           </CardHint>
         </div>
         <div className="flex gap-2">
@@ -161,7 +235,7 @@ function PlaykeeperCard() {
             </span>
           )}
         </p>
-        {info?.supported && (
+        {info?.supported && can(ws.me, 'machine.manage') && (
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={check} loading={checking} disabled={!!ws.updating}>
               <RefreshCwIcon />

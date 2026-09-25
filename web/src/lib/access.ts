@@ -1,6 +1,7 @@
 import type { Action, Me, ProjectRole, Scope } from '@/api/types'
-import { t } from '@/i18n'
+import { t, type MessageKey } from '@/i18n'
 import { formatList } from './format'
+import type { Route } from './router'
 
 /** Whether the signed-in account may take act. The panel checks every request anyway. */
 export function can(me: Me, act: Action): boolean {
@@ -52,4 +53,15 @@ export function scopeText(scope: Scope, servers: { id: string; name: string }[])
   if (names.length < ids.length || ids.length > 3) return t('scope.count', { count: ids.length })
   if (names.length === 1) return t('scope.only', { server: names[0] ?? '' })
   return formatList(names)
+}
+
+/** The sections of Settings, each for the accounts that may use it. */
+export const settingsSections: { route: Route & { name: 'team' | 'discord' }; label: MessageKey; act: Action }[] = [
+  { route: { name: 'team' }, label: 'global.nav.team', act: 'team.manage' },
+  { route: { name: 'discord' }, label: 'global.nav.discord', act: 'machine.manage' },
+]
+
+/** Where Settings opens: the first section the account can use, else its account page. */
+export function settingsHome(me: Me): Route {
+  return settingsSections.find((s) => can(me, s.act))?.route ?? { name: 'settings' }
 }
