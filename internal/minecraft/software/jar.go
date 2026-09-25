@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -23,19 +24,19 @@ func jarError(rel, why string, cause error) error {
 		Params: map[string]string{"file": rel}, Err: cause}
 }
 
-// readZipEntry reads one file out of a jar inside dataDir without extracting
-// anything to disk. Oversized entries, duplicated names and archives with an
-// absurd number of entries are refused.
-func readZipEntry(dataDir, rel, name string, limit int64) ([]byte, error) {
-	p, err := within(dataDir, rel)
+// readZipEntry reads one file out of a jar inside the data directory without
+// extracting anything to disk. Oversized entries, duplicated names and
+// archives with an absurd number of entries are refused.
+func readZipEntry(root *os.Root, rel, name string, limit int64) ([]byte, error) {
+	f, fi, err := openRegular(root, rel)
 	if err != nil {
 		return nil, err
 	}
-	r, err := zip.OpenReader(p)
+	defer f.Close()
+	r, err := zip.NewReader(f, fi.Size())
 	if err != nil {
 		return nil, jarError(rel, "it is not a readable jar", err)
 	}
-	defer r.Close()
 	if len(r.File) > maxZipEntries {
 		return nil, jarError(rel, fmt.Sprintf("it has more than %d entries", maxZipEntries), nil)
 	}
@@ -148,8 +149,8 @@ type bundled struct {
 
 // bundlerList reads a list inside Mojang's server jar (META-INF/libraries.list
 // or versions.list): one "sha256<TAB>id<TAB>path" line per bundled file.
-func bundlerList(dataDir, jar, entry string) ([]bundled, error) {
-	b, err := readZipEntry(dataDir, jar, entry, 1<<20)
+func bundlerList(root *os.Root, jar, entry string) ([]bundled, error) {
+	b, err := readZipEntry(root, jar, entry, 1<<20)
 	if err != nil {
 		return nil, err
 	}

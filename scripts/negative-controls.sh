@@ -301,6 +301,10 @@ control "packs cannot suggest operator or function permission levels" internal/m
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
   ./internal/modpacks '^TestPacksCannotSuggestPermissionLevels$'
+control "server software is written inside the data directory's root" internal/minecraft/software/files.go \
+  'f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
+  'f, err := os.OpenFile(root.Name()+"/"+tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
+  ./internal/minecraft/software '^TestDownload$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

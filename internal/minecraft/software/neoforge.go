@@ -212,10 +212,10 @@ const neoforgeLibrarySource = "the library list inside the verified NeoForge ins
 // installs under into with its SHA-1 and size, the launch arguments it
 // extracts, and the files its processors build, which have no published
 // hash and are returned to be recorded.
-func neoforgeInstallerChecks(dataDir, installer, into string, pin Pin) ([]Check, []string, error) {
+func neoforgeInstallerChecks(root *os.Root, installer, into string, pin Pin) ([]Check, []string, error) {
 	v, mc := pin.NeoForgeVersion, pin.MinecraftVersion
 	readJSON := func(name string, out any) error {
-		b, err := readZipEntry(dataDir, installer, name, 4<<20)
+		b, err := readZipEntry(root, installer, name, 4<<20)
 		if err != nil {
 			return err
 		}
@@ -248,7 +248,7 @@ func neoforgeInstallerChecks(dataDir, installer, into string, pin Pin) ([]Check,
 	if into+"/net/neoforged/neoforge/"+v+"/unix_args.txt" != neoforgeArgsPath(v) || !extractsArgs(prof, v) {
 		return nil, nil, jarError(installer, "it does not put its launch arguments at "+neoforgeArgsPath(v), nil)
 	}
-	args, err := readZipEntry(dataDir, installer, "data/unix_args.txt", 1<<20)
+	args, err := readZipEntry(root, installer, "data/unix_args.txt", 1<<20)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -275,7 +275,7 @@ func neoforgeInstallerChecks(dataDir, installer, into string, pin Pin) ([]Check,
 		rel := into + "/" + p
 		if k == "PATCHED" {
 			patched = true
-		} else if present, err := regularFile(dataDir, rel); err != nil {
+		} else if present, err := regularFile(root, rel); err != nil {
 			return nil, nil, err
 		} else if !present {
 			continue
@@ -305,13 +305,13 @@ func extractsArgs(prof neoforgeProfile, v string) bool {
 	return false
 }
 
-// regularFile reports whether rel exists inside dataDir as a regular file.
-func regularFile(dataDir, rel string) (bool, error) {
-	p, err := within(dataDir, rel)
-	if err != nil {
+// regularFile reports whether rel exists inside the data directory as a
+// regular file.
+func regularFile(root *os.Root, rel string) (bool, error) {
+	if err := inside(root, rel); err != nil {
 		return false, err
 	}
-	fi, err := os.Lstat(p)
+	fi, err := root.Lstat(rel)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}

@@ -191,6 +191,31 @@ func TestDownload(t *testing.T) {
 		}
 	})
 
+	t.Run("a folder swapped for a link while downloading does not lead outside", func(t *testing.T) {
+		f := newFakeNet(t)
+		a, body := testLibrary(t, f)
+		dir, outside := t.TempDir(), t.TempDir()
+		f.handle(a.URL, func(w http.ResponseWriter, r *http.Request) {
+			libs := filepath.Join(dir, "libraries")
+			if err := os.Rename(libs, libs+".moved"); err != nil {
+				t.Error(err)
+			}
+			if err := os.Symlink(outside, libs); err != nil {
+				t.Error(err)
+			}
+			if err := os.MkdirAll(filepath.Join(outside, "com/example/lib/1.0"), 0o755); err != nil {
+				t.Error(err)
+			}
+			_, _ = w.Write(body)
+		})
+		if err := Download(ctx, f.client(), dir, a); err == nil {
+			t.Error("the download went through the swapped folder")
+		}
+		if l := leftovers(t, outside); l != nil {
+			t.Errorf("wrote %q through the link", l)
+		}
+	})
+
 	t.Run("refuses a file where a folder should be", func(t *testing.T) {
 		f := newFakeNet(t)
 		a, _ := testLibrary(t, f)
@@ -239,12 +264,12 @@ func TestReadZipEntry(t *testing.T) {
 		{"link.jar", "META-INF/MANIFEST.MF", KindUnsafePath, "part of it is a symbolic link"},
 	}
 	for _, tt := range tests {
-		_, err := readZipEntry(dir, tt.jar, tt.entry, 1024)
+		_, err := readZipEntry(openRoot(t, dir), tt.jar, tt.entry, 1024)
 		if e := wantKind(t, err, tt.kind); !strings.Contains(e.Msg, tt.msg) {
 			t.Errorf("%s: got %q, want %q", tt.jar, e.Msg, tt.msg)
 		}
 	}
-	if b, err := readZipEntry(dir, "ok.jar", "META-INF/MANIFEST.MF", 1024); err != nil || string(b) != "Manifest-Version: 1.0\r\n" {
+	if b, err := readZipEntry(openRoot(t, dir), "ok.jar", "META-INF/MANIFEST.MF", 1024); err != nil || string(b) != "Manifest-Version: 1.0\r\n" {
 		t.Errorf("got %q, %v", b, err)
 	}
 }
@@ -265,7 +290,7 @@ func TestBundlerList(t *testing.T) {
 	for _, tt := range tests {
 		dir := t.TempDir()
 		writeData(t, dir, "server.jar", zipOf(t, "META-INF/libraries.list", tt.list))
-		got, err := bundlerList(dir, "server.jar", "META-INF/libraries.list")
+		got, err := bundlerList(openRoot(t, dir), "server.jar", "META-INF/libraries.list")
 		if !tt.ok {
 			wantKind(t, err, KindMalformed)
 			continue
