@@ -185,8 +185,12 @@ func TestUnhealthyUpgradePutsTheOldVersionBack(t *testing.T) {
 	if strings.Join(h.healthChecks, " ") != "0.2.0 0.1.0 0.1.0" {
 		t.Fatalf("the old version must be checked after the rollback: %v", h.healthChecks)
 	}
-	if !strings.Contains(strings.Join(h.cmds, "\n"), "systemctl disable --now playkeeper-update.path") {
+	cmds := strings.Join(h.cmds, "\n")
+	if !strings.Contains(cmds, "systemctl disable --now playkeeper-update.path") {
 		t.Fatal("the updater trigger that 0.1.0 did not have must be removed again")
+	}
+	if !strings.Contains(cmds, "systemctl reset-failed playkeeper-panel.service playkeeper-agent.service\n") {
+		t.Fatal("a crashing new version must not leave the services at systemd's start limit")
 	}
 }
 

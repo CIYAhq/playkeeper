@@ -276,6 +276,9 @@ func (u *upgrader) restore(ctx context.Context, version string) error {
 	var errs []error
 	u.step("stop the agent and panel")
 	_, _ = u.sys.Run("systemctl", "stop", PanelUnit, AgentUnit)
+	// A version that kept crashing may have hit systemd's start limit, which
+	// would refuse the start below.
+	_, _ = u.sys.Run("systemctl", "reset-failed", PanelUnit, AgentUnit)
 	u.step("put back Playkeeper " + version + ", its services and config")
 	errs = append(errs, copyFile(filepath.Join(u.prev, "playkeeper"), u.sys.P(BinPath), 0o755))
 	errs = append(errs, u.copyPreserving(filepath.Join(u.prev, "config.json"), u.sys.P(ConfigDir+"/config.json")))
