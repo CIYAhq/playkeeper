@@ -34,12 +34,21 @@ import type {
   WhitelistEntry,
 } from '@/api/types'
 import { t } from '@/i18n'
+import { faceCount, faceIndex } from './faces'
 
 /** Bump when DemoState changes shape, so sessions saved by an older demo start over. */
 export const sampleVersion = 1
 export const demoVersion = '0.4.0'
 export const demoUser = 'siya'
 export const machineId = 'q7m2vk9xpd'
+/** Everyone on Survival's list. Each gets a face of their own, in this order. */
+export const samplePlayers = ['JunoFox', 'tobi2009', 'mara_k', 'PixelPia', 'Brickbert', 'Kestrel_7']
+
+/** A player's face: the sample players' own, and one picked by name for anyone added in the demo. */
+export function faceOf(name: string): number {
+  const i = samplePlayers.indexOf(name)
+  return i >= 0 ? i % faceCount : faceIndex(name)
+}
 export const image = 'itzg/minecraft-server:2026.9.1-java25'
 
 const minute = 60_000
@@ -263,7 +272,6 @@ export function sample(now: number): DemoState {
     collectingSince: iso(creativeCreated),
     firstSteps: { invited: 'PixelPia', friendJoined: 'PixelPia', friendJoinedAt: iso(creativeCreated + hour), backedUp: true, downloaded: true },
   }
-  const everyone = ['JunoFox', 'tobi2009', 'mara_k', 'PixelPia', 'Brickbert', 'Kestrel_7']
   return {
     sample: sampleVersion,
     hour: Math.floor(now / hour),
@@ -301,7 +309,7 @@ export function sample(now: number): DemoState {
     backups: { [survivalId]: survivalBackups, [creativeId]: creativeBackups },
     logs: { [survivalId]: survivalLog(now, online), [creativeId]: creativeLog(stoppedAt) },
     whitelist: {
-      [survivalId]: everyone.map((name) => ({ name })),
+      [survivalId]: samplePlayers.map((name) => ({ name })),
       [creativeId]: ['PixelPia', 'Brickbert', 'JunoFox'].map((name) => ({ name })),
     },
     operators: { [survivalId]: [{ name: 'JunoFox', level: 4 }], [creativeId]: [{ name: 'PixelPia', level: 4 }] },

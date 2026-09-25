@@ -3,7 +3,9 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { LogsResponse, ServerStatus } from '@/api/types'
+import { faceOf, samplePlayers } from './data'
 import { answer, resetDemo } from './engine'
+import { faceCount } from './faces'
 import { demoMarker } from './marker'
 import { demoToast } from './toast'
 import { noDemo } from './vite'
@@ -46,6 +48,14 @@ it('fails any other build that picks up the demo, by module or by its marker', (
   expect(() => generate.call(context, {}, bundle([join(src, 'main.tsx')], 'console.log(1)'))).not.toThrow()
   expect(() => generate.call(context, {}, bundle([join(src, 'main.tsx'), join(demoDir, 'data.ts')]))).toThrow(/contains the live demo/)
   expect(() => generate.call(context, {}, bundle([join(src, 'main.tsx')], `const k = "${demoMarker}"`))).toThrow(/contains the live demo/)
+})
+
+it('gives every sample player a face of their own, and anyone else one of the same faces', () => {
+  expect(new Set(samplePlayers.map(faceOf)).size).toBe(samplePlayers.length)
+  for (const name of ['Steve', 'alex_2', 'x', 'JunoFox2']) {
+    expect(faceOf(name)).toBeGreaterThanOrEqual(0)
+    expect(faceOf(name)).toBeLessThan(faceCount)
+  }
 })
 
 async function ask<T>(method: string, path: string, body?: unknown, raw?: Blob): Promise<T> {

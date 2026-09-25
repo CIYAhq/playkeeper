@@ -69,5 +69,8 @@ export function faceSvg(n: number): string {
 export function faceIndex(name: string): number {
   let h = 0x811c9dc5
   for (const c of name.toLowerCase()) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193)
+  // FNV's low bits barely change between similar names; mix before taking them.
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d)
+  h ^= h >>> 15
   return (h >>> 0) % faceCount
 }

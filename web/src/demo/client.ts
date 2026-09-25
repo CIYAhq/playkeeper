@@ -3,8 +3,8 @@
 
 import type * as real from '@/api/client'
 import { ApiError, onUnauthorized, setCsrfToken } from '@/api/client'
+import { faceOf } from './data'
 import { answer } from './engine'
-import { faceIndex } from './faces'
 
 export { ApiError, onUnauthorized, setCsrfToken }
 
@@ -14,7 +14,7 @@ export const post = <T>(path: string, body: unknown = {}) => api<T>('POST', path
 export const del = <T>(path: string) => api<T>('DELETE', path)
 
 /** A player's face: one of the demo's own, so the page never asks another site. */
-export const playerHeadUrl = (name: string) => `${import.meta.env.BASE_URL}faces/${faceIndex(name)}.svg`
+export const playerHeadUrl = (name: string) => `${import.meta.env.BASE_URL}faces/${faceOf(name)}.svg`
 
 // Type-checks that this module stands in for every export of the real client.
 void ({ ApiError, onUnauthorized, setCsrfToken, api, get, post, del, playerHeadUrl } satisfies typeof real)
