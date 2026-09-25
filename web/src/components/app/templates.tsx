@@ -351,9 +351,9 @@ export function TemplatePicker({
         </Notice>
       )}
       <div className="rounded-2xl border border-border bg-card px-4 pt-4 pb-3">
-        <div className="flex items-center gap-3 pb-3">
+        <div className="flex flex-wrap items-center gap-3 pb-3">
           <GameIcon size={40} />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-40">
             <h3 className="truncate text-[15px] font-semibold">{c.name}</h3>
             <p className="truncate text-xs text-muted-foreground">{value.fileName || t('template.fromLink')}</p>
           </div>
