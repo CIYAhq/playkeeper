@@ -105,3 +105,8 @@ export function joinAddress(hostname: string, gamePort: number): string {
   const host = hostname.includes(':') && !hostname.startsWith('[') ? `[${hostname}]` : hostname
   return gamePort === 25565 ? host : `${host}:${gamePort}`
 }
+
+/** A big count for lists: "3.1M", "640K". */
+export function formatCompact(n: number): string {
+  return new Intl.NumberFormat(formatLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+}

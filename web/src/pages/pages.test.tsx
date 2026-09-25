@@ -210,6 +210,26 @@ describe('Overview', () => {
     expect(steps[2]?.querySelector('.text-destructive-foreground')).toBeNull()
   })
 
+  it('counts a modpack’s files as each one is checked', async () => {
+    const at = new Date().toISOString()
+    const s = server({
+      name: 'Cobblemon',
+      type: 'fabric',
+      phase: 'downloading_server',
+      startedAt: undefined,
+      config: { ...config, minecraftVersion: '26.1.2', software: { type: 'fabric', minecraftVersion: '26.1.2', fabricLoader: '0.17.2' }, modpack: { source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001', name: 'Cobblemon Modpack', versionNumber: '1.0.0', pending: true } },
+      operation: { id: 'create-1', kind: 'create', status: 'running', phase: 'installing_modpack', actor: 'siya', startedAt: at, detail: { packFiles: 71, packFilesTotal: 112 } },
+    })
+    const text = await render(<Overview server={s} />)
+    expect(text).toContain('About 5 minutes. You can leave this page.')
+    const steps = [...document.querySelectorAll('ol > li')].map((li) => li.textContent ?? '')
+    expect(steps).toHaveLength(5)
+    expect(steps[1]).toContain('Downloaded Fabric for 26.1.2 and Fabric Loader 0.17.2')
+    expect(steps[2]).toContain('Downloading the modpack’s mods')
+    expect(steps[2]).toContain('71 of 112 files · each one checked')
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('63')
+  })
+
   it('offers more memory after running out of it', async () => {
     answer({ '/logs': { epoch: 'e', lines: [{ seq: 1, ts: '2026-09-25T18:52:57Z', text: '[18:52:57 ERROR]: java.lang.OutOfMemoryError: Java heap space' }], next: 1, truncated: false }, '/catalog': { memoryOptionsMB: [2048, 3072, 4096, 6144, 8192], maxMemoryMB: 8192, versions: [], types: [], servers: [] } })
     const text = await render(<Overview server={server({ phase: 'crashed', crashCount: 2, exitCode: 1 })} />)

@@ -7,7 +7,7 @@ import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memorySegments } from './memory'
-import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
+import { controls, createStepOf, isSettingUp, packStepOf, phaseTone } from './phase'
 import { href, parse, type Route } from './router'
 import { newerStable, softwareLabel, softwareName } from './servers'
 import { addonKind, formatReleased, shortHash } from './software'
@@ -190,6 +190,15 @@ describe('server state', () => {
     expect(phaseTone('not_created')).toBe('stopped')
     expect(createStepOf('verifying_download')).toBe(1)
     expect(createStepOf('preparing_world')).toBe(2)
+  })
+
+  it('puts a modpack’s files between the software and the first start', () => {
+    expect(packStepOf('')).toBe(0)
+    expect(packStepOf('preparing_modpack')).toBe(1)
+    expect(packStepOf('verifying_download')).toBe(1)
+    expect(packStepOf('installing_modpack')).toBe(2)
+    expect(packStepOf('starting_container')).toBe(3)
+    expect(packStepOf('online')).toBe(4)
   })
 })
 

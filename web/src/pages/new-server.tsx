@@ -7,9 +7,10 @@ import type { Operation, RestorePreview, ServerStatus } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
-import { CardGroup, ChoiceCard, Stepper, useIsPhone } from '@/components/app/controls'
+import { CardGroup, ChoiceCard, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
 import { createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
+import { ModpackPicker, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
 import { BuildSelect, TypeCompare } from '@/components/app/software'
@@ -31,6 +32,24 @@ const stepKeys: MessageKey[] = ['new.step.type', 'new.step.version', 'new.step.s
 const nextKeys: MessageKey[] = ['new.nextVersion', 'new.nextStyle', 'new.nextMemory', 'new.nextName']
 const continueKeys: MessageKey[] = ['new.continueVersion', 'new.continueStyle', 'new.continueMemory', 'new.continueName']
 const noteKeys: MessageKey[] = ['new.note.type', 'new.note.version', 'new.note.version', 'new.note.memory', 'new.note.name']
+
+type StartFrom = 'type' | 'modpack'
+
+const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
+  { value: 'type', long: 'new.from.type', short: 'new.from.typeShort' },
+  { value: 'modpack', long: 'new.from.modpack', short: 'new.from.modpackShort' },
+]
+
+/** A server made from a pack runs the type and version the pack names. */
+function packRequest(c: CreateChoices, pack: ModpackChoice) {
+  return { ...createRequest({ ...c, build: '' }), type: '', versionId: '', acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId } }
+}
+
+/** "Cobblemon Modpack" names its server "Cobblemon". */
+function packServerName(name: string): string {
+  const short = name.replace(/\s+(mod)?pack$/i, '').trim().slice(0, 32).trim()
+  return short || name.slice(0, 32).trim()
+}
 
 /** Waits for a new server to show up in the list, then opens it. */
 async function openCreated(op: Operation, refresh: () => Promise<void>) {
@@ -59,6 +78,9 @@ export function NewServerPage() {
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [preview, setPreview] = useState<RestorePreview>()
   const [compareOpen, setCompareOpen] = useState(false)
+  const [from, setFrom] = useState<StartFrom>('type')
+  const [pack, setPack] = useState<ModpackChoice>()
+  const packed = from === 'modpack' && !!pack
   // The catalog keeps showing the last type's versions while the next type's load.
   const typeCatalog = catalog && c && catalog.type === c.type ? catalog : undefined
   const version = typeCatalog?.versions.find((v) => v.id === c?.versionId)
@@ -86,7 +108,7 @@ export function NewServerPage() {
     if (!c) return false
     switch (step) {
       case 0:
-        return !!catalog?.types.some((ty) => ty.id === c.type && ty.available)
+        return from === 'modpack' ? !!pack : !!catalog?.types.some((ty) => ty.id === c.type && ty.available)
       case 1:
         return !!version && (!version.experimental || c.acceptExperimental)
       case 2:
@@ -103,7 +125,7 @@ export function NewServerPage() {
     setBusy(true)
     setCreateError(undefined)
     try {
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), createRequest(c))
+      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), packed && pack ? packRequest(c, pack) : createRequest(c))
       await openCreated(op, ws.refresh)
     } catch (e) {
       setCreateError(errorText(e))
@@ -113,8 +135,15 @@ export function NewServerPage() {
     }
   }
 
-  const next = () => (step === 4 ? void create() : setStep((s) => s + 1))
-  const back = () => setStep((s) => Math.max(0, s - 1))
+  // A pack decides the version and comes with its own mods, so it skips to memory.
+  function startWithPack(p: ModpackChoice) {
+    const opts = memoryOptions(catalog)
+    const memoryMB = p.memoryMB ? (opts.find((mb) => mb >= p.memoryMB) ?? opts[opts.length - 1]) : undefined
+    update({ ...(memoryMB ? { memoryMB } : {}), ...(nameEdited ? {} : { name: freeName(packServerName(p.name), ws.servers) }) })
+    setStep(3)
+  }
+  const next = () => (step === 4 ? void create() : step === 0 && packed && pack ? startWithPack(pack) : setStep((s) => s + 1))
+  const back = () => setStep((s) => (s === 3 && packed ? 0 : Math.max(0, s - 1)))
   const stepTitles = stepKeys.map((k) => t(k))
 
   let body: ReactNode
@@ -139,8 +168,13 @@ export function NewServerPage() {
     switch (step) {
       case 0:
         body = (
-          <div className="flex flex-col gap-6">
-            {phone ? (
+          <div className={cn('flex flex-col', phone && from === 'modpack' ? 'gap-4' : 'gap-6')}>
+            {phone && from === 'modpack' ? (
+              <div>
+                <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.modpackQuestion')}</h1>
+                <p className="mt-1 text-[15px] text-muted-foreground">{t('new.modpackHintPhone')}</p>
+              </div>
+            ) : phone ? (
               <>
                 <div>
                   <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.typeQuestion')}</h1>
@@ -162,26 +196,43 @@ export function NewServerPage() {
             )}
             <section>
               {phone ? (
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="section-label">{t('new.typeTitle')}</div>
-                  <button type="button" onClick={() => setCompareOpen(true)} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
-                    {t('new.difference')}
-                    <ChevronRightIcon className="size-4" aria-hidden="true" />
-                  </button>
-                </div>
+                <>
+                  <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-2 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  {from === 'type' && (
+                    <div className="mt-1 mb-2 flex justify-end">
+                      <button type="button" onClick={() => setCompareOpen(true)} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
+                        {t('new.difference')}
+                        <ChevronRightIcon className="size-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div>
-                  <h2 className="text-[15px] font-semibold">{t('new.typeTitle')}</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-[15px] font-semibold">{t('new.startFrom')}</h2>
+                    <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />
+                  </div>
                   <p className="mt-0.5 text-[13px] text-muted-foreground">
-                    {t('new.typeHint')}{' '}
-                    <button type="button" onClick={() => setCompareOpen(true)} className="font-medium text-primary hover:underline">
-                      {t('new.difference')}
-                    </button>
+                    {from === 'modpack' ? (
+                      t('new.modpackHint')
+                    ) : (
+                      <>
+                        {t('new.typeHint')}{' '}
+                        <button type="button" onClick={() => setCompareOpen(true)} className="font-medium text-primary hover:underline">
+                          {t('new.difference')}
+                        </button>
+                      </>
+                    )}
                   </p>
                 </div>
               )}
-              <div className={phone ? '' : 'mt-3'}>
-                <TypeCards catalog={catalog} value={c.type} onChange={(type) => type !== c.type && update({ type, versionId: '', build: '', acceptExperimental: false })} phone={phone} />
+              <div className={phone && from === 'type' ? '' : 'mt-3'}>
+                {from === 'modpack' && ws.machine ? (
+                  <ModpackPicker machineId={ws.machine.id} value={pack} onChange={setPack} onUse={startWithPack} phone={phone} />
+                ) : (
+                  <TypeCards catalog={catalog} value={c.type} onChange={(type) => type !== c.type && update({ type, versionId: '', build: '', acceptExperimental: false })} phone={phone} />
+                )}
               </div>
               <TypeCompare catalog={catalog} open={compareOpen} onOpenChange={setCompareOpen} />
             </section>
@@ -279,13 +330,14 @@ export function NewServerPage() {
         )
         break
       case 3: {
-        const suggested = styleMemory(catalog, c.style)
+        const packMB = packed ? (pack?.memoryMB ?? 0) : 0
+        const suggested = packMB ? (options.find((mb) => mb >= packMB) ?? options[options.length - 1] ?? 0) : styleMemory(catalog, c.style)
         const others = catalog.servers.filter((x) => !x.running)
         body = (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}</p>
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
@@ -350,7 +402,10 @@ export function NewServerPage() {
     }
   }
 
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} />
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} />
+  const continueLabel = step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 && from === 'modpack' ? t('new.continuePack') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
+  const nextHint = step === 0 && from === 'modpack' ? t('new.nextPack') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
+  const note = step === 0 && from === 'modpack' ? t('new.note.modpack') : t(step === 1 && addonKind(c?.type) === 'mods' ? 'new.note.versionMods' : (noteKeys[step] ?? 'new.note.name'), { type: typeName(c?.type) })
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
@@ -414,7 +469,7 @@ export function NewServerPage() {
         <div className="mt-6">{restoreLink}</div>
         <PhoneActions>
           <Button size="touch" onClick={next} disabled={!canContinue()} loading={busy}>
-            {step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 ? t('new.continueVersion') : t('common.continue')}
+            {continueLabel}
             <ArrowRightIcon />
           </Button>
         </PhoneActions>
@@ -456,9 +511,9 @@ export function NewServerPage() {
                   {t('common.back')}
                 </Button>
               )}
-              <span className="ml-auto text-xs text-muted-foreground">{step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{nextHint}</span>
               <Button onClick={next} disabled={!canContinue()} loading={busy}>
-                {step < 4 ? t(continueKeys[step] ?? 'new.continueName') : t('new.create', { name: c?.name.trim() || t('nav.newServer') })}
+                {continueLabel}
                 <ArrowRightIcon />
               </Button>
             </div>
@@ -466,7 +521,7 @@ export function NewServerPage() {
           </div>
           <aside className="self-start">
             {summary}
-            <p className="mt-3 px-1 text-xs text-muted-foreground">{t(step === 1 && addonKind(c?.type) === 'mods' ? 'new.note.versionMods' : (noteKeys[step] ?? 'new.note.name'), { type: typeName(c?.type) })}</p>
+            <p className="mt-3 px-1 text-xs text-muted-foreground">{note}</p>
           </aside>
         </div>
       </PageBody>
@@ -491,7 +546,7 @@ function GameCard({ phone }: { phone?: boolean }) {
   )
 }
 
-function Summary({ choices: c, step, port, version }: { choices: CreateChoices; step: number; port?: number; version: string }) {
+function Summary({ choices: c, step, port, version, from, pack }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice }) {
   const ws = useWorkspace()
   const p = preset(c.style)
   const v = (done: boolean, value: string) =>
@@ -505,14 +560,25 @@ function Summary({ choices: c, step, port, version }: { choices: CreateChoices; 
     ) : (
       <span className="text-muted-foreground">{t('common.notPicked')}</span>
     )
-  const rows: { label: string; value: ReactNode }[] = [
-    { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
-    { label: t('new.row.type'), value: v(step > 0, typeName(c.type)) },
-    { label: t('new.row.version'), value: step >= 1 ? v(step > 1, version) : v(false, '') },
-    { label: t('new.row.style'), value: step >= 2 ? v(step > 2, p ? t(p.title) : '') : v(false, '') },
-    { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : v(false, '') },
-    { label: t('new.row.name'), value: step >= 4 ? v(false, c.name) : v(false, '') },
-  ]
+  const rows: { label: string; value: ReactNode }[] =
+    from === 'modpack'
+      ? [
+          { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
+          { label: t('new.row.startFrom'), value: v(true, t('new.startFrom.modpack')) },
+          { label: t('new.row.modpack'), value: v(!!pack && step > 0, pack?.name ?? '') },
+          { label: t('new.row.type'), value: pack?.type ? v(true, t('new.fromPack', { value: typeName(pack.type) })) : v(false, '') },
+          { label: t('new.row.version'), value: pack?.minecraftVersion ? v(true, t('new.fromPack', { value: pack.minecraftVersion })) : v(false, '') },
+          { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : v(false, '') },
+          ...(step >= 4 ? [{ label: t('new.row.name'), value: v(false, c.name) }] : []),
+        ]
+      : [
+          { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
+          { label: t('new.row.type'), value: v(step > 0, typeName(c.type)) },
+          { label: t('new.row.version'), value: step >= 1 ? v(step > 1, version) : v(false, '') },
+          { label: t('new.row.style'), value: step >= 2 ? v(step > 2, p ? t(p.title) : '') : v(false, '') },
+          { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : v(false, '') },
+          { label: t('new.row.name'), value: step >= 4 ? v(false, c.name) : v(false, '') },
+        ]
   if (step >= 3 && port) rows.push({ label: t('new.row.port'), value: <span className="text-muted-foreground">{t('new.portPicked', { port })}</span> })
   return (
     <Card className="p-4">

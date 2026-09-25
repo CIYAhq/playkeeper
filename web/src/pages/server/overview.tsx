@@ -9,6 +9,7 @@ import { Pip } from '@/components/app/art'
 import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace } from '@/components/app/bits'
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
+import { loaderLabel } from '@/components/app/modpacks'
 import { PlayersChart } from '@/components/app/players-chart'
 import { SoftwareChangedView } from '@/components/app/software'
 import { JobSteps, type StepState } from '@/components/app/update'
@@ -17,7 +18,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine, ranOutOfMemory } from '@/lib/console'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
-import { createStepOf, isSettingUp, opLabel } from '@/lib/phase'
+import { createStepOf, isSettingUp, opLabel, packStepOf } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -304,30 +305,48 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const cfg = s.config
   const type = typeName(s.type)
   const version = cfg?.minecraftVersion ?? ''
-  const at = createStepOf(failed ? (op?.phase ?? '') : s.phase)
+  const pack = cfg?.modpack
+  // The pack's own steps only show in the operation's phase.
+  const at = pack ? packStepOf(op?.phase ?? s.phase) : createStepOf(failed ? (op?.phase ?? '') : s.phase)
   const state = (i: number): StepState => (i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo')
   const pct = /(\d{1,3})\s*%/.exec(s.phaseDetail ?? '')?.[1]
   const other = (ws.servers ?? []).find((o) => o.id !== s.id)
   const disk = ws.machine?.live?.diskFreeBytes
+  const loader = cfg?.software?.fabricLoader ?? cfg?.software?.quiltLoader
+  const done = Number(op?.detail?.packFiles ?? 0)
+  const total = Number(op?.detail?.packFilesTotal ?? 0)
+  const software = {
+    title: loader ? t(at > 1 ? 'creating.downloadedPack' : 'creating.downloadingPack', { type, version, loader: loaderLabel(s.type, loader) }) : at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }),
+    hint: t(loader ? 'creating.downloadedPackDetail' : 'creating.downloadedDetail'),
+    state: state(1),
+  }
+  const starting = (i: number) => ({ title: t('creating.starting'), hint: pct ? t('creating.startingPercent', { percent: pct }) : t('creating.startingDetail'), state: state(i), progress: pct ? Number(pct) : undefined })
+  const steps = pack
+    ? [
+        { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        software,
+        { title: t(at > 2 ? 'creating.packModsDone' : 'creating.packMods'), hint: total ? t('creating.packFiles', { done, total }) : undefined, state: state(2), progress: at === 2 && total ? (done / total) * 100 : undefined },
+        starting(3),
+        { title: t('creating.reachable', { port: s.gamePort }), state: state(4) },
+      ]
+    : [
+        { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: t('creating.downloadedDetail') },
+        starting(2),
+        { title: t('creating.reachable', { port: s.gamePort }), state: state(3) },
+      ]
   return (
     <Card className="mx-auto w-full max-w-[520px] p-6 max-sm:p-4">
       <div className="flex items-start gap-4">
         <Pip pose={failed ? 'hurt' : 'hardhat'} size={64} />
         <div className="min-w-0 pt-1">
           <h2 className="text-lg font-bold">{failed ? t('creating.failedTitle', { server: s.name }) : t('creating.title', { server: s.name })}</h2>
-          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{failed ? (op?.error ?? '') : t('creating.lead')}</p>
+          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{failed ? (op?.error ?? '') : t(pack ? 'creating.leadPack' : 'creating.lead')}</p>
           {failed && op?.hint && <p className="mt-1 text-[13px] text-muted-foreground">{op.hint}</p>}
         </div>
       </div>
       <div className="mt-5 border-t border-border pt-5">
-        <JobSteps
-          steps={[
-            { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
-            { title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: t('creating.downloadedDetail'), state: state(1) },
-            { title: t('creating.starting'), hint: pct ? t('creating.startingPercent', { percent: pct }) : t('creating.startingDetail'), state: state(2), progress: pct ? Number(pct) : undefined },
-            { title: t('creating.reachable', { port: s.gamePort }), state: state(3) },
-          ]}
-        />
+        <JobSteps steps={steps} />
       </div>
       {tail.length > 0 && (
         <div className="mt-5">

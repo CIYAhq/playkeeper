@@ -138,7 +138,7 @@ export function ChoiceCard<T extends string>({ value, disabled, className, child
 }
 
 /** A small segmented control on a muted track. */
-export function Segmented<T extends string>({ value, onChange, options, label, className }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string }) {
+export function Segmented<T extends string>({ value, onChange, options, label, className, itemClassName }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string; itemClassName?: string }) {
   return (
     <ToggleGroup
       value={[value]}
@@ -150,7 +150,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, c
         <ToggleGroupItem
           key={o.value}
           value={o.value}
-          className="h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline"
+          className={cn('h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline', itemClassName)}
         >
           {o.label}
         </ToggleGroupItem>

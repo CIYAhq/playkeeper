@@ -118,7 +118,7 @@ function metaLine(s: ServerStatus, settingUp: boolean, stale: boolean, lastSeenA
   if (stale) {
     if (lastSeenAt && s.phase === 'online') parts.push(t('server.lastSeen', { time: relativeTime(new Date(lastSeenAt).toISOString()) }))
   } else {
-    const style = styleTitle(cfg)
+    const style = cfg?.modpack?.name ?? styleTitle(cfg)
     if (style) parts.push(style)
     if (settingUp && cfg?.memoryMB) parts.push(formatMB(cfg.memoryMB))
   }

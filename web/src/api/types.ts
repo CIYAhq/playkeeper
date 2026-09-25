@@ -68,6 +68,8 @@ export interface ServerConfig {
   iconUpdatedAt?: string
   /** The exact software of a type other than Paper. */
   software?: SoftwarePin
+  /** The pack the server was created from. */
+  modpack?: ServerModpack
 }
 
 export interface Operation {
@@ -742,4 +744,87 @@ export interface SoftwareChange {
   changedAt?: string
   detectedAt: string
   software: string
+}
+
+// Wave 4: modpacks.
+
+export type ModpackSource = 'modrinth' | 'curseforge'
+
+export interface ModpackCard {
+  source: ModpackSource
+  projectId: string
+  slug: string
+  name: string
+  author?: string
+  summary: string
+  downloads: number
+  iconUrl?: string
+  updated: string
+  pageUrl: string
+  types: string[]
+  minecraftVersions: string[]
+  /** The mods the newest version bundles, and the memory suggested for them; 0 when unknown. */
+  mods?: number
+  memoryMB?: number
+  unavailable?: AddonNotice
+}
+
+export interface ModpackResults {
+  cards: ModpackCard[]
+  total: number
+  offset: number
+  limit: number
+  sources: ModpackSource[]
+}
+
+export interface ModpackVersion {
+  id: string
+  number: string
+  name?: string
+  channel: string
+  published: string
+  size: number
+  type?: string
+  minecraftVersion?: string
+  mods?: number
+  unsupported?: AddonNotice
+}
+
+export interface ModpackDetail extends ModpackCard {
+  sourceUrl?: string
+  issuesUrl?: string
+  wikiUrl?: string
+  headline?: string
+  versions: ModpackVersion[]
+  newest?: string
+}
+
+export interface ModpackPreview {
+  type: string
+  minecraftVersion: string
+  loaderVersion?: string
+  files: number
+  downloadSize: number
+  ready: boolean
+  blockers: AddonNotice[]
+  warnings: AddonNotice[]
+  manual: AddonNotice[]
+}
+
+export interface ModpackRef {
+  source: ModpackSource
+  projectId: string
+  versionId: string
+}
+
+export interface ServerModpack {
+  source: ModpackSource
+  projectId: string
+  versionId: string
+  name: string
+  versionNumber: string
+  pageUrl?: string
+  iconUrl?: string
+  mods?: number
+  pending?: boolean
 }

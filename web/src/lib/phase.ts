@@ -119,3 +119,18 @@ export function createStepOf(phase: string): number {
   }
   return 0
 }
+
+/**
+ * The setup steps of a server made from a modpack: checked, the server
+ * software, the pack's files, starting, reachable.
+ */
+export function packStepOf(phase: string): number {
+  switch (phase) {
+    case 'preparing_modpack':
+      return 1
+    case 'installing_modpack':
+      return 2
+  }
+  const at = createStepOf(phase)
+  return at >= 2 ? at + 1 : at
+}
