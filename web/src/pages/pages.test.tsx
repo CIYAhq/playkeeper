@@ -6,7 +6,7 @@ import * as client from '@/api/client'
 import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { activityText } from '@/components/app/activity'
-import { GetStartedCard } from '@/components/app/checklist'
+import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
@@ -299,7 +299,11 @@ describe('Get started', () => {
   })
 
   it('hides once the owner hid it', async () => {
-    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { 'firstSteps.hidden.abcdefghjk': '1' } }))).toBe('')
+    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { [hiddenKey(server())]: '1' } }))).toBe('')
+  })
+
+  it('keeps that under a key the dashboard accepts', () => {
+    for (const key of [hiddenKey(server()), hiddenKey(undefined)]) expect(key).toMatch(/^[a-z][a-z0-9.:_-]{0,63}$/)
   })
 })
 

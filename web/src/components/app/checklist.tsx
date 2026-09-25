@@ -13,7 +13,7 @@ import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
 export function hiddenKey(server: ServerStatus | undefined): string {
-  return server ? `firstSteps.hidden.${server.id}` : 'firstSteps.hidden'
+  return server ? `checklist.hidden.${server.id}` : 'checklist.hidden'
 }
 
 /** The server the "Get started" steps are about on a page: the open one, or the first with steps left. */
