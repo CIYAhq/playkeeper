@@ -19,8 +19,8 @@ Onboarding → Overview → Console → Players → World/backups → Settings. 
 
 ## Not V1
 
-Other games; multiple servers/hosts; provisioning Hetzner or other cloud VMs; billing; public account signups; modpack/plugin marketplaces; importing a live Crafty/systemd-managed world; generic game-adapter architecture. Do not touch an existing world during first deployment.
+Other games; multiple servers/hosts; provisioning Hetzner or other cloud VMs; billing; public account signups; modpack/plugin marketplaces; importing a live Crafty/systemd-managed world; generic game-adapter architecture. Installing Playkeeper never touches an existing world.
 
 ## Success criteria
 
-A new user follows the supported install path, creates a server, joins and has a friend join, sees dashboard state agree with actual server activity, exports a backup and restores the same world on another host. Installation and recovery steps must be executable from a clean checkout/package, not just in a developer worktree. Log failures and real timings; make no unmeasured speed or reliability claim. Five unrelated self-hosters are a later product validation target, not a fabricated release test.
+A new user follows the supported install path, creates a server, joins and has a friend join, sees dashboard state agree with actual server activity, exports a backup and restores the same world on another host. Installation and recovery steps must be executable from a clean checkout/package, not just in a developer worktree.

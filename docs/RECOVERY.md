@@ -1,6 +1,6 @@
 # Recovery runbook: move or restore a world
 
-Use this when a server is lost, when you move to another VPS, or to go back to an earlier state. It is the flow Playkeeper's end-to-end tests run (see [CURRENT_STATE.md](../CURRENT_STATE.md) for where it was verified and what was not).
+Use this when a server is lost, when you move to another VPS, or to go back to an earlier state. It is the flow Playkeeper's end-to-end tests run: [CI](../.github/workflows/ci.yml) restores a backup made on one fresh runner on a second one. It has not yet been run on a physically separate machine.
 
 ## 1. Get the archive off the old server
 

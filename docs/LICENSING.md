@@ -1,11 +1,20 @@
 # Licensing and references
 
-**No open-source licence has been selected for Playkeeper yet.** This private specification repository does not grant rights to reuse its future source. Before publishing or accepting outside code contributions, Siya must explicitly choose a licence and the repo must include the matching `LICENSE` and necessary notices. MIT or Apache-2.0 would suit a permissive independently implemented project; AGPL-3.0 is a distinct copyleft path if reusing covered code. This file is not legal clearance.
+Playkeeper is free software under the **GNU Affero General Public License, version 3 only** (SPDX `AGPL-3.0-only`). The full text is in [LICENSE](../LICENSE), and every release tarball includes it. What follows is a summary, not legal advice:
 
-- [Ghost](https://github.com/haydenbleasel/ghost) is an archived MIT-licensed inspiration. Its Vercel/Hetzner provisioning model is not our existing-VPS installer. Retain copyright/attribution if any MIT code is intentionally reused; default to independent implementation.
-- [OpenAnalytics](https://github.com/OpenLabs-so/openanalytics) is an AGPL-3.0 source repository (with a separate browser tracker exception). It is a *visual reference*, not a component/CSS/asset source for an independently licensed Playkeeper.
-- [itzg/minecraft-server](https://docker-minecraft-server.readthedocs.io/) is a candidate upstream container, subject to version/digest pinning and its terms.
-- [Minecraft EULA](https://www.minecraft.net/en-us/eula) and [usage guidelines](https://www.minecraft.net/en-us/usage-guidelines): explicit user EULA gate; server binaries obtained from upstream, not redistributed. Do not imply Mojang/Microsoft endorsement.
-- Alternatives to examine for onboarding and positioning: [Crafty](https://craftycontrol.com/), [Pterodactyl](https://pterodactyl.io/), [Pelican](https://pelican.dev/), [PufferPanel](https://pufferpanel.com/), [AMP](https://cubecoders.com/AMP).
+- Running Playkeeper on your own server asks nothing of you.
+- If you pass Playkeeper on, changed or not, pass on the licence and the corresponding source code with it.
+- If you change Playkeeper and let other people use your changed version over a network, offer them the source code of your version (section 13 of the licence).
+- Contributions are accepted under the same licence; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Recheck upstream terms and licence files at implementation/publication time; reference listings are not a dependency inventory.
+Bundled third-party code keeps its own licence. [THIRD_PARTY.md](THIRD_PARTY.md) lists it, and [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes, reproduces those licences in full.
+
+## References
+
+- [Ghost](https://github.com/haydenbleasel/ghost) is an archived MIT-licensed product reference. Its Vercel/Hetzner provisioning model is not our existing-VPS installer, and none of its code is used.
+- [OpenAnalytics](https://github.com/OpenLabs-so/openanalytics) (AGPL-3.0, with a separate browser tracker exception) is a *visual reference* only. Playkeeper's components, CSS, assets and branding are written independently; see [DESIGN.md](DESIGN.md).
+- [itzg/minecraft-server](https://docker-minecraft-server.readthedocs.io/) is the runtime container (Apache-2.0), pinned by digest and pulled on the user's server.
+- [Minecraft EULA](https://www.minecraft.net/en-us/eula) and [usage guidelines](https://www.minecraft.net/en-us/usage-guidelines): the user accepts the EULA explicitly, and server binaries are downloaded from upstream on the user's server, never redistributed. Playkeeper does not imply Mojang or Microsoft endorsement.
+- Alternatives worth knowing: [Crafty](https://craftycontrol.com/), [Pterodactyl](https://pterodactyl.io/), [Pelican](https://pelican.dev/), [PufferPanel](https://pufferpanel.com/), [AMP](https://cubecoders.com/AMP).
+
+Reference listings are not a dependency inventory, and upstream terms can change; check them again before relying on them.

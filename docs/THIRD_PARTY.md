@@ -1,10 +1,12 @@
 # Third-party components and upstream terms
 
-Checked 2026-09-24 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself has **no licence chosen yet** (see [LICENSING.md](LICENSING.md)).
+Checked 2026-09-24 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
+
+The full licence texts of everything below that is compiled into the binary are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date, and `make package` refuses to package a binary that links a module missing from it.
 
 ## Compiled into the `playkeeper` binary
 
-List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd64/playkeeper` (checked against the table below for the tested build), and the licences with `go run github.com/google/go-licenses/v2@latest report ./cmd/playkeeper`.
+List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd64/playkeeper` (checked against the table below for the tested build).
 
 | Module | Version | Licence |
 | --- | --- | --- |
@@ -26,10 +28,12 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | react | 19.3.0 | MIT |
 | react-dom | 19.3.0 | MIT |
 | scheduler | 0.28.0 | MIT |
+| vite (its modulepreload polyfill only) | 8.3.1 | MIT |
+| rolldown (its CommonJS runtime helper only) | 1.2.10 | MIT |
 
 No fonts, icon sets, images or CSS frameworks are bundled: the UI uses system fonts, and its logo, icons and styles are original to Playkeeper. No OpenAnalytics or Ghost source, CSS, assets or branding is used.
 
-Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies only and are not shipped.
+Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies and are not shipped, apart from the two small pieces of Vite and Rolldown code listed above that the bundler puts into the UI.
 
 ## Downloaded at runtime on the user's server (not redistributed)
 

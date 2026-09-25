@@ -1,13 +1,15 @@
 # Contributing to Playkeeper
 
-Thanks for helping make self-hosted game servers easier. **This repository is private.** Public contribution instructions will be updated when the repository opens.
+Thanks for helping make self-hosted game servers easier. Outside contributions are welcome: bug reports, fixes, documentation, and features that fit the [product brief](docs/PRODUCT.md). Contributions are accepted under the project's licence, AGPL-3.0 (see [Licence and conduct](#licence-and-conduct)).
 
 ## First steps
 
-1. Read [README.md](README.md), [CURRENT_STATE.md](CURRENT_STATE.md), and the [product brief](docs/PRODUCT.md). The [stack decision](docs/decisions/0002-stack.md) explains how the pieces fit.
+1. Read [README.md](README.md) and the [product brief](docs/PRODUCT.md). The [architecture](docs/ARCHITECTURE.md) and the [stack decision](docs/decisions/0002-stack.md) explain how the pieces fit.
 2. Pick one concrete user-facing outcome. Open or discuss an issue before large architecture changes; ordinary fixes can go straight to a focused PR.
-3. Make the smallest coherent change, add tests for changed behavior, and run the checks below. If a check cannot run in your environment, say so in the PR rather than claiming a green build.
+3. Fork the repository, make the smallest coherent change on a branch, add tests for changed behavior, and run the checks below. If a check cannot run in your environment, say so in the PR rather than claiming a green build.
 4. In your PR, say what changed, how you tested it, what you *didn't* test, and include screenshots for UI changes. Do not include real worlds, player data, credentials, or public server addresses.
+
+Found a security problem? Report it privately as [SECURITY.md](SECURITY.md) describes, not in an issue or pull request.
 
 ## Set up and check (stock Ubuntu 24.04)
 
@@ -18,7 +20,7 @@ git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 make check             # gofmt, go vet, ESLint, TypeScript, Go, web and installer-script unit tests
 ```
 
-CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `make check`, `make lint-sh`, `make package`), then installs the packaged tarball on fresh runners for the end-to-end jobs.
+CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `make check`, `make lint-sh`, `make package`), then installs the packaged tarball on fresh runners for the end-to-end jobs. Pull requests from forks run the same CI; a maintainer may need to approve a first-time contributor's run.
 
 ## Run it
 
@@ -27,8 +29,14 @@ CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `ma
 - `make package` — release tarball in `dist/` (static binary with the embedded UI, installer, notes), plus the one-line installer assets a release would carry (`get.sh` and the tarball under its stable name).
 - `make e2e-vm` — full rehearsal in fresh KVM guests (needs `/dev/kvm`, qemu, cloud-image-utils, sudo; see `scripts/e2e/vm-e2e.sh`).
 - `./scripts/negative-controls.sh` — removes each safety guard in turn in a throwaway worktree and checks that the test covering it fails.
+- `scripts/site-check.sh` — builds the playkeeper.io container from `site/` and checks `/`, `/healthz` and the `/install` redirect (needs Docker; CI runs it too). Hosting it is described in [site/README.md](site/README.md).
+- `make notices` — regenerates `THIRD_PARTY_NOTICES`, the licence texts of the third-party code in the binary. Run it after changing Go or npm dependencies and commit the result; `make check` fails while it is out of date.
 
 Protocol-bot tests need offline mode, which only the test harness enables (`PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1` on the agent). Never set it on a real server.
+
+## Releases (maintainers)
+
+Pushing a `vMAJOR.MINOR.PATCH` tag runs [the release workflow](.github/workflows/release.yml): `make check` and `make package` with the version from the tag, an install of the built assets on a fresh runner, then a normal (not pre-release) GitHub release with `get.sh`, `playkeeper-linux-amd64.tar.gz` and its `.sha256`, which becomes the latest release. It then runs the one-line install from the GitHub release URL on a fresh runner and checks that `https://playkeeper.io/install`, a redirect to the latest release's `get.sh`, resolves to the new one; that last check only warns, because the site runs on its own server and needs no redeploy for a release. 0.x releases are labelled early. For a dry run, start the release workflow by hand or open a pull request that touches the release path: it builds and checks everything and uploads the assets as an artifact instead of releasing them.
 
 ## Where things live
 
@@ -41,8 +49,10 @@ Protocol-bot tests need offline mode, which only the test harness enables (`PLAY
 | `internal/backup`, `internal/minecraft`, `internal/docker` | archive format, Minecraft protocols and log parsing, Docker client |
 | `web/` | React + TypeScript UI (embedded at build time) |
 | `packaging/` | `install.sh`, the one-line installer `get.sh`, their tests, install notes |
-| `scripts/` | toolchain setup, packaging, KVM rehearsal harness, negative controls |
+| `scripts/` | toolchain setup, packaging, release checks, site check, KVM rehearsal harness, negative controls |
+| `site/` | the playkeeper.io page and its nginx container (hosted with Coolify) |
 | `test/e2e/` | API client, scenario driver, protocol bot, Playwright specs |
+| `.github/workflows/` | CI and the release workflow |
 
 ## Design principles
 
@@ -56,4 +66,6 @@ Protocol-bot tests need offline mode, which only the test harness enables (`PLAY
 
 ## Licence and conduct
 
-An open-source licence is not chosen yet; no permission to copy third-party source or distribute a fork is implied. The owner will choose a licence **before** accepting outside code contributions or making the repo public. Treat others respectfully; technical disagreement is welcome, harassment is not. A fuller governance policy can follow actual contributor demand, not precede it.
+Playkeeper is licensed under the [GNU AGPL v3.0 only](LICENSE). By opening a pull request you agree that your contribution is licensed under the same terms; there is no separate contributor agreement. Only submit work you wrote or have the right to contribute under that licence, and keep existing copyright and licence notices intact.
+
+Treat others respectfully; technical disagreement is welcome, harassment is not. A fuller governance policy can follow actual contributor demand, not precede it.

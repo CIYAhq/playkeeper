@@ -1,2 +1,0 @@
-## containers managed by Playkeeper after repeated start/stop/restore (docker ps -a)
-playkeeper-minecraft: Up 26 seconds (healthy)

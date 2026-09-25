@@ -1,2 +1,0 @@
-events and sessions before the agent restart: 22 3; after: 22 3
-no duplicates after replaying the server log

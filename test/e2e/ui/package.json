@@ -1,7 +1,7 @@
 {
   "name": "playkeeper-e2e-ui",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "description": "Browser walkthrough, screenshots, keyboard and accessibility checks against a running Playkeeper panel.",
   "type": "module",
   "scripts": {

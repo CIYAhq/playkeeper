@@ -1,9 +1,0 @@
-
-Running 4 tests using 1 worker
-
-  ✓  1 views.spec.ts:18:1 › main views in order, desktop and narrow, with no serious accessibility violations (32.3s)
-  ✓  2 views.spec.ts:36:1 › keyboard: skip link, navigation, dialog focus trap and Esc (392ms)
-  ✓  3 views.spec.ts:64:1 › keyboard: restore preview and typed confirmation are reachable (658ms)
-  ✓  4 views.spec.ts:84:1 › reduced motion disables animation (145ms)
-
-  4 passed (34.0s)

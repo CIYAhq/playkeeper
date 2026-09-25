@@ -1,9 +1,0 @@
-
-[17:23:56] The distinctive world state survived: console and client view
-  ok: console: gold block at 118 71 47 (Test passed)
-  ok: console: sign at 118 72 47 carries nonce pk-53425a3c0706 (118, 72, 47 has the following block data: ["pk-53425a3c0706", "", "", ""])
-2026-09-24T17:24:01.190Z client view {"gold":"gold_block","sign":"oak_sign","signText":"pk-53425a3c0706\n\n\n","expectedNonce":"pk-53425a3c0706","ok":true}
-  ok: client view: gold block and sign with nonce pk-53425a3c0706 at the recorded coordinates
-  restore operation took 30.8 s from confirmation to joinable
-
-host-b: PASSED (3 checks ok) in 6.5 s

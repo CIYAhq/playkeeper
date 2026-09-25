@@ -1,0 +1,212 @@
+name: Release
+
+# A v* tag builds the release with `make package`, installs the built assets
+# on a fresh runner through get.sh, publishes them as the latest (normal, not
+# pre-release) GitHub release, then checks the live addresses: the GitHub
+# release URLs and the one-line install from them must work, and
+# https://playkeeper.io/install should redirect to the new get.sh (a warning
+# only, since that site runs on its own server).
+# Pull requests that touch the release path, and manual runs, are dry runs:
+# the same build and install check, with the assets uploaded as a workflow
+# artifact instead of released.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/package.sh
+      - scripts/release-*.sh
+      - scripts/smoke-install.sh
+      - scripts/third-party-notices.sh
+      - THIRD_PARTY_NOTICES
+      - packaging/**
+      - Makefile
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to rehearse. Nothing is tagged or released.
+        default: v0.0.0-dryrun
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_COLOR: "0"
+  INSTALL_URL: https://playkeeper.io/install
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and check the release assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      title: ${{ steps.version.outputs.title }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Version from the tag
+        id: version
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag || 'v0.0.0-dryrun' }}
+        run: |
+          if [[ ! $TAG =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$TAG' is not a release tag. Use vMAJOR.MINOR.PATCH, optionally with a -suffix."
+            exit 1
+          fi
+          version=${TAG#v}
+          title="Playkeeper $TAG"
+          if [[ $version == 0.* ]]; then title+=" (early release)"; fi
+          { echo "tag=$TAG"; echo "version=$version"; echo "title=$title"; } >>"$GITHUB_OUTPUT"
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: make check
+        run: make check
+      - name: make lint-sh
+        run: make lint-sh
+      - name: make package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: make package
+      - name: Collect and check the release assets and notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p out/assets
+          cp dist/get.sh dist/playkeeper-linux-amd64.tar.gz dist/playkeeper-linux-amd64.tar.gz.sha256 out/assets/
+          cmp dist/playkeeper-linux-amd64.tar.gz "dist/playkeeper-$VERSION-linux-amd64.tar.gz"
+          cmp dist/get.sh packaging/get.sh
+          scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY"
+          scripts/release-notes.sh "$VERSION" "$GITHUB_REPOSITORY" "$INSTALL_URL" out/assets >out/release-notes.md
+      - name: Summary
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          TITLE: ${{ steps.version.outputs.title }}
+          DRY_RUN: ${{ github.event_name != 'push' }}
+        run: |
+          {
+            echo "## $TITLE"
+            if [ "$DRY_RUN" = true ]; then
+              echo "Dry run: nothing is tagged or released. The assets and the notes are in the \`release-$TAG\` artifact."
+            fi
+            echo
+            echo "| Release asset | SHA-256 |"
+            echo "| --- | --- |"
+            for f in out/assets/*; do echo "| \`${f##*/}\` | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done
+            echo
+            echo "### Release notes"
+            echo
+            cat out/release-notes.md
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ steps.version.outputs.tag }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke:
+    name: Fresh runner — install the built assets through get.sh, then uninstall
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.build.outputs.tag }}
+          path: /tmp/release
+      - name: One-line install from a local copy of the release assets
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          PLAYKEEPER_BASE_URL: http://127.0.0.1:8765
+          PLAYKEEPER_ALLOW_HTTP: "1"
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/release/assets >/tmp/mirror.log 2>&1 &
+          sleep 1
+          scripts/smoke-install.sh http://127.0.0.1:8765/get.sh "$VERSION"
+
+  publish:
+    name: Publish the GitHub release
+    needs: [build, smoke]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.build.outputs.tag }}
+      TITLE: ${{ needs.build.outputs.title }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.build.outputs.tag }}
+          path: release
+      - name: Create a draft release with the three assets
+        working-directory: release/assets
+        run: |
+          sha256sum -c playkeeper-linux-amd64.tar.gz.sha256
+          gh release create "$TAG" --verify-tag --draft --title "$TITLE" --notes-file ../release-notes.md \
+            get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256
+      - name: Check the draft carries exactly the built assets
+        run: |
+          gh release download "$TAG" --dir draft
+          diff <(ls release/assets) <(ls draft)
+          for f in release/assets/*; do cmp "$f" "draft/${f##*/}"; done
+      - name: Publish it as the latest release, not a pre-release
+        run: gh release edit "$TAG" --draft=false --prerelease=false --latest
+
+  verify:
+    name: Live addresses — one-line install on a fresh runner
+    needs: [build, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.build.outputs.tag }}
+          path: /tmp/release
+      - name: releases/latest/download serves the published assets
+        run: |
+          latest=https://github.com/$GITHUB_REPOSITORY/releases/latest/download
+          mkdir -p /tmp/latest
+          for f in get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256; do
+            if ! curl -fsSL --retry 5 --retry-all-errors -o "/tmp/latest/$f" "$latest/$f"; then
+              echo "::error::$latest/$f cannot be downloaded without signing in. Is the repository public?"
+              exit 1
+            fi
+            cmp "/tmp/latest/$f" "/tmp/release/assets/$f"
+          done
+      - name: playkeeper.io/install resolves to this release's get.sh (warning only)
+        run: |
+          if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/install "$INSTALL_URL" &&
+            cmp -s /tmp/install /tmp/release/assets/get.sh; then
+            echo "$INSTALL_URL resolves to this release's get.sh"
+          else
+            answer=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$INSTALL_URL" 2>&1 || true)
+            echo "::warning::$INSTALL_URL does not resolve to this release's get.sh (it answered: $answer). Check the playkeeper.io application in Coolify (site/README.md) and its DNS. Installs from the GitHub release URL are not affected."
+          fi
+      - name: One-line install from the GitHub release
+        run: scripts/smoke-install.sh "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/get.sh" "$VERSION"

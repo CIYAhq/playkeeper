@@ -1,7 +1,7 @@
 # 0001 — Risk spike: local agent control of an isolated Minecraft container
 
 - **Date:** 2026-09-24, 13:30–13:50 UTC. **Timebox:** 60 minutes (used about 20).
-- **Host:** Cursor Cloud Agent VM (Ubuntu 24.04.4, x86_64, 4 vCPU, 15 GiB). Docker 29.1.3 from Ubuntu's `docker.io` package, `dockerd` started by hand (the VM has no systemd). This VM is a *development* host, not a fresh install target.
+- **Host:** a development VM (Ubuntu 24.04.4, x86_64, 4 vCPU, 15 GiB). Docker 29.1.3 from Ubuntu's `docker.io` package, `dockerd` started by hand (the VM has no systemd). This VM is a *development* host, not a fresh install target.
 - **Question:** can a least-privilege local process start, stop and query one isolated Minecraft Java/Paper container and obtain player events trustworthy enough to show as analytics?
 - **Outcome: yes.** Decisions that follow from it are in [0002-stack.md](0002-stack.md).
 
@@ -46,4 +46,4 @@
 - Player sessions come from anchored log patterns with Docker timestamps, deduplicated by line, cross-checked against RCON `list` snapshots. No Paper plugin is needed.
 - Data directory contents include secrets (`rcon.password`, `management-server-secret` in `server.properties`, `.rcon-cli.*`) and ~150 MB of re-downloadable binaries, so backups use an allowlist and strip secrets.
 - Minecraft 26.x keeps all dimensions under `world/dimensions/`; 1.21.x uses `world_nether`/`world_the_end`. Backups handle both.
-- The only protocol client available here is a bot in an offline-mode test harness. An official client with a genuine account remains a named unverified step.
+- The only protocol client available here was a bot in an offline-mode test harness. A join with the official client and a genuine account was not part of this spike.

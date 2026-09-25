@@ -1,7 +1,7 @@
 {
   "name": "playkeeper-e2e-bot",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "description": "Protocol-level Minecraft test client for Playkeeper end-to-end tests (offline-mode harness only; not an official client).",
   "type": "commonjs",
   "engines": {
