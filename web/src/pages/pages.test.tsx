@@ -231,6 +231,9 @@ describe('Overview', () => {
     expect(text).not.toContain('Last lines before it stopped')
     const pipe = { ...refusal, code: 'special_file' as const, params: { path: 'plugins/bStats/config.yml', type: 'named_pipe' } }
     expect(await render(<Overview server={server({ phase: 'stopped', refusal: pipe })} />)).toContain('while plugins/bStats/config.yml isn’t a normal file. Delete it.')
+    const dockerDown = await render(<Overview server={server({ phase: 'docker_unavailable', lastError: 'Docker is not responding, so Playkeeper cannot see or control the server.', refusal })} />)
+    expect(dockerDown).toContain('Docker is not responding')
+    expect(dockerDown).not.toContain('Playkeeper won’t start Survival')
   })
 })
 
