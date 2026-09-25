@@ -115,11 +115,13 @@ func TestMembersCanLookButNotManage(t *testing.T) {
 		t.Fatalf("member login: %d %v", r.status, r.body)
 	}
 	cookie, csrf := r.cookie, r.body["csrfToken"].(string)
-	if r := e.do(t, "GET", "/api/servers/"+sampleServer, "", auth(cookie, "")); r.status != 200 {
-		t.Fatalf("a member may look: %d %v", r.status, r.body)
+	for _, p := range []string{"", "/running", "/memory?tz=Europe/Berlin"} {
+		if r := e.do(t, "GET", "/api/servers/"+sampleServer+p, "", auth(cookie, "")); r.status != 200 {
+			t.Fatalf("a member may look at %q: %d %v", p, r.status, r.body)
+		}
 	}
-	for _, p := range []string{"/api/servers/" + sampleServer + "/stop", "/api/servers/" + sampleServer + "/command"} {
-		if r := e.do(t, "POST", p, `{}`, auth(cookie, csrf)); r.status != http.StatusForbidden {
+	for _, p := range []string{"/stop", "/command", "/saving/resume", "/addons/remove"} {
+		if r := e.do(t, "POST", "/api/servers/"+sampleServer+p, `{}`, auth(cookie, csrf)); r.status != http.StatusForbidden {
 			t.Errorf("a member may not use %s: %d", p, r.status)
 		}
 	}
