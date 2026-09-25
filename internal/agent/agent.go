@@ -86,6 +86,11 @@ type Options struct {
 	HTTPClient *http.Client
 	// FillURL is PaperMC's Fill API (default https://fill.papermc.io).
 	FillURL string
+	// UpstreamClient reads the server software, modpack and add-on
+	// upstreams (Mojang, Fabric, Quilt, NeoForge, Purpur, Modrinth, Hangar,
+	// CurseForge) at their fixed HTTPS hosts; tests swap its transport. It
+	// defaults to HTTPClient.
+	UpstreamClient *http.Client
 }
 
 // Retention bounds stored analytics and audit data.
@@ -145,6 +150,8 @@ type Agent struct {
 
 	upd     updateState
 	catalog catalogCache
+
+	software softwareCache
 }
 
 func New(opts Options) (*Agent, error) {
@@ -207,6 +214,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.FillURL == "" {
 		opts.FillURL = minecraft.DefaultFillURL
+	}
+	if opts.UpstreamClient == nil {
+		opts.UpstreamClient = opts.HTTPClient
 	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
@@ -533,6 +543,10 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+
+		// Wave 4: every server type.
+		{"GET", "/v1/catalog/builds", a.hCatalogBuilds},
+		{"POST", "/v1/servers/{id}/software/reinstall", srv((*server).hSoftwareReinstall)},
 	}
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -70,13 +72,27 @@ func (a *Agent) hMachine(w http.ResponseWriter, r *http.Request) {
 // catalogInfo is what a server can choose: for a new server when forServer
 // is empty, or for an existing one's settings.
 func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
+	return a.catalogFor(ctx, forServer, "")
+}
+
+// catalogFor is catalogInfo with the versions of one server type: typ, or
+// the server's own type, or Paper.
+func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catalog {
+	if typ == "" {
+		typ = api.TypePaper
+		if s := a.serverByID(forServer); s != nil {
+			if sc, _ := s.serverConfig(); sc != nil && sc.Type != "" {
+				typ = sc.Type
+			}
+		}
+	}
 	host := a.opts.HostMemoryMB()
 	opts, rec, max := a.memoryFor(forServer)
 	if opts == nil {
 		opts = []int{}
 	}
 	c := api.Catalog{
-		Type: api.TypePaper, Types: serverTypes(), Versions: []api.CatalogEntry{},
+		Type: typ, Types: serverTypes(), Versions: []api.CatalogEntry{},
 		MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max,
 		SystemReserveMB: minecraft.HostReserveMB, MemoryFreeMB: max, Servers: []api.ServerMemory{}, Image: minecraft.ImageTag,
 	}
@@ -93,10 +109,19 @@ func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
 			c.SuggestedPort = p
 		}
 	}
-	if v, at, err := a.versionCatalog(ctx); err != nil {
+	dates := make(chan map[string]time.Time, 1)
+	go func() { dates <- a.releaseDates(context.WithoutCancel(ctx)) }()
+	v, at, err := a.typeCatalog(ctx, typ)
+	var ae *apiError
+	switch {
+	case err != nil && typ == api.TypePaper:
 		c.VersionsError = "Could not load the Minecraft versions from PaperMC: " + err.Error() + ". Check that this server can reach fill.papermc.io."
-	} else {
-		c.Versions = v
+	case err != nil && errors.As(softwareError(err), &ae):
+		c.VersionsError = strings.TrimSpace(ae.Msg + " " + ae.Hint)
+	case err != nil:
+		c.VersionsError = fmt.Sprintf("Could not load the %s versions: %v.", typeName(typ), err)
+	default:
+		c.Versions = withReleaseDates(v, <-dates)
 		c.VersionsCheckedAt = &at
 	}
 	return c
@@ -108,11 +133,12 @@ func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotFound("Server"))
 		return
 	}
-	if t := r.URL.Query().Get("type"); t != "" && t != api.TypePaper {
-		writeError(w, errInvalid("Only Paper servers can be created for now."))
+	typ := r.URL.Query().Get("type")
+	if typ != "" && !typeAvailable(typ) {
+		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
-	writeJSON(w, http.StatusOK, a.catalogInfo(r.Context(), forServer))
+	writeJSON(w, http.StatusOK, a.catalogFor(r.Context(), forServer, typ))
 }
 
 // Status assembles the server's desired and observed state. Nothing here is
@@ -138,6 +164,10 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
 	crashed := s.crashed
 	st.CrashCount = len(s.crashes)
+	if s.softwareChanged != nil {
+		change := *s.softwareChanged
+		st.SoftwareChanged = &change
+	}
 	players, res := s.players, s.resources
 	reachable, reachableAt := s.reachable, s.reachableAt
 	if !s.worldAt.IsZero() {
@@ -156,6 +186,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Phase = api.PhaseNotCreated
 	case docker.IsNotFound(err):
 		st.Phase = api.PhaseStopped
+		if st.SoftwareChanged != nil {
+			st.Phase = api.PhaseCrashed
+		}
 	case c.State.Running:
 		running = true
 		st.Phase = runPhase
@@ -170,7 +203,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.PendingRestart = c.Config.Labels[labelSpec] != hash
 	default:
 		st.Phase = api.PhaseStopped
-		if crashed {
+		if crashed || st.SoftwareChanged != nil {
 			st.Phase = api.PhaseCrashed
 		}
 		code := c.State.ExitCode
@@ -296,7 +329,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		typ = api.TypePaper
 	}
 	if !typeAvailable(typ) {
-		writeError(w, errInvalid("%s servers can't be created yet. Choose Paper.", typeName(typ)))
+		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
 	name := ""
@@ -310,12 +343,27 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Unknown play style."))
 		return
 	}
-	entry, err := a.catalogEntry(r.Context(), req.VersionID)
+	entry, err := a.typeEntry(r.Context(), typ, req.VersionID)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if entry.Experimental && !req.AcceptExperimental {
+	var pin software.Pin
+	experimental := entry.Experimental
+	if typ == api.TypePaper {
+		if req.Build != "" {
+			writeError(w, errInvalid("Paper servers run the build the version list names."))
+			return
+		}
+	} else {
+		var channel software.Channel
+		if pin, channel, err = a.pinFor(r.Context(), entry, req.Build); err != nil {
+			writeError(w, err)
+			return
+		}
+		experimental = experimental || channel != software.Stable
+	}
+	if experimental && !req.AcceptExperimental {
 		writeError(w, errInvalid("%s is experimental. Confirm that you accept the risk to your world to use it.", entry.Label))
 		return
 	}
@@ -337,15 +385,20 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := a.now().UTC()
-	sc := withBuild(api.ServerConfig{
+	base := api.ServerConfig{
 		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
 		PlayStyle: req.PlayStyle, Gameplay: gp,
-	}, entry)
+	}
+	sc, label := withBuild(base, entry), entry.Label
+	if typ != api.TypePaper {
+		sc = withPin(base, entry, pin)
+		label = softwareLabel(sc)
+	}
 	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-			s.recordEvent(s.now(), "server_created", "", "playkeeper", entry.Label)
+			s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
 			if err := s.startServer(ctx, h, sc); err != nil {
 				s.startFailed(ctx)
 				return err

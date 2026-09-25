@@ -78,6 +78,8 @@ var opLabels = map[string]string{
 	"restart": "restarting", "backup": "a backup", "restore": "a restore", "recover": "an automatic restart",
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
+	// Wave 4.
+	"reinstall": "reinstalling its server software",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -204,21 +206,33 @@ func (s *server) levelName(sc api.ServerConfig) string {
 // containerSpec is the complete, hardened definition of the server's
 // container. Its hash is stored as a label so any drift forces a recreate. A
 // v1 server's definition is exactly 0.2.0's while its settings are unchanged.
+//
+// Only the setup-only container downloads Paper. The server container runs
+// the jar that was verified against the pinned checksum, so a start never
+// re-downloads Paper. Other types run the files their verified install
+// recorded, the way its manifest says.
 func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.ContainerConfig, string) {
+	var typeEnv []string
+	switch {
+	case sc.Software != nil:
+		typeEnv = s.runEnv()
+	case setupOnly:
+		typeEnv = []string{"TYPE=PAPER", "PAPER_BUILD=" + strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE"}
+	default:
+		typeEnv = []string{"TYPE=CUSTOM", "CUSTOM_SERVER=/data/" + filepath.Base(s.jarPath(sc))}
+	}
+	return s.specWith(sc, typeEnv, setupOnly)
+}
+
+// specWith is the container definition with typeEnv, the part of the env
+// that depends on the server type. SKIP_DOWNLOAD_DEFAULTS stops the image
+// fetching unpinned default config files from a third-party repository.
+func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool) (docker.ContainerConfig, string) {
 	online := "TRUE"
 	if s.offline() {
 		online = "FALSE"
 	}
-	// Only the setup-only container downloads Paper. The server container runs
-	// the jar that was verified against the pinned checksum, so a start never
-	// re-downloads Paper. SKIP_DOWNLOAD_DEFAULTS stops the image fetching
-	// unpinned default config files from a third-party repository.
-	env := []string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}
-	if setupOnly {
-		env = append(env, "TYPE=PAPER", "PAPER_BUILD="+strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE")
-	} else {
-		env = append(env, "TYPE=CUSTOM", "CUSTOM_SERVER=/data/"+filepath.Base(s.jarPath(sc)))
-	}
+	env := append([]string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}, typeEnv...)
 	env = append(env,
 		"SKIP_DOWNLOAD_DEFAULTS=TRUE",
 		"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",
@@ -427,59 +441,48 @@ func fileSHA256(path string) (string, error) {
 // ensureServerSoftware downloads Paper with a setup-only container (the
 // server does not run) and verifies the jar against the checksum PaperMC's
 // Fill v3 API published for the build, before the server is ever started
-// with it.
+// with it. A verified jar that changed since is not replaced on its own: the
+// server stays off until the user reinstalls.
 func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.ServerConfig) error {
 	want, err := jarChecksum(*sc)
 	if err != nil {
 		return &apiError{Msg: "The server's software cannot be verified: " + err.Error() + ".", Hint: "Choose a version under Settings, or restore a backup."}
 	}
 	jar := s.jarPath(*sc)
-	if sum, err := fileSHA256(jar); err == nil && sum == want {
-		return nil
+	if fi, err := os.Lstat(jar); err == nil {
+		var sum string
+		if fi.Mode().IsRegular() {
+			sum, _ = fileSHA256(jar)
+		}
+		if sum == want {
+			s.clearSoftwareChanged()
+			return nil
+		}
+		if sc.JarVerifiedAt != nil {
+			changed := fi.ModTime().UTC()
+			return s.softwareChangedError(&api.SoftwareChange{File: filepath.Base(jar), Algorithm: "sha256", Recorded: want, Found: sum,
+				InstalledAt: sc.JarVerifiedAt, ChangedAt: &changed, DetectedAt: s.now().UTC(), Software: softwareLabel(*sc)})
+		}
+		// Left by a download that never finished: the image would keep it.
+		if err := os.Remove(jar); err != nil {
+			return err
+		}
 	}
 	h.phase(string(api.PhaseDownloading))
 	s.setRunPhase(api.PhaseDownloading, "")
-	setupName := s.containerName() + "-setup"
-	_ = s.docker.ContainerRemove(ctx, setupName, true)
+	if sc.JarVerifiedAt != nil {
+		sc.JarVerifiedAt = nil
+		if err := s.saveServerConfig(*sc); err != nil {
+			return err
+		}
+	}
 	spec, _ := s.containerSpec(*sc, true)
-	id, err := s.docker.ContainerCreate(ctx, setupName, spec)
+	tail, code, err := s.runSetupContainer(ctx, spec)
 	if err != nil {
-		return s.dockerErr(err)
+		return err
 	}
-	defer s.docker.ContainerRemove(context.Background(), id, true)
-	if err := s.docker.ContainerStart(ctx, id); err != nil {
-		return s.dockerErr(err)
-	}
-	var tail []string
-	logs, err := s.docker.ContainerLogs(ctx, id, docker.LogsOptions{Follow: true})
-	if err == nil {
-		for {
-			l, err := logs.Next()
-			if err != nil {
-				break
-			}
-			text := minecraft.CleanLine(l.Text)
-			s.console.append(l.TS, text)
-			tail = append(tail, text)
-			if len(tail) > 8 {
-				tail = tail[1:]
-			}
-		}
-		logs.Close()
-	}
-	var c docker.ContainerJSON
-	for i := 0; i < 60; i++ {
-		c, err = s.docker.ContainerInspect(ctx, id)
-		if err != nil || !c.State.Running {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if err != nil {
-		return s.dockerErr(err)
-	}
-	if c.State.ExitCode != 0 {
-		return &apiError{Msg: "Downloading the Minecraft server software failed (exit code " + strconv.Itoa(c.State.ExitCode) + "): " + lastNonEmpty(tail),
+	if code != 0 {
+		return &apiError{Msg: "Downloading the Minecraft server software failed (exit code " + strconv.Itoa(code) + "): " + lastNonEmpty(tail),
 			Hint: "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."}
 	}
 	h.phase("verifying_download")
@@ -497,6 +500,7 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 	if err := s.saveServerConfig(*sc); err != nil {
 		return err
 	}
+	s.clearSoftwareChanged()
 	s.recordEvent(now, "server_software_verified", "", "playkeeper", filepath.Base(jar)+" sha256 "+sum)
 	s.log.Info("server software verified", "server", s.id, "jar", filepath.Base(jar), "sha256", sum)
 	return nil
@@ -523,11 +527,13 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureNetwork(ctx); err != nil {
 		return err
 	}
-	if err := s.ensureServerSoftware(ctx, h, &sc); err != nil {
+	if err := s.ensureSoftware(ctx, h, &sc); err != nil {
 		return err
 	}
-	if err := s.ensureTelemetryOff(); err != nil {
-		return err
+	if takesPlugins(sc) {
+		if err := s.ensureTelemetryOff(); err != nil {
+			return err
+		}
 	}
 	name := s.containerName()
 	spec, hash := s.containerSpec(sc, false)

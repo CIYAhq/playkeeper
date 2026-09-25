@@ -38,7 +38,9 @@ type agentEnv struct {
 	a    *Agent
 	ts   *httptest.Server
 	fill *fakeFill
-	mu   sync.Mutex
+	// up stands in for Mojang and the other upstreams of the server types.
+	up *fakeUpstream
+	mu sync.Mutex
 	// clockOffset moves the agent's clock and crashBackoff, when set, replaces
 	// the zero backoff (both taken at start); diskFree, when set, is the free
 	// space the agent measures.
@@ -82,6 +84,8 @@ func newAgentEnv(t *testing.T) *agentEnv {
 	e.fd = startFakeDocker(t, filepath.Join(dir, "docker.sock"))
 	sum := sha256.Sum256(e.fd.jarContent)
 	e.fill = startFakeFill(t, hex.EncodeToString(sum[:]))
+	e.up = startFakeUpstream(t)
+	e.up.serveMojang()
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = filepath.Join(dir, "agent.sock")
@@ -130,6 +134,7 @@ func (e *agentEnv) start() {
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
+		UpstreamClient: e.up.client(),
 	})
 	if err != nil {
 		e.t.Fatal(err)
@@ -362,7 +367,10 @@ func TestInvalidInputsAndUnknownVerbsAreRejected(t *testing.T) {
 		{"control char MOTD", "POST", "/v1/servers", create(map[string]any{"motd": "a\nb"}), 400},
 		{"control char name", "POST", "/v1/servers", create(map[string]any{"name": "a\nb"}), 400},
 		{"name too long", "POST", "/v1/servers", create(map[string]any{"name": strings.Repeat("a", 33)}), 400},
-		{"type not available yet", "POST", "/v1/servers", create(map[string]any{"type": "fabric"}), 400},
+		{"unknown type", "POST", "/v1/servers", create(map[string]any{"type": "forge"}), 400},
+		{"another type's version", "POST", "/v1/servers", create(map[string]any{"type": "vanilla"}), 400},
+		{"a build for Paper", "POST", "/v1/servers", create(map[string]any{"build": "41"}), 400},
+		{"a build for Vanilla", "POST", "/v1/servers", create(map[string]any{"type": "vanilla", "versionId": "vanilla-26.2", "build": "1"}), 400},
 		{"unknown play style", "POST", "/v1/servers", create(map[string]any{"playStyle": "chaos"}), 400},
 		{"unknown difficulty", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"difficulty": "insane"}}), 400},
 		{"view distance too far", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"viewDistance": 99}}), 400},

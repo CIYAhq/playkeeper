@@ -206,6 +206,10 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
 		view("/api/server", s.hLegacyStatus),
+
+		// Wave 4: every server type.
+		mg("/api/machines/{mid}/catalog/builds", "/v1/catalog/builds"),
+		sm("POST", "/api/servers/{id}/software/reinstall", "/v1/servers/{id}/software/reinstall"),
 	}
 }
 

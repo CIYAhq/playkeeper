@@ -15,6 +15,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
 
 // Server types, from the registry in internal/minecraft/types.go.
@@ -22,14 +23,16 @@ import (
 func serverTypes() []api.ServerType {
 	out := make([]api.ServerType, 0, len(minecraft.Types))
 	for _, t := range minecraft.Types {
-		out = append(out, api.ServerType{ID: t.ID, Name: t.Name, Available: t.Available})
+		out = append(out, api.ServerType{ID: t.ID, Name: t.Name, Available: typeAvailable(t.ID), Check: typeCheck(t.ID)})
 	}
 	return out
 }
 
+// typeAvailable is true for the types Playkeeper can install: Paper through
+// its own setup, the others through the software package.
 func typeAvailable(id string) bool {
 	t, ok := minecraft.TypeByID(id)
-	return ok && t.Available
+	return ok && t.Available && (id == api.TypePaper || software.Supported(id))
 }
 
 func typeName(id string) string {
