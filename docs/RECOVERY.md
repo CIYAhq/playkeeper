@@ -22,7 +22,7 @@ Use this when a server is lost, when you move to another VPS, or to go back to a
 
   Afterwards delete the copies in your home directory on the old server (`rm ~/playkeeper-*.tar.gz*`).
 
-- **Server and disk are gone:** only copies you downloaded earlier can help. Archives kept on the server itself are not disaster recovery.
+- **Server and disk are gone:** only what is kept somewhere else can help: backups you downloaded earlier, or the encrypted copies Playkeeper makes from 0.4.0 on (see [Copies somewhere else](#copies-somewhere-else)). Archives kept on the server itself are not disaster recovery.
 
 ## 2. Install Playkeeper on the new server
 
@@ -37,6 +37,26 @@ Follow the install steps in the [README](../README.md#install-on-your-vps). Open
 5. When the server shows **Online**, give players the new join address. They are still on the allowlist from the backup.
 
 To restore over an existing world instead (the server's **World** tab → a backup's **…** menu → **Restore this backup…**, or drop a file under **Restore a world**), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
+
+## Copies somewhere else
+
+From 0.4.0 a server can copy every backup to S3-compatible storage or to another machine over SFTP (the server's **World** tab → **Backup rules** → **Copies somewhere else**). Each copy is encrypted on the server before it leaves, and only the server's recovery key file opens it: download it (**Download recovery key**) when you turn copies on and keep it somewhere other than the server, like a password manager. Without it nobody can open the copies, you included.
+
+- **The server still runs:** on its **World** tab, a backup that is only kept somewhere else says **Only on …**. Press **Restore…**: Playkeeper downloads the copy, decrypts it and checks it, then shows the same preview as for any backup. Nothing changes until you confirm.
+- **On a new machine:** install Playkeeper (step 2) and choose **Skip for now**, then on Home press **Restore from a recovery key**:
+  1. Pick the recovery key file (`playkeeper-recovery-key-<server>.txt`), unchanged.
+  2. Enter where the copies are: for S3, the endpoint, bucket, key ID and secret key; for SFTP, the host, port, user and a password (on a new machine Playkeeper signs in with a password, not with the key it made before). The folder comes from the key file. For SFTP, compare the host key fingerprint Playkeeper shows with the one on that machine before you trust it: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` (or the `.pub` file for the key type shown).
+  3. Pick a copy and press **Next: check what's inside**. Keep the page open while Playkeeper downloads, decrypts and checks it; then read the preview and go on as in [step 3](#3-restore-in-the-browser).
+
+  Playkeeper saves neither the key nor the storage details from this. Turn copies on again for the new server: it gets a new recovery key, and you keep the old file for the old copies.
+- **Without Playkeeper:** copies are [age](https://age-encryption.org) files named after the backup with `.age` added; on S3 they are in the folder the key file names (`playkeeper/<server>/` unless you chose another). Download one, decrypt it with the key file and restore the `.tar.gz` as in step 3:
+
+  ```bash
+  age --decrypt --identity playkeeper-recovery-key-survival.txt \
+    --output playkeeper-survival-20260924-183128-0eaf9f.tar.gz playkeeper-survival-20260924-183128-0eaf9f.tar.gz.age
+  ```
+
+**Make a new key** (the recovery key's **…** menu) when the file may have got out, then download the new file: new copies use only the new key, and the new file holds the older keys too, so it opens every copy. Copies made before still open with the old file, so if it leaked, back up again and delete the older copies.
 
 ## What is not restored
 

@@ -78,7 +78,7 @@ Run `make dev` as your normal user with access to Docker (in the `docker` group)
 
 ## Scope of this release
 
-One existing Linux VPS with several Minecraft Java/Paper servers, guided setup, authenticated HTTPS management, real operations and player analytics, portable world backups and a guarded restore, in English (every string goes through a translation layer, ready for more languages). Other server types (shown as coming soon), plugins and mods, other games, more machines, more users, billing, VPS provisioning and migrating an existing production world come later.
+One existing Linux VPS with several Minecraft Java/Paper servers, guided setup, authenticated HTTPS management, real operations and player analytics, portable world backups with rules for what to keep, encrypted copies on S3-compatible storage or over SFTP, and a guarded restore, in English (every string goes through a translation layer, ready for more languages). Other server types (shown as coming soon), plugins and mods, other games, more machines, more users, billing, VPS provisioning and migrating an existing production world come later.
 
 The interface is built from [coss ui](https://coss.com/ui) components (MIT, copied into the repository and restyled) with an original design, mascot and art. [Ghost](https://github.com/haydenbleasel/ghost) is a product reference, not our codebase or hosting model. See [design](docs/DESIGN.md), [licensing](docs/LICENSING.md) and [third-party components](docs/THIRD_PARTY.md).
 
