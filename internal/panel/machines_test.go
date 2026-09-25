@@ -304,6 +304,12 @@ func TestAMachineJoinsAndItsServersAreReachable(t *testing.T) {
 	if r := e.do(t, "GET", "/api/servers/abcdefghjk", "", auth(cookie, "")); r.status != http.StatusOK || !e.sawLocally("GET /v1/servers/abcdefghjk") {
 		t.Fatalf("the dashboard's own server stays local: %d", r.status)
 	}
+	e.do(t, "GET", "/api/servers/nobodyhass", "", auth(cookie, ""))
+	for _, id := range []string{"abcdefghjk", "nobodyhass"} {
+		if _, ok := ra.saw("GET /v1/servers/" + id); ok {
+			t.Fatalf("the joined machine was asked about %s, which it doesn't run", id)
+		}
+	}
 
 	ra.reply("POST /v1/servers", `{"id":"0123456789abcdef","serverId":"newsrvabcd","kind":"create","status":"running"}`)
 	if r := e.do(t, "POST", "/api/machines/"+rid+"/servers", `{"name":"Skyblock"}`, auth(cookie, csrf)); r.status != http.StatusOK {
