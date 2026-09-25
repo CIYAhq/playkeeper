@@ -25,7 +25,7 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
     echo "MISSED   $name: $tests still pass without the guard"
     bad=1
   else
-    echo "caught   $name: $(grep -m1 -E '^\s+[a-z_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
+    echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
   fi
   git checkout -q -- "$file"
 }
