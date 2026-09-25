@@ -37,7 +37,8 @@ function useCached<T>(path: string) {
 
 /** One page of packs from a source, most downloaded first unless sorted otherwise. */
 export function useModpacks(machineId: string | undefined, q: string, sort: ModpackSort, source: ModpackSource = 'modrinth') {
-  const params = new URLSearchParams({ source, sort })
+  // The library drops packs a server can't run, so ask for more than the four shown.
+  const params = new URLSearchParams({ source, sort, limit: '12' })
   if (q.trim()) params.set('q', q.trim())
   return useCached<ModpackResults>(machineId ? machineApi(machineId, `/modpacks?${params.toString()}`) : '')
 }

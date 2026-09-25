@@ -74,7 +74,7 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
   const [open, setOpen] = useState<ModpackCard>()
   const [typed, setTyped] = useState('')
   const list = useModpacks(machineId, query, sort)
-  const cards = list.data?.cards ?? []
+  const cards = (list.data?.cards ?? []).slice(0, 4)
   const curseforge = !!list.data && !list.data.sources.includes('curseforge')
 
   return (
@@ -122,7 +122,7 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
       ) : list.loading ? (
         <div className="flex flex-col gap-2" aria-busy="true">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className={cn('rounded-2xl', phone ? 'h-[66px]' : 'h-[60px]')} />
+            <Skeleton key={i} className={cn('rounded-2xl', phone ? 'h-[62px]' : 'h-[70px]')} />
           ))}
         </div>
       ) : cards.length === 0 ? (
@@ -180,8 +180,8 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
     : [version && t('server.minecraft', { version }), card.mods ? t('modpacks.mods', { count: card.mods }) : '']
   return (
     <div className={cn('flex items-center rounded-2xl border transition-[box-shadow,border-color,background-color]', selected ? 'border-primary/55 bg-selected shadow-selected' : 'border-border bg-card hover:border-input', card.unavailable && 'opacity-60')}>
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl py-2.5 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <PackIcon machineId={machineId} url={card.iconUrl} size={phone ? 40 : 36} />
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl py-3 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:py-2.5">
+        <PackIcon machineId={machineId} url={card.iconUrl} size={phone ? 40 : 44} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold max-sm:text-base">{card.name}</span>
           <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground max-sm:text-[13px]">
@@ -280,7 +280,7 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
                 <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />
               </a>
             </SheetPanel>
-            <div className="border-t border-border px-6 pt-4 pb-5 max-sm:border-t-0">
+            <div className="px-6 pt-4 pb-5">
               <Button className="w-full" size={phone ? 'touch' : 'default'} disabled={!d || !!unavailable || !!blocker} onClick={() => onUse(choiceOf(card, d))}>
                 {t('modpacks.use')}
               </Button>
