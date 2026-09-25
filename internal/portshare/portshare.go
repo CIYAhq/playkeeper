@@ -21,6 +21,10 @@ type Options struct {
 	// PeekTimeout is how long a new connection may take to send its first
 	// byte before it is closed, 10 seconds by default.
 	PeekTimeout time.Duration
+	// HandoffTimeout is how long a routed connection waits for Accept on
+	// its listener before it is closed, 10 seconds by default, so that a
+	// listener nobody serves doesn't hold connections open.
+	HandoffTimeout time.Duration
 }
 
 // Splitter hands the connections accepted on a listener to two listeners
@@ -28,6 +32,7 @@ type Options struct {
 type Splitter struct {
 	ln      net.Listener
 	timeout time.Duration
+	handoff time.Duration
 	tls     *listener
 	plain   *listener
 
@@ -46,7 +51,10 @@ func Split(ln net.Listener, opts Options) *Splitter {
 	if opts.PeekTimeout <= 0 {
 		opts.PeekTimeout = 10 * time.Second
 	}
-	s := &Splitter{ln: ln, timeout: opts.PeekTimeout, pending: map[net.Conn]struct{}{}}
+	if opts.HandoffTimeout <= 0 {
+		opts.HandoffTimeout = 10 * time.Second
+	}
+	s := &Splitter{ln: ln, timeout: opts.PeekTimeout, handoff: opts.HandoffTimeout, pending: map[net.Conn]struct{}{}}
 	s.tls = &listener{s: s, conns: make(chan net.Conn), done: make(chan struct{})}
 	s.plain = &listener{s: s, conns: make(chan net.Conn), done: make(chan struct{})}
 	go s.serve()
@@ -198,11 +206,15 @@ func (l *listener) isShut() bool {
 }
 
 // deliver waits for Accept to take c, and closes c if the listener shuts
-// first.
+// or the handoff times out first.
 func (l *listener) deliver(c net.Conn) {
+	t := time.NewTimer(l.s.handoff)
+	defer t.Stop()
 	select {
 	case l.conns <- c:
 	case <-l.done:
+		c.Close()
+	case <-t.C:
 		c.Close()
 	}
 }
