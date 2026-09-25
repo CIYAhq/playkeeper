@@ -238,9 +238,9 @@ echo "## minecraft container"; sudo docker inspect $(sudo docker ps -aq --filter
 sudo docker inspect $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(TYPE|VERSION|CUSTOM_SERVER|SKIP_DOWNLOAD_DEFAULTS|MEMORY|ONLINE_MODE|ENABLE_WHITELIST|LOG_IPS)='
 echo "## image"; sudo docker inspect $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) --format '{{.Config.Image}}'
 echo "## JVM heap flags"; sudo tr '\0' ' ' </proc/"$(pgrep -f 'paper-26.1.2' | head -1)"/cmdline | grep -oE -- '-Xm[sx][0-9]+[MG]' | sort -u
-echo "## server.properties"; sudo grep -E '^(online-mode|white-list|enforce-whitelist|log-ips|enable-rcon|server-port)=' $(sudo sh -c 'ls -d /var/lib/playkeeper/servers/*/data' | head -1)/server.properties
-echo "## Paper bStats telemetry"; sudo grep -E '^enabled:' $(sudo sh -c 'ls -d /var/lib/playkeeper/servers/*/data' | head -1)/plugins/bStats/config.yml
-echo "## secret files"; sudo stat -c '%a %U %n' $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1) /var/lib/playkeeper/panel/tls/key.pem /var/lib/playkeeper/panel/panel.db /var/lib/playkeeper/agent/agent.db
+echo "## server.properties"; sudo grep -E '^(online-mode|white-list|enforce-whitelist|log-ips|enable-rcon|server-port)=' $(sudo sh -c "ls -d /var/lib/playkeeper/servers/*/data" | head -1)/server.properties
+echo "## Paper bStats telemetry"; sudo grep -E '^enabled:' $(sudo sh -c "ls -d /var/lib/playkeeper/servers/*/data" | head -1)/plugins/bStats/config.yml
+echo "## secret files"; sudo stat -c '%a %U %n' $(sudo sh -c "ls /var/lib/playkeeper/agent/servers/*/rcon.secret" | head -1) /var/lib/playkeeper/panel/tls/key.pem /var/lib/playkeeper/panel/panel.db /var/lib/playkeeper/agent/agent.db
 echo "## IP addresses in databases"
 sudo python3 - <<'PY'
 import re, sqlite3
@@ -251,7 +251,7 @@ for db in ("/var/lib/playkeeper/agent/agent.db", "/var/lib/playkeeper/panel/pane
     print(db, "IPv4-like strings:", ips or "none")
 PY
 echo "## RCON password in logs or databases"
-pw=$(sudo cat $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1))
+pw=$(sudo cat $(sudo sh -c "ls /var/lib/playkeeper/agent/servers/*/rcon.secret" | head -1))
 echo "journal: $(sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager | grep -c "$pw")"
 echo "container log: $(sudo docker logs $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) 2>&1 | grep -c "$pw")"
 echo "databases: $(sudo cat /var/lib/playkeeper/agent/agent.db* /var/lib/playkeeper/panel/panel.db* | grep -ac "$pw")"
@@ -259,7 +259,7 @@ echo "## established connections right now (the agent's RCON link to the contain
 EOF
 lab_ssh "$A" "sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager | grep -c '$PK_PASSWORD' || true" | sed 's/^/admin password occurrences in journal: /' | tee -a "$OUT/host-a-privileges.txt"
 pk "$A" call GET '/api/servers/{server}/logs?limit=2000' | grep -c 'raw.githubusercontent.com' | sed 's/^/console lines mentioning raw.githubusercontent.com: /' | tee -a "$OUT/host-a-privileges.txt" || true
-lab_ssh "$A" 'sudo sha256sum $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1) /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-a-secret-hashes"
+lab_ssh "$A" 'sudo sha256sum $(sudo sh -c "ls /var/lib/playkeeper/agent/servers/*/rcon.secret" | head -1) /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-a-secret-hashes"
 
 phase "HOST A: overview numbers against ground truth"
 wait_online "$A"
@@ -517,7 +517,7 @@ diff "$OUT/host-c-world-before-tamper.sums" "$OUT/host-c-world-after-tamper.sums
 pk "$C" action start --wait >/dev/null
 wait_online "$C"
 pk "$C" call GET /api/audit >"$OUT/host-c-audit.json"
-lab_ssh "$C" 'sudo sha256sum $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1) /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-c-secret-hashes"
+lab_ssh "$C" 'sudo sha256sum $(sudo sh -c "ls /var/lib/playkeeper/agent/servers/*/rcon.secret" | head -1) /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-c-secret-hashes"
 if grep -qxFf "$OUT/host-a-secret-hashes" "$OUT/host-c-secret-hashes"; then
   echo "SECRETS REPEATED: host C shares an RCON password or TLS key with host A" | tee "$OUT/host-c-secrets.txt"
   exit 1

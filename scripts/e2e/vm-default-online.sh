@@ -33,9 +33,9 @@ pk setup "$code" admin "$password" >/dev/null
 pk create --version paper-26.1.2 | tail -3
 pk wait-online --timeout 600 | grep -E '"phase"|"offlineModeTest"'
 echo "## shipped defaults on a fresh install (no test-harness flag)"
-lab_ssh "$D" 'sudo grep -E "^(online-mode|white-list|enforce-whitelist|log-ips)=" $(sudo sh -c 'ls -d /var/lib/playkeeper/servers/*/data' | head -1)/server.properties; sudo docker inspect $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) --format "{{range .Config.Env}}{{println .}}{{end}}" | grep -E "^(ONLINE_MODE|VERSION|SKIP_DOWNLOAD_DEFAULTS)="'
+lab_ssh "$D" 'sudo grep -E "^(online-mode|white-list|enforce-whitelist|log-ips)=" $(sudo sh -c "ls -d /var/lib/playkeeper/servers/*/data" | head -1)/server.properties; sudo docker inspect $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) --format "{{range .Config.Env}}{{println .}}{{end}}" | grep -E "^(ONLINE_MODE|VERSION|SKIP_DOWNLOAD_DEFAULTS)="'
 echo "## Paper telemetry (bStats) and third-party config downloads"
-lab_ssh "$D" 'sudo grep -E "^enabled:" $(sudo sh -c 'ls -d /var/lib/playkeeper/servers/*/data' | head -1)/plugins/bStats/config.yml'
+lab_ssh "$D" 'sudo grep -E "^enabled:" $(sudo sh -c "ls -d /var/lib/playkeeper/servers/*/data" | head -1)/plugins/bStats/config.yml'
 pk call GET '/api/servers/{server}/logs?limit=2000' | grep -c 'raw.githubusercontent.com' | sed 's/^/console lines mentioning raw.githubusercontent.com: /' || true
 echo "## a non-genuine (offline-mode) client tries to join; Mojang authentication runs before the allowlist check"
 if node "$root/test/e2e/bot/bot.js" visit --host "$D" --port 25565 --name PkBotNoAuth --stay 5; then
