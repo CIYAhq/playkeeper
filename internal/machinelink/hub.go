@@ -344,9 +344,9 @@ func (h *Hub) welcomeFor(m Machine) welcome {
 func (h *Hub) join(ctx context.Context, tc *tls.Conn, key ed25519.PublicKey, hel hello, remote string) {
 	m, ev, e := h.pair(ctx, key, hel, remote)
 	if e != nil {
-		h.refuse(tc, e)
 		h.log.Warn("machine join refused", "addr", remoteIP(remote), "code", e.Code, "err", e.Err)
 		h.emit(Event{Kind: EventJoinRefused, At: h.now(), Address: remoteIP(remote), Code: e.Code})
+		h.refuse(tc, e)
 		return
 	}
 	if ev != nil {
