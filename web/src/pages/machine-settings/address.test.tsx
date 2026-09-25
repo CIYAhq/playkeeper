@@ -262,6 +262,8 @@ describe('choosing an address', () => {
     await click(button('Claim alex.playkeeper.io'))
     expect(text()).toContain('The free address service is full right now')
     expect(text()).toContain('Try again tomorrow, or use your own domain.')
+    expect(field('Pick a name').value).toBe('alex')
+    expect(text()).toContain('survival.alex.playkeeper.io')
     await click(button('Use your own domain'))
     expect(radio('Your own domain').getAttribute('aria-checked')).toBe('true')
     expect(field('Your domain')).toBeTruthy()
