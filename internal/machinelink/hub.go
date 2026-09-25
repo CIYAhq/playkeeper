@@ -715,7 +715,10 @@ func (h *Hub) newSession(ctx context.Context, tc *tls.Conn, m Machine, hel hello
 		DisableCompression:     true,
 		MaxResponseHeaderBytes: maxHeaderBytes,
 		HTTP2: &http.HTTP2Config{
-			SendPingTimeout:  2 * h.opts.Heartbeat,
+			// HTTP/2's own pings only matter while every stream is busy
+			// and the heartbeat can't be sent. Coming later than the
+			// heartbeat's timeout, they never report a dead link first.
+			SendPingTimeout:  2*h.opts.Heartbeat + h.opts.HeartbeatTimeout,
 			PingTimeout:      h.opts.HeartbeatTimeout,
 			WriteByteTimeout: 2 * h.opts.HeartbeatTimeout,
 		},
