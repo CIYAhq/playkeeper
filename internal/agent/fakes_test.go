@@ -493,6 +493,14 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 	}
 }
 
+// Paper's replies to the tick commands.
+const (
+	paperTPSSmooth  = "§6TPS from last 1m, 5m, 15m: §a*20.0, §a19.95, §a19.98"
+	paperMSPTSmooth = "§6Server tick times §e(§7avg§e/§7min§e/§7max§e)§6 from last 5s§7,§6 10s§7,§6 1m§e:\n§6◴ §a4.2§7/§a2.1§7/§a9.8§e, §a4.5§7/§a2.0§7/§a14.3§e, §a4.9§7/§a1.9§7/§e41.7"
+	paperTPSBehind  = "§6TPS from last 1m, 5m, 15m: §e17.1, §e17.4, §a19.2"
+	paperMSPTBehind = "§6Server tick times §e(§7avg§e/§7min§e/§7max§e)§6 from last 5s§7,§6 10s§7,§6 1m§e:\n§6◴ §e58.2§7/§a31.0§7/§c142.0§e, §e57.0§7/§a30.1§7/§c150.3§e, §e58.4§7/§a29.9§7/§c188.0"
+)
+
 // fakeRCON answers console commands like a Paper server.
 type fakeRCON struct {
 	addr string
@@ -501,6 +509,15 @@ type fakeRCON struct {
 	mu       sync.Mutex
 	commands []string
 	online   []string
+	// savingOff holds the servers, by RCON password, whose automatic saving
+	// is turned off.
+	savingOff map[string]bool
+	// lose, when it returns true, runs a command and then drops the
+	// connection without replying, as when a reply is lost.
+	lose func(cmd string) bool
+	// answer, when it returns true, replaces the reply to a command.
+	answer    func(cmd string) (string, bool)
+	tps, mspt string
 }
 
 func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
@@ -509,7 +526,7 @@ func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fr := &fakeRCON{addr: ln.Addr().String(), accept: accept}
+	fr := &fakeRCON{addr: ln.Addr().String(), accept: accept, savingOff: map[string]bool{}, tps: paperTPSSmooth, mspt: paperMSPTSmooth}
 	t.Cleanup(func() { ln.Close() })
 	go func() {
 		for {
@@ -529,9 +546,51 @@ func (fr *fakeRCON) setOnline(names ...string) {
 	fr.mu.Unlock()
 }
 
+// save turns a server's automatic saving on or off and answers like Paper.
+func (fr *fakeRCON) save(pass string, on bool) string {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	wasOn := !fr.savingOff[pass]
+	fr.savingOff[pass] = !on
+	switch {
+	case on && wasOn:
+		return "Saving is already turned on"
+	case on:
+		return "Automatic saving is now enabled"
+	case !wasOn:
+		return "Saving is already turned off"
+	}
+	return "Automatic saving is now disabled"
+}
+
+// savingIsOff reports whether any server's automatic saving is off.
+func (fr *fakeRCON) savingIsOff() bool {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	for _, off := range fr.savingOff {
+		if off {
+			return true
+		}
+	}
+	return false
+}
+
+func (fr *fakeRCON) sent(cmd string) int {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	n := 0
+	for _, c := range fr.commands {
+		if c == cmd {
+			n++
+		}
+	}
+	return n
+}
+
 func (fr *fakeRCON) handle(c net.Conn) {
 	defer c.Close()
 	authed := false
+	pass := ""
 	for {
 		var hdr [4]byte
 		if _, err := io.ReadFull(c, hdr[:]); err != nil {
@@ -557,6 +616,7 @@ func (fr *fakeRCON) handle(c net.Conn) {
 		case typ == 3:
 			authed = body != "" && fr.accept(body)
 			if authed {
+				pass = body
 				reply(id, 2, "")
 			} else {
 				reply(-1, 2, "")
@@ -565,25 +625,40 @@ func (fr *fakeRCON) handle(c net.Conn) {
 			fr.mu.Lock()
 			fr.commands = append(fr.commands, body)
 			online := append([]string(nil), fr.online...)
+			lose, answer, tps, mspt := fr.lose, fr.answer, fr.tps, fr.mspt
 			fr.mu.Unlock()
-			switch {
-			case body == "list":
-				reply(id, 0, fmt.Sprintf("There are %d of a max of 10 players online: %s", len(online), strings.Join(online, ", ")))
-			case strings.HasPrefix(body, "save-all"):
-				reply(id, 0, "Saved the game")
-			case body == "tps":
-				reply(id, 0, "§6TPS from last 1m, 5m, 15m: §a*20.0, §a19.95, §a19.98")
-			case strings.HasPrefix(body, "whitelist add "):
-				reply(id, 0, "Added "+strings.TrimPrefix(body, "whitelist add ")+" to the whitelist")
-			case strings.HasPrefix(body, "op "):
-				reply(id, 0, "Made "+strings.TrimPrefix(body, "op ")+" a server operator")
-			case strings.HasPrefix(body, "kick "):
-				reply(id, 0, "No player was found")
-			case strings.HasPrefix(body, "say "):
-				reply(id, 0, "")
-			default:
-				reply(id, 0, "Unknown or incomplete command. See below for error\n"+body+"<--[HERE]")
+			out, custom := "", false
+			if answer != nil {
+				out, custom = answer(body)
 			}
+			switch {
+			case custom:
+			case body == "list":
+				out = fmt.Sprintf("There are %d of a max of 10 players online: %s", len(online), strings.Join(online, ", "))
+			case body == "save-off":
+				out = fr.save(pass, false)
+			case body == "save-on":
+				out = fr.save(pass, true)
+			case strings.HasPrefix(body, "save-all"):
+				out = "Saved the game"
+			case body == "tps":
+				out = tps
+			case body == "mspt":
+				out = mspt
+			case strings.HasPrefix(body, "whitelist add "):
+				out = "Added " + strings.TrimPrefix(body, "whitelist add ") + " to the whitelist"
+			case strings.HasPrefix(body, "op "):
+				out = "Made " + strings.TrimPrefix(body, "op ") + " a server operator"
+			case strings.HasPrefix(body, "kick "):
+				out = "No player was found"
+			case strings.HasPrefix(body, "say "):
+			default:
+				out = "Unknown or incomplete command. See below for error\n" + body + "<--[HERE]"
+			}
+			if lose != nil && lose(body) {
+				return
+			}
+			reply(id, 0, out)
 		default:
 			reply(id, 0, "Unknown request")
 		}

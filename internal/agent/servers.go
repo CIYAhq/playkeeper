@@ -83,9 +83,11 @@ type server struct {
 	worldBytes      int64
 	worldAt         time.Time
 
-	rconMu sync.Mutex
-	rcon   *minecraft.RCON
-	rconIP string
+	// rconLock holds the console connection; a channel, so waiting for it
+	// honours a command's deadline.
+	rconLock chan struct{}
+	rcon     *minecraft.RCON
+	rconIP   string
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -93,6 +95,7 @@ func (a *Agent) newServerHandle(id, layout string, port int) *server {
 		Agent: a, id: id, layout: layout, gamePort: port,
 		console:     newRing(consoleCapacity),
 		opLock:      make(chan struct{}, 1),
+		rconLock:    make(chan struct{}, 1),
 		handledExit: map[string]time.Time{},
 		exitSeen:    map[string]seenExit{},
 		intentional: map[string]bool{},

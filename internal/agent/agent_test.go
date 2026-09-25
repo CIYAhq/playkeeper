@@ -1879,3 +1879,24 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 		}
 	}
 }
+
+// A console command whose reply is lost may have run, so it is never sent
+// again; the next command gets a new connection.
+func TestLostConsoleRepliesAreNeverResent(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	const give = "give PkBotFriend diamond 64"
+	e.rcon.mu.Lock()
+	e.rcon.lose = func(cmd string) bool { return cmd == give }
+	e.rcon.mu.Unlock()
+	if code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": give}); code != 502 {
+		t.Fatalf("a lost reply must be reported: %d %v", code, out)
+	}
+	if n := e.rcon.sent(give); n != 1 {
+		t.Fatalf("the command reached the server %d times, want once", n)
+	}
+	code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": "list"})
+	if code != 200 || !strings.Contains(out["output"].(string), "players online") {
+		t.Fatalf("the next command must work on a new connection: %d %v", code, out)
+	}
+}

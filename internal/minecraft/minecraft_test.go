@@ -2,11 +2,14 @@ package minecraft
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -131,6 +134,13 @@ func TestImageAndKnownBuildsArePinned(t *testing.T) {
 	}
 }
 
+// Replies with these prefixes make fakeRCON hang up: without replying (the
+// reply is lost), or right after replying (the connection goes stale).
+const (
+	hangUp          = "\x00hang up"
+	replyThenHangUp = "\x00reply then hang up:"
+)
+
 // fakeRCON serves the RCON protocol and, like Paper, drops the connection if
 // a second packet arrives in the same read (no pipelining).
 func fakeRCON(t *testing.T, password string, reply func(cmd string) string) string {
@@ -179,11 +189,21 @@ func fakeRCON(t *testing.T, password string, reply func(cmd string) string) stri
 						send(-1, 2, "")
 					case typ == 2 && authed:
 						out := reply(body)
+						if out == hangUp {
+							return
+						}
+						after, closeAfter := strings.CutPrefix(out, replyThenHangUp)
+						if closeAfter {
+							out = after
+						}
 						for len(out) > 4096 {
 							send(id, 0, out[:4096])
 							out = out[4096:]
 						}
 						send(id, 0, out)
+						if closeAfter {
+							return
+						}
 					default:
 						send(id, 0, "Unknown request c8")
 					}
@@ -219,8 +239,101 @@ func TestRCONCommands(t *testing.T) {
 	if err != nil || len(out) != 9000 {
 		t.Fatalf("multi-packet reply: len %d err %v", len(out), err)
 	}
-	if _, err := r.Command(strings.Repeat("a", 2000), time.Second); err == nil {
-		t.Fatal("oversized command must be refused")
+	if _, err := r.Command(strings.Repeat("a", 2000), time.Second); err == nil || !errors.Is(err, ErrNotSent) {
+		t.Fatalf("oversized command must be refused before sending: %v", err)
+	}
+}
+
+// A command is written at most once, and the caller learns whether it may
+// have run: resending save-on after a lost reply would read as saving turned
+// back on by someone else.
+func TestRCONCommandContextNeverResendsAndHonoursTheContext(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	addr := fakeRCON(t, "secret", func(cmd string) string {
+		mu.Lock()
+		got = append(got, cmd)
+		mu.Unlock()
+		switch cmd {
+		case "lost":
+			return hangUp
+		case "last":
+			return replyThenHangUp + "bye"
+		case "slow":
+			<-block
+		}
+		return "ran: " + cmd
+	})
+	dial := func() *RCON {
+		t.Helper()
+		r, err := DialRCONContext(context.Background(), addr, "secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { r.Close() })
+		return r
+	}
+	count := func(cmd string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		n := 0
+		for _, c := range got {
+			if c == cmd {
+				n++
+			}
+		}
+		return n
+	}
+
+	r := dial()
+	if _, err := r.CommandContext(context.Background(), "lost"); err == nil || errors.Is(err, ErrNotSent) {
+		t.Fatalf("a lost reply must say the command may have run, got %v", err)
+	}
+	if count("lost") != 1 {
+		t.Fatalf("the command reached the server %d times, want once", count("lost"))
+	}
+
+	r = dial()
+	if out, err := r.CommandContext(context.Background(), "last"); err != nil || out != "bye" {
+		t.Fatalf("got %q %v", out, err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := r.CommandContext(context.Background(), "after"); !errors.Is(err, ErrNotSent) {
+		t.Fatalf("a connection the server closed must be noticed before writing, got %v", err)
+	}
+	if count("after") != 0 {
+		t.Fatal("nothing may be written to a connection the server closed")
+	}
+
+	r = dial()
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := r.CommandContext(ctx, "slow")
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrNotSent) {
+		t.Fatalf("an expired deadline: got %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("the deadline was not honoured: %s", d)
+	}
+
+	r = dial()
+	ctx, cancel = context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start = time.Now()
+	if _, err := r.CommandContext(ctx, "slow"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled context: got %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("cancellation was not honoured: %s", d)
+	}
+	if _, err := r.CommandContext(ctx, "never"); !errors.Is(err, ErrNotSent) {
+		t.Fatalf("a command with a context already done is not sent, got %v", err)
+	}
+	if count("never") != 0 {
+		t.Fatal("a command with a context already done reached the server")
 	}
 }
 

@@ -537,31 +537,52 @@ func (a *Agent) setDockerOK(ok bool) {
 	a.mu.Unlock()
 }
 
-// rconCommand sends one console command over the private Docker bridge.
+// rconCommand sends one console command, waiting up to 10 seconds.
 func (s *server) rconCommand(cmd string) (string, error) {
-	s.rconMu.Lock()
-	defer s.rconMu.Unlock()
-	for attempt := 0; attempt < 2; attempt++ {
+	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+	defer cancel()
+	return s.rconExec(ctx, cmd)
+}
+
+// rconExec sends one console command over the private Docker bridge within
+// ctx's deadline. A connection found closed is replaced before the command
+// is written, but a command whose reply was lost is never sent again: the
+// server may have run it, and a second save-on would read as saving turned
+// back on by someone else, which throws a good backup away.
+func (s *server) rconExec(ctx context.Context, cmd string) (string, error) {
+	select {
+	case s.rconLock <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-s.rconLock }()
+	for attempt := 0; ; attempt++ {
 		if s.rcon == nil {
-			if err := s.dialRCON(); err != nil {
+			if err := s.dialRCON(ctx); err != nil {
 				return "", err
 			}
 		}
-		out, err := s.rcon.Command(cmd, 10*time.Second)
+		out, err := s.rcon.CommandContext(ctx, cmd)
 		if err == nil {
 			return out, nil
 		}
 		s.rcon.Close()
 		s.rcon = nil
-		if attempt == 1 {
+		if attempt > 0 || !errors.Is(err, minecraft.ErrNotSent) || ctx.Err() != nil {
 			return "", err
 		}
 	}
-	return "", errors.New("rcon unavailable")
 }
 
-func (s *server) dialRCON() error {
-	c, err := s.docker.ContainerInspect(s.ctx, s.containerName())
+// rconConsole is a server's console for backup.Take and the tick probes.
+type rconConsole struct{ s *server }
+
+func (c rconConsole) Command(ctx context.Context, cmd string) (string, error) {
+	return c.s.rconExec(ctx, cmd)
+}
+
+func (s *server) dialRCON(ctx context.Context) error {
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if err != nil {
 		return err
 	}
@@ -576,7 +597,9 @@ func (s *server) dialRCON() error {
 	if err != nil {
 		return err
 	}
-	r, err := minecraft.DialRCON(s.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
+	dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	r, err := minecraft.DialRCONContext(dctx, s.opts.RCONAddr(n.IPAddress), pass)
 	if err != nil {
 		return err
 	}
@@ -586,12 +609,12 @@ func (s *server) dialRCON() error {
 }
 
 func (s *server) resetRCON() {
-	s.rconMu.Lock()
+	s.rconLock <- struct{}{}
 	if s.rcon != nil {
 		s.rcon.Close()
 		s.rcon = nil
 	}
-	s.rconMu.Unlock()
+	<-s.rconLock
 }
 
 // pruneLoop enforces retention for analytics, events, operations and audit.
