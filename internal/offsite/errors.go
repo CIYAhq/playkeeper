@@ -20,28 +20,34 @@ import (
 type Kind string
 
 const (
-	KindInvalidConfig Kind = "invalid_config"     // a setting is missing or malformed
-	KindWrongKeys     Kind = "wrong_keys"         // unknown access key ID, or a secret that doesn't match it
-	KindNoSuchBucket  Kind = "no_such_bucket"     // the bucket doesn't exist
-	KindPermission    Kind = "permission_denied"  // the key may not do this, or the account is disabled
-	KindClockSkew     Kind = "clock_skew"         // this machine's clock is too far off
-	KindWrongRegion   Kind = "wrong_region"       // the bucket is in another region
-	KindNetwork       Kind = "network"            // no connection, a timeout or a broken connection
-	KindTLS           Kind = "tls"                // the endpoint's certificate could not be verified
-	KindRedirect      Kind = "redirect"           // the service sent the request elsewhere; never followed
-	KindRateLimited   Kind = "rate_limited"       // the service asked to slow down
-	KindServiceError  Kind = "service_error"      // the service failed (HTTP 5xx)
-	KindStorageFull   Kind = "storage_full"       // a quota or storage cap is reached
-	KindChecksum      Kind = "checksum_mismatch"  // the service received different bytes than were sent
-	KindLocalChanged  Kind = "local_file_changed" // the backup file doesn't match its recorded checksum
-	KindVerifyFailed  Kind = "verify_failed"      // the copy in the bucket doesn't match the backup
-	KindNotFound      Kind = "not_found"          // the copy is not in the bucket
-	KindConflict      Kind = "conflict"           // a different file already has the copy's name
-	KindUploadGone    Kind = "upload_gone"        // the unfinished upload no longer exists
-	KindLocked        Kind = "locked"             // old versions the bucket refuses to delete
-	KindTooLarge      Kind = "too_large"          // larger than the service accepts
-	KindCanceled      Kind = "canceled"           // the context was cancelled
-	KindUnexpected    Kind = "unexpected"         // an answer Playkeeper doesn't understand
+	KindInvalidConfig  Kind = "invalid_config"     // a setting is missing or malformed
+	KindWrongKeys      Kind = "wrong_keys"         // unknown access key ID, or a secret that doesn't match it
+	KindNoSuchBucket   Kind = "no_such_bucket"     // the bucket doesn't exist
+	KindPermission     Kind = "permission_denied"  // the key or account may not do this, or the account is disabled
+	KindClockSkew      Kind = "clock_skew"         // this machine's clock is too far off
+	KindWrongRegion    Kind = "wrong_region"       // the bucket is in another region
+	KindNetwork        Kind = "network"            // no connection, a timeout or a broken connection
+	KindTLS            Kind = "tls"                // the endpoint's certificate could not be verified
+	KindRedirect       Kind = "redirect"           // the service sent the request elsewhere; never followed
+	KindRateLimited    Kind = "rate_limited"       // the service asked to slow down
+	KindServiceError   Kind = "service_error"      // the service failed (HTTP 5xx)
+	KindStorageFull    Kind = "storage_full"       // a quota or storage cap is reached, or the other machine's disk is full
+	KindChecksum       Kind = "checksum_mismatch"  // the service received different bytes than were sent
+	KindLocalChanged   Kind = "local_file_changed" // the backup or its encrypted copy doesn't match its checksum
+	KindVerifyFailed   Kind = "verify_failed"      // the stored copy doesn't match, or is damaged
+	KindNotFound       Kind = "not_found"          // the copy is not there
+	KindConflict       Kind = "conflict"           // a different file already has the copy's name
+	KindUploadGone     Kind = "upload_gone"        // the unfinished upload no longer exists
+	KindLocked         Kind = "locked"             // old versions the bucket refuses to delete
+	KindTooLarge       Kind = "too_large"          // larger than the service accepts
+	KindCanceled       Kind = "canceled"           // the context was cancelled
+	KindUnexpected     Kind = "unexpected"         // an answer Playkeeper doesn't understand
+	KindKeyMismatch    Kind = "key_mismatch"       // none of the server's encryption keys opens the copy
+	KindNotEnoughSpace Kind = "not_enough_space"   // this machine's disk has no room to encrypt or restore a copy
+	KindHostKeyUnknown Kind = "host_key_unknown"   // the other machine's host key isn't confirmed yet
+	KindHostKeyChanged Kind = "host_key_changed"   // the other machine presented another host key than the confirmed one
+	KindLoginRefused   Kind = "login_refused"      // the other machine refused the user name, password or key
+	KindNoSuchFolder   Kind = "no_such_folder"     // the folder doesn't exist on the other machine
 )
 
 // What an Error's Op can be.
@@ -58,7 +64,7 @@ const (
 
 // Error is what every operation returns when it fails. Msg is a full
 // sentence and Hint says what to do about it; Kind and Params let the
-// dashboard show its own translation. Neither ever contains the secret key.
+// dashboard show its own translation. Neither ever contains a secret.
 type Error struct {
 	Kind Kind
 	// Op is what was being done: setup, test, upload, verify, list,
@@ -69,9 +75,23 @@ type Error struct {
 	Code   string        // the service's error code, such as NoSuchBucket
 	Region string        // for KindWrongRegion: the bucket's region, if the service said
 	Skew   time.Duration // for KindClockSkew: how far the service's clock is ahead (negative: behind)
-	Field  string        // the setting at fault, if one is: endpoint, region, bucket, accessKeyId, secretKey…
-	Msg    string
-	Hint   string
+	// Field is the setting at fault, if one is: endpoint, region, bucket,
+	// accessKeyId, secretKey, host, port, user, folder, password,
+	// privateKey, hostKey…
+	Field string
+	// HostKey is, for KindHostKeyUnknown and KindHostKeyChanged, the key
+	// the other machine presented; Pinned is the confirmed key's
+	// fingerprint for KindHostKeyChanged.
+	HostKey *HostKey
+	Pinned  string
+	// Need and Free are, for KindNotEnoughSpace and a full disk on the
+	// other machine, the bytes needed and free.
+	Need, Free int64
+	// User and Folder are, over SFTP, the user name and folder a refusal
+	// is about.
+	User, Folder string
+	Msg          string
+	Hint         string
 	// Retry reports whether trying again later may work.
 	Retry bool
 	// Resume is set when an upload stopped part-way and can continue:
@@ -90,7 +110,7 @@ func (e *Error) Unwrap() error { return e.Err }
 // Params are the values Msg and Hint mention, for a translated message.
 func (e *Error) Params() map[string]string {
 	p := map[string]string{"op": e.Op}
-	for k, v := range map[string]string{"name": e.Name, "code": e.Code, "region": e.Region, "field": e.Field} {
+	for k, v := range map[string]string{"name": e.Name, "code": e.Code, "region": e.Region, "field": e.Field, "user": e.User, "folder": e.Folder} {
 		if v != "" {
 			p[k] = v
 		}
@@ -104,6 +124,16 @@ func (e *Error) Params() map[string]string {
 		if e.Skew < 0 {
 			p["direction"] = "ahead"
 		}
+	}
+	if e.HostKey != nil {
+		p["fingerprint"], p["keyType"] = e.HostKey.Fingerprint, e.HostKey.Type
+	}
+	if e.Pinned != "" {
+		p["pinnedFingerprint"] = e.Pinned
+	}
+	if e.Need > 0 {
+		p["need"], p["needBytes"] = humanBytes(e.Need), strconv.FormatInt(e.Need, 10)
+		p["free"], p["freeBytes"] = humanBytes(e.Free), strconv.FormatInt(e.Free, 10)
 	}
 	return p
 }
@@ -136,8 +166,17 @@ func opName(op string) string {
 	return "The request"
 }
 
+// placeOf is where a destination of the kind keeps copies, for messages:
+// "in the bucket" or "on the other machine".
+func placeOf(kind string) string {
+	if kind == TypeSFTP {
+		return "on the other machine"
+	}
+	return "in the bucket"
+}
+
 // permissionWhat is what request r needed permission to do.
-func (c *Client) permissionWhat(r *http.Request) string {
+func (c *s3Client) permissionWhat(r *http.Request) string {
 	switch {
 	case r == nil:
 		return "use this bucket"
@@ -177,7 +216,7 @@ func parseS3Error(body []byte) (s3Error, bool) {
 
 // clean makes a service's message safe to show: printable ASCII, single
 // spaces, bounded, and never the secret.
-func (c *Client) clean(s string) string {
+func (c *s3Client) clean(s string) string {
 	s = strings.Map(func(r rune) rune {
 		if r < ' ' || r > '~' {
 			return ' '
@@ -196,7 +235,7 @@ func (c *Client) clean(s string) string {
 
 // responseError turns a failed response to r into an Error. sent is when
 // the request was signed, to tell how far off the clock is.
-func (c *Client) responseError(op, name string, r *http.Request, status int, h http.Header, body []byte, sent time.Time) *Error {
+func (c *s3Client) responseError(op, name string, r *http.Request, status int, h http.Header, body []byte, sent time.Time) *Error {
 	se, _ := parseS3Error(body)
 	e := &Error{Op: op, Name: name, Status: status, Code: se.Code, svcMsg: strings.ToLower(se.Message)}
 	region := se.Region
@@ -307,7 +346,7 @@ func (c *Client) responseError(op, name string, r *http.Request, status int, h h
 	return e
 }
 
-func (c *Client) skewError(e *Error, serverTime string, h http.Header, sent time.Time) {
+func (c *s3Client) skewError(e *Error, serverTime string, h http.Header, sent time.Time) {
 	e.Kind = KindClockSkew
 	server, err := time.Parse(time.RFC3339, serverTime)
 	if err != nil {
@@ -349,7 +388,7 @@ type refusedAddrError struct{ ip string }
 func (e *refusedAddrError) Error() string { return "refusing to connect to " + e.ip }
 
 // transportError turns a failure without a response into an Error.
-func (c *Client) transportError(op, name string, err error) *Error {
+func (c *s3Client) transportError(op, name string, err error) *Error {
 	e := &Error{Op: op, Name: name, Err: err}
 	var (
 		dnsErr   *net.DNSError
@@ -437,4 +476,19 @@ func humanDuration(d time.Duration) string {
 		return plural(int64(d.Round(time.Hour)/time.Hour), "hour")
 	}
 	return plural(int64(d.Round(24*time.Hour)/(24*time.Hour)), "day")
+}
+
+// humanBytes writes n in decimal units, as the dashboard shows sizes.
+func humanBytes(n int64) string {
+	switch {
+	case n >= 999_950_000_000:
+		return fmt.Sprintf("%.1f TB", float64(n)/1e12)
+	case n >= 999_950_000:
+		return fmt.Sprintf("%.1f GB", float64(n)/1e9)
+	case n >= 999_500:
+		return fmt.Sprintf("%.0f MB", float64(n)/1e6)
+	case n >= 1000:
+		return fmt.Sprintf("%.0f kB", float64(n)/1e3)
+	}
+	return strconv.FormatInt(n, 10) + " bytes"
 }

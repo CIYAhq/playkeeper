@@ -15,8 +15,18 @@ import (
 
 const probePrefix = "playkeeper-connection-test-"
 
+// probeText is what the connection test's file holds, encrypted like a
+// copy, for whoever finds it.
+const probeText = "Playkeeper connection test. Playkeeper deletes this file right away; if it is still here, you can delete it.\n"
+
+func newProbeName() string {
+	var id [8]byte
+	_, _ = rand.Read(id[:])
+	return probePrefix + hex.EncodeToString(id[:]) + ".age"
+}
+
 func isProbeName(name string) bool {
-	id, ok := cutAffixes(name, probePrefix, ".txt")
+	id, ok := cutAffixes(name, probePrefix, ".age")
 	if !ok || len(id) != 16 {
 		return false
 	}
@@ -33,7 +43,9 @@ func cutAffixes(s, prefix, suffix string) (string, bool) {
 
 // Check is one step of the connection test.
 type Check struct {
-	Step   string            `json:"step"` // write, read, list, multipart or delete
+	// Step is, for S3: write, read, list, multipart or delete; for SFTP:
+	// connect, folder, write, rename, read, list or delete.
+	Step   string            `json:"step"`
 	OK     bool              `json:"ok"`
 	Msg    string            `json:"msg"`
 	Hint   string            `json:"hint,omitempty"`
@@ -41,56 +53,58 @@ type Check struct {
 	Params map[string]string `json:"params,omitempty"`
 }
 
-// TestResult is the outcome of Test.
+// TestResult is the outcome of Destination.Test.
 type TestResult struct {
 	OK     bool    `json:"ok"`
 	Checks []Check `json:"checks"`
-	// Skew is how far the service's clock is ahead of this machine's
+	// Skew is how far the S3 service's clock is ahead of this machine's
 	// (negative: behind), from its Date header; zero if unknown or under
 	// two seconds.
 	Skew time.Duration `json:"skew"`
+	// HostKey is the host key the other machine presented over SFTP, once
+	// the connection got that far. When the connect step fails with
+	// KindHostKeyUnknown, show its fingerprint for the user to confirm, then
+	// save its Key as SFTPConfig.HostKey.
+	HostKey *HostKey `json:"hostKey,omitempty"`
 	// Warning is a problem that doesn't fail the test yet.
 	Warning string `json:"warning,omitempty"`
 }
 
+func (r *TestResult) add(step, okMsg string, err error) bool {
+	ch := Check{Step: step, OK: err == nil, Msg: okMsg}
+	if err != nil {
+		e := asError(err)
+		ch.Msg, ch.Hint, ch.Kind, ch.Params = e.Msg, e.Hint, e.Kind, e.Params()
+		r.OK = false
+	}
+	r.Checks = append(r.Checks, ch)
+	return err == nil
+}
+
 const stepTimeout = 30 * time.Second
 
-// Test checks that the settings work for everything copies need. It writes
-// a small file under the prefix, reads it back, looks for it in the list,
+func step(ctx context.Context, f func(ctx context.Context) error) error {
+	sctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	return f(sctx)
+}
+
+// test checks that the settings work for everything copies need. It writes
+// body under the prefix as name, reads it back, looks for it in the list,
 // starts and aborts a multipart upload, and deletes the file. If the write
 // fails nothing else is tried; otherwise every step runs, and the file is
 // always deleted. Each step has 30 seconds.
-func (c *Client) Test(ctx context.Context) TestResult {
-	var id [8]byte
-	_, _ = rand.Read(id[:])
-	name := probePrefix + hex.EncodeToString(id[:]) + ".txt"
+func (c *s3Client) test(ctx context.Context, name string, body []byte) TestResult {
 	key := c.prefix + name
-	body := []byte("Playkeeper connection test. Playkeeper deletes this file right away; if it is still here, you can delete it.\n")
 	res := TestResult{OK: true}
-	add := func(step, okMsg string, err error) bool {
-		ch := Check{Step: step, OK: err == nil, Msg: okMsg}
-		if err != nil {
-			e := asError(err)
-			ch.Msg, ch.Hint, ch.Kind, ch.Params = e.Msg, e.Hint, e.Kind, e.Params()
-			res.OK = false
-		}
-		res.Checks = append(res.Checks, ch)
-		return err == nil
-	}
-	step := func(f func(ctx context.Context) error) error {
-		sctx, cancel := context.WithTimeout(ctx, stepTimeout)
-		defer cancel()
-		return f(sctx)
-	}
-
-	err := step(func(ctx context.Context) error {
+	err := step(ctx, func(ctx context.Context) error {
 		resp, err := c.putSmall(ctx, name, key, body)
 		if err == nil {
 			res.Skew = c.skewFrom(resp)
 		}
 		return err
 	})
-	if !add("write", "Wrote a small test file.", err) {
+	if !res.add("write", "Wrote a small encrypted test file.", err) {
 		return res
 	}
 	if res.Skew >= 5*time.Minute || res.Skew <= -5*time.Minute {
@@ -101,10 +115,10 @@ func (c *Client) Test(ctx context.Context) TestResult {
 		res.Warning = fmt.Sprintf("This machine's clock is %s %s the storage service's; at 15 minutes, copies start failing. Turn on automatic time sync (sudo timedatectl set-ntp true).", humanDuration(res.Skew), dir)
 	}
 
-	add("read", "Read the test file back unchanged.", step(func(ctx context.Context) error {
+	res.add("read", "Read the test file back unchanged.", step(ctx, func(ctx context.Context) error {
 		return c.readSmall(ctx, name, key, body)
 	}))
-	add("list", "Found the test file in the folder's list.", step(func(ctx context.Context) error {
+	res.add("list", "Found the test file in the folder's list.", step(ctx, func(ctx context.Context) error {
 		r, err := c.listPage(ctx, opList, key, "", 10)
 		if err != nil {
 			return err
@@ -117,14 +131,14 @@ func (c *Client) Test(ctx context.Context) TestResult {
 		return &Error{Kind: KindUnexpected, Op: opList, Name: name, Msg: "The folder's list didn't include the test file.",
 			Hint: "Listing may lag at this provider. Rules for copies off the server rely on it to find old copies."}
 	}))
-	add("multipart", "Started and cancelled a multipart upload, as large backups need.", step(func(ctx context.Context) error {
-		_, uploadID, err := c.createUpload(ctx, opUpload, name, key, "text/plain", "")
+	res.add("multipart", "Started and cancelled a multipart upload, as large backups need.", step(ctx, func(ctx context.Context) error {
+		_, uploadID, err := c.createUpload(ctx, opUpload, name, key, "application/octet-stream", "")
 		if err != nil {
 			return err
 		}
-		return c.Abort(ctx, &UploadState{Name: name, Key: key, UploadID: uploadID})
+		return c.abort(ctx, &UploadState{Name: name, S3: &S3Upload{Key: key, UploadID: uploadID}})
 	}))
-	add("delete", "Deleted the test file.", step(func(ctx context.Context) error {
+	res.add("delete", "Deleted the test file.", step(ctx, func(ctx context.Context) error {
 		if err := c.deleteKey(ctx, name, key); err != nil {
 			return err
 		}
@@ -141,17 +155,17 @@ func (c *Client) Test(ctx context.Context) TestResult {
 	return res
 }
 
-func (c *Client) putSmall(ctx context.Context, name, key string, body []byte) (*http.Response, error) {
+func (c *s3Client) putSmall(ctx context.Context, name, key string, body []byte) (*http.Response, error) {
 	sum, m := sha256.Sum256(body), md5.Sum(body)
 	h := http.Header{}
-	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("Content-Type", "application/octet-stream")
 	h.Set("Content-Md5", b64(m[:]))
 	h.Set("X-Amz-Checksum-Sha256", b64(sum[:]))
 	return c.do(ctx, call{op: opUpload, name: name, method: http.MethodPut, key: key, header: h,
 		body: bytes.NewReader(body), size: int64(len(body)), sha256: hex.EncodeToString(sum[:]), checksum: true}, nil)
 }
 
-func (c *Client) readSmall(ctx context.Context, name, key string, want []byte) error {
+func (c *s3Client) readSmall(ctx context.Context, name, key string, want []byte) error {
 	_, err := c.do(ctx, call{op: opDownload, name: name, method: http.MethodGet, key: key}, func(r *http.Response) error {
 		got, err := io.ReadAll(io.LimitReader(r.Body, int64(len(want))+1))
 		if err != nil {
@@ -166,7 +180,7 @@ func (c *Client) readSmall(ctx context.Context, name, key string, want []byte) e
 	return err
 }
 
-func (c *Client) skewFrom(resp *http.Response) time.Duration {
+func (c *s3Client) skewFrom(resp *http.Response) time.Duration {
 	server, err := http.ParseTime(resp.Header.Get("Date"))
 	if err != nil {
 		return 0

@@ -28,10 +28,10 @@ const (
 	metaSHA256      = "X-Amz-Meta-Playkeeper-Sha256"
 )
 
-// Client copies one server's backups to one bucket and prefix. It is safe
+// s3Client keeps one server's copies in one bucket and prefix. It is safe
 // for concurrent use.
-type Client struct {
-	cfg    Config
+type s3Client struct {
+	cfg    S3Config
 	host   string
 	prefix string
 	hc     *http.Client
@@ -48,11 +48,11 @@ type Client struct {
 	noChecksums atomic.Bool
 }
 
-// New checks cfg and returns a client for it. Requests go out with hc, or
-// NewHTTPClient() if hc is nil; hc should have no overall Timeout, since
-// a large part takes a while. Redirects are never followed, whatever hc
-// says. Requests are signed with the time from now (time.Now if nil).
-func New(cfg Config, hc *http.Client, now func() time.Time) (*Client, error) {
+// newS3 checks cfg and returns a client for it. Requests go out with hc,
+// or NewHTTPClient() if hc is nil; hc should have no overall Timeout,
+// since a large part takes a while. Redirects are never followed, whatever
+// hc says. Requests are signed with the time from now (time.Now if nil).
+func newS3(cfg S3Config, hc *http.Client, now func() time.Time) (*s3Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -70,16 +70,16 @@ func New(cfg Config, hc *http.Client, now func() time.Time) (*Client, error) {
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	return &Client{
+	return &s3Client{
 		cfg: cfg, host: strings.ToLower(u.Host), prefix: prefix, hc: &h, now: now,
 		creds:    credentials{accessKeyID: cfg.AccessKeyID, secret: cfg.SecretKey, region: cfg.Region, service: "s3"},
 		partSize: defaultPartSize, minPart: minPartSize, attempts: 4, stall: 2 * time.Minute, sleep: sleepCtx,
 	}, nil
 }
 
-// NewHTTPClient returns the HTTP client New uses by default: TLS 1.2 or
-// later, no proxy, bounded waits for connecting, the handshake and the
-// response headers, and no connections to link-local, multicast or
+// NewHTTPClient returns the HTTP client S3 storage uses by default: TLS
+// 1.2 or later, no proxy, bounded waits for connecting, the handshake and
+// the response headers, and no connections to link-local, multicast or
 // unspecified addresses, or to a cloud's metadata service (such as
 // 169.254.169.254), whatever the host name resolves to.
 func NewHTTPClient() *http.Client {
@@ -131,7 +131,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // url is the address of key in the bucket, or of the bucket if key is "".
-func (c *Client) url(key string, q url.Values) *url.URL {
+func (c *s3Client) url(key string, q url.Values) *url.URL {
 	u := &url.URL{Scheme: "https", Host: c.host}
 	if c.cfg.PathStyle {
 		u.Path = "/" + c.cfg.Bucket
@@ -168,7 +168,7 @@ type call struct {
 // do sends cl, retrying what may work a second time, and passes a
 // successful response to handle, which reads what it needs from the body.
 // The response it returns has its body closed and is for the headers.
-func (c *Client) do(ctx context.Context, cl call, handle func(*http.Response) error) (*http.Response, error) {
+func (c *s3Client) do(ctx context.Context, cl call, handle func(*http.Response) error) (*http.Response, error) {
 	attempts := c.attempts
 	if cl.once {
 		attempts = 1
@@ -203,7 +203,7 @@ func (c *Client) do(ctx context.Context, cl call, handle func(*http.Response) er
 	return nil, e
 }
 
-func (c *Client) attempt(ctx context.Context, cl call, handle func(*http.Response) error) (*http.Response, *Error) {
+func (c *s3Client) attempt(ctx context.Context, cl call, handle func(*http.Response) error) (*http.Response, *Error) {
 	actx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	timer := time.AfterFunc(c.stall, func() { cancel(errStalled) })
@@ -315,7 +315,7 @@ func retryAfter(h http.Header) time.Duration {
 // readXML reads a successful response's XML body into v. S3 may answer
 // 200 and still send an <Error>, after whitespace to keep the connection
 // open, so that is checked first.
-func (c *Client) readXML(op, name string, r *http.Response, v any) error {
+func (c *s3Client) readXML(op, name string, r *http.Response, v any) error {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxXMLBody+1))
 	if err != nil {
 		return err

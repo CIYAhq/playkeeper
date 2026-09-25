@@ -2,16 +2,10 @@ package offsite
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,10 +13,11 @@ import (
 
 const maxObjects = 100_000
 
-// Object is a copy found in the bucket.
+// Object is a copy found at the destination.
 type Object struct {
-	Name         string    `json:"name"`
-	Key          string    `json:"key"`
+	Name         string    `json:"name"`    // the copy's file name
+	Archive      string    `json:"archive"` // the backup's file name: Name without .age
+	Key          string    `json:"key"`     // its key in the bucket, or its path on the other machine
 	Size         int64     `json:"size"`
 	LastModified time.Time `json:"lastModified"`
 	ETag         string    `json:"etag,omitempty"`
@@ -38,7 +33,7 @@ type headInfo struct {
 // head reads what the bucket says about key. A HEAD answer has no body,
 // so a refusal without a reason is asked again with a one-byte GET, whose
 // error says why.
-func (c *Client) head(ctx context.Context, op, name, key string) (headInfo, error) {
+func (c *s3Client) head(ctx context.Context, op, name, key string) (headInfo, error) {
 	resp, err := c.do(ctx, call{op: op, name: name, method: http.MethodHead, key: key,
 		header: http.Header{"X-Amz-Checksum-Mode": {"ENABLED"}}, checksum: true}, nil)
 	if err != nil {
@@ -66,9 +61,9 @@ func (c *Client) head(ctx context.Context, op, name, key string) (headInfo, erro
 	return headInfo{size: size, etag: resp.Header.Get("ETag"), checksum: resp.Header.Get("X-Amz-Checksum-Sha256"), meta: resp.Header.Get(metaSHA256)}, nil
 }
 
-// List returns the copies in the prefix, sorted by name. Files that are
-// not backup archives, and folders inside the prefix, are left out.
-func (c *Client) List(ctx context.Context) ([]Object, error) {
+// list returns the copies in the prefix, sorted by name. Files that are
+// not copies of backups, and folders inside the prefix, are left out.
+func (c *s3Client) list(ctx context.Context) ([]Object, error) {
 	var out []Object
 	token := ""
 	for page := 0; ; page++ {
@@ -78,15 +73,16 @@ func (c *Client) List(ctx context.Context) ([]Object, error) {
 		}
 		for _, o := range res.objects {
 			name, ok := strings.CutPrefix(o.Key, c.prefix)
-			if !ok || !ValidName(name) || o.Size < 0 {
+			archive, isCopy := archiveOf(name)
+			if !ok || !isCopy || o.Size < 0 {
 				continue
 			}
-			o.Name = name
+			o.Name, o.Archive = name, archive
 			out = append(out, o)
 		}
 		if len(out) > maxObjects {
 			return nil, &Error{Kind: KindTooLarge, Op: opList,
-				Msg:  fmt.Sprintf("The folder holds more than %d backups, more than Playkeeper lists.", maxObjects),
+				Msg:  fmt.Sprintf("The folder holds more than %d copies, more than Playkeeper lists.", maxObjects),
 				Hint: "Delete old copies at the storage service, or use another prefix."}
 		}
 		if !res.truncated {
@@ -105,7 +101,7 @@ type listResult struct {
 	next      string
 }
 
-func (c *Client) listPage(ctx context.Context, op, prefix, token string, maxKeys int) (listResult, error) {
+func (c *s3Client) listPage(ctx context.Context, op, prefix, token string, maxKeys int) (listResult, error) {
 	q := url.Values{"list-type": {"2"}, "delimiter": {"/"}, "max-keys": {strconv.Itoa(maxKeys)}, "encoding-type": {"url"}}
 	if prefix != "" {
 		q.Set("prefix", prefix)
@@ -144,11 +140,10 @@ func (c *Client) listPage(ctx context.Context, op, prefix, token string, maxKeys
 	return out, nil
 }
 
-// Verify reads a copy's size and checksum from the bucket and compares
-// them with what Upload returned. It doesn't download the copy; Download
-// checks the content itself.
-func (c *Client) Verify(ctx context.Context, cp Copy) (Copy, error) {
-	if !ValidName(cp.Name) {
+// verify reads a copy's size and checksum from the bucket and compares
+// them with what put returned. It doesn't download the copy.
+func (c *s3Client) verify(ctx context.Context, cp Copy) (Copy, error) {
+	if !validCopyName(cp.Name) {
 		return Copy{}, unexpected(opVerify, cp.Name, "That is not the name of a backup's copy.")
 	}
 	key := c.prefix + cp.Name
@@ -159,9 +154,9 @@ func (c *Client) Verify(ctx context.Context, cp Copy) (Copy, error) {
 	problem := ""
 	switch {
 	case h.size != cp.Size:
-		problem = fmt.Sprintf("it is %d bytes, the backup %d", h.size, cp.Size)
+		problem = fmt.Sprintf("it is %d bytes, not %d", h.size, cp.Size)
 	case h.meta != "" && cp.SHA256 != "" && !strings.EqualFold(h.meta, cp.SHA256):
-		problem = "it belongs to a different backup"
+		problem = "it was replaced by another file"
 	case cp.ChecksumSHA256 != "" && h.checksum != "" && h.checksum != cp.ChecksumSHA256:
 		problem = "its SHA-256 changed"
 	case cp.ETag != "" && h.etag != "" && normETag(h.etag) != normETag(cp.ETag):
@@ -169,7 +164,7 @@ func (c *Client) Verify(ctx context.Context, cp Copy) (Copy, error) {
 	}
 	if problem != "" {
 		return Copy{}, &Error{Kind: KindVerifyFailed, Op: opVerify, Name: cp.Name,
-			Msg:  fmt.Sprintf("The copy %s in the bucket no longer matches the backup (%s).", cp.Name, problem),
+			Msg:  fmt.Sprintf("The copy %s in the bucket has changed since it was uploaded (%s).", cp.Name, problem),
 			Hint: "Copy the backup again if it is still on this machine."}
 	}
 	cp.Key = key
@@ -177,18 +172,18 @@ func (c *Client) Verify(ctx context.Context, cp Copy) (Copy, error) {
 	return cp, nil
 }
 
-// Delete removes the copy name, and older versions of it if the bucket
+// remove deletes the copy name, and older versions of it if the bucket
 // keeps versions, so the space is freed. Deleting a copy that isn't there
 // is not an error. KindLocked means the copy is gone from the listing but
 // the bucket refused to delete its older versions.
-func (c *Client) Delete(ctx context.Context, name string) error {
-	if !ValidName(name) {
+func (c *s3Client) remove(ctx context.Context, name string) error {
+	if !validCopyName(name) {
 		return unexpected(opDelete, name, "That is not the name of a backup's copy.")
 	}
 	return c.deleteKey(ctx, name, c.prefix+name)
 }
 
-func (c *Client) deleteKey(ctx context.Context, name, key string) error {
+func (c *s3Client) deleteKey(ctx context.Context, name, key string) error {
 	if _, err := c.do(ctx, call{op: opDelete, name: name, method: http.MethodDelete, key: key}, nil); err != nil && asError(err).Kind != KindNotFound {
 		return err
 	}
@@ -218,7 +213,7 @@ func (c *Client) deleteKey(ctx context.Context, name, key string) error {
 }
 
 // versions lists the version IDs, including delete markers, of exactly key.
-func (c *Client) versions(ctx context.Context, name, key string) ([]string, error) {
+func (c *s3Client) versions(ctx context.Context, name, key string) ([]string, error) {
 	var ids []string
 	keyMarker, idMarker := "", ""
 	for page := 0; ; page++ {
@@ -257,89 +252,17 @@ func (c *Client) versions(ctx context.Context, name, key string) ([]string, erro
 	}
 }
 
-// Download fetches the copy name into dir and returns the new file's path.
-// The copy must be size bytes with the given hex SHA-256; it is written to
-// a temporary file in dir, checked, and only then renamed to name. An
-// existing file is never replaced.
-func (c *Client) Download(ctx context.Context, name string, size int64, sha string, dir string) (string, error) {
-	sha = strings.ToLower(sha)
-	if !ValidName(name) || size < 0 || !validSHA256(sha) {
-		return "", unexpected(opDownload, name, "That is not a backup's copy Playkeeper can download.")
+func (c *s3Client) keyOf(name string) string { return c.prefix + name }
+
+// get streams the copy name to fn with the size the service reports (-1
+// if it doesn't). fn reads what it needs; if it returns an error that is
+// not an *Error, the download is tried again and fn gets a fresh stream.
+func (c *s3Client) get(ctx context.Context, op, name string, fn func(r io.Reader, size int64) error) error {
+	if !validCopyName(name) {
+		return unexpected(op, name, "That is not the name of a backup's copy.")
 	}
-	final := filepath.Join(dir, name)
-	if _, err := os.Lstat(final); err == nil || !errors.Is(err, fs.ErrNotExist) {
-		return "", &Error{Kind: KindConflict, Op: opDownload, Name: name,
-			Msg: fmt.Sprintf("A file named %s is already on this machine, so the copy wasn't downloaded.", name), Err: err}
-	}
-	f, err := os.CreateTemp(dir, ".offsite-*.partial")
-	if err != nil {
-		return "", &Error{Kind: KindUnexpected, Op: opDownload, Name: name, Err: err,
-			Msg: "Playkeeper couldn't create a file for the download.", Hint: "Check that the disk has space and the backups folder is writable."}
-	}
-	tmp := f.Name()
-	keep := false
-	defer func() {
-		if !keep {
-			f.Close()
-			os.Remove(tmp)
-		}
-	}()
-	h := sha256.New()
-	var written int64
-	_, err = c.do(ctx, call{op: opDownload, name: name, method: http.MethodGet, key: c.prefix + name}, func(r *http.Response) error {
-		if r.ContentLength >= 0 && r.ContentLength != size {
-			return c.mismatch(name, fmt.Sprintf("it is %d bytes, the backup %d", r.ContentLength, size))
-		}
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return c.localWriteError(name, err)
-		}
-		if err := f.Truncate(0); err != nil {
-			return c.localWriteError(name, err)
-		}
-		h.Reset()
-		n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(r.Body, size+1))
-		written = n
-		if err != nil {
-			var pe *fs.PathError
-			if errors.As(err, &pe) {
-				return c.localWriteError(name, err)
-			}
-			return err
-		}
-		return nil
+	_, err := c.do(ctx, call{op: op, name: name, method: http.MethodGet, key: c.prefix + name}, func(r *http.Response) error {
+		return fn(r.Body, r.ContentLength)
 	})
-	if err != nil {
-		return "", err
-	}
-	switch {
-	case written != size:
-		return "", c.mismatch(name, fmt.Sprintf("it is at least %d bytes, the backup %d", written, size))
-	case hex.EncodeToString(h.Sum(nil)) != sha:
-		return "", c.mismatch(name, "its SHA-256 differs")
-	}
-	if err := f.Sync(); err != nil {
-		return "", c.localWriteError(name, err)
-	}
-	if err := f.Close(); err != nil {
-		return "", c.localWriteError(name, err)
-	}
-	if _, err := os.Lstat(final); err == nil {
-		return "", &Error{Kind: KindConflict, Op: opDownload, Name: name, Msg: fmt.Sprintf("A file named %s appeared on this machine during the download.", name)}
-	}
-	if err := os.Rename(tmp, final); err != nil {
-		return "", c.localWriteError(name, err)
-	}
-	keep = true
-	return final, nil
-}
-
-func (c *Client) mismatch(name, problem string) *Error {
-	return &Error{Kind: KindVerifyFailed, Op: opDownload, Name: name,
-		Msg:  fmt.Sprintf("The downloaded copy of %s doesn't match the backup (%s), so it was discarded.", name, problem),
-		Hint: "The copy in the bucket may be damaged. Use another backup."}
-}
-
-func (c *Client) localWriteError(name string, err error) *Error {
-	return &Error{Kind: KindUnexpected, Op: opDownload, Name: name, Err: err,
-		Msg: fmt.Sprintf("Playkeeper couldn't write the download of %s to disk.", name), Hint: "Check that the disk has space."}
+	return err
 }
