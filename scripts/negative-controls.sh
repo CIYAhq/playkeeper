@@ -300,7 +300,7 @@ control "stopping sharing forgets the friends' pack link" internal/agent/packsha
   ./internal/agent '^TestPackShareLinkIsMadeWhenSharedAndReplacedAfterward$'
 control "a friends' pack link opens only with its own token" internal/agent/packshare.go \
   'subtle.ConstantTimeCompare([]byte(t), []byte(token)) == 1' \
-  'true' \
+  'subtle.ConstantTimeCompare([]byte(t), []byte(t)) == 1' \
   ./internal/agent '^TestPackLinkAnswersAlikeWhateverTheReason$'
 control "a stopped server's pack page is unavailable" internal/agent/packshare.go \
   ' || s.desired() != api.DesiredRunning {' \
