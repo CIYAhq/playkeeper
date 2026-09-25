@@ -65,12 +65,7 @@ export function TeamSection() {
   }
 
   async function confirm(m: TeamMember) {
-    try {
-      await post(`/api/team/members/${m.id}/confirm-admin`)
-      toastManager.add({ title: t('team.confirmedToast', { name: m.username }), type: 'success' })
-    } catch (e) {
-      toastManager.add({ title: errorText(e), type: 'error' })
-    }
+    await confirmAdmin(m)
     await team.refresh()
   }
 
@@ -100,19 +95,7 @@ export function TeamSection() {
   if (!data) return <TeamSkeleton phone={phone} />
 
   const waiting = data.members.find((m) => m.canConfirm)
-  const notice = waiting && (
-    <Notice
-      title={t('team.confirmTitle', { name: waiting.username })}
-      action={
-        <Button size="sm" onClick={() => void confirm(waiting)}>
-          <ShieldCheckIcon />
-          {t('team.confirm')}
-        </Button>
-      }
-    >
-      {t('team.confirmBody')}
-    </Notice>
-  )
+  const notice = waiting && <ConfirmAdminNotice member={waiting} onConfirmed={team.refresh} />
   const dialogs = (
     <>
       <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
@@ -165,6 +148,39 @@ export function TeamSection() {
       <RoleTable />
       {dialogs}
     </>
+  )
+}
+
+async function confirmAdmin(m: TeamMember) {
+  try {
+    await post(`/api/team/members/${m.id}/confirm-admin`)
+    toastManager.add({ title: t('team.confirmedToast', { name: m.username }), type: 'success' })
+  } catch (e) {
+    toastManager.add({ title: errorText(e), type: 'error' })
+  }
+}
+
+/** A member who turned on two-factor sign-in and waits for their Admin rights: one click confirms them. */
+export function ConfirmAdminNotice({ member, onConfirmed }: { member: TeamMember; onConfirmed: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  async function confirm() {
+    setBusy(true)
+    await confirmAdmin(member)
+    await onConfirmed()
+    setBusy(false)
+  }
+  return (
+    <Notice
+      title={t('team.confirmTitle', { name: member.username })}
+      action={
+        <Button size="sm" loading={busy} onClick={() => void confirm()}>
+          <ShieldCheckIcon />
+          {t('team.confirm')}
+        </Button>
+      }
+    >
+      {t('team.confirmBody')}
+    </Notice>
   )
 }
 

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, CatalogEntry, ProjectRole, ServerStatus } from '@/api/types'
+import type { Activity, CatalogEntry, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
@@ -20,6 +20,7 @@ import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { ConfirmAdminNotice } from './team'
 
 export function HomePage() {
   const ws = useWorkspace()
@@ -101,7 +102,14 @@ function MachineNotice() {
   const disk = ws.machine?.live?.diskWarning
   if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.note')}</Notice>
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
-  return <MemberNotice />
+  return can(ws.me, 'team.manage') ? <TeamNotice /> : <MemberNotice />
+}
+
+/** For whoever can confirm them, a member waiting for their Admin rights comes first. */
+function TeamNotice() {
+  const team = usePoll(() => get<TeamResponse>('/api/team'), 15_000)
+  const waiting = team.data?.members.find((m) => m.canConfirm)
+  return waiting ? <ConfirmAdminNotice member={waiting} onConfirmed={team.refresh} /> : <MemberNotice />
 }
 
 /** Admin rights waiting for two-factor sign-in or a confirmation, or the welcome after joining with an invite link. */

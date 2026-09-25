@@ -264,6 +264,31 @@ describe('Home for team members', () => {
     expect(text).not.toContain('Welcome, mara')
   })
 
+  it('tells the owner on Home that an admin waits for their rights, and confirms them with one click', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(90), canEdit: false },
+        { id: 3, username: 'alex', owner: false, you: false, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(3), canEdit: true, waiting: true, canConfirm: true },
+      ],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    const text = await render(<HomePage />, workspace({ servers: both() }))
+    expect(text).toContain('alex turned on two-factor sign-in.')
+    expect(text).toContain('Confirm to give them Admin rights.')
+    await click(button('Confirm Admin rights'))
+    expect(client.post).toHaveBeenCalledWith('/api/team/members/3/confirm-admin')
+
+    vi.mocked(client.get).mockClear()
+    const moderator = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: both() }))
+    expect(moderator).not.toContain('turned on two-factor sign-in')
+    expect(client.get).not.toHaveBeenCalledWith('/api/team')
+  })
+
   it('says who got in with an invite link, never the link’s id', async () => {
     answer({ '/activity': [
       { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'allowlisted', player: 'Lenn0x', actor: 'invite:ymckepm6wx' },
