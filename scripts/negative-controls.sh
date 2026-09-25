@@ -713,6 +713,14 @@ control "per-address liveness check limit" internal/panel/alive.go \
   'if ok, wait := s.alive.allow(limitKey(clientIP(r))); !ok {' \
   'if ok, wait := true, time.Duration(0); !ok {' \
   ./internal/panel '^TestLivenessChecksAreLimitedPerAddress$'
+control "a certificate limit waits for the names service's Retry-After" internal/agent/certificates.go \
+  'retry = now.Add(ne.RetryAfter)' \
+  'retry = now.Add(time.Hour)' \
+  ./internal/agent '^TestCertificateLimitWaitsForTheNamesService$'
+control "refused server addresses are asked for again only when due" internal/agent/address.go \
+  'if st.Free.ServersWait != "" && !now.Before(st.Free.ServersRetry) {' \
+  'if st.Free.ServersWait != "" {' \
+  ./internal/agent '^TestServerAddressesWaitForTheNamesService$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
