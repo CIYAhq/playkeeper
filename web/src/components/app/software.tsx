@@ -176,8 +176,8 @@ function CheckedTable({ change: c }: { change: SoftwareChange }) {
   const rows: { label: string; value: ReactNode }[] = [
     { label: t('changed.file'), value: <span className="break-all">{c.file}</span> },
     ...(c.installedAt ? [{ label: t('changed.installed'), value: t('changed.installedValue', { time: whenText(c.installedAt) }) }] : []),
-    { label: t('changed.recorded'), value: <span className="font-mono tabular-nums">{shortHash(c.recorded)}</span> },
-    { label: t('changed.found'), value: <span className="font-mono text-destructive-foreground tabular-nums">{c.found ? shortHash(c.found) : t('changed.missing')}</span> },
+    { label: t('changed.recorded'), value: <span className="tabular-nums">{shortHash(c.recorded)}</span> },
+    { label: t('changed.found'), value: <span className="text-destructive-foreground tabular-nums">{c.found ? shortHash(c.found) : t('changed.missing')}</span> },
     ...(c.changedAt ? [{ label: t('changed.lastChanged'), value: t('changed.lastChangedValue', { time: whenText(c.changedAt) }) }] : []),
   ]
   return (
