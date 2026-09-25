@@ -50,7 +50,7 @@ Everything else happens in the browser: create the admin account and pass the ch
 
 **Change the Minecraft version:** **Minecraft version** in a server's Settings offers the newer Paper versions for it. When you click **Back up and update**, Playkeeper takes a backup first, and puts it back if the server does not start on the new version. Older versions are not offered: a world opened with a newer Minecraft version cannot go back.
 
-**Uninstall:** `sudo playkeeper uninstall` removes Playkeeper, its services, users, containers and the Docker packages it installed, and keeps your worlds and backups in `/var/lib/playkeeper` (reinstalling picks them up). `--purge` deletes them too and asks you to type a confirmation.
+**Uninstall:** `sudo playkeeper uninstall` removes Playkeeper, its services, users, containers and the Docker packages it installed, with the Docker folders that install created (it names them before asking), and keeps your worlds and backups in `/var/lib/playkeeper` (reinstalling picks them up). `--purge` deletes them too and asks you to type a confirmation.
 
 **Recover or move a world:** see [docs/RECOVERY.md](docs/RECOVERY.md). Backups listed in the panel live on the same server; download copies to keep them safe.
 
