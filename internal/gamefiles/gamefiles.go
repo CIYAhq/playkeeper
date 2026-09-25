@@ -103,6 +103,22 @@ func (d *Dir) ReadTail(name string, limit int64) ([]byte, error) {
 	return io.ReadAll(io.NewSectionReader(f, max(st.Size()-limit, 0), limit))
 }
 
+// ReadRange returns at most limit bytes of name from offset off, with what
+// the opened file said about itself, for a log read on from where the last
+// read stopped, or a report of which only the start is needed.
+func (d *Dir) ReadRange(name string, off, limit int64) ([]byte, fs.FileInfo, error) {
+	f, st, err := d.open(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.NewSectionReader(f, off, limit))
+	if err != nil {
+		return nil, nil, err
+	}
+	return b, st, nil
+}
+
 // ReadJSON decodes name, at most limit bytes, into v.
 func (d *Dir) ReadJSON(name string, limit int64, v any) error {
 	b, err := d.ReadFile(name, limit)
