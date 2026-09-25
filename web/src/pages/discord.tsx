@@ -318,8 +318,8 @@ function LivePreview({ className }: { className?: string }) {
   const joinable = servers.find((x) => phaseTone(x.phase) === 'online') ?? servers[0]
   const clock = formatClock(new Date(now).toISOString())
   return (
-    <div className={cn('flex gap-3 rounded-2xl border border-border bg-muted/40 p-3', className)} aria-label={t('discord.previewLabel')} role="img">
-      <BrandMark size={28} className="rounded-lg" />
+    <div className={cn('flex gap-3 rounded-2xl border border-border bg-muted p-3', className)} aria-label={t('discord.previewLabel')} role="img">
+      <BrandMark size={28} className="self-start rounded-lg" />
       <div className="min-w-0 flex-1">
         <p className="text-[13px]">
           <span className="font-semibold">{t('discord.previewName')}</span>
@@ -327,11 +327,11 @@ function LivePreview({ className }: { className?: string }) {
         </p>
         <div className="mt-1.5 rounded-xl border border-border bg-white px-3 py-2.5">
           {servers.length === 0 && <p className="text-xs text-muted-foreground">{t('discord.noServers')}</p>}
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex flex-col gap-2">
             {servers.slice(0, 25).map((x) => {
               const line = stateLine(x)
               return (
-                <li key={x.id} className="flex min-w-0 items-center gap-2 text-xs">
+                <li key={x.id} className="flex min-w-0 items-center gap-2 text-[13px]">
                   <span className={cn('inline-block size-2 shrink-0 rounded-full', line.dot)} aria-hidden="true" />
                   <span className="w-[88px] shrink-0 truncate font-semibold">{x.name}</span>
                   <span className="min-w-0 truncate text-muted-foreground">{line.text}</span>
@@ -339,7 +339,7 @@ function LivePreview({ className }: { className?: string }) {
               )
             })}
           </ul>
-          {joinable && <p className="mt-2 text-[11px] text-muted-foreground">{t('discord.previewFooter', { address: joinAddress(window.location.hostname, joinable.gamePort), time: clock })}</p>}
+          {joinable && <p className="mt-2.5 text-xs text-muted-foreground">{t('discord.previewFooter', { address: joinAddress(window.location.hostname, joinable.gamePort), time: clock })}</p>}
         </div>
       </div>
     </div>
