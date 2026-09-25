@@ -27,7 +27,7 @@ body { margin: 0; background: var(--ground); color: var(--text); font: 14px/20px
 a { color: var(--primary-hover); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.phone-only, .nojs-note, .specs, .run-button, .menu-button, .sheet-title, .check { display: none; }
+.phone-only, .nojs-note, .specs, .run-button, .menu-button, .grabber, .sheet-head, .check { display: none; }
 .skip { position: absolute; left: 12px; top: -60px; z-index: 50; padding: 10px 14px; background: var(--card); border-radius: 10px; box-shadow: var(--popup); }
 .skip:focus { top: 12px; }
 
@@ -139,14 +139,20 @@ footer { max-width: 1168px; margin: 0 auto; padding: 8px 24px 40px; color: var(-
   .run-button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 0 12px 0 11px; color: var(--text); background: var(--card); border: 1px solid var(--input); border-radius: 10px; box-shadow: var(--shadow-outline); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
   .run-button svg { flex: none; color: var(--muted); }
   .run-options { display: none; }
-  .run.open .run-options { position: fixed; right: 0; bottom: 0; left: 0; z-index: 40; display: block; max-height: 85vh; overflow-y: auto; padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); background: var(--card); border-radius: 22px 22px 0 0; box-shadow: var(--sheet); }
-  .sheet-title { display: block; margin: 8px 4px; font-size: 15px; font-weight: 600; }
-  .run-options label, .run-options label:first-of-type { grid-template-columns: minmax(0, 1fr) 24px; align-content: center; min-height: 60px; margin: 0; padding: 8px 4px; background: none; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+  .run.open .run-options { position: fixed; right: 0; bottom: 0; left: 0; z-index: 40; display: block; max-height: 85vh; overflow-y: auto; padding-bottom: calc(16px + env(safe-area-inset-bottom)); background: var(--card); border-radius: 22px 22px 0 0; box-shadow: var(--sheet); }
+  .grabber { display: block; width: 40px; height: 5px; margin: 8px auto 0; border-radius: 9999px; background: var(--input); }
+  .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 8px 4px 20px; }
+  .sheet-title { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; }
+  .sheet-close { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; color: var(--muted); background: none; border: 0; border-radius: 10px; cursor: pointer; }
+  .run-list { margin: 0 20px; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .run-options label { grid-template-columns: minmax(0, 1fr) 20px; column-gap: 8px; align-content: center; min-height: 64px; margin: 0; padding: 8px 16px; background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+  .run-options label:first-of-type { border-radius: 15px 15px 0 0; }
+  .run-options label:last-of-type { border-bottom: 0; border-radius: 0 0 15px 15px; }
   .run-options label::before { display: none; }
-  .run-options input:checked + label { background: none; border-color: var(--border); box-shadow: none; }
-  .run-options input:focus-visible + label { outline-offset: -2px; border-radius: 10px; }
+  .run-options label:hover, .run-options input:checked + label { background: none; border-color: var(--border); box-shadow: none; }
+  .run-options input:focus-visible + label { outline-offset: -2px; }
   .name, .desc { grid-column: 1; }
-  .name { font-size: 15px; }
+  .name { font-size: 16px; line-height: 22px; font-weight: 400; }
   .desc { font-size: 13px; line-height: 18px; }
   .check { display: block; grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--primary); visibility: hidden; }
   input:checked + label .check { visibility: visible; }
