@@ -4,8 +4,11 @@
 # its table and the /sizing/ redirect), every file either page uses (200,
 # with the content type nosniff needs), /healthz, the /install redirect to
 # get.sh of the latest release, the security headers, and the container's
-# own health check. Needs Docker.
-# Usage: scripts/site-check.sh   (SITE_CHECK_PORT picks the local port, default 8080)
+# own health check. With Chrome or Chromium installed, it also opens /sizing
+# in headless Chrome with an answer in its address, and with one it can't
+# read, and checks the answer the page shows. Needs Docker.
+# Usage: scripts/site-check.sh   (SITE_CHECK_PORT picks the local port, default 8080;
+#                                 CHROME picks the browser)
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,7 +40,8 @@ check_files() {
 docker build -t "$image" "$root/site"
 docker rm -f "$name" >/dev/null 2>&1 || true
 docker run -d --name "$name" -p "127.0.0.1:$port:80" "$image" >/dev/null
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+work=$(mktemp -d)
+trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 
 for _ in $(seq 30); do
   curl -fsS -o /dev/null "$base/healthz" 2>/dev/null && break
@@ -50,7 +54,7 @@ read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}
 [ "$code" = 302 ] || fail "/install answered $code, not 302"
 [ "$location" = "$want" ] || fail "/install redirects to '$location', not $want"
 
-page=$(mktemp)
+page=$work/page.html
 code=$(curl -sS -o "$page" -w '%{http_code}' "$base/")
 [ "$code" = 200 ] || fail "/ answered $code, not 200"
 grep -qF 'curl -fsSL https://playkeeper.io/install | sudo sh' "$page" || fail "/ does not show the install command"
@@ -81,6 +85,37 @@ for path in / /sizing /install; do
   if grep -qi '^server: nginx/' <<<"$headers"; then fail "$path shows the nginx version"; fi
 done
 
+# The sizing guide answers in the browser, so this part opens it in headless
+# Chrome, when there is one.
+chrome=${CHROME:-$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)}
+browser="Chrome was not found, so /sizing was not opened in a browser (CHROME picks one)"
+if [ -n "$chrome" ]; then
+  limit=
+  if command -v timeout >/dev/null; then limit="timeout 60"; fi
+  dom=$work/dom.html
+  # open_sizing opens /sizing with the given address after # and leaves the
+  # page, once its scripts have run, in $dom. Chrome only opens this site's
+  # page here, so it runs without its sandbox, which containers and some CI
+  # runners refuse.
+  open_sizing() {
+    $limit "$chrome" --headless=new --no-sandbox --disable-gpu --no-first-run --no-default-browser-check \
+      --user-data-dir="$work/chrome" --virtual-time-budget=5000 --dump-dom "$base/sizing#$1" >"$dom" 2>/dev/null ||
+      fail "headless Chrome ($chrome) could not open /sizing"
+  }
+  open_sizing 'friends=11-20&run=modpack'
+  for text in 'id="answer-long">A VPS with 24 GB of memory<' '<dt>Memory</dt><dd><strong>24 GB</strong>' \
+    'id="run-current">A big modpack<' '<td id="size-11-20-modpack" class="current">' '<td id="size-5-10-vanilla">' \
+    'id="answer-status"></p>'; do
+    grep -qF "$text" "$dom" || fail "/sizing#friends=11-20&run=modpack does not show '$text' in Chrome"
+  done
+  if grep -qF 'id="copy" hidden' "$dom"; then fail "/sizing does not offer Copy in Chrome"; fi
+  open_sizing 'friends=lots&run=everything'
+  for text in 'id="answer-long">A VPS with 6 GB of memory<' '<td id="size-5-10-vanilla" class="current">'; do
+    grep -qF "$text" "$dom" || fail "/sizing#friends=lots&run=everything does not fall back to the first answer ('$text' is missing)"
+  done
+  browser="Headless Chrome showed the answer in /sizing's address, and the first answer for an address it can't read"
+fi
+
 status=unknown
 for _ in $(seq 30); do
   status=$(docker inspect -f '{{.State.Health.Status}}' "$name")
@@ -89,4 +124,4 @@ for _ in $(seq 30); do
 done
 [ "$status" = healthy ] || fail "the container's health check reports '$status'"
 
-echo "Site image checks out: / is 200 with the install command, /sizing is 200 with the guide and its files, /healthz is ok, /install is a 302 to $want, headers set, container healthy."
+echo "Site image checks out: / is 200 with the install command, /sizing is 200 with the guide and its files, /healthz is ok, /install is a 302 to $want, headers set, container healthy. $browser."
