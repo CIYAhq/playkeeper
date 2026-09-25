@@ -30,6 +30,9 @@ var reStageID = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 const minFreeAfterBackup = 512 << 20
 
+// archiveLimits are the limits backups are written with; tests lower them.
+var archiveLimits = backup.DefaultLimits
+
 func validBackupID(id string) error {
 	if !reBackupID.MatchString(id) {
 		return errInvalid("invalid backup id")
@@ -89,7 +92,7 @@ func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*
 		},
 		Consistency: "server stopped during archive",
 	}
-	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, backup.DefaultLimits())
+	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, archiveLimits())
 	if err == nil {
 		err = f.Sync()
 	}
@@ -138,6 +141,17 @@ func (s *server) withRefusalHint(err error) error {
 	}
 	msg := err.Error()
 	return &apiError{Msg: strings.ToUpper(msg[:1]) + msg[1:], Hint: hint}
+}
+
+// archiveRefusal is the refusal an archive of the world would get, found
+// before the server stops for it, so players are not disconnected for
+// nothing. Anything else Check runs into is left to createArchive.
+func (s *server) archiveRefusal() error {
+	var refused *backup.RefusedError
+	if err := backup.Check(s.dataDir(), archiveLimits()); errors.As(err, &refused) {
+		return err
+	}
+	return nil
 }
 
 func sanitizeName(s string) string {
@@ -257,9 +271,10 @@ func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
 	return out, rows.Err()
 }
 
-// backupOp stops the server (saving first), archives, restarts it if it was
-// running, then verifies the archive. Downtime is measured from the stop
-// request until the server is online again.
+// backupOp refuses a world a restore would refuse, then stops the server
+// (saving first), archives, restarts it if it was running, and verifies the
+// archive. Downtime is measured from the stop request until the server is
+// online again.
 func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) error {
 	sc, err := s.serverConfig()
 	if err != nil {
@@ -274,6 +289,9 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 		h.set("neededBytes", need+minFreeAfterBackup)
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space for a backup: %s free, about %s needed.", humanBytes(free), humanBytes(need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
+	}
+	if err := s.archiveRefusal(); err != nil {
+		return s.withRefusalHint(err)
 	}
 	_, running, err := s.containerRunning(ctx)
 	if err != nil {
@@ -817,6 +835,11 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	var rollback *api.Backup
 	wasRunning := false
 	if prev != nil {
+		if st.preview.CurrentWorld.Exists {
+			if err := s.archiveRefusal(); err != nil {
+				return s.withRefusalHint(fmt.Errorf("could not save a verified rollback archive of the current world, so nothing was replaced: %w", err))
+			}
+		}
 		_, wasRunning, _ = s.containerRunning(ctx)
 		if err := s.stopServer(ctx, h); err != nil {
 			return err

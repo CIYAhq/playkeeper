@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/config"
 )
 
@@ -1500,7 +1501,7 @@ func TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved(t *testing.T) {
 }
 
 // A world a restore would refuse is not backed up at all: the backup fails
-// before anything is written, says why, and the server comes back.
+// before the server stops or anything is written, and says why.
 func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
@@ -1512,6 +1513,7 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	stops := e.dockerStops()
 	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
@@ -1528,6 +1530,9 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	}
 	if files, _ := os.ReadDir(e.cfg.BackupsDir()); len(files) != 0 {
 		t.Fatalf("a refused backup left files: %v", files)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
 	}
 	e.waitFor("server running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
 }
@@ -2083,4 +2088,98 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 			t.Errorf("missing audit row %s", k)
 		}
 	}
+}
+
+// A world over a limit as a whole is refused before the server stops too,
+// with a hint to trim the world rather than rename one file.
+func TestBackupRefusesAWholeWorldOverALimitBeforeStopping(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	lim := backup.DefaultLimits()
+	lim.MaxTotalBytes = 1 << 20
+	archiveLimits = func() backup.Limits { return lim }
+	t.Cleanup(func() { archiveLimits = backup.DefaultLimits })
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "world", "big.dat"), make([]byte, 1<<20), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	stops := e.dockerStops()
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "Cannot back up this world: a restore would refuse it: archive expands beyond the 1048576 byte limit") {
+		t.Fatalf("backing up a world over a limit must fail and say why: %+v", op)
+	}
+	if want := "Remove files the world does not need from " + e.dataDir() + ", then try again."; op.Hint != want {
+		t.Fatalf("hint %q, want %q", op.Hint, want)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
+		t.Fatalf("%d backup rows recorded for a refused backup", n)
+	}
+	if p := e.status().Phase; p != api.PhaseOnline {
+		t.Fatalf("the server must stay online, got %s", p)
+	}
+}
+
+// A restore and a Minecraft update back up the current world first, so a
+// world a restore would refuse makes each fail before the server stops.
+func TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	deep := filepath.Join(e.dataDir(), "world", strings.Repeat("a", 250), strings.Repeat("b", 250), strings.Repeat("c", 250), strings.Repeat("d", 250))
+	if err := os.MkdirAll(deep, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	live := worldHash(t, e.dataDir())
+	stops := e.dockerStops()
+	op := e.applyRestore(id, phrase)
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "Could not save a verified rollback archive of the current world, so nothing was replaced") || !strings.Contains(op.Error, "entry name too long") {
+		t.Fatalf("a restore over a world its rollback archive would refuse must fail and say why: %+v", op)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a restore that was refused", n)
+	}
+	code, out := e.changeVersion(map[string]any{"versionId": "paper-26.2"})
+	if code != 202 {
+		t.Fatalf("change: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "Could not save a verified backup first, so nothing was changed") || !strings.Contains(op.Error, "entry name too long") {
+		t.Fatalf("an update of a world its backup would refuse must fail and say why: %+v", op)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for an update that was refused", n)
+	}
+	if got := worldHash(t, e.dataDir()); got != live {
+		t.Fatal("a refused restore or update changed the world")
+	}
+	if sc, _ := e.srv().serverConfig(); sc.MinecraftVersion != "26.1.2" {
+		t.Fatalf("a refused update changed the version: %+v", sc)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups WHERE kind = 'rollback'`); n != 0 {
+		t.Fatalf("%d rollback archives recorded for refused changes", n)
+	}
+	if p := e.status().Phase; p != api.PhaseOnline {
+		t.Fatalf("the server must stay online, got %s", p)
+	}
+}
+
+// dockerStops counts the container stops the agent asked Docker for.
+func (e *agentEnv) dockerStops() int {
+	e.fd.mu.Lock()
+	defer e.fd.mu.Unlock()
+	n := 0
+	for _, c := range e.fd.calls {
+		if strings.HasPrefix(c, "POST /containers/") && strings.HasSuffix(c, "/stop") {
+			n++
+		}
+	}
+	return n
 }
