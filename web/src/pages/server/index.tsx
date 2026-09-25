@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
+import { RunningPage } from './running'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
 
@@ -42,7 +43,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
+export function ServerPage({ slug, tab, page }: { slug: string; tab: ServerTab; page?: 'running' }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -59,7 +60,7 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
   let body: ReactNode
   switch (tab) {
     case 'overview':
-      body = <Overview server={server} />
+      body = page === 'running' ? <RunningPage server={server} /> : <Overview server={server} />
       break
     case 'console':
       body = <ConsolePage server={server} />
@@ -78,12 +79,14 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       body = unreachable
     }
   }
-  if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
+  if (settingUp && (page || (tab !== 'overview' && tab !== 'console'))) body = <Overview server={server} />
   return (
     <>
       {phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
+        ) : page === 'running' && !settingUp ? (
+          <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} center />
         ) : (
           <PhoneServerHeader server={server} tab={tab} />
         )

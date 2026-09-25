@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Activity, Crash, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
+import type { Activity, Crash, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
@@ -19,6 +19,7 @@ import { crashDetail, crashFixes, crashSummary, phoneLines, preselect } from '@/
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
 import { createStepOf, isSettingUp, opLabel, statusTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
+import { formatTPS } from '@/lib/running'
 import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -222,18 +223,45 @@ function PlayingCard({ server: s }: { server: ServerStatus }) {
   )
 }
 
+/** The tick rate's word on the Overview card: "smooth", or "a bit behind" in amber. */
+function lagWord(lag: LagStatus | undefined): { text: string; behind: boolean } | undefined {
+  switch (lag) {
+    case 'smooth':
+      return { text: t('overview.smooth'), behind: false }
+    case 'a_bit_behind':
+      return { text: t('overview.behind'), behind: true }
+    case 'lagging':
+      return { text: t('overview.lagging'), behind: true }
+    case 'frozen':
+      return { text: t('overview.paused'), behind: false }
+    case 'unknown':
+    case undefined:
+      return undefined
+    default: {
+      const unknown: never = lag
+      void unknown
+      return undefined
+    }
+  }
+}
+
 function RunningCard({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const r = !ws.stale && s.phase === 'online' ? s.resources : undefined
   const limitBytes = (s.config?.memoryMB ?? 0) * 1024 * 1024
   const tps = r?.tps
+  const word = lagWord(r?.lag)
   return (
-    <Card>
+    <Card className="relative transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
       <div className="flex items-center justify-between gap-3">
-        <CardTitle className="max-sm:text-[17px]">{t('overview.running')}</CardTitle>
+        <CardTitle className="max-sm:text-[17px]">
+          <a {...linkProps({ name: 'server', slug: s.slug, tab: 'overview', page: 'running' })} className="outline-none after:absolute after:inset-0 after:rounded-3xl focus-visible:after:ring-2 focus-visible:after:ring-ring">
+            {t('overview.running')}
+          </a>
+        </CardTitle>
         {ws.machine && (
-          <a {...linkProps({ name: 'machine', id: ws.machine.id })} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline max-sm:text-[15px]">
+          <a {...linkProps({ name: 'machine', id: ws.machine.id })} className="relative z-10 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline max-sm:text-[15px]">
             {ws.machineName}
             {!phone && <ArrowRightIcon className="size-3.5" aria-hidden="true" />}
           </a>
@@ -255,9 +283,9 @@ function RunningCard({ server: s }: { server: ServerStatus }) {
               </div>
               <div>
                 <dt className="text-muted-foreground">{t('overview.tickRate')}</dt>
-                <dd className="mt-0.5 text-[13px] font-semibold tabular-nums">
-                  {tps !== undefined ? tps.toFixed(1) : '—'}
-                  {tps !== undefined && <span className={cn('ml-1.5 text-xs font-normal', tps >= 18 ? 'text-muted-foreground' : 'text-warning-foreground')}>{tps >= 18 ? t('overview.smooth') : t('overview.laggy')}</span>}
+                <dd className={cn('mt-0.5 text-[13px] font-semibold tabular-nums', word?.behind && 'text-warning-foreground')}>
+                  {tps !== undefined ? formatTPS(tps) : '—'}
+                  {tps !== undefined && word && (word.behind ? `${t('common.dot')}${word.text}` : <span className="ml-1.5 text-xs font-normal text-muted-foreground">{word.text}</span>)}
                 </dd>
               </div>
               <div>

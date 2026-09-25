@@ -199,8 +199,10 @@ export interface DiagnosisAction {
   recommended?: boolean
 }
 
+export type LagCauseKind = 'cpu_steal' | 'cpu_limit' | 'host_cpu_busy' | 'memory_pressure' | 'chunk_generation' | 'slow_disk' | 'high_distance' | 'world_workload'
+
 export interface LagCause {
-  kind: string
+  kind: LagCauseKind
   params?: Params
   score: number
   title: string

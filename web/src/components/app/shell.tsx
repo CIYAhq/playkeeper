@@ -339,14 +339,14 @@ export function PhoneMoreButton() {
 }
 
 /** The phone header of pages opened from another: a back link and a title. */
-export function PhoneBackHeader({ to, label, title }: { to: Route; label: string; title?: ReactNode }) {
+export function PhoneBackHeader({ to, label, title, center }: { to: Route; label: string; title?: ReactNode; center?: boolean }) {
   return (
-    <header className="flex items-center gap-1 pt-2 pb-2">
+    <header className="relative flex items-center gap-1 pt-2 pb-2">
       <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-success-strong">
         <ChevronLeftIcon className="size-5" aria-hidden="true" />
         {label}
       </a>
-      {title && <div className="ml-auto text-[15px] font-semibold">{title}</div>}
+      {title && <div className={cn('text-[15px] font-semibold', center ? 'pointer-events-none absolute inset-x-0 text-center' : 'ml-auto')}>{title}</div>}
     </header>
   )
 }

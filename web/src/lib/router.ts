@@ -9,7 +9,8 @@ export type Route =
   | { name: 'setup' }
   | { name: 'welcome' }
   | { name: 'new-server' }
-  | { name: 'server'; slug: string; tab: ServerTab }
+  // page is a page under a tab: "How it's running" under Overview.
+  | { name: 'server'; slug: string; tab: ServerTab; page?: 'running' }
   | { name: 'machine'; id: string }
   | { name: 'settings' }
   | { name: 'more' }
@@ -41,6 +42,7 @@ export function parse(pathname: string): Route {
     case 'servers':
       if (second === 'new' && !third) return { name: 'new-server' }
       if (second && reSlug.test(second)) {
+        if (third === 'running' && parts.length === 3) return { name: 'server', slug: second, tab: 'overview', page: 'running' }
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
       }
@@ -65,6 +67,7 @@ export function href(route: Route): string {
     case 'new-server':
       return '/servers/new'
     case 'server':
+      if (route.page === 'running') return `/servers/${route.slug}/running`
       return route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
     case 'machine':
       return `/machines/${route.id}`

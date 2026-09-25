@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Crash, MachineView, Me, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus } from '@/api/types'
+import type { Crash, MachineView, Me, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -11,6 +11,7 @@ import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { RunningPage } from './server/running'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -211,6 +212,132 @@ describe('Overview', () => {
     expect(steps[2]?.querySelector('.text-destructive-foreground')).toBeNull()
   })
 
+  it('opens How it’s running from the whole card, with the tick rate behind in amber', async () => {
+    const at = new Date().toISOString()
+    await render(<Overview server={server({ resources: { tps: 17.1, mspt: 58, lag: 'a_bit_behind', memBytes: 2 ** 31, cpuPercent: 40, at } })} />)
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent === 'How it’s running')
+    expect(link?.getAttribute('href')).toBe('/servers/survival/running')
+    const rate = [...document.querySelectorAll('dd')].find((d) => d.textContent?.startsWith('17.1'))
+    expect(rate?.textContent).toBe('17.1 · a bit behind')
+    expect(rate?.className).toContain('text-warning-foreground')
+  })
+})
+
+describe('How it’s running', () => {
+  const at = new Date().toISOString()
+  const since = new Date()
+  since.setHours(18, 20, 0, 0)
+  const minute = 60_000
+  const metrics: MetricsResponse = {
+    from: new Date(Date.now() - 60 * minute).toISOString(),
+    to: at,
+    bucketSeconds: 60,
+    sampleIntervalSeconds: 30,
+    gaps: [],
+    source: 'rcon',
+    buckets: Array.from({ length: 60 }, (_, i) => ({
+      start: new Date(Date.now() - (60 - i) * minute).toISOString(),
+      playersMax: 3,
+      cpuAvg: i < 30 ? 22 : 61,
+      memAvg: 2.4 * 2 ** 30,
+      tpsAvg: i < 30 ? 20 : 17,
+      msptAvg: i < 30 ? 31 : 58,
+      coverage: 1,
+      state: 'online' as const,
+    })),
+  }
+  const behind: Running = {
+    status: 'a_bit_behind',
+    params: { tps: 17.1, target_tps: 20, mspt: 58.2, overloads: 4 },
+    title: 'A bit behind',
+    explanation: '',
+    evidence: [],
+    causes: [
+      {
+        kind: 'chunk_generation',
+        params: { count: 1240 },
+        score: 70,
+        title: 'Players are exploring new land',
+        explanation: '',
+        evidence: [{ kind: 'new_chunks', params: { count: 1240, minutes: 10 }, text: '' }],
+        actions: [{ kind: 'pregenerate_world', title: 'Pre-generate the map around spawn', recommended: true }],
+      },
+      {
+        kind: 'memory_pressure',
+        params: { heap_mb: 3072 },
+        score: 60,
+        title: 'The server is short on memory',
+        explanation: '',
+        evidence: [
+          { kind: 'heap_after_gc', params: { used_mb: 2800, heap_mb: 3072, percent: 91.1 }, text: '' },
+          { kind: 'gc_pauses', params: { percent: 9, longest_ms: 800 }, text: '' },
+        ],
+        actions: [{ kind: 'raise_memory', params: { from_mb: 4096, to_mb: 6144 }, title: 'Give it 6 GB instead of 4 GB', recommended: true }],
+      },
+      {
+        kind: 'high_distance',
+        params: { view_distance: 16 },
+        score: 45,
+        title: 'The server keeps a lot of the world running',
+        explanation: '',
+        evidence: [],
+        actions: [{ kind: 'lower_view_distance', params: { from: 16, to: 10 }, title: 'Lower the view distance from 16 to 10', recommended: true }],
+      },
+    ],
+    windowMinutes: 10,
+    at,
+    behindSince: since.toISOString(),
+    players: 3,
+  }
+  const live = { tps: 17.1, mspt: 58.2, lag: 'a_bit_behind' as const, memBytes: 3.8 * 2 ** 30, cpuPercent: 61, at }
+  const link = (text: string) => [...document.querySelectorAll('a')].find((a) => a.textContent === text)?.getAttribute('href')
+
+  it('says how far behind it is and ranks the causes, each with one action', async () => {
+    answer({ '/running': behind, '/metrics': metrics })
+    const text = await render(<RunningPage server={server({ resources: live })} />)
+    expect(text).toContain('A bit behind: 17 of 20 ticks a second')
+    expect(text).toContain('Since about 18:20, while 3 players explore new land.')
+    expect(text).toContain('17.1ticks a second')
+    expect(text).toContain('58ms a tick')
+    expect(text).toContain('3.8of 4 GB')
+    expect(text).toContain('20 is smooth')
+    expect(text).toContain('50 ms budget')
+    expect(text).toContain('4 GB limit')
+    expect(document.querySelectorAll('svg path[stroke="#D97706"]').length).toBeGreaterThan(0)
+
+    const rows = [...document.querySelectorAll('ol > li')].map((li) => li.textContent)
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toContain('New land is being built as players explore')
+    expect(rows[0]).toContain('1,240 new chunks in the last 10 minutes')
+    expect(rows[1]).toContain('Even after cleaning up, 91% of its memory stayed in use, so Java keeps pausing.')
+    expect(rows[1]).toContain('Pauses took 9% of the last 10 minutes')
+    expect(rows[2]).toContain('View distance is 16 chunks, a lot of land per player.')
+    expect(rows[2]).toContain('1,089 chunks in view per player')
+
+    const pregen = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Pre-generate the map'))
+    expect(pregen?.disabled).toBe(true)
+    expect(rows[0]).toContain('Coming later')
+    expect(link('Give it 6 GB')).toBe('/servers/survival/settings?memory=6144#memory')
+    expect(link('Lower view distance to 10')).toBe('/servers/survival/settings?view=10#game')
+  })
+
+  it('says nothing is slowing it down when it keeps up', async () => {
+    answer({ '/running': { ...behind, status: 'smooth', params: { tps: 20, target_tps: 20, mspt: 31, overloads: 0 }, causes: [], behindSince: undefined }, '/metrics': metrics })
+    const text = await render(<RunningPage server={server({ resources: { ...live, tps: 20, mspt: 31, lag: 'smooth' } })} />)
+    expect(text).toContain('Running smoothly: 20 of 20 ticks a second')
+    expect(text).toContain('3 players are on and Survival has room to spare.')
+    expect(text).toContain('Nothing is slowing it down')
+    expect(document.querySelectorAll('ol > li')).toHaveLength(0)
+  })
+
+  it('shows what it measured before while the server is stopped', async () => {
+    answer({ '/running': { status: 'unknown', params: { running: false }, title: 'Not running', explanation: '', evidence: [], causes: [], windowMinutes: 10 }, '/metrics': metrics })
+    const text = await render(<RunningPage server={server({ phase: 'stopped' })} />)
+    expect(text).toContain('Not running')
+    expect(text).toContain('Playkeeper measures how Survival runs while it’s online.')
+    expect(text).not.toContain('Nothing is slowing it down')
+    expect(document.querySelectorAll('svg path').length).toBeGreaterThan(0)
+  })
 })
 
 describe('Crash helper', () => {

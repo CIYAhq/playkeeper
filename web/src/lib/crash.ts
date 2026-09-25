@@ -1,21 +1,7 @@
 import type { Crash, CrashLine, DiagnosisAction, Params } from '@/api/types'
 import { t } from '@/i18n'
 import { formatClock, formatDate, formatList, formatMB, sameDay } from '@/lib/format'
-
-function num(p: Params | undefined, key: string): number | undefined {
-  const v = p?.[key]
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
-}
-
-function str(p: Params | undefined, key: string): string | undefined {
-  const v = p?.[key]
-  return typeof v === 'string' && v.trim() !== '' ? v : undefined
-}
-
-function strs(p: Params | undefined, key: string): string[] {
-  const v = p?.[key]
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
-}
+import { num, str, strs } from '@/lib/params'
 
 /**
  * What happened, in one line. Kinds without a line of their own, or without

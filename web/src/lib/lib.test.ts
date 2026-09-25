@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, Crash, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
+import type { CatalogEntry, Crash, LagCause, MetricsBucket, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
+import { lineRuns } from '@/components/app/line-chart'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
@@ -10,6 +11,7 @@ import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativ
 import { memorySegments } from './memory'
 import { controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone } from './phase'
 import { href, parse, type Route } from './router'
+import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadline, tickRateAxis, tickTimeAxis, timeLabels } from './running'
 import { newerStable, softwareLabel } from './servers'
 import { memoryForStyle } from './styles'
 import { upgradeTargets } from './versions'
@@ -47,6 +49,7 @@ describe('router', () => {
       { name: 'new-server' },
       { name: 'server', slug: 'survival', tab: 'overview' },
       { name: 'server', slug: 'my-world-2', tab: 'players' },
+      { name: 'server', slug: 'survival', tab: 'overview', page: 'running' },
       { name: 'machine', id: 'm2345abcde' },
       { name: 'settings' },
       { name: 'more' },
@@ -59,6 +62,7 @@ describe('router', () => {
     expect(parse('/console')).toEqual({ name: 'legacy', tab: 'console' })
     expect(parse('/world/')).toEqual({ name: 'legacy', tab: 'world' })
     expect(parse('/servers/survival/nope')).toEqual({ name: 'home' })
+    expect(parse('/servers/survival/running/more')).toEqual({ name: 'home' })
     expect(parse('/servers/Bad Slug')).toEqual({ name: 'home' })
     expect(parse('/whatever')).toEqual({ name: 'home' })
   })
@@ -316,5 +320,75 @@ describe('creating a server', () => {
 
   it('labels the software', () => {
     expect(softwareLabel(server({ config: { minecraftVersion: '26.1.2' } as ServerConfig }))).toBe('Paper 26.1.2')
+  })
+})
+
+describe('how it’s running', () => {
+  const ctx = { server: 'Survival', machine: 'my-vps', slug: 'survival', players: 3, minutes: 10 }
+  const cause = (over: Partial<LagCause>): LagCause => ({ kind: 'world_workload', score: 40, title: 'Agent title', explanation: 'Agent words.', evidence: [], actions: [], ...over })
+  const running = (over: Partial<Running>): Running => ({ status: 'smooth', title: '', explanation: '', evidence: [], causes: [], windowMinutes: 10, ...over })
+
+  it('never says 20 of 20 while it is behind', () => {
+    expect(headlineTPS(17.1, 20, true)).toBe(17)
+    expect(headlineTPS(19.6, 20, true)).toBe(19.6)
+    expect(headlineTPS(19.96, 20, false)).toBe(20)
+  })
+
+  it('says why it fell behind when there is no stretch to date it from', () => {
+    expect(runningHeadline(running({ status: 'lagging', params: { overloads: 5 } }), 'Survival').title).toBe('Lagging')
+    expect(runningHeadline(running({ status: 'lagging', params: { overloads: 5 } }), 'Survival').subtitle).toBe('It fell behind 5 times in the last 10 minutes.')
+    expect(runningHeadline(running({ status: 'smooth', params: { tps: 20, mspt: 44 }, players: 0 }), 'Survival').subtitle).toBe('Nobody is on, but Survival is close to its limit.')
+    expect(runningHeadline(running({ status: 'unknown', params: { sprinting: true } }), 'Survival').title).toBe('The game is sprinting')
+  })
+
+  it('offers the action Playkeeper can do now before one that is coming later', () => {
+    const distances = cause({
+      kind: 'high_distance',
+      params: { simulation_distance: 14, view_distance: 16 },
+      actions: [
+        { kind: 'lower_simulation_distance', params: { from: 14, to: 10 }, title: '', recommended: true },
+        { kind: 'lower_view_distance', params: { from: 16, to: 10 }, title: '' },
+      ],
+    })
+    expect(causeAction(distances, ctx)).toMatchObject({ mode: 'link', label: 'Lower view distance to 10', href: '/servers/survival/settings?view=10#game' })
+    expect(causeText(distances, ctx).body).toBe('View distance is 16 and simulation distance 14 chunks, a lot of land per player.')
+    const profiler = cause({ actions: [{ kind: 'run_profiler', title: '', recommended: true }] })
+    expect(causeAction(profiler, ctx)).toMatchObject({ mode: 'later', label: 'Run a profiler' })
+    const host = cause({ kind: 'host_cpu_busy', params: { busy_percent: 97 }, actions: [{ kind: 'upgrade_host', params: { resource: 'cpu' }, title: '', recommended: true }] })
+    expect(causeAction(host, ctx)).toMatchObject({ mode: 'advice', label: 'Move to a faster machine', note: 'At your hosting provider' })
+    expect(causeText(host, ctx)).toEqual({ title: 'The processor is fully busy', body: 'Playkeeper can’t tell how much of that is Survival.', evidence: 'Processor 97% busy' })
+  })
+
+  it('keeps the agent’s words for a cause without the numbers its text needs', () => {
+    expect(causeText(cause({ kind: 'cpu_steal' }), ctx)).toEqual({ title: 'Agent title', body: 'Agent words.', evidence: undefined })
+    expect(causeText(cause({ kind: 'world_workload', params: { server_cpu: 96 } }), ctx).evidence).toBe('Used 1 core on average')
+  })
+
+  it('draws bad stretches in amber, joined to the line, and breaks it at gaps', () => {
+    const bad = (v: number) => v < 19
+    expect(lineRuns([20, 20, 17, 17, 20, 20], bad)).toEqual([
+      { from: 0, values: [20, 20], bad: false },
+      { from: 1, values: [20, 17, 17, 20], bad: true },
+      { from: 4, values: [20, 20], bad: false },
+    ])
+    expect(lineRuns([20, null, 20, 20], bad)).toEqual([
+      { from: 0, values: [20], bad: false },
+      { from: 2, values: [20, 20], bad: false },
+    ])
+  })
+
+  it('scales each chart from zero, with room above the tick budget', () => {
+    expect(tickRateAxis(20)).toEqual({ max: 20, labels: ['20', '10', '0'] })
+    expect(tickTimeAxis(50, [31, 58, null])).toEqual({ max: 80, labels: ['80', '40', '0'] })
+    expect(tickTimeAxis(50, [240]).max).toBe(250)
+    expect(memoryAxis(4096)).toEqual({ max: 4, labels: ['4 GB', '2', '0'] })
+    expect(cpuAxis([22, 61])).toEqual({ max: 100, labels: ['100%', '50', '0'] })
+  })
+
+  it('labels the hour at quarters, ending with now', () => {
+    const start = Date.parse('2026-09-25T17:52:00')
+    const buckets: MetricsBucket[] = Array.from({ length: 61 }, (_, i) => ({ start: new Date(start + i * 60_000).toISOString(), playersMax: 3, cpuAvg: null, memAvg: null, tpsAvg: 20, msptAvg: 30, coverage: 1, state: 'online' }))
+    expect(timeLabels(buckets, '1h').map((l) => l.text)).toEqual(['17:52', '18:07', '18:22', '18:37', 'now'])
+    expect(timeLabels(buckets, '1h', true).map((l) => l.text)).toEqual(['17:52', '18:22', 'now'])
   })
 })
