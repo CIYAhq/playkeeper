@@ -70,7 +70,9 @@ func TestPageNeedsNothingTheSitePolicyBlocks(t *testing.T) {
 		}
 	}
 	for _, m := range regexp.MustCompile(`\s(?:src|href)="(/[^"#]*)`).FindAllStringSubmatch(page, -1) {
-		if m[1] == "/" {
+		// /demo/ is the live demo, which site/Dockerfile builds from web/;
+		// scripts/site-check.sh checks that the image serves it.
+		if m[1] == "/" || m[1] == "/demo/" {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(siteDir, path.Clean(m[1]))); err != nil {
