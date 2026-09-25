@@ -1,0 +1,771 @@
+[
+ {
+  "id": "4WWQxlQP",
+  "slug": "servercore",
+  "project_type": "mod",
+  "title": "ServerCore",
+  "client_side": "unsupported",
+  "server_side": "required",
+  "environment": [
+   "server_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "4qmvXRB9",
+  "slug": "zconfig",
+  "project_type": "mod",
+  "title": "ZConfig",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "5ZwdcRci",
+  "slug": "immediatelyfast",
+  "project_type": "mod",
+  "title": "ImmediatelyFast",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "9eGKb6K1",
+  "slug": "simple-voice-chat",
+  "project_type": "mod",
+  "title": "Simple Voice Chat",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "bukkit",
+   "bungeecord",
+   "fabric",
+   "folia",
+   "forge",
+   "neoforge",
+   "paper",
+   "purpur",
+   "quilt",
+   "spigot",
+   "velocity",
+   "waterfall"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "9s6osm5g",
+  "slug": "cloth-config",
+  "project_type": "mod",
+  "title": "Cloth Config API",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "AANobbMI",
+  "slug": "sodium",
+  "project_type": "mod",
+  "title": "Sodium",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "Ha28R6CL",
+  "slug": "fabric-language-kotlin",
+  "project_type": "mod",
+  "title": "Fabric Language Kotlin",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "LOpKHB2A",
+  "slug": "waystones",
+  "project_type": "mod",
+  "title": "Waystones",
+  "client_side": "required",
+  "server_side": "required",
+  "environment": [
+   "client_and_server"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "LQ3K71Q1",
+  "slug": "dynamic-fps",
+  "project_type": "mod",
+  "title": "Dynamic FPS",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "M1953qlQ",
+  "slug": "resourceful-config",
+  "project_type": "mod",
+  "title": "Resourceful Config",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both",
+   "client_and_server"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "MBAkmtvl",
+  "slug": "balm",
+  "project_type": "mod",
+  "title": "Balm",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "NNAgCjsB",
+  "slug": "entityculling",
+  "project_type": "mod",
+  "title": "Entity Culling",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "babric",
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "ONZm0H7Y",
+  "slug": "better-block-entities",
+  "project_type": "mod",
+  "title": "Better Block Entities",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "OnlVIpq5",
+  "slug": "zfastnoise",
+  "project_type": "mod",
+  "title": "Fast Noise",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both",
+   "server_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "P7dR8mSH",
+  "slug": "fabric-api",
+  "project_type": "mod",
+  "title": "Fabric API",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "Ps1zyz6x",
+  "slug": "scalablelux",
+  "project_type": "mod",
+  "title": "ScalableLux",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "RSeLon5O",
+  "slug": "particle-core",
+  "project_type": "mod",
+  "title": "Particle Core",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "TjSm1wrD",
+  "slug": "modernfix-mvus",
+  "project_type": "mod",
+  "title": "ModernFix-mVUS",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "VSNURh3q",
+  "slug": "c2me-fabric",
+  "project_type": "mod",
+  "title": "Concurrent Chunk Management Engine (Fabric)",
+  "client_side": "optional",
+  "server_side": "required",
+  "environment": [
+   "server_only_client_optional"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "Y8o1j1Sf",
+  "slug": "better-fabric-console",
+  "project_type": "mod",
+  "title": "Better Fabric Console",
+  "client_side": "unsupported",
+  "server_side": "required",
+  "environment": [
+   "dedicated_server_only"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "alhWWxax",
+  "slug": "cull-fewer-leaves",
+  "project_type": "mod",
+  "title": "Cull Fewer Leaves",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "ayPU0OHc",
+  "slug": "structure-layout-optimizer",
+  "project_type": "mod",
+  "title": "Structure Layout Optimizer",
+  "client_side": "unsupported",
+  "server_side": "required",
+  "environment": [
+   "server_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "bi4iCmsw",
+  "slug": "shogi",
+  "project_type": "mod",
+  "title": "Shogi",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "eXts2L7r",
+  "slug": "placeholder-api",
+  "project_type": "mod",
+  "title": "Text Placeholder API",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "fALzjamp",
+  "slug": "chunky",
+  "project_type": "mod",
+  "title": "Chunky",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "bukkit",
+   "fabric",
+   "folia",
+   "forge",
+   "neoforge",
+   "paper",
+   "spigot",
+   "sponge"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "fQEb0iXm",
+  "slug": "krypton",
+  "project_type": "mod",
+  "title": "Krypton",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "gvQqBUqZ",
+  "slug": "lithium",
+  "project_type": "mod",
+  "title": "Lithium",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "hYykXjDp",
+  "slug": "fzzy-config",
+  "project_type": "mod",
+  "title": "Fzzy Config",
+  "client_side": "required",
+  "server_side": "required",
+  "environment": [
+   "client_and_server"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "ix1qq8Ux",
+  "slug": "crash-assistant",
+  "project_type": "mod",
+  "title": "Crash Assistant",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "legacy-fabric",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "jlNms3Jp",
+  "slug": "configmanager",
+  "project_type": "mod",
+  "title": "Config Manager",
+  "client_side": "unsupported",
+  "server_side": "required",
+  "environment": [
+   "server_only",
+   "client_or_server"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "l6YH9Als",
+  "slug": "spark",
+  "project_type": "mod",
+  "title": "spark",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "mOgUt4GM",
+  "slug": "modmenu",
+  "project_type": "mod",
+  "title": "Mod Menu",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "p8RJPJIC",
+  "slug": "ixeris",
+  "project_type": "mod",
+  "title": "Ixeris",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "uXXizFIs",
+  "slug": "ferrite-core",
+  "project_type": "mod",
+  "title": "FerriteCore",
+  "client_side": "optional",
+  "server_side": "optional",
+  "environment": [
+   "client_or_server"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "vnpqfrJN",
+  "slug": "zmaterial-rule-compiler",
+  "project_type": "mod",
+  "title": "Material Rule Compiler",
+  "client_side": "unsupported",
+  "server_side": "required",
+  "environment": [
+   "server_only"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.2"
+  ]
+ },
+ {
+  "id": "wnEe9KBa",
+  "slug": "vmp-fabric",
+  "project_type": "mod",
+  "title": "Very Many Players (Fabric)",
+  "client_side": "optional",
+  "server_side": "required",
+  "environment": [
+   "server_only_client_optional"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "xGdtZczs",
+  "slug": "polymer",
+  "project_type": "mod",
+  "title": "Polymer",
+  "client_side": "optional",
+  "server_side": "required",
+  "environment": [
+   "server_only_client_optional"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ },
+ {
+  "id": "zvNzKfGF",
+  "slug": "asynclogger",
+  "project_type": "mod",
+  "title": "Async Logger",
+  "client_side": "required",
+  "server_side": "unsupported",
+  "environment": [
+   "client_only",
+   "client_or_server_prefers_both"
+  ],
+  "loaders": [
+   "fabric",
+   "forge",
+   "neoforge",
+   "ornithe",
+   "quilt"
+  ],
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ]
+ }
+]
