@@ -141,4 +141,30 @@ out=$(env PATH="$t/bin:$PATH" FAKE_ARCH=aarch64 sh "$root/packaging/install.sh" 
 [ "$status" != 0 ] && [[ $out == *"x86_64 (amd64) only"* ]] || fail "install.sh must refuse a non-x86_64 CPU ($status): $out"
 ok "install.sh refuses a non-x86_64 CPU with a fix"
 
+# Follow-ups after 0.3.0.
+publish othername "$t/rel" "$rel"
+(cd "$t/site/othername" && printf '%s  %s\n' "$(sha256sum "$asset" | cut -d' ' -f1)" playkeeper-linux-arm64.tar.gz >"$asset.sha256")
+publish unnamed "$t/rel" "$rel"
+(cd "$t/site/unnamed" && sha256sum "$asset" | cut -d' ' -f1 >"$asset.sha256")
+publish oddname "$t/rel" "$rel"
+(cd "$t/site/oddname" && printf '%s  %s\033[2J\n' "$(sha256sum "$asset" | cut -d' ' -f1)" "$asset" >"$asset.sha256")
+publish binary "$t/rel" "$rel"
+(cd "$t/site/binary" && sha256sum -b "$asset" >"$asset.sha256")
+
+get PLAYKEEPER_BASE_URL=https://example.test/othername -- --yes
+[ "$status" != 0 ] && [[ $out == *"$asset.sha256 is the checksum of playkeeper-linux-arm64.tar.gz, not of $asset."* ]] &&
+  ! grep -qxF "https://example.test/othername/$asset" "$t/curl.log" && [ ! -f "$t/ran.txt" ] ||
+  fail "a .sha256 that names another file must stop before the download ($status): $out"
+get PLAYKEEPER_BASE_URL=https://example.test/unnamed -- --yes
+[ "$status" != 0 ] && [[ $out == *"$asset.sha256 does not name the file it is the checksum of."* ]] && [ ! -f "$t/ran.txt" ] ||
+  fail "a .sha256 without a file name must stop the install ($status): $out"
+get PLAYKEEPER_BASE_URL=https://example.test/oddname -- --yes
+[ "$status" != 0 ] && [[ $out == *"$asset.sha256 is not the checksum of $asset."* ]] && [[ $out != *$'\033'* ]] && [ ! -f "$t/ran.txt" ] ||
+  fail "a .sha256 naming a file with control characters must stop the install without printing them ($status): $out"
+ok ".sha256 naming another file, or no file, refused before the download"
+
+get PLAYKEEPER_BASE_URL=https://example.test/binary -- --yes
+[ "$status" = 0 ] && [ "$(ran)" = "--yes " ] || fail "a .sha256 from sha256sum -b (\"*name\") should be accepted ($status): $out"
+ok ".sha256 in the form sha256sum -b writes accepted"
+
 echo "get.sh and install.sh: $checks checks passed"

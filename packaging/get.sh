@@ -89,6 +89,13 @@ main() {
     *[!0-9a-f]* | '') die "$asset.sha256 does not contain a SHA-256 checksum." ;;
   esac
   [ "${#want}" -eq 64 ] || die "$asset.sha256 does not contain a SHA-256 checksum."
+  named=$(awk 'NR == 1 {print $2}' "$tmp/$asset.sha256")
+  case $named in
+    "$asset" | "*$asset") ;;
+    '') die "$asset.sha256 does not name the file it is the checksum of." ;;
+    *[!A-Za-z0-9._-]*) die "$asset.sha256 is not the checksum of $asset." ;;
+    *) die "$asset.sha256 is the checksum of $named, not of $asset." ;;
+  esac
   fetch "$base/$asset" "$tmp/$asset" || die "could not download $base/$asset."
   got=$(sha256sum "$tmp/$asset" | awk '{print $1}')
   [ "$got" = "$want" ] || die "the download does not match its published checksum (expected $want, got $got). Nothing was installed." "Try again later; if it keeps happening, do not install from this location."
