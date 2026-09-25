@@ -58,6 +58,7 @@
 //	remove_from_whitelist  manage  destructive  DELETE /v1/servers/{id}/whitelist/{name} (idempotent)
 //	list_backups           read    read-only    GET /v1/servers/{id}/backups
 //	create_backup          manage  additive     POST /v1/servers/{id}/backups
+//	get_operation          read    read-only    GET /v1/operations/{id}, progress of the calls above
 //	get_lag_report         read    read-only    wave 3 lag helper, GET /v1/servers/{id}/metrics
 //	explain_crash          read    read-only    wave 3 crash helper, GET /v1/servers/{id}/events
 //	search_addons          read    read-only    internal/addons (open world), later
