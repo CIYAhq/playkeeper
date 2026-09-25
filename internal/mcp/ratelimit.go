@@ -68,6 +68,10 @@ func (l *limiter) wait(b *bucket) time.Duration {
 	return time.Duration((1 - b.tokens) / l.refill * float64(time.Second))
 }
 
+// retryAfter rounds a wait up to whole seconds, for Retry-After headers and
+// messages.
+func retryAfter(d time.Duration) int { return max(1, int(math.Ceil(d.Seconds()))) }
+
 func (l *limiter) gc(now time.Time) {
 	for k, b := range l.buckets {
 		if now.Sub(b.last).Seconds()*l.refill >= l.capacity {

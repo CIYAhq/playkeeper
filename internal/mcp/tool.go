@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -183,8 +184,11 @@ type ToolError struct {
 func (e *ToolError) Error() string { return e.Msg }
 
 func (e *ToolError) text() string {
-	if e.Hint == "" {
+	switch {
+	case e.Hint == "":
 		return e.Msg
+	case strings.Contains(e.Msg, "\n"):
+		return e.Msg + "\n" + e.Hint
 	}
 	return e.Msg + " " + e.Hint
 }
@@ -244,7 +248,7 @@ func register(t Tool) (*registered, error) {
 	switch t.Effect {
 	case Destructive, Additive:
 		if t.Scope == ScopeRead {
-			return nil, fail("a %s tool must need the manage or owner scope", t.Effect)
+			return nil, fail("a tool that is not read-only needs the manage or owner scope")
 		}
 	case ReadOnly:
 	default:

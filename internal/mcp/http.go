@@ -237,7 +237,7 @@ func errNoSession() *rpcError {
 func (h *HTTPHandler) authenticate(w http.ResponseWriter, r *http.Request) (Principal, bool) {
 	ip := clientIP(r)
 	if ok, wait := h.failures.peek(ip); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter(wait)))
 		h.fail(w, http.StatusTooManyRequests, nil, newError(codeInvalidRequest,
 			"Too many requests with a missing or wrong API token came from this address.",
 			"Wait a minute, then check the token in the client's configuration."))

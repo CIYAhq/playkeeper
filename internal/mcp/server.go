@@ -481,7 +481,7 @@ func (s *Server) execute(ctx context.Context, c caller, t *registered, args map[
 		lim = s.readLimit
 	}
 	if ok, wait := lim.take(c.principal.ID); !ok {
-		secs := int(wait.Seconds()) + 1
+		secs := retryAfter(wait)
 		return nil, nil, &ToolError{
 			Kind:   KindRateLimited,
 			Msg:    fmt.Sprintf("Too many tool calls with this token. Try again in %s.", plural(secs, "second")),
