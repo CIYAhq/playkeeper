@@ -446,14 +446,23 @@ describe('World', () => {
     const text = await render(<WorldPage server={server()} />)
     expect(text).toContain('A restored world that didn’t start is still on this VPS')
     expect(text).toContain('1.1 GB')
-    expect(text).not.toContain('Your world from before a restore')
+    expect(text).not.toContain('Your previous world')
     await click('Discard')
     expect(client.del).not.toHaveBeenCalled()
     expect(document.body.textContent).toContain('Discard this world copy?')
     answer({ '/world-copies': copies.slice(1), '/backups': [] })
     await click('Discard copy')
     expect(client.del).toHaveBeenCalledWith('/api/servers/abcdefghjk/world-copies/data.failed-restore-20260925-101500')
-    expect(document.body.textContent).toContain('Your world from before a restore is still on this VPS')
+    expect(document.body.textContent).toContain('Your previous world is still on this VPS')
+  })
+
+  it('says why a copy can’t be discarded while a job runs', async () => {
+    answer({ '/world-copies': [{ name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 2 ** 30 }], '/backups': [] })
+    const job: Operation = { id: 'restore-1', serverId: 'abcdefghjk', kind: 'restore', status: 'running', phase: 'swapping', actor: 'siya', startedAt: '2026-09-25T10:00:00Z' }
+    await render(<WorldPage server={server({ operation: job })} />)
+    const discard = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Discard')
+    expect(discard?.disabled).toBe(true)
+    expect(discard?.title).toBe('Restoring Survival. Try again when it’s done.')
   })
 
   it('shows nothing when no restore left a copy', async () => {

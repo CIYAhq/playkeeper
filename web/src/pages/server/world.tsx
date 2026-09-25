@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
-import { whyNot } from '@/lib/phase'
+import { busyReason, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -479,18 +479,28 @@ function leftoverTitle(c: WorldCopy): string {
 function LeftoverCopy({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const copies = usePoll(() => get<WorldCopy[]>(serverApi(s.id, '/world-copies')), 30_000, s.id)
+  const newest = useListPresence(copies.data?.slice(0, 1), (c) => c.name)
+  if (ws.stale) return null
+  return (
+    <>
+      {newest.map(({ key, item, state }) => (
+        <LeftoverNotice key={key} server={s} copy={item} state={state} onDiscarded={copies.refresh} />
+      ))}
+    </>
+  )
+}
+
+function LeftoverNotice({ server: s, copy: c, state, onDiscarded }: { server: ServerStatus; copy: WorldCopy; state: Presence; onDiscarded: () => Promise<void> }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
-  const c = copies.data?.[0]
-  if (ws.stale || !c) return null
   const when = formatDay(c.createdAt)
 
-  async function discard(name: string) {
+  async function discard() {
     setBusy(true)
     try {
-      await del(serverApi(s.id, `/world-copies/${encodeURIComponent(name)}`))
+      await del(serverApi(s.id, `/world-copies/${encodeURIComponent(c.name)}`))
       setConfirm(false)
-      await copies.refresh()
+      await onDiscarded()
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
@@ -499,11 +509,11 @@ function LeftoverCopy({ server: s }: { server: ServerStatus }) {
   }
 
   return (
-    <>
+    <div {...presenceProps(state)}>
       <Notice
         title={leftoverTitle(c)}
         action={
-          <Button variant="outline" size="sm" disabled={!!s.operation} onClick={() => setConfirm(true)}>
+          <Button variant="outline" size="sm" disabledReason={busyReason(s)} onClick={() => setConfirm(true)}>
             <Trash2Icon />
             {t('world.leftoverDiscard')}
           </Button>
@@ -521,13 +531,13 @@ function LeftoverCopy({ server: s }: { server: ServerStatus }) {
             <Button variant="ghost" onClick={() => setConfirm(false)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={() => void discard(c.name)} loading={busy}>
+            <Button variant="destructive" onClick={discard} loading={busy}>
               <Trash2Icon />
               {t('world.leftoverDiscardConfirm')}
             </Button>
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-    </>
+    </div>
   )
 }
