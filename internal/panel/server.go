@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -21,6 +22,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -797,7 +799,20 @@ func (s *Server) hServerActivity(w http.ResponseWriter, r *http.Request, _ *sess
 	writeJSON(w, status, raw)
 }
 
+var (
+	reFileWord = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	reSHA256   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
+
+// hDownload streams a backup archive as a download the panel describes
+// itself. A joined machine chooses the bytes but not their type or name,
+// so nothing it sends can render on the panel's origin.
 func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session) {
+	bid := r.PathValue("bid")
+	if !reFileWord.MatchString(bid) {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid backup id.", "")
+		return
+	}
 	m, ok := s.target(w, r)
 	if !ok {
 		return
@@ -809,19 +824,45 @@ func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+		s.agentFailure(w, agentclient.DecodeError(resp))
 		return
 	}
-	for _, h := range []string{"Content-Type", "Content-Disposition", "Content-Length", "X-Playkeeper-SHA256"} {
-		if v := resp.Header.Get(h); v != "" {
-			w.Header().Set(h, v)
-		}
+	if resp.StatusCode != http.StatusOK {
+		s.agentFailure(w, agentclient.ErrBadAnswer)
+		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Content-Disposition", `attachment; filename="`+backupFileName(bid, resp.Header.Get("Content-Disposition"))+`"`)
+	h.Set("Content-Security-Policy", "sandbox")
+	if resp.ContentLength >= 0 {
+		h.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	if sum := resp.Header.Get("X-Playkeeper-SHA256"); reSHA256.MatchString(sum) {
+		h.Set("X-Playkeeper-SHA256", sum)
+	}
+	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	io.Copy(w, resp.Body)
+}
+
+// backupFileName is the name a backup downloads as: the agent's
+// playkeeper-<world>-<id>.tar.gz when the machine's name has exactly that
+// shape for the id asked for, and playkeeper-<id>.tar.gz otherwise.
+func backupFileName(bid, disposition string) string {
+	name := "playkeeper-" + bid + ".tar.gz"
+	_, params, err := mime.ParseMediaType(disposition)
+	if err != nil {
+		return name
+	}
+	world, ok := strings.CutPrefix(params["filename"], "playkeeper-")
+	if !ok {
+		return name
+	}
+	if world, ok = strings.CutSuffix(world, "-"+bid+".tar.gz"); !ok || !reFileWord.MatchString(world) {
+		return name
+	}
+	return params["filename"]
 }
 
 // rawGet streams a non-JSON agent response of the given type (an image).
@@ -838,9 +879,11 @@ func (s *Server) rawGet(pattern, contentType string) func(http.ResponseWriter, *
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode >= 400 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+			s.agentFailure(w, agentclient.DecodeError(resp))
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			s.agentFailure(w, agentclient.ErrBadAnswer)
 			return
 		}
 		w.Header().Set("Content-Type", contentType)
@@ -864,10 +907,21 @@ func (s *Server) rawUpload(pattern, contentType string) func(http.ResponseWriter
 			return
 		}
 		defer resp.Body.Close()
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+		if resp.StatusCode >= 400 {
+			s.agentFailure(w, agentclient.DecodeError(resp))
+			return
+		}
+		b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		switch {
+		case err != nil || resp.StatusCode < 200 || resp.StatusCode > 299:
+			s.agentFailure(w, agentclient.ErrBadAnswer)
+		case len(bytes.TrimSpace(b)) == 0:
+			w.WriteHeader(resp.StatusCode)
+		case !json.Valid(b):
+			s.agentFailure(w, agentclient.ErrBadAnswer)
+		default:
+			writeJSON(w, resp.StatusCode, json.RawMessage(b))
+		}
 	}
 }
 

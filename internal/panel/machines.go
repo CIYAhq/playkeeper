@@ -52,13 +52,27 @@ func (s *Server) machineTransport(id string) http.RoundTripper {
 	return s.hub.Transport(id)
 }
 
+// relayStatus is the status the panel answers with for a machine's error.
+// A joined machine can't say the dashboard session ended, and only 4xx and
+// 5xx pass.
+func relayStatus(status int) int {
+	if status < 400 || status > 599 || status == http.StatusUnauthorized || status == http.StatusProxyAuthRequired {
+		return http.StatusBadGateway
+	}
+	return status
+}
+
 // failureOf is the status and API error for a failed request to a machine:
 // the agent's own refusal, a machine link that could not carry it, or an
 // agent that is not running.
 func failureOf(err error) (int, api.Error) {
 	var ae *agentclient.Error
 	if errors.As(err, &ae) {
-		return ae.Status, ae.Body
+		return relayStatus(ae.Status), ae.Body
+	}
+	if errors.Is(err, agentclient.ErrBadAnswer) {
+		return http.StatusBadGateway, api.Error{Error: "The machine's answer was not valid.", Code: machinelink.CodeProtocol,
+			Hint: "Try again. If it keeps happening, update Playkeeper on both machines."}
 	}
 	var le *machinelink.Error
 	if errors.As(err, &le) {

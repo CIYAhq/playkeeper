@@ -54,6 +54,10 @@ func (e *Error) Error() string { return e.Body.Error }
 
 var ErrUnavailable = errors.New("the Playkeeper agent is not reachable")
 
+// ErrBadAnswer is an answer no agent gives: a status other than 2xx, 4xx or
+// 5xx, or a body that isn't the JSON asked for.
+var ErrBadAnswer = errors.New("the agent's answer was not valid")
+
 // Do sends a JSON request and decodes a JSON response into out (if non-nil).
 // It returns the HTTP status for successful calls.
 func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body, out any) (int, error) {
@@ -71,11 +75,14 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return resp.StatusCode, decodeErr(resp)
+		return resp.StatusCode, DecodeError(resp)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return resp.StatusCode, ErrBadAnswer
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return resp.StatusCode, err
+			return resp.StatusCode, fmt.Errorf("%w: %w", ErrBadAnswer, err)
 		}
 	}
 	return resp.StatusCode, nil
@@ -106,7 +113,8 @@ func (c *Client) Raw(ctx context.Context, method, path string, q url.Values, bod
 	return resp, nil
 }
 
-func decodeErr(resp *http.Response) error {
+// DecodeError reads an error response (status 400 or more) into an *Error.
+func DecodeError(resp *http.Response) error {
 	e := &Error{Status: resp.StatusCode}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if json.Unmarshal(b, &e.Body) != nil || e.Body.Error == "" {

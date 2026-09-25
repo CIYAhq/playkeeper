@@ -60,3 +60,25 @@ func TestViaSendsAgentRequestsAndReadsAgentErrors(t *testing.T) {
 		t.Fatalf("requests %q, want %q", got, want)
 	}
 }
+
+func TestAnswersNoAgentGivesAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+	}{
+		{http.StatusMultipleChoices, `{}`},
+		{http.StatusOK, `<html>`},
+		{http.StatusOK, ``},
+		{http.StatusCreated, `{"id":`},
+	} {
+		c := Via(roundTrip(func(*http.Request) (*http.Response, error) { return reply(tc.status, tc.body), nil }))
+		var out map[string]any
+		if _, err := c.Do(context.Background(), "GET", "/v1/servers/x", nil, nil, &out); !errors.Is(err, ErrBadAnswer) {
+			t.Errorf("%d %q: err = %v, want ErrBadAnswer", tc.status, tc.body, err)
+		}
+	}
+	c := Via(roundTrip(func(*http.Request) (*http.Response, error) { return reply(http.StatusNoContent, ``), nil }))
+	if status, err := c.Do(context.Background(), "DELETE", "/v1/servers/x/whitelist/a", nil, nil, &map[string]any{}); err != nil || status != http.StatusNoContent {
+		t.Fatalf("no content: %d %v", status, err)
+	}
+}

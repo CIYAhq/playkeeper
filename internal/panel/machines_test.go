@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agent"
+	"github.com/CIYAhq/playkeeper/internal/agentclient"
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -40,13 +42,14 @@ func eventually(t *testing.T, what string, cond func() bool) {
 // remoteAgent is a joined machine's agent. It answers whatever the machine
 // link lets through and records each request with the actor it carried.
 type remoteAgent struct {
-	mu      sync.Mutex
-	actors  map[string]string
-	replies map[string]string
+	mu       sync.Mutex
+	actors   map[string]string
+	replies  map[string]string
+	handlers map[string]http.HandlerFunc
 }
 
 func newRemoteAgent() *remoteAgent {
-	return &remoteAgent{actors: map[string]string{}, replies: map[string]string{
+	return &remoteAgent{actors: map[string]string{}, handlers: map[string]http.HandlerFunc{}, replies: map[string]string{
 		"GET /v1/machine": `{"hostname":"home-server","agentVersion":"0.4.0","memoryTotalMB":8192}`,
 		"GET /v1/servers": `[{"id":"rstuvwxyzq","name":"Cobblemon","phase":"online"}]`,
 		"GET /v1/audit":   `[{"id":1,"ts":"2026-09-24T11:00:00Z","actor":"admin","action":"server.start","result":"succeeded"}]`,
@@ -58,12 +61,24 @@ func (a *remoteAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.actors[key] = r.Header.Get(machinelink.ActorHeader)
 	reply, ok := a.replies[key]
+	h := a.handlers[key]
 	a.mu.Unlock()
+	if h != nil {
+		h(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if !ok {
 		reply = `{"ok":true}`
 	}
 	io.WriteString(w, reply)
+}
+
+// handle makes the agent answer key ("METHOD path") with h.
+func (a *remoteAgent) handle(key string, h http.HandlerFunc) {
+	a.mu.Lock()
+	a.handlers[key] = h
+	a.mu.Unlock()
 }
 
 // saw reports whether the agent got the request, and with which actor.
@@ -865,10 +880,167 @@ func TestFailuresOfJoinedMachines(t *testing.T) {
 		{&machinelink.Error{Code: machinelink.CodeDropped, Msg: "dropped"}, 502, machinelink.CodeDropped},
 		{fmt.Errorf("wrapped: %w", errLinksOff), 503, machinelink.CodeNotConnected},
 		{errors.New("dial unix: no such file"), 503, "agent_unavailable"},
+		{&agentclient.Error{Status: 409, Body: api.Error{Error: "busy", Code: "conflict"}}, 409, "conflict"},
+		{&agentclient.Error{Status: 401, Body: api.Error{Error: "sign in", Code: "unauthorized"}}, 502, "unauthorized"},
+		{&agentclient.Error{Status: 407, Body: api.Error{Error: "proxy", Code: "internal"}}, 502, "internal"},
+		{&agentclient.Error{Status: 999, Body: api.Error{Error: "odd", Code: "internal"}}, 502, "internal"},
+		{fmt.Errorf("decoding: %w", agentclient.ErrBadAnswer), 502, machinelink.CodeProtocol},
 	} {
 		status, body := failureOf(tc.err)
 		if status != tc.status || body.Code != tc.code || body.Error == "" {
 			t.Errorf("%v: %d %+v", tc.err, status, body)
+		}
+	}
+}
+
+// joined joins a machine whose agent is h and waits until it's connected.
+func (e *env) joined(t *testing.T, cookie, csrf string, h http.Handler) (string, *runningLink) {
+	t.Helper()
+	addr := e.sharePort(t)
+	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
+	code, _ := e.joinCode(t, cookie, csrf, `{"name":"home-server"}`)["code"].(string)
+	id := newIdentity(t)
+	d, err := machinelink.Join(context.Background(), machinelink.JoinOptions{Address: addr, Code: code, Fingerprint: fp, Identity: id,
+		Name: "home-server", Version: version.Version, Now: e.clock.now})
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	link := e.runLink(t, d, id, h)
+	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
+	return d.MachineID, link
+}
+
+// fetch sends a request as the browser would and returns the answer with
+// its whole body.
+func (e *env) fetch(t *testing.T, method, path, contentType, body string, hdr map[string]string) (*http.Response, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, e.ts.URL+path, strings.NewReader(body))
+	req.Header.Set("Origin", e.ts.URL)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	r, err := e.ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r, string(b)
+}
+
+func TestAJoinedMachineCantChooseHowTheDashboardServesItsAnswers(t *testing.T) {
+	e := newEnvConfig(t, nil, withDomain)
+	cookie, csrf := e.setup(t)
+	ra := newRemoteAgent()
+	e.joined(t, cookie, csrf, ra)
+	e.get(t, "/api/servers", cookie, nil)
+
+	const bid = "20260924-120000-abcdef"
+	download := "/api/servers/rstuvwxyzq/backups/" + bid + "/download"
+	page := `<!doctype html><script src="/api/servers/rstuvwxyzq/backups/evil/download"></script>`
+	ra.handle("GET /v1/servers/rstuvwxyzq/backups/"+bid+"/download", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", "inline")
+		w.Header().Set("Content-Security-Policy", "default-src *")
+		w.Header().Set("X-Playkeeper-SHA256", `"><img src=x>`)
+		io.WriteString(w, page)
+	})
+	r, body := e.fetch(t, "GET", download, "", "", auth(cookie, ""))
+	h := r.Header
+	if r.StatusCode != http.StatusOK || body != page || h.Get("Content-Type") != "application/octet-stream" ||
+		h.Get("Content-Disposition") != `attachment; filename="playkeeper-`+bid+`.tar.gz"` || h.Get("Content-Security-Policy") != "sandbox" ||
+		h.Get("X-Content-Type-Options") != "nosniff" || h.Get("X-Playkeeper-SHA256") != "" {
+		t.Fatalf("a machine's page downloads as a file: %d %v", r.StatusCode, h)
+	}
+	if actor, _ := ra.saw("GET /v1/servers/rstuvwxyzq/backups/" + bid + "/download"); actor != "admin" {
+		t.Fatalf("the download carries the actor: %q", actor)
+	}
+
+	sum := strings.Repeat("0a", 32)
+	ra.handle("GET /v1/servers/rstuvwxyzq/backups/"+bid+"/download", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Disposition", `attachment; filename="playkeeper-Cobblemon-`+bid+`.tar.gz"`)
+		w.Header().Set("X-Playkeeper-SHA256", sum)
+		io.WriteString(w, "archive")
+	})
+	r, body = e.fetch(t, "GET", download, "", "", auth(cookie, ""))
+	if h = r.Header; body != "archive" || h.Get("Content-Disposition") != `attachment; filename="playkeeper-Cobblemon-`+bid+`.tar.gz"` ||
+		h.Get("X-Playkeeper-SHA256") != sum || h.Get("Content-Type") != "application/octet-stream" || h.Get("Content-Length") != "7" {
+		t.Fatalf("an archive keeps its name and checksum: %v %q", h, body)
+	}
+
+	ra.handle("GET /v1/servers/rstuvwxyzq/backups/"+bid+"/download", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, page)
+	})
+	r, body = e.fetch(t, "GET", download, "", "", auth(cookie, ""))
+	if r.StatusCode != http.StatusNotFound || r.Header.Get("Content-Type") != "application/json" || strings.Contains(body, "<script") {
+		t.Fatalf("a machine's error page is not passed on: %d %v %q", r.StatusCode, r.Header, body)
+	}
+	if r, _ := e.fetch(t, "GET", "/api/servers/rstuvwxyzq/backups/..%2f..%2fx/download", "", "", auth(cookie, "")); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("an odd backup id: %d", r.StatusCode)
+	}
+
+	ra.handle("GET /v1/servers/rstuvwxyzq/icon", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		io.WriteString(w, `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>`)
+	})
+	if r, _ := e.fetch(t, "GET", "/api/servers/rstuvwxyzq/icon", "", "", auth(cookie, "")); r.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("an icon is always a PNG: %v", r.Header)
+	}
+
+	ra.handle("POST /v1/servers/rstuvwxyzq/icon", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusCreated)
+		io.WriteString(w, page)
+	})
+	r, body = e.fetch(t, "POST", "/api/servers/rstuvwxyzq/icon", "image/png", "png", auth(cookie, csrf))
+	if r.StatusCode != http.StatusBadGateway || r.Header.Get("Content-Type") != "application/json" || strings.Contains(body, "<script") {
+		t.Fatalf("an upload's answer must be JSON: %d %v %q", r.StatusCode, r.Header, body)
+	}
+
+	ra.handle("GET /v1/servers/rstuvwxyzq", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"error":"Please sign in.","code":"unauthorized"}`)
+	})
+	if got := e.do(t, "GET", "/api/servers/rstuvwxyzq", "", auth(cookie, "")); got.status != http.StatusBadGateway {
+		t.Fatalf("a machine can't end the dashboard session: %d %v", got.status, got.body)
+	}
+	ra.handle("POST /v1/servers/rstuvwxyzq/start", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMultipleChoices)
+	})
+	if got := e.do(t, "POST", "/api/servers/rstuvwxyzq/start", `{}`, auth(cookie, csrf)); got.status != http.StatusBadGateway || got.body["code"] != machinelink.CodeProtocol {
+		t.Fatalf("an answer no agent gives: %d %v", got.status, got.body)
+	}
+}
+
+func TestBackupFileNames(t *testing.T) {
+	const bid = "20260924-120000-abcdef"
+	plain := "playkeeper-" + bid + ".tar.gz"
+	for _, tc := range []struct{ disposition, want string }{
+		{`attachment; filename="playkeeper-Cobblemon-` + bid + `.tar.gz"`, "playkeeper-Cobblemon-" + bid + ".tar.gz"},
+		{`attachment; filename="playkeeper-my_world-2-` + bid + `.tar.gz"`, "playkeeper-my_world-2-" + bid + ".tar.gz"},
+		{"", plain},
+		{"inline", plain},
+		{`attachment; filename="index.html"`, plain},
+		{`attachment; filename="playkeeper-Cobblemon-20260101-000000-000000.tar.gz"`, plain},
+		{`attachment; filename="playkeeper--` + bid + `.tar.gz"`, plain},
+		{`attachment; filename="playkeeper-a\"b-` + bid + `.tar.gz"`, plain},
+		{`attachment; filename="playkeeper-../x-` + bid + `.tar.gz"`, plain},
+		{`attachment; filename*=UTF-8''playkeeper-%3Cb%3E-` + bid + `.tar.gz`, plain},
+		{`attachment; filename="playkeeper-` + strings.Repeat("w", 65) + `-` + bid + `.tar.gz"`, plain},
+		{`attachment; filename="playkeeper-Cobblemon-` + bid + `.tar.gz.html"`, plain},
+	} {
+		if got := backupFileName(bid, tc.disposition); got != tc.want {
+			t.Errorf("%s: %s", tc.disposition, got)
 		}
 	}
 }
