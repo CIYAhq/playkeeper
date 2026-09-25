@@ -904,9 +904,10 @@ func (s *server) hSavingResume(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	if err := backup.ResumeSaving(ctx, rconConsole{s}); err != nil {
+		s.log.Warn("could not turn world saving back on", "server", s.id, "err", err)
 		s.audit(actor, "saving.resumed", "server", "failed", err.Error())
-		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not turn world saving back on: " + err.Error(),
-			Hint: "Open the Console and run save-on, or restart the server."})
+		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not turn world saving back on.",
+			Hint: "Open the Console and run save-on, or restart the server.", cause: err})
 		return
 	}
 	s.setSavingPaused(false)

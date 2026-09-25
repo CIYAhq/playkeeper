@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -249,6 +250,10 @@ func TestSavingLeftPausedIsShownAndTurnedBackOn(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
 		t.Fatalf("%d backups recorded while saving is still paused", n)
+	}
+	if code, out := e.call("POST", e.sp("/saving/resume"), map[string]any{"actor": "admin"}); code != http.StatusBadGateway ||
+		out["error"] != "The server did not turn world saving back on." || !strings.Contains(fmt.Sprint(out["hint"]), "save-on") {
+		t.Fatalf("a failed save-on must say so plainly, without the console's reply: %d %v", code, out)
 	}
 	broken.Store(false)
 	if code, out := e.call("POST", e.sp("/saving/resume"), map[string]any{"actor": "admin"}); code != 200 {
