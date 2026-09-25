@@ -289,7 +289,10 @@ func TestJoinRequestsWaitForAYes(t *testing.T) {
 	for range 2 {
 		r := e.public(t, "redeem", codeBody(code, "name", "PixelPia"))
 		steps, _ := r.body["steps"].([]any)
-		first, _ := steps[0].(map[string]any)
+		first := map[string]any{}
+		if len(steps) > 0 {
+			first, _ = steps[0].(map[string]any)
+		}
 		if r.status != 200 || r.body["waiting"] != true || first["key"] != "invite.join.waitAnyone" {
 			t.Fatalf("asking to join: %d %v", r.status, r.body)
 		}
