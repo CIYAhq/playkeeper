@@ -503,7 +503,8 @@ func lastNonEmpty(lines []string) string {
 
 // startServer brings the server to "online". It is idempotent: a container
 // already running with the desired spec is left alone.
-func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) error {
+func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
+	defer func() { s.noteRefusal(err) }()
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}

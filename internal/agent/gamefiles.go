@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 
@@ -34,7 +35,20 @@ func gameFileError(err error, couldNot string) error {
 	if !errors.As(err, &ge) {
 		return err
 	}
-	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: couldNot + " " + ge.Msg, Hint: ge.Hint}
+	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: couldNot + " " + ge.Msg, Hint: ge.Hint, Err: ge}
+}
+
+// noteRefusal records the file that stopped a start, or clears the last one
+// when a start got past the server's files.
+func (s *server) noteRefusal(err error) {
+	var r *api.FileRefusal
+	var ge *gamefiles.Error
+	if errors.As(err, &ge) {
+		r = &api.FileRefusal{Code: string(ge.Kind), Params: maps.Clone(ge.Params), Message: ge.Msg, Hint: ge.Hint}
+	}
+	s.mu.Lock()
+	s.refusal = r
+	s.mu.Unlock()
 }
 
 // readPlayerList reads whitelist.json or ops.json into v. A missing file

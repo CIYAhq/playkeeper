@@ -218,6 +218,18 @@ describe('Overview', () => {
     expect(text).toContain('Give Survival 6 GB')
     expect(text).toContain('Fits in the 10.5 GB free')
   })
+
+  it('says which file stopped a start and what to do, in one line', async () => {
+    const refusal = { code: 'link' as const, params: { path: 'plugins/bStats/config.yml' }, message: 'plugins/bStats/config.yml in the server’s files is a link, which Playkeeper does not follow.', hint: 'Delete it.' }
+    const lastOperation = failed('start', '', 'Paper’s bStats usage statistics could not be switched off, so the server was not started. ' + refusal.message)
+    const text = await render(<Overview server={server({ phase: 'stopped', startedAt: undefined, exitCode: 0, lastOperation, refusal })} />)
+    expect(text).toContain('Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.')
+    expect(text).toContain('Once plugins/bStats/config.yml is fixed, start Survival.')
+    expect(text).not.toContain('bStats usage statistics')
+    expect(text).not.toContain('Last lines before it stopped')
+    const pipe = { ...refusal, code: 'special_file' as const, params: { path: 'plugins/bStats/config.yml', type: 'named_pipe' } }
+    expect(await render(<Overview server={server({ phase: 'stopped', refusal: pipe })} />)).toContain('while plugins/bStats/config.yml isn’t a normal file. Delete it.')
+  })
 })
 
 describe('Players', () => {

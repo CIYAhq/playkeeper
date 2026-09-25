@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, LogsResponse, ServerStatus, SessionsResponse } from '@/api/types'
+import type { Activity, FileRefusal, LogsResponse, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
@@ -27,7 +27,7 @@ export function Overview({ server }: { server: ServerStatus }) {
   const ws = useWorkspace()
   if (ws.agentDown) return <AgentDownView />
   if (!ws.stale && isSettingUp(server)) return <SettingUpView server={server} />
-  if (!ws.stale && server.phase === 'crashed' && !server.operation) return <CrashedView server={server} />
+  if (!ws.stale && (server.phase === 'crashed' || server.refusal) && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }
 
@@ -372,7 +372,8 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
 function CrashedView({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const tail = useTail(s, 3, 10_000)
-  const oom = ranOutOfMemory(s.exitCode, tail)
+  const refusal = s.refusal
+  const oom = !refusal && ranOutOfMemory(s.exitCode, tail)
   const { catalog } = useCatalog(ws.machine?.id, { server: s.id, fresh: true })
   const current = s.config?.memoryMB ?? 0
   const bigger = (catalog?.memoryOptionsMB ?? []).filter((mb) => mb > current && mb <= (catalog?.maxMemoryMB ?? 0))[0]
@@ -400,11 +401,17 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
           <Pip pose="hurt" size={80} className="max-sm:hidden" />
           <div className="min-w-0">
             <h2 className="text-lg font-bold">{t('crash.what')}</h2>
-            <p className="mt-1 text-sm">{oom ? t('crash.oom', { memory: formatMB(current) }) : (s.lastError ?? t('crash.generic', { server: s.name }))}</p>
-            {!oom && s.lastErrorHint && <p className="mt-2 text-[13px] text-muted-foreground">{s.lastErrorHint}</p>}
+            {refusal ? (
+              <p className="mt-1 text-sm">{refusalLine(refusal, s.name)}</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm">{oom ? t('crash.oom', { memory: formatMB(current) }) : (s.lastError ?? t('crash.generic', { server: s.name }))}</p>
+                {!oom && s.lastErrorHint && <p className="mt-2 text-[13px] text-muted-foreground">{s.lastErrorHint}</p>}
+              </>
+            )}
           </div>
         </div>
-        {tail.length > 0 && (
+        {!refusal && tail.length > 0 && (
           <div className="mt-auto pt-5">
             <div className="text-xs font-semibold">{t('crash.lastLines')}</div>
             <ConsoleTail lines={tail} className="mt-2" />
@@ -429,7 +436,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
             </CardGroup>
           </>
         ) : (
-          <p className="mt-1 text-[13px] text-muted-foreground">{t('crash.startHint', { server: s.name })}</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">{refusal ? t('crash.refusedFix', { file: refusal.params.path, server: s.name }) : t('crash.startHint', { server: s.name })}</p>
         )}
         <Button className="mt-4 w-full" size="lg" loading={busy} onClick={fix} disabledReason={whyNot(s, 'start', ws.stale)}>
           <PlayIcon />
@@ -438,6 +445,29 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
       </Card>
     </div>
   )
+}
+
+/** Names the file that stopped a start and what to do about it. */
+function refusalLine(r: FileRefusal, server: string): string {
+  const file = r.params.path
+  const english = [r.message, r.hint].filter(Boolean).join(' ')
+  switch (r.code) {
+    case 'link':
+      return t('crash.refusedLink', { server, file })
+    case 'special_file':
+      return t('crash.refusedSpecial', { server, file })
+    case 'not_a_file':
+    case 'not_a_folder':
+    case 'too_large':
+    case 'too_many_entries':
+    case 'changed':
+    case 'bad_name':
+      return english
+    default: {
+      const unreachable: never = r.code
+      return english || unreachable
+    }
+  }
 }
 
 function AgentDownView() {

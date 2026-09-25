@@ -108,6 +108,9 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		if op.Status != api.OpFailed || !strings.Contains(op.Error, c.at+" in the server's files is a link") || !strings.Contains(op.Hint, "plugin or mod") {
 			t.Fatalf("start with a link at %s: %+v", c.at, op)
 		}
+		if r := e.status().Refusal; r == nil || r.Code != "link" || r.Params["path"] != c.at || !strings.HasPrefix(r.Hint, "Delete it") {
+			t.Fatalf("the status after the start refused a link at %s: %+v", c.at, r)
+		}
 		if after := tree(t, host); !maps.Equal(after, before) {
 			t.Fatalf("the link at %s changed what it leads to:\n%v\nwas\n%v", c.at, after, before)
 		}
@@ -117,9 +120,50 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		if op := e.act("start"); op.Status != api.OpSucceeded {
 			t.Fatalf("start once the link is gone: %+v", op)
 		}
+		if r := e.status().Refusal; r != nil {
+			t.Fatalf("the status kept a refusal after a start: %+v", r)
+		}
 		if b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")); err != nil || !bStatsOff(b) {
 			t.Fatalf("bStats after the start: %q %v", b, err)
 		}
+	}
+}
+
+// A named pipe where Paper's bStats setting goes stops the start without
+// making it wait, and the status names the file and what it is for the
+// dashboard to say.
+func TestAPlantedPipeStopsTheStartAndTheStatusSaysWhy(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	if op := e.act("stop"); op.Status != api.OpSucceeded {
+		t.Fatalf("stop: %+v", op)
+	}
+	at := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
+	if err := os.MkdirAll(filepath.Dir(at), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(at); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(at, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.act("start"); op.Status != api.OpFailed {
+		t.Fatalf("start with a named pipe at bStats' setting: %+v", op)
+	}
+	st := e.status()
+	want := map[string]string{"path": "plugins/bStats/config.yml", "type": "named_pipe"}
+	if r := st.Refusal; st.Phase != api.PhaseStopped || r == nil || r.Code != "special_file" || !maps.Equal(r.Params, want) || !strings.Contains(r.Message, "named pipe") {
+		t.Fatalf("the status after the refused start: %s %+v", st.Phase, r)
+	}
+	if err := os.Remove(at); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.act("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start once the pipe is gone: %+v", op)
+	}
+	if r := e.status().Refusal; r != nil {
+		t.Fatalf("the status kept a refusal after a start: %+v", r)
 	}
 }
 
