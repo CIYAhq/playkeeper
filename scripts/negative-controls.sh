@@ -115,19 +115,19 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
-  'release, ok := a.holdOpLock()
+  'release, ok := s.holdOpLock()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
-  'release, ok := func() { }, !a.busy()
+  'release, ok := func() { }, !s.busy()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
   ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 5
 
@@ -273,7 +273,7 @@ control "Minecraft never goes back to an older version" internal/agent/versions.
   '	case false:' \
   ./internal/agent '^TestVersionChangesNeverGoBack$'
 control "a version that does not start gets the world back" internal/agent/versions.go \
-  'if err := a.putBackupBack(b); err != nil {' \
+  'if err := s.putBackupBack(b); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestVersionThatDoesNotStartPutsTheWorldBack$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
