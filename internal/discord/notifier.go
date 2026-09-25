@@ -152,7 +152,7 @@ func (n *Notifier) Notify(e Event) {
 	if e.At.IsZero() {
 		e.At = now
 	}
-	if n.settings.Webhook.IsZero() || n.broken != nil || !n.settings.Alerts.Has(e.Kind) {
+	if n.settings.Webhook.IsZero() || n.broken != nil || !n.settings.Alerts.posts(e.Kind) {
 		return
 	}
 	for s, t := range n.quietUntil {
@@ -349,7 +349,7 @@ func (n *Notifier) plan(now time.Time) (*job, time.Time) {
 		if old {
 			stale++
 		}
-		return old || !n.settings.Alerts.Has(e.Kind)
+		return old || !n.settings.Alerts.posts(e.Kind)
 	})
 	if stale > 0 {
 		n.log.Warn("discord: dropped alerts that could not be sent in time", "count", stale, "webhook", w)

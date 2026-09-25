@@ -23,6 +23,10 @@ const (
 	KindPlayerJoined    Kind = "player_joined"
 	KindPlayerLeft      Kind = "player_left"
 	KindJoinRequested   Kind = "join_requested"
+	// KindTwoFactor is a team member turning two-factor sign-in on or off.
+	// It changes who can run the dashboard, so it is always posted and
+	// never one of the switches.
+	KindTwoFactor Kind = "two_factor"
 )
 
 // kindInfo is what Playkeeper knows about each kind, in the order the
@@ -69,7 +73,14 @@ func (k Kind) DefaultOn() bool {
 	return false
 }
 
+// always reports whether alerts of kind k are posted whatever the switches
+// say.
+func (k Kind) always() bool { return k == KindTwoFactor }
+
 func (k Kind) quiet() time.Duration {
+	if k.always() {
+		return 0
+	}
 	for _, i := range kindInfo {
 		if i.kind == k {
 			return i.quiet
@@ -105,6 +116,9 @@ func ParseAlerts(s string) Alerts {
 
 // Has reports whether alerts of kind k are on.
 func (a Alerts) Has(k Kind) bool { return slices.Contains(a, k) }
+
+// posts reports whether alerts of kind k go out with these switches.
+func (a Alerts) posts(k Kind) bool { return a.Has(k) || k.always() }
 
 // String lists the kinds, comma-separated, in the order of Kinds.
 func (a Alerts) String() string {
@@ -146,6 +160,11 @@ type Event struct {
 	Player string
 	// Version is the Playkeeper version that is available.
 	Version string
+	// Member is the team member who turned two-factor sign-in on or off;
+	// On says which, and Admin whether they are an admin.
+	Member string
+	On     bool
+	Admin  bool
 	// Server is the server the event is about, for a Notifier that posts
 	// about several; zero means the Notifier's own server.
 	Server ServerInfo
@@ -194,6 +213,13 @@ func PlayerJoined(name string) Event { return Event{Kind: KindPlayerJoined, Play
 // PlayerLeft is a player leaving the server.
 func PlayerLeft(name string) Event { return Event{Kind: KindPlayerLeft, Player: name} }
 
+// TwoFactorChanged is a team member turning two-factor sign-in on or off.
+// An admin who turns it on has Moderator rights until the owner or an admin
+// confirms their Admin rights on the Team page.
+func TwoFactorChanged(member string, on, admin bool) Event {
+	return Event{Kind: KindTwoFactor, Member: member, On: on, Admin: admin}
+}
+
 // subject is what the quiet period of an alert applies to: its kind, plus
 // the player or version it is about. A crash after which Playkeeper gives up
 // has its own subject, so it is never swallowed by earlier crash alerts.
@@ -211,6 +237,8 @@ func (e Event) subjectInServer() string {
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))
 	case KindUpdateAvailable:
 		return string(e.Kind) + ":" + oneLine(e.Version)
+	case KindTwoFactor:
+		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Member))
 	case KindCrash:
 		if !e.Restarting {
 			return string(e.Kind) + ":gave_up"
@@ -268,6 +296,18 @@ func (e Event) embed(info ServerInfo) embed {
 		title, text = "Player left", player(e.Player)+" left "+name+"."
 	case KindJoinRequested:
 		title, text = "Join request", player(e.Player)+" wants to join "+name+". Let them in or say no on the Players tab."
+	case KindTwoFactor:
+		who := member(e.Member)
+		switch {
+		case e.On && e.Admin:
+			title, text = "Two-factor sign-in turned on", who+" turned on two-factor sign-in. Their Admin rights wait until you confirm them on the Team page. If it wasn't them, remove them from the team."
+		case e.On:
+			title, text = "Two-factor sign-in turned on", who+" turned on two-factor sign-in."
+		case e.Admin:
+			title, text = "Two-factor sign-in turned off", who+" turned off two-factor sign-in. They have Moderator rights until it's back on and confirmed."
+		default:
+			title, text = "Two-factor sign-in turned off", who+" turned off two-factor sign-in."
+		}
 	default:
 		title, text = "Server alert", name+"."
 	}
@@ -311,6 +351,13 @@ func detail(s string) string {
 func player(name string) string {
 	if name = userText(name, 32); name == "" {
 		return "A player"
+	}
+	return "**" + name + "**"
+}
+
+func member(name string) string {
+	if name = userText(name, 64); name == "" {
+		return "A team member"
 	}
 	return "**" + name + "**"
 }

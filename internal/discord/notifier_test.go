@@ -530,6 +530,34 @@ func TestAlertsThatAreOffOrTooOldAreDropped(t *testing.T) {
 	}
 }
 
+func TestTwoFactorChangesArePostedWhateverTheSwitches(t *testing.T) {
+	h := newHarness(t, Settings{Webhook: testWebhook(t, ""), Alerts: Alerts{}})
+	h.Notify(TwoFactorChanged("mara", true, true))
+	h.Notify(TwoFactorChanged("mara", false, true))
+	h.Notify(TwoFactorChanged("tobi_k", true, false))
+	h.Notify(TwoFactorChanged("tobi_k", false, false))
+	h.Notify(PlayerJoined("Steve"))
+	h.sendDue()
+	var got []string
+	for _, r := range h.fake.take() {
+		for _, e := range r.Msg.Embeds {
+			got = append(got, e.Title+": "+strings.TrimSuffix(e.Description, dashboardLine))
+		}
+	}
+	want := []string{
+		"Two-factor sign-in turned on: **mara** turned on two-factor sign-in. Their Admin rights wait until you confirm them on the Team page. If it wasn't them, remove them from the team.",
+		"Two-factor sign-in turned off: **mara** turned off two-factor sign-in. They have Moderator rights until it's back on and confirmed.",
+		`Two-factor sign-in turned on: **tobi\_k** turned on two-factor sign-in.`,
+		`Two-factor sign-in turned off: **tobi\_k** turned off two-factor sign-in.`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("with every switch off, only the two-factor changes go out, each one:\n%q\nwant\n%q", got, want)
+	}
+	if KindTwoFactor.Valid() || ParseAlerts(string(KindTwoFactor)).Has(KindTwoFactor) {
+		t.Error("two-factor changes must not be a switch anyone can turn off")
+	}
+}
+
 func TestSendTestPostsAConfirmation(t *testing.T) {
 	f := newFakeDiscord(t)
 	ctx := context.Background()
