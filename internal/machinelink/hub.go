@@ -896,8 +896,11 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return fail(errNotConnected(t.id, name))
 	}
 	parent := req.Context()
-	ctx, cancel := parent, context.CancelFunc(func() {})
-	if !route.Stream {
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if route.Stream {
+		ctx, cancel = context.WithCancel(parent)
+	} else {
 		ctx, cancel = context.WithTimeout(parent, h.opts.RequestTimeout)
 	}
 	out := req.Clone(ctx)
@@ -930,6 +933,7 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	stripHeaders(resp.Header)
 	resp.Header.Del("Set-Cookie")
 	if route.Stream {
+		resp.Body = &streamBody{rc: resp.Body, cancel: cancel}
 		return resp, nil
 	}
 	if resp.ContentLength > h.opts.MaxResponseBytes {
@@ -1036,6 +1040,21 @@ func (b *limitedBody) fix(err error) error {
 }
 
 func (b *limitedBody) Close() error {
+	err := b.rc.Close()
+	b.cancel()
+	return err
+}
+
+// streamBody is a streamed reply, which has no time limit; closing it
+// releases its request's context.
+type streamBody struct {
+	rc     io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *streamBody) Read(p []byte) (int, error) { return b.rc.Read(p) }
+
+func (b *streamBody) Close() error {
 	err := b.rc.Close()
 	b.cancel()
 	return err
