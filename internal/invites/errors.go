@@ -117,6 +117,33 @@ func usedUp(kind Kind) *Error {
 		Msg: "This invite link has been used as many times as it allows.", Hint: "Ask the person who sent it for a new link."}
 }
 
+// runOutHint is the design's advice on a friend invite that ran out.
+func runOutHint(inviter string) string {
+	ask := "Ask the person who sent it for a new link."
+	if inviter != "" {
+		ask = fmt.Sprintf("Ask %s for a new link.", inviter)
+	}
+	return ask + " If you're already on the list, just join with the address you have."
+}
+
+func runOutExpired(inv Invite, inviter string) *Error {
+	e := expired()
+	e.Params = map[string]string{"inviter": inviter, "expiredAt": inv.ExpiresAt.Format(time.RFC3339)}
+	e.Hint = runOutHint(inviter)
+	return e
+}
+
+func runOutUsedUp(inv Invite, inviter string) *Error {
+	e := usedUp(KindPlayer)
+	e.Params = map[string]string{"inviter": inviter, "maxUses": strconv.Itoa(inv.MaxUses)}
+	e.Msg = fmt.Sprintf("This invite was for %d friends, and they've all joined.", inv.MaxUses)
+	if inv.MaxUses == 1 {
+		e.Msg = "This invite was for one friend, and they've joined."
+	}
+	e.Hint = runOutHint(inviter)
+	return e
+}
+
 func badOptions(field, msg string, params ...string) *Error {
 	p := map[string]string{"field": field}
 	for i := 0; i+1 < len(params); i += 2 {

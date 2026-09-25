@@ -226,18 +226,6 @@ func (inv Invite) Summarize(now time.Time) Summary {
 	return s
 }
 
-// Public is what a public page may show about an invite that works:
-// nothing about who created it, its label, or its uses.
-type Public struct {
-	Kind      Kind      `json:"kind"`
-	Role      string    `json:"role,omitempty"`
-	ExpiresAt time.Time `json:"expiresAt,omitzero"`
-}
-
-func (inv Invite) public() Public {
-	return Public{Kind: inv.Kind, Role: inv.Role, ExpiresAt: inv.ExpiresAt}
-}
-
 const idAlphabet = "abcdefghijkmnpqrstuvwxyz23456789"
 
 // newID returns a random 10-character id in the style of the panel's other

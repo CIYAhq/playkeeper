@@ -36,14 +36,14 @@ func TestGuardAddress(t *testing.T) {
 		}
 	}
 	e := wantCode(t, g.Address(friend), CodeRateLimited)
-	if e.RetryAfter != 20*time.Second || e.Params["seconds"] != "20" || e.Params["scope"] != "address" || e.Status != 429 {
+	if DefaultAddressRequests != 60 || e.RetryAfter != 10*time.Second || e.Params["seconds"] != "10" || e.Params["scope"] != "address" || e.Status != 429 {
 		t.Errorf("refusal %+v", e)
 	}
 	if err := g.Address(netip.MustParseAddr("203.0.113.8")); err != nil {
 		t.Errorf("another address was refused: %v", err)
 	}
 
-	clock.Advance(20 * time.Second)
+	clock.Advance(10 * time.Second)
 	if err := g.Address(friend); err != nil {
 		t.Fatalf("the allowance did not refill: %v", err)
 	}

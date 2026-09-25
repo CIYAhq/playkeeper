@@ -476,23 +476,6 @@ func TestStatusAt(t *testing.T) {
 	}
 }
 
-func TestPublicViewHidesTheRest(t *testing.T) {
-	inv, code := newPlayer(t, PlayerSpec{Label: "Secret plans"})
-	p, err := PreviewPlayer(inv, code, t0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p != (Public{Kind: KindPlayer, ExpiresAt: inv.ExpiresAt}) {
-		t.Errorf("preview %+v", p)
-	}
-	b, _ := json.Marshal(p)
-	for _, s := range []string{"Secret plans", "createdBy", "uses", "serverId", inv.ID, code} {
-		if strings.Contains(string(b), s) {
-			t.Errorf("preview %s shows %q", b, s)
-		}
-	}
-}
-
 func TestMillis(t *testing.T) {
 	inv, _ := newPlayer(t, PlayerSpec{})
 	for _, tm := range []time.Time{inv.CreatedAt, inv.ExpiresAt, Revoke(inv, t0).RevokedAt} {

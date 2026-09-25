@@ -22,10 +22,10 @@ type GuardLimits struct {
 }
 
 // Defaults for GuardLimits: enough for a group of friends behind one home
-// connection opening a link at once, too few to wear out Mojang's lookup
-// budget.
+// connection opening a link, checking their names and joining at once, too
+// few to wear out Mojang's lookup budget.
 const (
-	DefaultAddressRequests = 30
+	DefaultAddressRequests = 60
 	DefaultAddressWindow   = 10 * time.Minute
 	DefaultInviteFailures  = 10
 	DefaultInviteWindow    = 10 * time.Minute
@@ -96,7 +96,8 @@ func (g *Guard) Invite(id string) error {
 // Record counts err against the invite if it is a failure that cost a
 // Mojang lookup or told the caller something: an unknown or unusable
 // player, or a taken username. Typos caught without a lookup, and outages,
-// don't count.
+// don't count. Record redemptions and acceptances, not the name preview's
+// lookups (LookupPlayer): names half typed would lock the invite.
 func (g *Guard) Record(id string, err error) {
 	switch CodeOf(err) {
 	case CodePlayerUnknown, CodePlayerDemo, CodePlayerLegacy, CodeUsernameTaken:
