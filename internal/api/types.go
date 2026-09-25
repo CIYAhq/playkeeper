@@ -634,6 +634,11 @@ const (
 
 // Wave 5: invite links, the team, Discord and player profiles.
 
+// ActivityTeamJoined is someone joining the team with a team invite: Actor
+// is their username and Detail their role. The panel adds these to a
+// machine's activity.
+const ActivityTeamJoined = "team_joined"
+
 // Note is a sentence the UI translates by Key with Params; Text is the
 // English version.
 type Note struct {

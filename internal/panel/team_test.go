@@ -267,7 +267,7 @@ func TestListsShowOnlyTheAccountsServers(t *testing.T) {
 		{"ts":"2026-09-24T11:02:00Z","serverId":"bcdefghjkm","kind":"join","player":"PixelPia"},
 		{"ts":"2026-09-24T11:01:00Z","kind":"update","detail":"0.4.0"}]`)
 	var acts []map[string]any
-	if st := e.get(t, "/api/machines/"+mid+"/activity", mod.cookie, &acts); st != 200 || len(acts) != 1 || acts[0]["player"] != "PixelPia" {
+	if st := e.get(t, "/api/machines/"+mid+"/activity", mod.cookie, &acts); st != 200 || len(acts) != 2 || acts[0]["actor"] != "mara" || acts[1]["player"] != "PixelPia" {
 		t.Fatalf("activity: %d %v", st, acts)
 	}
 	for serverID, want := range map[string]int{sampleServer: http.StatusNotFound, "": http.StatusNotFound, otherServer: http.StatusOK} {
@@ -301,6 +301,32 @@ func TestListsShowOnlyTheAccountsServers(t *testing.T) {
 	var team teamBody
 	if st := e.get(t, "/api/team", adm.cookie, &team); st != 200 || len(team.Servers) != 1 || team.Servers[0].Name != "Creative" {
 		t.Errorf("the Team page offers their servers only: %d %+v", st, team.Servers)
+	}
+}
+
+// Home's activity says when someone joined the team and as what. Who is on
+// the team is for those who manage it, so a moderator sees only their own
+// join.
+func TestTeamJoinsShowInActivity(t *testing.T) {
+	e := newEnv(t)
+	own := owner(t, e)
+	mid := machineID(t, e)
+	mod := addMember(t, e, "mara", invites.RoleModerator, "*")
+	e.clock.add(time.Minute)
+	addMember(t, e, "tobi", invites.RoleViewer, otherServer)
+	e.reply("GET", "/v1/activity", `[{"ts":"2026-09-24T11:03:00Z","serverId":"abcdefghjk","kind":"join","player":"Steve"}]`)
+
+	var acts []api.Activity
+	if st := e.get(t, "/api/machines/"+mid+"/activity", own.cookie, &acts); st != 200 || len(acts) != 3 ||
+		acts[0] != (api.Activity{TS: e.clock.now(), Kind: api.ActivityTeamJoined, Actor: "tobi", Detail: invites.RoleViewer}) ||
+		acts[1].Actor != "mara" || acts[1].Detail != invites.RoleModerator || acts[2].Player != "Steve" {
+		t.Fatalf("the owner sees every join, newest first: %d %+v", st, acts)
+	}
+	if st := e.get(t, "/api/machines/"+mid+"/activity?limit=1", own.cookie, &acts); st != 200 || len(acts) != 1 || acts[0].Actor != "tobi" {
+		t.Fatalf("the limit counts joins too: %d %+v", st, acts)
+	}
+	if st := e.get(t, "/api/machines/"+mid+"/activity", mod.cookie, &acts); st != 200 || len(acts) != 2 || acts[0].Actor != "mara" || acts[1].Player != "Steve" {
+		t.Fatalf("a moderator sees only their own join: %d %+v", st, acts)
 	}
 }
 

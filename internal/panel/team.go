@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -475,7 +476,35 @@ func (s *Server) hMachineActivity(w http.ResponseWriter, r *http.Request, sess *
 			out = append(out, a)
 		}
 	}
+	out = append(out, s.teamJoins(sess.Access, limit)...)
+	slices.SortStableFunc(out, func(a, b api.Activity) int { return b.TS.Compare(a.TS) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	writeJSON(w, status, out)
+}
+
+// teamJoins are members joining the team, as activity with their role.
+// Who is on the team is for those who manage it, so everyone else sees only
+// their own join.
+func (s *Server) teamJoins(a access, limit int) []api.Activity {
+	everyone := permit(a, actManageTeam, "") == nil
+	rows, err := s.db.Query(`SELECT u.username, m.role, m.created_at FROM project_members m JOIN users u ON u.id = m.user_id
+		WHERE m.project_id = ? AND u.role = ? AND (? OR u.id = ?) ORDER BY m.created_at DESC LIMIT ?`,
+		s.projectID(a), roleMember, everyone, a.UserID, limit)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []api.Activity
+	for rows.Next() {
+		var name, role string
+		var joined int64
+		if rows.Scan(&name, &role, &joined) == nil {
+			out = append(out, api.Activity{TS: invites.FromMillis(joined), Kind: api.ActivityTeamJoined, Actor: name, Detail: role})
+		}
+	}
+	return out
 }
 
 // hOperation is an operation's progress, for the servers the account can
