@@ -32,11 +32,13 @@ type Parsed struct {
 	Detail string
 }
 
-// The prefix matches Paper ("[12:00:00 INFO]: ") and vanilla
-// ("[12:00:00] [Server thread/INFO]: "). Player-controlled text (chat, /say,
-// /me) always follows this prefix with "<", "[" or "*", and player names cannot
-// contain spaces, so anchored patterns below cannot be forged from chat.
-const prefix = `^\[\d{2}:\d{2}:\d{2}(?: (?:INFO|WARN|ERROR))?\](?: \[Server thread/(?:INFO|WARN|ERROR)\])?: `
+// The prefix matches Paper ("[12:00:00 INFO]: "), vanilla, Fabric and Quilt
+// ("[12:00:00] [Server thread/INFO]: ") and NeoForge, which names the logger
+// too ("[12:00:00] [Server thread/INFO] [minecraft/MinecraftServer]: ").
+// Player-controlled text (chat, /say, /me) always follows this prefix with
+// "<", "[" or "*", and player names cannot contain spaces, so anchored
+// patterns below cannot be forged from chat.
+const prefix = `^\[\d{2}:\d{2}:\d{2}(?: (?:INFO|WARN|ERROR))?\](?: \[Server thread/(?:INFO|WARN|ERROR)\](?: \[[A-Za-z0-9_.$]+/[A-Za-z0-9_.$-]*\])?)?: `
 
 var (
 	reJoin      = regexp.MustCompile(prefix + `([A-Za-z0-9_]{1,16}) joined the game$`)

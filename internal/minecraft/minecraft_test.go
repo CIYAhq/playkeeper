@@ -25,6 +25,11 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{"[13:40:00 INFO]: Stopping server", EventStopping, ""},
 		{"[13:34:20 INFO]: Starting minecraft server version 26.1.2", EventStarting, ""},
 		{`[13:34:28 INFO]: Preparing level "world"`, EventPreparing, ""},
+		{"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: PkBotBuilder joined the game", EventJoin, "PkBotBuilder"},
+		{"[20:38:41] [Server thread/INFO] [minecraft/MinecraftServer]: PkBotBuilder left the game", EventLeave, "PkBotBuilder"},
+		{`[20:38:10] [Server thread/INFO] [minecraft/DedicatedServer]: Done (3.007s)! For help, type "help"`, EventReady, ""},
+		{"[20:38:07] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 26.2", EventStarting, ""},
+		{`[20:38:07] [Server thread/INFO] [minecraft/DedicatedServer]: Preparing level "world"`, EventPreparing, ""},
 		{"[init] [ERROR] Failed to download paper", EventInitError, ""},
 		{"java.lang.OutOfMemoryError: Java heap space", EventOOM, ""},
 	}
@@ -49,6 +54,10 @@ func TestParseIgnoresSpoofedChat(t *testing.T) {
 		"Foo joined the game",
 		"[13:35:18 INFO]: PkBotFriend issued server command: /say Foo joined the game",
 		"[13:35:18 INFO]: ThisNameIsWayTooLongForMinecraft joined the game",
+		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: <PkBotFriend> Foo joined the game",
+		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: [PkBotFriend] [minecraft/MinecraftServer]: Foo joined the game",
+		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: <PkBotFriend> [a/b]: Foo left the game",
+		"[20:38:30] [minecraft/MinecraftServer]: Foo joined the game",
 	}
 	for _, s := range spoofs {
 		if p := Parse(s); p.Kind == EventJoin || p.Kind == EventLeave {
