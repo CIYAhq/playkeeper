@@ -314,7 +314,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
           <Switch checked={pause} onCheckedChange={setPause} />
         </label>
         {chunky}
-        {note && <p className="px-1 text-[13px] text-muted-foreground">{note}</p>}
+        {otherJob && <p className="px-1 text-[13px] text-muted-foreground">{note}</p>}
         <PhoneActionBar>{startButton}</PhoneActionBar>
       </div>
     )
@@ -335,11 +335,11 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
           </ChoiceCard>
         ))}
       </CardGroup>
-      <label className="mt-5 flex cursor-pointer items-center gap-3 self-start text-[13px] font-semibold">
+      <label className="mt-7 flex cursor-pointer items-center gap-3 self-start text-[13px] font-semibold">
         <Switch checked={pause} onCheckedChange={setPause} />
         {t('pregen.pauseForPlayers')}
       </label>
-      {chunky && <div className="mt-5">{chunky}</div>}
+      {chunky && <div className="mt-7">{chunky}</div>}
       <div className="mt-5 flex items-center gap-4 border-t border-border pt-4">
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">{note}</p>
         {startButton}

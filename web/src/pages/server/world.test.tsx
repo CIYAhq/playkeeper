@@ -285,6 +285,7 @@ describe('Pre-generate page', () => {
     expect(document.querySelector('h1')?.textContent).toBe('Pre-generate')
     expect(text).toContain('MediumRecommended2,000 blocks · about 22 min · 380 MB')
     expect(text).not.toContain('Learn more')
+    expect(text).not.toContain('GB free')
     expect(document.querySelectorAll('[role="radio"]')).toHaveLength(4)
   })
 })
