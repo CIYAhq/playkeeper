@@ -471,6 +471,12 @@ control "a restore 0.3.0 undid is dealt with once" internal/agent/recovery.go \
   ' || op.Detail["recoveredAfterRestart"] != nil' \
   '' \
   ./internal/agent '^TestUndoneByStop$'
+control "the pre-stop check sizes server.properties without following a link or waiting on a pipe" internal/backup/archive.go \
+  'if rel == "server.properties" {
+		b, err := readProperties(dataDir)' \
+  'if rel == "server.properties" {
+		b, err := os.ReadFile(filepath.Join(dataDir, rel))' \
+  ./internal/backup '^TestArchivedSizeDoesNotFollowALinkOrWaitOnAPipe$'
 shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
   local name=$1 file=$2 test=$5
   FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"

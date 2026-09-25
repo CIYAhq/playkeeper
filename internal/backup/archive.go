@@ -276,17 +276,17 @@ func archiveFiles(dataDir, level string) ([]string, error) {
 }
 
 // archivedSize is rel's size in an archive, where server.properties loses its
-// secret lines.
+// secret lines. Check runs while the server does, so server.properties is
+// read through gamefiles: the game can swap in a link or a named pipe.
 func archivedSize(dataDir, rel string) (int64, error) {
-	full := filepath.Join(dataDir, filepath.FromSlash(rel))
 	if rel == "server.properties" {
-		b, err := os.ReadFile(full)
+		b, err := readProperties(dataDir)
 		if err != nil {
 			return 0, err
 		}
 		return int64(len(SanitizeProperties(b))), nil
 	}
-	st, err := os.Lstat(full)
+	st, err := os.Lstat(filepath.Join(dataDir, filepath.FromSlash(rel)))
 	if err != nil {
 		return 0, err
 	}
