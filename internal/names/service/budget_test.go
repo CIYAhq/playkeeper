@@ -138,6 +138,7 @@ func TestServerAddressesPerInstallAndPerNetworkAreLimited(t *testing.T) {
 	}
 	b.Name = "multi-b"
 	e.grown()
+	e.tick() // one liveness check per address per tick
 	add(a, 3)
 	add(b, 2)
 	var ne *names.Error

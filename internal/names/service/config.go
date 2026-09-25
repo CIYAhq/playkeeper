@@ -1,9 +1,11 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -86,6 +88,8 @@ type Config struct {
 	cloudflareAPI  string
 	pageSize       int
 	alertTransport http.RoundTripper
+	// dialAlive connects the liveness checks to a name's address.
+	dialAlive func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 var (

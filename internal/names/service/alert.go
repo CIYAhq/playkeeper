@@ -19,6 +19,7 @@ const (
 	alertZoneNearlyFull = "zone_nearly_full"
 	alertZoneFull       = "zone_full"
 	alertChallenges     = "challenges_refused"
+	alertChecks         = "liveness_checks"
 )
 
 const (

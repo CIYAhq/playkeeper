@@ -15,8 +15,10 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -66,7 +68,8 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // testEnv is the service behind an httptest server whose only trusted proxy
-// is 127.0.0.1, talking to a fake Cloudflare, on a test clock.
+// is 127.0.0.1, talking to a fake Cloudflare, on a test clock. Every
+// install has a dashboard the liveness checks reach through dialPanel.
 type testEnv struct {
 	t   *testing.T
 	clk *testClock
@@ -75,6 +78,11 @@ type testEnv struct {
 	svc *Service
 	srv *httptest.Server
 	log *syncBuffer
+
+	mu     sync.Mutex
+	panels []*panel
+	of     map[*names.Client]*panel
+	dials  atomic.Int32
 }
 
 func testConfig(t *testing.T, clk *testClock, cf *fakeCloudflare, log io.Writer) Config {
@@ -88,6 +96,9 @@ func testConfig(t *testing.T, clk *testClock, cf *fakeCloudflare, log io.Writer)
 		HTTP:          cf.srv.Client(),
 		cloudflareAPI: cf.srv.URL + "/client/v4",
 		pageSize:      2,
+		dialAlive: func(context.Context, string, string) (net.Conn, error) {
+			return nil, errors.New("tests do not dial out")
+		},
 	}
 }
 
@@ -95,9 +106,10 @@ func testConfig(t *testing.T, clk *testClock, cf *fakeCloudflare, log io.Writer)
 // the fake Cloudflare before the service starts.
 func newEnv(t *testing.T, setup ...func(*testEnv)) *testEnv {
 	t.Helper()
-	e := &testEnv{t: t, clk: &testClock{t: testStart}, log: &syncBuffer{}}
+	e := &testEnv{t: t, clk: &testClock{t: testStart}, log: &syncBuffer{}, of: map[*names.Client]*panel{}}
 	e.cf = newFakeCloudflare(t)
 	e.cfg = testConfig(t, e.clk, e.cf, e.log)
+	e.cfg.dialAlive = e.dialPanel
 	for _, f := range setup {
 		f(e)
 	}
@@ -110,11 +122,105 @@ func newEnv(t *testing.T, setup ...func(*testEnv)) *testEnv {
 	t.Cleanup(func() {
 		e.srv.Close()
 		e.svc.Close()
+		e.mu.Lock()
+		for _, p := range e.panels {
+			p.close()
+		}
+		e.mu.Unlock()
 		if strings.Contains(e.log.String(), testToken) {
 			t.Error("the Cloudflare token appears in the service's log")
 		}
 	})
 	return e
+}
+
+// panel is an install's dashboard as the liveness checks reach it: the
+// real names.AliveHandler behind TLS, on port 8443 of its machine's
+// addresses while it is up. The first dashboard added for a machine gets
+// its port 8443.
+type panel struct {
+	m   *machine
+	key ed25519.PrivateKey
+
+	mu      sync.Mutex
+	down    bool
+	handler http.Handler
+	srv     *httptest.Server
+}
+
+// setDown makes the dashboard's port refuse connections, or answer again.
+func (p *panel) setDown(down bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.down = down
+}
+
+// serve replaces the real handler with h; nil brings it back.
+func (p *panel) serve(h http.Handler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.handler = h
+}
+
+// listen starts the dashboard's TLS server on first use and returns its
+// address.
+func (p *panel) listen() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.srv == nil {
+		mux := http.NewServeMux()
+		mux.Handle(names.AlivePattern, names.AliveHandler(testBase, func(string) ed25519.PrivateKey { return p.key }))
+		p.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p.mu.Lock()
+			h := p.handler
+			p.mu.Unlock()
+			if h == nil {
+				h = mux
+			}
+			h.ServeHTTP(w, r)
+		}))
+	}
+	return p.srv.Listener.Addr().String()
+}
+
+func (p *panel) close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.srv != nil {
+		p.srv.Close()
+	}
+}
+
+// panelOf is the dashboard of the install c talks for.
+func (e *testEnv) panelOf(c *names.Client) *panel {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.of[c]
+}
+
+// dialPanel connects a liveness check to the dashboard that is up on the
+// machine with addr's IP address.
+func (e *testEnv) dialPanel(ctx context.Context, network, addr string) (net.Conn, error) {
+	e.dials.Add(1)
+	ap, err := netip.ParseAddrPort(addr)
+	if err != nil || ap.Port() != names.AlivePort || network != "tcp" {
+		e.t.Errorf("a liveness check dialled %s %s", network, addr)
+		return nil, errors.New("unexpected address")
+	}
+	e.mu.Lock()
+	panels := slices.Clone(e.panels)
+	e.mu.Unlock()
+	for _, p := range panels {
+		p.mu.Lock()
+		down := p.down
+		p.mu.Unlock()
+		v4, v6 := p.m.addrs()
+		if !down && (v4 == ap.Addr().String() || v6 == ap.Addr().String()) {
+			var d net.Dialer
+			return d.DialContext(ctx, "tcp", p.listen())
+		}
+	}
+	return nil, &net.OpError{Op: "dial", Net: network, Addr: net.TCPAddrFromAddrPort(ap), Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED}}
 }
 
 func (e *testEnv) tick() { e.svc.tick(context.Background()) }
@@ -140,6 +246,12 @@ func (m *machine) set(v4, v6 string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.v4, m.v6 = v4, v6
+}
+
+func (m *machine) addrs() (v4, v6 string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.v4, m.v6
 }
 
 func (m *machine) addr(f names.Family) string {
@@ -170,8 +282,24 @@ func testKey(seed string) ed25519.PrivateKey {
 }
 
 // install is a Playkeeper install with its own key on m, using the real
-// client.
+// client, with a dashboard that is up.
 func (e *testEnv) install(seed string, m *machine) *names.Client {
+	c := e.client(seed, m)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, p := range e.panels {
+		if p.m == m && p.key.Equal(c.Key) {
+			e.of[c] = p
+			return c
+		}
+	}
+	p := &panel{m: m, key: c.Key}
+	e.panels = append(e.panels, p)
+	e.of[c] = p
+	return c
+}
+
+func (e *testEnv) client(seed string, m *machine) *names.Client {
 	via := func(f names.Family) *http.Client {
 		next := e.srv.Client().Transport
 		return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

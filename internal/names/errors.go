@@ -20,6 +20,7 @@ const (
 	CodeNotClaimed       = "not_claimed"
 	CodeNotYourName      = "not_your_name"
 	CodeNameLapsed       = "name_lapsed"
+	CodeNotAnswering     = "not_answering"
 	CodeLimitReached     = "limit_reached"
 	CodeNetworkLimit     = "network_limit_reached"
 	CodeTooManyServers   = "too_many_servers"

@@ -288,6 +288,7 @@ func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 	if err := s.claimable(row, name, c.key); err != nil {
 		return err
 	}
+	answered := false
 	if row == nil || row.State == names.StateReleased {
 		if err := s.limitReached(ctx, s.db, c.key, name); err != nil {
 			return err
@@ -295,6 +296,8 @@ func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 		if err := s.networkFull(ctx, s.db, c.addr, name); err != nil {
 			return err
 		}
+	} else if answered, err = s.recheck(ctx, row, c.addr); err != nil {
+		return err
 	}
 	if row == nil {
 		if ok, wait := s.claimsAddr.allow(addrBucket(c.addr, 56)); !ok {
@@ -309,7 +312,7 @@ func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 			return rateLimited(wait, "new names today")
 		}
 	}
-	if err := s.commitClaim(ctx, name, c); err != nil {
+	if err := s.commitClaim(ctx, name, c, answered); err != nil {
 		return err
 	}
 	if row == nil || row.State == names.StateReleased {
@@ -318,7 +321,9 @@ func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 	return s.respond(w, r, name)
 }
 
-func (s *Service) commitClaim(ctx context.Context, name string, c *call) error {
+// commitClaim stores a claim; answered is for a name the key already holds
+// (see setAddress).
+func (s *Service) commitClaim(ctx context.Context, name string, c *call, answered bool) error {
 	return s.writeTx(ctx, func(q queryer) error {
 		row, err := s.getName(ctx, q, name)
 		if err != nil {
@@ -328,7 +333,7 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call) error {
 			return err
 		}
 		if row != nil && row.State != names.StateReleased {
-			return s.setAddress(ctx, q, row, c.addr, false)
+			return s.setAddress(ctx, q, row, c.addr, false, answered)
 		}
 		if err := s.limitReached(ctx, q, c.key, name); err != nil {
 			return err
@@ -345,7 +350,8 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call) error {
 		}
 		res, err := q.ExecContext(ctx, `INSERT INTO names (name, key, state, ipv4, ipv6, network, claimed_at, refreshed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (name) DO UPDATE SET state = excluded.state, ipv4 = excluded.ipv4, ipv6 = excluded.ipv6, network = excluded.network,
-			claimed_at = excluded.claimed_at, refreshed_at = excluded.refreshed_at, lapsed_at = 0, released_at = 0, version = version + 1
+			claimed_at = excluded.claimed_at, refreshed_at = excluded.refreshed_at, lapsed_at = 0, released_at = 0, version = version + 1,
+			alive_at = 0, checked_at = 0, failed_checks = 0, lapse_reason = ''
 			WHERE names.key = excluded.key`,
 			name, c.key, names.StateActive, v4, v6, network(c.addr), now, now)
 		if err != nil {
@@ -359,8 +365,11 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call) error {
 }
 
 // setAddress points row at addr (keeping the other IP version's address
-// unless clearOther) and counts it as a refresh.
-func (s *Service) setAddress(ctx context.Context, q queryer, row *nameRow, addr netip.Addr, clearOther bool) error {
+// unless clearOther) and counts it as a refresh. A name that lapsed because
+// its address did not answer comes back only when answered: addr just
+// answered the liveness check (see recheck). A lapsed name gets
+// minFailedChecks new checks before it can lapse for not answering again.
+func (s *Service) setAddress(ctx context.Context, q queryer, row *nameRow, addr netip.Addr, clearOther, answered bool) error {
 	v4, v6 := row.IPv4, row.IPv6
 	if addr.Is4() {
 		v4 = addr.String()
@@ -377,9 +386,30 @@ func (s *Service) setAddress(ctx context.Context, q queryer, row *nameRow, addr 
 	if v4 != row.IPv4 || v6 != row.IPv6 || row.State != names.StateActive {
 		bump = 1
 	}
-	_, err := q.ExecContext(ctx, `UPDATE names SET ipv4 = ?, ipv6 = ?, state = ?, lapsed_at = 0, refreshed_at = ?, version = version + ?
-		WHERE name = ? AND key = ?`, v4, v6, names.StateActive, s.now().Unix(), bump, row.Name, row.Key)
-	return err
+	now := s.now().Unix()
+	answeredAt := int64(0)
+	if answered {
+		answeredAt = now
+	}
+	res, err := q.ExecContext(ctx, `UPDATE names SET ipv4 = ?, ipv6 = ?, state = ?, lapsed_at = 0, lapse_reason = '', refreshed_at = ?, version = version + ?,
+		failed_checks = CASE WHEN ? > 0 OR state = ? THEN 0 ELSE failed_checks END, alive_at = max(alive_at, ?), checked_at = max(checked_at, ?)
+		WHERE name = ? AND key = ? AND (state != ? OR lapse_reason != ? OR ? > 0)`,
+		v4, v6, names.StateActive, now, bump,
+		answeredAt, names.StateLapsed, answeredAt, answeredAt,
+		row.Name, row.Key, names.StateLapsed, names.LapseNoAnswer, answeredAt)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n > 0 {
+		return err
+	}
+	cur, err := s.getName(ctx, q, row.Name)
+	if err != nil || cur == nil || cur.Key != row.Key || cur.State != names.StateLapsed || cur.LapseReason != names.LapseNoAnswer {
+		return err
+	}
+	return &names.Error{Status: http.StatusConflict, Code: names.CodeNotAnswering, Params: map[string]any{"name": row.Name, "ip": addr.String(), "port": names.AlivePort},
+		Message: fmt.Sprintf("%s stays off, because this server's dashboard did not answer at %s.", names.Address(row.Name, s.base), netip.AddrPortFrom(addr, names.AlivePort)),
+		Hint:    fmt.Sprintf("Open port %d to the internet, in the machine's firewall and at the hosting provider, then refresh again.", names.AlivePort)}
 }
 
 // owned returns name's row if key holds it.
@@ -408,8 +438,18 @@ func (s *Service) notLapsed(row *nameRow) error {
 	if row.State != names.StateLapsed {
 		return nil
 	}
-	return &names.Error{Status: http.StatusConflict, Code: names.CodeNameLapsed, Params: map[string]any{"name": row.Name, "days": int(lapseAfter.Hours() / 24)},
-		Message: fmt.Sprintf("%s stopped pointing at this server because it was not refreshed for %d days.", names.Address(row.Name, s.base), int(lapseAfter.Hours()/24)),
+	addr := names.Address(row.Name, s.base)
+	if row.LapseReason == names.LapseNoAnswer {
+		days := int(unansweredAfter.Hours() / 24)
+		return &names.Error{Status: http.StatusConflict, Code: names.CodeNameLapsed,
+			Params:  map[string]any{"name": row.Name, "reason": row.LapseReason, "days": days, "port": names.AlivePort},
+			Message: fmt.Sprintf("%s stopped pointing at this server because its dashboard did not answer on port %d for %d days.", addr, names.AlivePort, days),
+			Hint:    fmt.Sprintf("Open port %d to the internet, then refresh the address.", names.AlivePort)}
+	}
+	days := int(lapseAfter.Hours() / 24)
+	return &names.Error{Status: http.StatusConflict, Code: names.CodeNameLapsed,
+		Params:  map[string]any{"name": row.Name, "reason": names.LapseNotRefreshed, "days": days},
+		Message: fmt.Sprintf("%s stopped pointing at this server because it was not refreshed for %d days.", addr, days),
 		Hint:    "Refresh the address first."}
 }
 
@@ -452,7 +492,11 @@ func (s *Service) refresh(w http.ResponseWriter, r *http.Request, c *call) error
 	if err := s.usable(c.addr); err != nil {
 		return err
 	}
-	if err := s.setAddress(r.Context(), s.db, row, c.addr, req.ClearOther); err != nil {
+	answered, err := s.recheck(r.Context(), row, c.addr)
+	if err != nil {
+		return err
+	}
+	if err := s.setAddress(r.Context(), s.db, row, c.addr, req.ClearOther, answered); err != nil {
 		return err
 	}
 	return s.respond(w, r, row.Name)
@@ -670,12 +714,18 @@ func (s *Service) setServer(w http.ResponseWriter, r *http.Request, c *call) err
 }
 
 // serverAddressesAllowed refuses a name's first server addresses until it
-// is serverAddressAge old; port is the server's, for the hint.
+// is serverAddressAge old and its address has answered the liveness check;
+// port is the server's, for the hint.
 func (s *Service) serverAddressesAllowed(row *nameRow, port int) error {
 	addr := names.Address(row.Name, s.base)
 	if from := time.Unix(row.ClaimedAt, 0).Add(serverAddressAge); s.now().Before(from) {
 		return &names.Error{Status: http.StatusConflict, Code: names.CodeServerNotYet, Params: map[string]any{"name": row.Name, "from": from.Unix()},
 			Message: fmt.Sprintf("%s can have server addresses from %s, %d days after it was claimed.", addr, from.UTC().Format("2 January 2006 15:04 UTC"), int(serverAddressAge.Hours()/24)),
+			Hint:    fmt.Sprintf("Until then players can join at %s:%d.", addr, port)}
+	}
+	if row.AliveAt == 0 {
+		return &names.Error{Status: http.StatusConflict, Code: names.CodeNotAnswering, Params: map[string]any{"name": row.Name, "port": names.AlivePort},
+			Message: fmt.Sprintf("%s can have server addresses once this server's dashboard has answered from the internet on port %d.", addr, names.AlivePort),
 			Hint:    fmt.Sprintf("Until then players can join at %s:%d.", addr, port)}
 	}
 	return nil

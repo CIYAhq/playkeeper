@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -64,7 +65,7 @@ const (
 )
 
 // Service is the names service. Handler serves its API; Run does the
-// periodic work (expiry, DNS retries, daily backups).
+// periodic work (liveness checks, expiry, DNS retries, daily backups).
 type Service struct {
 	cfg  Config
 	base string
@@ -76,6 +77,7 @@ type Service struct {
 	block                 *blocklist
 	perIP, perKey         *limiter
 	claimsAddr, claimsAll *limiter
+	rechecks              *limiter
 	alerts                *alerter
 
 	locks       nameLocks
@@ -118,6 +120,9 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.RecordQuota == 0 {
 		cfg.RecordQuota = DefaultRecordQuota
 	}
+	if cfg.dialAlive == nil {
+		cfg.dialAlive = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+	}
 	if err := checkBase(cfg.Base); err != nil {
 		return nil, err
 	}
@@ -140,6 +145,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		perKey:     newLimiter(requestsPerKeyBurst, requestsPerKeyHour, time.Hour, now),
 		claimsAddr: newLimiter(claimsPerAddress, claimsPerAddress, 24*time.Hour, now),
 		claimsAll:  newLimiter(cfg.ClaimsPerDay, cfg.ClaimsPerDay, 24*time.Hour, now),
+		rechecks:   newLimiter(rechecksBurst, rechecksPerHour, time.Hour, now),
 		alerts: &alerter{
 			url: cfg.AlertWebhook, from: "playkeeper-names for " + cfg.Base + ": ", log: cfg.Log, now: now, last: map[string]time.Time{},
 			hc: &http.Client{Timeout: alertTimeout, CheckRedirect: noRedirects, Transport: cfg.alertTransport},

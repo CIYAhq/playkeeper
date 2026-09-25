@@ -50,6 +50,12 @@ CREATE INDEX nonces_by_expiry ON nonces (expires_at);
 `, `
 ALTER TABLE names ADD COLUMN network TEXT NOT NULL DEFAULT '';
 CREATE INDEX names_by_network ON names (network);
+`, `
+ALTER TABLE names ADD COLUMN alive_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE names ADD COLUMN checked_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE names ADD COLUMN failed_checks INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE names ADD COLUMN lapse_reason TEXT NOT NULL DEFAULT '';
+CREATE INDEX names_by_check ON names (state, checked_at);
 `}
 
 type queryer interface {
@@ -91,13 +97,21 @@ type nameRow struct {
 	Version, Synced                              int64
 	// Network is the network (see network) the name was claimed from.
 	Network string
+	// AliveAt is when the address last answered the liveness check since
+	// the claim (0 if never), CheckedAt when it was last checked, and
+	// FailedChecks how many checks in a row it did not answer.
+	AliveAt, CheckedAt int64
+	FailedChecks       int
+	LapseReason        string
 }
 
-const nameColumns = `name, key, state, ipv4, ipv6, claimed_at, refreshed_at, lapsed_at, released_at, version, synced, network`
+const nameColumns = `name, key, state, ipv4, ipv6, claimed_at, refreshed_at, lapsed_at, released_at, version, synced, network,
+	alive_at, checked_at, failed_checks, lapse_reason`
 
 func scanName(sc interface{ Scan(...any) error }) (*nameRow, error) {
 	var n nameRow
-	err := sc.Scan(&n.Name, &n.Key, &n.State, &n.IPv4, &n.IPv6, &n.ClaimedAt, &n.RefreshedAt, &n.LapsedAt, &n.ReleasedAt, &n.Version, &n.Synced, &n.Network)
+	err := sc.Scan(&n.Name, &n.Key, &n.State, &n.IPv4, &n.IPv6, &n.ClaimedAt, &n.RefreshedAt, &n.LapsedAt, &n.ReleasedAt, &n.Version, &n.Synced, &n.Network,
+		&n.AliveAt, &n.CheckedAt, &n.FailedChecks, &n.LapseReason)
 	return &n, err
 }
 
@@ -208,12 +222,20 @@ func (s *Service) info(ctx context.Context, row *nameRow) (names.Name, error) {
 	if row.Synced < row.Version {
 		n.DNS = names.DNSPending
 	}
+	if row.AliveAt > 0 {
+		n.AnsweredAt = time.Unix(row.AliveAt, 0).UTC()
+	}
 	switch row.State {
 	case names.StateActive:
 		n.RefreshBy = n.RefreshedAt.Add(lapseAfter)
 		n.FreedAt = n.RefreshBy.Add(freeAfter)
+		n.AnswerBy = time.Unix(max(row.AliveAt, row.ClaimedAt), 0).UTC().Add(unansweredAfter)
 	case names.StateLapsed:
+		n.LapseReason = row.LapseReason
 		n.FreedAt = time.Unix(row.LapsedAt, 0).UTC().Add(freeAfter)
+		if row.LapseReason == names.LapseNoAnswer && row.AliveAt == 0 {
+			n.FreedAt = time.Unix(row.LapsedAt, 0).UTC().Add(freeSilentAfter)
+		}
 	case names.StateReleased:
 		n.FreedAt = time.Unix(row.ReleasedAt, 0).UTC().Add(releaseHold)
 	}
