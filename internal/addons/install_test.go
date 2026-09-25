@@ -272,7 +272,7 @@ func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
 
 	t.Run("rollback", func(t *testing.T) {
 		dir, tx, staged := setup(t)
-		err := tx.run([]Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "B", FileName: "b.jar"}}, staged)
+		err := tx.run(context.Background(), []Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "B", FileName: "b.jar"}}, staged)
 		wantKind(t, err, KindFileExists)
 		tx.rollback()
 		if got := ls(t, dir); !slices.Equal(got, []string{"a-1.0.jar", "b.jar"}) {
@@ -284,7 +284,7 @@ func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
 	})
 	t.Run("commit", func(t *testing.T) {
 		dir, tx, staged := setup(t)
-		if err := tx.run([]Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "C", FileName: "c.jar"}}, staged); err != nil {
+		if err := tx.run(context.Background(), []Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "C", FileName: "c.jar"}}, staged); err != nil {
 			t.Fatal(err)
 		}
 		tx.commit()
@@ -298,7 +298,7 @@ func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
 	t.Run("changed file is not replaced", func(t *testing.T) {
 		dir, tx, staged := setup(t)
 		writeFile(t, filepath.Join(dir, "a-1.0.jar"), []byte("edited by hand"))
-		err := tx.run([]Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}}, staged[:1])
+		err := tx.run(context.Background(), []Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}}, staged[:1])
 		wantKind(t, err, KindModified)
 		tx.rollback()
 		if got := ls(t, dir); !slices.Equal(got, []string{"a-1.0.jar", "b.jar"}) {

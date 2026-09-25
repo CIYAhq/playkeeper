@@ -26,7 +26,9 @@ type InstallRequest struct {
 	// versions when no release fits.
 	AllowPrerelease bool `json:"allowPrerelease,omitempty"`
 	// Fingerprint is the Plan.Fingerprint the user confirmed. Install
-	// refuses when the plan has changed since; empty skips the check.
+	// refuses when the plan has changed since; empty skips the check, so
+	// every install or update a user asks for, through the agent or an MCP
+	// tool, must carry one.
 	Fingerprint string `json:"fingerprint,omitempty"`
 	// OnProgress, when set, follows Install as it downloads.
 	OnProgress func(Progress) `json:"-"`

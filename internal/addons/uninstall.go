@@ -1,6 +1,7 @@
 package addons
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -41,7 +42,7 @@ type RemovalPreview struct {
 }
 
 // PreviewUninstall says what Uninstall would do, without touching anything.
-func (l *Library) PreviewUninstall(srv Server, installed []Installed, key Key) (*RemovalPreview, error) {
+func (l *Library) PreviewUninstall(ctx context.Context, srv Server, installed []Installed, key Key) (*RemovalPreview, error) {
 	t, err := TargetFor(srv.Type)
 	if err != nil {
 		return nil, err
@@ -64,15 +65,22 @@ func (l *Library) PreviewUninstall(srv Server, installed []Installed, key Key) (
 		return out, nil
 	}
 	defer root.Close()
-	sums, size, err := sumFile(root, rec.FileName, rec.HashAlgo)
+	f, st, err := openFile(root, rec.FileName)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		out.Missing = true
 		return out, nil
-	case err != nil || sums[rec.HashAlgo] != strings.ToLower(rec.Hash) || rec.Size > 0 && size != rec.Size:
+	case err != nil:
 		out.Changed = true
+		return out, nil
 	}
-	if meta := metaIn(root, rec.FileName); t.Kind == "plugin" && validFolderName(meta.ID) {
+	defer f.Close()
+	same, err := unchanged(ctx, f, st.Size(), rec, l.maxFileSize())
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	out.Changed = err != nil || !same
+	if meta := readJarMeta(f, st.Size()); t.Kind == "plugin" && validFolderName(meta.ID) {
 		if fi, err := root.Lstat(meta.ID); err == nil && fi.IsDir() {
 			out.ConfigFolder = meta.ID
 		}
@@ -99,7 +107,7 @@ type Removal struct {
 // Uninstall removes an add-on Playkeeper installed. The file is deleted only
 // while it is unchanged since the install; the removal is refused while
 // installed add-ons need it, unless forced.
-func (l *Library) Uninstall(srv Server, installed []Installed, key Key, opts UninstallOptions) (*Removal, error) {
+func (l *Library) Uninstall(ctx context.Context, srv Server, installed []Installed, key Key, opts UninstallOptions) (*Removal, error) {
 	t, err := TargetFor(srv.Type)
 	if err != nil {
 		return nil, err
@@ -136,20 +144,30 @@ func (l *Library) Uninstall(srv Server, installed []Installed, key Key, opts Uni
 	}
 	defer root.Close()
 
-	sums, size, err := sumFile(root, rec.FileName, rec.HashAlgo)
+	f, st, err := openFile(root, rec.FileName)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		out.Warnings = append(out.Warnings, gone)
 		return out, nil
-	case errors.Is(err, errNotRegular) || !validHash(rec.HashAlgo, rec.Hash) && !opts.Changed:
+	case errors.Is(err, errNotRegular):
 		return nil, &Error{Notice: modified(rec, "delete"), Err: err}
-	case opts.Changed:
 	case err != nil:
 		return nil, folderError(t, err)
-	case sums[rec.HashAlgo] != strings.ToLower(rec.Hash) || rec.Size > 0 && size != rec.Size:
+	}
+	meta := readJarMeta(f, st.Size())
+	same := opts.Changed
+	if !same {
+		same, err = unchanged(ctx, f, st.Size(), rec, l.maxFileSize())
+	}
+	f.Close()
+	switch {
+	case ctx.Err() != nil:
+		return nil, ctx.Err()
+	case err != nil:
+		return nil, folderError(t, err)
+	case !same:
 		return nil, &Error{Notice: modified(rec, "delete")}
 	}
-	meta := metaIn(root, rec.FileName)
 	if err := root.Remove(rec.FileName); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, folderError(t, err)
 	}
