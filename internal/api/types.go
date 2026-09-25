@@ -366,6 +366,34 @@ type Catalog struct {
 	Servers             []ServerMemory `json:"servers"`
 	SuggestedPort       int            `json:"suggestedPort,omitempty"`
 	Image               string         `json:"image"`
+	Sizing              MemorySizing   `json:"sizing"`
+}
+
+// MemorySizing is what the sizing guide (internal/sizing) says about the
+// memory options, so that the dashboard and playkeeper.io/sizing agree.
+type MemorySizing struct {
+	// Workload is what the guide takes the server to run, such as vanilla.
+	Workload string `json:"workload"`
+	// Budgets are the memory options, each with Java's heap and the players
+	// at once the guide sizes it for: 0 when it is below the guide's
+	// suggestion for the smallest group.
+	Budgets []MemoryBudget `json:"budgets"`
+	// Suggestions are the guide's first budget for each band of players at
+	// once, smallest band first. A machine without room for one offers its
+	// largest option below it.
+	Suggestions []MemorySuggestion `json:"suggestions"`
+}
+
+type MemoryBudget struct {
+	MemoryMB int `json:"memoryMB"`
+	HeapMB   int `json:"heapMB"`
+	Players  int `json:"players"`
+}
+
+type MemorySuggestion struct {
+	// Players is the top of the band.
+	Players  int `json:"players"`
+	MemoryMB int `json:"memoryMB"`
 }
 
 type PreflightCheck struct {
