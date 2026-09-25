@@ -139,7 +139,9 @@ var topFiles = []string{
 	"version_history.json", "server-icon.png",
 }
 
-var topDirs = []string{"config", "plugins"}
+// Mod servers keep their mods in mods, and modpacks their server settings
+// and scripts in defaultconfigs and kubejs.
+var topDirs = []string{"config", "plugins", "mods", "defaultconfigs", "kubejs"}
 
 var skipDirNames = map[string]bool{".paper-remapped": true}
 

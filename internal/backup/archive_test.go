@@ -40,6 +40,9 @@ func fixtureDataDir(t *testing.T) string {
 	write(t, d, "config/paper-global.yml", "paper: true")
 	write(t, d, "plugins/.paper-remapped/cache.jar", "remapped")
 	write(t, d, "plugins/spark/config.json", "{}")
+	write(t, d, "mods/waystones-21.1.4.jar", "MOD")
+	write(t, d, "defaultconfigs/ftbquests-server.snbt", "{}")
+	write(t, d, "kubejs/server_scripts/recipes.js", "// recipes")
 	write(t, d, "paper-26.1.2-74.jar", "SERVER JAR")
 	write(t, d, "libraries/lib.jar", "LIB")
 	write(t, d, "versions/26.1.2/server.jar", "MOJANG")
@@ -69,7 +72,8 @@ func TestRoundTripAllowlistAndSecrets(t *testing.T) {
 	for _, f := range m.Files {
 		got[f.Path] = true
 	}
-	for _, want := range []string{"server.properties", "whitelist.json", "world/level.dat", "world/region/r.0.0.mca", "world_nether/DIM-1/region/r.0.0.mca", "config/paper-global.yml", "plugins/spark/config.json"} {
+	for _, want := range []string{"server.properties", "whitelist.json", "world/level.dat", "world/region/r.0.0.mca", "world_nether/DIM-1/region/r.0.0.mca", "config/paper-global.yml", "plugins/spark/config.json",
+		"mods/waystones-21.1.4.jar", "defaultconfigs/ftbquests-server.snbt", "kubejs/server_scripts/recipes.js"} {
 		if !got[want] {
 			t.Errorf("archive is missing %s", want)
 		}
