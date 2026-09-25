@@ -174,7 +174,7 @@ control "the GC log is read through the game-file helper" internal/agent/running
   ./internal/agent '^TestGCLogIsReadOnce$'
 control "chunk counts read region folders only" internal/agent/running.go \
   'e.Type().IsRegular() && path.Base(dir) == "region" && strings.HasSuffix(p, ".mca")' \
-  'e.Type().IsRegular() && strings.HasSuffix(p, ".mca")' \
+  'e.Type().IsRegular() && path.Base(dir) != "" && strings.HasSuffix(p, ".mca")' \
   ./internal/agent '^TestNewChunksComeFromRegionFiles$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'graceful := s.sawStopping && !s.sawCrash' \
@@ -198,7 +198,12 @@ control "crash reports are read only up to their cap" internal/agent/crash.go \
   ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
 control "the crash helper lists add-ons without waiting on a pipe" internal/agent/crash.go \
   'entries, err := d.ReadDir(addonDir(sc), maxDirEntries)' \
-  'entries, err := os.ReadDir(s.dataDir() + "/" + addonDir(sc))' \
+  'f, err := os.Open(s.dataDir() + "/" + addonDir(sc))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(maxDirEntries)' \
   ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
 control "add-on file names are validated" internal/agent/crash.go \
   'return errInvalid("That is not the name of a plugin or mod file.")' \
