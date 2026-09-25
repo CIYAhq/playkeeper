@@ -217,6 +217,7 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/sleep", "/v1/servers/{id}/sleep"),
 		sg("/api/servers/{id}/backup-rules", "/v1/servers/{id}/backup-rules"),
 		sm("POST", "/api/servers/{id}/backup-rules", "/v1/servers/{id}/backup-rules"),
+		sm("POST", "/api/servers/{id}/backup-rules/estimate", "/v1/servers/{id}/backup-rules/estimate"),
 		sg("/api/servers/{id}/offsite", "/v1/servers/{id}/offsite"),
 		{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite")},
 		{"POST", "/api/servers/{id}/offsite/test", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite/test")},

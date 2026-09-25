@@ -22,6 +22,7 @@ func TestWaveSevenRoutesReachTheAgent(t *testing.T) {
 		{"POST", srv + "/schedules/qrstuvwxyz", "POST /v1/servers/" + sampleServer + "/schedules/qrstuvwxyz"},
 		{"DELETE", srv + "/schedules/qrstuvwxyz", "DELETE /v1/servers/" + sampleServer + "/schedules/qrstuvwxyz"},
 		{"POST", srv + "/sleep", "POST /v1/servers/" + sampleServer + "/sleep"},
+		{"POST", srv + "/backup-rules/estimate", "POST /v1/servers/" + sampleServer + "/backup-rules/estimate"},
 		{"POST", srv + "/offsite/new-key", "POST /v1/servers/" + sampleServer + "/offsite/new-key"},
 		{"GET", "/api/machines/" + ms[0].ID + "/disk?tz=Europe%2FBerlin", "GET /v1/disk"},
 		{"POST", "/api/machines/" + ms[0].ID + "/disk/clean", "POST /v1/disk/clean"},
@@ -89,7 +90,7 @@ func TestMembersCannotTouchBackupCopiesOrTheRecoveryKey(t *testing.T) {
 	e.agent.mu.Unlock()
 	refused := []struct{ method, path string }{
 		{"POST", srv + "/schedules"}, {"DELETE", srv + "/schedules/qrstuvwxyz"}, {"POST", srv + "/sleep"}, {"POST", srv + "/backup-rules"},
-		{"POST", srv + "/offsite"}, {"POST", srv + "/offsite/test"}, {"POST", srv + "/offsite/ssh-key"}, {"POST", srv + "/offsite/retry"},
+		{"POST", srv + "/backup-rules/estimate"}, {"POST", srv + "/offsite"}, {"POST", srv + "/offsite/test"}, {"POST", srv + "/offsite/ssh-key"}, {"POST", srv + "/offsite/retry"},
 		{"GET", srv + "/offsite/recovery-key"}, {"POST", srv + "/offsite/new-key"}, {"POST", srv + "/offsite/restore"},
 		{"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/disk/clean"},
 	}
