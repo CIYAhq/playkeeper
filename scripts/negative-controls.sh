@@ -159,13 +159,22 @@ control "the GC log cursor is stored with the pauses it read" internal/agent/run
   'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), s.id)' \
   'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), "")' \
   ./internal/agent '^TestGCLogIsReadOnce$'
-control "reading game files never waits on a pipe" internal/agent/sys_linux.go \
-  'const gameReadFlags = os.O_RDONLY | syscall.O_NONBLOCK | syscall.O_NOCTTY' \
-  'const gameReadFlags = os.O_RDONLY | syscall.O_NOCTTY' \
+control "the GC log is read through the game-file helper" internal/agent/running.go \
+  'buf, st, err := d.ReadRange(gcLogRel, cur.Offset, gcReadLimit)' \
+  'f, err := http.Dir(s.dataDir()).Open(gcLogRel)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	st, _ := f.Stat()
+	f.Seek(cur.Offset, 0)
+	buf := make([]byte, gcReadLimit)
+	n, _ := f.Read(buf)
+	buf = buf[:n]' \
   ./internal/agent '^TestGCLogIsReadOnce$'
 control "chunk counts read region folders only" internal/agent/running.go \
-  'path.Base(path.Dir(p)) != "region"' \
-  'path.Base(path.Dir(p)) == ""' \
+  'e.Type().IsRegular() && path.Base(dir) == "region" && strings.HasSuffix(p, ".mca")' \
+  'e.Type().IsRegular() && strings.HasSuffix(p, ".mca")' \
   ./internal/agent '^TestNewChunksComeFromRegionFiles$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'graceful := s.sawStopping && !s.sawCrash' \
@@ -176,9 +185,21 @@ control "the crash helper reads the run's log from Docker" internal/agent/crash.
   'in.Console = s.runLog(ctx, id, runStart)[:0]' \
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
 control "a crash report from an earlier run explains nothing" internal/agent/crash.go \
-  'info.ModTime().Before(since.Add(-time.Second)) ||' \
+  'info.ModTime().Before(from) ||' \
   'false ||' \
   ./internal/agent '^TestCrashReportIsTheOneThisRunWrote$'
+control "a start that failed before the server ran reads no report" internal/agent/crash.go \
+  'if since.IsZero() {' \
+  'if false && since.IsZero() {' \
+  ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
+control "crash reports are read only up to their cap" internal/agent/crash.go \
+  'b, _, err := d.ReadRange(path.Join(r.dir, name), 0, crashReportLimit)' \
+  'b, err := os.ReadFile(s.dataDir() + "/" + path.Join(r.dir, name))' \
+  ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
+control "the crash helper lists add-ons without waiting on a pipe" internal/agent/crash.go \
+  'entries, err := d.ReadDir(addonDir(sc), maxDirEntries)' \
+  'entries, err := os.ReadDir(s.dataDir() + "/" + addonDir(sc))' \
+  ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
 control "add-on file names are validated" internal/agent/crash.go \
   'return errInvalid("That is not the name of a plugin or mod file.")' \
   'return nil' \
@@ -187,6 +208,20 @@ control "add-on removal never follows a symlinked folder" internal/agent/crash.g
   'if st, err := root.Lstat(rel); err != nil || !st.Mode().IsRegular() {' \
   'if st, err := os.Lstat(s.dataDir() + "/" + rel); err != nil || !st.Mode().IsRegular() {' \
   ./internal/agent '^TestRemoveAddonMovesOnlyThatJarAside$'
+control "an add-on is not removed while the server runs" internal/agent/crash.go \
+  '} else if running {
+		writeError(w, errConflict(' \
+  '} else if false && running {
+		writeError(w, errConflict(' \
+  ./internal/agent '^TestRemoveAddonMovesOnlyThatJarAside$'
+control "members cannot turn saving back on" internal/panel/server.go \
+  'sm("POST", "/api/servers/{id}/saving/resume", "/v1/servers/{id}/saving/resume"),' \
+  '{"POST", "/api/servers/{id}/saving/resume", needSessionCSRF, actView, s.serverProxy("POST", "/v1/servers/{id}/saving/resume")},' \
+  ./internal/panel '^TestMembersCanLookButNotManage$'
+control "members cannot remove a plugin or mod" internal/panel/server.go \
+  'sm("POST", "/api/servers/{id}/addons/remove", "/v1/servers/{id}/addons/remove"),' \
+  '{"POST", "/api/servers/{id}/addons/remove", needSessionCSRF, actView, s.serverProxy("POST", "/v1/servers/{id}/addons/remove")},' \
+  ./internal/panel '^TestMembersCanLookButNotManage$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
