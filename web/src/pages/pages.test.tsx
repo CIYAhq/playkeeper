@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Backup, MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -11,6 +11,7 @@ import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { WorldPage } from './server/world'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -281,6 +282,30 @@ describe('Players', () => {
     const text = await render(<PlayersPage server={server()} />)
     expect(text).toContain('Nobody’s joined yet')
     expect(text).toContain('You add their name')
+  })
+})
+
+describe('World', () => {
+  it('lists a new backup as soon as it is made, not at the next check', async () => {
+    const at = new Date().toISOString()
+    const job: Operation = { id: 'backup-1', kind: 'backup', status: 'running', phase: 'archiving', actor: 'siya', startedAt: at }
+    const backup: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya', note: 'Before the dragon' }
+    answer({ '/backups': [] })
+    const text = await render(<WorldPage server={server({ phase: 'stopped', operation: job })} />)
+    expect(text).toContain('No backups yet')
+    expect(text).toContain('Backing up…')
+    answer({ '/backups': [backup] })
+    const done = server({ phase: 'stopped', lastOperation: { ...job, status: 'succeeded', finishedAt: at } })
+    await act(async () =>
+      root?.render(
+        <WorkspaceContext.Provider value={workspace({ servers: [done] })}>
+          <WorldPage server={done} />
+        </WorkspaceContext.Provider>,
+      ),
+    )
+    await act(async () => {})
+    expect(document.body.textContent).not.toContain('No backups yet')
+    expect(document.body.textContent).toContain('Before the dragon')
   })
 })
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
@@ -26,10 +26,21 @@ function downloadURL(s: ServerStatus, b: Backup): string {
   return serverApi(s.id, `/backups/${b.id}/download`)
 }
 
+/** Backups, restores (their rollback archive) and version updates add a backup when they finish, not when they're asked for. */
+function useReloadAfterJobs(s: ServerStatus, reload: () => Promise<void>) {
+  const job = s.operation?.id
+  const last = useRef(job)
+  useEffect(() => {
+    if (last.current && last.current !== job) void reload()
+    last.current = job
+  }, [job, reload])
+}
+
 export function WorldPage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const backups = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 10_000, s.id)
+  useReloadAfterJobs(s, backups.refresh)
   const [preview, setPreview] = useState<RestorePreview>()
   const [restoreSheet, setRestoreSheet] = useState(false)
   const list = backups.data ?? []
