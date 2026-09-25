@@ -1,7 +1,7 @@
 import { ChevronRightIcon, PlugIcon, PlusIcon, SettingsIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { useWorkspace } from '@/api/workspace'
-import { Card, CardHint, CardTitle, Dot, MeterRow } from '@/components/app/bits'
+import { Card, CardHint, CardTitle, Dot, MeterRow, Progress } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
@@ -50,7 +50,16 @@ export function MachinePage({ id }: { id: string }) {
             <div className="mt-4 flex flex-col gap-4">
               <MeterRow label={t('machine.cpu')} value={formatPercent(live.cpuPercent)} percent={live.cpuPercent} />
               <MeterRow label={t('machine.memory')} value={t('home.ofTotal', { used: formatMB(reserved), total: formatMB(live.memoryTotalMB) })} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
-              <MeterRow label={t('machine.disk')} value={t('home.diskFree', { free: formatBytes(live.diskFreeBytes) })} percent={diskUsed} />
+              <a {...linkProps({ name: 'machine', id: m.id, sub: 'disk' })} className="group -mx-2 -my-1.5 rounded-xl px-2 py-1.5 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent">
+                <span className="flex items-baseline justify-between gap-3 text-[13px]">
+                  <span className="font-medium">{t('machine.disk')}</span>
+                  <span className="flex items-center gap-0.5 text-muted-foreground tabular-nums">
+                    {t('home.diskFree', { free: formatBytes(live.diskFreeBytes) })}
+                    <ChevronRightIcon className="size-3.5 self-center transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                  </span>
+                </span>
+                <Progress value={diskUsed ?? 0} className="mt-1.5" label={t('machine.disk')} />
+              </a>
             </div>
           ) : (
             <p className="mt-3 text-[13px] text-muted-foreground">{ws.agentDown ? t('nav.notAnswering') : t('common.loading')}</p>
