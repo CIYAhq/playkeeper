@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -150,6 +151,37 @@ func writeSelfSigned(t testing.TB, dir string) (certFile, keyFile string) {
 		t.Fatal(err)
 	}
 	return certFile, keyFile
+}
+
+// handshake connects to a TLS server on loopback that picks its
+// certificate with getCert, returning the certificate the client accepted.
+func handshake(t testing.TB, getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error), cfg *tls.Config) (*x509.Certificate, error) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	done := make(chan error, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer conn.Close()
+		done <- tls.Server(conn, &tls.Config{GetCertificate: getCert}).Handshake()
+	}()
+	conn, err := tls.Dial("tcp", ln.Addr().String(), cfg)
+	if err != nil {
+		<-done
+		return nil, err
+	}
+	defer conn.Close()
+	if err := <-done; err != nil {
+		return nil, err
+	}
+	return conn.ConnectionState().PeerCertificates[0], nil
 }
 
 // freePort returns a TCP port on 127.0.0.1 that was free a moment ago.

@@ -275,42 +275,15 @@ func TestStoreHandshake(t *testing.T) {
 	f.save("mc.example.com.pem", []string{"mc.example.com"}, now.Add(-time.Hour), now.Add(90*24*time.Hour))
 	f.open()
 
-	handshake := func(cfg *tls.Config) (*x509.Certificate, error) {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer ln.Close()
-		done := make(chan error, 1)
-		go func() {
-			conn, err := ln.Accept()
-			if err != nil {
-				done <- err
-				return
-			}
-			defer conn.Close()
-			done <- tls.Server(conn, &tls.Config{GetCertificate: f.store.GetCertificate}).Handshake()
-		}()
-		conn, err := tls.Dial("tcp", ln.Addr().String(), cfg)
-		if err != nil {
-			<-done
-			return nil, err
-		}
-		defer conn.Close()
-		if err := <-done; err != nil {
-			return nil, err
-		}
-		return conn.ConnectionState().PeerCertificates[0], nil
-	}
-	leaf, err := handshake(&tls.Config{ServerName: "mc.example.com", RootCAs: f.ca.pool()})
+	leaf, err := handshake(t, f.store.GetCertificate, &tls.Config{ServerName: "mc.example.com", RootCAs: f.ca.pool()})
 	if err != nil || leaf.DNSNames[0] != "mc.example.com" {
 		t.Fatalf("verified handshake for mc.example.com: %v", err)
 	}
-	fallback, err := handshake(&tls.Config{InsecureSkipVerify: true})
+	fallback, err := handshake(t, f.store.GetCertificate, &tls.Config{InsecureSkipVerify: true})
 	if err != nil || len(fallback.IPAddresses) != 1 || !fallback.IPAddresses[0].Equal(net.IPv4(127, 0, 0, 1)) {
 		t.Fatalf("handshake by IP address: %v", err)
 	}
-	if _, err := handshake(&tls.Config{ServerName: "other.example.com", RootCAs: f.ca.pool()}); err == nil {
+	if _, err := handshake(t, f.store.GetCertificate, &tls.Config{ServerName: "other.example.com", RootCAs: f.ca.pool()}); err == nil {
 		t.Error("a browser would trust the fallback for another name")
 	}
 }
