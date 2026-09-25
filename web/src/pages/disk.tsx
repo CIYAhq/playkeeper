@@ -209,7 +209,11 @@ interface ReviewRow {
 }
 
 function whenOf(c: DiskCandidate): string {
-  return c.params?.createdAt ?? c.modifiedAt
+  if (c.params?.createdAt) return c.params.createdAt
+  // A set-aside folder is dated by its name, as a day in the scan's time
+  // zone (the viewer's); its files keep the times they had when set aside.
+  if (c.reason === 'leftover_copy' && c.params?.date) return `${c.params.date}T12:00:00`
+  return c.modifiedAt
 }
 
 /** "Sat 19 Sep" in the viewer's language. */
@@ -224,8 +228,7 @@ function itemRow(c: DiskCandidate, server: string): ReviewRow {
     return { ...row, label: t('disk.item', { server, what: t('disk.at', { date: shortDay(at), time: formatClock(at) }) }) }
   }
   if (c.reason === 'leftover_copy') {
-    // The date is the day in the scan's time zone, which is the viewer's.
-    const date = formatDate(c.params?.date ? `${c.params.date}T12:00:00` : c.modifiedAt)
+    const date = formatDate(whenOf(c))
     switch (c.params?.why) {
       case 'failed_update':
         return { ...row, label: t('disk.item', { server, what: t('disk.setAside.failedUpdate', { date }) }), hint: t('disk.setAside.failedUpdateHint') }

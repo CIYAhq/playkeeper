@@ -388,6 +388,19 @@ describe('Review before removal', () => {
     expect(button('Delete 2 · 3.5 GB', d)).toBeTruthy()
   })
 
+  it('lists a server’s set-aside folders newest first by the date in their names', async () => {
+    const older = { ...setAside(22, survival, 'failed_update', '2026-09-03', 480 * MB), modifiedAt: '2026-09-20T08:00:00Z' }
+    const newer = { ...setAside(23, survival, 'replaced', '2026-09-12', 820 * MB), modifiedAt: '2026-09-02T08:00:00Z' }
+    answer({ '/disk?': report({ candidates: [older, newer], ways: [way('set_aside', 'review', 1300 * MB, { candidateIds: [older.id, newer.id], serverIds: [survival] })] }) })
+    await render()
+    await click(button('Review', row('Server folders set aside')))
+    const labels = [...dialog().querySelectorAll('li')].map((li) => li.textContent)
+    expect(labels).toEqual([
+      `Survival · from before a restore on ${formatDate('2026-09-12T12:00:00')}Usually deleted once the restore finishes820 MB`,
+      `Survival · left by a failed update on ${formatDate('2026-09-03T12:00:00')}The backup from before it was put back480 MB`,
+    ])
+  })
+
   it('confirms a Delete row first and sends the way, not a list of files', async () => {
     answer({ '/disk?': report() })
     vi.mocked(client.post).mockResolvedValue(finished({ freed: Math.round(1.2 * GB), deleted: 40 }))
