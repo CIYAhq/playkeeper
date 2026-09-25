@@ -92,7 +92,13 @@ export type Footer =
   | { kind: 'install'; fingerprint: string }
   | { kind: 'external'; url?: string }
   | { kind: 'conflict'; other: string; file: string }
-  | { kind: 'needs'; dependency: string; url?: string }
+  | {
+      kind: 'needs'
+      dependency: string
+      url?: string
+      /** Another site names it as a project, so the library may have it too. */
+      external: boolean
+    }
   | { kind: 'installed'; update?: AddonVersion; changed: boolean; missing: boolean }
   | { kind: 'blocked'; notice?: AddonNotice }
 
@@ -106,13 +112,21 @@ export function footerFor(d: AddonDetails): Footer {
     const conflict = p.blockers.find((b) => b.kind === 'conflict' && b.params?.other && b.params.file)
     if (conflict?.params) return { kind: 'conflict', other: conflict.params.other ?? '', file: conflict.params.file ?? '' }
     const dep = p.manual.find((m) => m.kind === 'dependency_external' || m.kind === 'dependency_unlisted')
-    if (dep) return { kind: 'needs', dependency: dep.params?.dependency ?? dep.params?.file ?? '', url: dep.url }
+    if (dep) return { kind: 'needs', dependency: dep.params?.dependency ?? dep.params?.file ?? '', url: dep.url, external: dep.kind === 'dependency_external' }
     const external = p.manual.find((m) => m.kind === 'external_download')
     if (external) return { kind: 'external', url: external.url }
     if (p.ready) return { kind: 'install', fingerprint: p.fingerprint }
     return { kind: 'blocked', notice: p.blockers[0] ?? p.manual[0] }
   }
   return { kind: 'blocked', notice: d.planError ?? d.notice }
+}
+
+const matchName = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+
+/** The library's card for a project another site names, going by its name. */
+export function libraryMatch(cards: AddonCard[], name: string): AddonCard | undefined {
+  const k = matchName(name)
+  return k ? cards.find((c) => matchName(c.name) === k || matchName(c.slug) === k) : undefined
 }
 
 /** The dependencies an install brings along. */

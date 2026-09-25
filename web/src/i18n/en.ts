@@ -1132,6 +1132,7 @@ export const en = {
   'addons.goTo': 'Go to {other}',
   'addons.needsTitle': 'Needs {dependency} first',
   'addons.needsBody': '{dependency} isn’t in the library. Add it by hand first.',
+  'addons.needsInLibraryBody': '{dependency} is in the library. Install it, then come back here.',
   'addons.getFromAuthor': 'Get {dependency} from its author’s page',
   'addons.installing': 'Installing {name}',
   'addons.updatingOne': 'Updating {name}',

@@ -10,6 +10,7 @@ import {
   downloadProgress,
   footerFor,
   isAddonOp,
+  libraryMatch,
   maxSearch,
   mergeRows,
   opFiles,
@@ -194,8 +195,17 @@ describe('footerFor', () => {
       kind: 'needs',
       dependency: 'Vault',
       url: 'https://example.com/vault',
+      external: true,
     })
-    expect(footerFor(details({ plan: plan({ manual: [note('dependency_unlisted', { name: 'ChestShop', file: 'Vault.jar', folder: 'plugins' })] }) }))).toEqual({ kind: 'needs', dependency: 'Vault.jar', url: undefined })
+    expect(footerFor(details({ plan: plan({ manual: [note('dependency_unlisted', { name: 'ChestShop', file: 'Vault.jar', folder: 'plugins' })] }) }))).toEqual({ kind: 'needs', dependency: 'Vault.jar', url: undefined, external: false })
+  })
+
+  it('finds a dependency another site names in the library by its name', () => {
+    const cards = [card('ProtocolSupport'), card('Protocol Lib', { slug: 'protocollib' }), card('ProtocolLib', { source: 'hangar' })]
+    expect(libraryMatch(cards, 'ProtocolLib')).toBe(cards[1])
+    expect(libraryMatch(cards, 'protocol-lib')).toBe(cards[1])
+    expect(libraryMatch(cards, 'Vault')).toBeUndefined()
+    expect(libraryMatch(cards, '')).toBeUndefined()
   })
 
   it('installs a ready plan with its fingerprint, and says why others are blocked', () => {

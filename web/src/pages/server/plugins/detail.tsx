@@ -1,14 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowRightIcon, CircleArrowUpIcon, DownloadIcon, ExternalLinkIcon, Trash2Icon } from 'lucide-react'
 import { ApiError, get } from '@/api/client'
-import type { AddonDetails } from '@/api/types'
+import type { AddonBrowse, AddonCard, AddonDetails } from '@/api/types'
 import { Notice } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
-import { alsoInstalls, compactCount, footerFor, keyFrom, sourceNames, updatedAgo, versionPage } from '@/lib/addons'
+import { alsoInstalls, compactCount, footerFor, keyFrom, libraryMatch, searchPath, sourceNames, updatedAgo, versionPage } from '@/lib/addons'
 import { opLabel } from '@/lib/phase'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -175,9 +175,27 @@ function Blocked({ title, body, children }: { title: string; body?: string; chil
   )
 }
 
+/** A dependency another site names, looked up in the library: its card, null when it isn't there, undefined while looking. */
+function useLibraryMatch(serverId: string, name: string): AddonCard | null | undefined {
+  const [found, setFound] = useState<{ name: string; card: AddonCard | null }>()
+  useEffect(() => {
+    if (!name) return
+    let stale = false
+    get<AddonBrowse>(searchPath(serverId, { q: name, category: '', sort: 'downloads' }))
+      .then((res) => !stale && setFound({ name, card: libraryMatch(res.cards, name) ?? null }))
+      .catch(() => !stale && setFound({ name, card: null }))
+    return () => {
+      stale = true
+    }
+  }, [serverId, name])
+  return name && found?.name === name ? found.card : undefined
+}
+
 function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string }) {
   const a = useAddons()
   const phone = useIsPhone()
+  const f = footerFor(d)
+  const inLibrary = useLibraryMatch(a.server.id, !adoptFile && f.kind === 'needs' && f.external ? f.dependency : '')
   const [busy, setBusy] = useState<'install' | 'update' | 'adopt' | 'forget'>()
   const run = async (what: NonNullable<typeof busy>, fn: () => Promise<boolean>) => {
     setBusy(what)
@@ -203,7 +221,6 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
       </Button>
     )
   } else {
-    const f = footerFor(d)
     switch (f.kind) {
       case 'install':
         body = (
@@ -239,7 +256,16 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
         )
         break
       case 'needs':
-        body = (
+        body = inLibrary ? (
+          <Blocked title={t('addons.needsTitle', { dependency: f.dependency })} body={t('addons.needsInLibraryBody', { dependency: inLibrary.name })}>
+            <Button variant="outline" size={size} className="w-full" onClick={() => a.openDetail({ key: keyFrom(inLibrary) })}>
+              <span className="truncate">{t('addons.goTo', { other: inLibrary.name })}</span>
+              <ArrowRightIcon />
+            </Button>
+          </Blocked>
+        ) : f.external && inLibrary === undefined ? (
+          <Blocked title={t('addons.needsTitle', { dependency: f.dependency })} />
+        ) : (
           <Blocked title={t('addons.needsTitle', { dependency: f.dependency })} body={t('addons.needsBody', { dependency: f.dependency })}>
             {f.url && (
               <Button

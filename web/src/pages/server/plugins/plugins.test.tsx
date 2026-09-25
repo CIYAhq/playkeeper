@@ -400,4 +400,47 @@ describe('Plugins tab', () => {
     expect(text).toContain('Installed')
     expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search')).toBe(true)
   })
+
+  const orebfuscator: AddonDetails = {
+    card: card('Orebfuscator', { source: 'hangar', projectId: 'Orebfuscator' }),
+    latest: version('5.6.2'),
+    plan: {
+      steps: [step('Orebfuscator', '5.6.2')],
+      manual: [{ kind: 'dependency_external', params: { name: 'Orebfuscator', dependency: 'ProtocolLib', folder: 'plugins' }, message: 'Orebfuscator needs ProtocolLib, which is not on Hangar.', url: 'https://github.com/dmulloy2/ProtocolLib/' }],
+      blockers: [],
+      warnings: [],
+      ready: true,
+      fingerprint: 'fp5',
+    },
+  }
+
+  async function openNeeds(lookup: AddonCard[]): Promise<string> {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/search?q=ProtocolLib', { cards: lookup, more: false, unanswered: [] }],
+      ['/addons/search', { cards: [orebfuscator.card], more: false, unanswered: [] }],
+      ['/addons/project/modrinth/protocollib', { card: card('ProtocolLib'), latest: version('5.4.0'), plan: { ...updatePlan, steps: [step('ProtocolLib', '5.4.0')], fingerprint: 'fp6' } }],
+      ['/addons/project/', orebfuscator],
+      ['/addons', installed],
+    ])
+    await render(server(), 'plugins', 'browse')
+    await click('Orebfuscator')
+    await act(async () => {})
+    return document.body.textContent ?? ''
+  }
+
+  it('offers a dependency another site names when the library has it', async () => {
+    const text = await openNeeds([card('ProtocolSupport'), card('ProtocolLib')])
+    expect(text).toContain('Needs ProtocolLib first')
+    expect(text).toContain('ProtocolLib is in the library. Install it, then come back here.')
+    expect(text).not.toContain('isn’t in the library')
+    expect(await click('Go to ProtocolLib')).toContain('Install ProtocolLib')
+  })
+
+  it('says a dependency another site names isn’t in the library only after looking', async () => {
+    const text = await openNeeds([card('ProtocolSupport')])
+    expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search?q=ProtocolLib')).toBe(true)
+    expect(text).toContain('ProtocolLib isn’t in the library. Add it by hand first.')
+    expect(document.querySelector('a[href="https://github.com/dmulloy2/ProtocolLib/"]')).not.toBeNull()
+  })
 })
