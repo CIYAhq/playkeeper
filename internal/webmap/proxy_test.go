@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -313,6 +314,58 @@ func TestProxyGivesUpOnASlowSquaremap(t *testing.T) {
 		if d := time.Since(start); d > 2*time.Second {
 			t.Errorf("%s: gave up after %v", tc.name, d)
 		}
+	}
+}
+
+func TestProxyTakesTurnsAtABusySquaremap(t *testing.T) {
+	f, m := startFakeSquaremap(t)
+	tile := f.file(overworldTile)
+	var inFlight, most atomic.Int32
+	arrived := make(chan struct{}, MaxConnsPerServer+1)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	f.setHandler(func(w http.ResponseWriter, r *http.Request) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for old := most.Load(); n > old && !most.CompareAndSwap(old, n); old = most.Load() {
+		}
+		arrived <- struct{}{}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(tile)
+	})
+	patient := m
+	patient.Timeout = 10 * time.Second
+	codes := make(chan int, MaxConnsPerServer)
+	for range MaxConnsPerServer {
+		go func() { codes <- serveMap(patient, "GET", tileTarget, nil).Code }()
+	}
+	for i := range MaxConnsPerServer {
+		select {
+		case <-arrived:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d requests reached squaremap", i)
+		}
+	}
+	hurried := m
+	hurried.Timeout = 100 * time.Millisecond
+	w := serveMap(hurried, "GET", tileTarget, nil)
+	releaseOnce.Do(func() { close(release) })
+	if e := apiErrorOf(t, w); w.Code != http.StatusGatewayTimeout || e.Code != string(KindTooSlow) {
+		t.Errorf("one request too many: %d %s", w.Code, w.Body)
+	}
+	for range MaxConnsPerServer {
+		if code := <-codes; code != http.StatusOK {
+			t.Errorf("one of the first requests got %d", code)
+		}
+	}
+	if n := most.Load(); n != MaxConnsPerServer {
+		t.Errorf("%d requests reached squaremap at once", n)
 	}
 }
 

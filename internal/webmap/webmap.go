@@ -52,8 +52,12 @@ const (
 	EstimatedMegabytes = 200
 )
 
-// DefaultTimeout bounds each answer from squaremap.
-const DefaultTimeout = 5 * time.Second
+const (
+	// DefaultTimeout bounds each answer from squaremap.
+	DefaultTimeout = 5 * time.Second
+	// MaxConnsPerServer bounds NewClient's connections to one squaremap.
+	MaxConnsPerServer = 16
+)
 
 // Layout is how squaremap is installed on one server type.
 type Layout struct {
@@ -133,12 +137,15 @@ func (m Map) timeout() time.Duration {
 // NewClient returns a client for reaching squaremap in servers' containers,
 // to share across requests and servers. Unlike http.DefaultClient it never
 // goes through an HTTP proxy from the environment: squaremap answers
-// directly or not at all.
+// directly or not at all. It opens at most MaxConnsPerServer connections
+// to each squaremap, which shares the game's CPU, however many people have
+// the map open; further requests wait their turn within their timeout.
 func NewClient() *http.Client {
 	return &http.Client{Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: DefaultTimeout}).DialContext,
 		ResponseHeaderTimeout: DefaultTimeout,
-		MaxIdleConnsPerHost:   8,
+		MaxConnsPerHost:       MaxConnsPerServer,
+		MaxIdleConnsPerHost:   MaxConnsPerServer / 2,
 		IdleConnTimeout:       time.Minute,
 	}}
 }

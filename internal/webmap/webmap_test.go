@@ -78,7 +78,8 @@ func TestIdentifiersMatchModrinthAndHangar(t *testing.T) {
 
 func TestNewClientGoesStraightToSquaremap(t *testing.T) {
 	tr, ok := NewClient().Transport.(*http.Transport)
-	if !ok || tr.Proxy != nil || tr.DialContext == nil || tr.ResponseHeaderTimeout <= 0 {
+	if !ok || tr.Proxy != nil || tr.DialContext == nil || tr.ResponseHeaderTimeout <= 0 ||
+		tr.MaxConnsPerHost != MaxConnsPerServer || tr.MaxIdleConnsPerHost > tr.MaxConnsPerHost {
 		t.Fatalf("transport %#v", NewClient().Transport)
 	}
 }
