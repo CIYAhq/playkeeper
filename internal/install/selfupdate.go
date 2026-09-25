@@ -135,6 +135,15 @@ func applyStaged(ctx context.Context, sys System, cfg config.Config, current str
 	refuse := func(format string, args ...any) (string, string) {
 		return update.OutcomeRefused, fmt.Sprintf(format, args...)
 	}
+	// This updater may have waited for the lock while the one-line installer
+	// replaced the installed binary; it must not install over that.
+	installed, err := sys.Version(sys.P(BinPath))
+	if err != nil {
+		return refuse("the installed Playkeeper's version cannot be read (%v)", err)
+	}
+	if installed != current {
+		return refuse("Playkeeper %s was installed while this update waited; check for updates again", installed)
+	}
 	if age := sys.Now().Sub(req.RequestedAt); age > update.StaleAfter || age < -update.StaleAfter {
 		return refuse("the update request is from %s, too long ago; check for updates again", req.RequestedAt.Format("2006-01-02 15:04"))
 	}

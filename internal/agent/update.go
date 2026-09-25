@@ -21,6 +21,9 @@ import (
 const (
 	kvUpdateCheck  = "update_check"
 	kvUpdateResult = "update_result"
+	// kvUpdateAbandoned is the operation of the last update the agent gave
+	// up waiting for, so a restart does not wait for it again.
+	kvUpdateAbandoned = "update_abandoned"
 	// updaterStartTimeout is how long a staged update may wait for systemd to
 	// start the updater before the agent gives up on it.
 	updaterStartTimeout = 2 * time.Minute
@@ -86,11 +89,24 @@ func (a *Agent) loadUpdateState() {
 			u.lastResult = &r
 		}
 	}
+	abandoned, _, _ := a.kvGet(kvUpdateAbandoned)
 	for _, f := range []string{update.RequestFile, update.ApplyingFile} {
+		p := filepath.Join(a.updateDir(), f)
 		var req update.Request
-		if b, err := os.ReadFile(filepath.Join(a.updateDir(), f)); err == nil && json.Unmarshal(b, &req) == nil {
-			u.installing, u.opID, u.since = req.Version, req.OpID, a.now()
+		b, err := os.ReadFile(p)
+		if err != nil || json.Unmarshal(b, &req) != nil {
+			continue
 		}
+		if req.OpID != "" && req.OpID == abandoned {
+			continue
+		}
+		// The handoff timeouts count from when the update was handed over,
+		// not from this start.
+		since := a.now()
+		if st, err := os.Stat(p); err == nil && st.ModTime().Before(since) {
+			since = st.ModTime()
+		}
+		u.installing, u.opID, u.since = req.Version, req.OpID, since
 	}
 }
 
@@ -372,6 +388,7 @@ func (a *Agent) abandonUpdate(opID, v, outcome, msg, hint string) {
 	r := api.UpdateResult{From: version.Version, To: v, Outcome: outcome, Error: msg, FinishedAt: a.now().UTC()}
 	rb, _ := json.Marshal(r)
 	_ = a.kvSet(kvUpdateResult, string(rb))
+	_ = a.kvSet(kvUpdateAbandoned, opID)
 	a.upd.mu.Lock()
 	a.upd.lastResult = &r
 	a.upd.installing, a.upd.opID = "", ""

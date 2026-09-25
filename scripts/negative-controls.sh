@@ -207,6 +207,18 @@ control "an updater that never reports fails its update" internal/agent/update.g
   'if waited > updaterRunTimeout {' \
   'if false && waited > updaterRunTimeout {' \
   ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "a restart does not wait again for an update the agent gave up on" internal/agent/update.go \
+  'if req.OpID != "" && req.OpID == abandoned {' \
+  'if false && req.OpID == abandoned {' \
+  ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "a restart does not start the handoff timeouts over" internal/agent/update.go \
+  'since = st.ModTime()' \
+  'since = a.now()' \
+  ./internal/agent '^TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard$'
+control "an updater that waited does not install over what the installer installed" internal/install/selfupdate.go \
+  'if installed != current {' \
+  'if false && installed != current {' \
+  ./internal/install '^TestAnUpdaterThatWaitedForTheInstallerDoesNotInstallOverIt$'
 control "the installer refuses while a dashboard update is pending" internal/install/inplace.go \
   'if msg := pendingUpdate(sys, cfg); msg != "" {' \
   'if msg := pendingUpdate(sys, cfg); false && msg != "" {' \

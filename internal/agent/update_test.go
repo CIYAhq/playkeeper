@@ -311,7 +311,30 @@ func TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard(t *testing.T) {
 	if last, _ := out["lastResult"].(map[string]any); code != 200 || last["outcome"] != update.OutcomeFailed || last["to"] != "0.2.1" {
 		t.Fatalf("Settings must show that the update did not finish: %v", out)
 	}
+
+	// Its applying.json is still there; a restart must not wait for it again.
+	e.stop()
+	e.start()
+	if v := e.a.installingUpdate(); v != "" {
+		t.Fatalf("an update the agent gave up on must not block the dashboard again after a restart (installing %s)", v)
+	}
 	os.Remove(filepath.Join(dir, update.ApplyingFile))
+
+	// Nor does a restart start the handoff timeouts over.
+	op = e.applyUpdate("0.2.1")
+	applying := filepath.Join(dir, update.ApplyingFile)
+	if err := os.Rename(filepath.Join(dir, update.RequestFile), applying); err != nil {
+		t.Fatal(err)
+	}
+	longAgo := time.Now().Add(-updaterRunTimeout - time.Minute)
+	os.Chtimes(applying, longAgo, longAgo)
+	e.stop()
+	e.start()
+	e.waitFor("an update handed over long ago to be given up on right away", func() bool { return e.a.installingUpdate() == "" })
+	if o, _ := e.a.loadOperation(op.ID); o.Status != api.OpFailed || o.Phase != update.OutcomeFailed {
+		t.Fatalf("op: %+v", o)
+	}
+	os.Remove(applying)
 
 	if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 202 {
 		t.Fatalf("operations must work again: %d %v", code, out)

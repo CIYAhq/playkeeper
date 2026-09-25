@@ -9,9 +9,11 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -475,6 +477,79 @@ func TestTheInstallerAndTheUpdaterNeverUpgradeAtTheSameTime(t *testing.T) {
 	}
 	if r := s.result(t); r.Outcome != update.OutcomeUpdated {
 		t.Fatalf("result: %+v", r)
+	}
+}
+
+// promptWriter collects the installer's output and signals when it asks
+// whether to proceed.
+type promptWriter struct {
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	asked chan struct{}
+	once  sync.Once
+}
+
+func (w *promptWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.buf.Write(p)
+	if strings.Contains(w.buf.String(), "Proceed?") {
+		w.once.Do(func() { close(w.asked) })
+	}
+	return n, err
+}
+
+func (w *promptWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func TestAnUpdaterThatWaitedForTheInstallerDoesNotInstallOverIt(t *testing.T) {
+	h := newFakeHost(t)
+	cfg := installedAt(t, h, "0.2.0", true)
+	sys := h.system(t)
+	bin := newBinary(t, "0.2.2")
+	sys.Executable = func() (string, error) { return bin, nil }
+	answer, answerW := io.Pipe()
+	out := &promptWriter{asked: make(chan struct{})}
+	o := opts("")
+	o.In, o.Out = answer, out
+	installer := make(chan error, 1)
+	go func() {
+		_, err := Run(context.Background(), sys, o, "0.2.2")
+		installer <- err
+	}()
+	select {
+	case <-out.asked:
+	case err := <-installer:
+		t.Fatalf("the installer stopped before asking: %v\n%s", err, out.String())
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the installer never asked:\n%s", out.String())
+	}
+
+	// While the installer waits for its answer, the dashboard stages 0.2.1
+	// and the updater (still 0.2.0) starts.
+	s := stage(t, h, cfg, "0.2.0", "0.2.1")
+	trust(t, s.keys)
+	updaterSys := h.system(t)
+	updater := make(chan error, 1)
+	go func() { updater <- SelfUpdate(context.Background(), updaterSys, cfg, "0.2.0", &bytes.Buffer{}) }()
+	select {
+	case err := <-updater:
+		t.Fatalf("the updater must wait while the installer holds the lock: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	answerW.Write([]byte("y\n"))
+	if err := <-installer; err != nil {
+		t.Fatalf("the installer's upgrade failed: %v\n%s", err, out.String())
+	}
+	<-updater
+	if r := s.result(t); r.Outcome != update.OutcomeRefused || !strings.Contains(r.Error, "0.2.2 was installed while this update waited") {
+		t.Fatalf("the updater must refuse to install over the installer's upgrade: %+v", r)
+	}
+	if got := read(t, h, BinPath); got != "playkeeper 0.2.2 (new)\n" {
+		t.Fatalf("the installer's version must stay installed, got %q", got)
 	}
 }
 
