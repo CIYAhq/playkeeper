@@ -230,7 +230,7 @@ func (h *handshake) note(method string) {
 
 var (
 	errHostKey   = errors.New("host key not accepted")
-	errChallenge = errors.New("the server asks more than the password")
+	errChallenge = errors.New("the server asks for more than the password or key")
 )
 
 // connect dials the other machine, checks its host key before anything
@@ -255,6 +255,7 @@ func (c *sftpClient) connect(ctx context.Context, op string, stall time.Duration
 	sc, chans, reqs, err := ssh.NewClientConn(conn, addr, &ssh.ClientConfig{
 		User:              c.cfg.User,
 		Auth:              c.auth(h),
+		AuthCallback:      moreAsked(h),
 		HostKeyCallback:   c.checkHostKey(h),
 		HostKeyAlgorithms: hostKeyAlgorithms(c.pinned),
 		ClientVersion:     "SSH-2.0-Playkeeper",
@@ -332,6 +333,19 @@ func (c *sftpClient) auth(h *handshake) []ssh.AuthMethod {
 	}
 }
 
+// moreAsked stops signing in once the other machine has accepted the key
+// or password but asks for more, such as a one-time code, which the
+// password would only answer wrongly.
+func moreAsked(h *handshake) ssh.ClientAuthCallback {
+	return func(ac *ssh.ClientAuthContext) (ssh.AuthMethod, error) {
+		if len(ac.PartialSuccessMethods) > 0 {
+			h.note("challenge")
+			return nil, errChallenge
+		}
+		return nil, nil
+	}
+}
+
 func (c *sftpClient) handshakeError(ctx context.Context, op string, err error, h *handshake, conn *stallConn, slow bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -386,6 +400,10 @@ func (c *sftpClient) changedHostKey(op string, hk *HostKey) *Error {
 func (c *sftpClient) loginError(op string, tried []string) *Error {
 	e := &Error{Kind: KindLoginRefused, Op: op, User: c.cfg.User, Field: "password"}
 	switch {
+	case c.signer != nil && slices.Contains(tried, "challenge"):
+		e.Field = "privateKey"
+		e.Msg = "The other machine accepted Playkeeper's key but asks for more, such as a password or a one-time code, which Playkeeper can't give."
+		e.Hint = fmt.Sprintf("On the other machine, let %s sign in with the key alone (the AuthenticationMethods line in /etc/ssh/sshd_config).", c.cfg.User)
 	case c.signer != nil && slices.Contains(tried, "publickey"):
 		e.Field = "privateKey"
 		e.Msg = fmt.Sprintf("The other machine didn't accept Playkeeper's key for the user %s.", c.cfg.User)
