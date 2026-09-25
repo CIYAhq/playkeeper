@@ -2,15 +2,23 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
-## Unreleased
+## 0.3.1
 
+- Security fix: Playkeeper no longer follows links that a plugin or mod puts in a server's files, which could make it overwrite or read other files on the machine, including its own. If one is in the way, Playkeeper stops and says which file to remove.
+- Every button, link, switch and menu item does something, or is greyed out with a short reason. A click-through now checks this on every page, on desktop and phone.
+- Fixed: hiding the first steps didn't stick, opening "Older versions" or "Show options" on the New server page crashed it, a finished backup took up to ten seconds to show up on the World tab, and on a phone a server's Settings tab had no heading for screen readers.
+- Buttons react when pressed, and pages, tabs, dialogs, sheets, switches, lists and progress bars move smoothly between states. Nothing moves if your device asks for reduced motion.
+- While something loads, grey shapes show where it will appear instead of "Loading…".
+- Adding or removing a player, making someone an operator and hiding the first steps show at once, and are put back with a short message if Minecraft or Playkeeper says no.
+- Less text on every screen: one short line where there was a paragraph.
+- Home no longer shows an old player count while the agent isn't answering.
+- A server icon over 64 KB is turned down next to the upload button before anything is sent, and the agent refuses one that isn't a 64 × 64 PNG before saving it.
 - If a restore is interrupted, for example by a power cut or a restart of Playkeeper, Playkeeper finishes it when it starts again: it keeps the restored world if it starts, and otherwise puts the previous world and its settings back. It never starts the server on an empty world in the meantime. This also covers a restore Playkeeper 0.3.0 was in the middle of when you upgraded.
 - The **World** tab shows a world a restore left behind, such as a restored world that did not start, with a button to discard it and free the space.
 - A backup, restore or Minecraft update that has to refuse the world, for example because a file's name is too long for a restore, now says so before stopping the server, so nobody is disconnected for nothing.
 - `playkeeper uninstall` names the Docker folders it removes, and no longer shows an empty services line when it's run a second time.
 - Restoring a backup as a new server no longer warns that you must accept the Minecraft EULA once you've ticked its box.
-- The one-line installer also checks that the `.sha256` file names `playkeeper-linux-amd64.tar.gz`, and stops before downloading the tarball if it names another file or none.
-- The one-line installer refuses a `.sha256` file over 1 MB or a tarball over 200 MB, before running anything from the download.
+- The one-line installer also stops if the `.sha256` file names another file or none, or if it is over 1 MB or the tarball over 200 MB, before running anything from the download.
 
 ## 0.3.0
 

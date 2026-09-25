@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, get, post } from './client'
 import type { MachineView, Me, ServerStatus } from './types'
+import { mergePrefs, undoPrefs } from '@/lib/optimistic'
 import { usePoll } from '@/lib/usePoll'
 
 export interface Workspace {
@@ -11,6 +12,7 @@ export interface Workspace {
   machine: MachineView | undefined
   machines: MachineView[]
   prefs: Record<string, string>
+  /** Shows the change at once; if it can't be saved it's put back and the promise rejects. */
   setPrefs: (p: Record<string, string>) => Promise<void>
   refresh: () => Promise<void>
   /** A Playkeeper update being installed; set while the dashboard restarts too. */
@@ -57,15 +59,35 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
   const servers = usePoll(() => get<ServerStatus[]>('/api/servers'), 3000)
   const machines = usePoll(() => get<MachineView[]>('/api/machines'), 5000)
   const [prefs, setPrefsState] = useState<Record<string, string>>({})
+  const prefsRef = useRef(prefs)
+  const changedPrefs = useRef(false)
+  const showPrefs = useCallback((p: Record<string, string>) => {
+    prefsRef.current = p
+    setPrefsState(p)
+  }, [])
   const [lastSlug, setLast] = useState<string | undefined>(readLast)
   useEffect(() => {
     get<Record<string, string>>('/api/me/prefs')
-      .then(setPrefsState)
+      .then((p) => {
+        if (!changedPrefs.current) showPrefs(p)
+      })
       .catch(() => undefined)
-  }, [])
-  const setPrefs = useCallback(async (p: Record<string, string>) => {
-    setPrefsState(await post<Record<string, string>>('/api/me/prefs', p))
-  }, [])
+  }, [showPrefs])
+  // Shown at once; put back (and the error thrown) if the panel refuses.
+  const setPrefs = useCallback(
+    async (change: Record<string, string>) => {
+      changedPrefs.current = true
+      const before = prefsRef.current
+      showPrefs(mergePrefs(before, change))
+      try {
+        showPrefs(await post<Record<string, string>>('/api/me/prefs', change))
+      } catch (e) {
+        showPrefs(mergePrefs(prefsRef.current, undoPrefs(before, change)))
+        throw e
+      }
+    },
+    [showPrefs],
+  )
   const setLastSlug = useCallback((slug: string) => {
     setLast(slug)
     try {

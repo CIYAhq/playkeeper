@@ -68,6 +68,7 @@ type server struct {
 	sawStopping     bool
 	lastError       string
 	lastErrorHint   string
+	refusal         *api.FileRefusal
 	reachable       bool
 	reachableAt     time.Time
 	players         *api.PlayerSnapshot

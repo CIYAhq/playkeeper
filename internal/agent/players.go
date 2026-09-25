@@ -1,10 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -87,16 +84,9 @@ func (s *server) hWhitelistRemove(w http.ResponseWriter, r *http.Request) {
 
 // operators reads ops.json: the players who can run commands in the game.
 func (s *server) operators() ([]api.OperatorEntry, error) {
-	b, err := os.ReadFile(filepath.Join(s.dataDir(), "ops.json"))
-	if os.IsNotExist(err) {
-		return []api.OperatorEntry{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	var entries []api.OperatorEntry
-	if err := json.Unmarshal(b, &entries); err != nil {
-		return nil, err
+	if err := s.readPlayerList("ops.json", &entries); err != nil {
+		return nil, gameFileError(err, "The list of operators could not be read.")
 	}
 	if entries == nil {
 		entries = []api.OperatorEntry{}
