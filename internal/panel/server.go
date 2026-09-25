@@ -206,6 +206,28 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
 		view("/api/server", s.hLegacyStatus),
+		// Wave 7: schedules, sleep, backup rules and copies somewhere else, disk space.
+		sg("/api/servers/{id}/schedules", "/v1/servers/{id}/schedules"),
+		sm("POST", "/api/servers/{id}/schedules", "/v1/servers/{id}/schedules"),
+		sm("POST", "/api/servers/{id}/schedules/preview", "/v1/servers/{id}/schedules/preview"),
+		sg("/api/servers/{id}/schedules/runs", "/v1/servers/{id}/schedules/runs"),
+		sm("POST", "/api/servers/{id}/schedules/{sid}", "/v1/servers/{id}/schedules/{sid}"),
+		sm("DELETE", "/api/servers/{id}/schedules/{sid}", "/v1/servers/{id}/schedules/{sid}"),
+		sg("/api/servers/{id}/sleep", "/v1/servers/{id}/sleep"),
+		sm("POST", "/api/servers/{id}/sleep", "/v1/servers/{id}/sleep"),
+		sg("/api/servers/{id}/backup-rules", "/v1/servers/{id}/backup-rules"),
+		sm("POST", "/api/servers/{id}/backup-rules", "/v1/servers/{id}/backup-rules"),
+		sg("/api/servers/{id}/offsite", "/v1/servers/{id}/offsite"),
+		{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite")},
+		{"POST", "/api/servers/{id}/offsite/test", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite/test")},
+		{"POST", "/api/servers/{id}/offsite/ssh-key", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite/ssh-key")},
+		sm("POST", "/api/servers/{id}/offsite/retry", "/v1/servers/{id}/offsite/retry"),
+		{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actRecoveryKey, s.hRecoveryKey},
+		{"POST", "/api/servers/{id}/offsite/new-key", needSessionCSRF, actRecoveryKey, s.serverProxy("POST", "/v1/servers/{id}/offsite/new-key")},
+		sg("/api/servers/{id}/offsite/copies", "/v1/servers/{id}/offsite/copies"),
+		sm("POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
+		mg("/api/machines/{mid}/disk", "/v1/disk"),
+		mm("POST", "/api/machines/{mid}/disk/clean", "/v1/disk/clean", actManageMachine),
 	}
 }
 
@@ -625,7 +647,7 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 
 // --- agent proxy ---
 
-var pathKeys = []string{"id", "name", "bid", "rid", "op"}
+var pathKeys = []string{"id", "name", "bid", "rid", "op", "sid"}
 
 func agentPath(pattern string, r *http.Request) string {
 	out := pattern

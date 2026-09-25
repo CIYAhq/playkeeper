@@ -38,6 +38,8 @@ type fakeAgent struct {
 	hits []string
 	// replies are canned bodies by "METHOD /path"; others get {"ok":true}.
 	replies map[string]string
+	// headers are the last request headers by "METHOD /path".
+	headers map[string]http.Header
 }
 
 func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
@@ -47,10 +49,11 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}}
+	fa := &fakeAgent{replies: map[string]string{}, headers: map[string]http.Header{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fa.mu.Lock()
 		fa.hits = append(fa.hits, r.Method+" "+r.URL.Path)
+		fa.headers[r.Method+" "+r.URL.Path] = r.Header.Clone()
 		reply, ok := fa.replies[r.Method+" "+r.URL.Path]
 		fa.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -158,7 +161,7 @@ const sampleServer = "abcdefghjk"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend").Replace(p)
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{sid}", "qrstuvwxyz").Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {

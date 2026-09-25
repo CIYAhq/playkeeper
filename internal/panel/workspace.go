@@ -33,6 +33,14 @@ const (
 	actViewAuditTrail action = "audit.view"
 )
 
+// Wave 7 (0.4.0): where copies of backups go, and the key that opens them.
+// Only the owner may use these; once co-admins arrive, admins with two-factor
+// sign-in may too.
+const (
+	actManageBackupCopies action = "backups.copies.manage"
+	actRecoveryKey        action = "backups.recovery_key"
+)
+
 // permit reports whether the signed-in account may take an action. Only
 // owners exist in 0.3.0; members get what their project role allows once
 // co-admins arrive.
