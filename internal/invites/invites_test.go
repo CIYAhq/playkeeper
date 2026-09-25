@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func newPlayer(t *testing.T, spec PlayerSpec) (Invite, string) {
 	if spec.ProjectID == "" {
 		spec.ProjectID = projectID
 	}
-	c, err := NewPlayer(spec, 1, t0)
+	c, err := NewPlayer(spec, owner, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func leaks(t *testing.T, code string, values ...any) {
 }
 
 func TestFriendInviteKeepsItsCode(t *testing.T) {
-	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "Discord crew"}, 7, t0)
+	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "Discord crew"}, moderator, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,15 +102,15 @@ func TestFriendInviteKeepsItsCode(t *testing.T) {
 }
 
 func TestNewPlayerDefaults(t *testing.T) {
-	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "  Discord crew  "}, 7, t0)
+	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "  Discord crew  "}, moderator, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	inv := c.Invite
 	created := t0.Truncate(time.Millisecond)
 	want := Invite{ID: inv.ID, Kind: KindPlayer, CodeHash: inv.CodeHash, Code: codeOf(t, c), ProjectID: projectID, ServerID: serverID, Approval: RightAway,
-		Label: "Discord crew", CreatedBy: 7, CreatedAt: created, ExpiresAt: created.Add(7 * 24 * time.Hour), MaxUses: 5}
-	if inv != want {
+		Label: "Discord crew", CreatedBy: moderator.UserID, CreatedAt: created, ExpiresAt: created.Add(7 * 24 * time.Hour), MaxUses: 5}
+	if !reflect.DeepEqual(inv, want) {
 		t.Fatalf("got  %#v\nwant %#v", inv.Summarize(t0), want.Summarize(t0))
 	}
 	if !ValidID(inv.ID) {
@@ -168,7 +169,7 @@ func TestNewPlayerOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := PlayerSpec{ServerID: serverID, ProjectID: projectID}
 			tc.change(&spec)
-			c, err := NewPlayer(spec, 1, t0)
+			c, err := NewPlayer(spec, owner, t0)
 			if tc.field == "" {
 				if err != nil {
 					t.Fatal(err)
@@ -187,6 +188,27 @@ func TestNewPlayerOptions(t *testing.T) {
 				t.Errorf("got %+v, want field %s", e, tc.field)
 			}
 		})
+	}
+}
+
+func TestNewPlayerNeedsTheRight(t *testing.T) {
+	spec := PlayerSpec{ServerID: serverID, ProjectID: projectID}
+	for name, a := range map[string]Account{
+		"viewer":                      viewer,
+		"moderator of another server": with(moderator, func(a *Account) { a.Servers = OnlyServers(otherServer) }),
+		"account outside the project": outsider,
+		"deleted account":             {},
+	} {
+		if _, err := NewPlayer(spec, a, t0); CodeOf(err) != CodePlayersNotAllowed {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	c, err := NewPlayer(spec, with(moderator, func(a *Account) { a.Servers = OnlyServers(serverID) }), t0)
+	if err != nil || c.Invite.CreatedBy != moderator.UserID {
+		t.Errorf("moderator of the server: %v, created by %d", err, c.Invite.CreatedBy)
+	}
+	if _, err := NewPlayer(spec, with(admin, func(a *Account) { a.TwoFactor = false }), t0); err != nil {
+		t.Errorf("an admin without two-factor keeps a moderator's rights: %v", err)
 	}
 }
 
@@ -359,7 +381,7 @@ func TestUnlimited(t *testing.T) {
 }
 
 func TestMemberInviteWorksOnce(t *testing.T) {
-	c, err := NewMember(MemberSpec{ProjectID: projectID, Role: RoleAdmin}, Inviter{UserID: 1, InstallRole: InstallOwner}, t0)
+	c, err := NewMember(MemberSpec{ProjectID: projectID, Role: RoleAdmin, Servers: AllServers()}, owner, existing, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,6 +510,7 @@ func TestErrors(t *testing.T) {
 	all := []*Error{
 		NotFound(), UsernameTaken(), expired(), usedUp(KindPlayer), usedUp(KindMember),
 		badOptions("uses", "An invite link can be for 1 to 100 friends, or have no limit."), roleUnknown(), roleNotAllowed(RoleAdmin), roleNotAllowed(InstallOwner),
+		serversNotAllowed(), playersNotAllowed(), TwoFactorRequired(),
 		rateLimited("address", 1200*time.Millisecond), rateLimited("invite", time.Minute),
 		playerName(), playerNotFound("Nobody"), playerDemo("PipDemo42"), playerLegacy("OldTimer"),
 		mojangBusy(time.Minute, cause), mojangDown(cause),

@@ -1,8 +1,9 @@
 package invites
 
 // Install roles (users.role) and project roles (project_members.role), as
-// in decision 0004. Admin is the only project role in 0.3.0; moderator and
-// viewer come with co-admins.
+// in decision 0004 and the team page: a viewer looks around, a moderator
+// also runs the servers day to day (players, console, restarts, backups),
+// and an admin can do everything, including the team.
 const (
 	InstallOwner  = "owner"
 	InstallMember = "member"
@@ -29,45 +30,90 @@ func rank(role string) int {
 	}
 }
 
-// Inviter is the account behind a member invite as it stands now: its
-// install role, and its role in the invite's project ("" if none). A
-// deleted account is the zero Inviter.
-type Inviter struct {
-	UserID      int64
+// Account is a Playkeeper account as it stands now, as far as invites care:
+// the creator of an invite, or whoever answers a join request. A deleted
+// account is the zero Account.
+type Account struct {
+	UserID int64
+	// Name is the username. The join page shows the creator's ("siya
+	// invited you to Survival").
+	Name        string
 	InstallRole string
+	// ProjectRole is the account's role in the invite's project, "" if
+	// none.
 	ProjectRole string
+	// Servers is the account's scope in that project. The owner's is
+	// ignored: the owner can use every server.
+	Servers Scope
+	// TwoFactor says whether two-factor sign-in is on.
+	TwoFactor bool
 }
 
-// CanGrant reports whether inviter may give role. The install's owner may
-// give any project role, and a project admin the roles below admin, so an
-// admin can't make another admin. Nobody can be invited as the owner.
-func CanGrant(inviter Inviter, role string) error {
+// RequiresTwoFactor reports whether an account must have two-factor sign-in
+// on to use its role. Project admins must. The owner isn't held to it here,
+// so an install set up before two-factor existed keeps working.
+func RequiresTwoFactor(installRole, projectRole string) bool {
+	return installRole != InstallOwner && projectRole == RoleAdmin
+}
+
+// CanGrant reports whether a may invite someone with role for servers. The
+// owner may give any project role for any servers. A project admin with
+// two-factor on may give the roles below admin, and only for servers they
+// can use themselves, so nobody hands out more than they have. Nobody can
+// be invited as the owner.
+func CanGrant(a Account, role string, servers Scope) error {
+	if err := canGive(a, role); err != nil {
+		return err
+	}
+	if err := servers.check(); err != nil {
+		return err
+	}
+	if a.InstallRole != InstallOwner && !servers.Within(a.Servers) {
+		return serversNotAllowed()
+	}
+	return nil
+}
+
+func canGive(a Account, role string) error {
 	if role == InstallOwner {
 		return roleNotAllowed(role)
 	}
 	r := rank(role)
-	if r == 0 {
+	switch {
+	case r == 0:
 		return roleUnknown()
-	}
-	switch inviter.InstallRole {
-	case InstallOwner:
+	case a.InstallRole == InstallOwner:
 		return nil
-	case InstallMember:
-		if rank(inviter.ProjectRole) == rank(RoleAdmin) && r < rank(RoleAdmin) {
-			return nil
-		}
+	case a.InstallRole != InstallMember || a.ProjectRole != RoleAdmin || r >= rank(RoleAdmin):
+		return roleNotAllowed(role)
+	case RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.TwoFactor:
+		return TwoFactorRequired()
 	}
-	return roleNotAllowed(role)
+	return nil
 }
 
-// GrantableRoles lists the project roles inviter may give, for the role
-// picker.
-func GrantableRoles(inviter Inviter) []string {
+// GrantableRoles lists the project roles a may give, for the role picker.
+func GrantableRoles(a Account) []string {
 	var out []string
 	for _, r := range ProjectRoles() {
-		if CanGrant(inviter, r) == nil {
+		if canGive(a, r) == nil {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// CanLetPlayersIn reports whether a may let players into a server: make
+// friend invites for it and answer its join requests. The owner may, and so
+// may a project moderator or admin whose servers include it. Letting
+// players in is a moderator's right, so an admin without two-factor keeps
+// it.
+func CanLetPlayersIn(a Account, serverID string) error {
+	switch {
+	case a.InstallRole == InstallOwner && validRef(serverID):
+		return nil
+	case a.InstallRole == InstallMember && rank(a.ProjectRole) >= rank(RoleModerator) && a.Servers.Covers(serverID):
+		return nil
+	}
+	return playersNotAllowed()
 }

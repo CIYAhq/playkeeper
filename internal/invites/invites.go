@@ -1,7 +1,7 @@
 // Package invites makes invite links. A friend opens a player invite to add
-// their Minecraft account to one server's whitelist; a future co-admin
+// their Minecraft account to one server's whitelist; a new team member
 // opens a member invite to create a Playkeeper account with a role in one
-// project.
+// project, for all of its servers or some.
 //
 // Both kinds of link point at the panel's public page, /join/<code>. The
 // code is random and the panel looks invites up by its SHA-256. A member
@@ -115,6 +115,8 @@ type Invite struct {
 	ServerID string `json:"serverId,omitempty"`
 	// Role is the project role a member invite gives.
 	Role string `json:"role,omitempty"`
+	// Servers is the scope a member invite gives with the role.
+	Servers Scope `json:"servers,omitzero"`
 	// Approval is when a player invite lets people in.
 	Approval Approval `json:"approval,omitempty"`
 	// Label is the creator's note to tell links apart ("Discord crew").
@@ -315,14 +317,19 @@ type PlayerSpec struct {
 type MemberSpec struct {
 	ProjectID string
 	Role      string
+	Servers   Scope
 	Label     string
 }
 
 // NewPlayer creates an invite that lets friends add themselves to a
-// server's whitelist.
-func NewPlayer(spec PlayerSpec, createdBy int64, now time.Time) (Created, error) {
+// server's whitelist. The creator must be able to let players into it (see
+// CanLetPlayersIn).
+func NewPlayer(spec PlayerSpec, creator Account, now time.Time) (Created, error) {
 	if !validRef(spec.ServerID) {
 		return Created{}, badOptions("server", "The invite needs a valid server.")
+	}
+	if err := CanLetPlayersIn(creator, spec.ServerID); err != nil {
+		return Created{}, err
 	}
 	expiry := cmp.Or(spec.Expiry, DefaultExpiry)
 	lifetime, ok := expiry.lifetime()
@@ -338,7 +345,7 @@ func NewPlayer(spec PlayerSpec, createdBy int64, now time.Time) (Created, error)
 		return Created{}, badOptions("approval", "An invite link lets people in right away or after you say yes.")
 	}
 	c, err := create(Invite{Kind: KindPlayer, ServerID: spec.ServerID, ProjectID: spec.ProjectID, Approval: approval, MaxUses: uses},
-		spec.Label, lifetime, createdBy, now)
+		spec.Label, lifetime, creator.UserID, now)
 	if err != nil {
 		return Created{}, err
 	}
@@ -361,13 +368,17 @@ func playerUses(spec PlayerSpec) (int, error) {
 }
 
 // NewMember creates an invite that lets one person create an account with
-// a role in a project. The inviter must be allowed to give the role (see
-// CanGrant).
-func NewMember(spec MemberSpec, inviter Inviter, now time.Time) (Created, error) {
-	if err := CanGrant(inviter, spec.Role); err != nil {
+// a role in a project, for all of its servers or some. existing lists the
+// project's servers now; the invite may name only those. The inviter must
+// be allowed to give the role and the servers (see CanGrant).
+func NewMember(spec MemberSpec, inviter Account, existing []string, now time.Time) (Created, error) {
+	if err := CanGrant(inviter, spec.Role, spec.Servers); err != nil {
 		return Created{}, err
 	}
-	return create(Invite{Kind: KindMember, ProjectID: spec.ProjectID, Role: spec.Role, MaxUses: 1},
+	if kept, _ := spec.Servers.narrow(existing); len(kept.Servers) != len(spec.Servers.Servers) {
+		return Created{}, badOptions("servers", "Choose servers from this project, each once.")
+	}
+	return create(Invite{Kind: KindMember, ProjectID: spec.ProjectID, Role: spec.Role, Servers: spec.Servers.sorted(), MaxUses: 1},
 		spec.Label, MemberLifetime, inviter.UserID, now)
 }
 

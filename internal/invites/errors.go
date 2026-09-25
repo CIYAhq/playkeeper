@@ -11,22 +11,25 @@ import (
 
 // Codes of the refusals in this package, stable for translation.
 const (
-	CodeNotWorking     = "invite_not_working"
-	CodeExpired        = "invite_expired"
-	CodeUsedUp         = "invite_used_up"
-	CodeBadOptions     = "invite_options_invalid"
-	CodeRoleUnknown    = "invite_role_unknown"
-	CodeRoleNotAllowed = "invite_role_not_allowed"
-	CodeRateLimited    = "rate_limited"
-	CodePlayerName     = "player_name_invalid"
-	CodePlayerUnknown  = "player_not_found"
-	CodePlayerDemo     = "player_demo"
-	CodePlayerLegacy   = "player_legacy"
-	CodeMojangBusy     = "mojang_busy"
-	CodeMojangDown     = "mojang_unavailable"
-	CodeUsername       = "username_invalid"
-	CodeUsernameTaken  = "username_taken"
-	CodePassword       = "password_invalid"
+	CodeNotWorking        = "invite_not_working"
+	CodeExpired           = "invite_expired"
+	CodeUsedUp            = "invite_used_up"
+	CodeBadOptions        = "invite_options_invalid"
+	CodeRoleUnknown       = "invite_role_unknown"
+	CodeRoleNotAllowed    = "invite_role_not_allowed"
+	CodeServersNotAllowed = "invite_servers_not_allowed"
+	CodePlayersNotAllowed = "players_not_allowed"
+	CodeTwoFactorRequired = "two_factor_required"
+	CodeRateLimited       = "rate_limited"
+	CodePlayerName        = "player_name_invalid"
+	CodePlayerUnknown     = "player_not_found"
+	CodePlayerDemo        = "player_demo"
+	CodePlayerLegacy      = "player_legacy"
+	CodeMojangBusy        = "mojang_busy"
+	CodeMojangDown        = "mojang_unavailable"
+	CodeUsername          = "username_invalid"
+	CodeUsernameTaken     = "username_taken"
+	CodePassword          = "password_invalid"
 )
 
 // Error is a refusal a person may see. Code and Params are for the UI's
@@ -71,6 +74,28 @@ func UsernameTaken() *Error {
 		Msg: "That username is taken.", Hint: "Choose another one."}
 }
 
+// TwoFactorRequired is the refusal for an admin who hasn't turned on
+// two-factor sign-in (see RequiresTwoFactor). The panel answers it to every
+// action only admins may take.
+func TwoFactorRequired() *Error {
+	r := twoFactorRequirement()
+	return &Error{Code: r.Code, Status: http.StatusForbidden, Msg: r.Text, Hint: r.Hint}
+}
+
+// Requirement is something a new team member has to do before they can use
+// their role. The panel enforces it; the join page says it up front.
+type Requirement struct {
+	Code string `json:"code"`
+	Text string `json:"text"`
+	Hint string `json:"hint"`
+}
+
+func twoFactorRequirement() Requirement {
+	return Requirement{Code: CodeTwoFactorRequired,
+		Text: "Set up two-factor sign-in before you can use admin rights.",
+		Hint: "Turn it on from the Account page."}
+}
+
 func notWorking(reason string) *Error {
 	return &Error{Code: CodeNotWorking, Status: http.StatusNotFound,
 		Msg:    "This invite link doesn't work any more.",
@@ -112,6 +137,16 @@ func roleNotAllowed(role string) *Error {
 	}
 	return &Error{Code: CodeRoleNotAllowed, Status: http.StatusForbidden, Params: map[string]string{"role": role},
 		Msg: fmt.Sprintf("You can't give the %s role.", role), Hint: "Ask the owner of this Playkeeper to send the invite."}
+}
+
+func serversNotAllowed() *Error {
+	return &Error{Code: CodeServersNotAllowed, Status: http.StatusForbidden,
+		Msg: "You can only give access to servers you can use yourself.", Hint: "Choose from your servers, or ask the owner to send the invite."}
+}
+
+func playersNotAllowed() *Error {
+	return &Error{Code: CodePlayersNotAllowed, Status: http.StatusForbidden,
+		Msg: "You can't let players into this server.", Hint: "Ask an admin to make you a moderator of it."}
 }
 
 func rateLimited(scope string, wait time.Duration) *Error {

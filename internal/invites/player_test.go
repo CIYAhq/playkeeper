@@ -66,7 +66,7 @@ func TestRedeemPlayer(t *testing.T) {
 
 func TestRedeemPlayerRefusals(t *testing.T) {
 	inv, code := newPlayer(t, PlayerSpec{})
-	member, memberCode := memberInvite(t, owner, RoleViewer)
+	member, memberCode := memberInvite(t, owner, RoleViewer, AllServers())
 	used := inv
 	used.Uses = used.MaxUses
 	for _, tc := range []struct {
