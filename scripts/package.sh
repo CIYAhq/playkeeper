@@ -13,7 +13,7 @@ cd "$root"
 export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH"
 
 commit=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
-version=${VERSION:-0.2.0-dev+$commit}
+version=${VERSION:-0.3.0-dev+$commit}
 epoch=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}
 date=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)
 name="playkeeper-$version-linux-amd64"

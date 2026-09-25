@@ -36,6 +36,8 @@ func (c *clock) add(d time.Duration) {
 type fakeAgent struct {
 	mu   sync.Mutex
 	hits []string
+	// replies are canned bodies by "METHOD /path"; others get {"ok":true}.
+	replies map[string]string
 }
 
 func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
@@ -45,13 +47,17 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{}
+	fa := &fakeAgent{replies: map[string]string{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fa.mu.Lock()
 		fa.hits = append(fa.hits, r.Method+" "+r.URL.Path)
+		reply, ok := fa.replies[r.Method+" "+r.URL.Path]
 		fa.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"ok":true}`)
+		if !ok {
+			reply = `{"ok":true}`
+		}
+		io.WriteString(w, reply)
 	})}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
@@ -68,13 +74,18 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
+	return newEnvWith(t, nil)
+}
+
+func newEnvWith(t *testing.T, heads *HeadSources) *env {
+	t.Helper()
 	dir := t.TempDir()
 	sock, fa := startFakeAgent(t, dir)
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = sock
 	clk := &clock{t: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
-	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour})
+	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour, Heads: heads})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,9 +154,11 @@ func auth(cookie, csrf string) map[string]string {
 	return h
 }
 
+const sampleServer = "abcdefghjk"
+
 func samplePath(p string) string {
-	p = strings.ReplaceAll(p, "{id}", "0123456789abcdef")
-	return strings.ReplaceAll(p, "{name}", "PkBotFriend")
+	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend").Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {
@@ -185,12 +198,12 @@ func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {
 func TestValidRequestReachesAgentWithActor(t *testing.T) {
 	e := newEnv(t)
 	cookie, csrf := e.setup(t)
-	if r := e.do(t, "POST", "/api/server/start", `{}`, auth(cookie, csrf)); r.status != 200 {
+	if r := e.do(t, "POST", "/api/servers/"+sampleServer+"/start", `{}`, auth(cookie, csrf)); r.status != 200 {
 		t.Fatalf("start: %d %v", r.status, r.body)
 	}
 	e.agent.mu.Lock()
 	defer e.agent.mu.Unlock()
-	if len(e.agent.hits) != 1 || e.agent.hits[0] != "POST /v1/server/start" {
+	if len(e.agent.hits) != 1 || e.agent.hits[0] != "POST /v1/servers/"+sampleServer+"/start" {
 		t.Fatalf("agent saw %v", e.agent.hits)
 	}
 }
@@ -411,7 +424,7 @@ func TestControlActionsAreRateLimited(t *testing.T) {
 	cookie, csrf := e.setup(t)
 	limited := false
 	for i := 0; i < 40; i++ {
-		if r := e.do(t, "POST", "/api/server/restart", `{}`, auth(cookie, csrf)); r.status == http.StatusTooManyRequests {
+		if r := e.do(t, "POST", "/api/servers/"+sampleServer+"/restart", `{}`, auth(cookie, csrf)); r.status == http.StatusTooManyRequests {
 			limited = true
 			break
 		}

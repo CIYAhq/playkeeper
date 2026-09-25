@@ -1,8 +1,8 @@
 # Third-party components and upstream terms
 
-Checked 2026-09-24 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
+Checked 2026-09-25 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
 
-The full licence texts of everything below that is compiled into the binary are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date, and `make package` refuses to package a binary that links a module missing from it.
+The full licence texts of everything below that is compiled into the binary, and the terms of the logos the web UI shows, are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes and the dashboard links to from Settings. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date, and `make package` refuses to package a binary that links a module missing from it.
 
 ## Compiled into the `playkeeper` binary
 
@@ -28,10 +28,36 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | react | 19.3.0 | MIT |
 | react-dom | 19.3.0 | MIT |
 | scheduler | 0.28.0 | MIT |
+| @base-ui/react, @base-ui/utils | 1.8.0, 0.4.0 | MIT |
+| @floating-ui/core, dom, react-dom, utils | 1.8.0, 1.8.0, 2.1.9, 0.2.12 | MIT |
+| reselect | 5.3.0 | MIT |
+| use-sync-external-store | 1.7.0 | MIT |
+| @babel/runtime | 7.29.7 | MIT |
+| lucide-react (icons) | 1.48.0 | ISC |
+| tailwindcss (its base styles) | 4.3.3 | MIT |
+| tw-animate-css | 1.4.0 | MIT |
+| class-variance-authority | 0.7.1 | Apache-2.0 |
+| clsx | 2.1.1 | MIT |
+| tailwind-merge | 3.7.0 | MIT |
 | vite (its modulepreload polyfill only) | 8.3.1 | MIT |
 | rolldown (its CommonJS runtime helper only) | 1.2.10 | MIT |
+| coss ui components, copied into `web/src/components/ui` from cosscom/coss `apps/ui` at 59e8c88 and restyled | — | MIT (`web/src/components/ui/LICENSE.md`) |
 
-No fonts, icon sets, images or CSS frameworks are bundled: the UI uses system fonts, and its logo, icons and styles are original to Playkeeper. No OpenAnalytics or Ghost source, CSS, assets or branding is used.
+The UI uses system fonts. Pip, the pixel art, the Vanilla type's icon and the Playkeeper mark are original to Playkeeper and use no Minecraft or Mojang art. No OpenAnalytics or Ghost source, CSS, assets or branding is used.
+
+### Server software logos
+
+The New server wizard shows these projects' own logos, unaltered, only to name their software. They are not covered by Playkeeper's licence; `web/src/assets/logos/NOTICE.md` has the sources, and the licence or terms files sit next to it.
+
+| Logo | Source | Terms | Attribution |
+| --- | --- | --- | --- |
+| Paper | assets.papermc.io `papermc_logo.min.svg` (PaperMC/docs@90c5a40) | PaperMC's art-asset terms: allowed in server selectors; not to be altered or sold with other products without permission | — |
+| Purpur | PurpurMC/PurpurWebsite `purpur.svg` (81833d8) | MIT | © PurpurMC |
+| Quilt | QuiltMC/art `quilt_logo_dark.svg` (849d6df) | CC0 1.0 | Quilt logo by the QuiltMC community (courtesy) |
+| NeoForge | neoforged/Documentation `logo.svg` (2924fdb) | MIT; the branding art is CC BY 4.0 | NeoForge logo © the NeoForged team, created by @Ridanisaurus, CC BY 4.0 |
+| Fabric | FabricMC/fabric `icon.png` (ba0d6c0) | Apache-2.0 (no NOTICE file) | — |
+
+Spigot, Bukkit and Folia are not offered, and Forge stays out until its team allows its logo to be shown. Add-on sources (Modrinth, Hangar, CurseForge) are named in text only.
 
 Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies and are not shipped, apart from the two small pieces of Vite and Rolldown code listed above that the bundler puts into the UI.
 

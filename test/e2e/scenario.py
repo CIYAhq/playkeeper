@@ -58,7 +58,7 @@ def bot(args, background=False):
 
 
 def console(c, cmd):
-    return c.ok("POST", "/api/server/command", {"command": cmd})["output"]
+    return c.ok("POST", c.sp("/command"), {"command": cmd})["output"]
 
 
 def ts(s):
@@ -67,9 +67,10 @@ def ts(s):
 
 def unauthenticated_checks(url, cacert):
     anon = Client(url, cacert, None)
-    for method, path in [("GET", "/api/server"), ("POST", "/api/server/start"), ("POST", "/api/server/command"),
-                         ("GET", "/api/backups"), ("GET", "/api/backups/20260101-000000-abcdef/download"),
-                         ("POST", "/api/restore/upload"), ("GET", "/api/audit")]:
+    some = "/api/servers/abcdefghjk"
+    for method, path in [("GET", "/api/servers"), ("GET", "/api/machines"), ("POST", f"{some}/start"), ("POST", f"{some}/command"),
+                         ("GET", f"{some}/backups"), ("GET", f"{some}/backups/20260101-000000-abcdef/download"),
+                         ("POST", "/api/machines/abcdefghjk/restore/upload"), ("GET", "/api/audit"), ("GET", "/api/players/Notch/head")]:
         status, _ = anon.request(method, path, {} if method == "POST" else None)
         check(status in (401, 403), f"{method} {path} without a session is refused ({status})")
 
@@ -116,7 +117,7 @@ def verify_archive_independently(path):
 def wait_idle(c, timeout=300):
     deadline = time.time() + timeout
     while time.time() < deadline:
-        st = c.ok("GET", "/api/server")
+        st = c.status()
         if not st.get("operation"):
             return st
         time.sleep(2)
@@ -125,14 +126,14 @@ def wait_idle(c, timeout=300):
 
 def restore_backup(c, backup_id, label):
     """Stages a backup for restore, refuses a wrong confirmation, then applies it."""
-    status, preview = c.request("POST", f"/api/backups/{backup_id}/restore", {})
+    status, preview = c.request("POST", c.sp(f"/backups/{backup_id}/restore"), {})
     check(status == 200 and preview["compatible"], f"{label}: backup validated file by file before anything changed")
     check(preview["currentWorld"]["exists"] and preview["willCreateRollback"] and preview["confirmPhrase"] == "replace world",
           f"{label}: preview shows the world to be replaced, a rollback archive, and the phrase {preview['confirmPhrase']!r}")
-    status, body = c.request("POST", f"/api/restore/{preview['id']}/apply", {"confirm": "replace wrold"})
+    status, body = c.request("POST", c.mp(f"/restore/{preview['id']}/apply"), {"confirm": "replace wrold"})
     check(status == 400, f"{label}: a mistyped confirmation is refused ({status})")
     t0 = time.time()
-    op = c.ok("POST", f"/api/restore/{preview['id']}/apply", {"confirm": preview["confirmPhrase"]})
+    op = c.ok("POST", c.mp(f"/restore/{preview['id']}/apply"), {"confirm": preview["confirmPhrase"]})
     op = c.wait_op(op["id"], timeout=900)
     check(op["status"] == "succeeded", f"{label}: restore succeeded ({op.get('error', '')})")
     c.wait_online(timeout=300)
@@ -159,17 +160,15 @@ def host_a(a):
     check(status in (403, 409), f"setup code cannot be reused ({status})")
 
     step("EULA gate: nothing is created or downloaded before acceptance")
-    status, body = c.request("POST", "/api/server", {"acceptEula": False, "versionId": "paper-26.1.2", "memoryMB": 1536})
+    status, body = c.request("POST", c.mp("/servers"), {"acceptEula": False, "versionId": "paper-26.1.2", "memoryMB": 1536})
     check(status == 400 and body.get("code") == "eula_required", f"create without EULA refused ({status} {body.get('code')})")
-    st = c.ok("GET", "/api/server")
-    check(st["phase"] == "not_created" and not st.get("config"), "no server exists after the refusal")
+    check(c.servers() == [], "no server exists after the refusal")
 
     step("Create the server (pinned Paper 26.1.2) and wait until it is joinable")
-    cat = c.ok("GET", "/api/catalog")
+    cat = c.ok("GET", c.mp("/catalog"))
     mem = a.memory or cat["recommendedMemoryMB"]
     t0 = time.time()
-    op = c.ok("POST", "/api/server", {"acceptEula": True, "versionId": "paper-26.1.2", "memoryMB": mem, "motd": "Playkeeper E2E"})
-    op = c.wait_op(op["id"], timeout=1200)
+    op = c.create("paper-26.1.2", mem, "Playkeeper E2E", name="E2E")
     check(op["status"] == "succeeded", f"create operation succeeded ({op.get('error', '')})")
     st = c.wait_online(timeout=300)
     results["createSeconds"] = round(time.time() - t0, 1)
@@ -178,7 +177,7 @@ def host_a(a):
 
     step("Invite the two bots through the audited allowlist")
     for name in (BUILDER, FRIEND):
-        r = c.ok("POST", "/api/server/whitelist", {"name": name})
+        r = c.ok("POST", c.sp("/whitelist"), {"name": name})
         check(name in r["message"], f"invite {name}: {r['message']}")
     host_a_play(a, c, anon)
 
@@ -186,7 +185,7 @@ def host_a(a):
 def host_a_play(a, c, anon):
     out = a.out
     game = ["--host", a.game_host, "--port", str(a.game_port)]
-    wl = {w["name"] for w in c.ok("GET", "/api/server/whitelist")}
+    wl = {w["name"] for w in c.ok("GET", c.sp("/whitelist"))}
     check({BUILDER, FRIEND} <= wl, f"allowlist contains the bots ({sorted(wl)})")
 
     step("Builder bot joins by the copied address and places the nonce marker")
@@ -206,7 +205,7 @@ def host_a_play(a, c, anon):
     both = None
     for _ in range(40):
         time.sleep(1.5)
-        st = c.ok("GET", "/api/server")
+        st = c.status()
         p = st.get("players") or {}
         if p.get("online") == 2:
             both = st
@@ -218,14 +217,14 @@ def host_a_play(a, c, anon):
 
     step("Sessions, events and charts agree with what happened")
     time.sleep(4)
-    sessions = c.ok("GET", "/api/players/sessions?range=1h")["sessions"]
-    events = c.ok("GET", "/api/events?limit=200")
+    sessions = c.ok("GET", c.sp("/players/sessions?range=1h"))["sessions"]
+    events = c.ok("GET", c.sp("/events?limit=200"))
     names = {s["player"] for s in sessions}
     check({BUILDER, FRIEND} <= names, f"sessions recorded for {sorted(names)}")
     check(all(s.get("end") and s["endReason"] == "left" for s in sessions if s["player"] == BUILDER), f"every {BUILDER} session closed by a real leave event")
     check(any(s["player"] == FRIEND and not s.get("end") for s in sessions), f"{FRIEND}'s session is open while it is still online")
     check(not any(e.get("player") == "Foo" for e in events), "chat text 'Foo joined the game' created no event")
-    metrics = c.ok("GET", "/api/metrics?range=1h")
+    metrics = c.ok("GET", c.sp("/metrics?range=1h"))
     json.dump(metrics, open(os.path.join(out, "metrics-a.json"), "w"), indent=2)
     check(any((b.get("playersMax") or 0) >= 2 for b in metrics["buckets"]), "player chart has a bucket with 2 players")
 
@@ -238,16 +237,16 @@ def host_a_play(a, c, anon):
     marker_before = check_marker_console(c, marker)
 
     step(f"Stop-and-archive backup while {FRIEND} is online: graceful stop, recorded downtime, verification")
-    op = c.ok("POST", "/api/backups", {"note": "e2e host A"})
+    op = c.ok("POST", c.sp("/backups"), {"note": "e2e host A"})
     op = c.wait_op(op["id"], timeout=600)
     check(op["status"] == "succeeded", f"backup operation succeeded ({op.get('error', '')})")
     friend.wait(timeout=120)
     friend_log = friend.stdout.read()
     print(friend_log, end="")
     check("connection ended" in friend_log, f"{FRIEND} was disconnected by the stop")
-    b = [x for x in c.ok("GET", "/api/backups") if x["kind"] == "manual"][0]
+    b = [x for x in c.ok("GET", c.sp("/backups")) if x["kind"] == "manual"][0]
     check(b.get("verified") is True and b["location"] == "on-host", "backup verified and labelled on-host")
-    lines = c.ok("GET", "/api/server/logs?limit=2000")["lines"]
+    lines = c.ok("GET", c.sp("/logs?limit=2000"))["lines"]
     t_start, t_end = ts(op["startedAt"]), ts(op["finishedAt"])
     window = [ln for ln in lines if t_start <= ts(ln["ts"]) <= t_end]
     shutdown = ["Stopping server", "Saving players", "Saving worlds", "All dimensions are saved"]
@@ -269,14 +268,15 @@ def host_a_play(a, c, anon):
     check(log_span is not None and downtime and 0 <= downtime / 1000 - log_span < 10,
           f"recorded downtime {downtime / 1000:.1f} s covers the logged stop-to-ready span {log_span:.1f} s (it also includes the save and the reachability check)")
     time.sleep(3)
-    fs = [s for s in c.ok("GET", "/api/players/sessions?range=1h")["sessions"] if s["player"] == FRIEND]
+    fs = [s for s in c.ok("GET", c.sp("/players/sessions?range=1h"))["sessions"] if s["player"] == FRIEND]
     check(fs and all(s.get("end") and not s["endUncertain"] for s in fs), f"{FRIEND}'s session closed at the graceful stop ({fs[-1].get('endReason') if fs else None})")
 
     step("Authenticated download, and an independent check of the archive")
     path = os.path.join(out, "world-backup.tar.gz")
-    status, headers = anon.request("GET", f"/api/backups/{b['id']}/download", stream_to=path)
+    download = c.sp(f"/backups/{b['id']}/download")
+    status, headers = anon.request("GET", download, stream_to=path)
     check(status == 401, f"download without a session is refused ({status})")
-    status, headers = c.request("GET", f"/api/backups/{b['id']}/download", stream_to=path, timeout=600)
+    status, headers = c.request("GET", download, stream_to=path, timeout=600)
     check(status == 200 and sha256_file(path) == b["sha256"], f"downloaded archive SHA-256 matches the record ({b['sha256'][:16]}…)")
     manifest, bad = verify_archive_independently(path)
     check(not bad and len(manifest["files"]) == b["fileCount"],
@@ -308,12 +308,12 @@ def host_a_play(a, c, anon):
     results["sameHostRestore"] = {"previewNotRestored": preview.get("notRestored"), "restoreSeconds": secs, "rollbackRestoreSeconds": secs2, "rollbackBackupId": rollback_id}
 
     step("Controls are idempotent, serialized and state-aware")
-    status, body = c.request("POST", "/api/server/start", {})
+    status, body = c.request("POST", c.sp("/start"), {})
     check(status == 200 and body.get("noop") is True, f"start while running is a no-op ({status})")
     codes = {}
 
     def fire(verb):
-        codes[verb] = c.request("POST", f"/api/server/{verb}", {})[0]
+        codes[verb] = c.request("POST", c.sp(f"/{verb}"), {})[0]
     threads = [threading.Thread(target=fire, args=(v,)) for v in ("start", "stop")]
     for t in threads:
         t.start()
@@ -325,29 +325,29 @@ def host_a_play(a, c, anon):
           f"concurrent start and stop: responses {codes}, then desired={st['desired']} phase={st['phase']}")
     if st["desired"] == "running":
         c.wait_online(timeout=300)
-        op = c.ok("POST", "/api/server/stop", {})
+        op = c.ok("POST", c.sp("/stop"), {})
         c.wait_op(op["id"], timeout=300)
-    status, body = c.request("POST", "/api/server/stop", {})
+    status, body = c.request("POST", c.sp("/stop"), {})
     check(status == 200 and body.get("noop") is True, f"stop while stopped is a no-op ({status})")
-    status, body = c.request("POST", "/api/server/restart", {})
+    status, body = c.request("POST", c.sp("/restart"), {})
     check(status == 409, f"restart while stopped is refused as a conflict ({status}: {body.get('error', '') if isinstance(body, dict) else ''})")
-    op = c.ok("POST", "/api/server/start", {})
+    op = c.ok("POST", c.sp("/start"), {})
     check(c.wait_op(op["id"], timeout=600)["status"] == "succeeded", "start after stop succeeded")
     c.wait_online(timeout=300)
 
     step("State changes need the session's CSRF token and a same-origin request")
     no_token = Client(a.url, a.cacert, None)
     no_token.state = {"cookie": c.state["cookie"]}
-    for path in ("/api/server/stop", "/api/backups", "/api/server/command", "/api/server/settings", "/api/auth/logout"):
+    for path in (c.sp("/stop"), c.sp("/backups"), c.sp("/command"), c.sp("/settings"), c.mp("/servers"), "/api/auth/logout"):
         status, _ = no_token.request("POST", path, {})
         check(status == 403, f"POST {path} with the session cookie but no CSRF token is refused ({status})")
-    status, _ = c.request("POST", "/api/server/stop", {}, headers={"Origin": "https://attacker.example"})
+    status, _ = c.request("POST", c.sp("/stop"), {}, headers={"Origin": "https://attacker.example"})
     check(status == 403, f"POST with a valid token from another origin is refused ({status})")
 
     step("A settings change is applied and audited")
-    status, body = c.request("POST", "/api/server/settings", {"motd": "Playkeeper E2E (renamed)"})
+    status, body = c.request("POST", c.sp("/settings"), {"motd": "Playkeeper E2E (renamed)"})
     check(status == 200, f"MOTD change accepted ({status})")
-    check(c.ok("GET", "/api/server")["config"]["motd"] == "Playkeeper E2E (renamed)", "new MOTD recorded")
+    check(c.status()["config"]["motd"] == "Playkeeper E2E (renamed)", "new MOTD recorded")
 
     step("Audit log and daily summary")
     audit = c.ok("GET", "/api/audit")
@@ -357,10 +357,10 @@ def host_a_play(a, c, anon):
               "restore.staged", "restore.applied", "start", "stop", "settings.changed"] + (["login"] if a.existing else [])
     for want in wanted:
         check(want in actions, f"audit log has {want}")
-    summary = c.ok("GET", "/api/players/summary?days=1&tz=UTC")
+    summary = c.ok("GET", c.sp("/players/summary?days=1&tz=UTC"))
     json.dump(summary, open(os.path.join(out, "summary-a.json"), "w"), indent=2)
     today = summary["days"][-1]
-    day_sessions = c.ok("GET", "/api/players/sessions?range=24h")["sessions"]
+    day_sessions = c.ok("GET", c.sp("/players/sessions?range=24h"))["sessions"]
     total = sum(s["durationSeconds"] for s in day_sessions)
     check(today["uniquePlayers"] == len({s["player"] for s in day_sessions}) and abs(today["playtimeSeconds"] - total) <= len(day_sessions),
           f"daily summary recomputes from sessions: {today['uniquePlayers']} players, {today['sessions']} sessions, {today['playtimeSeconds']} s observed, {today['coverage']:.0%} collected")
@@ -380,10 +380,7 @@ def host_b(a):
         c.setup(a.code, "admin", PASSWORD)
         status, _ = anon.request("POST", "/api/setup", {"token": a.code, "username": "intruder", "password": "intruder-password"})
         check(status in (403, 409), f"the setup code cannot be used twice ({status})")
-        st = c.ok("GET", "/api/server")
-        check(st["phase"] == "not_created", "fresh host has no server")
-        metrics = c.ok("GET", "/api/metrics?range=24h")
-        check(all(b["state"] in ("not_collected", "no_data", "offline") for b in metrics["buckets"][:-2]), "fresh host shows no earlier history (no backfill)")
+        check(c.servers() == [], "fresh host has no server")
     else:
         c.login("admin", PASSWORD)
     if "refusals" in steps:
@@ -399,36 +396,37 @@ def host_b(a):
 def host_b_refusals(a, c):
     out = a.out
     step("EULA gate on the second host: nothing is created before acceptance")
-    status, body = c.request("POST", "/api/server", {"acceptEula": False, "versionId": "paper-26.1.2", "memoryMB": 1536})
+    status, body = c.request("POST", c.mp("/servers"), {"acceptEula": False, "versionId": "paper-26.1.2", "memoryMB": 1536})
     check(status == 400 and body.get("code") == "eula_required", f"create without EULA refused ({status} {body.get('code')})")
 
     step("A corrupted copy of the archive is refused before anything changes")
     data = bytearray(open(a.archive, "rb").read())
     data[len(data) // 2] ^= 0xFF
-    status, body = c.request("POST", "/api/restore/upload", raw=bytes(data), timeout=600)
+    status, body = c.request("POST", c.mp("/restore/upload"), raw=bytes(data), timeout=600)
     check(status == 422, f"flipped-byte archive refused ({status}: {body.get('error', '')[:80] if isinstance(body, dict) else body})")
 
     step("Upload the archive (moved as a file) and review the preview")
-    status, preview = c.request("POST", "/api/restore/upload", raw=open(a.archive, "rb").read(), timeout=600)
+    status, preview = c.request("POST", c.mp("/restore/upload"), raw=open(a.archive, "rb").read(), timeout=600)
     json.dump(preview, open(os.path.join(out, "restore-preview.json"), "w"), indent=2)
     check(status == 200 and preview["compatible"], "archive validated file by file")
     check(preview["sha256"] == a.expect_sha256, f"archive SHA-256 on host B matches host A ({preview['sha256'][:16]}…)")
     check(preview["needsEula"] and not preview["currentWorld"]["exists"], "preview asks for the EULA and shows no existing world")
-    status, body = c.request("POST", f"/api/restore/{preview['id']}/apply", {"confirm": preview["confirmPhrase"], "acceptEula": False})
+    status, body = c.request("POST", c.mp(f"/restore/{preview['id']}/apply"), {"confirm": preview["confirmPhrase"], "acceptEula": False})
     check(status == 400 and body.get("code") == "eula_required", "restore without EULA acceptance refused")
-    c.ok("DELETE", f"/api/restore/{preview['id']}")
-    st = c.ok("GET", "/api/server")
-    check(st["phase"] == "not_created", "refusals left the host unchanged (still no server)")
+    c.ok("DELETE", c.mp(f"/restore/{preview['id']}"))
+    check(c.servers() == [], "refusals left the host unchanged (still no server)")
 
 
 def host_b_restore(a, c):
     step("Upload the archive (moved as a file) for the restore")
-    status, preview = c.request("POST", "/api/restore/upload", raw=open(a.archive, "rb").read(), timeout=600)
+    status, preview = c.request("POST", c.mp("/restore/upload"), raw=open(a.archive, "rb").read(), timeout=600)
     check(status == 200 and preview["compatible"] and preview["sha256"] == a.expect_sha256, "archive validated; SHA-256 matches host A")
 
-    step("Apply the restore and wait until the server is joinable")
+    step("Apply the restore as this host's first server and wait until it is joinable")
     t0 = time.time()
-    op = c.ok("POST", f"/api/restore/{preview['id']}/apply", {"confirm": preview["confirmPhrase"], "acceptEula": True})
+    op = c.ok("POST", c.mp(f"/restore/{preview['id']}/apply"), {"confirm": preview["confirmPhrase"], "acceptEula": True})
+    check(op.get("serverId"), f"the restore created a server ({op.get('serverId')})")
+    c.use_server(op["serverId"])
     op = c.wait_op(op["id"], timeout=1200)
     check(op["status"] == "succeeded", f"restore succeeded ({op.get('error', '')})")
     c.wait_online(timeout=300)
@@ -443,7 +441,9 @@ def host_b_verify(a, c):
     rc = bot(["verify", "--host", a.game_host, "--port", str(a.game_port), "--name", BUILDER, "--marker", a.marker])
     check(rc == 0, f"client view: gold block and sign with nonce {marker['nonce']} at the recorded coordinates")
     results["marker"] = marker
-    restores = [op for op in [c.ok("GET", "/api/server").get("lastOperation")] if op and op["kind"] == "restore"]
+    metrics = c.ok("GET", c.sp("/metrics?range=24h"))
+    check(all(b["state"] in ("not_collected", "no_data", "offline") for b in metrics["buckets"][:-6]), "the restored server shows no history from before it came here (no backfill)")
+    restores = [op for op in [c.status().get("lastOperation")] if op and op["kind"] == "restore"]
     if restores:
         op = restores[0]
         results["restoreOperation"] = {"startedAt": op["startedAt"], "finishedAt": op.get("finishedAt"),
@@ -491,7 +491,7 @@ def host_b_tamper(a, c):
         with tempfile.NamedTemporaryFile(suffix=".tar.gz") as f:
             f.write(data)
             f.flush()
-            status, body = c.request("POST", "/api/restore/upload", raw=open(f.name, "rb").read(), timeout=600)
+            status, body = c.request("POST", c.sp("/restore/upload"), raw=open(f.name, "rb").read(), timeout=600)
         msg = body.get("error", "") if isinstance(body, dict) else str(body)
         check(status == 422, f"archive {label}: refused ({status}: {msg[:90]})")
 
