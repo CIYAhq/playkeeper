@@ -10,6 +10,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - `playkeeper uninstall` names the Docker folders it removes, and no longer shows an empty services line when it's run a second time.
 - Restoring a backup as a new server no longer warns that you must accept the Minecraft EULA once you've ticked its box.
 - The one-line installer also checks that the `.sha256` file names `playkeeper-linux-amd64.tar.gz`, and stops before downloading the tarball if it names another file or none.
+- The one-line installer refuses a `.sha256` file over 1 MB or a tarball over 200 MB, before running anything from the download.
 
 ## 0.3.0
 
