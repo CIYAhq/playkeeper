@@ -15,7 +15,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
 import { controls, isSettingUp, phaseTone } from '@/lib/phase'
-import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
+import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
@@ -23,6 +23,8 @@ import { Overview } from './overview'
 import { PlayersPage } from './players'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
+import { PacksPage } from './world-packs'
+import { PregenPage } from './world-pregen'
 
 const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
   { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
@@ -42,7 +44,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
+export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; sub?: ServerSub }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -68,10 +70,14 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       body = <PlayersPage server={server} />
       break
     case 'world':
-      body = <WorldPage server={server} />
+      body = sub === 'pregen' ? <PregenPage server={server} /> : sub === 'packs' ? <PacksPage server={server} /> : <WorldPage server={server} />
       break
     case 'settings':
       body = <ServerSettingsPage server={server} />
+      break
+    case 'plugins':
+    case 'mods':
+      body = null
       break
     default: {
       const unreachable: never = tab
@@ -84,7 +90,7 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       {phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
-        ) : (
+        ) : tab === 'world' && sub ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (
