@@ -2,7 +2,10 @@
 // browser UI. web/src/api/types.ts mirrors these shapes; keep them in sync.
 package api
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Phase is the user-visible lifecycle phase of a Minecraft server.
 type Phase string
@@ -1301,4 +1304,38 @@ type TemplatePlan struct {
 	Blockers         []AddonNotice `json:"blockers"`
 	Ready            bool          `json:"ready"`
 	Fingerprint      string        `json:"fingerprint"`
+}
+
+// Wave 4: sharing a modded server's pack with friends.
+
+// PackShare is a modded server's friends' share, for the Mods tab and the
+// share sheet. Share is internal/modpacks/share's Share without its index.
+type PackShare struct {
+	// Public is whether the friends' page answers, and Token its link's
+	// token while it does.
+	Public     bool            `json:"public"`
+	Token      string          `json:"token,omitempty"`
+	File       string          `json:"file"`
+	Size       int64           `json:"size"`
+	LoaderName string          `json:"loaderName"`
+	Share      json.RawMessage `json:"share"`
+}
+
+// PackShareRequest turns a server's friends' page on or off. Turning it on
+// makes a new link; turning it off forgets the old one.
+type PackShareRequest struct {
+	Public bool   `json:"public"`
+	Actor  string `json:"actor"`
+}
+
+// PackLink is what the agent tells the panel about a link that opens a
+// friends' page: the server and its share. Share is the whole
+// internal/modpacks/share Share, server-only mods included, so the panel
+// never sends it on.
+type PackLink struct {
+	Server   string          `json:"server"`
+	Slug     string          `json:"slug"`
+	GamePort int             `json:"gamePort"`
+	HasIcon  bool            `json:"hasIcon"`
+	Share    json.RawMessage `json:"share"`
 }

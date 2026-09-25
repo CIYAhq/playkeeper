@@ -200,4 +200,9 @@ CREATE TABLE template_installs (
   created_at INTEGER NOT NULL
 );
 `,
+	// Wave 4: the link token of each server's friends' pack page, made when
+	// sharing is turned on and forgotten when it is turned off.
+	`
+ALTER TABLE servers ADD COLUMN packs_token TEXT NOT NULL DEFAULT '';
+`,
 }

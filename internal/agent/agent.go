@@ -28,9 +28,9 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
-	"github.com/CIYAhq/playkeeper/internal/templates"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
+	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
 const (
@@ -191,6 +191,9 @@ type Agent struct {
 	// Wave 4: templates planned on this machine, by their plan's
 	// fingerprint, until a server is created from one.
 	templatePlans *ttlCache[*templates.Template]
+
+	// Wave 4: each server's friends' share, built on the first ask.
+	shares friendsShares
 }
 
 func New(opts Options) (*Agent, error) {
@@ -642,6 +645,11 @@ func (a *Agent) routeTable() []Route {
 		// Wave 4: templates.
 		{"GET", "/v1/servers/{id}/template", srv((*server).hTemplate)},
 		{"POST", "/v1/templates/plan", a.hTemplatePlan},
+		// Wave 4: sharing the pack with friends.
+		{"GET", "/v1/servers/{id}/mods/share", srv((*server).hPackShare)},
+		{"POST", "/v1/servers/{id}/mods/share", srv((*server).hPackShareSet)},
+		{"GET", "/v1/servers/{id}/mods/share.mrpack", srv((*server).hPackShareFile)},
+		{"GET", "/v1/packs/{token}", a.hPackLink},
 	}
 }
 
