@@ -390,6 +390,35 @@ control "a restore 0.3.0 undid is dealt with once" internal/agent/recovery.go \
   ' || op.Detail["recoveredAfterRestart"] != nil' \
   '' \
   ./internal/agent '^TestUndoneByStop$'
+shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
+  local name=$1 file=$2 test=$5
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if ! sh -n "$file" 2>/dev/null; then
+    echo "INVALID  $name: the mutated script does not parse"
+    bad=1
+  elif bash "$test" >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test still passes without the guard"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 '^FAIL: ' /tmp/negative-control.out | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+# shellcheck disable=SC2016
+shcontrol "every get.sh download is size-limited" packaging/get.sh \
+  '--max-filesize "$3" ' \
+  '' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "get.sh refuses an oversized download curl let through" packaging/get.sh \
+  ' || { [ "$rc" = 0 ] && [ "$(wc -c <"$2")" -gt "$3" ]; }' \
+  '' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "get.sh says a download curl stopped is too large" packaging/get.sh \
+  '[ "$rc" = 63 ] || ' \
+  '' \
+  packaging/get_test.sh
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
