@@ -237,6 +237,9 @@ func (c *crashCtx) neoBrokenFile(fatal bool) (CrashDiagnosis, bool) {
 		if jar, ok := c.installed(file); ok {
 			d.Params["jar"] = jar
 			d.Fixes = []Action{removeFix(jar, true)}
+			if reason == "invalid" {
+				d.Fixes = addonFixes(jar)
+			}
 		}
 		return d, true
 	}
@@ -262,7 +265,7 @@ func neoFileReason(s string) (key, why string) {
 	case strings.Contains(s, "OptiFine"):
 		return "optifine", "it is a version of OptiFine that doesn't work with NeoForge"
 	}
-	return "invalid", "it isn't a valid mod file"
+	return "invalid", "it isn't a valid mod file, so it may be damaged or only partly downloaded"
 }
 
 // addonJava explains a plugin or mod built for a newer Java than the server
