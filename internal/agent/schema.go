@@ -126,4 +126,25 @@ INSERT INTO samples_v2(server_id, ts, state, players_online, players_max, cpu_pc
 DROP TABLE samples;
 ALTER TABLE samples_v2 RENAME TO samples;
 `,
+	// 0.4.0: the dashboard's certificates, one row per name: certs.Status
+	// and its Certificate. Times are Unix milliseconds.
+	`
+CREATE TABLE certificates (
+  name         TEXT PRIMARY KEY,
+  names        TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  challenge    TEXT NOT NULL,
+  file         TEXT NOT NULL DEFAULT '',
+  not_before   INTEGER,
+  not_after    INTEGER,
+  renew_at     INTEGER,
+  issuer       TEXT NOT NULL DEFAULT '',
+  serial       TEXT NOT NULL DEFAULT '',
+  sha256       TEXT NOT NULL DEFAULT '',
+  last_attempt INTEGER,
+  next_attempt INTEGER,
+  failures     INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT NOT NULL DEFAULT ''
+);
+`,
 }

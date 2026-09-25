@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -86,6 +88,27 @@ type Options struct {
 	HTTPClient *http.Client
 	// FillURL is PaperMC's Fill API (default https://fill.papermc.io).
 	FillURL string
+	// NamesHTTP carries requests to the free address service (tests); nil
+	// uses the names client's own, which never use a proxy.
+	NamesHTTP *http.Client
+	// Resolver looks up the machine's names as the public sees them
+	// (default: public DNS-over-HTTPS resolvers).
+	Resolver certs.Resolver
+	// Issue gets a certificate (tests replace Let's Encrypt with it).
+	Issue func(ctx context.Context, is *certs.Issuer, req certs.Request) (*certs.Certificate, error)
+	// HTTP01Addr is where Let's Encrypt's HTTP-01 checks are answered
+	// while a certificate is being issued (default ":80").
+	HTTP01Addr string
+	// AddressInterval is how often the address loop looks at the address
+	// (default 1 minute; negative turns the ticker off).
+	AddressInterval time.Duration
+	// PublishPoll is how often a free address's records are looked at
+	// while they are being published (default 30s, which the names
+	// service's per-key rate limit allows).
+	PublishPoll time.Duration
+	// PublicAddrs are the public addresses of the machine's network
+	// interfaces (tests).
+	PublicAddrs func() []netip.Addr
 }
 
 // Retention bounds stored analytics and audit data.
@@ -145,6 +168,7 @@ type Agent struct {
 
 	upd     updateState
 	catalog catalogCache
+	addr    addressRuntime
 }
 
 func New(opts Options) (*Agent, error) {
@@ -208,6 +232,21 @@ func New(opts Options) (*Agent, error) {
 	if opts.FillURL == "" {
 		opts.FillURL = minecraft.DefaultFillURL
 	}
+	if opts.Resolver == nil {
+		opts.Resolver = certs.PublicResolver{}
+	}
+	if opts.HTTP01Addr == "" {
+		opts.HTTP01Addr = ":80"
+	}
+	if opts.AddressInterval == 0 {
+		opts.AddressInterval = time.Minute
+	}
+	if opts.PublishPoll == 0 {
+		opts.PublishPoll = 30 * time.Second
+	}
+	if opts.PublicAddrs == nil {
+		opts.PublicAddrs = func() []netip.Addr { return certs.ExpectedAddrs() }
+	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -233,6 +272,9 @@ func New(opts Options) (*Agent, error) {
 		servers: map[string]*server{},
 	}
 	a.ctx, a.cancel = context.WithCancel(context.Background())
+	if a.opts.Issue == nil {
+		a.opts.Issue = a.issue
+	}
 	a.allowed = map[uint32]bool{}
 	if len(opts.AllowedUIDs) > 0 {
 		for _, u := range opts.AllowedUIDs {
@@ -258,13 +300,14 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
+	a.loadAddress()
 	a.markInterruptedOperations()
 	a.pruneStages()
 	return a, nil
 }
 
 // Start launches the background loops: each server's follower, collector and
-// reconciler, and the machine's pruning, sampling and update checks.
+// reconciler, and the machine's pruning, sampling, update checks and address.
 func (a *Agent) Start() {
 	for _, s := range a.serverList() {
 		s.startLoops()
@@ -272,6 +315,7 @@ func (a *Agent) Start() {
 	a.loop(a.pruneLoop)
 	a.loop(a.updateLoop)
 	a.loop(a.hostLoop)
+	a.loop(a.addressLoop)
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -533,6 +577,15 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+		{"GET", "/v1/address", a.hAddress},
+		{"DELETE", "/v1/address", a.hAddressDelete},
+		{"GET", "/v1/address/available", a.hAddressAvailable},
+		{"GET", "/v1/address/plan", a.hAddressPlan},
+		{"POST", "/v1/address/claim", a.hAddressClaim},
+		{"POST", "/v1/address/refresh", a.hAddressRefresh},
+		{"POST", "/v1/address/release", a.hAddressRelease},
+		{"POST", "/v1/address/check", a.hAddressCheck},
+		{"POST", "/v1/address/certificate", a.hAddressCertificate},
 	}
 }
 

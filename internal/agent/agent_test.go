@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,8 @@ type agentEnv struct {
 	sid string
 	// live is the running agent, for the fake RCON's password check.
 	live atomic.Pointer[Agent]
+	// tweak changes the options each start builds.
+	tweak func(o *Options)
 }
 
 // srv is the current server's runtime handle.
@@ -75,7 +78,10 @@ func (e *agentEnv) binaryVersion(string) (string, error) {
 	return e.stagedVersion, nil
 }
 
-func newAgentEnv(t *testing.T) *agentEnv {
+func newAgentEnv(t *testing.T) *agentEnv { return newAgentEnvWith(t, nil) }
+
+// newAgentEnvWith is newAgentEnv with setup run before the agent starts.
+func newAgentEnvWith(t *testing.T, setup func(e *agentEnv)) *agentEnv {
 	t.Helper()
 	dir := t.TempDir()
 	e := &agentEnv{t: t, dir: dir}
@@ -89,9 +95,26 @@ func newAgentEnv(t *testing.T) *agentEnv {
 	cfg.GameUID, cfg.GameGID = os.Getuid(), os.Getgid()
 	cfg.InstallID = "test-install-0001"
 	cfg.Dev = true
+	// Nothing in these tests reaches the real names service.
+	cfg.NamesURL = closedURL(t)
 	e.cfg = cfg
+	if setup != nil {
+		setup(e)
+	}
 	e.start()
 	return e
+}
+
+// closedURL is a local http:// address nothing listens on.
+func closedURL(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return "http://" + addr
 }
 
 func (e *agentEnv) start() {
@@ -117,7 +140,7 @@ func (e *agentEnv) start() {
 	if backoff == nil {
 		backoff = []time.Duration{0}
 	}
-	a, err := New(Options{
+	opts := Options{
 		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
 		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
@@ -130,7 +153,14 @@ func (e *agentEnv) start() {
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
-	})
+		// No public DNS and no certificate authority in these tests.
+		Resolver: &fakeResolver{}, Issue: noCA, AddressInterval: -1, PublishPoll: 10 * time.Millisecond,
+		PublicAddrs: func() []netip.Addr { return []netip.Addr{testIP} },
+	}
+	if e.tweak != nil {
+		e.tweak(&opts)
+	}
+	a, err := New(opts)
 	if err != nil {
 		e.t.Fatal(err)
 	}
