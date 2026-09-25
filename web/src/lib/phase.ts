@@ -16,6 +16,7 @@ export function phaseTone(p: Phase): Tone {
       return 'busy'
     case 'stopped':
     case 'not_created':
+    case 'asleep':
       return 'stopped'
     case 'crashed':
       return 'crashed'
@@ -50,6 +51,8 @@ export function phaseLabel(p: Phase): string {
       return t('status.notCreated')
     case 'docker_unavailable':
       return t('status.docker')
+    case 'asleep':
+      return t('status.asleep')
     default: {
       const unreachable: never = p
       return unreachable
@@ -71,7 +74,8 @@ export function controls(st: ServerStatus) {
   const dockerDown = st.phase === 'docker_unavailable'
   return {
     canStart: st.exists && !busy && !dockerDown && !running,
-    canStop: st.exists && !busy && !dockerDown && running && st.phase !== 'stopping',
+    // Stopping a sleeping server keeps it off: nobody's join wakes it then.
+    canStop: st.exists && !busy && !dockerDown && ((running && st.phase !== 'stopping') || st.phase === 'asleep'),
     canRestart: st.exists && !busy && !dockerDown && st.phase === 'online',
     busy,
   }
@@ -89,6 +93,11 @@ const opKeys: Record<string, MessageKey> = {
   'update-version': 'op.update-version',
   delete: 'op.delete',
   update: 'op.update',
+  // Wave 7
+  sleep: 'op.sleep',
+  wake: 'op.wake',
+  'disk-cleanup': 'op.disk-cleanup',
+  'offsite-restore': 'op.offsite-restore',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */

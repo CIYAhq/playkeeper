@@ -4,7 +4,7 @@ import type { Operation, ServerStatus } from '@/api/types'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { relativeTime } from '@/lib/format'
+import { formatClock, relativeTime } from '@/lib/format'
 import { isSettingUp, opLabel, phaseLabel, phaseTone, type Tone } from '@/lib/phase'
 import { cn } from '@/lib/utils'
 
@@ -68,7 +68,12 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
       return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }
     case 'stopped':
     case 'unknown':
-      return { tone, label: phaseLabel(st.phase), labelClass: 'text-foreground' }
+      return {
+        tone,
+        label: phaseLabel(st.phase),
+        detail: st.phase === 'asleep' && st.sleep?.asleepSince ? t('status.asleepSince', { time: formatClock(st.sleep.asleepSince) }) : undefined,
+        labelClass: 'text-foreground',
+      }
     default: {
       const unreachable: never = tone
       return unreachable

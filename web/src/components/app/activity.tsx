@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
+import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MoonIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import type { Activity, ActivityKind, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { t } from '@/i18n'
@@ -42,6 +42,10 @@ function icon(kind: ActivityKind): ReactNode {
       return <RotateCwIcon />
     case 'settings':
       return <SlidersHorizontalIcon />
+    case 'fell_asleep':
+      return <MoonIcon />
+    case 'woke_up':
+      return <SunIcon />
     default: {
       const unreachable: never = kind
       return unreachable
@@ -49,9 +53,19 @@ function icon(kind: ActivityKind): ReactNode {
   }
 }
 
+/** Who did something: you, a person, or Playkeeper on its own (a schedule, a join that woke the server). */
+function actorText(actor: string | undefined, me: string): string {
+  if (!actor || actor === me) return t('activity.you')
+  if (actor.startsWith('schedule:')) return t('activity.aSchedule')
+  if (actor.startsWith('wake:')) return actor.slice('wake:'.length)
+  if (actor === 'sleep' || actor === 'playkeeper') return t('brand.name')
+  if (actor === 'backup rules') return t('activity.backupRules')
+  return actor
+}
+
 /** One activity entry as a sentence. `here` drops the server's name where it's obvious. */
 export function activityText(a: Activity, server: string, me: string, here = false): string {
-  const actor = !a.actor || a.actor === me ? t('activity.you') : a.actor
+  const actor = actorText(a.actor, me)
   const player = a.player ?? ''
   switch (a.kind) {
     case 'joined':
@@ -88,6 +102,10 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return t('activity.restarted', { server })
     case 'settings':
       return t('activity.settings', { actor, server })
+    case 'fell_asleep':
+      return a.detail ? t('activity.fellAsleep', { server, minutes: Number(a.detail) }) : t('activity.fellAsleepPlain', { server })
+    case 'woke_up':
+      return player ? t('activity.wokeUp', { server, player }) : t('activity.wokeUpPlain', { server })
     default: {
       const unreachable: never = a.kind
       return unreachable

@@ -15,12 +15,13 @@ import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
 import { controls, isSettingUp, phaseTone } from '@/lib/phase'
-import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
+import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
+import { SchedulesPhonePage } from './schedules'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
 
@@ -42,7 +43,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
+export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; sub?: ServerSub }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -71,7 +72,7 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       body = <WorldPage server={server} />
       break
     case 'settings':
-      body = <ServerSettingsPage server={server} />
+      body = phone && sub === 'schedules' ? <SchedulesPhonePage server={server} /> : <ServerSettingsPage server={server} focus={sub} />
       break
     default: {
       const unreachable: never = tab
@@ -79,9 +80,11 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     }
   }
   if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
+  // Pages inside a tab bring their own phone header with a way back.
+  const ownHeader = phone && !settingUp && sub !== undefined
   return (
     <>
-      {phone ? (
+      {ownHeader ? null : phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
         ) : (
@@ -149,6 +152,8 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
       </Button>
     )
   }
+  // Asleep, Overview's card wakes it; there's nothing to restart.
+  if (server.phase === 'asleep') return null
   const tone = phaseTone(server.phase)
   if (tone === 'crashed' || (tone === 'stopped' && server.exists)) {
     return (

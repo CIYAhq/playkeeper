@@ -6,6 +6,9 @@ export class ApiError extends Error {
   code: string
   hint?: string
   operation?: Operation
+  field?: string
+  reason?: string
+  params?: Record<string, unknown>
 
   constructor(status: number, body: ApiErrorBody) {
     super(body.error)
@@ -13,6 +16,9 @@ export class ApiError extends Error {
     this.code = body.code
     this.hint = body.hint
     this.operation = body.operation
+    this.field = body.field
+    this.reason = body.reason
+    this.params = body.params
   }
 }
 

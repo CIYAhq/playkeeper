@@ -19,6 +19,7 @@ import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { AsleepDetail, gaveBackText } from '@/pages/server/sleep'
 
 export function HomePage() {
   const ws = useWorkspace()
@@ -170,6 +171,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
       )
     case 'stopped':
     case 'unknown':
+      if (s.phase === 'asleep') return <AsleepDetail server={s} />
       return (
         <>
           <Pip pose="sleep" size={40} />
@@ -244,6 +246,7 @@ function MachineCard() {
   const m = ws.machine
   const live = m?.live
   const reserved = live ? live.systemReserveMB + live.serversMemoryMB : 0
+  const gaveBack = gaveBackText(ws.servers, live?.sleepingMemoryMB)
   const diskUsed = live?.diskTotalBytes && live.diskFreeBytes !== undefined ? ((live.diskTotalBytes - live.diskFreeBytes) / live.diskTotalBytes) * 100 : undefined
   return (
     <Card>
@@ -251,7 +254,7 @@ function MachineCard() {
       {live && <CardHint>{t('home.machineMeta', { os: live.os, memory: formatMB(live.memoryTotalMB) })}</CardHint>}
       {live ? (
         <div className="mt-4 flex flex-col gap-4">
-          <MeterRow label={t('home.memoryReserved')} value={t('home.ofTotal', { used: formatMB(reserved), total: formatMB(live.memoryTotalMB) })} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
+          <MeterRow label={t('home.memoryReserved')} value={[t('home.ofTotal', { used: formatMB(reserved), total: formatMB(live.memoryTotalMB) }), gaveBack].filter(Boolean).join(t('common.dot'))} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
           <MeterRow label={t('home.cpu')} value={formatPercent(live.cpuPercent)} percent={live.cpuPercent} />
           <MeterRow label={t('home.disk')} value={t('home.diskFree', { free: formatBytes(live.diskFreeBytes) })} percent={diskUsed} />
         </div>

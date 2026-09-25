@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { api, get, post } from '@/api/client'
@@ -25,6 +25,8 @@ import { cn } from '@/lib/utils'
 import { usePoll } from '@/lib/usePoll'
 import { upgradeTargets } from '@/lib/versions'
 import { serverAction } from '.'
+import { SchedulesPhoneRow, SchedulesSection } from './schedules'
+import { SleepRows } from './sleep'
 
 interface Draft {
   name: string
@@ -55,6 +57,7 @@ const sections = [
   { id: 'game', key: 'settings.game' },
   { id: 'list', key: 'settings.list' },
   { id: 'memory', key: 'settings.memory' },
+  { id: 'schedules', key: 'settings.schedules' },
   { id: 'version', key: 'settings.version' },
   { id: 'danger', key: 'settings.danger' },
 ] as const
@@ -83,10 +86,14 @@ async function iconPNG(file: File): Promise<{ blob: Blob; url: string }> {
   return { blob, url }
 }
 
-export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
+export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus; focus?: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const base = useMemo(() => baseOf(s), [s])
+  const target = focus ?? window.location.hash.slice(1)
+  useEffect(() => {
+    if (target) document.getElementById(target)?.scrollIntoView({ block: 'start' })
+  }, [target])
   const [draft, setDraft] = useState<Partial<Draft>>({})
   const [saving, setSaving] = useState(false)
   const { catalog } = useCatalog(ws.machine?.id, { server: s.id, fresh: true })
@@ -201,7 +208,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         changed={changed('memoryMB')}
         control={<ChoiceSelect value={String(v.memoryMB)} onChange={(mb) => set('memoryMB', Number(mb))} options={memoryChoices} label={t('settings.memoryRow')} />}
       />
-      <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={<span className="text-xs text-muted-foreground">{t('common.comingLater')}</span>} />
+      <SleepRows server={s} />
     </>
   )
 
@@ -235,6 +242,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         {group('game', t('settings.game'), game)}
         {group('list', t('settings.list'), list)}
         {group('memory', t('settings.memory'), memory)}
+        {group('schedules', t('settings.schedules'), <SchedulesPhoneRow server={s} />)}
         {group('version', t('settings.version'), <VersionRows server={s} versions={catalog?.versions} />)}
         {group('danger', t('settings.danger'), <DangerRows server={s} />)}
         {unsaved}
@@ -261,6 +269,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         <Section id="memory" title={t('settings.memory')} hint={t('settings.memoryHint', { machine: ws.machineName })}>
           {memory}
         </Section>
+        <SchedulesSection server={s} />
         <Section id="version" title={t('settings.version')} hint={t('settings.versionMeta', { type: typeName(s.type), version: s.config?.minecraftVersion ?? '', build: s.config?.paperBuild ?? 0 })}>
           <VersionRows server={s} versions={catalog?.versions} />
         </Section>
