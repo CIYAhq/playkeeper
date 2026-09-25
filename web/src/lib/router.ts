@@ -86,10 +86,18 @@ export function href(route: Route): string {
   }
 }
 
+// Where the dashboard is served from: '' normally, '/demo' for the live demo.
+// Routes and hrefs above are without it.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+
+function appPath(pathname: string): string {
+  return base && pathname.startsWith(base) ? pathname.slice(base.length) || '/' : pathname
+}
+
 const listeners = new Set<() => void>()
 
 export function navigate(to: Route | string, replace = false) {
-  const path = typeof to === 'string' ? to : href(to)
+  const path = base + (typeof to === 'string' ? to : href(to))
   if (path === window.location.pathname + window.location.hash && !replace) return
   if (replace) window.history.replaceState(null, '', path)
   else window.history.pushState(null, '', path)
@@ -98,9 +106,9 @@ export function navigate(to: Route | string, replace = false) {
 }
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState<Route>(() => parse(window.location.pathname))
+  const [route, setRoute] = useState<Route>(() => parse(appPath(window.location.pathname)))
   useEffect(() => {
-    const update = () => setRoute(parse(window.location.pathname))
+    const update = () => setRoute(parse(appPath(window.location.pathname)))
     listeners.add(update)
     window.addEventListener('popstate', update)
     return () => {
@@ -119,7 +127,7 @@ export function linkProps(to: Route) {
 /** linkProps for a path, which may carry a #section. */
 export function linkPath(path: string) {
   return {
-    href: path,
+    href: base + path,
     onClick: (e: React.MouseEvent<HTMLAnchorElement>) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
       e.preventDefault()

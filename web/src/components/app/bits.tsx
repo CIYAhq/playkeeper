@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { CheckIcon, CopyIcon } from 'lucide-react'
+import { playerHeadUrl } from '@/api/client'
 import type { Operation, ServerStatus } from '@/api/types'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
@@ -158,7 +159,7 @@ export function PlayerFace({ name, uuid, size = 28, className }: { name: string;
   const [failed, setFailed] = useState(false)
   const radius = Math.round(size / 5)
   const color = faceColors[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % faceColors.length]
-  const src = `/api/players/${encodeURIComponent(name)}/head${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`
+  const src = playerHeadUrl(name, uuid)
   return (
     <span
       className={cn('relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold text-foreground/80 after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/12 after:ring-inset', className)}

@@ -69,3 +69,6 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
 export const get = <T>(path: string) => api<T>('GET', path)
 export const post = <T>(path: string, body: unknown = {}) => api<T>('POST', path, body)
 export const del = <T>(path: string) => api<T>('DELETE', path)
+
+/** A player's face, which the panel draws from their own skin. */
+export const playerHeadUrl = (name: string, uuid?: string) => `/api/players/${encodeURIComponent(name)}/head${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`
