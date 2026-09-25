@@ -571,6 +571,8 @@ func (fr *fakeRCON) handle(c net.Conn) {
 				reply(id, 0, fmt.Sprintf("There are %d of a max of 10 players online: %s", len(online), strings.Join(online, ", ")))
 			case strings.HasPrefix(body, "save-all"):
 				reply(id, 0, "Saved the game")
+			case body == "tps":
+				reply(id, 0, "§6TPS from last 1m, 5m, 15m: §a*20.0, §a19.95, §a19.98")
 			case strings.HasPrefix(body, "whitelist add "):
 				reply(id, 0, "Added "+strings.TrimPrefix(body, "whitelist add ")+" to the whitelist")
 			case strings.HasPrefix(body, "op "):

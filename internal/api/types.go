@@ -178,7 +178,10 @@ type PlayerSnapshot struct {
 }
 
 type Resources struct {
-	CPUPercent     *float64  `json:"cpuPercent,omitempty"`
+	CPUPercent *float64 `json:"cpuPercent,omitempty"`
+	// TPS is the server's ticks per second over the last minute (20 is full
+	// speed), from Paper's tps command.
+	TPS            *float64  `json:"tps,omitempty"`
 	MemBytes       *int64    `json:"memBytes,omitempty"`
 	MemLimitBytes  *int64    `json:"memLimitBytes,omitempty"`
 	DiskFreeBytes  *int64    `json:"diskFreeBytes,omitempty"`

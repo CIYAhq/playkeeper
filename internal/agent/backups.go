@@ -280,6 +280,7 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 	}
 	start := s.now()
 	if running {
+		s.warnBeforeBackup(ctx)
 		if err := s.stopServer(ctx, h); err != nil {
 			return err
 		}
@@ -778,4 +779,22 @@ func validMOTDOr(s string) string {
 		return v
 	}
 	return defaultMOTD
+}
+
+// warnBeforeBackup tells players online that the server stops for a backup
+// and gives them a moment to read it.
+func (s *server) warnBeforeBackup(ctx context.Context) {
+	s.mu.Lock()
+	players := s.players
+	s.mu.Unlock()
+	if players == nil || players.Online == 0 {
+		return
+	}
+	if _, err := s.rconCommand("say Saving a backup: back in about 15 seconds!"); err != nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(s.opts.BackupWarnDelay):
+	}
 }

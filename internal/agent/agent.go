@@ -69,8 +69,10 @@ type Options struct {
 	// CrashBackoff is the wait before each automatic restart after a crash.
 	CrashBackoff []time.Duration
 	// WarnDelay is how long players are warned in chat before a Minecraft
-	// update stops the server (default 1 minute).
-	WarnDelay time.Duration
+	// update stops the server (default 1 minute); BackupWarnDelay before a
+	// backup does (default 3 seconds).
+	WarnDelay       time.Duration
+	BackupWarnDelay time.Duration
 	// UpdateKeys are the release signing keys updates must be signed with;
 	// without any, this agent cannot install updates. The playkeeper command
 	// passes the keys compiled into the build.
@@ -190,6 +192,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.WarnDelay == 0 {
 		opts.WarnDelay = time.Minute
+	}
+	if opts.BackupWarnDelay == 0 {
+		opts.BackupWarnDelay = 3 * time.Second
 	}
 	if opts.UpdateCheckInterval == 0 {
 		opts.UpdateCheckInterval = 12 * time.Hour

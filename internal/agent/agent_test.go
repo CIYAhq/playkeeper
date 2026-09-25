@@ -128,7 +128,7 @@ func (e *agentEnv) start() {
 			return 50 << 30, 100 << 30, nil
 		},
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
-		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond,
+		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 	})
 	if err != nil {

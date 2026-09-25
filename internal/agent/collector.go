@@ -441,6 +441,11 @@ func (s *server) sample(ctx context.Context) {
 					s.reconcileWithList(now, names)
 				}
 			}
+			if out, err := s.rconCommand("tps"); err == nil {
+				if tps, ok := minecraft.ParseTPS(out); ok {
+					res.TPS = &tps
+				}
+			}
 			row.state = "online"
 		} else {
 			row.state = "starting"

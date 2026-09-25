@@ -480,3 +480,37 @@ func (e *agentEnv) uploadTo(path string, archive []byte) (int, map[string]any) {
 	json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
 }
+
+// The tick rate comes from Paper's tps command, and players online hear
+// about a backup in chat before the server stops for it.
+func TestTickRateAndBackupWarning(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.waitFor("a tick rate", func() bool {
+		st := e.status()
+		return st.Resources != nil && st.Resources.TPS != nil && *st.Resources.TPS == 20
+	})
+	e.rcon.setOnline("Friend")
+	e.waitFor("the player online", func() bool { p := e.status().Players; return p != nil && p.Online == 1 })
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("backup: %+v", op)
+	}
+	e.rcon.mu.Lock()
+	defer e.rcon.mu.Unlock()
+	warned, savedAfter := false, false
+	for _, c := range e.rcon.commands {
+		switch {
+		case strings.HasPrefix(c, "say Saving a backup"):
+			warned = true
+		case warned && strings.HasPrefix(c, "save-all"):
+			savedAfter = true
+		}
+	}
+	if !warned || !savedAfter {
+		t.Fatalf("players must be warned before the server saves and stops: %v", e.rcon.commands)
+	}
+}
