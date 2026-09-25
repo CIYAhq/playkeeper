@@ -316,6 +316,22 @@ control "every unavailable friends' pack link gets one answer" internal/panel/pa
   'default:
 			http.Error(w, fp.share.Server+" has no such file.", http.StatusNotFound)' \
   ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
+control "a machine that can't answer leaves a friends' pack link unavailable" internal/panel/packshare.go \
+  'case err != nil:
+			packGone(w)' \
+  'case err != nil:
+			http.Error(w, err.Error(), http.StatusNotFound)' \
+  ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
+control "the friends' pack page itself never tells a working link from another" internal/panel/packshare.go \
+  'if !sub {
+			s.packPage(w, r)' \
+  'if !sub {
+			if _, err := s.friendsPack(r.Context(), token); err != nil {
+				packGone(w)
+				return
+			}
+			s.packPage(w, r)' \
+  ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
 control "friends' pack pages are limited by the connection's address" internal/panel/public.go \
   'key := rt.prefix + " " + addressKey(r.RemoteAddr)' \
   'key := rt.prefix + " " + r.Header.Get("X-Forwarded-For")' \

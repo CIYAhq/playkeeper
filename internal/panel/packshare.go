@@ -39,9 +39,11 @@ type friendsPack struct {
 }
 
 // friendsPacks serves the public friends' pack pages under share.PathPrefix
-// (see share.PathPrefix for the paths). A token no server has, a page that
-// is off, a stopped server and a wrong file name all get the same answer
-// for each kind of request, which never names the server.
+// (see share.PathPrefix for the paths). The page itself is the same for
+// every link, and asks for the rest. A token no server has, a page that is
+// off, a stopped server, a machine that can't answer and a wrong file name
+// all get the same 404 for each kind of request, which never names the
+// server.
 func (s *Server) friendsPacks() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
@@ -51,18 +53,12 @@ func (s *Server) friendsPacks() http.Handler {
 			packGone(w)
 			return
 		}
+		if !sub {
+			s.packPage(w, r)
+			return
+		}
 		fp, err := s.friendsPack(r.Context(), token)
 		switch {
-		case !sub:
-			status := http.StatusOK
-			if errors.Is(err, errPackGone) {
-				status = http.StatusNotFound
-			} else if err != nil {
-				status = http.StatusServiceUnavailable
-			}
-			s.packPage(w, r, status)
-		case err != nil && !errors.Is(err, errPackGone):
-			packBusy(w)
 		case err != nil:
 			packGone(w)
 		case part == "page" && r.Method == http.MethodGet:
@@ -111,8 +107,9 @@ func (s *Server) friendsPack(ctx context.Context, token string) (*friendsPack, e
 }
 
 // packPage is the dashboard's page, which shows the pack or "This pack
-// isn't available" from the data it asks for next.
-func (s *Server) packPage(w http.ResponseWriter, r *http.Request, status int) {
+// isn't available" from the data it asks for next. It answers 200 for every
+// link, as the public group answers a route's 404 with its own.
+func (s *Server) packPage(w http.ResponseWriter, r *http.Request) {
 	b := []byte(uiMissing)
 	if s.static != nil {
 		if index, err := fs.ReadFile(s.static, "index.html"); err == nil {
@@ -120,7 +117,7 @@ func (s *Server) packPage(w http.ResponseWriter, r *http.Request, status int) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
 		w.Write(b)
 	}
@@ -148,7 +145,7 @@ func (s *Server) packIcon(w http.ResponseWriter, r *http.Request, fp *friendsPac
 	}
 	resp, err := fp.m.agent.Raw(r.Context(), "GET", "/v1/servers/"+fp.link.Server+"/icon", nil, nil, nil, false)
 	if err != nil {
-		packBusy(w)
+		packGone(w)
 		return
 	}
 	defer resp.Body.Close()
@@ -180,11 +177,6 @@ func joinAddressAt(hostport string, gamePort int) string {
 
 func packGone(w http.ResponseWriter) {
 	http.Error(w, "This pack isn't available.", http.StatusNotFound)
-}
-
-func packBusy(w http.ResponseWriter) {
-	w.Header().Set("Retry-After", "60")
-	http.Error(w, "Playkeeper can't make this pack right now. Try again in a few minutes.", http.StatusServiceUnavailable)
 }
 
 // hPackShareFile passes the friends' .mrpack on to a signed-in user. It

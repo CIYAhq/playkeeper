@@ -236,10 +236,17 @@ func TestFriendsPackLinksAnswerAlikeWhateverTheReason(t *testing.T) {
 	baseline := map[string]answer{}
 	for shape, path := range shapes {
 		a := ask("GET", path(unknown))
-		if a.code != http.StatusNotFound || strings.Contains(strings.ToLower(a.body), "cobblemon") {
+		want := http.StatusNotFound
+		if shape == "page" {
+			want = http.StatusOK
+		}
+		if a.code != want || strings.Contains(strings.ToLower(a.body), "cobblemon") {
 			t.Fatalf("%s for an unknown token: %d %s", shape, a.code, a.body)
 		}
 		baseline[shape] = a
+	}
+	if got, want := ask("GET", share.PathPrefix+friendsToken), baseline["page"]; got.code != want.code || got.body != want.body || !headersEqual(got.header, want.header) {
+		t.Errorf("the page for a link that works: %d %v; for an unknown one: %d %v", got.code, got.header, want.code, want.header)
 	}
 	same := func(what string, token string) {
 		t.Helper()
@@ -262,15 +269,8 @@ func TestFriendsPackLinksAnswerAlikeWhateverTheReason(t *testing.T) {
 		t.Errorf("a POST: %d %q", got.code, got.body)
 	}
 
-	// While the machine can't answer, every well-formed token gets the same
-	// answer too.
 	f.set(true, true)
-	for shape, path := range shapes {
-		a, b := ask("GET", path(friendsToken)), ask("GET", path(unknown))
-		if a.code != http.StatusServiceUnavailable || a.code != b.code || a.body != b.body {
-			t.Errorf("%s while the machine can't answer: %d %q and %d %q", shape, a.code, a.body, b.code, b.body)
-		}
-	}
+	same("a machine that can't answer", friendsToken)
 }
 
 func headersEqual(a, b http.Header) bool {
@@ -290,7 +290,7 @@ func TestFriendsPackPagesAreLimitedPerAddress(t *testing.T) {
 	e := newEnvAgent(t, f.handler, io.Discard)
 	h := e.srv.public.handler(share.PathPrefix)
 	send := func(remote string, hdr map[string]string) int {
-		req := httptest.NewRequest("GET", share.PathPrefix+"not-a-token", nil)
+		req := httptest.NewRequest("GET", share.PathPrefix+"not-a-token/page", nil)
 		req.RemoteAddr = remote
 		for k, v := range hdr {
 			req.Header.Set(k, v)
