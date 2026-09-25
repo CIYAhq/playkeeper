@@ -163,6 +163,7 @@ func (a *Agent) automationRoutes() []Route {
 		{"POST", "/v1/servers/{id}/sleep", srv((*server).hSleepSet)},
 		{"GET", "/v1/servers/{id}/backup-rules", srv((*server).hBackupRules)},
 		{"POST", "/v1/servers/{id}/backup-rules", srv((*server).hBackupRulesSet)},
+		{"POST", "/v1/servers/{id}/backup-rules/estimate", srv((*server).hBackupRulesEstimate)},
 		{"GET", "/v1/servers/{id}/offsite", srv((*server).hOffsite)},
 		{"POST", "/v1/servers/{id}/offsite", srv((*server).hOffsiteSet)},
 		{"POST", "/v1/servers/{id}/offsite/test", srv((*server).hOffsiteTest)},

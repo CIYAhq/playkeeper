@@ -216,12 +216,13 @@ type backupRulesView struct {
 	Limits    map[string]int     `json:"limits"`
 }
 
-func (s *server) backupRulesView(ctx context.Context, tz string) backupRulesView {
-	set, loc, custom := s.backupRules()
+// backupPace is how automatic backups run now, for the estimates: how often,
+// the newest backup's size, and the time zone days are counted in (tz when
+// it is valid).
+func (s *server) backupPace(ctx context.Context, tz string, loc *time.Location, auto automaticBackups) retention.Pace {
 	if l, err := time.LoadLocation(tz); err == nil && tz != "" {
 		loc = l
 	}
-	auto := s.automaticBackups(ctx)
 	pace := retention.Pace{Location: loc}
 	if auto.Enabled {
 		pace.Every = time.Duration(auto.EveryHours) * time.Hour
@@ -229,6 +230,13 @@ func (s *server) backupRulesView(ctx context.Context, tz string) backupRulesView
 	if list, err := s.listBackups(`verified = 1 AND kind IN ('manual', 'scheduled')`); err == nil && len(list) > 0 {
 		pace.Bytes = list[0].SizeBytes
 	}
+	return pace
+}
+
+func (s *server) backupRulesView(ctx context.Context, tz string) backupRulesView {
+	set, loc, custom := s.backupRules()
+	auto := s.automaticBackups(ctx)
+	pace := s.backupPace(ctx, tz, loc, auto)
 	return backupRulesView{
 		Automatic: auto, Rules: set, Custom: custom, Describe: set.Describe(),
 		OnHost: set.Estimate(retention.OnHost, pace), OffSite: set.Estimate(retention.OffSite, pace),
@@ -238,6 +246,33 @@ func (s *server) backupRulesView(ctx context.Context, tz string) backupRulesView
 
 func (s *server) hBackupRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.backupRulesView(r.Context(), r.URL.Query().Get("tz")))
+}
+
+// hBackupRulesEstimate is what rules not saved yet would keep, for the
+// rules editor's totals. Nothing is saved.
+func (s *server) hBackupRulesEstimate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actor    string             `json:"actor"`
+		Rules    retention.Settings `json:"rules"`
+		TimeZone string             `json:"timeZone,omitempty"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := validActor(req.Actor); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := req.Rules.Validate(); err != nil {
+		writeError(w, automationError(err))
+		return
+	}
+	_, loc, _ := s.backupRules()
+	pace := s.backupPace(r.Context(), strings.TrimSpace(req.TimeZone), loc, s.automaticBackups(r.Context()))
+	writeJSON(w, http.StatusOK, map[string]retention.Estimate{
+		"onHost": req.Rules.Estimate(retention.OnHost, pace), "offSite": req.Rules.Estimate(retention.OffSite, pace),
+	})
 }
 
 type backupRulesRequest struct {

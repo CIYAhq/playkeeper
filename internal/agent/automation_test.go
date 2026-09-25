@@ -204,6 +204,25 @@ func TestAutomaticBackupsAndRulesDeleteWhatTheyNoLongerKeep(t *testing.T) {
 	if timing := list[0].(map[string]any)["timing"].(map[string]any); timing["kind"] != "interval" || timing["everyHours"] != float64(6) || timing["timeZone"] != "Europe/Berlin" {
 		t.Fatalf("automatic backup schedule: %v", timing)
 	}
+
+	// The editor's totals, for rules not saved yet.
+	code, out = e.call("POST", e.sp("/backup-rules/estimate"), map[string]any{"actor": "admin", "timeZone": "Europe/Berlin",
+		"rules": map[string]any{"onHost": map[string]any{"hours": 24, "daily": 7, "weekly": 4}, "offSite": map[string]any{"daily": 14, "weekly": 8, "monthly": 12}}})
+	if code != 200 {
+		t.Fatalf("estimate: %d %v", code, out)
+	}
+	if on := out["onHost"].(map[string]any); on["count"] != float64(13) || len(on["rows"].([]any)) != 4 {
+		t.Fatalf("on this machine, the defaults every 6 hours keep 13: %v", on)
+	}
+	if off := out["offSite"].(map[string]any); off["count"] != float64(29) {
+		t.Fatalf("off the server, the defaults every 6 hours keep 29: %v", off)
+	}
+	if code, out = e.call("POST", e.sp("/backup-rules/estimate"), map[string]any{"actor": "admin", "rules": map[string]any{"onHost": map[string]any{"hours": 721}}}); code != http.StatusBadRequest || out["field"] != "onHost.hours" {
+		t.Fatalf("721 hours: %d %v", code, out)
+	}
+	if code, out = e.call("GET", e.sp("/backup-rules"), nil); code != 200 || out["rules"].(map[string]any)["onHost"].(map[string]any)["last"] != float64(2) {
+		t.Fatalf("an estimate saved the rules: %d %v", code, out["rules"])
+	}
 	code, out = e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "automatic": map[string]any{"enabled": false, "everyHours": 6, "onlyIfPlayed": true}})
 	if code != 200 || out["automatic"].(map[string]any)["enabled"] != false {
 		t.Fatalf("turn off: %d %v", code, out)
