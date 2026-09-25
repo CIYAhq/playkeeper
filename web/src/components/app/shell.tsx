@@ -11,7 +11,7 @@ import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
 import { can, inSettings, settingsHome } from '@/lib/access'
-import { byMachine, isStale, machineLabel, machineState, reachOf, type MachineTone } from '@/lib/machines'
+import { byMachine, isStale, machineLabel, machineRoute, machineState, reachOf, type MachineTone } from '@/lib/machines'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -154,17 +154,16 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
 }
 
 const toneText: Record<MachineTone, string> = { good: 'text-success-strong', warn: 'text-warning-strong', off: 'text-muted-foreground' }
-const toneDot: Record<MachineTone, string> = { good: 'bg-success', warn: 'bg-warning', off: 'border border-muted-foreground' }
+const toneDot: Record<MachineTone, string> = { good: 'bg-success', warn: 'bg-warning', off: 'bg-muted-foreground' }
 
 /** A machine's line above its servers: its name and how it's doing, linking to the machine. */
 function MachineRow({ machine: m, route }: { machine: MachineView; route: Route }) {
   const ws = useWorkspace()
   const state = machineState(m, ws)
-  const to: Route = m.kind === 'local' ? { name: 'machine', id: m.id } : { name: 'machine-settings', id: m.id }
   const active = (route.name === 'machine' || route.name === 'machine-settings') && route.id === m.id
   return (
     <a
-      {...linkProps(to)}
+      {...linkProps(machineRoute(m))}
       aria-current={active ? 'page' : undefined}
       className={cn('mt-3 flex h-7 items-center gap-2 rounded-lg px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active && 'text-foreground')}
     >

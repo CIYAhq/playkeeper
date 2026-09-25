@@ -35,7 +35,7 @@ export function forgetJoinCode() {
 }
 
 function StateDot({ tone }: { tone: MachineTone }) {
-  return <span className={cn('size-1.5 shrink-0 rounded-full', tone === 'good' ? 'bg-success' : tone === 'warn' ? 'bg-warning' : 'border border-muted-foreground/70')} aria-hidden="true" />
+  return <span className={cn('size-1.5 shrink-0 rounded-full', tone === 'good' ? 'bg-success' : tone === 'warn' ? 'bg-warning' : 'bg-muted-foreground')} aria-hidden="true" />
 }
 
 function StateLabel({ tone, label }: { tone: MachineTone; label: string }) {
