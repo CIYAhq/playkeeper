@@ -28,6 +28,8 @@ type InstallRequest struct {
 	// Fingerprint is the Plan.Fingerprint the user confirmed. Install
 	// refuses when the plan has changed since; empty skips the check.
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// OnProgress, when set, follows Install as it downloads.
+	OnProgress func(Progress) `json:"-"`
 }
 
 // Action is what a step does to the server's folder.
@@ -64,6 +66,9 @@ type Step struct {
 	// url is unexported so that a plan which went through JSON cannot be
 	// carried out: Install and Update always plan again.
 	url string
+	// replaceChanged lets the step replace a file that changed since it
+	// was installed, because the user said so.
+	replaceChanged bool
 }
 
 func (s Step) key() Key { return Key{s.Source, s.ProjectID} }
@@ -180,7 +185,10 @@ type resolver struct {
 	t        Target
 	inv      *inventory
 	allowPre bool
-	plan     *Plan
+	// replaceChanged lets updates replace files that changed since they
+	// were installed.
+	replaceChanged bool
+	plan           *Plan
 
 	planned   map[Key]int // index into plan.Steps
 	deps      [][]dep     // per step
@@ -584,7 +592,7 @@ func (r *resolver) finish() *Plan {
 		}
 	}
 	seen := map[string]bool{}
-	for _, s := range p.Steps {
+	for i, s := range p.Steps {
 		switch {
 		case !validFileName(s.FileName):
 			r.block(badFileName(s).Notice)
@@ -609,6 +617,10 @@ func (r *resolver) finish() *Plan {
 			case lf == nil:
 				r.warn(notice(KindNotFound, kv("name", old.Name, "file", old.FileName),
 					fmt.Sprintf("%s is missing from the %s folder, so this installs it again.", old.FileName, r.t.Folder), ""))
+			case lf.modified && r.replaceChanged:
+				p.Steps[i].replaceChanged = true
+				r.warn(notice(KindModified, kv("name", old.Name, "file", old.FileName),
+					fmt.Sprintf("%s has changed since Playkeeper installed it; this replaces it as you asked.", old.FileName), ""))
 			case lf.modified:
 				r.block(modified(*old, "replace"))
 			}

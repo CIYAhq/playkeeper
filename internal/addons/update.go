@@ -23,6 +23,11 @@ type UpdateRequest struct {
 	// Fingerprint is the Plan.Fingerprint the user confirmed; see
 	// InstallRequest.
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// Changed replaces files that changed since they were installed, once
+	// the user agreed to lose those changes.
+	Changed bool `json:"changed,omitempty"`
+	// OnProgress, when set, follows Update as it downloads.
+	OnProgress func(Progress) `json:"-"`
 }
 
 // UpdateStatus says whether a newer version of an installed add-on fits the
@@ -96,6 +101,7 @@ func (l *Library) PlanUpdate(ctx context.Context, srv Server, installed []Instal
 	if err != nil {
 		return nil, err
 	}
+	r.replaceChanged = req.Changed
 	missing := func(rec Installed) bool {
 		lf := r.inv.byName[rec.FileName]
 		return lf == nil || lf.rec == nil || lf.rec.Key() != rec.Key()
@@ -155,7 +161,7 @@ func (l *Library) Update(ctx context.Context, srv Server, installed []Installed,
 	if req.Fingerprint != "" && req.Fingerprint != p.Fingerprint {
 		return nil, planChanged()
 	}
-	return l.apply(ctx, srv, p)
+	return l.apply(ctx, srv, p, req.OnProgress)
 }
 
 func updateTargets(installed []Installed, req UpdateRequest) ([]Installed, error) {
