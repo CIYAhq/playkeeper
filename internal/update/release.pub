@@ -1,0 +1,8 @@
+# Playkeeper release signing keys, one "ed25519 <base64 public key>" per line.
+#
+# The release workflow signs each release's playkeeper-release.json with the
+# private key in the PLAYKEEPER_RELEASE_SIGNING_KEY repository secret, and an
+# installed Playkeeper only installs updates signed by a key listed here.
+#
+# No key yet: builds from this tree cannot install updates from the dashboard.
+# To add one, run `go run ./cmd/release-sign keygen` (see CONTRIBUTING.md).
