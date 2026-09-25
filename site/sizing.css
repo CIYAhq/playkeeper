@@ -86,7 +86,7 @@ legend { margin-bottom: 8px; padding: 0; font-size: 16px; line-height: 22px; fon
 .reason-text { display: block; color: var(--muted); font-size: 13px; line-height: 18px; }
 
 /* Every size, several servers, install */
-h2 { margin: 24px 0 8px; font-size: 16px; line-height: 22px; font-weight: 600; }
+h2 { margin: 24px 0 10px; font-size: 16px; line-height: 22px; font-weight: 600; }
 .table-card { overflow: hidden; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 13px 18px; border-top: 1px solid var(--border); text-align: left; vertical-align: top; }
@@ -107,11 +107,13 @@ td.current { background: var(--selected); box-shadow: inset 0 0 0 1px var(--sele
 .rules div:last-child { border-bottom: 0; }
 .rules dt { font-weight: 500; }
 .rules dd { margin: 0; }
-.cmd { display: flex; align-items: stretch; gap: 8px; margin: 12px 0 4px; }
+.install p:last-child { margin-bottom: 0; }
+.cmd { display: flex; align-items: stretch; gap: 8px; margin: 10px 0 8px; }
 .cmd pre { flex: 1; min-width: 0; margin: 0; padding: 10px 12px; overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: 10px; font: 13px/22px var(--mono); }
 .cmd button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 0 12px; border: 0; border-radius: 8px; font: inherit; font-weight: 500; cursor: pointer; }
-.status { min-height: 20px; color: var(--muted); font-size: 12px; }
-footer { max-width: 1168px; margin: 0 auto; padding: 8px 24px 40px; color: var(--muted); font-size: 12px; }
+.install .status { margin: 0; color: var(--muted); font-size: 12px; }
+.install .status:not(:empty) { margin-bottom: 8px; }
+footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 40px; color: var(--muted); font-size: 12px; line-height: 16px; }
 .backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(29, 33, 28, .4); }
 
 /* Tablets: the answer goes under the questions. */
@@ -176,7 +178,7 @@ footer { max-width: 1168px; margin: 0 auto; padding: 8px 24px 40px; color: var(-
   .reason dt, .reason strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .reason-text { display: inline; font-size: inherit; line-height: inherit; }
   .reason-text::after { content: " "; }
-  h2 { margin-top: 32px; }
+  h2, .more-servers h2, .install h2 { margin-top: 32px; }
   thead th:first-child { width: 22%; }
   thead th + th { width: 26%; }
   th, td { padding: 10px 8px; }
@@ -187,4 +189,5 @@ footer { max-width: 1168px; margin: 0 auto; padding: 8px 24px 40px; color: var(-
   .rules div { grid-template-columns: 64px minmax(0, 1fr); }
   .cmd { flex-direction: column; }
   .cmd button { min-height: 44px; }
+  footer { padding-right: 16px; padding-left: 16px; }
 }
