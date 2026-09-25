@@ -455,3 +455,163 @@ export interface Me {
   idleTimeoutSeconds: number
   version: string
 }
+
+// Wave 6: each server's live map (MapInfo, and internal/webmap's worlds and
+// players), and starting a server from a world (WorldImport and its preview).
+
+export type MapState = 'unsupported' | 'not_installed' | 'server_stopped' | 'needs_restart' | 'not_answering' | 'drawing' | 'ready'
+
+export interface MapProgress {
+  done: number
+  total: number
+  percent: number
+  secondsLeft?: number
+}
+
+export interface MapInfo {
+  supported: boolean
+  enabled: boolean
+  state: MapState
+  params?: Record<string, string>
+  message: string
+  hint?: string
+  areas: number
+  bytes: number
+  lastDrawn?: string
+  progress?: MapProgress
+  plugin: string
+  pluginVersion?: string
+  estimatedMinutes: number
+  estimatedMegabytes: number
+  public: boolean
+  publicPlayers: boolean
+  /** The shared map on the machine's friendly address; empty while it has none. */
+  link?: string
+  path: string
+  restartWhenEmpty: boolean
+  checkedAt: string
+}
+
+export type MapDimension = 'overworld' | 'nether' | 'end' | 'custom'
+
+export interface MapWorld {
+  name: string
+  dimension: MapDimension
+  label: string
+  spawn: { x: number; z: number }
+  /** Tiles exist for 0 to max; at max one pixel is one block. */
+  zoom: { max: number; default: number; extra: number }
+  refreshSeconds: number
+}
+
+export interface MapWorlds {
+  worlds: MapWorld[]
+  tileSize: number
+}
+
+export type MapPlaceKind = 'near_spawn' | 'exploring' | 'nether' | 'end' | 'other_world'
+
+export interface MapPlayer {
+  name: string
+  uuid: string
+  world: string
+  dimension: MapDimension
+  x: number
+  z: number
+  place?: { kind: MapPlaceKind; params?: Record<string, string>; text: string }
+}
+
+export interface MapPlayers {
+  players: MapPlayer[]
+  updatedAt: string
+}
+
+/** What the shared map page may know about a server. */
+export interface PublicMap {
+  name: string
+  players: boolean
+}
+
+export interface ImportMessage {
+  kind: string
+  params?: Record<string, unknown>
+  text: string
+  hint?: string
+}
+
+export interface ImportLevel {
+  name: string
+  version?: string
+  dataVersion?: number
+  snapshot?: boolean
+  gameMode?: string
+  hardcore: boolean
+  difficulty?: string
+  dataPacks?: string[]
+  seed?: string
+  spawn?: { x: number; z: number }
+}
+
+export interface ImportWorld {
+  id: string
+  archive: string
+  path: string
+  level?: ImportLevel
+  levelError?: string
+  origin: 'singleplayer' | 'server' | 'unknown'
+  software?: string
+  default?: boolean
+  dimensions: string[]
+  players: number
+  sizeBytes: number
+  files: number
+}
+
+export interface WorldImportFile {
+  index: number
+  name: string
+  size: number
+  received: number
+  sha256?: string
+}
+
+export interface WorldImport {
+  id: string
+  serverId?: string
+  createdAt: string
+  files: WorldImportFile[]
+  limitBytes: number
+  inspection?: { archives: { name: string; format: string; bytes: number; entries: number }[]; worlds: ImportWorld[]; warnings?: ImportMessage[] }
+}
+
+export interface ImportPreview {
+  world: ImportWorld
+  target: { type: string; minecraftVersion: string; levelName: string }
+  version?: { compat: 'same' | 'upgrade' | 'newer' | 'unknown'; world?: string; target: string; problem?: ImportMessage; warnings?: ImportMessage[] }
+  folders: string[]
+  fileCount: number
+  sizeBytes: number
+  dimensions: { id: string; folder: string; files: number; bytes: number }[]
+  dataPacks?: string[]
+  players: number
+  settings?: { key: string; value: string; source: string }[]
+  leftOut?: { kind: string; files: number; bytes: number; examples?: string[]; text: string }[]
+  warnings?: ImportMessage[]
+  problems?: ImportMessage[]
+}
+
+export interface WorldImportVersion extends CatalogEntry {
+  /** The world's own version, so the world isn't upgraded. */
+  keep: boolean
+}
+
+export interface WorldImportPreview {
+  id: string
+  serverId?: string
+  preview: ImportPreview
+  /** A new server's choices, recommended first. */
+  versions?: WorldImportVersion[]
+  versionId: string
+  keepsOriginal: boolean
+  memoryMB?: number
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, MapIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -9,6 +9,7 @@ import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
 import { checklist, complete, progress } from '@/lib/checklist'
 import { formatMB } from '@/lib/format'
+import { hasMap } from '@/lib/map'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -87,6 +88,11 @@ export function MorePage() {
       )}
       {server && (
         <Group label={server.name}>
+          {hasMap(server) && (
+            <li>
+              <Row icon={<MapIcon />} title={t('tab.map')} hint={t('more.mapHint')} to={{ name: 'server', slug: server.slug, tab: 'map' }} />
+            </li>
+          )}
           <li>
             <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
           </li>

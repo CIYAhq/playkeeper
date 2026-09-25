@@ -89,6 +89,10 @@ const opKeys: Record<string, MessageKey> = {
   'update-version': 'op.update-version',
   delete: 'op.delete',
   update: 'op.update',
+  // Wave 6
+  world_import: 'op.world_import',
+  map_enable: 'op.map_enable',
+  map_disable: 'op.map_disable',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */

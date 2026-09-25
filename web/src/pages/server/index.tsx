@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from 'react'
-import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
+import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, MapIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
@@ -14,11 +14,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
+import { hasMap } from '@/lib/map'
 import { controls, isSettingUp, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
+import { MapPage } from './map'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
 import { ServerSettingsPage } from './settings'
@@ -29,6 +31,7 @@ const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
   { tab: 'console', key: 'tab.console', icon: <SquareTerminalIcon /> },
   { tab: 'players', key: 'tab.players', icon: <UsersIcon /> },
   { tab: 'world', key: 'tab.world', icon: <GlobeIcon /> },
+  { tab: 'map', key: 'tab.map', icon: <MapIcon /> },
   { tab: 'settings', key: 'tab.settings', icon: <SlidersHorizontalIcon /> },
 ]
 
@@ -70,6 +73,9 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     case 'world':
       body = <WorldPage server={server} />
       break
+    case 'map':
+      body = <MapPage server={server} />
+      break
     case 'settings':
       body = <ServerSettingsPage server={server} />
       break
@@ -78,13 +84,14 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       body = unreachable
     }
   }
-  if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
+  const locked = settingUp && tab !== 'overview' && tab !== 'console'
+  if (locked) body = <Overview server={server} />
   return (
     <>
       {phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
-        ) : (
+        ) : tab === 'map' && !locked ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (
@@ -264,7 +271,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
-        {tabs.map((x) => {
+        {tabs.filter((x) => x.tab !== 'map' || hasMap(s)).map((x) => {
           const active = x.tab === tab
           const cls = cn(
             'inline-flex h-10 shrink-0 items-center gap-2 border-b-2 text-sm font-medium outline-none [&_svg]:size-4',

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'settings'
-export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'settings']
+export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'map' | 'settings'
+export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'map', 'settings']
 
 export type Route =
   | { name: 'home' }
