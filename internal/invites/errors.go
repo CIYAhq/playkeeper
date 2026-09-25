@@ -32,6 +32,9 @@ const (
 	CodeUsername          = "username_invalid"
 	CodeUsernameTaken     = "username_taken"
 	CodePassword          = "password_invalid"
+	CodeOwnerFixed        = "team_owner_fixed"
+	CodeNotYourself       = "team_not_yourself"
+	CodeMemberNotAllowed  = "team_member_not_allowed"
 )
 
 // Error is a refusal a person may see. Code and Params are for the UI's
@@ -166,6 +169,21 @@ func roleNotAllowed(role string) *Error {
 	}
 	return &Error{Code: CodeRoleNotAllowed, Status: http.StatusForbidden, Params: map[string]string{"role": role},
 		Msg: fmt.Sprintf("You can't give the %s role.", role), Hint: "Ask the owner of this Playkeeper to send the invite."}
+}
+
+func ownerFixed() *Error {
+	return &Error{Code: CodeOwnerFixed, Status: http.StatusForbidden,
+		Msg: "The owner's role can't be changed, and the owner can't be removed.", Hint: "Each Playkeeper has one owner: the account that set it up."}
+}
+
+func notYourself() *Error {
+	return &Error{Code: CodeNotYourself, Status: http.StatusForbidden,
+		Msg: "You can't change your own role or remove yourself.", Hint: "Ask the owner of this Playkeeper."}
+}
+
+func memberNotAllowed() *Error {
+	return &Error{Code: CodeMemberNotAllowed, Status: http.StatusForbidden,
+		Msg: "You can't change this team member.", Hint: "Admins can change moderators and viewers of their own servers. Ask the owner for anything else."}
 }
 
 func serversNotAllowed() *Error {

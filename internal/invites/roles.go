@@ -103,6 +103,44 @@ func GrantableRoles(a Account) []string {
 	return out
 }
 
+// AtLeast reports whether role is min or a more trusted project role.
+func AtLeast(role, min string) bool { return rank(min) > 0 && rank(role) >= rank(min) }
+
+// CanEdit reports whether a may give the team member target role and
+// servers on the Team page. Nobody changes themselves or the owner. The
+// owner may give any project role for any servers. A project admin with
+// two-factor on may change only members below admin whose servers are all
+// theirs too, and then only as an invite would allow (see CanGrant), so an
+// admin can neither widen their own reach nor make or unmake other admins.
+func CanEdit(a, target Account, role string, servers Scope) error {
+	if err := canTouch(a, target); err != nil {
+		return err
+	}
+	return CanGrant(a, role, servers)
+}
+
+// CanRemove reports whether a may remove target from the team, by the rule
+// of CanEdit.
+func CanRemove(a, target Account) error { return canTouch(a, target) }
+
+func canTouch(a, target Account) error {
+	switch {
+	case target.InstallRole == InstallOwner:
+		return ownerFixed()
+	case a.UserID == target.UserID:
+		return notYourself()
+	case a.InstallRole == InstallOwner:
+		return nil
+	case a.InstallRole != InstallMember || a.ProjectRole != RoleAdmin || rank(target.ProjectRole) >= rank(RoleAdmin):
+		return memberNotAllowed()
+	case !a.TwoFactor:
+		return TwoFactorRequired()
+	case !target.Servers.Within(a.Servers):
+		return serversNotAllowed()
+	}
+	return nil
+}
+
 // CanLetPlayersIn reports whether a may let players into a server: make
 // friend invites for it and answer its join requests. The owner may, and so
 // may a project moderator or admin whose servers include it. Letting

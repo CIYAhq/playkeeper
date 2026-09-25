@@ -133,23 +133,30 @@ func TestGuardInviteNeedsNoEntryUntilItFails(t *testing.T) {
 func TestGuardMemoryIsBounded(t *testing.T) {
 	clock := &fakeClock{t: t0}
 	g := NewGuard(GuardLimits{AddressRequests: 2, AddressWindow: time.Minute, MaxKeys: 3}, clock.Now)
-	for i := 1; i <= 3; i++ {
-		if err := g.Address(netip.AddrFrom4([4]byte{198, 51, 100, byte(i)})); err != nil {
+	busy := func(i byte) netip.Addr { return netip.AddrFrom4([4]byte{198, 51, 100, i}) }
+	for i := byte(1); i <= 3; i++ {
+		if err := g.Address(busy(i)); err != nil {
 			t.Fatal(err)
 		}
+		clock.Advance(time.Second)
 	}
+	g.Address(busy(1))
 	newcomer := netip.MustParseAddr("198.51.100.99")
-	e := wantCode(t, g.Address(newcomer), CodeRateLimited)
-	if e.RetryAfter != 30*time.Second || len(g.addresses.m) != 3 {
-		t.Errorf("RetryAfter %v with %d addresses tracked", e.RetryAfter, len(g.addresses.m))
-	}
-
-	clock.Advance(30 * time.Second)
 	if err := g.Address(newcomer); err != nil {
-		t.Fatalf("idle addresses were not forgotten: %v", err)
+		t.Fatalf("a full table kept a new visitor out: %v", err)
+	}
+	if _, ok := g.addresses.m[AddressKey(busy(2))]; ok || len(g.addresses.m) != 3 {
+		t.Errorf("want the address seen least recently forgotten, %d tracked: %v", len(g.addresses.m), g.addresses.m)
+	}
+	// The address seen most recently keeps its record.
+	wantCode(t, g.Address(busy(1)), CodeRateLimited)
+
+	clock.Advance(time.Minute)
+	if err := g.Address(netip.MustParseAddr("198.51.100.100")); err != nil {
+		t.Fatal(err)
 	}
 	if len(g.addresses.m) != 1 {
-		t.Errorf("%d addresses tracked, want only the newcomer", len(g.addresses.m))
+		t.Errorf("%d addresses tracked, want idle ones forgotten first", len(g.addresses.m))
 	}
 }
 

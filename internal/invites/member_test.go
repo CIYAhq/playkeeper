@@ -181,6 +181,105 @@ func TestRequiresTwoFactor(t *testing.T) {
 	}
 }
 
+func TestCanEditAndRemove(t *testing.T) {
+	scoped := with(admin, func(a *Account) { a.Servers = OnlyServers(serverID) })
+	otherAdmin := with(admin, func(a *Account) { a.UserID, a.Name = 6, "ana" })
+	modHere := with(moderator, func(a *Account) { a.Servers = OnlyServers(serverID) })
+	modThere := with(moderator, func(a *Account) { a.Servers = OnlyServers(otherServer) })
+	for _, tc := range []struct {
+		name    string
+		actor   Account
+		target  Account
+		role    string
+		servers Scope
+		code    string
+	}{
+		{"owner makes a moderator an admin", owner, moderator, RoleAdmin, AllServers(), ""},
+		{"owner makes an admin a viewer of one server", owner, admin, RoleViewer, OnlyServers(serverID), ""},
+		{"owner changes the owner", owner, owner, RoleViewer, AllServers(), CodeOwnerFixed},
+		{"admin changes the owner", admin, owner, RoleViewer, AllServers(), CodeOwnerFixed},
+		{"owner makes someone the owner", owner, moderator, InstallOwner, AllServers(), CodeRoleNotAllowed},
+		{"admin makes a moderator a viewer", admin, moderator, RoleViewer, AllServers(), ""},
+		{"admin gives a viewer another server", admin, viewer, RoleViewer, OnlyServers(otherServer), ""},
+		{"admin changes themselves", admin, admin, RoleModerator, AllServers(), CodeNotYourself},
+		{"admin gives themselves all servers", scoped, scoped, RoleAdmin, AllServers(), CodeNotYourself},
+		{"admin makes a moderator an admin", admin, moderator, RoleAdmin, AllServers(), CodeRoleNotAllowed},
+		{"admin demotes another admin", admin, otherAdmin, RoleViewer, AllServers(), CodeMemberNotAllowed},
+		{"admin without two-factor", with(admin, func(a *Account) { a.TwoFactor = false }), viewer, RoleModerator, AllServers(), CodeTwoFactorRequired},
+		{"admin of one server changes its moderator", scoped, modHere, RoleViewer, OnlyServers(serverID), ""},
+		{"admin of one server widens a moderator", scoped, modHere, RoleModerator, AllServers(), CodeServersNotAllowed},
+		{"admin of one server changes another's moderator", scoped, modThere, RoleViewer, OnlyServers(serverID), CodeServersNotAllowed},
+		{"admin of one server changes a moderator of all", scoped, moderator, RoleViewer, OnlyServers(serverID), CodeServersNotAllowed},
+		{"moderator changes a viewer", moderator, viewer, RoleViewer, AllServers(), CodeMemberNotAllowed},
+		{"viewer changes a moderator", viewer, moderator, RoleViewer, AllServers(), CodeMemberNotAllowed},
+		{"deleted account", Account{UserID: 9}, viewer, RoleViewer, AllServers(), CodeMemberNotAllowed},
+		{"unknown role", owner, viewer, "Admin", AllServers(), CodeRoleUnknown},
+		{"no servers", owner, viewer, RoleViewer, Scope{}, CodeBadOptions},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CanEdit(tc.actor, tc.target, tc.role, tc.servers)
+			if tc.code == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if e := wantCode(t, err, tc.code); e.Status != 403 && e.Status != 400 || e.Msg == "" {
+				t.Errorf("refusal %+v", e)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name          string
+		actor, target Account
+		code          string
+	}{
+		{"owner removes an admin", owner, admin, ""},
+		{"owner removes themselves", owner, owner, CodeOwnerFixed},
+		{"admin removes the owner", admin, owner, CodeOwnerFixed},
+		{"admin removes a moderator", admin, moderator, ""},
+		{"admin removes themselves", admin, admin, CodeNotYourself},
+		{"admin removes another admin", admin, otherAdmin, CodeMemberNotAllowed},
+		{"admin of one server removes its moderator", scoped, modHere, ""},
+		{"admin of one server removes a moderator of all", scoped, moderator, CodeServersNotAllowed},
+		{"admin without two-factor removes a viewer", with(admin, func(a *Account) { a.TwoFactor = false }), viewer, CodeTwoFactorRequired},
+		{"moderator removes a viewer", moderator, viewer, CodeMemberNotAllowed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CanRemove(tc.actor, tc.target)
+			if tc.code == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			wantCode(t, err, tc.code)
+		})
+	}
+	if e := wantCode(t, CanRemove(admin, owner), CodeOwnerFixed); e.Msg != "The owner's role can't be changed, and the owner can't be removed." {
+		t.Errorf("message = %q", e.Msg)
+	}
+}
+
+func TestAtLeast(t *testing.T) {
+	for _, tc := range []struct {
+		role, min string
+		want      bool
+	}{
+		{RoleAdmin, RoleModerator, true},
+		{RoleModerator, RoleModerator, true},
+		{RoleViewer, RoleModerator, false},
+		{RoleViewer, RoleViewer, true},
+		{"", RoleViewer, false},
+		{RoleAdmin, "", false},
+		{"Admin", RoleViewer, false},
+	} {
+		if got := AtLeast(tc.role, tc.min); got != tc.want {
+			t.Errorf("AtLeast(%q, %q) = %v", tc.role, tc.min, got)
+		}
+	}
+}
+
 func TestNewMember(t *testing.T) {
 	c, err := NewMember(MemberSpec{ProjectID: projectID, Role: RoleModerator, Servers: AllServers(), Label: "Sam"}, admin, existing, t0)
 	if err != nil {

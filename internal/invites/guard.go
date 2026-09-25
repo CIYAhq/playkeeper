@@ -121,8 +121,10 @@ func AddressKey(ip netip.Addr) string {
 }
 
 // buckets is a keyed token bucket with bounded memory. When every tracked
-// key is still busy, new keys are refused rather than old ones forgotten,
-// so flooding it with addresses can't wipe an address's record.
+// key is still busy, the one seen least recently is forgotten to make room,
+// so filling the table can't keep new visitors out. Whoever can fill it has
+// that many addresses anyway, so forgetting one of theirs gains them
+// nothing.
 type buckets struct {
 	capacity float64
 	refill   float64
@@ -154,9 +156,10 @@ func (b *buckets) take(key string, now time.Time) (time.Duration, bool) {
 	k, ok := b.m[key]
 	if !ok {
 		if len(b.m) >= b.max {
-			if wait := b.gc(now); len(b.m) >= b.max {
-				return wait, false
-			}
+			b.gc(now)
+		}
+		if len(b.m) >= b.max {
+			b.forgetOldest()
 		}
 		k = &bucket{tokens: b.capacity, last: now}
 		b.m[key] = k
@@ -182,19 +185,22 @@ func (b *buckets) peek(key string, now time.Time) (time.Duration, bool) {
 	return 0, true
 }
 
-// gc forgets buckets that have refilled completely, and returns how long
-// until the next one will have.
-func (b *buckets) gc(now time.Time) time.Duration {
-	soonest := time.Duration(-1)
+// gc forgets buckets that have refilled completely.
+func (b *buckets) gc(now time.Time) {
 	for key, k := range b.m {
-		missing := b.capacity - k.tokens - max(0, now.Sub(k.last).Seconds())*b.refill
-		if missing <= 0 {
+		if b.capacity-k.tokens-max(0, now.Sub(k.last).Seconds())*b.refill <= 0 {
 			delete(b.m, key)
-			continue
-		}
-		if d := time.Duration(missing / b.refill * float64(time.Second)); soonest < 0 || d < soonest {
-			soonest = d
 		}
 	}
-	return max(soonest, time.Second)
+}
+
+// forgetOldest forgets the bucket seen least recently.
+func (b *buckets) forgetOldest() {
+	oldest, first := "", true
+	for key, k := range b.m {
+		if first || k.last.Before(b.m[oldest].last) {
+			oldest, first = key, false
+		}
+	}
+	delete(b.m, oldest)
 }
