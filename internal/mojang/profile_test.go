@@ -350,7 +350,8 @@ func TestLookupOversized(t *testing.T) {
 }
 
 func TestLookupRefusesRedirects(t *testing.T) {
-	for _, location := range []string{"https://evil.example/minecraft/profile/lookup/name/Notch", "/elsewhere"} {
+	elsewhere, other := startFake(t, mojangLike(t))
+	for _, location := range []string{other.URL + lookupPath + "Notch", "/elsewhere"} {
 		f, srv := startFake(t, func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, location, http.StatusFound)
 		})
@@ -360,6 +361,9 @@ func TestLookupRefusesRedirects(t *testing.T) {
 		if f.requests() != 1 {
 			t.Errorf("redirect to %s: %d requests, want 1", location, f.requests())
 		}
+	}
+	if elsewhere.requests() != 0 {
+		t.Error("the client followed a redirect to another host")
 	}
 }
 
