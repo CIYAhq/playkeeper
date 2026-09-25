@@ -273,6 +273,167 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
 
+control "names service owns only records with the name's marker" internal/names/service/dns.go \
+  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || reservedName(name) {' \
+  ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
+control "names service never owns records of reserved names" internal/names/service/dns.go \
+  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
+  ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns)$'
+control "names service owns address records only at the name itself" internal/names/service/dns.go \
+  'return rn == fqdn' \
+  'return strings.HasSuffix(rn, fqdn)' \
+  ./internal/names/service '^TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns$'
+control "names service owns challenge records only at _acme-challenge" internal/names/service/dns.go \
+  'return rn == names.ChallengeFQDN(name, s.base)' \
+  'return strings.HasSuffix(rn, fqdn)' \
+  ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns)$'
+control "names service owns server records only with a valid label" internal/names/service/dns.go \
+  'return ok && names.CheckServerLabel(label) == nil' \
+  'return ok && label != ""' \
+  ./internal/names/service '^TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns$'
+control "names service creates only records it owns" internal/names/service/dns.go \
+  'return s.refuse("create", name, r)' \
+  'return s.cf.create(ctx, r)' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "names service updates only records it made" internal/names/service/dns.go \
+  'if old.ID == "" || !s.owns(name, old) || !s.owns(name, r) ||' \
+  'if old.ID == "" || !s.owns(name, r) ||' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "names service never moves a record to another type or name" internal/names/service/dns.go \
+  'old.Type != r.Type || !strings.EqualFold(old.Name, r.Name) {' \
+  'false {' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "names service deletes only records it made" internal/names/service/dns.go \
+  'if old.ID == "" || !s.owns(name, old) {' \
+  'if old.ID == "" {' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "a name with records made by hand cannot be claimed" internal/names/service/dns.go \
+  'if !s.owns(name, r) {
+			s.log.Info("Refused a claim' \
+  'if false && !s.owns(name, r) {
+			s.log.Info("Refused a claim' \
+  ./internal/names/service '^(TestRecordsTheServiceDoesNotManageAreNeverTouched|TestNewNamesPerDayAcrossEveryone)$'
+control "an address with a record made by hand is left alone" internal/names/service/dns.go \
+  'if !addrTaken {' \
+  'if !addrTaken || true {' \
+  ./internal/names/service '^TestHandMadeRecordsAtTheNamesAddressesBlockThemUntilRemoved$'
+control "a server address with a record made by hand is left alone" internal/names/service/dns.go \
+  'maps.Copy(done, taken)' \
+  'maps.Copy(done, map[string]bool{})' \
+  ./internal/names/service '^TestRecordsTheServiceDoesNotManageAreNeverTouched$'
+control "names service changes only its own domain's zone" internal/names/service/dns.go \
+  'if !strings.EqualFold(z.Name, s.base) {' \
+  'if false && !strings.EqualFold(z.Name, s.base) {' \
+  ./internal/names/service '^TestStartupRefusesARefusedTokenOrAnotherZone$'
+control "X-Forwarded-For is only believed from trusted proxies" internal/names/service/addr.go \
+  'if !s.trusted(addr) {
+		if r.Header.Get("X-Forwarded-For")' \
+  'if false && !s.trusted(addr) {
+		if r.Header.Get("X-Forwarded-For")' \
+  ./internal/names/service '^(TestForwardedForIsOnlyBelievedFromTrustedProxies|TestASpoofedForwardedForFromAnUntrustedPeerIsIgnored)$'
+control "the client is the rightmost X-Forwarded-For address that is not a proxy" internal/names/service/addr.go \
+  'for i := len(hops) - 1; i >= 0; i-- {' \
+  'for i := 0; i < len(hops); i++ {' \
+  ./internal/names/service '^TestForwardedForIsOnlyBelievedFromTrustedProxies$'
+control "a signed names request works only once" internal/names/service/handlers.go \
+  'if n, err := res.RowsAffected(); err != nil || n == 0 {' \
+  'if n, err := res.RowsAffected(); false && (err != nil || n == 0) {' \
+  ./internal/names/service '^TestSignaturesClockSkewAndReplaysAreRefused$'
+control "names point only at public addresses" internal/names/service/handlers.go \
+  'if !publicUnicast(a) {' \
+  'if false && !publicUnicast(a) {' \
+  ./internal/names/service '^TestNamesCannotPointAtPrivateReservedOrProxyAddresses$'
+control "requests through Cloudflare's proxy cannot claim names" internal/names/service/handlers.go \
+  'if inAny(cloudflareEdge, a) {' \
+  'if false && inAny(cloudflareEdge, a) {' \
+  ./internal/names/service '^TestNamesCannotPointAtPrivateReservedOrProxyAddresses$'
+control "reserved names cannot be claimed" internal/names/service/handlers.go \
+  'if reservedName(name) || s.block.has(name) {' \
+  'if s.block.has(name) {' \
+  ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
+control "blocklisted names cannot be claimed" internal/names/service/handlers.go \
+  'if reservedName(name) || s.block.has(name) {' \
+  'if reservedName(name) {' \
+  ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
+control "only the install that holds a name can change it" internal/names/service/handlers.go \
+  'case row.Key != key:' \
+  'case false:' \
+  ./internal/names/service '^TestClaimRefreshServersChallengesAndReleaseEndToEnd$'
+control "an install holds only as many names as allowed" internal/names/service/handlers.go \
+  'if n < s.cfg.MaxNamesPerKey {' \
+  'if n <= s.cfg.MaxNamesPerKey {' \
+  ./internal/names/service '^TestAnInstallHoldsOnlyAsManyNamesAsAllowed$'
+control "names service per-address rate limit" internal/names/service/handlers.go \
+  'if ok, wait := s.perIP.allow(addrBucket(addr, 64)); !ok {' \
+  'if ok, wait := s.perIP.allow(addrBucket(addr, 64)); false && !ok {' \
+  ./internal/names/service '^TestRateLimitsPerAddressPerKeyAndForNewNames$'
+control "names service per-install rate limit" internal/names/service/handlers.go \
+  'if ok, wait := s.perKey.allow(c.key); !ok {' \
+  'if ok, wait := s.perKey.allow(c.key); false && !ok {' \
+  ./internal/names/service '^TestRateLimitsPerAddressPerKeyAndForNewNames$'
+control "new names per address a day" internal/names/service/handlers.go \
+  'if ok, wait := s.claimsAddr.allow(addrBucket(c.addr, 56)); !ok {' \
+  'if ok, wait := s.claimsAddr.allow(addrBucket(c.addr, 56)); false && !ok {' \
+  ./internal/names/service '^TestRateLimitsPerAddressPerKeyAndForNewNames$'
+control "new names a day across everyone" internal/names/service/handlers.go \
+  'if ok, wait := s.claimsAll.allow("all"); !ok {' \
+  'if ok, wait := s.claimsAll.allow("all"); false && !ok {' \
+  ./internal/names/service '^TestNewNamesPerDayAcrossEveryone$'
+control "challenge records per name" internal/names/service/handlers.go \
+  'if others >= maxChallenges {' \
+  'if false && others >= maxChallenges {' \
+  ./internal/names/service '^TestClaimRefreshServersChallengesAndReleaseEndToEnd$'
+control "the zone keeps a reserve of free records" internal/names/service/dns.go \
+  'u.Usage+n+s.cfg.RecordReserve <= *u.Quota' \
+  'u.Usage+n <= *u.Quota' \
+  ./internal/names/service '^TestAFullZoneRefusesNewNamesAndServerAddresses$'
+control "challenge records expire after an hour" internal/names/service/jobs.go \
+  'SELECT DISTINCT name FROM challenges WHERE expires_at <= ?' \
+  'SELECT DISTINCT name FROM challenges WHERE expires_at <= ? AND 0' \
+  ./internal/names/service '^TestNamesLapseAndAreFreedWhenNotRefreshed$'
+control "names lapse when they are not refreshed" internal/names/service/jobs.go \
+  'SELECT name FROM names WHERE state = ? AND refreshed_at <= ?' \
+  'SELECT name FROM names WHERE state = ? AND refreshed_at <= ? AND 0' \
+  ./internal/names/service '^TestNamesLapseAndAreFreedWhenNotRefreshed$'
+control "released names are held from others" internal/names/service/jobs.go \
+  'names.StateReleased, now.Add(-releaseHold).Unix())' \
+  'names.StateReleased, now.Unix())' \
+  ./internal/names/service '^TestReleasedNamesAreHeldThenFreed$'
+control "Cloudflare errors never show the token" internal/names/service/cloudflare.go \
+  'scrub(env.Errors, c.token)' \
+  'scrub(nil, c.token)' \
+  ./internal/names/service '^TestCloudflareErrorsNeverShowTheToken$'
+control "names service follows no redirects from Cloudflare" internal/names/service/service.go \
+  'CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },' \
+  'CheckRedirect: nil,' \
+  ./internal/names/service '^TestTheServiceFollowsNoRedirects$'
+control "names request signature" internal/names/sign.go \
+  'if !ed25519.Verify(' \
+  'if false && !ed25519.Verify(' \
+  ./internal/names '^TestTamperedRequestsAreRefused$'
+control "names requests with a clock more than 5 minutes off are refused" internal/names/sign.go \
+  'if skew := at.Sub(now); skew > MaxSkew || skew < -MaxSkew {' \
+  'if skew := at.Sub(now); false && (skew > MaxSkew || skew < -MaxSkew) {' \
+  ./internal/names '^TestClockSkewBeyondFiveMinutesIsRefusedWithTheServiceTime$'
+control "names client sends challenge records only for its own name" internal/names/client.go \
+  'if got := strings.TrimSuffix(strings.ToLower(fqdn), "."); got != want {' \
+  'if got := strings.TrimSuffix(strings.ToLower(fqdn), "."); false && got != want {' \
+  ./internal/names '^TestChallengesForOtherRecordsAreRefusedBeforeSending$'
+control "names key files others can read are refused" internal/names/key.go \
+  'if fi.Mode().Perm()&0o077 != 0 {' \
+  'if false && fi.Mode().Perm()&0o077 != 0 {' \
+  ./internal/names '^TestKeyFilesOthersCanReadOrThatAreNotRegularAreRefused$'
+control "names service location must be HTTPS unless it is this machine" internal/names/client.go \
+  'return nil, fmt.Errorf("the names service location %s must be an https:// address", u.Redacted())' \
+  'return u, nil' \
+  ./internal/names '^TestCheckServiceURLAllowsHTTPSAndLocalHTTPOnly$'
+control "names client follows no redirects" internal/names/client.go \
+  'CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },' \
+  'CheckRedirect: nil,' \
+  ./internal/names '^TestRedirectsAreNotFollowed$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
