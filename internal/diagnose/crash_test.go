@@ -79,6 +79,15 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			evidence:    []string{"java.lang.OutOfMemoryError: Java heap space", "could give the server up to 4 GB more", "exited with code 1"},
 		},
 		{
+			name: "heap too full to say so, then killed",
+			in: with(paperCrash(crashConsole(t, "paper_heap_oom_handler.txt")), func(in *CrashInput) {
+				in.ExitCode, in.BudgetMB, in.HeapMB = 137, 768, 256
+			}),
+			kind: CrashHeapMemory, certain: true, params: map[string]any{"budget_mb": 768, "heap_mb": 256},
+			fixes:    "raise_memory* from_mb=768 to_mb=1536; restart",
+			evidence: []string{"OutOfMemoryError thrown from the UncaughtExceptionHandler"},
+		},
+		{
 			name: "heap out of memory on a full machine offers what to do instead",
 			in:   with(paperCrash(crashConsole(t, "paper_heap_oom.txt")), func(in *CrashInput) { in.RoomMB = 0 }),
 			kind: CrashHeapMemory, certain: true,

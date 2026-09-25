@@ -44,7 +44,9 @@ var (
 	reNoSpace = regexp.MustCompile(`No space left on device`)
 	reEULA    = regexp.MustCompile(`^You need to agree to the EULA in order to run the server`)
 
-	reHeapOOM      = regexp.MustCompile(`java\.lang\.OutOfMemoryError: (?:Java heap space|GC overhead limit exceeded)`)
+	// Java prints the short "thrown from the UncaughtExceptionHandler" form
+	// when the heap is too full to build the usual message.
+	reHeapOOM      = regexp.MustCompile(`java\.lang\.OutOfMemoryError(?:: (?:Java heap space|GC overhead limit exceeded)| thrown from the UncaughtExceptionHandler)`)
 	reMetaspaceOOM = regexp.MustCompile(`java\.lang\.OutOfMemoryError: (?:Metaspace|Compressed class space)`)
 	reThreadOOM    = regexp.MustCompile(`java\.lang\.OutOfMemoryError: unable to create (?:new )?native thread`)
 
