@@ -539,29 +539,43 @@ func (a *Agent) setDockerOK(ok bool) {
 
 // rconCommand sends one console command over the private Docker bridge.
 func (s *server) rconCommand(cmd string) (string, error) {
+	return s.rconExec(s.ctx, cmd)
+}
+
+// rconExec sends one console command, giving up when ctx ends. A command is
+// sent again on a fresh connection only if none of it was written, so the
+// server never runs it twice.
+func (s *server) rconExec(ctx context.Context, cmd string) (string, error) {
 	s.rconMu.Lock()
 	defer s.rconMu.Unlock()
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if s.rcon == nil {
-			if err := s.dialRCON(); err != nil {
+			if err := s.dialRCON(ctx); err != nil {
 				return "", err
 			}
 		}
-		out, err := s.rcon.Command(cmd, 10*time.Second)
+		out, err := s.rcon.Exec(ctx, cmd, 10*time.Second)
 		if err == nil {
 			return out, nil
 		}
 		s.rcon.Close()
 		s.rcon = nil
-		if attempt == 1 {
+		if attempt == 1 || !errors.Is(err, minecraft.ErrUnsent) || ctx.Err() != nil {
 			return "", err
 		}
 	}
-	return "", errors.New("rcon unavailable")
 }
 
-func (s *server) dialRCON() error {
-	c, err := s.docker.ContainerInspect(s.ctx, s.containerName())
+// rconConsole is the server's console for packages that drive it, such as
+// Chunky's pre-generation and data packs.
+type rconConsole struct{ s *server }
+
+func (c rconConsole) Command(ctx context.Context, cmd string) (string, error) {
+	return c.s.rconExec(ctx, cmd)
+}
+
+func (s *server) dialRCON(ctx context.Context) error {
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if err != nil {
 		return err
 	}
@@ -576,7 +590,7 @@ func (s *server) dialRCON() error {
 	if err != nil {
 		return err
 	}
-	r, err := minecraft.DialRCON(s.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
+	r, err := minecraft.DialRCONContext(ctx, s.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
 	if err != nil {
 		return err
 	}
