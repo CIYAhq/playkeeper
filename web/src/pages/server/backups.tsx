@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeftIcon } from 'lucide-react'
+import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { BackupRulesView, OffsiteView, RetentionEstimate, RetentionRules, RetentionSettings, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
@@ -79,7 +79,7 @@ function BackLink({ server: s }: { server: ServerStatus }) {
 }
 
 /** World › Backup rules: automatic backups, what to keep, and copies somewhere else. */
-export function BackupRulesPage({ server: s, copies }: { server: ServerStatus; copies?: ReactNode }) {
+export function BackupRulesPage({ server: s, copies }: { server: ServerStatus; copies?: (changeRules: () => void) => ReactNode }) {
   const rules = useBackupRules(s.id)
   const [editing, setEditing] = useState(false)
   return (
@@ -104,7 +104,7 @@ export function BackupRulesPage({ server: s, copies }: { server: ServerStatus; c
             </>
           )}
         </div>
-        {copies}
+        {copies?.(() => setEditing(true))}
       </div>
       {rules.data && editing && <RulesDialog server={s} view={rules.data} onClose={() => setEditing(false)} onSaved={() => void rules.refresh()} />}
     </>
@@ -362,6 +362,13 @@ function PhoneRules({ server: s, view, machine, offsite, onSaved }: { server: Se
         <SwitchLine phone checked={!!d.draft.includeManual} onChange={(c) => d.setDraft((r) => ({ ...r, includeManual: c }))} title={t('backupRules.phoneManual')} hint={d.draft.includeManual ? t('backupRules.phoneOn') : t('backupRules.phoneManualOff')} />
         <SwitchLine phone checked={!!d.draft.deleteOnlyCopies} onChange={(c) => d.setDraft((r) => ({ ...r, deleteOnlyCopies: c }))} title={t('backupRules.phoneOnlyCopies')} hint={d.draft.deleteOnlyCopies ? t('backupRules.phoneOn') : t('backupRules.phoneOnlyCopiesOff')} />
       </div>
+      <a {...linkProps({ name: 'server', slug: s.slug, tab: 'world', sub: 'backup-copies' })} className="mt-2 flex min-h-[60px] items-center gap-3 rounded-3xl border border-border bg-white px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="min-w-0 flex-1">
+          <span className="block text-base">{t('offsite.title')}</span>
+          <span className="block truncate text-[13px] text-muted-foreground">{offsite?.enabled ? t('offsite.onAt', { place: offsite.place }) : t('offsite.off')}</span>
+        </span>
+        <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+      </a>
       <div className="fixed inset-x-4 bottom-[calc(76px+env(safe-area-inset-bottom))] z-20">
         <Button size="touch" className="w-full" loading={d.saving} onClick={async () => (await d.save()) && onSaved()}>
           {t('backupRules.save')}

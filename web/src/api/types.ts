@@ -680,6 +680,7 @@ export interface OffsitePending {
   hint?: string
   errorKind?: string
   params?: Record<string, string>
+  backupCreatedAt?: string
 }
 
 export interface OffsiteView {

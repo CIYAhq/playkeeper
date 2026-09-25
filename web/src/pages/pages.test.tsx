@@ -3,12 +3,13 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { MachineView, Me, OffsiteTestResult, OffsiteView, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
+import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 
@@ -301,5 +302,83 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+})
+
+describe('Copies somewhere else', () => {
+  const sftp: OffsiteView = {
+    enabled: false,
+    configured: true,
+    type: 'sftp',
+    place: 'vault.example.net',
+    sftp: { host: 'vault.example.net', port: 22, user: 'playkeeper', folder: 'backups/survival', auth: 'key' },
+    sshKey: { publicKey: 'ssh-ed25519 AAAA', authorizedKey: 'restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGm4bWJpbmFyeWtleWJ5dGVzZm9yYXRlc3Q1q7Rk playkeeper-survival', fingerprint: 'SHA256:x' },
+    copies: 0,
+    copiesBytes: 0,
+    queued: 0,
+    providers: [],
+  }
+  const hostKey = { key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey', type: 'ssh-ed25519', fingerprint: 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA' }
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))
+    if (!button) throw new Error(`no button "${label}"`)
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+
+  it('confirms a new host key, saves it and tests again before turning copies on', async () => {
+    answer({ '/offsite': sftp })
+    const unknown: OffsiteTestResult = { ok: false, skew: 0, hostKey, checks: [{ step: 'connect', ok: false, msg: 'Playkeeper has not seen this host key yet.', kind: 'host_key_unknown' }] }
+    const passed: OffsiteTestResult = { ok: true, skew: 0, checks: ['connect', 'folder', 'write', 'rename', 'read', 'list', 'delete'].map((step) => ({ step, ok: true, msg: '' })) }
+    const tests = [unknown, passed]
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/test') ? tests.shift() : sftp)) as typeof client.post)
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Encrypted before they leave. Copies start once the test passes.')
+    await click('Test connection')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
+    expect(document.body.textContent).toContain(hostKey.fingerprint)
+    expect(document.body.textContent).toContain('ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub')
+    await click('It matches, confirm')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite', { hostKey: hostKey.key })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('All checks passed')
+    expect(text).toContain('Connected and signed in as playkeeper')
+    expect(text).toContain('Turn on copies')
+  })
+
+  it('stops copies when the host key changed and shows both fingerprints', async () => {
+    const pinned = 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA'
+    const now = 'SHA256:Zx81bQe4Wn7cHs2LmP0vA9tYd6KfR3gJuN5oE1iXwTk'
+    answer({
+      '/offsite': {
+        ...sftp,
+        enabled: true,
+        key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt' },
+        pending: { backupId: 'b1', fileName: 'b1.tar.zst', uploading: false, sent: 0, total: 1, attempts: 1, error: 'The key changed.', errorKind: 'host_key_changed', params: { fingerprint: now, pinnedFingerprint: pinned } },
+      },
+    })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Stopped')
+    expect(document.body.textContent).toContain('Copies stopped: vault.example.net’s key changed')
+    expect(document.body.textContent).toContain('Downloaded')
+    await click('Review')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('vault.example.net’s key changed')
+    expect(text).toContain(pinned)
+    expect(text).toContain(now)
+    expect(text).toContain('Check the new key')
+  })
+
+  it('lets only the owner change where copies go or download the key', async () => {
+    answer({ '/offsite': { ...sftp, enabled: true, key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, fileName: 'playkeeper-recovery-key-survival.txt' } } })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />, workspace({ me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(document.body.textContent).toContain('Only the owner can change where copies go.')
+    expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(true)
+    const download = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Download')
+    expect(download?.disabled).toBe(true)
   })
 })
