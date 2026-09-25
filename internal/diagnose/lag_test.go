@@ -42,7 +42,7 @@ func actionSummary(actions []Action) string {
 		if a.Recommended {
 			s += "*"
 		}
-		for _, k := range []string{"from_mb", "to_mb", "from", "to", "resource", "jar", "name"} {
+		for _, k := range []string{"from_mb", "to_mb", "from", "to", "resource", "jar", "name", "pack", "port", "free_mb"} {
 			if v, ok := a.Params[k]; ok {
 				s += fmt.Sprintf(" %s=%v", k, v)
 			}
