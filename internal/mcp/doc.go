@@ -40,26 +40,26 @@
 // # Playkeeper tools
 //
 // This package holds no Playkeeper tools; the panel registers them. The
-// proposed set follows, with its scope, effect and the agent operation each
-// one wraps. Tools about one server take a required "server" argument, the
-// server's id or slug as in decision 0004.
+// proposed set follows, with its scope, effect and the agent route (as of
+// v0.3.0) each one wraps. Tools about one server take a required "server"
+// argument, the server's id or slug as in decision 0004.
 //
-//	list_servers           read    read-only    servers the token's user can see
-//	get_server_status      read    read-only    GET /v1/server
-//	start_server           manage  additive     POST /v1/server/start (idempotent)
-//	stop_server            manage  destructive  POST /v1/server/stop (idempotent)
-//	restart_server         manage  destructive  POST /v1/server/restart
-//	read_console           read    read-only    GET /v1/server/logs
-//	send_chat_message      manage  additive     POST /v1/server/command, "say" only
-//	run_console_command    owner   destructive  POST /v1/server/command
-//	list_online_players    read    read-only    GET /v1/server, players
-//	list_whitelist         read    read-only    GET /v1/server/whitelist
-//	add_to_whitelist       manage  additive     POST /v1/server/whitelist (idempotent)
-//	remove_from_whitelist  manage  destructive  DELETE /v1/server/whitelist/{name} (idempotent)
-//	list_backups           read    read-only    GET /v1/backups
-//	create_backup          manage  additive     POST /v1/backups
-//	get_lag_report         read    read-only    wave 3 lag helper, GET /v1/metrics
-//	explain_crash          read    read-only    wave 3 crash helper, GET /v1/events
+//	list_servers           read    read-only    GET /v1/servers, only servers the token's user can see
+//	get_server_status      read    read-only    GET /v1/servers/{id}
+//	start_server           manage  additive     POST /v1/servers/{id}/start (idempotent)
+//	stop_server            manage  destructive  POST /v1/servers/{id}/stop (idempotent)
+//	restart_server         manage  destructive  POST /v1/servers/{id}/restart
+//	read_console           read    read-only    GET /v1/servers/{id}/logs
+//	send_chat_message      manage  additive     POST /v1/servers/{id}/command, "say" only
+//	run_console_command    owner   destructive  POST /v1/servers/{id}/command
+//	list_online_players    read    read-only    GET /v1/servers/{id}, players
+//	list_whitelist         read    read-only    GET /v1/servers/{id}/whitelist
+//	add_to_whitelist       manage  additive     POST /v1/servers/{id}/whitelist (idempotent)
+//	remove_from_whitelist  manage  destructive  DELETE /v1/servers/{id}/whitelist/{name} (idempotent)
+//	list_backups           read    read-only    GET /v1/servers/{id}/backups
+//	create_backup          manage  additive     POST /v1/servers/{id}/backups
+//	get_lag_report         read    read-only    wave 3 lag helper, GET /v1/servers/{id}/metrics
+//	explain_crash          read    read-only    wave 3 crash helper, GET /v1/servers/{id}/events
 //	search_addons          read    read-only    internal/addons (open world), later
 //	install_addon          owner   additive     internal/addons (open world), later
 //	remove_addon           owner   destructive  internal/addons, later
