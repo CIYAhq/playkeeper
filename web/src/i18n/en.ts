@@ -1107,4 +1107,13 @@ export const en = {
   'map.offDelete': 'Delete the drawn map',
   'map.offDeleteHint': 'Frees about {size}',
   'map.offConfirm': 'Turn off the map',
+  'publicMap.title': '{server} · Map',
+  'publicMap.java': 'A Minecraft: Java Edition world',
+  'publicMap.playing': { zero: 'Nobody’s playing now', one: '{count} playing now', other: '{count} playing now' },
+  'publicMap.hidden': 'Player positions aren’t shown on this map',
+  'publicMap.hiddenShort': 'Player positions aren’t shown',
+  'publicMap.shown': 'Showing players as they move',
+  'publicMap.madeWith': 'Made with Playkeeper',
+  'publicMap.offTitle': 'This map isn’t available',
+  'publicMap.offLead': 'Ask whoever shared it for a new link.',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>
