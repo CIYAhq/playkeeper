@@ -48,6 +48,9 @@
   --radius: 0.625rem;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Wave 7: the Disk space bar's worlds and other files */
+  --disk-worlds: #4cb871;
+  --disk-other: #9a9e94;
 }
 
 @theme inline {
@@ -91,6 +94,8 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-disk-worlds: var(--disk-worlds);
+  --color-disk-other: var(--disk-other);
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;
