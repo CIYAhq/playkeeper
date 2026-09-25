@@ -304,7 +304,7 @@ export function NewServerPage() {
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
         restore: (chunk) => (
-          <button type="button" className="font-medium text-primary hover:underline" onClick={() => setRestoreOpen(true)}>
+          <button type="button" className="font-medium text-success-strong hover:underline" onClick={() => setRestoreOpen(true)}>
             {chunk}
           </button>
         ),

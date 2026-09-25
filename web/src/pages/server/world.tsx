@@ -442,7 +442,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         {steps.map((st, i) => (
           <li key={st.title}>
             <div className="text-[13px] font-semibold">
-              <span className="mr-1.5 text-primary">{i + 1}.</span>
+              <span className="mr-1.5 text-success-strong">{i + 1}.</span>
               {st.title}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{st.hint}</p>
