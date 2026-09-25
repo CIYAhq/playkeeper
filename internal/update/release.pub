@@ -4,6 +4,6 @@
 # private key in the PLAYKEEPER_RELEASE_SIGNING_KEY repository secret, and an
 # installed Playkeeper only installs updates signed by a key listed here.
 #
-# No key yet: builds from this tree cannot install updates from the dashboard.
-# To add one, run `go run ./cmd/release-sign keygen` (see CONTRIBUTING.md).
+# Keys are added with `go run ./cmd/release-sign keygen` (see CONTRIBUTING.md);
+# replacing one takes two releases (see SECURITY.md).
 ed25519 SUalJ4HN9T/LsdzL7QcMHLkweI3WAmVsENllV7x5Y/I=
