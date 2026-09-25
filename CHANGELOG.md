@@ -4,7 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.0
 
-- A name instead of the IP address: **Machine settings › Address** gives your servers a free `yourname.playkeeper.io` name or your own domain. Each server joins at its own address without a port, Home and each server's Overview show it, and the dashboard gets a Let's Encrypt certificate that renews by itself, so the browser warning goes away. The IP address keeps working. An own domain needs port 80 open while its certificate is issued and renewed; if you use ufw, allow it after this update with `sudo ufw allow 80/tcp`.
+- A name instead of the IP address: **Machine settings › Address** gives your servers a free `yourname.playkeeper.io` name or your own domain. Each server joins at its own address without a port, Home and each server's Overview show it, and the dashboard gets a Let's Encrypt certificate that renews by itself, so the browser warning goes away. The IP address keeps working. A free name needs the dashboard's port 8443 to stay reachable, which the names service checks, and servers get their own addresses three days after the claim. An own domain needs port 80 open while its certificate is issued and renewed; if you use ufw, allow it after this update with `sudo ufw allow 80/tcp`.
 - Two-factor sign-in with an authenticator app, turned on under **Account**, with ten recovery codes. Wrong codes pause and then block app codes, the dashboard tells you after signing in when someone entered wrong codes or your recovery codes run low, and `sudo playkeeper reset-2fa <user>` turns it off if you lose your phone.
 
 ## 0.3.0
