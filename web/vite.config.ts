@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
-import { demoBuild, noDemo } from './src/demo/vite'
+import { demoBuild, noDemo } from './src/demo/vite.ts'
 
 // `npm run dev` proxies the API to a local `playkeeper dev` panel (self-signed).
 // `--mode demo` makes the live demo instead: the dashboard with sample data

@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
-import { faceCount, faceSvg } from './faces'
-import { demoMarker } from './marker'
+import { faceCount, faceSvg } from './faces.ts'
+import { demoMarker } from './marker.ts'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 const demoDir = here('.')
