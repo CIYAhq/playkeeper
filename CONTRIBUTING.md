@@ -53,6 +53,7 @@ git add internal/update/release.pub && git commit -m "Add the release signing ke
 | --- | --- |
 | `cmd/playkeeper` | the single binary (install, agent, panel, recovery commands) |
 | `internal/agent` | root agent: socket API, Docker lifecycle, collector, backups/restore |
+| `internal/gamefiles` | reading and writing a server's files, which the game can change, as root: no links or named pipes, capped reads, refusals that name the file |
 | `internal/panel` | HTTPS panel: auth, sessions, CSRF, rate limits, API proxy |
 | `internal/install` | preflight, installer with rollback, in-place upgrade, the updater, uninstall |
 | `internal/update`, `cmd/release-sign` | signed release manifests (the release key is in `internal/update/release.pub`), version order, update downloads; the maintainer tool that makes and signs them |
