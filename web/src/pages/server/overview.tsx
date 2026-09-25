@@ -312,7 +312,9 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const pct = /(\d{1,3})\s*%/.exec(s.phaseDetail ?? '')?.[1]
   const other = (ws.servers ?? []).find((o) => o.id !== s.id)
   const disk = ws.machine?.live?.diskFreeBytes
-  const loader = cfg?.software?.fabricLoader ?? cfg?.software?.quiltLoader
+  // Until the pack itself is read, the config holds the recommended loader, not the pack's.
+  const packRead = !pack?.pending || !['', 'pulling_image', 'preparing_modpack'].includes(op?.phase ?? '')
+  const loader = packRead ? (cfg?.software?.fabricLoader ?? cfg?.software?.quiltLoader) : undefined
   const done = Number(op?.detail?.packFiles ?? 0)
   const total = Number(op?.detail?.packFilesTotal ?? 0)
   const software = {
