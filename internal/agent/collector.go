@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"time"
@@ -366,6 +368,34 @@ func (s *server) reconcileWithList(ts time.Time, names []string) {
 	}
 }
 
+// worldEvery is how often the world's size on disk is measured.
+const worldEvery = 5 * time.Minute
+
+// measureWorld adds up the files of the world's dimensions every few minutes.
+func (s *server) measureWorld(now time.Time, level string) {
+	s.mu.Lock()
+	due := now.Sub(s.worldAt) >= worldEvery
+	s.mu.Unlock()
+	if !due || level == "" {
+		return
+	}
+	var total int64
+	for _, dir := range []string{level, level + "_nether", level + "_the_end"} {
+		filepath.WalkDir(filepath.Join(s.dataDir(), dir), func(_ string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info, err := d.Info(); err == nil && info.Mode().IsRegular() {
+				total += info.Size()
+			}
+			return nil
+		})
+	}
+	s.mu.Lock()
+	s.worldBytes, s.worldAt = total, now
+	s.mu.Unlock()
+}
+
 func (s *server) sampleLoop(ctx context.Context) {
 	t := time.NewTicker(s.opts.SampleInterval)
 	defer t.Stop()
@@ -398,6 +428,9 @@ func (s *server) sample(ctx context.Context) {
 		res.DiskFreeBytes, res.DiskTotalBytes = &free, &total
 	}
 	sc, _ := s.serverConfig()
+	if sc != nil {
+		s.measureWorld(now, sc.LevelName)
+	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	var snap *api.PlayerSnapshot
 	reachable := false

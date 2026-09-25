@@ -514,3 +514,28 @@ func TestTickRateAndBackupWarning(t *testing.T) {
 		t.Fatalf("players must be warned before the server saves and stops: %v", e.rcon.commands)
 	}
 }
+
+// The World tab shows the world's size: every dimension counts, logs don't.
+func TestWorldSizeIsMeasured(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	s := e.srv()
+	for path, size := range map[string]int{
+		"world/region/r.0.0.mca":              3000,
+		"world_nether/DIM-1/region/r.0.0.mca": 200,
+		"world_the_end/level.dat":             50,
+		"logs/latest.log":                     999,
+	} {
+		full := filepath.Join(s.dataDir(), path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, make([]byte, size), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.measureWorld(time.Now().Add(time.Hour), "world")
+	if st := e.status(); st.WorldBytes == nil || *st.WorldBytes != 3250 {
+		t.Fatalf("world size = %v, want 3250", st.WorldBytes)
+	}
+}

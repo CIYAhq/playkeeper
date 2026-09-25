@@ -140,6 +140,10 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	st.CrashCount = len(s.crashes)
 	players, res := s.players, s.resources
 	reachable, reachableAt := s.reachable, s.reachableAt
+	if !s.worldAt.IsZero() {
+		world := s.worldBytes
+		st.WorldBytes = &world
+	}
 	s.mu.Unlock()
 	fresh := func(t time.Time) bool { return s.now().Sub(t) < 3*s.opts.SampleInterval+5*time.Second }
 	running := false

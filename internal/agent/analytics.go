@@ -251,6 +251,9 @@ func (s *server) Summary(days int, tzName string, now time.Time) (api.PlayersSum
 		}
 		ps.Sessions++
 		ps.PlaytimeSeconds += s.DurationSeconds
+		if s.StartUncertain || s.EndUncertain {
+			ps.PlaytimeUncertain = true
+		}
 		last := now
 		if s.End != nil {
 			last = *s.End

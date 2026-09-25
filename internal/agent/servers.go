@@ -78,6 +78,8 @@ type server struct {
 	listExtra       map[string]int
 	uuids           map[string]string
 	nextAutoRestart time.Time
+	worldBytes      int64
+	worldAt         time.Time
 
 	rconMu sync.Mutex
 	rcon   *minecraft.RCON

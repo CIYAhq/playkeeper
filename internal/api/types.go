@@ -62,9 +62,12 @@ type ServerStatus struct {
 	CrashCount      int             `json:"crashCount"`
 	Resources       *Resources      `json:"resources,omitempty"`
 	LastBackup      *Backup         `json:"lastBackup,omitempty"`
-	PendingRestart  bool            `json:"pendingRestart"`
-	CollectingSince *time.Time      `json:"collectingSince,omitempty"`
-	FirstSteps      FirstSteps      `json:"firstSteps"`
+	// WorldBytes is the world's size on disk (all its dimensions), measured
+	// every few minutes.
+	WorldBytes      *int64     `json:"worldBytes,omitempty"`
+	PendingRestart  bool       `json:"pendingRestart"`
+	CollectingSince *time.Time `json:"collectingSince,omitempty"`
+	FirstSteps      FirstSteps `json:"firstSteps"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -257,8 +260,8 @@ type SettingsResponse struct {
 	Operation *Operation   `json:"operation,omitempty"`
 }
 
-// DeleteServerRequest deletes a server's container and world; Confirm must
-// be the server's name. Its backups are kept.
+// DeleteServerRequest deletes a server's container, world and the backups
+// on this machine; Confirm must be the server's name.
 type DeleteServerRequest struct {
 	Confirm string `json:"confirm"`
 	Actor   string `json:"actor"`
@@ -479,6 +482,9 @@ type PlayerStat struct {
 	Online          bool      `json:"online"`
 	Sessions        int       `json:"sessions"`
 	PlaytimeSeconds int64     `json:"playtimeSeconds"`
+	// PlaytimeUncertain is set when a session's start or end wasn't seen
+	// (a crash, or the agent was down), so the playtime is an estimate.
+	PlaytimeUncertain bool `json:"playtimeUncertain,omitempty"`
 }
 
 type PlayersSummary struct {
