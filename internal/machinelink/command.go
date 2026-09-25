@@ -70,7 +70,7 @@ func ParseAddress(s string) (Address, error) {
 			return Address{}, errAddress(raw, "only a name or IP address and a port can be in it")
 		}
 	}
-	host, port := s, ""
+	host, port, hasPort := s, "", false
 	switch {
 	case strings.HasPrefix(s, "["):
 		end := strings.IndexByte(s, ']')
@@ -82,16 +82,16 @@ func ParseAddress(s string) (Address, error) {
 			if rest[0] != ':' {
 				return Address{}, errAddress(raw, "only a port can follow the brackets")
 			}
-			port = rest[1:]
+			port, hasPort = rest[1:], true
 		}
 		if ip, err := netip.ParseAddr(host); err != nil || !ip.Is6() {
 			return Address{}, errAddress(raw, "brackets are only for IPv6 addresses")
 		}
 	case strings.Count(s, ":") == 1:
-		host, port, _ = strings.Cut(s, ":")
+		host, port, hasPort = strings.Cut(s, ":")
 	}
 	p := DefaultPort
-	if port != "" {
+	if hasPort {
 		n, err := strconv.Atoi(port)
 		if err != nil || len(port) > 5 || port[0] < '0' || port[0] > '9' || n < 1 || n > 65535 {
 			return Address{}, errAddress(raw, "the port must be a number from 1 to 65535")
