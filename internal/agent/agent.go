@@ -158,6 +158,7 @@ type Agent struct {
 	maps      mapState
 	mapClient *http.Client
 	addonLib  *addons.Library
+	imports   importRegistry
 }
 
 func New(opts Options) (*Agent, error) {
@@ -569,6 +570,17 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/map/restart-later", srv((*server).hMapRestartLater)},
 		{"GET", "/v1/public-maps/{slug}", a.hPublicMap},
 		{"GET", "/v1/public-maps/{slug}/{rest...}", a.hPublicMapProxy},
+		// Wave 6: worlds people upload, for a new server or to replace one's world.
+		{"POST", "/v1/servers/{id}/world-imports", srv((*server).hWorldImportNew)},
+		{"POST", "/v1/world-imports", a.hWorldImportNewServer},
+		{"GET", "/v1/world-imports/{imp}", a.hWorldImport},
+		{"DELETE", "/v1/world-imports/{imp}", a.hWorldImportDelete},
+		{"POST", "/v1/world-imports/{imp}/files", a.hWorldImportFile},
+		{"PUT", "/v1/world-imports/{imp}/files/{n}", a.hWorldImportUpload},
+		{"POST", "/v1/world-imports/{imp}/inspect", a.hWorldImportInspect},
+		{"POST", "/v1/world-imports/{imp}/preview", a.hWorldImportPreview},
+		{"POST", "/v1/world-imports/{imp}/apply", a.hWorldImportApply},
+		{"POST", "/v1/world-imports/{imp}/create", a.hWorldImportCreate},
 	}
 }
 

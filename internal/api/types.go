@@ -2,7 +2,11 @@
 // browser UI. web/src/api/types.ts mirrors these shapes; keep them in sync.
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/worldimport"
+)
 
 // Phase is the user-visible lifecycle phase of a Minecraft server.
 type Phase string
@@ -692,4 +696,88 @@ type MapDisableRequest struct {
 type PublicMap struct {
 	Name    string `json:"name"`
 	Players bool   `json:"players"`
+}
+
+// WorldImport is an upload of world archives: for a new server when
+// ServerID is empty, otherwise to replace that server's world.
+type WorldImport struct {
+	ID        string            `json:"id"`
+	ServerID  string            `json:"serverId,omitempty"`
+	CreatedAt time.Time         `json:"createdAt"`
+	Files     []WorldImportFile `json:"files"`
+	// LimitBytes bounds all files together.
+	LimitBytes int64 `json:"limitBytes"`
+	// Inspection is what the files hold, once they were checked.
+	Inspection *worldimport.Inspection `json:"inspection,omitempty"`
+}
+
+// WorldImportFile is one uploaded archive. Received counts the bytes that
+// arrived; an interrupted upload carries on from there.
+type WorldImportFile struct {
+	Index    int    `json:"index"`
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	Received int64  `json:"received"`
+	SHA256   string `json:"sha256,omitempty"`
+}
+
+// WorldImportFileRequest announces an archive before its bytes arrive.
+type WorldImportFileRequest struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	Actor string `json:"actor"`
+}
+
+// WorldImportPreviewRequest asks what an import would do.
+type WorldImportPreviewRequest struct {
+	Options worldimport.Options `json:"options"`
+	// VersionID is the version a new server runs, one of the preview's
+	// Versions; empty picks the first.
+	VersionID string `json:"versionId,omitempty"`
+	Actor     string `json:"actor"`
+}
+
+// WorldImportVersion is a version a new server from the world can run.
+type WorldImportVersion struct {
+	CatalogEntry
+	// Keep: the world's own version, so the world isn't upgraded.
+	Keep bool `json:"keep"`
+}
+
+// WorldImportPreview is what an import will do, for the owner to confirm.
+type WorldImportPreview struct {
+	ID       string               `json:"id"`
+	ServerID string               `json:"serverId,omitempty"`
+	Preview  *worldimport.Preview `json:"preview"`
+	// Versions are a new server's choices, recommended first; VersionID is
+	// the one previewed.
+	Versions  []WorldImportVersion `json:"versions,omitempty"`
+	VersionID string               `json:"versionId"`
+	// KeepsOriginal: the world gets upgraded, so it is saved as a backup as
+	// it was before its first start.
+	KeepsOriginal bool `json:"keepsOriginal"`
+	// CurrentWorld is the world an import into a server replaces.
+	CurrentWorld       *CurrentWorld `json:"currentWorld,omitempty"`
+	WillCreateRollback bool          `json:"willCreateRollback"`
+	ConfirmPhrase      string        `json:"confirmPhrase,omitempty"`
+	Steps              []string      `json:"steps,omitempty"`
+	// MemoryMB is the suggested memory for a new server.
+	MemoryMB int `json:"memoryMB,omitempty"`
+}
+
+// WorldImportApplyRequest replaces a server's world with the import.
+type WorldImportApplyRequest struct {
+	Options worldimport.Options `json:"options"`
+	Confirm string              `json:"confirm"`
+	Actor   string              `json:"actor"`
+}
+
+// WorldImportCreateRequest creates a server from the imported world.
+type WorldImportCreateRequest struct {
+	Options    worldimport.Options `json:"options"`
+	VersionID  string              `json:"versionId"`
+	Name       string              `json:"name,omitempty"`
+	MemoryMB   int                 `json:"memoryMB"`
+	AcceptEULA bool                `json:"acceptEula"`
+	Actor      string              `json:"actor"`
 }
