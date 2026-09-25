@@ -786,6 +786,7 @@ export const en = {
   'new.memoryFor': 'Memory for this server',
   'new.memoryForHint': 'Drag or use the arrow keys. It snaps to sizes that make sense.',
   'new.roomFor': 'Room for about {players} players',
+  'new.roomForTight': 'A tight fit, even for a few players',
   'new.javaGets': 'Java gets {heap} of it, set automatically',
   'new.maxNote': 'This is the most that fits next to the system and your other servers.',
   'new.noMemory': 'There isn’t enough memory left on {machine} for another server. Give another server less memory in its Settings, or delete one you no longer need.',

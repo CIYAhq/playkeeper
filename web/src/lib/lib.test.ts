@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
-import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
+import type { Catalog, CatalogEntry, MemorySizing, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
+import { budgetAdvice, createRequest, freeName, styleMemory, versionCards } from '@/components/app/create'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
@@ -102,9 +102,40 @@ describe('memory', () => {
     expect(memoryForStyle([], 4096)).toBe(0)
   })
 
-  it('matches the agent on how much of it Java gets', () => {
-    expect(heapMB(4096)).toBe(3072)
-    expect(heapMB(1536)).toBe(1024)
+  const sizing: MemorySizing = {
+    workload: 'vanilla',
+    budgets: [
+      { memoryMB: 1536, heapMB: 1024, players: 0 },
+      { memoryMB: 2048, heapMB: 1536, players: 4 },
+      { memoryMB: 3072, heapMB: 2304, players: 4 },
+      { memoryMB: 4096, heapMB: 3072, players: 10 },
+      { memoryMB: 6144, heapMB: 4608, players: 20 },
+    ],
+    suggestions: [
+      { players: 4, memoryMB: 2048 },
+      { players: 10, memoryMB: 4096 },
+      { players: 20, memoryMB: 6144 },
+      { players: 40, memoryMB: 8192 },
+    ],
+  }
+  const catalog = { memoryOptionsMB: [1536, 2048, 3072, 4096, 6144], maxMemoryMB: 6144, recommendedMemoryMB: 3072, sizing } as Catalog
+
+  it("suggests what the sizing guide suggests for the style's players", () => {
+    expect(styleMemory(catalog, 'friends')).toBe(4096)
+    expect(styleMemory(catalog, 'creative')).toBe(4096)
+    expect(styleMemory(catalog, 'solo')).toBe(2048)
+    expect(budgetAdvice(catalog, 4096)).toEqual({ memoryMB: 4096, heapMB: 3072, players: 10 })
+    expect(budgetAdvice(catalog, 1536)?.players).toBe(0)
+  })
+
+  it('offers the largest budget below the suggestion on a machine without room for it', () => {
+    expect(styleMemory({ ...catalog, maxMemoryMB: 3072 }, 'friends')).toBe(3072)
+  })
+
+  it("uses the agent's own recommendation when the agent sends no sizing advice", () => {
+    const older = { ...catalog, sizing: undefined }
+    expect(styleMemory(older, 'friends')).toBe(3072)
+    expect(budgetAdvice(older, 4096)).toBeUndefined()
   })
 })
 

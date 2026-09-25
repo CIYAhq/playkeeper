@@ -7,7 +7,7 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, Stepper, useIsPhone } from '@/components/app/controls'
-import { createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, type CreateChoices } from '@/components/app/create'
+import { budgetAdvice, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
@@ -253,7 +253,7 @@ export function NewServerPage() {
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} advice={budgetAdvice(catalog, c.memoryMB)} recommended={c.memoryMB === suggested} style={c.style} />
                     </div>
                   </div>
                   {c.memoryMB === options[options.length - 1] && <p className="mt-4 text-xs text-muted-foreground">{t('new.maxNote')}</p>}

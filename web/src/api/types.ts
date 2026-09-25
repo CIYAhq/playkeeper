@@ -256,6 +256,25 @@ export interface ServerMemory {
   running: boolean
 }
 
+/** One memory option, with Java's share and the players at once the sizing guide sizes it for (0 below its smallest suggestion). */
+export interface MemoryBudget {
+  memoryMB: number
+  heapMB: number
+  players: number
+}
+
+/** The sizing guide's first budget for a band of players at once; players is the top of the band. */
+export interface MemorySuggestion {
+  players: number
+  memoryMB: number
+}
+
+export interface MemorySizing {
+  workload: string
+  budgets: MemoryBudget[]
+  suggestions: MemorySuggestion[]
+}
+
 export interface Catalog {
   type: string
   types: ServerType[]
@@ -271,6 +290,8 @@ export interface Catalog {
   servers: ServerMemory[]
   suggestedPort?: number
   image: string
+  /** Missing while a machine still runs an agent from before 0.4. */
+  sizing?: MemorySizing
 }
 
 export interface LogLine {
