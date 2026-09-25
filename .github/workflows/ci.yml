@@ -123,6 +123,12 @@ jobs:
           PK_SHOTS: /tmp/evidence/screenshots
           PK_OUT: /tmp/evidence/ui
         run: cd test/e2e/ui && npx playwright test views.spec.ts --reporter=list
+      - name: Every control does something (click-through at desktop and phone sizes, changes go to fakes)
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          PK_OUT: /tmp/evidence/ui
+        run: cd test/e2e/ui && npx playwright test clickthrough.spec.ts --reporter=list --workers=2
       - name: Exposure and privilege checks
         run: |
           set -x
