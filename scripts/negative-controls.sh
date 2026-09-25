@@ -45,8 +45,8 @@ control "idle and absolute session expiry" internal/panel/auth.go \
   'if false && (!now.Before(sess.ExpiresAt) || now.Sub(sess.LastSeen) >= s.opts.IdleTimeout) {' \
   ./internal/panel '^TestSessionIdleAndAbsoluteExpiry$'
 control "per-address sign-in and setup rate limit" internal/panel/server.go \
-  'if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); !ok {' \
-  'if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); false && !ok {' \
+  'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); !ok {' \
+  'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); false && !ok {' \
   ./internal/panel '^TestSignInAndSetupAreRateLimitedPerAddress$'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
@@ -433,6 +433,84 @@ control "names client follows no redirects" internal/names/client.go \
   'CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },' \
   'CheckRedirect: nil,' \
   ./internal/names '^TestRedirectsAreNotFollowed$'
+
+# Wave 2: two-factor sign-in.
+control "a pending sign-in is not a session" internal/panel/auth.go \
+  'FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ?`, tokenHash(token)).' \
+  'FROM (SELECT id_hash, user_id, csrf, created_at, last_seen, expires_at FROM sessions UNION ALL SELECT id_hash, user_id, id_hash, created_at, created_at, expires_at FROM pending_logins) s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ?`, tokenHash(token)).' \
+  ./internal/panel '^TestPendingSignInIsNeverASession$'
+control "a correct password alone starts no session" internal/panel/twofactor.go \
+  'INSERT INTO pending_logins(id_hash, user_id, created_at, expires_at) VALUES(?,?,?,?)`,' \
+  'INSERT INTO sessions(id_hash, user_id, created_at, expires_at, csrf, last_seen) SELECT column1, column2, column3, column4, column1, column3 FROM (VALUES(?,?,?,?))`,' \
+  ./internal/panel '^TestPendingSignInIsNeverASession$'
+control "the second step waits for the code when two-factor sign-in is on" internal/panel/server.go \
+  '} else if started {' \
+  '} else if false && started {' \
+  ./internal/panel '^TestPendingSignInIsNeverASession$'
+control "one password may try only so many codes" internal/panel/twofactor.go \
+  'WHERE id_hash = ? AND attempts < ?`, idHash, pendingAttempts)' \
+  'WHERE id_hash = ? AND ? > 0`, idHash, pendingAttempts)' \
+  ./internal/panel '^TestOnePasswordBuysTenCodes$'
+control "the second step spends the per-address budget" internal/panel/twofactor.go \
+  'if !s.rateLimitIP(w, r) {' \
+  'if false && !s.rateLimitIP(w, r) {' \
+  ./internal/panel '^TestSecondStepIsRateLimitedPerAddress$'
+control "every second-factor code is counted under concurrency" internal/panel/twofactor.go \
+  'conn.ExecContext(ctx, `BEGIN IMMEDIATE' \
+  'conn.ExecContext(ctx, `BEGIN' \
+  ./internal/panel '^TestConcurrentWrongCodesAreAllCounted$'
+control "the sign-in limit counts IPv6 by /64" internal/panel/server.go \
+  'if p, err := a.Prefix(64); err == nil {' \
+  'if p, err := a.Prefix(128); err == nil {' \
+  ./internal/panel '^TestSignInLimiterCountsIPv6By64$'
+control "wrong recovery codes never lock app codes" internal/twofactor/twofactor.go \
+  'f.RecoveryFailures++' \
+  'f.Failures++' \
+  ./internal/twofactor '^TestWrongRecoveryCodesNeverLockAppCodes$'
+control "wrong recovery codes are stored" internal/panel/twofactor.go \
+  'next.Failures, next.RecoveryFailures, nullMS(next.LockedUntil), next.Revision}' \
+  'next.Failures, 0, nullMS(next.LockedUntil), next.Revision}' \
+  ./internal/panel '^TestWrongRecoveryCodesAreCountedWithoutLockingAppCodes$'
+control "an unfinished setup shows only to the session that started it" internal/panel/twofactor.go \
+  'if f.On() || setupSession == idHash {' \
+  'if true || f.On() || setupSession == idHash {' \
+  ./internal/panel '^TestAnUnfinishedSetupBelongsToTheSessionThatStartedIt$'
+control "only the session that started a setup cancels it" internal/panel/twofactor.go \
+  'confirmed_at IS NULL AND setup_session = ?`, sess.User.ID, sess.IDHash)' \
+  'confirmed_at IS NULL AND length(?) > 0`, sess.User.ID, sess.IDHash)' \
+  ./internal/panel '^TestAnUnfinishedSetupBelongsToTheSessionThatStartedIt$'
+control "an app code works once" internal/twofactor/twofactor.go \
+  'f.LastStep = step' \
+  '_ = step' \
+  ./internal/twofactor '^TestSignInWithAnAppCodeOnce$'
+control "wrong app codes lock app codes" internal/twofactor/twofactor.go \
+  'case f.Failures >= LockAfter:' \
+  'case false && f.Failures >= LockAfter:' \
+  ./internal/twofactor '^TestWrongCodesLockAppCodesForLongerEachTime$'
+control "turning two-factor sign-in on needs the password" internal/twofactor/twofactor.go \
+  'return f, Setup{}, &Error{Kind: KindPasswordWrong}' \
+  '_ = f' \
+  ./internal/twofactor '^TestTurningOnShowsTheSecretOnlyUntilConfirmed$'
+control "turning two-factor sign-in off needs a code" internal/twofactor/twofactor.go \
+  'if next, _, err := f.check(code, now); err != nil {' \
+  'if next, _, err := f.check(code, now); false && err != nil {' \
+  ./internal/twofactor '^TestTurningOffNeedsThePasswordAndACode$'
+control "turning two-factor sign-in on signs out other sessions" internal/panel/twofactor.go \
+  'DELETE FROM sessions WHERE user_id = ? AND id_hash != ?`, sess.User.ID, sess.IDHash)' \
+  'DELETE FROM sessions WHERE 0 AND user_id = ? AND id_hash != ?`, sess.User.ID, sess.IDHash)' \
+  ./internal/panel '^TestTwoFactorSignInNeedsACodeAfterThePassword$'
+control "resetting two-factor sign-in signs out every session" internal/panel/twofactor.go \
+  's.deleteUserSessions(u.ID)' \
+  '_ = u.ID' \
+  ./internal/panel '^TestResetTwoFactorFromTheCommandLine$'
+control "signing out everywhere ends pending sign-ins" internal/panel/auth.go \
+  'DELETE FROM pending_logins WHERE user_id = ?`, userID)' \
+  'DELETE FROM pending_logins WHERE 0 AND user_id = ?`, userID)' \
+  ./internal/panel '^TestSecondStepExpiresAndCanBeCancelled$'
+control "a password change ends pending sign-ins" internal/panel/server.go \
+  'DELETE FROM pending_logins WHERE user_id = ?`, sess.User.ID)' \
+  'DELETE FROM pending_logins WHERE 0 AND user_id = ?`, sess.User.ID)' \
+  ./internal/panel '^TestSecondStepExpiresAndCanBeCancelled$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
