@@ -36,7 +36,7 @@ export function PackPage({ token }: { token: string }) {
       return (
         <PackFrame center>
           <Pip pose="sleep" size={112} />
-          <h1 className="mt-4 text-2xl font-bold tracking-[-0.01em]">{t('packPage.goneTitle')}</h1>
+          <h1 className="mt-4 text-[27px] leading-9 font-bold tracking-[-0.02em] max-sm:text-2xl">{t('packPage.goneTitle')}</h1>
           <p className="mt-2 text-[15px] text-muted-foreground">{t('packPage.goneBody')}</p>
         </PackFrame>
       )
@@ -44,7 +44,7 @@ export function PackPage({ token }: { token: string }) {
       return (
         <PackFrame center>
           <Pip pose="hurt" size={112} />
-          <h1 className="mt-4 text-2xl font-bold tracking-[-0.01em]">{t('packPage.busyTitle')}</h1>
+          <h1 className="mt-4 text-[27px] leading-9 font-bold tracking-[-0.02em] max-sm:text-2xl">{t('packPage.busyTitle')}</h1>
           <p className="mt-2 text-[15px] text-muted-foreground">{t('packPage.busyBody')}</p>
           <Button variant="outline" className="mt-5" onClick={retry}>
             {t('common.tryAgain')}
@@ -62,7 +62,7 @@ function PackFrame({ header, center, children }: { header?: ReactNode; center?: 
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
       {header}
-      <main className={cn('flex w-full flex-1 flex-col px-6 max-sm:px-4', center ? 'items-center justify-center pb-16 text-center' : 'pb-12')}>{children}</main>
+      <main className={cn('flex w-full flex-1 flex-col px-6 max-sm:px-4', center ? 'items-center justify-center pt-16 text-center' : 'pb-12')}>{children}</main>
       <footer className="flex shrink-0 items-center justify-between gap-6 px-8 py-5 text-[11px] text-muted-foreground max-sm:flex-col max-sm:gap-1 max-sm:px-6 max-sm:pb-6 max-sm:text-center">
         <span className="inline-flex items-center gap-2 text-xs font-medium text-foreground/80">
           <BrandMark size={16} />
