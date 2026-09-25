@@ -10,6 +10,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
+import { inSettings, settingsHome } from '@/lib/access'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -207,7 +208,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
       <div className="flex flex-col gap-0.5 pt-2">
         <GetStartedCard route={route} className="mb-2" />
         <UpdateRow />
-        <SideItem to={{ name: 'settings' }} active={route.name === 'settings'} icon={<SettingsIcon />}>
+        <SideItem to={settingsHome(ws.me)} active={inSettings(route)} icon={<SettingsIcon />}>
           {t('nav.settings')}
         </SideItem>
         <UserRow />
@@ -261,9 +262,10 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const inServer = route.name === 'server' || (route.name === 'more' && !!phoneServer)
+  const underMore = route.name === 'more' || (inSettings(route) && route.name !== 'settings')
+  const inServer = route.name === 'server' || (underMore && !!phoneServer)
   const slug = route.name === 'server' ? route.slug : phoneServer?.slug
-  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : route.name === 'more' ? 'more' : undefined
+  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : underMore ? 'more' : undefined
   const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">

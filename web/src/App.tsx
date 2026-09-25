@@ -147,7 +147,9 @@ function page(route: Route) {
     case 'machine':
       return <MachinePage id={route.id} />
     case 'settings':
-      return <GlobalSettingsPage />
+      return <GlobalSettingsPage section="general" />
+    case 'ai-agents':
+      return <GlobalSettingsPage section="ai-agents" />
     case 'more':
       return <MorePage />
     default: {

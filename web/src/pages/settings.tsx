@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { CircleArrowUpIcon, ExternalLinkIcon, LogOutIcon, RefreshCwIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { AuditEntry, UpdateInfo } from '@/api/types'
@@ -10,12 +10,79 @@ import { UpdateDialog, useUpdateInfo } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can, settingsHome, settingsSections } from '@/lib/access'
 import { formatDateTime, relativeTime } from '@/lib/format'
+import { linkProps, navigate, type Route } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { AiAgentsSection } from './ai-agents'
 import { PasswordField } from './onboarding'
 
-export function GlobalSettingsPage() {
+export type SettingsPage = 'general' | 'ai-agents'
+
+/** Settings: the account page, or a section. */
+export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
+  switch (section) {
+    case 'general':
+      return <AccountSettings />
+    case 'ai-agents':
+      return (
+        <SettingsSection current="ai-agents">
+          <AiAgentsSection />
+        </SettingsSection>
+      )
+    default: {
+      const unreachable: never = section
+      return unreachable
+    }
+  }
+}
+
+/** A Settings section: the sections list beside it on desktop, a back link on phones (to More, where the sections are listed). */
+function SettingsSection({ current, phoneBack, children }: { current: 'ai-agents'; phoneBack?: { to: Route; label: string }; children: ReactNode }) {
+  const ws = useWorkspace()
+  const phone = useIsPhone()
+  const sections = settingsSections.filter((s) => can(ws.me, s.act))
+  const here = sections.find((s) => s.route.name === current)
+  useEffect(() => {
+    if (!here) navigate(settingsHome(ws.me), true)
+  }, [here, ws.me])
+  if (!here) return null
+  if (phone) {
+    return (
+      <>
+        <PhoneBackHeader to={phoneBack?.to ?? { name: 'more' }} label={phoneBack?.label ?? t('global.title')} title={phoneBack ? undefined : t(here.label)} />
+        <div className="flex flex-col gap-4 pt-2 pb-6">{children}</div>
+      </>
+    )
+  }
+  return (
+    <>
+      <PageHeader title={t('global.title')} />
+      <PageBody className="grid max-w-[1240px] grid-cols-[200px_minmax(0,1fr)] items-start gap-7">
+        <nav aria-label={t('global.nav.label')} className="flex flex-col gap-0.5">
+          {sections.map((s) => (
+            <a
+              key={s.route.name}
+              {...linkProps(s.route)}
+              aria-current={s === here ? 'page' : undefined}
+              className={cn(
+                'flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+                s === here && 'bg-muted text-foreground',
+              )}
+            >
+              {t(s.label)}
+            </a>
+          ))}
+        </nav>
+        <div className="flex min-w-0 flex-col gap-5">{children}</div>
+      </PageBody>
+    </>
+  )
+}
+
+/** Your account, Playkeeper itself and the audit log. */
+function AccountSettings() {
   const phone = useIsPhone()
   const hash = window.location.hash
   useEffect(() => {

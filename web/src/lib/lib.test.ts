@@ -5,12 +5,13 @@ import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
-import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
+import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatWhen, joinAddress, relativeTime } from './format'
 import { memorySegments } from './memory'
 import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
 import { href, parse, type Route } from './router'
 import { newerStable, softwareLabel } from './servers'
 import { memoryForStyle } from './styles'
+import { agentPhrase, elideSecret, mcpAddress, mcpSnippet, runsOutText, tokenExpired, tokenServersText } from './tokens'
 import { upgradeTargets } from './versions'
 
 function server(over: Partial<ServerStatus> = {}): ServerStatus {
@@ -48,10 +49,12 @@ describe('router', () => {
       { name: 'server', slug: 'my-world-2', tab: 'players' },
       { name: 'machine', id: 'm2345abcde' },
       { name: 'settings' },
+      { name: 'ai-agents' },
       { name: 'more' },
       { name: 'welcome' },
     ]
     for (const r of routes) expect(parse(href(r))).toEqual(r)
+    expect(parse('/settings/ai-agents/extra')).toEqual({ name: 'settings' })
   })
 
   it('keeps 0.2.0 links working and sends unknown paths home', () => {
@@ -166,6 +169,60 @@ describe('formatting', () => {
     expect(joinAddress('198.51.100.10', 25565)).toBe('198.51.100.10')
     expect(joinAddress('198.51.100.10', 25567)).toBe('198.51.100.10:25567')
     expect(joinAddress('2001:db8::1', 25566)).toBe('[2001:db8::1]:25566')
+  })
+
+  it('gives a recent row the time today, yesterday, or its date', () => {
+    const now = new Date(2026, 8, 25, 20, 0)
+    const today = new Date(2026, 8, 25, 18, 2).toISOString()
+    const earlier = new Date(2026, 8, 12, 9, 30).toISOString()
+    expect(formatWhen(today, now)).toBe(formatClock(today))
+    expect(formatWhen(new Date(2026, 8, 24, 23, 59).toISOString(), now)).toBe('yesterday')
+    expect(formatWhen(earlier, now)).toBe(formatDate(earlier))
+  })
+})
+
+describe('AI agents', () => {
+  it('connects agents to the dashboard’s name when it has one', () => {
+    expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }, { kind: 'name', address: 'alex.playkeeper.io:8443' }], 'https://203.0.113.10:8443')).toBe('https://alex.playkeeper.io:8443/mcp')
+    expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }], 'https://203.0.113.10:8443')).toBe('https://203.0.113.10:8443/mcp')
+    expect(mcpAddress(undefined, 'https://localhost:8448')).toBe('https://localhost:8448/mcp')
+  })
+
+  it('writes MCP settings an AI tool can read, and shows the secret cut short', () => {
+    const secret = 'pk_mcp_abcdefghijklmnopqrstuvwxyz'
+    const snippet = mcpSnippet('https://alex.playkeeper.io:8443/mcp', secret)
+    expect(JSON.parse(snippet)).toEqual({ mcpServers: { playkeeper: { url: 'https://alex.playkeeper.io:8443/mcp', headers: { Authorization: `Bearer ${secret}` } } } })
+    expect(elideSecret(secret)).toBe('pk_mcp_abcd…')
+    expect(elideSecret('pk_mcp_ab')).toBe('pk_mcp_ab')
+  })
+
+  it('names a token’s servers, counting ones since deleted', () => {
+    const servers = [
+      { id: 'a', name: 'Survival' },
+      { id: 'b', name: 'Creative' },
+    ]
+    expect(tokenServersText({ allServers: true, servers: [] }, servers)).toBe('All servers')
+    expect(tokenServersText({ allServers: false, servers: ['a'] }, servers)).toBe('Survival')
+    expect(tokenServersText({ allServers: false, servers: ['a', 'b'] }, servers)).toBe('Survival and Creative')
+    expect(tokenServersText({ allServers: false, servers: ['a', 'gone'] }, servers)).toBe('2 servers')
+  })
+
+  it('says when a token runs out', () => {
+    const now = Date.parse('2026-09-25T12:00:00Z')
+    expect(runsOutText('2026-11-22T13:00:00Z', now)).toBe('in 58 days')
+    expect(runsOutText('2026-09-26T13:00:00Z', now)).toBe('in 1 day')
+    expect(runsOutText('2026-09-25T20:00:00Z', now)).toBe('today')
+    expect(runsOutText('2026-09-25T12:00:00Z', now)).toBe('Ran out')
+    expect(tokenExpired({ expiresAt: '2026-09-25T12:00:00Z' }, now)).toBe(true)
+    expect(tokenExpired({ expiresAt: '2026-09-25T12:00:01Z' }, now)).toBe(false)
+  })
+
+  it('says what an agent did in words, even with a tool it doesn’t know', () => {
+    expect(agentPhrase({ tool: 'create_backup', serverName: 'Survival' })).toBe('made a backup of Survival')
+    expect(agentPhrase({ tool: 'list_online_players', serverName: 'Survival' })).toBe('checked who’s online on Survival')
+    expect(agentPhrase({ tool: 'future_tool', serverName: 'Survival' })).toBe('used future_tool on Survival')
+    expect(agentPhrase({ tool: 'future_tool' })).toBe('used future_tool')
+    expect(agentPhrase({ tool: 'toString', serverName: 'Survival' })).toBe('used toString on Survival')
   })
 })
 

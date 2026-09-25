@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { BotIcon, ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -54,7 +54,7 @@ function Group({ label, children }: { label?: string; children: ReactNode }) {
   )
 }
 
-/** The phone's More tab: updates, this server's settings, every server, and you. */
+/** The phone's More tab: updates, this server's settings, every server, the dashboard's settings, and you. */
 export function MorePage() {
   const ws = useWorkspace()
   const phone = useIsPhone()
@@ -108,6 +108,11 @@ export function MorePage() {
         )}
         <li>
           <Row icon={<PlusIcon />} title={t('nav.newServer')} to={{ name: 'new-server' }} />
+        </li>
+      </Group>
+      <Group label={t('global.title')}>
+        <li>
+          <Row icon={<BotIcon />} title={t('global.nav.aiAgents')} hint={t('more.aiAgentsHint')} to={{ name: 'ai-agents' }} />
         </li>
       </Group>
       <Group label={t('more.you')}>

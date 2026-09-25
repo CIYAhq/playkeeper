@@ -21,6 +21,7 @@ import {
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
+import { settingsHome } from '@/lib/access'
 import { joinAddress } from '@/lib/format'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
@@ -122,7 +123,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
       const id = ws.machine.id
       go.push({ value: 'go:machine', label: t('cmd.pageMachine', { machine: ws.machineName }), icon: <ServerIcon />, run: () => navigate({ name: 'machine', id }) })
     }
-    go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate({ name: 'settings' }) })
+    go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate(settingsHome(ws.me)) })
     const help: PaletteItem[] = [
       { value: 'help:backups', label: t('cmd.docBackups'), hint: t('cmd.docBackupsHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('cmd.docBackupsUrl'), '_blank', 'noreferrer') },
       { value: 'help:readme', label: t('cmd.docReadme'), hint: t('cmd.docReadmeHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('nav.helpUrl'), '_blank', 'noreferrer') },
@@ -133,7 +134,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
       { value: 'go', label: t('cmd.goTo'), items: go },
       { value: 'help', label: t('cmd.help'), items: help },
     ].filter((g) => g.items.length > 0)
-  }, [current, servers, serversOnly, tab, ws.agentDown, ws.machine, ws.machineName])
+  }, [current, servers, serversOnly, tab, ws.agentDown, ws.machine, ws.machineName, ws.me])
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>

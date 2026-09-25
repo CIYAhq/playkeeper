@@ -15,6 +15,8 @@ export type Route =
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
+  // Wave 8: AI agents, and the machines beyond the dashboard's own.
+  | { name: 'ai-agents' }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 
@@ -31,6 +33,7 @@ export function parse(pathname: string): Route {
     case 'welcome':
       return { name: 'welcome' }
     case 'settings':
+      if (second === 'ai-agents' && !third) return { name: 'ai-agents' }
       return { name: 'settings' }
     case 'more':
       return { name: 'more' }
@@ -74,6 +77,8 @@ export function href(route: Route): string {
       return '/more'
     case 'legacy':
       return `/${route.tab}`
+    case 'ai-agents':
+      return '/settings/ai-agents'
     default: {
       const unreachable: never = route
       return unreachable
