@@ -336,6 +336,14 @@ control "the jar is hashed only up to a size no Paper jar reaches" internal/agen
   'const maxJarBytes = 256 << 20' \
   'const maxJarBytes = 1 << 62' \
   ./internal/agent '^TestAHugeSparseJarDoesNotHoldUpTheStart$'
+control "a backup reads the level name without following a link or waiting on a pipe" internal/backup/archive.go \
+  'b, err := readProperties(dataDir)' \
+  'b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
+  ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "a restored world is given to the game without following links" internal/agent/backups.go \
+  'if d.Type()&fs.ModeSymlink != 0 {' \
+  'if false {' \
+  ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
