@@ -113,6 +113,19 @@ describe('second sign-in step', () => {
     expect(text()).not.toContain('That code didn’t work')
   })
 
+  it('starts the new code after a wrong one even when it begins with the digit already in the box', async () => {
+    await secondStep()
+    vi.mocked(client.post).mockRejectedValueOnce(refusal(401, 'code_wrong'))
+    await type(box(0), '482913')
+    box(0).focus()
+    await act(async () => {
+      box(0).dispatchEvent(new KeyboardEvent('keydown', { key: '4', bubbles: true, cancelable: true }))
+    })
+    expect(boxes().map((b) => b.value)).toEqual(['4', '', '', '', '', ''])
+    expect(document.activeElement).toBe(box(1))
+    expect(text()).not.toContain('That code didn’t work')
+  })
+
   it('pauses app codes with a countdown while a recovery code still works', async () => {
     const onDone = await secondStep()
     vi.mocked(client.post).mockRejectedValueOnce(refusal(429, 'app_codes_locked', 120))

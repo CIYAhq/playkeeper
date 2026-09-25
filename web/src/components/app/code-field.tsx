@@ -53,6 +53,10 @@ export function CodeField({
     const had = value[i]
     // A box that already held a digit gets both when the caret sat beside it.
     const digits = had && typed.length === 2 ? (typed[0] === had ? typed.slice(1) : typed.slice(0, 1)) : typed
+    enter(i, digits)
+  }
+
+  function enter(i: number, digits: string) {
     if (invalid || digits.length >= length) {
       const code = digits.slice(-length)
       set(code, code.length, true)
@@ -81,6 +85,13 @@ export function CodeField({
         e.preventDefault()
         focus(Math.min(i + 1, value.length))
         break
+      default:
+        // A box selects its digit on focus, and typing that same digit over
+        // it leaves the value as it was, so no change event would come.
+        if (/^[0-9]$/.test(e.key) && e.key === value[i] && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault()
+          enter(i, e.key)
+        }
     }
   }
 
