@@ -109,7 +109,7 @@ test('keyboard: restore preview and typed confirmation are reachable', async ({ 
   await expect(apply).toBeDisabled()
   await page.keyboard.type('replace world')
   await expect(apply).toBeEnabled()
-  await shot(page, `${prefix}-restore-preview-desktop`)
+  await shot(page, `${prefix}-restore-preview-desktop`, { fullPage: false })
   await tabTo(page, dialog.getByRole('button', { name: 'Cancel' }))
   await page.keyboard.press('Enter')
   await expect(dialog).toBeHidden()

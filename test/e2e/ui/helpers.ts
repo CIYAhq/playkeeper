@@ -6,9 +6,14 @@ export const shotsDir = process.env.PK_SHOTS ?? path.resolve('out/screenshots')
 export const outDir = process.env.PK_OUT ?? path.resolve('out')
 export const password = process.env.PK_PASSWORD ?? ''
 
-export async function shot(page: Page, name: string) {
+/**
+ * Saves a screenshot. Chromium's full-page capture briefly takes focus from
+ * the page, so a screenshot of an open dialog that keyboard steps follow
+ * uses `fullPage: false`.
+ */
+export async function shot(page: Page, name: string, { fullPage = true } = {}) {
   fs.mkdirSync(shotsDir, { recursive: true })
-  await page.screenshot({ path: path.join(shotsDir, `${name}.png`), fullPage: true })
+  await page.screenshot({ path: path.join(shotsDir, `${name}.png`), fullPage })
 }
 
 /** Presses Tab until `target` has focus, like a keyboard-only user. */
