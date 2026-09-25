@@ -45,7 +45,7 @@ func TestPackHandler(t *testing.T) {
 		return got == sum
 	})
 	path := PackPath(sum)
-	if path != "/packs/"+sum+".zip" {
+	if path != "/resource-packs/"+sum+".zip" {
 		t.Errorf("PackPath = %q", path)
 	}
 
@@ -100,10 +100,11 @@ func TestPackHandler(t *testing.T) {
 
 	other := strings.Repeat("ab", 20)
 	for _, target := range []string{
-		"/", "/packs", "/packs/", "/packs/" + sum, "/packs/" + sum + ".zip/", "/packs/" + sum + ".ZIP",
-		"/packs/" + strings.ToUpper(sum) + ".zip", "/packs/" + sum + ".zip.zip", "/packs//" + sum + ".zip",
-		"/packs/../packs/" + sum + ".zip", "/packs/%2e%2e/" + sum + ".zip", "/" + sum + ".zip",
-		"/packs/x/" + sum + ".zip", "/packs/" + sum[:39] + ".zip", "/packs/" + other + ".zip",
+		"/", "/resource-packs", "/resource-packs/", "/resource-packs/" + sum, "/resource-packs/" + sum + ".zip/", "/resource-packs/" + sum + ".ZIP",
+		"/resource-packs/" + strings.ToUpper(sum) + ".zip", "/resource-packs/" + sum + ".zip.zip", "/resource-packs//" + sum + ".zip",
+		"/resource-packs/../resource-packs/" + sum + ".zip", "/resource-packs/%2e%2e/" + sum + ".zip", "/" + sum + ".zip",
+		"/resource-packs/x/" + sum + ".zip", "/resource-packs/" + sum[:39] + ".zip", "/resource-packs/" + other + ".zip",
+		"/packs/" + sum + ".zip",
 	} {
 		if w := serve(h, http.MethodGet, target, nil); w.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", target, w.Code)
@@ -152,7 +153,7 @@ func TestPlainHandler(t *testing.T) {
 		return w
 	}
 
-	for _, target := range []string{PackPath(testSum), "/packs/anything"} {
+	for _, target := range []string{PackPath(testSum), "/resource-packs/anything"} {
 		if w := request(http.MethodGet, target, "mc.example.com:8443", local); w.Code != http.StatusOK || w.Header().Get("X-Packs") != "yes" || w.Body.String() != target {
 			t.Errorf("GET %s = %d %q, want it passed to the pack handler", target, w.Code, w.Body)
 		}
@@ -171,7 +172,7 @@ func TestPlainHandler(t *testing.T) {
 		{http.MethodGet, "/", "[2001:db8::1]:8443", nil, "https://[2001:db8::1]:8443/"},
 		{http.MethodGet, "/", "[2001:db8::1]", local, "https://[2001:db8::1]:8443/"},
 		{http.MethodGet, "/", "Game_1.example:8443", nil, "https://Game_1.example:8443/"},
-		{http.MethodGet, "/packs", "mc.example.com:8443", nil, "https://mc.example.com:8443/packs"},
+		{http.MethodGet, "/resource-packs", "mc.example.com:8443", nil, "https://mc.example.com:8443/resource-packs"},
 		{http.MethodGet, "//evil.example/x", "mc.example.com:8443", nil, "https://mc.example.com:8443//evil.example/x"},
 		{http.MethodPost, "/api/login", "mc.example.com:8443", nil, "https://mc.example.com:8443/api/login"},
 	} {

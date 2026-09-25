@@ -8,12 +8,16 @@ import (
 	"strings"
 )
 
+// PathPrefix is where the panel serves resource packs. `/packs/` is the
+// public modpack page for friends, so resource packs stay out of it.
+const PathPrefix = "/resource-packs/"
+
 // PackPath is the URL path at which NewHandler serves the pack whose SHA-1
 // hash is sum.
-func PackPath(sum string) string { return "/packs/" + sum + ".zip" }
+func PackPath(sum string) string { return PathPrefix + sum + ".zip" }
 
 func parsePackPath(p string) (string, bool) {
-	sum, ok := strings.CutPrefix(p, "/packs/")
+	sum, ok := strings.CutPrefix(p, PathPrefix)
 	if !ok {
 		return "", false
 	}
@@ -64,7 +68,7 @@ func (h packHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // HTTPS.
 func NewPlainHandler(packs http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/packs/") {
+		if strings.HasPrefix(r.URL.Path, PathPrefix) {
 			packs.ServeHTTP(w, r)
 			return
 		}

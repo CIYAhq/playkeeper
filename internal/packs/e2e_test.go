@@ -74,7 +74,7 @@ func TestOnePort(t *testing.T) {
 	}
 	split := portshare.Split(ln, portshare.Options{PeekTimeout: time.Minute})
 	mux := http.NewServeMux()
-	mux.Handle("/packs/", packs)
+	mux.Handle("/resource-packs/", packs)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "panel") })
 	quiet := log.New(io.Discard, "", 0)
 	secure := &http.Server{

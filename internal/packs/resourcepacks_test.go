@@ -115,7 +115,7 @@ func TestStore(t *testing.T) {
 }
 
 func TestOfferSettings(t *testing.T) {
-	url := "https://mc.example.com:8443/packs/" + testSum + ".zip"
+	url := "https://mc.example.com:8443/resource-packs/" + testSum + ".zip"
 	got, err := Offer{URL: url, SHA1: testSum, Required: true, Prompt: `Accept "our" pack <3 & enjoy — żółw`}.Settings()
 	if err != nil {
 		t.Fatal(err)
@@ -135,14 +135,14 @@ func TestOfferSettings(t *testing.T) {
 		t.Errorf("the prompt reads back as %q, %v", prompt, err)
 	}
 
-	got, err = Offer{URL: "http://203.0.113.7:8443/packs/" + testSum + ".zip", SHA1: testSum}.Settings()
+	got, err = Offer{URL: "http://203.0.113.7:8443/resource-packs/" + testSum + ".zip", SHA1: testSum}.Settings()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got[2].Value != "false" || got[3].Value != "" {
 		t.Errorf("an optional pack without a prompt = %q", got)
 	}
-	if b, err := json.Marshal(got[0]); err != nil || string(b) != `{"property":"resource-pack","env":"RESOURCE_PACK","value":"http://203.0.113.7:8443/packs/`+testSum+`.zip"}` {
+	if b, err := json.Marshal(got[0]); err != nil || string(b) != `{"property":"resource-pack","env":"RESOURCE_PACK","value":"http://203.0.113.7:8443/resource-packs/`+testSum+`.zip"}` {
 		t.Errorf("Setting JSON = %s, %v", b, err)
 	}
 
@@ -158,13 +158,13 @@ func TestOfferSettings(t *testing.T) {
 }
 
 func TestOfferRefusals(t *testing.T) {
-	good := "https://mc.example.com/packs/" + testSum + ".zip"
+	good := "https://mc.example.com/resource-packs/" + testSum + ".zip"
 	long := "https://mc.example.com/" + strings.Repeat("a", maxURLBytes-len("https://mc.example.com/"))
 	if _, err := (Offer{URL: long, SHA1: testSum}).Settings(); err != nil {
 		t.Errorf("a URL of %d bytes: %v", len(long), err)
 	}
 	for _, url := range []string{
-		"", "/packs/" + testSum + ".zip", "mc.example.com/pack.zip", "ftp://mc.example.com/pack.zip",
+		"", "/resource-packs/" + testSum + ".zip", "mc.example.com/pack.zip", "ftp://mc.example.com/pack.zip",
 		"javascript:alert(1)", "https:mc.example.com/pack.zip", "https:///pack.zip",
 		"https://user:secret@mc.example.com/pack.zip",
 		"https://mc.example.com/%RCON_PASSWORD%.zip", "https://mc.example.com/%env:CF_API_KEY%.zip",
@@ -231,7 +231,7 @@ func TestResourcePackID(t *testing.T) {
 }
 
 func TestPackURL(t *testing.T) {
-	path := "/packs/" + testSum + ".zip"
+	path := "/resource-packs/" + testSum + ".zip"
 	for _, tc := range []struct {
 		origin Origin
 		want   string
@@ -268,7 +268,7 @@ func TestPackURL(t *testing.T) {
 		"mc.example.com:8443": "malformed", "-mc.example.com": "malformed", "mc-.example.com": "malformed",
 		"mc_1.example.com": "malformed", "mc..example.com": "malformed", "127.1": "malformed",
 		"1.2.3.4.5": "malformed", "0x7f.1": "malformed", "żółw.example": "malformed",
-		"https://mc.example.com": "malformed", "mc.example.com/packs": "malformed",
+		"https://mc.example.com": "malformed", "mc.example.com/resource-packs": "malformed",
 		strings.Repeat("a", 64) + ".com": "malformed", strings.Repeat("a.", 126) + "com": "malformed",
 	} {
 		_, err := Origin{Host: host, Port: 8443}.PackURL(testSum)
