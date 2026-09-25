@@ -4,7 +4,7 @@ package api
 
 import "time"
 
-// Phase is the user-visible lifecycle phase of the single Minecraft server.
+// Phase is the user-visible lifecycle phase of a Minecraft server.
 type Phase string
 
 const (
@@ -26,7 +26,21 @@ const (
 	DesiredStopped = "stopped"
 )
 
+// Games and server types. A server's game decides its tabs and settings; its
+// type decides which software runs it (see internal/minecraft/types.go).
+const (
+	GameMinecraftJava = "minecraft-java"
+	TypePaper         = "paper"
+)
+
+// ServerStatus is one server's identity, desired and observed state.
 type ServerStatus struct {
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Slug            string          `json:"slug"`
+	Game            string          `json:"game"`
+	Type            string          `json:"type"`
+	CreatedAt       time.Time       `json:"createdAt"`
 	Exists          bool            `json:"exists"`
 	Desired         string          `json:"desired"`
 	Phase           Phase           `json:"phase"`
@@ -34,9 +48,11 @@ type ServerStatus struct {
 	Reachable       bool            `json:"reachable"`
 	ReachableAt     *time.Time      `json:"reachableAt,omitempty"`
 	StartedAt       *time.Time      `json:"startedAt,omitempty"`
+	StoppedAt       *time.Time      `json:"stoppedAt,omitempty"`
 	ExitCode        *int            `json:"exitCode,omitempty"`
 	Players         *PlayerSnapshot `json:"players,omitempty"`
 	Config          *ServerConfig   `json:"config,omitempty"`
+	Gameplay        Gameplay        `json:"gameplay"`
 	GamePort        int             `json:"gamePort"`
 	LastError       string          `json:"lastError,omitempty"`
 	LastErrorHint   string          `json:"lastErrorHint,omitempty"`
@@ -45,15 +61,64 @@ type ServerStatus struct {
 	LastOperation   *Operation      `json:"lastOperation,omitempty"`
 	CrashCount      int             `json:"crashCount"`
 	Resources       *Resources      `json:"resources,omitempty"`
-	DiskWarning     *PreflightCheck `json:"diskWarning,omitempty"`
 	LastBackup      *Backup         `json:"lastBackup,omitempty"`
 	PendingRestart  bool            `json:"pendingRestart"`
-	AgentVersion    string          `json:"agentVersion"`
 	CollectingSince *time.Time      `json:"collectingSince,omitempty"`
+	FirstSteps      FirstSteps      `json:"firstSteps"`
+}
+
+// FirstSteps is what the "Get started" checklist ticks off for a server.
+type FirstSteps struct {
+	// Invited is a name on the allowlist, if anyone is on it.
+	Invited string `json:"invited,omitempty"`
+	// FriendJoined is the first player seen joining, and when.
+	FriendJoined   string     `json:"friendJoined,omitempty"`
+	FriendJoinedAt *time.Time `json:"friendJoinedAt,omitempty"`
+	BackedUp       bool       `json:"backedUp"`
+	Downloaded     bool       `json:"downloaded"`
+}
+
+// Gameplay holds the plain-language game settings. Empty fields leave the
+// server's own value (server.properties) alone; in a status they are filled
+// with the value in effect.
+type Gameplay struct {
+	Difficulty   string `json:"difficulty,omitempty"` // peaceful | easy | normal | hard
+	PVP          *bool  `json:"pvp,omitempty"`
+	GameMode     string `json:"gameMode,omitempty"` // survival | creative | adventure | spectator
+	Hardcore     *bool  `json:"hardcore,omitempty"`
+	ViewDistance int    `json:"viewDistance,omitempty"` // chunks
+	LevelType    string `json:"levelType,omitempty"`    // normal | flat | amplified | large_biomes; chosen at creation
+}
+
+// Machine is the computer an agent runs on and what its servers use of it.
+type Machine struct {
+	Hostname string `json:"hostname"`
+	OS       string `json:"os"`
+	Arch     string `json:"arch"`
+	CPUs     int    `json:"cpus"`
+	// CPUPercent is the whole machine's CPU use (100% = every core busy).
+	CPUPercent    *float64 `json:"cpuPercent,omitempty"`
+	MemoryTotalMB int      `json:"memoryTotalMB"`
+	// SystemReserveMB is kept for the system and Playkeeper; ServersMemoryMB
+	// is reserved by the servers' budgets, running or not.
+	SystemReserveMB int             `json:"systemReserveMB"`
+	ServersMemoryMB int             `json:"serversMemoryMB"`
+	MemoryFreeMB    int             `json:"memoryFreeMB"`
+	DiskFreeBytes   *int64          `json:"diskFreeBytes,omitempty"`
+	DiskTotalBytes  *int64          `json:"diskTotalBytes,omitempty"`
+	DiskWarning     *PreflightCheck `json:"diskWarning,omitempty"`
+	Docker          bool            `json:"docker"`
+	DockerVersion   string          `json:"dockerVersion,omitempty"`
+	AgentVersion    string          `json:"agentVersion"`
+	DefaultGamePort int             `json:"defaultGamePort"`
+	OfflineModeTest bool            `json:"offlineModeTest"`
+	// Operation is a machine-wide operation in progress (a Playkeeper update).
+	Operation *Operation `json:"operation,omitempty"`
 	// UpdateAvailable is a newer, signed Playkeeper release, if the last
 	// check found one; UpdateInstalling the release being installed.
 	UpdateAvailable  string `json:"updateAvailable,omitempty"`
 	UpdateInstalling string `json:"updateInstalling,omitempty"`
+	Servers          int    `json:"servers"`
 }
 
 // UpdateInfo is what Playkeeper knows about its own updates.
@@ -98,7 +163,10 @@ type UpdateApplyRequest struct {
 type VersionChangeRequest struct {
 	VersionID          string `json:"versionId"`
 	AcceptExperimental bool   `json:"acceptExperimental"`
-	Actor              string `json:"actor"`
+	// WarnPlayers says in chat that the server updates in a minute, and
+	// waits that minute, when players are online.
+	WarnPlayers bool   `json:"warnPlayers,omitempty"`
+	Actor       string `json:"actor"`
 }
 
 type PlayerSnapshot struct {
@@ -119,6 +187,9 @@ type Resources struct {
 }
 
 type ServerConfig struct {
+	// Type is the server software (empty means paper, for servers made
+	// before 0.3.0). PaperBuild is Paper's build of MinecraftVersion.
+	Type             string `json:"type,omitempty"`
 	VersionID        string `json:"versionId"`
 	MinecraftVersion string `json:"minecraftVersion"`
 	PaperBuild       int    `json:"paperBuild"`
@@ -139,24 +210,77 @@ type ServerConfig struct {
 	EULAAcceptedBy string     `json:"eulaAcceptedBy"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	Image          string     `json:"image"`
+	// PlayStyle is the preset the server was created with (friends,
+	// creative, hardcore or solo), shown next to its name.
+	PlayStyle string `json:"playStyle,omitempty"`
+	// Gameplay holds the settings chosen in Playkeeper; unset ones stay as
+	// the server has them.
+	Gameplay Gameplay `json:"gameplay,omitzero"`
+	// IconUpdatedAt is when the server-list icon was last changed.
+	IconUpdatedAt *time.Time `json:"iconUpdatedAt,omitempty"`
 }
 
 type CreateServerRequest struct {
+	// Name is what Playkeeper calls the server; empty picks "My server".
+	Name       string `json:"name,omitempty"`
+	Type       string `json:"type,omitempty"`
 	AcceptEULA bool   `json:"acceptEula"`
 	VersionID  string `json:"versionId"`
 	// AcceptExperimental confirms an experimental (alpha or beta) version.
-	AcceptExperimental bool   `json:"acceptExperimental,omitempty"`
-	MemoryMB           int    `json:"memoryMB"`
-	MOTD               string `json:"motd"`
-	MaxPlayers         int    `json:"maxPlayers"`
-	Actor              string `json:"actor"`
+	AcceptExperimental bool      `json:"acceptExperimental,omitempty"`
+	MemoryMB           int       `json:"memoryMB"`
+	MOTD               string    `json:"motd"`
+	MaxPlayers         int       `json:"maxPlayers"`
+	PlayStyle          string    `json:"playStyle,omitempty"`
+	Gameplay           *Gameplay `json:"gameplay,omitempty"`
+	Actor              string    `json:"actor"`
 }
 
 type SettingsRequest struct {
-	MemoryMB   *int    `json:"memoryMB,omitempty"`
-	MOTD       *string `json:"motd,omitempty"`
-	MaxPlayers *int    `json:"maxPlayers,omitempty"`
-	Actor      string  `json:"actor"`
+	Name       *string   `json:"name,omitempty"`
+	MemoryMB   *int      `json:"memoryMB,omitempty"`
+	MOTD       *string   `json:"motd,omitempty"`
+	MaxPlayers *int      `json:"maxPlayers,omitempty"`
+	Gameplay   *Gameplay `json:"gameplay,omitempty"`
+	// Restart restarts a running server right away so the changes apply.
+	Restart bool   `json:"restart,omitempty"`
+	Actor   string `json:"actor"`
+}
+
+// SettingsResponse is the server after a settings change, and the restart
+// that applies it if one was asked for.
+type SettingsResponse struct {
+	Server    ServerStatus `json:"server"`
+	Operation *Operation   `json:"operation,omitempty"`
+}
+
+// DeleteServerRequest deletes a server's container and world; Confirm must
+// be the server's name. Its backups are kept.
+type DeleteServerRequest struct {
+	Confirm string `json:"confirm"`
+	Actor   string `json:"actor"`
+}
+
+type OperatorEntry struct {
+	Name  string `json:"name"`
+	UUID  string `json:"uuid,omitempty"`
+	Level int    `json:"level"`
+}
+
+type PlayerRequest struct {
+	Name  string `json:"name"`
+	Actor string `json:"actor"`
+}
+
+// Activity is one line of a server's (or every server's) recent activity,
+// from the event log and the audit log.
+type Activity struct {
+	TS       time.Time `json:"ts"`
+	ServerID string    `json:"serverId,omitempty"`
+	Kind     string    `json:"kind"`
+	Player   string    `json:"player,omitempty"`
+	Actor    string    `json:"actor,omitempty"`
+	Detail   string    `json:"detail,omitempty"`
 }
 
 type ActionRequest struct {
@@ -164,7 +288,10 @@ type ActionRequest struct {
 }
 
 type Operation struct {
-	ID         string         `json:"id"`
+	ID string `json:"id"`
+	// ServerID is the server the operation works on; empty for a
+	// machine-wide operation such as a Playkeeper update.
+	ServerID   string         `json:"serverId,omitempty"`
 	Kind       string         `json:"kind"`
 	Status     string         `json:"status"`
 	Phase      string         `json:"phase"`
@@ -199,15 +326,40 @@ type CatalogEntry struct {
 	Supported bool `json:"supported"`
 }
 
+// ServerType is one kind of server software and whether it can be chosen yet.
+type ServerType struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
+}
+
+// ServerMemory is one server's share of the machine's memory.
+type ServerMemory struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	MemoryMB int    `json:"memoryMB"`
+	Running  bool   `json:"running"`
+}
+
+// Catalog is what a new server (or a server's settings) can choose from.
+// Memory options leave room for the system and every other server.
 type Catalog struct {
+	Type     string         `json:"type"`
+	Types    []ServerType   `json:"types"`
 	Versions []CatalogEntry `json:"versions"`
 	// VersionsError says why the version list could not be loaded from PaperMC.
-	VersionsError       string `json:"versionsError,omitempty"`
-	MemoryOptionsMB     []int  `json:"memoryOptionsMB"`
-	RecommendedMemoryMB int    `json:"recommendedMemoryMB"`
-	HostMemoryMB        int    `json:"hostMemoryMB"`
-	MaxMemoryMB         int    `json:"maxMemoryMB"`
-	Image               string `json:"image"`
+	VersionsError string `json:"versionsError,omitempty"`
+	// VersionsCheckedAt is when the version list was fetched from PaperMC.
+	VersionsCheckedAt   *time.Time     `json:"versionsCheckedAt,omitempty"`
+	MemoryOptionsMB     []int          `json:"memoryOptionsMB"`
+	RecommendedMemoryMB int            `json:"recommendedMemoryMB"`
+	HostMemoryMB        int            `json:"hostMemoryMB"`
+	MaxMemoryMB         int            `json:"maxMemoryMB"`
+	SystemReserveMB     int            `json:"systemReserveMB"`
+	MemoryFreeMB        int            `json:"memoryFreeMB"`
+	Servers             []ServerMemory `json:"servers"`
+	SuggestedPort       int            `json:"suggestedPort,omitempty"`
+	Image               string         `json:"image"`
 }
 
 type PreflightCheck struct {
@@ -347,6 +499,7 @@ type Event struct {
 
 type Backup struct {
 	ID               string     `json:"id"`
+	ServerID         string     `json:"serverId"`
 	Kind             string     `json:"kind"` // manual | rollback
 	CreatedAt        time.Time  `json:"createdAt"`
 	FileName         string     `json:"fileName"`
@@ -390,7 +543,10 @@ type CurrentWorld struct {
 }
 
 type RestorePreview struct {
-	ID                 string           `json:"id"`
+	ID string `json:"id"`
+	// ServerID is the server whose world is replaced; empty when the
+	// restore creates a new server.
+	ServerID           string           `json:"serverId,omitempty"`
 	Source             string           `json:"source"` // upload | backup:<id>
 	ReceivedAt         time.Time        `json:"receivedAt"`
 	SizeBytes          int64            `json:"sizeBytes"`
@@ -410,21 +566,24 @@ type RestorePreview struct {
 
 type RestoreApplyRequest struct {
 	Confirm string `json:"confirm"`
-	// AcceptEULA is required when this host has no server yet.
+	// AcceptEULA is required when the restore creates a new server.
 	AcceptEULA bool `json:"acceptEula"`
 	// MemoryMB overrides the backup's memory budget (must fit this host).
-	MemoryMB int    `json:"memoryMB,omitempty"`
-	Actor    string `json:"actor"`
+	MemoryMB int `json:"memoryMB,omitempty"`
+	// Name names the new server a restore creates.
+	Name  string `json:"name,omitempty"`
+	Actor string `json:"actor"`
 }
 
 type AuditEntry struct {
-	ID     int64     `json:"id"`
-	TS     time.Time `json:"ts"`
-	Actor  string    `json:"actor"`
-	Action string    `json:"action"`
-	Target string    `json:"target,omitempty"`
-	Result string    `json:"result"`
-	Detail string    `json:"detail,omitempty"`
+	ID       int64     `json:"id"`
+	ServerID string    `json:"serverId,omitempty"`
+	TS       time.Time `json:"ts"`
+	Actor    string    `json:"actor"`
+	Action   string    `json:"action"`
+	Target   string    `json:"target,omitempty"`
+	Result   string    `json:"result"`
+	Detail   string    `json:"detail,omitempty"`
 }
 
 type Health struct {

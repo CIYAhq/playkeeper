@@ -22,40 +22,41 @@ type logCursor struct {
 	TS        time.Time `json:"ts"`
 }
 
-func (a *Agent) loadCursor() logCursor {
+func (s *server) loadCursor() logCursor {
 	var c logCursor
-	if v, ok, _ := a.kvGet(kvLogCursor); ok {
+	var v string
+	if s.db.QueryRow(`SELECT log_cursor FROM servers WHERE id = ?`, s.id).Scan(&v) == nil && v != "" {
 		_ = json.Unmarshal([]byte(v), &c)
 	}
 	return c
 }
 
-func (a *Agent) saveCursor(c logCursor) {
+func (s *server) saveCursor(c logCursor) {
 	b, _ := json.Marshal(c)
-	_ = a.kvSet(kvLogCursor, string(b))
+	_, _ = s.db.Exec(`UPDATE servers SET log_cursor = ? WHERE id = ?`, string(b), s.id)
 }
 
 // followLoop tails the container log with Docker timestamps. The persisted
 // cursor plus per-line de-duplication means an agent restart replays missed
 // lines (events recorded with their true time) without double counting.
-func (a *Agent) followLoop(ctx context.Context) {
+func (s *server) followLoop(ctx context.Context) {
 	prefilled := false
 	var attached time.Time
 	for ctx.Err() == nil {
-		c, err := a.docker.ContainerInspect(ctx, containerName)
+		c, err := s.docker.ContainerInspect(ctx, s.containerName())
 		if err != nil {
 			sleepCtx(ctx, 2*time.Second)
 			continue
 		}
 		if !prefilled {
-			a.prefillConsole(ctx, c.ID)
+			s.prefillConsole(ctx, c.ID)
 			prefilled = true
 		}
 		runStart, _ := c.State.Started()
-		a.attachRun(c, runStart)
+		s.attachRun(c, runStart)
 		fin, _ := c.State.Finished()
-		live := c.State.Running || fin.After(a.started)
-		cur := a.loadCursor()
+		live := c.State.Running || fin.After(s.started)
+		cur := s.loadCursor()
 		since := time.Time{}
 		if cur.Container == c.ID {
 			since = cur.TS
@@ -68,7 +69,7 @@ func (a *Agent) followLoop(ctx context.Context) {
 			}
 			attached = runStart
 		}
-		scanner, err := a.docker.ContainerLogs(ctx, c.ID, docker.LogsOptions{Follow: true, Since: since})
+		scanner, err := s.docker.ContainerLogs(ctx, c.ID, docker.LogsOptions{Follow: true, Since: since})
 		if err != nil {
 			sleepCtx(ctx, 2*time.Second)
 			continue
@@ -81,21 +82,21 @@ func (a *Agent) followLoop(ctx context.Context) {
 			if err != nil {
 				break
 			}
-			a.ingest(c.ID, l, runStart, live)
+			s.ingest(c.ID, l, runStart, live)
 			if l.TS.After(last.TS) {
 				last.TS = l.TS
 			}
 			if time.Since(lastSave) > time.Second {
-				a.saveCursor(last)
+				s.saveCursor(last)
 				lastSave = time.Now()
 			}
 		}
 		scanner.Close()
-		a.saveCursor(last)
-		if c2, err := a.docker.ContainerInspect(ctx, c.ID); err == nil && !c2.State.Running {
-			a.mu.Lock()
-			a.followEnded[c.ID] = a.now()
-			a.mu.Unlock()
+		s.saveCursor(last)
+		if c2, err := s.docker.ContainerInspect(ctx, c.ID); err == nil && !c2.State.Running {
+			s.mu.Lock()
+			s.followEnded[c.ID] = s.now()
+			s.mu.Unlock()
 			sleepCtx(ctx, 2*time.Second)
 		} else {
 			sleepCtx(ctx, 300*time.Millisecond)
@@ -114,8 +115,8 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 
 // prefillConsole shows recent output after an agent restart. These lines are
 // display-only; event ingestion is driven by the cursor.
-func (a *Agent) prefillConsole(ctx context.Context, id string) {
-	sc, err := a.docker.ContainerLogs(ctx, id, docker.LogsOptions{Tail: "300"})
+func (s *server) prefillConsole(ctx context.Context, id string) {
+	sc, err := s.docker.ContainerLogs(ctx, id, docker.LogsOptions{Tail: "300"})
 	if err != nil {
 		return
 	}
@@ -125,21 +126,21 @@ func (a *Agent) prefillConsole(ctx context.Context, id string) {
 		if err != nil {
 			return
 		}
-		a.console.append(l.TS, minecraft.CleanLine(l.Text))
+		s.console.append(l.TS, minecraft.CleanLine(l.Text))
 	}
 }
 
 // attachRun resets per-run state when the follower sees a new container start.
-func (a *Agent) attachRun(c docker.ContainerJSON, runStart time.Time) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if runStart.Equal(a.runStartedAt) {
+func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if runStart.Equal(s.runStartedAt) {
 		return
 	}
-	a.runStartedAt = runStart
-	a.sawStopping = false
-	if c.State.Running && a.runPhase != api.PhaseStartingContainer {
-		a.runPhase = api.PhaseStartingContainer
+	s.runStartedAt = runStart
+	s.sawStopping = false
+	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
+		s.runPhase = api.PhaseStartingContainer
 	}
 }
 
@@ -150,14 +151,14 @@ func dedupKey(container string, l docker.LogLine) string {
 
 // ingest records a log line's events. live tells whether the run the follower
 // attached to was still going when the agent started.
-func (a *Agent) ingest(container string, l docker.LogLine, runStart time.Time, live bool) {
+func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, live bool) {
 	ts := l.TS
 	if ts.IsZero() {
-		ts = a.now()
+		ts = s.now()
 	}
 	text := minecraft.CleanLine(l.Text)
-	if ts.After(a.console.lastTS()) {
-		a.console.append(ts, text)
+	if ts.After(s.console.lastTS()) {
+		s.console.append(ts, text)
 	}
 	p := minecraft.Parse(text)
 	if p.Kind == minecraft.EventNone {
@@ -166,95 +167,95 @@ func (a *Agent) ingest(container string, l docker.LogLine, runStart time.Time, l
 	// Only the current run's lines change the live phase and errors. The run
 	// the follower replays after a host reboot or an agent restart ended
 	// before the agent started: its lines are recorded, but they are history.
-	current := !ts.Before(runStart) && (live || !ts.Before(a.started))
+	current := !ts.Before(runStart) && (live || !ts.Before(s.started))
 	key := dedupKey(container, l)
 	switch p.Kind {
 	case minecraft.EventUUID:
-		a.mu.Lock()
-		a.uuids[p.Player] = p.UUID
-		a.mu.Unlock()
+		s.mu.Lock()
+		s.uuids[p.Player] = p.UUID
+		s.mu.Unlock()
 	case minecraft.EventJoin:
-		a.mu.Lock()
-		uuid := a.uuids[p.Player]
-		a.mu.Unlock()
-		if a.insertEvent(ts, "join", p.Player, uuid, "server_log", "", key) {
-			a.openSession(ts, p.Player, uuid, "server_log", false)
+		s.mu.Lock()
+		uuid := s.uuids[p.Player]
+		s.mu.Unlock()
+		if s.insertEvent(ts, "join", p.Player, uuid, "server_log", "", key) {
+			s.openSession(ts, p.Player, uuid, "server_log", false)
 		}
 	case minecraft.EventLeave:
-		if a.insertEvent(ts, "leave", p.Player, "", "server_log", "", key) {
-			a.closeSession(ts, p.Player, "left", false)
+		if s.insertEvent(ts, "leave", p.Player, "", "server_log", "", key) {
+			s.closeSession(ts, p.Player, "left", false)
 		}
 	case minecraft.EventReady:
-		a.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
+		s.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
 		if current {
-			a.mu.Lock()
-			a.runPhase = api.PhaseOnline
-			a.crashed = false
-			a.lastError, a.lastErrorHint = "", ""
-			a.mu.Unlock()
+			s.mu.Lock()
+			s.runPhase = api.PhaseOnline
+			s.crashed = false
+			s.lastError, s.lastErrorHint = "", ""
+			s.mu.Unlock()
 		}
 	case minecraft.EventStopping:
-		a.insertEvent(ts, "server_stopping", "", "", "server_log", "", key)
+		s.insertEvent(ts, "server_stopping", "", "", "server_log", "", key)
 		if current {
-			a.mu.Lock()
-			a.runPhase = api.PhaseStopping
-			a.sawStopping = true
-			a.mu.Unlock()
+			s.mu.Lock()
+			s.runPhase = api.PhaseStopping
+			s.sawStopping = true
+			s.mu.Unlock()
 		}
 	case minecraft.EventDownloading, minecraft.EventStarting, minecraft.EventPreparing:
 		if current {
-			a.mu.Lock()
-			if a.runPhase != api.PhaseOnline && a.runPhase != api.PhaseStopping {
+			s.mu.Lock()
+			if s.runPhase != api.PhaseOnline && s.runPhase != api.PhaseStopping {
 				// Downloads happen in the setup-only container; in the server
 				// container the image only re-checks files it already has.
-				a.runPhase = map[minecraft.EventKind]api.Phase{
+				s.runPhase = map[minecraft.EventKind]api.Phase{
 					minecraft.EventDownloading: api.PhaseStarting,
 					minecraft.EventStarting:    api.PhaseStarting,
 					minecraft.EventPreparing:   api.PhasePreparingWorld,
 				}[p.Kind]
-				a.runPhaseDetail = p.Detail
+				s.runPhaseDetail = p.Detail
 			}
-			a.mu.Unlock()
+			s.mu.Unlock()
 		}
 	case minecraft.EventInitError:
 		if current {
-			a.mu.Lock()
-			a.lastError = "The server could not download or install its software: " + p.Detail
-			a.lastErrorHint = "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."
-			a.mu.Unlock()
+			s.mu.Lock()
+			s.lastError = "The server could not download or install its software: " + p.Detail
+			s.lastErrorHint = "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."
+			s.mu.Unlock()
 		}
 	case minecraft.EventOOM:
 		if current {
-			a.mu.Lock()
-			a.lastError = "Java ran out of memory."
-			a.lastErrorHint = "Choose a larger memory budget in Settings."
-			a.mu.Unlock()
+			s.mu.Lock()
+			s.lastError = "Java ran out of memory."
+			s.lastErrorHint = "Choose a larger memory budget in Settings."
+			s.mu.Unlock()
 		}
 	case minecraft.EventBindFailed:
 		if current {
-			a.mu.Lock()
-			a.lastError = "The server could not open its network port."
-			a.lastErrorHint = "Another program may be using the port; see Settings for the port in use."
-			a.mu.Unlock()
+			s.mu.Lock()
+			s.lastError = "The server could not open its network port."
+			s.lastErrorHint = "Another program may be using the port; see Settings for the port in use."
+			s.mu.Unlock()
 		}
 	}
 }
 
 // insertEvent stores an event once; it returns false for duplicates.
-func (a *Agent) insertEvent(ts time.Time, kind, player, uuid, source, detail, key string) bool {
-	res, err := a.db.Exec(`INSERT OR IGNORE INTO events(ts, kind, player, uuid, source, detail, dedup_key, ingested_at) VALUES(?,?,?,?,?,?,?,?)`,
-		ts.UnixMilli(), kind, nullStr(player), nullStr(uuid), source, detail, key, a.now().UnixMilli())
+func (s *server) insertEvent(ts time.Time, kind, player, uuid, source, detail, key string) bool {
+	res, err := s.db.Exec(`INSERT OR IGNORE INTO events(server_id, ts, kind, player, uuid, source, detail, dedup_key, ingested_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		s.id, ts.UnixMilli(), kind, nullStr(player), nullStr(uuid), source, detail, key, s.now().UnixMilli())
 	if err != nil {
-		a.log.Error("event insert failed", "err", err)
+		s.log.Error("event insert failed", "err", err)
 		return false
 	}
 	n, _ := res.RowsAffected()
 	return n == 1
 }
 
-func (a *Agent) recordEvent(ts time.Time, kind, player, source, detail string) {
-	key := sha256.Sum256([]byte(kind + "\x00" + player + "\x00" + ts.UTC().Format(time.RFC3339Nano) + "\x00" + detail))
-	a.insertEvent(ts, kind, player, "", source, detail, hex.EncodeToString(key[:16]))
+func (s *server) recordEvent(ts time.Time, kind, player, source, detail string) {
+	key := sha256.Sum256([]byte(s.id + "\x00" + kind + "\x00" + player + "\x00" + ts.UTC().Format(time.RFC3339Nano) + "\x00" + detail))
+	s.insertEvent(ts, kind, player, "", source, detail, hex.EncodeToString(key[:16]))
 }
 
 func nullStr(s string) any {
@@ -264,43 +265,43 @@ func nullStr(s string) any {
 	return s
 }
 
-func (a *Agent) openSession(ts time.Time, player, uuid, source string, startUncertain bool) {
-	tx, err := a.db.Begin()
+func (s *server) openSession(ts time.Time, player, uuid, source string, startUncertain bool) {
+	tx, err := s.db.Begin()
 	if err != nil {
 		return
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`UPDATE sessions SET end_ts = ?, end_reason = 'rejoined_without_leave', end_uncertain = 1
-		WHERE player = ? AND end_ts IS NULL AND start_ts <= ?`, ts.UnixMilli(), player, ts.UnixMilli()); err != nil {
+		WHERE server_id = ? AND player = ? AND end_ts IS NULL AND start_ts <= ?`, ts.UnixMilli(), s.id, player, ts.UnixMilli()); err != nil {
 		return
 	}
-	if _, err := tx.Exec(`INSERT INTO sessions(player, uuid, start_ts, start_uncertain, source) VALUES(?,?,?,?,?)`,
-		player, nullStr(uuid), ts.UnixMilli(), boolInt(startUncertain), source); err != nil {
+	if _, err := tx.Exec(`INSERT INTO sessions(server_id, player, uuid, start_ts, start_uncertain, source) VALUES(?,?,?,?,?,?)`,
+		s.id, player, nullStr(uuid), ts.UnixMilli(), boolInt(startUncertain), source); err != nil {
 		return
 	}
 	_ = tx.Commit()
 }
 
-func (a *Agent) closeSession(ts time.Time, player, reason string, uncertain bool) {
-	_, err := a.db.Exec(`UPDATE sessions SET end_ts = ?, end_reason = ?, end_uncertain = ?
-		WHERE player = ? AND end_ts IS NULL AND start_ts <= ?`, ts.UnixMilli(), reason, boolInt(uncertain), player, ts.UnixMilli())
+func (s *server) closeSession(ts time.Time, player, reason string, uncertain bool) {
+	_, err := s.db.Exec(`UPDATE sessions SET end_ts = ?, end_reason = ?, end_uncertain = ?
+		WHERE server_id = ? AND player = ? AND end_ts IS NULL AND start_ts <= ?`, ts.UnixMilli(), reason, boolInt(uncertain), s.id, player, ts.UnixMilli())
 	if err != nil {
-		a.log.Error("close session", "err", err)
+		s.log.Error("close session", "err", err)
 	}
 }
 
 // closeOpenSessions ends every open session at ts. uncertain marks sessions
 // whose players left no leave event (for example, the server crashed).
-func (a *Agent) closeOpenSessions(ts time.Time, reason string, uncertain bool) {
-	_, err := a.db.Exec(`UPDATE sessions SET end_ts = ?, end_reason = ?, end_uncertain = ?
-		WHERE end_ts IS NULL AND start_ts <= ?`, ts.UnixMilli(), reason, boolInt(uncertain), ts.UnixMilli())
+func (s *server) closeOpenSessions(ts time.Time, reason string, uncertain bool) {
+	_, err := s.db.Exec(`UPDATE sessions SET end_ts = ?, end_reason = ?, end_uncertain = ?
+		WHERE server_id = ? AND end_ts IS NULL AND start_ts <= ?`, ts.UnixMilli(), reason, boolInt(uncertain), s.id, ts.UnixMilli())
 	if err != nil {
-		a.log.Error("close open sessions", "err", err)
+		s.log.Error("close open sessions", "err", err)
 	}
 }
 
-func (a *Agent) openSessionPlayers() map[string]bool {
-	rows, err := a.db.Query(`SELECT player FROM sessions WHERE end_ts IS NULL`)
+func (s *server) openSessionPlayers() map[string]bool {
+	rows, err := s.db.Query(`SELECT player FROM sessions WHERE server_id = ? AND end_ts IS NULL`, s.id)
 	if err != nil {
 		return nil
 	}
@@ -325,51 +326,51 @@ func boolInt(b bool) int {
 // reconcileWithList cross-checks sessions against an authoritative `list`
 // snapshot. A mismatch must persist across two samples before Playkeeper
 // opens or closes a session, and such sessions are flagged uncertain.
-func (a *Agent) reconcileWithList(ts time.Time, names []string) {
+func (s *server) reconcileWithList(ts time.Time, names []string) {
 	online := map[string]bool{}
 	for _, n := range names {
 		online[n] = true
 	}
-	open := a.openSessionPlayers()
-	a.mu.Lock()
+	open := s.openSessionPlayers()
+	s.mu.Lock()
 	var toOpen []string
 	var toClose []string
 	for n := range online {
 		if open[n] {
-			delete(a.listExtra, n)
+			delete(s.listExtra, n)
 			continue
 		}
-		a.listExtra[n]++
-		if a.listExtra[n] >= 2 {
+		s.listExtra[n]++
+		if s.listExtra[n] >= 2 {
 			toOpen = append(toOpen, n)
-			delete(a.listExtra, n)
+			delete(s.listExtra, n)
 		}
 	}
 	for n := range open {
 		if online[n] {
-			delete(a.listMissing, n)
+			delete(s.listMissing, n)
 			continue
 		}
-		a.listMissing[n]++
-		if a.listMissing[n] >= 2 {
+		s.listMissing[n]++
+		if s.listMissing[n] >= 2 {
 			toClose = append(toClose, n)
-			delete(a.listMissing, n)
+			delete(s.listMissing, n)
 		}
 	}
-	a.mu.Unlock()
+	s.mu.Unlock()
 	for _, n := range toOpen {
-		a.openSession(ts, n, "", "player_list", true)
+		s.openSession(ts, n, "", "player_list", true)
 	}
 	for _, n := range toClose {
-		a.closeSession(ts, n, "not_in_player_list", true)
+		s.closeSession(ts, n, "not_in_player_list", true)
 	}
 }
 
-func (a *Agent) sampleLoop(ctx context.Context) {
-	t := time.NewTicker(a.opts.SampleInterval)
+func (s *server) sampleLoop(ctx context.Context) {
+	t := time.NewTicker(s.opts.SampleInterval)
 	defer t.Stop()
 	for {
-		a.sample(ctx)
+		s.sample(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -388,56 +389,56 @@ type sampleRow struct {
 	diskFree *int64
 }
 
-func (a *Agent) sample(ctx context.Context) {
-	now := a.now().UTC()
+func (s *server) sample(ctx context.Context) {
+	now := s.now().UTC()
 	row := sampleRow{}
 	res := &api.Resources{At: now}
-	if free, total, err := a.opts.DiskUsage(a.cfg.DataDir); err == nil {
+	if free, total, err := s.opts.DiskUsage(s.cfg.DataDir); err == nil {
 		row.diskFree = &free
 		res.DiskFreeBytes, res.DiskTotalBytes = &free, &total
 	}
-	sc, _ := a.serverConfig()
-	c, err := a.docker.ContainerInspect(ctx, containerName)
+	sc, _ := s.serverConfig()
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	var snap *api.PlayerSnapshot
 	reachable := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
-		a.setDockerOK(false)
+		s.setDockerOK(false)
 		row.state = "docker_unavailable"
 	case sc == nil:
-		a.setDockerOK(true)
+		s.setDockerOK(true)
 		row.state = "not_created"
 	case err != nil:
-		a.setDockerOK(true)
+		s.setDockerOK(true)
 		row.state = "stopped"
 	case c.State.Running:
-		a.setDockerOK(true)
-		if st, err := a.docker.ContainerStats(ctx, c.ID); err == nil {
-			a.mu.Lock()
-			row.cpu = cpuPercent(a.prevCPU, &st)
-			a.prevCPU = &st
-			a.mu.Unlock()
+		s.setDockerOK(true)
+		if st, err := s.docker.ContainerStats(ctx, c.ID); err == nil {
+			s.mu.Lock()
+			row.cpu = cpuPercent(s.prevCPU, &st)
+			s.prevCPU = &st
+			s.mu.Unlock()
 			used, limit := int64(st.MemoryUsed()), int64(st.MemoryStats.Limit)
 			row.mem, row.memLimit = &used, &limit
 			res.CPUPercent, res.MemBytes, res.MemLimitBytes = row.cpu, row.mem, row.memLimit
 		}
-		a.mu.Lock()
-		phase := a.runPhase
-		a.mu.Unlock()
-		pingAddr := a.opts.PingAddr
+		s.mu.Lock()
+		phase := s.runPhase
+		s.mu.Unlock()
+		pingAddr := s.opts.PingAddr
 		if pingAddr == "" {
-			pingAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(a.cfg.GamePort))
+			pingAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(s.gamePort))
 		}
 		if st, err := minecraft.Ping(pingAddr, 3*time.Second); err == nil {
 			reachable = true
 			snap = &api.PlayerSnapshot{Online: st.Online, Max: st.Max, Names: st.Sample, Source: "status ping", At: now}
 		}
 		if phase == api.PhaseOnline {
-			if out, err := a.rconCommand("list"); err == nil {
+			if out, err := s.rconCommand("list"); err == nil {
 				if on, max, names, ok := minecraft.ParseList(out); ok {
 					sort.Strings(names)
 					snap = &api.PlayerSnapshot{Online: on, Max: max, Names: names, Source: "rcon list", At: now}
-					a.reconcileWithList(now, names)
+					s.reconcileWithList(now, names)
 				}
 			}
 			row.state = "online"
@@ -448,35 +449,33 @@ func (a *Agent) sample(ctx context.Context) {
 			row.online, row.max = &snap.Online, &snap.Max
 		}
 	default:
-		a.setDockerOK(true)
-		a.mu.Lock()
-		if a.crashed {
+		s.setDockerOK(true)
+		s.mu.Lock()
+		if s.crashed {
 			row.state = "crashed"
 		} else {
 			row.state = "stopped"
 		}
-		a.prevCPU = nil
-		a.mu.Unlock()
+		s.prevCPU = nil
+		s.mu.Unlock()
 	}
 	if snap != nil && snap.Names == nil {
 		snap.Names = []string{}
 	}
-	a.mu.Lock()
-	a.resources = res
-	a.players = snap
-	a.reachable = reachable
+	s.mu.Lock()
+	s.resources = res
+	s.players = snap
+	s.reachable = reachable
 	if reachable {
-		a.reachableAt = now
+		s.reachableAt = now
 	}
-	a.mu.Unlock()
-	_, err = a.db.Exec(`INSERT OR REPLACE INTO samples(ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free) VALUES(?,?,?,?,?,?,?,?)`,
-		now.UnixMilli(), row.state, row.online, row.max, row.cpu, row.mem, row.memLimit, row.diskFree)
+	s.mu.Unlock()
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO samples(server_id, ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free) VALUES(?,?,?,?,?,?,?,?,?)`,
+		s.id, now.UnixMilli(), row.state, row.online, row.max, row.cpu, row.mem, row.memLimit, row.diskFree)
 	if err != nil {
-		a.log.Error("sample insert failed", "err", err)
+		s.log.Error("sample insert failed", "err", err)
 	}
-	if _, ok, _ := a.kvGet(kvCollectingSince); !ok {
-		_ = a.kvSet(kvCollectingSince, now.Format(time.RFC3339Nano))
-	}
+	s.setCollectingSince(now)
 }
 
 func cpuPercent(prev, cur *docker.Stats) *float64 {
@@ -501,21 +500,21 @@ func (a *Agent) setDockerOK(ok bool) {
 }
 
 // rconCommand sends one console command over the private Docker bridge.
-func (a *Agent) rconCommand(cmd string) (string, error) {
-	a.rconMu.Lock()
-	defer a.rconMu.Unlock()
+func (s *server) rconCommand(cmd string) (string, error) {
+	s.rconMu.Lock()
+	defer s.rconMu.Unlock()
 	for attempt := 0; attempt < 2; attempt++ {
-		if a.rcon == nil {
-			if err := a.dialRCON(); err != nil {
+		if s.rcon == nil {
+			if err := s.dialRCON(); err != nil {
 				return "", err
 			}
 		}
-		out, err := a.rcon.Command(cmd, 10*time.Second)
+		out, err := s.rcon.Command(cmd, 10*time.Second)
 		if err == nil {
 			return out, nil
 		}
-		a.rcon.Close()
-		a.rcon = nil
+		s.rcon.Close()
+		s.rcon = nil
 		if attempt == 1 {
 			return "", err
 		}
@@ -523,8 +522,8 @@ func (a *Agent) rconCommand(cmd string) (string, error) {
 	return "", errors.New("rcon unavailable")
 }
 
-func (a *Agent) dialRCON() error {
-	c, err := a.docker.ContainerInspect(a.ctx, containerName)
+func (s *server) dialRCON() error {
+	c, err := s.docker.ContainerInspect(s.ctx, s.containerName())
 	if err != nil {
 		return err
 	}
@@ -535,26 +534,26 @@ func (a *Agent) dialRCON() error {
 	if !ok || n.IPAddress == "" {
 		return errors.New("the server has no address on the Playkeeper network")
 	}
-	pass, err := a.rconPassword()
+	pass, err := s.rconPassword()
 	if err != nil {
 		return err
 	}
-	r, err := minecraft.DialRCON(a.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
+	r, err := minecraft.DialRCON(s.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
 	if err != nil {
 		return err
 	}
-	a.rcon = r
-	a.rconIP = n.IPAddress
+	s.rcon = r
+	s.rconIP = n.IPAddress
 	return nil
 }
 
-func (a *Agent) resetRCON() {
-	a.rconMu.Lock()
-	if a.rcon != nil {
-		a.rcon.Close()
-		a.rcon = nil
+func (s *server) resetRCON() {
+	s.rconMu.Lock()
+	if s.rcon != nil {
+		s.rcon.Close()
+		s.rcon = nil
 	}
-	a.rconMu.Unlock()
+	s.rconMu.Unlock()
 }
 
 // pruneLoop enforces retention for analytics, events, operations and audit.
@@ -583,7 +582,7 @@ func (a *Agent) prune() {
 		{`DELETE FROM sessions WHERE start_ts < ? AND end_ts IS NOT NULL`, []any{now.Add(-r.Events).UnixMilli()}},
 		{`DELETE FROM operations WHERE started_at < ? AND status != 'running'`, []any{now.Add(-r.Operations).UnixMilli()}},
 		{`DELETE FROM audit WHERE ts < ?`, []any{now.Add(-r.Audit).UnixMilli()}},
-		{`DELETE FROM samples WHERE ts NOT IN (SELECT ts FROM samples ORDER BY ts DESC LIMIT ?)`, []any{r.MaxSamples}},
+		{`DELETE FROM samples WHERE rowid NOT IN (SELECT rowid FROM samples ORDER BY ts DESC LIMIT ?)`, []any{r.MaxSamples}},
 		{`DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)`, []any{r.MaxEvents}},
 		{`DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT ?)`, []any{r.MaxAudit}},
 	}

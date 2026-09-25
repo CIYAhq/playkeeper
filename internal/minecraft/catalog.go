@@ -57,6 +57,30 @@ func MemoryOptions(hostMB int) (options []int, recommended, max int) {
 	return options, recommended, max
 }
 
+// MemoryOptionsFor returns the budgets one server may choose when the other
+// servers on the host have reservedMB reserved (their budgets stay reserved
+// while they are stopped, so they can always start), the suggested default
+// and the largest budget that fits.
+func MemoryOptionsFor(hostMB, reservedMB int) (options []int, recommended, max int) {
+	max = hostMB - HostReserveMB - reservedMB
+	all, rec, _ := MemoryOptions(hostMB)
+	for _, mb := range all {
+		if mb <= max {
+			options = append(options, mb)
+		}
+	}
+	if len(options) == 0 {
+		return nil, 0, max
+	}
+	recommended = options[0]
+	for _, mb := range options {
+		if mb <= rec {
+			recommended = mb
+		}
+	}
+	return options, recommended, max
+}
+
 // ValidBudget reports whether mb is an offered budget that fits the host.
 func ValidBudget(mb, hostMB int) bool {
 	opts, _, _ := MemoryOptions(hostMB)

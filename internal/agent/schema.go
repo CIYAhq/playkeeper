@@ -82,4 +82,48 @@ CREATE TABLE audit (
 );
 CREATE INDEX audit_ts ON audit(ts);
 `,
+	// 0.3.0: several servers. Rows made by 0.1.0 and 0.2.0 get an empty
+	// server_id here; migrateSingleServer assigns them to the migrated server.
+	`
+CREATE TABLE servers (
+  id               TEXT PRIMARY KEY,
+  name             TEXT NOT NULL,
+  slug             TEXT NOT NULL UNIQUE,
+  game             TEXT NOT NULL,
+  type             TEXT NOT NULL,
+  layout           TEXT NOT NULL,
+  game_port        INTEGER NOT NULL UNIQUE,
+  config           TEXT NOT NULL,
+  desired          TEXT NOT NULL DEFAULT 'stopped',
+  position         INTEGER NOT NULL DEFAULT 0,
+  created_at       INTEGER NOT NULL,
+  collecting_since INTEGER,
+  log_cursor       TEXT NOT NULL DEFAULT ''
+);
+ALTER TABLE operations ADD COLUMN server_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX operations_server ON operations(server_id, started_at);
+ALTER TABLE events ADD COLUMN server_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX events_server_ts ON events(server_id, ts);
+ALTER TABLE sessions ADD COLUMN server_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX sessions_server_start ON sessions(server_id, start_ts);
+ALTER TABLE backups ADD COLUMN server_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX backups_server ON backups(server_id, created_at);
+ALTER TABLE audit ADD COLUMN server_id TEXT NOT NULL DEFAULT '';
+CREATE TABLE samples_v2 (
+  server_id      TEXT NOT NULL DEFAULT '',
+  ts             INTEGER NOT NULL,
+  state          TEXT NOT NULL,
+  players_online INTEGER,
+  players_max    INTEGER,
+  cpu_pct        REAL,
+  mem_bytes      INTEGER,
+  mem_limit      INTEGER,
+  disk_free      INTEGER,
+  PRIMARY KEY (server_id, ts)
+);
+INSERT INTO samples_v2(server_id, ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free)
+  SELECT '', ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free FROM samples;
+DROP TABLE samples;
+ALTER TABLE samples_v2 RENAME TO samples;
+`,
 }

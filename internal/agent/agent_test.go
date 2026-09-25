@@ -49,7 +49,24 @@ type agentEnv struct {
 	// stagedVersion is what a downloaded binary reports.
 	updateKeys    []ed25519.PublicKey
 	stagedVersion string
+	// sid is the server most helpers act on: the one create made last.
+	sid string
+	// live is the running agent, for the fake RCON's password check.
+	live atomic.Pointer[Agent]
 }
+
+// srv is the current server's runtime handle.
+func (e *agentEnv) srv() *server {
+	e.t.Helper()
+	s := e.a.serverByID(e.sid)
+	if s == nil {
+		e.t.Fatalf("no server %q", e.sid)
+	}
+	return s
+}
+
+// sp is the agent path of the current server's route.
+func (e *agentEnv) sp(rest string) string { return "/v1/servers/" + e.sid + rest }
 
 func (e *agentEnv) binaryVersion(string) (string, error) {
 	if e.stagedVersion == "" {
@@ -80,8 +97,19 @@ func newAgentEnv(t *testing.T) *agentEnv {
 func (e *agentEnv) start() {
 	e.t.Helper()
 	if e.rcon == nil {
-		// The agent generates the RCON password on first start; the fake learns it lazily.
-		e.rcon = startFakeRCON(e.t, "")
+		// Each server generates its own RCON password; the fake accepts any of them.
+		e.rcon = startFakeRCON(e.t, func(pw string) bool {
+			a := e.live.Load()
+			if a == nil {
+				return false
+			}
+			for _, s := range a.serverList() {
+				if p, err := s.rconPassword(); err == nil && p == pw {
+					return true
+				}
+			}
+			return false
+		})
 		e.slp = startFakeSLP(e.t, e.rcon)
 	}
 	offset := e.clockOffset
@@ -100,21 +128,15 @@ func (e *agentEnv) start() {
 			return 50 << 30, 100 << 30, nil
 		},
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
-		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second,
+		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 	})
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	if err := a.ensureRCONSecret(); err != nil {
-		e.t.Fatal(err)
-	}
-	pw, _ := a.rconPassword()
-	e.rcon.mu.Lock()
-	e.rcon.password = pw
-	e.rcon.mu.Unlock()
-	a.Start()
 	e.a = a
+	e.live.Store(a)
+	a.Start()
 	e.ts = httptest.NewServer(a.HandlerForTest())
 	e.t.Cleanup(func() { e.stop() })
 }
@@ -127,6 +149,7 @@ func (e *agentEnv) stop() {
 		e.ts = nil
 	}
 	if e.a != nil {
+		e.live.Store(nil)
 		e.a.Close()
 		e.a = nil
 	}
@@ -157,7 +180,7 @@ func (e *agentEnv) call(method, path string, body any) (int, map[string]any) {
 
 func (e *agentEnv) status() api.ServerStatus {
 	e.t.Helper()
-	return e.a.Status(context.Background())
+	return e.srv().Status(context.Background())
 }
 
 func (e *agentEnv) waitOp(id string) *api.Operation {
@@ -188,12 +211,24 @@ func (e *agentEnv) waitFor(what string, cond func() bool) {
 	e.t.Fatalf("timed out waiting for %s", what)
 }
 
+// create makes a server with the defaults and waits until it is online; it
+// becomes the current server.
 func (e *agentEnv) create() {
 	e.t.Helper()
-	code, out := e.call("POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
+	e.createWith(map[string]any{})
+}
+
+func (e *agentEnv) createWith(extra map[string]any) {
+	e.t.Helper()
+	body := map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"}
+	for k, v := range extra {
+		body[k] = v
+	}
+	code, out := e.call("POST", "/v1/servers", body)
 	if code != 202 {
 		e.t.Fatalf("create: %d %v", code, out)
 	}
+	e.sid = out["serverId"].(string)
 	op := e.waitOp(out["id"].(string))
 	if op.Status != api.OpSucceeded {
 		e.t.Fatalf("create failed: %+v", op)
@@ -201,20 +236,72 @@ func (e *agentEnv) create() {
 	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
 }
 
+// startCreate asks for a server and returns its operation without waiting.
+func (e *agentEnv) startCreate(body map[string]any) (int, map[string]any) {
+	e.t.Helper()
+	full := map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"}
+	for k, v := range body {
+		full[k] = v
+	}
+	code, out := e.call("POST", "/v1/servers", full)
+	if id, ok := out["serverId"].(string); ok {
+		e.sid = id
+	}
+	return code, out
+}
+
 // waitExitRead waits until the log follower has read the stopped container to
 // its end.
 func (e *agentEnv) waitExitRead() {
 	e.t.Helper()
+	s := e.srv()
 	e.waitFor("the follower to reach the exit", func() bool {
-		c, err := e.a.docker.ContainerInspect(context.Background(), containerName)
+		c, err := e.a.docker.ContainerInspect(context.Background(), s.containerName())
 		fin, ok := c.State.Finished()
-		e.a.mu.Lock()
-		defer e.a.mu.Unlock()
-		return err == nil && ok && !c.State.Running && !e.a.followEnded[c.ID].Before(fin)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return err == nil && ok && !c.State.Running && !s.followEnded[c.ID].Before(fin)
 	})
 }
 
 func (e *agentEnv) onlineIdle() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() }
+
+// cname and dataDir are the current (v2) server's container name and world
+// directory; they work while the agent is stopped too.
+func (e *agentEnv) cname() string   { return containerPrefix + e.sid }
+func (e *agentEnv) dataDir() string { return filepath.Join(e.cfg.DataDir, "servers", e.sid, "data") }
+
+// addIdleServer records a stopped server without starting it, for tests that
+// need a server but no container; it becomes the current server.
+func (e *agentEnv) addIdleServer() string {
+	e.t.Helper()
+	sc := api.ServerConfig{Type: api.TypePaper, VersionID: "paper-26.1.2", MinecraftVersion: "26.1.2", PaperBuild: 74, MemoryMB: 1536, HeapMB: 1024, LevelName: "world", MOTD: defaultMOTD, MaxPlayers: 10, Whitelist: true}
+	s, err := e.a.addServer(newServerSpec{typ: api.TypePaper, config: sc, desired: api.DesiredStopped})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.sid = s.id
+	return s.id
+}
+
+func (e *agentEnv) setCollectingSince(v string) {
+	e.t.Helper()
+	t, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := e.a.db.Exec(`UPDATE servers SET collecting_since = ? WHERE id = ?`, t.UnixMilli(), e.sid); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// failConfigSaves makes every save of a server's settings fail, like a disk error.
+func (e *agentEnv) failConfigSaves() {
+	e.t.Helper()
+	if _, err := e.a.db.Exec(`CREATE TRIGGER fail_config BEFORE UPDATE OF config ON servers BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		e.t.Fatal(err)
+	}
+}
 
 func (e *agentEnv) crashEvents() int {
 	return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`)
@@ -234,51 +321,69 @@ func (e *agentEnv) countRows(q string, args ...any) int {
 
 func TestEULAGateRefusesAndDownloadsNothing(t *testing.T) {
 	e := newAgentEnv(t)
-	code, out := e.call("POST", "/v1/server", map[string]any{"acceptEula": false, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
+	code, out := e.call("POST", "/v1/servers", map[string]any{"acceptEula": false, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
 	if code != 400 || out["code"] != api.CodeEULARequired {
 		t.Fatalf("create without EULA: %d %v", code, out)
-	}
-	code, _ = e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
-	if code != 409 {
-		t.Fatalf("start before create/EULA: %d", code)
 	}
 	time.Sleep(200 * time.Millisecond)
 	if e.fd.pulls != 0 || e.fd.containerCount("") != 0 || e.fd.called("POST /images/create") != 0 || e.fd.called("POST /containers/create") != 0 {
 		t.Fatalf("EULA refusal still touched Docker: pulls=%d containers=%d calls=%v", e.fd.pulls, e.fd.containerCount(""), e.fd.calls)
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.ServerDataDir(), "eula.txt")); err == nil {
-		t.Fatal("eula.txt must not exist before acceptance")
+	if dirs, _ := os.ReadDir(filepath.Join(e.cfg.DataDir, "servers")); len(dirs) != 0 {
+		t.Fatalf("a refused create made server directories: %v", dirs)
 	}
-	if st := e.status(); st.Phase != api.PhaseNotCreated || st.Config != nil {
-		t.Fatalf("status after refusal: %+v", st)
+	if n := len(e.a.serverList()); n != 0 {
+		t.Fatalf("a refused create recorded %d server(s)", n)
 	}
 }
 
 func TestInvalidInputsAndUnknownVerbsAreRejected(t *testing.T) {
 	e := newAgentEnv(t)
+	e.addIdleServer()
+	create := func(extra map[string]any) map[string]any {
+		body := map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"}
+		for k, v := range extra {
+			body[k] = v
+		}
+		return body
+	}
 	bad := []struct {
 		name, method, path string
 		body               any
 		want               int
 	}{
-		{"negative RAM", "POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": -1, "actor": "admin"}, 400},
-		{"huge RAM", "POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 99999, "actor": "admin"}, 400},
-		{"off-list RAM", "POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1000, "actor": "admin"}, 400},
-		{"shell in version", "POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "latest; id", "memoryMB": 1536, "actor": "admin"}, 400},
-		{"latest version", "POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "latest", "memoryMB": 1536, "actor": "admin"}, 400},
-		{"extra argument", "POST", "/v1/server", `{"acceptEula":true,"versionId":"paper-26.1.2","memoryMB":1536,"actor":"admin","cmd":"rm -rf /"}`, 400},
-		{"trailing data", "POST", "/v1/server/start", `{"actor":"admin"} {"actor":"x"}`, 400},
-		{"missing actor", "POST", "/v1/server/start", map[string]any{}, 400},
-		{"control char MOTD", "POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "motd": "a\nb", "actor": "admin"}, 400},
-		{"rm verb", "POST", "/v1/server/rm", map[string]any{"actor": "admin"}, 404},
+		{"negative RAM", "POST", "/v1/servers", create(map[string]any{"memoryMB": -1}), 400},
+		{"huge RAM", "POST", "/v1/servers", create(map[string]any{"memoryMB": 99999}), 400},
+		{"off-list RAM", "POST", "/v1/servers", create(map[string]any{"memoryMB": 1000}), 400},
+		{"RAM the other server has", "POST", "/v1/servers", create(map[string]any{"memoryMB": 2048}), 400},
+		{"shell in version", "POST", "/v1/servers", create(map[string]any{"versionId": "latest; id"}), 400},
+		{"latest version", "POST", "/v1/servers", create(map[string]any{"versionId": "latest"}), 400},
+		{"extra argument", "POST", "/v1/servers", `{"acceptEula":true,"versionId":"paper-26.1.2","memoryMB":1536,"actor":"admin","cmd":"rm -rf /"}`, 400},
+		{"control char MOTD", "POST", "/v1/servers", create(map[string]any{"motd": "a\nb"}), 400},
+		{"control char name", "POST", "/v1/servers", create(map[string]any{"name": "a\nb"}), 400},
+		{"name too long", "POST", "/v1/servers", create(map[string]any{"name": strings.Repeat("a", 33)}), 400},
+		{"type not available yet", "POST", "/v1/servers", create(map[string]any{"type": "fabric"}), 400},
+		{"unknown play style", "POST", "/v1/servers", create(map[string]any{"playStyle": "chaos"}), 400},
+		{"unknown difficulty", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"difficulty": "insane"}}), 400},
+		{"view distance too far", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"viewDistance": 99}}), 400},
+		{"trailing data", "POST", e.sp("/start"), `{"actor":"admin"} {"actor":"x"}`, 400},
+		{"missing actor", "POST", e.sp("/start"), map[string]any{}, 400},
+		{"world type after creation", "POST", e.sp("/settings"), map[string]any{"gameplay": map[string]any{"levelType": "flat"}, "actor": "admin"}, 400},
+		{"hardcore after creation", "POST", e.sp("/settings"), map[string]any{"gameplay": map[string]any{"hardcore": true}, "actor": "admin"}, 400},
+		{"rm verb", "POST", e.sp("/rm"), map[string]any{"actor": "admin"}, 404},
 		{"rm top-level", "POST", "/v1/rm", map[string]any{"actor": "admin"}, 404},
 		{"shell verb", "POST", "/v1/exec", map[string]any{"cmd": "id"}, 404},
-		{"wrong method", "DELETE", "/v1/server", nil, 404},
-		{"traversal backup id", "GET", "/v1/backups/..%2F..%2Fetc%2Fpasswd/download", nil, 400},
-		{"traversal backup verify", "POST", "/v1/backups/..%2F..%2Fetc%2Fpasswd/verify", map[string]any{"actor": "admin"}, 400},
+		{"wrong method", "DELETE", "/v1/servers", nil, 404},
+		{"unknown server", "GET", "/v1/servers/zzzzzzzzzz", nil, 404},
+		{"traversal server id", "GET", "/v1/servers/..%2F..%2Fetc", nil, 400},
+		{"traversal backup id", "GET", e.sp("/backups/..%2F..%2Fetc%2Fpasswd/download"), nil, 400},
+		{"traversal backup verify", "POST", e.sp("/backups/..%2F..%2Fetc%2Fpasswd/verify"), map[string]any{"actor": "admin"}, 400},
 		{"traversal restore id", "GET", "/v1/restore/..%2F..%2Fetc", nil, 400},
-		{"bad whitelist name", "DELETE", "/v1/server/whitelist/%3Bid?actor=admin", nil, 400},
+		{"bad whitelist name", "DELETE", e.sp("/whitelist/%3Bid?actor=admin"), nil, 400},
+		{"bad operator name", "DELETE", e.sp("/operators/%3Bid?actor=admin"), nil, 400},
+		{"bad kick name", "POST", e.sp("/kick"), map[string]any{"name": ";id", "actor": "admin"}, 400},
 		{"bad operation id", "GET", "/v1/operations/..%2Fx", nil, 400},
+		{"delete without the name", "POST", e.sp("/delete"), map[string]any{"confirm": "yes", "actor": "admin"}, 400},
 	}
 	for _, c := range bad {
 		if code, out := e.call(c.method, c.path, c.body); code != c.want {
@@ -364,11 +469,11 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 	if st.Config.MemoryMB != 1536 || st.Config.HeapMB != 1024 || st.Config.JarVerifiedAt == nil {
 		t.Fatalf("config after create: %+v", st.Config)
 	}
-	if n := e.fd.containerCount(containerName); n != 1 {
+	if n := e.fd.containerCount(e.cname()); n != 1 {
 		t.Fatalf("containers after create: %d", n)
 	}
 	e.fd.mu.Lock()
-	c := e.fd.byName[containerName]
+	c := e.fd.byName[e.cname()]
 	cfg := c.cfg
 	e.fd.mu.Unlock()
 	if cfg.HostConfig.Memory != 1536<<20 || cfg.HostConfig.MemorySwap != 1536<<20 || env(cfg, "MEMORY") != "1024M" {
@@ -391,14 +496,14 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 			t.Fatal("the Docker socket must never be mounted")
 		}
 	}
-	code, out := e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+	code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 200 || out["noop"] != true {
 		t.Fatalf("second start should be a no-op: %d %v", code, out)
 	}
-	if n := e.fd.containerCount(containerName); n != 1 {
+	if n := e.fd.containerCount(e.cname()); n != 1 {
 		t.Fatalf("second start created another container: %d", n)
 	}
-	code, out = e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"})
+	code, out = e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("stop: %d %v", code, out)
 	}
@@ -417,38 +522,39 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 	if !sawSave {
 		t.Fatal("stop must save the world (save-all) before stopping")
 	}
-	if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 200 || out["noop"] != true {
+	if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 || out["noop"] != true {
 		t.Fatalf("second stop should be a no-op: %d %v", code, out)
 	}
-	if code, _ := e.call("POST", "/v1/server/restart", map[string]any{"actor": "admin"}); code != 409 {
+	if code, _ := e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"}); code != 409 {
 		t.Fatalf("restart while stopped must conflict: %d", code)
 	}
 	time.Sleep(300 * time.Millisecond)
 	if st := e.status(); st.Phase != api.PhaseStopped {
 		t.Fatalf("reconciler restarted a server the user stopped: %s", st.Phase)
 	}
-	code, out = e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
 	e.waitOp(out["id"].(string))
 	e.waitFor("online again", func() bool { return e.status().Phase == api.PhaseOnline })
-	if n := e.fd.containerCount(containerName); n != 1 {
+	if n := e.fd.containerCount(e.cname()); n != 1 {
 		t.Fatalf("containers after restart cycle: %d", n)
 	}
 }
 
 func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
 	e := newAgentEnv(t)
+	e.addIdleServer()
 	sc := api.ServerConfig{VersionID: "paper-26.1.2", MinecraftVersion: "26.1.2", PaperBuild: 74, MemoryMB: 1536, MaxPlayers: 10, LevelName: "world"}
-	setup, _ := e.a.containerSpec(sc, true)
+	setup, _ := e.srv().containerSpec(sc, true)
 	for k, want := range map[string]string{"TYPE": "PAPER", "VERSION": "26.1.2", "PAPER_BUILD": "74", "SETUP_ONLY": "TRUE", "SKIP_DOWNLOAD_DEFAULTS": "TRUE"} {
 		if got := env(setup, k); got != want {
 			t.Errorf("setup container %s=%q, want %q", k, got, want)
 		}
 	}
 	e.create()
-	path := filepath.Join(e.cfg.ServerDataDir(), "plugins", "bStats", "config.yml")
+	path := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
 	if b, err := os.ReadFile(path); err != nil || !bStatsOff(b) {
 		t.Fatalf("bStats must be off before the first start: %q %v", b, err)
 	}
@@ -457,7 +563,7 @@ func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, verb := range []string{"stop", "start"} {
-		code, out := e.call("POST", "/v1/server/"+verb, map[string]any{"actor": "admin"})
+		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
@@ -484,7 +590,7 @@ func TestConcurrentOperationsAreSerialized(t *testing.T) {
 		code int
 		out  map[string]any
 	}
-	paths := []string{"/v1/server/stop", "/v1/server/restart", "/v1/backups"}
+	paths := []string{e.sp("/stop"), e.sp("/restart"), e.sp("/backups")}
 	results := make(chan res, len(paths))
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -528,14 +634,14 @@ func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	}
 	st := e.status()
 	switch winner.path {
-	case "/v1/server/stop":
+	case e.sp("/stop"):
 		if st.Phase != api.PhaseStopped || st.Desired != api.DesiredStopped {
 			t.Fatalf("after stop won: %s/%s", st.Phase, st.Desired)
 		}
 	default:
 		e.waitFor("online after "+winner.path, func() bool { return e.status().Phase == api.PhaseOnline })
 	}
-	if n := e.fd.containerCount(containerName); n != 1 {
+	if n := e.fd.containerCount(e.cname()); n != 1 {
 		t.Fatalf("containers: %d", n)
 	}
 }
@@ -544,7 +650,7 @@ func TestConcurrentStartAndStopLeaveDesiredMatchingContainer(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	for i := 0; i < 16; i++ {
-		paths := []string{"/v1/server/start", "/v1/server/stop"}
+		paths := []string{e.sp("/start"), e.sp("/stop")}
 		codes := make([]int, len(paths))
 		outs := make([]map[string]any, len(paths))
 		var wg sync.WaitGroup
@@ -569,11 +675,11 @@ func TestConcurrentStartAndStopLeaveDesiredMatchingContainer(t *testing.T) {
 				t.Fatalf("iteration %d: %s -> %d %v", i, paths[j], code, outs[j])
 			}
 		}
-		_, running, err := e.a.containerRunning(context.Background())
+		_, running, err := e.srv().containerRunning(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if desired := e.a.desired(); (desired == api.DesiredRunning) != running {
+		if desired := e.srv().desired(); (desired == api.DesiredRunning) != running {
 			t.Fatalf("iteration %d (start %d, stop %d): desired %s but container running=%v", i, codes[0], codes[1], desired, running)
 		}
 	}
@@ -744,7 +850,7 @@ func TestFailedStartIsCountedOnce(t *testing.T) {
 	crashes := func() int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) }
 	run := func(verb, want string) {
 		t.Helper()
-		code, out := e.call("POST", "/v1/server/"+verb, map[string]any{"actor": "admin"})
+		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
@@ -849,7 +955,7 @@ func TestAgentRestartBringsBackAServerThatShouldBeRunning(t *testing.T) {
 		e.stop()
 		// The agent was killed after creating the container and before starting it.
 		e.fd.mu.Lock()
-		c := e.fd.byName[containerName]
+		c := e.fd.byName[e.cname()]
 		c.running, c.started, c.finished = false, time.Time{}, time.Time{}
 		e.fd.mu.Unlock()
 		e.start()
@@ -904,7 +1010,7 @@ func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
 		e.fd.mu.Unlock()
 	}
 	userStart := func(e *agentEnv) *api.Operation {
-		code, out := e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+		code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 		if code != 202 {
 			e.t.Fatalf("start: %d %v", code, out)
 		}
@@ -920,7 +1026,7 @@ func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
 		e.create()
 		e.fd.crash(137)
 		e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == 1 })
-		if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 200 {
+		if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 {
 			t.Fatalf("stop: %d %v", code, out)
 		}
 		return e
@@ -983,18 +1089,18 @@ func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
 func TestStatusWarnsAboutLowDiskWithThePreflightAdvice(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	if w := e.status().DiskWarning; w != nil {
+	if w := e.a.Machine(context.Background()).DiskWarning; w != nil {
 		t.Fatalf("50 GB free needs no warning: %+v", w)
 	}
 	e.diskFree.Store(4 << 30)
-	if w := e.status().DiskWarning; w == nil || w.Status != "warn" || !strings.Contains(w.Fix, "Keep at least 5 GB free") {
+	if w := e.a.Machine(context.Background()).DiskWarning; w == nil || w.Status != "warn" || !strings.Contains(w.Fix, "Keep at least 5 GB free") {
 		t.Fatalf("4 GB free: %+v", w)
 	}
 	e.diskFree.Store(1 << 20)
-	if w := e.status().DiskWarning; w == nil || w.Status != "fail" || !strings.Contains(w.Fix, "Free at least 5 GB") {
+	if w := e.a.Machine(context.Background()).DiskWarning; w == nil || w.Status != "fail" || !strings.Contains(w.Fix, "Free at least 5 GB") {
 		t.Fatalf("1 MB free: %+v", w)
 	}
-	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1019,7 +1125,7 @@ func TestExternalCleanStopIsRestored(t *testing.T) {
 func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 	e := newAgentEnv(t)
 	e.fill.set(strings.Repeat("0", 64), nil)
-	code, out := e.call("POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
+	code, out := e.startCreate(nil)
 	if code != 202 {
 		t.Fatalf("create: %d %v", code, out)
 	}
@@ -1027,16 +1133,16 @@ func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "checksum") {
 		t.Fatalf("mismatched jar must fail: %+v", op)
 	}
-	if e.fd.containerCount(containerName+"-setup") != 0 {
+	if e.fd.containerCount(e.cname()+"-setup") != 0 {
 		t.Fatal("setup container must be removed")
 	}
 	e.fd.mu.Lock()
-	_, created := e.fd.byName[containerName]
+	_, created := e.fd.byName[e.cname()]
 	e.fd.mu.Unlock()
 	if created {
 		t.Fatal("the server container must not be created with an unverified jar")
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.ServerDataDir(), "paper-26.1.2-74.jar")); err == nil {
+	if _, err := os.Stat(filepath.Join(e.dataDir(), "paper-26.1.2-74.jar")); err == nil {
 		t.Fatal("the unverified jar must be deleted")
 	}
 }
@@ -1044,7 +1150,7 @@ func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 func TestPortCollisionHasActionableError(t *testing.T) {
 	e := newAgentEnv(t)
 	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
-	code, out := e.call("POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
+	code, out := e.startCreate(nil)
 	if code != 202 {
 		t.Fatalf("create: %d %v", code, out)
 	}
@@ -1052,12 +1158,12 @@ func TestPortCollisionHasActionableError(t *testing.T) {
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "25565") || !strings.Contains(op.Hint, "ss -ltnp") {
 		t.Fatalf("port collision: %+v", op)
 	}
-	if n := e.fd.containerCount(containerName); n != 0 {
+	if n := e.fd.containerCount(e.cname()); n != 0 {
 		t.Fatalf("a container whose start failed must be discarded, found %d", n)
 	}
 	// The hint says to press Start after fixing the cause; nothing retries meanwhile.
 	time.Sleep(300 * time.Millisecond)
-	if d := e.a.desired(); d != api.DesiredStopped {
+	if d := e.srv().desired(); d != api.DesiredStopped {
 		t.Fatalf("after a failed start the desired state must be stopped, got %s", d)
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart')`); n != 0 {
@@ -1066,7 +1172,7 @@ func TestPortCollisionHasActionableError(t *testing.T) {
 	e.fd.mu.Lock()
 	e.fd.startErr = ""
 	e.fd.mu.Unlock()
-	code, out = e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start after freeing the port: %d %v", code, out)
 	}
@@ -1083,7 +1189,7 @@ func TestFailedAutomaticStartsBackOffAndGiveUp(t *testing.T) {
 	e.fd.mu.Unlock()
 	// The container disappears while the server should be running, and every
 	// automatic start then fails.
-	if err := e.a.docker.ContainerRemove(context.Background(), containerName, true); err != nil {
+	if err := e.a.docker.ContainerRemove(context.Background(), e.cname(), true); err != nil {
 		t.Fatal(err)
 	}
 	failed := func() int {
@@ -1101,7 +1207,7 @@ func TestFailedAutomaticStartsBackOffAndGiveUp(t *testing.T) {
 	e.fd.mu.Lock()
 	e.fd.startErr = ""
 	e.fd.mu.Unlock()
-	code, out := e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+	code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start after fixing the cause: %d %v", code, out)
 	}
@@ -1115,10 +1221,11 @@ func TestMetricsShowGapsNotZeros(t *testing.T) {
 	e.stop()
 	e.start()
 	base := time.Now().UTC().Truncate(time.Hour).Add(-3 * time.Hour)
+	e.addIdleServer()
 	e.a.db.Exec(`DELETE FROM samples`)
-	e.a.kvSet(kvCollectingSince, base.Format(time.RFC3339Nano))
+	e.setCollectingSince(base.Format(time.RFC3339Nano))
 	ins := func(t0 time.Time, state string, players any) {
-		e.a.db.Exec(`INSERT INTO samples(ts, state, players_online) VALUES(?,?,?)`, t0.UnixMilli(), state, players)
+		e.a.db.Exec(`INSERT INTO samples(server_id, ts, state, players_online) VALUES(?,?,?,?)`, e.sid, t0.UnixMilli(), state, players)
 	}
 	for m := 0; m < 30; m++ { // 30 min online with 2 players
 		for s := 0; s < 60; s += 15 {
@@ -1137,7 +1244,7 @@ func TestMetricsShowGapsNotZeros(t *testing.T) {
 		}
 	}
 	e.a.opts.SampleInterval = 15 * time.Second
-	m, err := e.a.Metrics("24h", base.Add(100*time.Minute))
+	m, err := e.srv().Metrics("24h", base.Add(100*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1182,11 +1289,12 @@ func TestMetricsShowGapsNotZeros(t *testing.T) {
 func TestDailySummaryFlagsIncompleteSessions(t *testing.T) {
 	e := newAgentEnv(t)
 	now := time.Date(2026, 9, 24, 18, 0, 0, 0, time.UTC)
-	e.a.kvSet(kvCollectingSince, now.Add(-48*time.Hour).Format(time.RFC3339Nano))
-	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, source) VALUES('A', ?, ?, 'left', 'server_log')`, now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli())
-	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, end_uncertain, source) VALUES('B', ?, ?, 'server_crashed', 1, 'server_log')`, now.Add(-3*time.Hour).UnixMilli(), now.Add(-150*time.Minute).UnixMilli())
-	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, start_uncertain, source) VALUES('C', ?, ?, 'left', 1, 'player_list')`, now.Add(-26*time.Hour).UnixMilli(), now.Add(-25*time.Hour).UnixMilli())
-	s, err := e.a.Summary(2, "UTC", now)
+	e.addIdleServer()
+	e.setCollectingSince(now.Add(-48 * time.Hour).Format(time.RFC3339Nano))
+	e.a.db.Exec(`INSERT INTO sessions(server_id, player, start_ts, end_ts, end_reason, source) VALUES(?, 'A', ?, ?, 'left', 'server_log')`, e.sid, now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli())
+	e.a.db.Exec(`INSERT INTO sessions(server_id, player, start_ts, end_ts, end_reason, end_uncertain, source) VALUES(?, 'B', ?, ?, 'server_crashed', 1, 'server_log')`, e.sid, now.Add(-3*time.Hour).UnixMilli(), now.Add(-150*time.Minute).UnixMilli())
+	e.a.db.Exec(`INSERT INTO sessions(server_id, player, start_ts, end_ts, end_reason, start_uncertain, source) VALUES(?, 'C', ?, ?, 'left', 1, 'player_list')`, e.sid, now.Add(-26*time.Hour).UnixMilli(), now.Add(-25*time.Hour).UnixMilli())
+	s, err := e.srv().Summary(2, "UTC", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1202,7 +1310,7 @@ func TestDailySummaryFlagsIncompleteSessions(t *testing.T) {
 	if s.UncertainSessions != 2 || today.Coverage >= 1 {
 		t.Fatalf("summary must flag uncertainty and incomplete coverage: %+v", s)
 	}
-	if _, err := e.a.Summary(7, "Not/AZone", now); err == nil {
+	if _, err := e.srv().Summary(7, "Not/AZone", now); err == nil {
 		t.Fatal("invalid time zone accepted")
 	}
 }
@@ -1277,7 +1385,7 @@ func TestConsoleBufferIsBounded(t *testing.T) {
 // restore, returning the restore id and its confirmation phrase.
 func (e *agentEnv) backupAndStage() (string, string) {
 	e.t.Helper()
-	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1285,8 +1393,8 @@ func (e *agentEnv) backupAndStage() (string, string) {
 		e.t.Fatalf("backup op: %+v", op)
 	}
 	e.waitFor("online after backup", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
-	list, _ := e.a.listBackups(`WHERE kind = 'manual'`)
-	code, preview := e.call("POST", "/v1/backups/"+list[0].ID+"/restore", map[string]any{"actor": "admin"})
+	list, _ := e.srv().listBackups(`kind = 'manual'`)
+	code, preview := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
 	if code != 200 {
 		e.t.Fatalf("stage: %d %v", code, preview)
 	}
@@ -1306,7 +1414,7 @@ func TestRestoreNeedsAVerifiedRollbackArchive(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	id, phrase := e.backupAndStage()
-	world := filepath.Join(e.cfg.ServerDataDir(), "world")
+	world := filepath.Join(e.dataDir(), "world")
 	if err := os.WriteFile(filepath.Join(world, "later.dat"), []byte("built after the backup"), 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -1316,12 +1424,12 @@ func TestRestoreNeedsAVerifiedRollbackArchive(t *testing.T) {
 		BEGIN UPDATE backups SET sha256 = '` + strings.Repeat("0", 64) + `' WHERE id = NEW.id; END`); err != nil {
 		t.Fatal(err)
 	}
-	live := worldHash(t, e.cfg.ServerDataDir())
+	live := worldHash(t, e.dataDir())
 	op := e.applyRestore(id, phrase)
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "verified rollback archive") {
 		t.Fatalf("a restore without a verified rollback archive must refuse: %+v", op)
 	}
-	if got := worldHash(t, e.cfg.ServerDataDir()); got != live {
+	if got := worldHash(t, e.dataDir()); got != live {
 		t.Fatal("the live world was replaced although its rollback archive failed verification")
 	}
 	e.waitFor("previous world running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
@@ -1331,24 +1439,20 @@ func TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	id, phrase := e.backupAndStage()
-	world := filepath.Join(e.cfg.ServerDataDir(), "world")
+	world := filepath.Join(e.dataDir(), "world")
 	if err := os.WriteFile(filepath.Join(world, "later.dat"), []byte("built after the backup"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	live := worldHash(t, e.cfg.ServerDataDir())
-	for _, ev := range []string{"INSERT", "UPDATE"} {
-		if _, err := e.a.db.Exec(`CREATE TRIGGER fail_config_` + ev + ` BEFORE ` + ev + ` ON kv WHEN NEW.key = 'server_config' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
-			t.Fatal(err)
-		}
-	}
+	live := worldHash(t, e.dataDir())
+	e.failConfigSaves()
 	op := e.applyRestore(id, phrase)
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "previous world was put back") {
 		t.Fatalf("a restore whose settings cannot be saved must fail and say so: %+v", op)
 	}
-	if got := worldHash(t, e.cfg.ServerDataDir()); got != live {
+	if got := worldHash(t, e.dataDir()); got != live {
 		t.Fatal("the restored world was left in place without its settings")
 	}
-	if left, _ := filepath.Glob(e.cfg.ServerDataDir() + ".replaced-*"); len(left) != 0 {
+	if left, _ := filepath.Glob(e.dataDir() + ".replaced-*"); len(left) != 0 {
 		t.Fatalf("the moved-aside world was left behind: %v", left)
 	}
 	e.waitFor("previous world running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
@@ -1359,7 +1463,7 @@ func TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved(t *testing.T) {
 func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	world := filepath.Join(e.cfg.ServerDataDir(), "world")
+	world := filepath.Join(e.dataDir(), "world")
 	deep := filepath.Join(world, strings.Repeat("a", 250), strings.Repeat("b", 250), strings.Repeat("c", 250), strings.Repeat("d", 250))
 	if err := os.MkdirAll(deep, 0o750); err != nil {
 		t.Fatal(err)
@@ -1367,7 +1471,7 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1375,7 +1479,7 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	if op.Status != api.OpFailed || !strings.Contains(op.Error, "a restore would refuse it") || !strings.Contains(op.Error, "entry name too long") {
 		t.Fatalf("backing up a world a restore would refuse must fail and say why: %+v", op)
 	}
-	if !strings.Contains(op.Hint, "Rename or remove that file in "+e.cfg.ServerDataDir()) {
+	if !strings.Contains(op.Hint, "Rename or remove that file in "+e.dataDir()) {
 		t.Fatalf("the refusal must say what to do: %q", op.Hint)
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
@@ -1393,23 +1497,23 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 func TestRecompressedBackupFailsItsRecordedChecksum(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
 	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
 		t.Fatalf("backup op: %+v", op)
 	}
-	list, _ := e.a.listBackups(`WHERE kind = 'manual'`)
+	list, _ := e.srv().listBackups(`kind = 'manual'`)
 	b := list[0]
 	recompress(t, filepath.Join(e.cfg.BackupsDir(), b.FileName))
 	e.waitFor("idle", func() bool { return !e.a.busy() })
 
-	code, out = e.call("POST", "/v1/backups/"+b.ID+"/verify", map[string]any{"actor": "admin"})
+	code, out = e.call("POST", e.sp("/backups/"+b.ID+"/verify"), map[string]any{"actor": "admin"})
 	if code != 200 || out["verified"] != false || !strings.Contains(fmt.Sprint(out["verifyError"]), "does not match the recorded") {
 		t.Fatalf("checking a re-compressed backup again: %d %v", code, out)
 	}
-	code, out = e.call("POST", "/v1/backups/"+b.ID+"/restore", map[string]any{"actor": "admin"})
+	code, out = e.call("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"})
 	if code != http.StatusUnprocessableEntity || !strings.Contains(fmt.Sprint(out["error"]), "no longer matches its recorded checksum") {
 		t.Fatalf("restoring from a re-compressed backup: %d %v", code, out)
 	}
@@ -1453,11 +1557,7 @@ func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	id, phrase := e.backupAndStage()
-	for _, ev := range []string{"INSERT", "UPDATE"} {
-		if _, err := e.a.db.Exec(`CREATE TRIGGER fail_config_` + ev + ` BEFORE ` + ev + ` ON kv WHEN NEW.key = 'server_config' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
-			t.Fatal(err)
-		}
-	}
+	e.failConfigSaves()
 	if op := e.applyRestore(id, phrase); op.Status != api.OpFailed {
 		t.Fatalf("the restore should fail: %+v", op)
 	}
@@ -1465,8 +1565,8 @@ func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
 		t.Fatalf("the failed restore left its stage: %v", left)
 	}
 	e.waitFor("idle", func() bool { return !e.a.busy() })
-	list, _ := e.a.listBackups(`WHERE kind = 'manual'`)
-	if code, out := e.call("POST", "/v1/backups/"+list[0].ID+"/restore", map[string]any{"actor": "admin"}); code != 200 {
+	list, _ := e.srv().listBackups(`kind = 'manual'`)
+	if code, out := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"}); code != 200 {
 		t.Fatalf("stage: %d %v", code, out)
 	}
 	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 1 {
@@ -1490,13 +1590,9 @@ func TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails(t *testing.T
 			e := newAgentEnv(t)
 			e.create()
 			id, phrase := e.backupAndStage()
-			live, staged := e.cfg.ServerDataDir(), filepath.Join(e.cfg.StagingDir(), id, "data")
+			live, staged := e.dataDir(), filepath.Join(e.cfg.StagingDir(), id, "data")
 			if step == "settings save" {
-				for _, ev := range []string{"INSERT", "UPDATE"} {
-					if _, err := e.a.db.Exec(`CREATE TRIGGER fail_config_` + ev + ` BEFORE ` + ev + ` ON kv WHEN NEW.key = 'server_config' BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
-						t.Fatal(err)
-					}
-				}
+				e.failConfigSaves()
 			}
 			renameDir = func(from, to string) error {
 				if to == live && (strings.HasPrefix(from, live+".replaced-") || step != "settings save" && from == staged) {
@@ -1548,7 +1644,7 @@ func worldHash(t *testing.T, dir string) string {
 }
 
 func (e *agentEnv) upload(archive []byte) (int, map[string]any) {
-	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/restore/upload", bytes.NewReader(archive))
+	req, _ := http.NewRequest("POST", e.ts.URL+e.sp("/restore/upload"), bytes.NewReader(archive))
 	req.Header.Set("X-Playkeeper-Actor", "admin")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -1563,10 +1659,10 @@ func (e *agentEnv) upload(archive []byte) (int, map[string]any) {
 func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	world := filepath.Join(e.cfg.ServerDataDir(), "world")
-	os.WriteFile(filepath.Join(e.cfg.ServerDataDir(), "server.properties"), []byte("level-name=world\nrcon.password=topsecret\n"), 0o644)
+	world := filepath.Join(e.dataDir(), "world")
+	os.WriteFile(filepath.Join(e.dataDir(), "server.properties"), []byte("level-name=world\nrcon.password=topsecret\n"), 0o644)
 	os.WriteFile(filepath.Join(world, "marker.txt"), []byte("nonce-original"), 0o644)
-	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin", "note": "first"})
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin", "note": "first"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1574,7 +1670,7 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	if op.Status != api.OpSucceeded {
 		t.Fatalf("backup op: %+v", op)
 	}
-	list, _ := e.a.listBackups("")
+	list, _ := e.srv().listBackups("")
 	if len(list) != 1 || list[0].Verified == nil || !*list[0].Verified || list[0].Location != "on-host" {
 		t.Fatalf("backup record: %+v", list)
 	}
@@ -1592,7 +1688,7 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	e.waitFor("online after backup", func() bool { return e.status().Phase == api.PhaseOnline })
 
 	os.WriteFile(filepath.Join(world, "marker.txt"), []byte("nonce-changed"), 0o644)
-	live := worldHash(t, e.cfg.ServerDataDir())
+	live := worldHash(t, e.dataDir())
 
 	flipped := append([]byte(nil), archive...)
 	flipped[len(flipped)/2] ^= 0xff
@@ -1602,7 +1698,7 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 		if code != http.StatusUnprocessableEntity {
 			t.Fatalf("%s archive: %d %v", name, code, out)
 		}
-		if got := worldHash(t, e.cfg.ServerDataDir()); got != live {
+		if got := worldHash(t, e.dataDir()); got != live {
 			t.Fatalf("%s archive changed the live world", name)
 		}
 	}
@@ -1619,7 +1715,7 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	if code, _ := e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"actor": "admin", "confirm": "yes"}); code != 400 {
 		t.Fatalf("wrong confirmation accepted: %d", code)
 	}
-	if got := worldHash(t, e.cfg.ServerDataDir()); got != live {
+	if got := worldHash(t, e.dataDir()); got != live {
 		t.Fatal("a refused confirmation changed the world")
 	}
 	code, out = e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"actor": "admin", "confirm": "replace world"})
@@ -1633,13 +1729,13 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(world, "marker.txt")); string(got) != "nonce-original" {
 		t.Fatalf("restored marker = %q", got)
 	}
-	list, _ = e.a.listBackups(`WHERE kind = 'rollback'`)
+	list, _ = e.srv().listBackups(`kind = 'rollback'`)
 	if len(list) != 1 || list[0].Verified == nil || !*list[0].Verified {
 		t.Fatalf("rollback archive: %+v", list)
 	}
 	// Restoring the rollback archive brings the replaced state back.
 	e.waitFor("idle", func() bool { return !e.a.busy() })
-	code, preview = e.call("POST", "/v1/backups/"+list[0].ID+"/restore", map[string]any{"actor": "admin"})
+	code, preview = e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
 	if code != 200 {
 		t.Fatalf("stage rollback: %d %v", code, preview)
 	}
@@ -1684,12 +1780,12 @@ func TestNoIPsOrSecretsAreStored(t *testing.T) {
 	e.create()
 	e.fd.addLog("[12:01:00 INFO]: PkBotFriend[/203.0.113.9:5555] logged in with entity id 1")
 	e.fd.addLog("[12:01:00 INFO]: PkBotFriend joined the game")
-	code, _ := e.call("POST", "/v1/server/command", map[string]any{"actor": "admin", "command": "ban-ip 203.0.113.77"})
+	code, _ := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": "ban-ip 203.0.113.77"})
 	if code != 200 {
 		t.Fatalf("command: %d", code)
 	}
 	e.waitFor("join stored", func() bool { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind='join'`) == 1 })
-	pw, _ := e.a.rconPassword()
+	pw, _ := e.srv().rconPassword()
 	rows, _ := e.a.db.Query(`SELECT COALESCE(player,'') || COALESCE(uuid,'') || detail FROM events
 		UNION ALL SELECT actor || action || target || detail FROM audit
 		UNION ALL SELECT value FROM kv UNION ALL SELECT error || hint || detail FROM operations`)
@@ -1704,7 +1800,7 @@ func TestNoIPsOrSecretsAreStored(t *testing.T) {
 			t.Fatal("the RCON password was stored in the database")
 		}
 	}
-	for _, l := range e.a.console.since("", 0, consoleCapacity).Lines {
+	for _, l := range e.srv().console.since("", 0, consoleCapacity).Lines {
 		if strings.Contains(l.Text, "203.0.113") {
 			t.Fatalf("console shows an IP: %q", l.Text)
 		}
@@ -1714,17 +1810,17 @@ func TestNoIPsOrSecretsAreStored(t *testing.T) {
 func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	if code, out := e.call("POST", "/v1/server/whitelist", map[string]any{"actor": "admin", "name": "PkBotFriend"}); code != 200 {
+	if code, out := e.call("POST", e.sp("/whitelist"), map[string]any{"actor": "admin", "name": "PkBotFriend"}); code != 200 {
 		t.Fatalf("invite: %d %v", code, out)
 	}
-	if code, _ := e.call("POST", "/v1/server/whitelist", map[string]any{"actor": "admin", "name": "bad name;id"}); code != 400 {
+	if code, _ := e.call("POST", e.sp("/whitelist"), map[string]any{"actor": "admin", "name": "bad name;id"}); code != 400 {
 		t.Fatalf("bad name accepted: %d", code)
 	}
-	code, out := e.call("POST", "/v1/server/command", map[string]any{"actor": "admin", "command": "$(id)"})
+	code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": "$(id)"})
 	if code != 200 || !strings.Contains(out["output"].(string), "Unknown or incomplete command") {
 		t.Fatalf("$(id) must reach Minecraft as text: %d %v", code, out)
 	}
-	if code, _ := e.call("POST", "/v1/server/settings", map[string]any{"actor": "admin", "maxPlayers": 20}); code != 200 {
+	if code, _ := e.call("POST", e.sp("/settings"), map[string]any{"actor": "admin", "maxPlayers": 20}); code != 200 {
 		t.Fatalf("settings: %d", code)
 	}
 	if !e.status().PendingRestart {

@@ -42,6 +42,9 @@ type fakeDocker struct {
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
 	bootFailsOn string
+	// target names the container addLog, crash and the like act on when
+	// there is more than one server.
+	target string
 }
 
 type fakeLine struct {
@@ -81,12 +84,32 @@ func (fd *fakeDocker) log(c *fakeContainer, text string) {
 	c.wake = make(chan struct{})
 }
 
+// server is the Minecraft server container the helpers below act on: the
+// one named by target, or else the only server container there is.
+func (fd *fakeDocker) server() *fakeContainer {
+	if fd.target != "" {
+		return fd.byName[fd.target]
+	}
+	var found *fakeContainer
+	for name, c := range fd.byName {
+		if !strings.HasSuffix(name, "-setup") {
+			if found != nil {
+				fd.t.Fatalf("more than one server container; set fd.target")
+			}
+			found = c
+		}
+	}
+	if found == nil {
+		fd.t.Fatalf("no server container")
+	}
+	return found
+}
+
 // addLog appends a server log line to the running Minecraft container.
 func (fd *fakeDocker) addLog(text string) {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
-	c := fd.byName[containerName]
-	fd.log(c, text)
+	fd.log(fd.server(), text)
 }
 
 // rotate simulates json-file log rotation: all but the last keep lines are
@@ -95,7 +118,7 @@ func (fd *fakeDocker) addLog(text string) {
 func (fd *fakeDocker) rotate(keep int, replay bool) {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
-	c := fd.byName[containerName]
+	c := fd.server()
 	if len(c.logs) > keep {
 		c.logs = append([]fakeLine(nil), c.logs[len(c.logs)-keep:]...)
 	}
@@ -108,7 +131,7 @@ func (fd *fakeDocker) rotate(keep int, replay bool) {
 func (fd *fakeDocker) crash(code int) {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
-	c := fd.byName[containerName]
+	c := fd.server()
 	c.running, c.exitCode, c.finished = false, code, time.Now().UTC()
 	close(c.wake)
 	c.wake = make(chan struct{})
@@ -119,7 +142,7 @@ func (fd *fakeDocker) crash(code int) {
 func (fd *fakeDocker) externalStop() {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
-	c := fd.byName[containerName]
+	c := fd.server()
 	fd.log(c, "[12:00:00 INFO]: Stopping server")
 	c.running, c.exitCode, c.finished = false, 0, time.Now().UTC()
 }
@@ -472,20 +495,21 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 
 // fakeRCON answers console commands like a Paper server.
 type fakeRCON struct {
-	addr     string
-	password string
+	addr string
+	// accept decides whether a password is one of the servers'.
+	accept   func(string) bool
 	mu       sync.Mutex
 	commands []string
 	online   []string
 }
 
-func startFakeRCON(t *testing.T, password string) *fakeRCON {
+func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fr := &fakeRCON{addr: ln.Addr().String(), password: password}
+	fr := &fakeRCON{addr: ln.Addr().String(), accept: accept}
 	t.Cleanup(func() { ln.Close() })
 	go func() {
 		for {
@@ -531,7 +555,7 @@ func (fr *fakeRCON) handle(c net.Conn) {
 		}
 		switch {
 		case typ == 3:
-			authed = body == fr.password
+			authed = body != "" && fr.accept(body)
 			if authed {
 				reply(id, 2, "")
 			} else {
@@ -549,6 +573,12 @@ func (fr *fakeRCON) handle(c net.Conn) {
 				reply(id, 0, "Saved the game")
 			case strings.HasPrefix(body, "whitelist add "):
 				reply(id, 0, "Added "+strings.TrimPrefix(body, "whitelist add ")+" to the whitelist")
+			case strings.HasPrefix(body, "op "):
+				reply(id, 0, "Made "+strings.TrimPrefix(body, "op ")+" a server operator")
+			case strings.HasPrefix(body, "kick "):
+				reply(id, 0, "No player was found")
+			case strings.HasPrefix(body, "say "):
+				reply(id, 0, "")
 			default:
 				reply(id, 0, "Unknown or incomplete command. See below for error\n"+body+"<--[HERE]")
 			}

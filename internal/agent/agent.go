@@ -1,7 +1,7 @@
 // Package agent is Playkeeper's root-owned local control agent. It is the only
 // component that talks to Docker. It listens on a Unix socket that only root
 // and the panel's service account may connect to, and exposes a fixed set of
-// validated operations for the single Minecraft server.
+// validated operations for the machine's Minecraft servers.
 package agent
 
 import (
@@ -28,12 +28,11 @@ import (
 )
 
 const (
-	containerName = "playkeeper-minecraft"
-	networkName   = "playkeeper"
-	labelManaged  = "io.playkeeper.managed"
-	labelInstall  = "io.playkeeper.install"
-	labelSpec     = "io.playkeeper.spec"
-	rconPort      = 25575
+	networkName  = "playkeeper"
+	labelManaged = "io.playkeeper.managed"
+	labelInstall = "io.playkeeper.install"
+	labelSpec    = "io.playkeeper.spec"
+	rconPort     = 25575
 
 	// OfflineModeEnv enables offline-mode servers for the protocol-bot test
 	// harness only. The installer never sets it and the UI shows a permanent
@@ -69,6 +68,9 @@ type Options struct {
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
 	CrashBackoff []time.Duration
+	// WarnDelay is how long players are warned in chat before a Minecraft
+	// update stops the server (default 1 minute).
+	WarnDelay time.Duration
 	// UpdateKeys are the release signing keys updates must be signed with;
 	// without any, this agent cannot install updates. The playkeeper command
 	// passes the keys compiled into the build.
@@ -115,43 +117,27 @@ type Agent struct {
 	log     *slog.Logger
 	now     func() time.Time
 	started time.Time // when this agent process started
-	console *ring
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	opLock chan struct{}
-	opMu   sync.Mutex
-	op     *api.Operation
+	// mopLock and mop are the machine-wide operation (a Playkeeper update).
+	// It runs only while every server is idle, and servers wait for it.
+	mopLock chan struct{}
+	mopMu   sync.Mutex
+	mop     *api.Operation
 
-	mu              sync.Mutex
-	dockerOK        bool
-	runPhase        api.Phase
-	runPhaseDetail  string
-	runStartedAt    time.Time
-	sawStopping     bool
-	lastError       string
-	lastErrorHint   string
-	reachable       bool
-	reachableAt     time.Time
-	players         *api.PlayerSnapshot
-	resources       *api.Resources
-	prevCPU         *docker.Stats
-	crashes         []time.Time
-	crashed         bool
-	handledExit     map[string]time.Time
-	exitSeen        map[string]seenExit
-	intentional     map[string]bool
-	followEnded     map[string]time.Time
-	listMissing     map[string]int
-	listExtra       map[string]int
-	uuids           map[string]string
-	nextAutoRestart time.Time
+	srvMu   sync.Mutex
+	servers map[string]*server
+	// createMu serializes picking names, slugs, ports and memory for new servers.
+	createMu sync.Mutex
 
-	rconMu sync.Mutex
-	rcon   *minecraft.RCON
-	rconIP string
+	mu            sync.Mutex
+	dockerOK      bool
+	dockerVersion string
+	hostCPU       *float64
+	hostPrev      cpuTimes
 
 	allowed map[uint32]bool
 
@@ -202,6 +188,9 @@ func New(opts Options) (*Agent, error) {
 	if len(opts.CrashBackoff) == 0 {
 		opts.CrashBackoff = []time.Duration{0, 30 * time.Second, 2 * time.Minute}
 	}
+	if opts.WarnDelay == 0 {
+		opts.WarnDelay = time.Minute
+	}
 	if opts.UpdateCheckInterval == 0 {
 		opts.UpdateCheckInterval = 12 * time.Hour
 	}
@@ -215,32 +204,28 @@ func New(opts Options) (*Agent, error) {
 		opts.FillURL = minecraft.DefaultFillURL
 	}
 	cfg := opts.Config
-	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir(), filepath.Dir(cfg.ServerDataDir())} {
+	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return nil, err
 		}
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "servers"), 0o755); err != nil {
+		return nil, err
 	}
 	db, err := store.Open(filepath.Join(cfg.AgentDir(), "agent.db"), migrations)
 	if err != nil {
 		return nil, err
 	}
 	a := &Agent{
-		cfg:         cfg,
-		opts:        opts,
-		db:          db,
-		docker:      docker.New(cfg.DockerSocket),
-		log:         opts.Logger,
-		now:         opts.Now,
-		started:     opts.Now(),
-		console:     newRing(consoleCapacity),
-		opLock:      make(chan struct{}, 1),
-		handledExit: map[string]time.Time{},
-		exitSeen:    map[string]seenExit{},
-		intentional: map[string]bool{},
-		followEnded: map[string]time.Time{},
-		listMissing: map[string]int{},
-		listExtra:   map[string]int{},
-		uuids:       map[string]string{},
+		cfg:     cfg,
+		opts:    opts,
+		db:      db,
+		docker:  docker.New(cfg.DockerSocket),
+		log:     opts.Logger,
+		now:     opts.Now,
+		started: opts.Now(),
+		mopLock: make(chan struct{}, 1),
+		servers: map[string]*server{},
 	}
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	a.allowed = map[uint32]bool{}
@@ -258,6 +243,14 @@ func New(opts Options) (*Agent, error) {
 			a.allowed[uint32(os.Getuid())] = true
 		}
 	}
+	if err := a.migrateSingleServer(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate the existing server: %w", err)
+	}
+	if err := a.loadServers(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
 	a.markInterruptedOperations()
@@ -265,13 +258,15 @@ func New(opts Options) (*Agent, error) {
 	return a, nil
 }
 
-// Start launches the background loops (collector, log follower, reconciler).
+// Start launches the background loops: each server's follower, collector and
+// reconciler, and the machine's pruning, sampling and update checks.
 func (a *Agent) Start() {
-	a.loop(a.followLoop)
-	a.loop(a.sampleLoop)
-	a.loop(a.reconcileLoop)
+	for _, s := range a.serverList() {
+		s.startLoops()
+	}
 	a.loop(a.pruneLoop)
 	a.loop(a.updateLoop)
+	a.loop(a.hostLoop)
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -287,12 +282,99 @@ func (a *Agent) loop(fn func(ctx context.Context)) {
 func (a *Agent) Close() {
 	a.cancel()
 	a.wg.Wait()
-	a.rconMu.Lock()
-	if a.rcon != nil {
-		a.rcon.Close()
+	for _, s := range a.serverList() {
+		s.resetRCON()
 	}
-	a.rconMu.Unlock()
 	a.db.Close()
+}
+
+// machineOp is the machine-wide operation in progress, if any.
+func (a *Agent) machineOp() *api.Operation {
+	a.mopMu.Lock()
+	defer a.mopMu.Unlock()
+	return copyOp(a.mop)
+}
+
+// currentOp is the machine-wide operation, or else the first server
+// operation in progress (tests and the update refusal message use it).
+func (a *Agent) currentOp() *api.Operation {
+	if op := a.machineOp(); op != nil {
+		return op
+	}
+	for _, s := range a.serverList() {
+		if op := s.currentOp(); op != nil {
+			return op
+		}
+	}
+	return nil
+}
+
+// busy is true while any server or the machine runs an operation.
+func (a *Agent) busy() bool { return a.currentOp() != nil || a.installingUpdate() != "" }
+
+// beginMachineOp runs fn as the machine-wide operation. It needs every
+// server idle, and holds their operation locks until fn returns, so no server
+// operation starts meanwhile.
+func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+	select {
+	case a.mopLock <- struct{}{}:
+	default:
+		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + opLabels[opKind(a.machineOp(), "update")] + ".", Hint: "Wait for it to finish, then try again.", Op: a.machineOp()}
+	}
+	if v := a.installingUpdate(); v != "" {
+		<-a.mopLock
+		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
+	}
+	var held []*server
+	release := func() {
+		for _, s := range held {
+			<-s.opLock
+		}
+	}
+	for _, s := range a.serverList() {
+		select {
+		case s.opLock <- struct{}{}:
+			held = append(held, s)
+		default:
+			release()
+			<-a.mopLock
+			cur := s.currentOp()
+			what := "an operation"
+			if cur != nil {
+				what = opLabels[cur.Kind]
+			}
+			return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+		}
+	}
+	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}
+	a.mopMu.Lock()
+	a.mop = op
+	snap := *op
+	a.mopMu.Unlock()
+	a.saveOperation(&snap)
+	h := &opHandle{save: a.saveOperation, op: op, mu: func() func() { a.mopMu.Lock(); return a.mopMu.Unlock }}
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		defer func() { <-a.mopLock }()
+		defer release()
+		ctx, cancel := context.WithTimeout(a.ctx, 45*time.Minute)
+		defer cancel()
+		err := runOp(ctx, h, fn)
+		a.mopMu.Lock()
+		done := finishOp(op, h, err, a.now().UTC())
+		a.mop = nil
+		a.mopMu.Unlock()
+		a.saveOperation(&done)
+		if done.Status != api.OpRunning {
+			a.audit(actor, kind, "machine", done.Status, done.Error)
+		}
+		if err != nil {
+			a.log.Warn("operation failed", "kind", kind, "err", err)
+		}
+	}()
+	c := snap
+	return &c, nil
 }
 
 // Serve listens on the configured Unix socket until ctx is cancelled. The
@@ -395,43 +477,79 @@ type Route struct {
 }
 
 func (a *Agent) routeTable() []Route {
+	srv := a.withServer
 	return []Route{
 		{"GET", "/v1/health", a.hHealth},
+		{"GET", "/v1/machine", a.hMachine},
 		{"GET", "/v1/preflight", a.hPreflight},
 		{"GET", "/v1/catalog", a.hCatalog},
-		{"GET", "/v1/server", a.hStatus},
-		{"POST", "/v1/server", a.hCreate},
-		{"POST", "/v1/server/start", a.hStart},
-		{"POST", "/v1/server/stop", a.hStop},
-		{"POST", "/v1/server/restart", a.hRestart},
-		{"POST", "/v1/server/settings", a.hSettings},
-		{"GET", "/v1/server/logs", a.hLogs},
-		{"POST", "/v1/server/command", a.hCommand},
-		{"GET", "/v1/server/whitelist", a.hWhitelist},
-		{"POST", "/v1/server/whitelist", a.hWhitelistAdd},
-		{"DELETE", "/v1/server/whitelist/{name}", a.hWhitelistRemove},
-		{"GET", "/v1/operations/{id}", a.hOperation},
-		{"GET", "/v1/metrics", a.hMetrics},
-		{"GET", "/v1/players/sessions", a.hSessions},
-		{"GET", "/v1/players/summary", a.hSummary},
-		{"GET", "/v1/events", a.hEvents},
-		{"GET", "/v1/backups", a.hBackups},
-		{"POST", "/v1/backups", a.hBackupCreate},
-		{"POST", "/v1/backups/{id}/verify", a.hBackupVerify},
-		{"GET", "/v1/backups/{id}/download", a.hBackupDownload},
-		{"DELETE", "/v1/backups/{id}", a.hBackupDelete},
-		{"POST", "/v1/restore/upload", a.hRestoreUpload},
-		{"POST", "/v1/backups/{id}/restore", a.hRestoreFromBackup},
+		{"GET", "/v1/servers", a.hServers},
+		{"POST", "/v1/servers", a.hCreate},
+		{"GET", "/v1/servers/{id}", srv((*server).hStatus)},
+		{"POST", "/v1/servers/{id}/start", srv((*server).hStart)},
+		{"POST", "/v1/servers/{id}/stop", srv((*server).hStop)},
+		{"POST", "/v1/servers/{id}/restart", srv((*server).hRestart)},
+		{"POST", "/v1/servers/{id}/settings", srv((*server).hSettings)},
+		{"GET", "/v1/servers/{id}/icon", srv((*server).hIcon)},
+		{"POST", "/v1/servers/{id}/icon", srv((*server).hIconSet)},
+		{"POST", "/v1/servers/{id}/version", srv((*server).hVersionChange)},
+		{"POST", "/v1/servers/{id}/delete", srv((*server).hDelete)},
+		{"GET", "/v1/servers/{id}/logs", srv((*server).hLogs)},
+		{"POST", "/v1/servers/{id}/command", srv((*server).hCommand)},
+		{"GET", "/v1/servers/{id}/whitelist", srv((*server).hWhitelist)},
+		{"POST", "/v1/servers/{id}/whitelist", srv((*server).hWhitelistAdd)},
+		{"DELETE", "/v1/servers/{id}/whitelist/{name}", srv((*server).hWhitelistRemove)},
+		{"GET", "/v1/servers/{id}/operators", srv((*server).hOperators)},
+		{"POST", "/v1/servers/{id}/operators", srv((*server).hOperatorAdd)},
+		{"DELETE", "/v1/servers/{id}/operators/{name}", srv((*server).hOperatorRemove)},
+		{"POST", "/v1/servers/{id}/kick", srv((*server).hKick)},
+		{"GET", "/v1/servers/{id}/metrics", srv((*server).hMetrics)},
+		{"GET", "/v1/servers/{id}/players/sessions", srv((*server).hSessions)},
+		{"GET", "/v1/servers/{id}/players/summary", srv((*server).hSummary)},
+		{"GET", "/v1/servers/{id}/events", srv((*server).hEvents)},
+		{"GET", "/v1/servers/{id}/backups", srv((*server).hBackups)},
+		{"POST", "/v1/servers/{id}/backups", srv((*server).hBackupCreate)},
+		{"POST", "/v1/servers/{id}/backups/{bid}/verify", srv((*server).hBackupVerify)},
+		{"GET", "/v1/servers/{id}/backups/{bid}/download", srv((*server).hBackupDownload)},
+		{"DELETE", "/v1/servers/{id}/backups/{bid}", srv((*server).hBackupDelete)},
+		{"POST", "/v1/servers/{id}/backups/{bid}/restore", srv((*server).hRestoreFromBackup)},
+		{"POST", "/v1/servers/{id}/restore/upload", srv((*server).hRestoreUpload)},
+		{"POST", "/v1/restore/upload", a.hRestoreUploadNew},
 		{"GET", "/v1/restore/{id}", a.hRestorePreview},
 		{"POST", "/v1/restore/{id}/apply", a.hRestoreApply},
 		{"DELETE", "/v1/restore/{id}", a.hRestoreDiscard},
+		{"GET", "/v1/operations/{id}", a.hOperation},
+		{"GET", "/v1/activity", a.hActivity},
 		{"GET", "/v1/audit", a.hAudit},
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
-		{"POST", "/v1/server/version", a.hVersionChange},
 	}
 }
 
 // Routes exposes the route table so tests can iterate every allowlisted verb.
 func (a *Agent) Routes() []Route { return a.routeTable() }
+
+// withServer resolves the {id} in a server route; an unknown id is 404.
+func (a *Agent) withServer(h func(*server, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if !reServerID.MatchString(id) {
+			writeError(w, errInvalid("invalid server id"))
+			return
+		}
+		s := a.serverByID(id)
+		if s == nil {
+			writeError(w, errNotFound("Server"))
+			return
+		}
+		h(s, w, r)
+	}
+}
+
+func opKind(op *api.Operation, def string) string {
+	if op == nil {
+		return def
+	}
+	return op.Kind
+}

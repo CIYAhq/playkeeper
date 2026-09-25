@@ -32,15 +32,15 @@ func (a *Agent) fill() minecraft.Fill {
 	return minecraft.Fill{BaseURL: a.opts.FillURL, Client: a.opts.HTTPClient}
 }
 
-// versionCatalog is the live list of Paper versions from PaperMC, reused for
-// catalogTTL. If PaperMC cannot be reached, the last list is used if there
-// is one.
-func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, error) {
+// versionCatalog is the live list of Paper versions from PaperMC and when it
+// was fetched, reused for catalogTTL. If PaperMC cannot be reached, the last
+// list is used if there is one.
+func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, time.Time, error) {
 	c := &a.catalog
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries != nil && a.now().Sub(c.at) < catalogTTL {
-		return c.entries, nil
+		return c.entries, c.at, nil
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -48,17 +48,17 @@ func (a *Agent) versionCatalog(ctx context.Context) ([]api.CatalogEntry, error) 
 	if err != nil {
 		a.log.Warn("could not load the Paper version list", "err", err)
 		if c.entries != nil {
-			return c.entries, nil
+			return c.entries, c.at, nil
 		}
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	c.entries, c.at = entries, a.now()
-	return entries, nil
+	return entries, c.at, nil
 }
 
 // catalogEntry finds a version to create or update a server with.
 func (a *Agent) catalogEntry(ctx context.Context, id string) (api.CatalogEntry, error) {
-	entries, err := a.versionCatalog(ctx)
+	entries, _, err := a.versionCatalog(ctx)
 	if err != nil {
 		return api.CatalogEntry{}, &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeInvalid, Msg: "Could not load the Minecraft versions from PaperMC: " + err.Error(), Hint: "Check that this server can reach fill.papermc.io, then try again."}
 	}
@@ -126,7 +126,7 @@ func checkNewer(cur api.ServerConfig, e api.CatalogEntry) error {
 	return nil
 }
 
-func (a *Agent) hVersionChange(w http.ResponseWriter, r *http.Request) {
+func (s *server) hVersionChange(w http.ResponseWriter, r *http.Request) {
 	var req api.VersionChangeRequest
 	if err := decode(r, &req); err != nil {
 		writeError(w, err)
@@ -137,7 +137,7 @@ func (a *Agent) hVersionChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	cur, err := a.serverConfig()
+	cur, err := s.serverConfig()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -146,13 +146,13 @@ func (a *Agent) hVersionChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotCreated())
 		return
 	}
-	e, err := a.catalogEntry(r.Context(), req.VersionID)
+	e, err := s.catalogEntry(r.Context(), req.VersionID)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	if err := checkNewer(*cur, e); err != nil {
-		a.audit(actor, "server.version", e.ID, "refused", err.Error())
+		s.audit(actor, "server.version", e.ID, "refused", err.Error())
 		writeError(w, err)
 		return
 	}
@@ -160,8 +160,8 @@ func (a *Agent) hVersionChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("%s is experimental. Confirm that you accept the risk to your world to use it.", e.Label))
 		return
 	}
-	op, err := a.beginOp("update-version", actor, func(ctx context.Context, h *opHandle) error {
-		return a.versionChangeOp(ctx, h, e, actor)
+	op, err := s.beginOp("update-version", actor, func(ctx context.Context, h *opHandle) error {
+		return s.versionChangeOp(ctx, h, e, req.WarnPlayers, actor)
 	})
 	if err != nil {
 		writeError(w, err)
@@ -175,8 +175,8 @@ func (a *Agent) hVersionChange(w http.ResponseWriter, r *http.Request) {
 // If the new version does not start, the backup is put back and the server
 // runs the previous version again. Minecraft upgrades a world on first
 // start, so the world is restored too, not only the software.
-func (a *Agent) versionChangeOp(ctx context.Context, h *opHandle, e api.CatalogEntry, actor string) error {
-	prev, err := a.serverConfig()
+func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.CatalogEntry, warn bool, actor string) error {
+	prev, err := s.serverConfig()
 	if err != nil {
 		return err
 	}
@@ -188,79 +188,82 @@ func (a *Agent) versionChangeOp(ctx context.Context, h *opHandle, e api.CatalogE
 	}
 	h.set("from", prev.MinecraftVersion+" build "+fmt.Sprint(prev.PaperBuild))
 	h.set("to", e.MinecraftVersion+" build "+fmt.Sprint(e.PaperBuild))
-	need := allowlistedSize(a.cfg.ServerDataDir())
-	if free, _, err := a.opts.DiskUsage(a.cfg.BackupsDir()); err == nil && free < 2*need+minFreeAfterBackup {
+	need := allowlistedSize(s.dataDir())
+	if free, _, err := s.opts.DiskUsage(s.cfg.BackupsDir()); err == nil && free < 2*need+minFreeAfterBackup {
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space to update safely: %s free, about %s needed for the backup and a possible rollback.", humanBytes(free), humanBytes(2*need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
 	}
-	_, wasRunning, err := a.containerRunning(ctx)
+	_, wasRunning, err := s.containerRunning(ctx)
 	if err != nil {
 		return err
 	}
-	if err := a.stopServer(ctx, h); err != nil {
+	if warn && wasRunning {
+		s.warnPlayers(ctx, h)
+	}
+	if err := s.stopServer(ctx, h); err != nil {
 		return err
 	}
 	h.phase("backing_up")
-	b, err := a.saveVerifiedRollback(*prev, actor, fmt.Sprintf("Automatic backup before updating from Paper %s to %s", prev.MinecraftVersion, e.MinecraftVersion))
+	b, err := s.saveVerifiedRollback(*prev, actor, fmt.Sprintf("Automatic backup before updating from Paper %s to %s", prev.MinecraftVersion, e.MinecraftVersion))
 	if err != nil {
-		a.startPrevious(ctx, h, prev, wasRunning)
-		return a.withRefusalHint(fmt.Errorf("could not save a verified backup first, so nothing was changed: %w", err))
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return s.withRefusalHint(fmt.Errorf("could not save a verified backup first, so nothing was changed: %w", err))
 	}
 	h.set("backupId", b.ID)
 	next := withBuild(*prev, e)
-	if err := a.ensureServerSoftware(ctx, h, &next); err != nil {
-		_ = a.saveServerConfig(*prev)
-		a.startPrevious(ctx, h, prev, wasRunning)
+	if err := s.ensureServerSoftware(ctx, h, &next); err != nil {
+		_ = s.saveServerConfig(*prev)
+		s.startPrevious(ctx, h, prev, wasRunning)
 		return &apiError{Msg: fmt.Sprintf("Paper %s could not be downloaded and verified (%s), so nothing was changed.", e.MinecraftVersion, err.Error()), Hint: "The server runs " + prev.MinecraftVersion + " as before. Try again later."}
 	}
-	if err := a.saveServerConfig(next); err != nil {
-		a.startPrevious(ctx, h, prev, wasRunning)
+	if err := s.saveServerConfig(next); err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
 		return err
 	}
-	_ = a.setDesired(api.DesiredRunning)
+	_ = s.setDesired(api.DesiredRunning)
 	h.phase("starting")
-	startErr := a.startServer(ctx, h, next)
+	startErr := s.startServer(ctx, h, next)
 	if startErr == nil {
-		a.audit(actor, "server.version", e.ID, "succeeded", fmt.Sprintf("Paper %s build %d → %s build %d; backup %s", prev.MinecraftVersion, prev.PaperBuild, e.MinecraftVersion, e.PaperBuild, b.ID))
-		a.recordEvent(a.now(), "server_version_changed", "", "playkeeper", fmt.Sprintf("%s build %d → %s build %d", prev.MinecraftVersion, prev.PaperBuild, e.MinecraftVersion, e.PaperBuild))
+		s.audit(actor, "server.version", e.ID, "succeeded", fmt.Sprintf("Paper %s build %d → %s build %d; backup %s", prev.MinecraftVersion, prev.PaperBuild, e.MinecraftVersion, e.PaperBuild, b.ID))
+		s.recordEvent(s.now(), "server_version_changed", "", "playkeeper", fmt.Sprintf("%s build %d → %s build %d", prev.MinecraftVersion, prev.PaperBuild, e.MinecraftVersion, e.PaperBuild))
 		return nil
 	}
 	h.phase("reverting")
-	a.log.Warn("the new server version did not start; restoring the backup", "version", e.MinecraftVersion, "err", startErr)
-	_ = a.stopServer(ctx, h)
-	if err := a.putBackupBack(b); err != nil {
-		a.audit(actor, "server.version", e.ID, "failed", "rollback failed: "+err.Error())
+	s.log.Warn("the new server version did not start; restoring the backup", "version", e.MinecraftVersion, "err", startErr)
+	_ = s.stopServer(ctx, h)
+	if err := s.putBackupBack(b); err != nil {
+		s.audit(actor, "server.version", e.ID, "failed", "rollback failed: "+err.Error())
 		return &apiError{Msg: fmt.Sprintf("Paper %s did not start (%s), and putting the backup back failed: %s", e.MinecraftVersion, startErr.Error(), err.Error()),
 			Hint: "Your world is safe in backup " + b.ID + ". Restore it from the World page."}
 	}
-	_ = a.saveServerConfig(*prev)
-	if err := a.startServer(ctx, h, *prev); err != nil {
+	_ = s.saveServerConfig(*prev)
+	if err := s.startServer(ctx, h, *prev); err != nil {
 		return &apiError{Msg: fmt.Sprintf("Paper %s did not start (%s). The backup was put back, but %s did not start either: %s", e.MinecraftVersion, startErr.Error(), prev.MinecraftVersion, err.Error()), Hint: "Press Start on the Overview."}
 	}
-	a.audit(actor, "server.version", e.ID, "rolled back", startErr.Error())
+	s.audit(actor, "server.version", e.ID, "rolled back", startErr.Error())
 	return &apiError{Msg: fmt.Sprintf("Paper %s did not start (%s), so Playkeeper put the backup from before the update back. The server runs %s again.", e.MinecraftVersion, startErr.Error(), prev.MinecraftVersion),
 		Hint: "Nothing was lost. Open the Console to see why the new version stopped."}
 }
 
 // putBackupBack replaces the live world with a verified backup's. The world
 // the failed start touched is deleted once the backup's copy is in place.
-func (a *Agent) putBackupBack(b *api.Backup) error {
-	f, err := os.Open(a.backupPath(b.FileName))
+func (s *server) putBackupBack(b *api.Backup) error {
+	f, err := os.Open(s.backupPath(b.FileName))
 	if err != nil {
 		return err
 	}
-	p, err := a.stageArchive(f, "backup:"+b.ID, b.SizeBytes)
+	p, err := s.stageArchive(f, "backup:"+b.ID, b.SizeBytes, s)
 	f.Close()
 	if err != nil {
 		return err
 	}
-	st, err := a.loadStage(p.ID)
+	st, err := s.loadStage(p.ID)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(st.dir)
-	live := a.cfg.ServerDataDir()
-	failed := live + ".failed-update-" + a.now().UTC().Format("20060102-150405")
+	live := s.dataDir()
+	failed := live + ".failed-update-" + s.now().UTC().Format("20060102-150405")
 	if err := renameDir(live, failed); err != nil {
 		return err
 	}
@@ -270,11 +273,31 @@ func (a *Agent) putBackupBack(b *api.Backup) error {
 		}
 		return err
 	}
-	if err := chownTree(live, a.cfg.GameUID, a.cfg.GameGID); err != nil {
-		a.log.Warn("chown restored world", "err", err)
+	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+		s.log.Warn("chown restored world", "err", err)
 	}
 	if err := os.RemoveAll(failed); err != nil {
-		a.log.Warn("could not delete the world the failed update touched", "path", failed, "err", err)
+		s.log.Warn("could not delete the world the failed update touched", "path", failed, "err", err)
 	}
 	return nil
+}
+
+// warnPlayers tells anyone online that the server is about to update, then
+// gives them WarnDelay to finish what they are doing.
+func (s *server) warnPlayers(ctx context.Context, h *opHandle) {
+	s.mu.Lock()
+	players := s.players
+	s.mu.Unlock()
+	if players == nil || players.Online == 0 {
+		return
+	}
+	h.phase("warning_players")
+	if _, err := s.rconCommand("say Updating in 1 minute, back soon!"); err != nil {
+		s.log.Warn("could not warn players before the update", "server", s.id, "err", err)
+		return
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(s.opts.WarnDelay):
+	}
 }
