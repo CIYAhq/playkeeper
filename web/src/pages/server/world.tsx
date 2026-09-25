@@ -57,14 +57,12 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   }
 
   if (phone) {
-    const verified = list.length > 0 && list.every((b) => b.verified)
     return (
       <div className="flex flex-col gap-4">
         <MakeBackup server={s} phone onDone={refresh} />
         <section aria-labelledby="backups">
           <SectionLabel className="px-4">
             <span id="backups">{t('world.listPhone')}</span>
-            {verified && `${t('common.dot')}${t('world.allVerified')}`}
           </SectionLabel>
           {backups.data ? (
             <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
@@ -87,13 +85,9 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
         </section>
         <button type="button" onClick={() => setRestoreSheet(true)} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 text-left">
           <RotateCcwIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-base font-medium">{t('world.restorePhone')}</span>
-            <span className="block text-[13px] text-muted-foreground">{t('world.restorePhoneHint')}</span>
-          </span>
+          <span className="min-w-0 flex-1 text-base font-medium">{t('world.restorePhone')}</span>
           <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
         </button>
-        <p className="px-1 pt-2 text-[13px] text-muted-foreground">{t('world.footnote')}</p>
         <Sheet open={restoreSheet} onOpenChange={setRestoreSheet}>
           <SheetPopup side="bottom">
             <div className="px-5 pt-3">
@@ -169,14 +163,9 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
       </section>
       <Card className="mt-2">
         <CardTitle>{t('world.restore')}</CardTitle>
-        <CardHint>{t('world.restoreHint')}</CardHint>
         <div className="mt-4 grid items-center gap-5 md:grid-cols-[1.6fr_1fr]">
           <RestoreDropZone server={s} onPreview={setPreview} />
-          <ul className="flex flex-col gap-3 text-[13px] text-muted-foreground">
-            <li>{t('world.restoreNote1')}</li>
-            <li>{t('world.restoreNote2')}</li>
-            <li>{t('world.restoreNote3', { server: s.name })}</li>
-          </ul>
+          <p className="text-[13px] text-muted-foreground">{t('world.restoreNote')}</p>
         </div>
       </Card>
       {ws.stale ? null : dialog}
@@ -229,13 +218,9 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   return (
     <Card>
       <CardTitle>{t('world.make')}</CardTitle>
-      <CardHint>{t('world.makeHint')}</CardHint>
       <div className="mt-4 flex items-start gap-4">
         <Pip pose="letter" size={52} />
-        <div className="min-w-0 text-[13px] leading-[18px]">
-          <p>{online ? t('world.makeBody') : t('world.makeBodyStopped', { server: s.name })}</p>
-          {online && <p className="mt-2 text-muted-foreground">{t('world.makeWarn')}</p>}
-        </div>
+        <p className="min-w-0 text-[13px] leading-[18px]">{online ? t('world.makeBody', { server: s.name }) : t('world.makeBodyStopped', { server: s.name })}</p>
       </div>
       <div className="mt-auto flex gap-2 pt-5">
         <InputGroup className="flex-1">
@@ -418,7 +403,6 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
   const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
-  const players = s.phase === 'online' ? (s.players?.online ?? 0) : 0
   const steps = [
     { title: t('world.emptyStep1'), hint: t('world.emptyStep1Hint') },
     { title: t('world.emptyStep2'), hint: t('world.emptyStep2Hint') },
@@ -448,7 +432,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         <ArchiveIcon />
         {running ? t('world.backingUp') : t('world.emptyButton')}
       </Button>
-      <p className="mt-3 text-xs text-muted-foreground">{t('world.emptyNote', { count: players })}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{t('world.emptyNote')}</p>
       <ol className="mt-8 grid w-full max-w-[720px] gap-4 border-t border-border pt-5 text-left sm:grid-cols-3">
         {steps.map((st, i) => (
           <li key={st.title}>

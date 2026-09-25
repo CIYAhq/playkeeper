@@ -213,7 +213,7 @@ export function Onboarding() {
   )
 }
 
-function checkText(c: PreflightCheck, memoryMB: number | undefined, disk: number | undefined, port: number): { title: string; hint: string } {
+function checkText(c: PreflightCheck, memoryMB: number | undefined, disk: number | undefined, port: number): { title: string; hint?: string } {
   if (c.status === 'fail' || c.status === 'warn') return { title: c.label, hint: [c.detail, c.fix].filter(Boolean).join(' ') }
   switch (c.id) {
     case 'memory':
@@ -221,9 +221,9 @@ function checkText(c: PreflightCheck, memoryMB: number | undefined, disk: number
     case 'disk':
       return { title: t('onboarding.check.disk', { disk: formatBytes(disk) }), hint: t('onboarding.check.diskOk') }
     case 'docker':
-      return { title: t('onboarding.check.docker'), hint: t('onboarding.check.dockerHint') }
+      return { title: t('onboarding.check.docker') }
     case 'port':
-      return { title: c.detail.includes('Playkeeper server') ? t('onboarding.check.portOurs', { port }) : t('onboarding.check.port', { port }), hint: t('onboarding.check.portHint') }
+      return { title: c.detail.includes('Playkeeper server') ? t('onboarding.check.portOurs', { port }) : t('onboarding.check.port', { port }) }
     case 'egress':
       return { title: t('onboarding.check.egress'), hint: t('onboarding.check.egressHint') }
     default:
@@ -309,7 +309,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
               </span>
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold max-sm:text-[15px]">{r.title}</span>
-                <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>
+                {r.hint && <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>}
                 {r.key === 'firewall' && (
                   <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                     {t('onboarding.check.firewallLink')}
@@ -364,11 +364,11 @@ function FirstStage({ onCreate }: { onCreate: () => void }) {
         <dl className="mt-6 flex flex-col gap-4">
           <div>
             <dt className="text-base font-semibold">{t('onboarding.createButton')}</dt>
-            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.createFirstHint')}</dd>
+            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.createFirstHintPhone')}</dd>
           </div>
           <div>
             <dt className="text-base font-semibold">{t('onboarding.skip')}</dt>
-            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.skipHint')}</dd>
+            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.skipHintPhone')}</dd>
           </div>
         </dl>
         <PhoneActions>
@@ -462,7 +462,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   const heading = (
     <>
       <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em] sm:text-2xl sm:font-bold">{t('style.question')}</h1>
-      <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('style.leadPhone') : t('style.lead')}</p>
+      <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('style.lead')}</p>
     </>
   )
   if (!c || !catalog) {
@@ -712,7 +712,7 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
       <Confetti />
       <Pip pose="cheer" size={phone ? 96 : 88} className="relative mx-auto mt-2" />
       <h1 className="relative mt-4 text-[28px] leading-9 font-extrabold tracking-[-0.02em]">{t('creating.online', { server: s.name })}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{t('creating.onlineLead', { type: typeName(s.type), version: s.config?.minecraftVersion ?? '', port: s.gamePort })}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{t('creating.onlineLead')}</p>
       <div className="mt-5 rounded-2xl border border-border bg-warm px-4 py-4">
         <div className="section-label">{t('onboarding.joinAddress')}</div>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
@@ -721,7 +721,7 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
           </span>
           <CopyButton text={address} variant="default" size="sm" toast={t('toast.copied')} />
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint', { port: s.gamePort })}</p>
+        <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint')}</p>
       </div>
       <form onSubmit={invite} className="mt-5 text-left">
         <label htmlFor="invite" className="text-[13px] font-semibold">

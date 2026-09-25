@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { get } from '@/api/client'
 import type { MetricsResponse, ServerStatus } from '@/api/types'
 import { serverApi } from '@/api/workspace'
-import { Card, CardHint, CardTitle } from '@/components/app/bits'
+import { Card, CardTitle } from '@/components/app/bits'
 import { Segmented } from '@/components/app/controls'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -62,14 +62,10 @@ export function PlayersChart({ server, className }: { server: ServerStatus; clas
   const top = ticks(niceMax(Math.max(1, ...bars.map((b) => b.players ?? 0))))
   const max = top[top.length - 1] ?? 1
   const titleKey: MessageKey = `overview.chartTitle.${range}`
-  const hintKey: MessageKey = `overview.chartHint.${range}`
   return (
     <Card className={className}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <CardTitle>{t(titleKey)}</CardTitle>
-          <CardHint>{t(hintKey)}</CardHint>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <CardTitle>{t(titleKey)}</CardTitle>
         <Segmented
           value={range}
           onChange={setRange}
@@ -161,7 +157,6 @@ export function PlayersChart({ server, className }: { server: ServerStatus; clas
         <button type="button" className="font-medium text-primary hover:underline" onClick={() => setTable((v) => !v)}>
           {table ? t('overview.chartTableHide') : t('overview.chartTable')}
         </button>
-        <span className="ml-auto">{m.data ? t('overview.chartSource', { seconds: m.data.sampleIntervalSeconds }) : null}</span>
       </div>
     </Card>
   )

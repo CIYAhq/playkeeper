@@ -129,7 +129,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
 
   const game = (
     <>
-      <SettingRow label={t('settings.difficulty')} hint={phone ? t('settings.difficultyHintShort') : t('settings.difficultyHint')} changed={changed('difficulty')} control={<ChoiceSelect value={v.difficulty} onChange={(d) => set('difficulty', d)} options={difficultyChoices()} label={t('settings.difficulty')} />} />
+      <SettingRow label={t('settings.difficulty')} changed={changed('difficulty')} control={<ChoiceSelect value={v.difficulty} onChange={(d) => set('difficulty', d)} options={difficultyChoices()} label={t('settings.difficulty')} />} />
       <SettingRow
         label={t('settings.pvp')}
         hint={phone ? t('settings.pvpHintShort') : t('settings.pvpHint')}
@@ -156,7 +156,6 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       )}
       <SettingRow
         label={t('settings.maxPlayers')}
-        hint={phone ? t('settings.maxPlayersHintShort') : t('settings.maxPlayersHint')}
         changed={changed('maxPlayers')}
         control={
           <NumberField value={v.maxPlayers} onValueChange={(n) => n !== null && set('maxPlayers', n)} min={1} max={100} step={1}>
@@ -168,7 +167,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
           </NumberField>
         }
       />
-      <SettingRow label={t('settings.mode')} hint={phone ? t('settings.modeHintShort') : t('settings.modeHint')} changed={changed('gameMode')} control={<ChoiceSelect value={v.gameMode} onChange={(m) => set('gameMode', m)} options={modeChoices()} label={t('settings.mode')} />} />
+      <SettingRow label={t('settings.mode')} hint={phone ? t('settings.modeHintShort') : undefined} changed={changed('gameMode')} control={<ChoiceSelect value={v.gameMode} onChange={(m) => set('gameMode', m)} options={modeChoices()} label={t('settings.mode')} />} />
     </>
   )
 
@@ -178,7 +177,6 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       <SettingRow
         wide
         label={t('settings.motd')}
-        hint={t('settings.motdHint')}
         changed={changed('motd')}
         htmlFor="server-motd"
         className="items-start"
@@ -189,7 +187,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
           </div>
         }
       />
-      <SettingRow wide label={t('settings.preview')} hint={t('settings.previewHint')} control={<ListPreview server={s} name={v.name} motd={v.motd} />} />
+      <SettingRow wide label={t('settings.preview')} control={<ListPreview server={s} name={v.name} motd={v.motd} />} />
       <IconRow server={s} />
     </>
   )
@@ -198,7 +196,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     <>
       <SettingRow
         label={t('settings.memoryRow')}
-        hint={usedMB && suggested ? t('settings.memoryRowHint', { server: s.name, used: formatBytes(s.resources?.memBytes), suggested: formatMB(suggested) }) : t('settings.memoryRowHintIdle')}
+        hint={usedMB && suggested ? t('settings.memoryRowHint', { used: formatBytes(s.resources?.memBytes), suggested: formatMB(suggested) }) : t('settings.memoryRowHintIdle')}
         changed={changed('memoryMB')}
         control={<ChoiceSelect value={String(v.memoryMB)} onChange={(mb) => set('memoryMB', Number(mb))} options={memoryChoices} label={t('settings.memoryRow')} />}
       />
@@ -253,13 +251,13 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         ))}
       </nav>
       <div className="flex min-w-0 flex-col gap-4 pb-20">
-        <Section id="game" title={t('settings.game')} hint={t('settings.gameHint')}>
+        <Section id="game" title={t('settings.game')}>
           {game}
         </Section>
-        <Section id="list" title={t('settings.list')} hint={t('settings.listHint')}>
+        <Section id="list" title={t('settings.list')}>
           {list}
         </Section>
-        <Section id="memory" title={t('settings.memory')} hint={t('settings.memoryHint', { machine: ws.machineName })}>
+        <Section id="memory" title={t('settings.memory')}>
           {memory}
         </Section>
         <Section id="version" title={t('settings.version')} hint={t('settings.versionMeta', { type: typeName(s.type), version: s.config?.minecraftVersion ?? '', build: s.config?.paperBuild ?? 0 })}>
@@ -355,7 +353,7 @@ function VersionRows({ server: s, versions }: { server: ServerStatus; versions: 
     <>
       <SettingRow
         label={newest ? t('settings.updateAvailable') : t('settings.upToDate')}
-        hint={newest ? t('settings.updateBody', { version: newest.minecraftVersion }) : versions ? t('settings.upToDateBody') : undefined}
+        hint={newest ? t('settings.updateBody') : versions ? t('settings.upToDateBody') : undefined}
         control={
           newest && (
             <Button variant="outline" size="sm" onClick={() => setOpen(newest)} disabledReason={busyReason(s)}>
@@ -442,7 +440,6 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
           <div>
             <div className="text-[13px] font-semibold">{t('mcupdate.to')}</div>
             <ChoiceSelect value={target?.id ?? ''} onChange={setChosen} options={options} label={t('mcupdate.to')} className="mt-1.5 w-full" />
-            <p className="mt-1 text-xs text-muted-foreground">{t('mcupdate.onlyNewer')}</p>
           </div>
           <ol className="flex flex-col gap-3 rounded-2xl bg-warm p-4">
             {steps.map((st, i) => (
@@ -457,7 +454,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
           </ol>
           <div>
             <p className="text-[13px] font-semibold text-warning-foreground">{t('mcupdate.noBack')}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t('mcupdate.noBackBody', { version, current })}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('mcupdate.noBackBody')}</p>
           </div>
           {players > 0 && (
             <label className="flex items-start gap-3">
@@ -470,7 +467,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
           )}
           <label className="flex items-start gap-2.5 text-[13px]">
             <Checkbox checked={consent} onCheckedChange={(c) => setConsent(c === true)} className="mt-0.5" />
-            {t('mcupdate.consent', { server: s.name, current, version })}
+            {t('mcupdate.consent', { server: s.name, version })}
           </label>
           {target?.experimental && (
             <label className="flex items-start gap-2.5 text-[13px]">

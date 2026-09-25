@@ -3,7 +3,7 @@ import { ArrowUpRightIcon, CloudRainIcon, DownloadIcon, MessageSquareIcon, SaveI
 import { ApiError, get, post } from '@/api/client'
 import type { LogLine, LogsResponse, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
-import { Card, CardHint, CardTitle } from '@/components/app/bits'
+import { Card, CardTitle } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
 import { lineWidth, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
@@ -202,7 +202,7 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
       {warning && filter !== 'chat' && filter !== 'players' && (
         <div className="mt-3 max-w-[560px] px-2 font-sans sm:pl-[8.75rem]">
           <p className="text-xs font-semibold text-[#f5b94a]">{t('console.warnTitle', { time: formatClock(warning.ts) })}</p>
-          <p className="mt-0.5 text-xs text-[#b8bdb2]">{t('console.warnBody', { count: Math.max(1, Math.round(behindSeconds(warning.text) ?? 1)), server: s.name })}</p>
+          <p className="mt-0.5 text-xs text-[#b8bdb2]">{t('console.warnBody', { count: Math.max(1, Math.round(behindSeconds(warning.text) ?? 1)) })}</p>
         </div>
       )}
     </div>
@@ -285,7 +285,6 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
       </div>
       <Card className="self-start">
         <CardTitle>{t('console.quick')}</CardTitle>
-        <CardHint>{t('console.quickHint')}</CardHint>
         <ul className="mt-3 flex flex-col gap-2">
           {quick.map((q) => (
             <li key={q.command}>

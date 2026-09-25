@@ -90,7 +90,7 @@ export function HomePage() {
 function MachineNotice() {
   const ws = useWorkspace()
   const disk = ws.machine?.live?.diskWarning
-  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.note')}</Notice>
+  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.body', { machine: ws.machineName })}</Notice>
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   return null
 }

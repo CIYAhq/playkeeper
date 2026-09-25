@@ -376,13 +376,10 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
         </Card>
       </div>
       <section aria-labelledby="everyone" className="mt-2">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 id="everyone" className="text-[15px] font-semibold">
-              {t('players.everyone')}
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t('players.everyoneHint')}</p>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="everyone" className="text-[15px] font-semibold">
+            {t('players.everyone')}
+          </h2>
           <Segmented
             value={days}
             onChange={setDays}
@@ -450,7 +447,7 @@ function EmptyPlayers({ server: s, address, form, phone }: { server: ServerStatu
     <div className="flex flex-1 flex-col items-center py-6 text-center max-sm:py-2">
       <EmptyArt kind="players" scale={phone ? 7 : 5} className="rounded-2xl" />
       <h2 className="mt-5 text-title font-extrabold tracking-[-0.015em] max-sm:text-[22px]">{t('players.emptyTitle')}</h2>
-      <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('players.emptyBody', { server: s.name })}</p>
+      <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('players.emptyBody')}</p>
       <div className="mt-5 w-full max-w-[420px] text-left">
         <AddPlayer server={s} form={form} placeholder={t('players.emptyPlaceholder')} big />
       </div>

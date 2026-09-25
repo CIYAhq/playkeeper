@@ -359,13 +359,10 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
             </Button>
           </>
         ) : (
-          <>
-            <Button variant="outline" render={<a {...linkProps(other ? { name: 'server', slug: other.slug, tab: 'overview' } : { name: 'home' })} />}>
-              <ArrowLeftIcon />
-              {other ? t('creating.takeMe', { server: other.name }) : t('creating.takeHome')}
-            </Button>
-            <span className="text-xs text-muted-foreground">{t('creating.nothingToDo')}</span>
-          </>
+          <Button variant="outline" render={<a {...linkProps(other ? { name: 'server', slug: other.slug, tab: 'overview' } : { name: 'home' })} />}>
+            <ArrowLeftIcon />
+            {other ? t('creating.takeMe', { server: other.name }) : t('creating.takeHome')}
+          </Button>
         )}
       </div>
     </Card>
@@ -403,8 +400,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
           <Pip pose="hurt" size={80} className="max-sm:hidden" />
           <div className="min-w-0">
             <h2 className="text-lg font-bold">{t('crash.what')}</h2>
-            <p className="mt-1 text-sm">{oom ? t('crash.oom', { server: s.name, memory: formatMB(current) }) : (s.lastError ?? t('crash.generic', { server: s.name }))}</p>
-            {s.crashCount >= 2 && <p className="mt-2 text-[13px] text-muted-foreground">{t('crash.gaveUp')}</p>}
+            <p className="mt-1 text-sm">{oom ? t('crash.oom', { memory: formatMB(current) }) : (s.lastError ?? t('crash.generic', { server: s.name }))}</p>
             {!oom && s.lastErrorHint && <p className="mt-2 text-[13px] text-muted-foreground">{s.lastErrorHint}</p>}
           </div>
         </div>
@@ -424,7 +420,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
               <ChoiceCard value="more" radio="start" className="gap-3 p-3.5">
                 <span className="text-sm font-semibold">{t('crash.more', { server: s.name, memory: formatMB(bigger) })}</span>
                 <span className="ml-2 text-xs font-medium text-success-foreground">{t('common.recommended')}</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">{free !== undefined ? t('crash.moreHint', { machine: ws.machineName, free: formatMB(free) }) : ''}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{free !== undefined ? t('crash.moreHint', { free: formatMB(free) }) : ''}</span>
               </ChoiceCard>
               <ChoiceCard value="keep" radio="start" className="gap-3 p-3.5">
                 <span className="text-sm font-semibold">{t('crash.keep', { memory: formatMB(current) })}</span>
@@ -439,7 +435,6 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
           <PlayIcon />
           {withMore && choice === 'more' ? t('crash.save', { server: s.name }) : t('crash.startOnly', { server: s.name })}
         </Button>
-        <p className="mt-3 text-center text-xs text-muted-foreground">{t('crash.offlineNote', { server: s.name })}</p>
       </Card>
     </div>
   )
@@ -475,7 +470,7 @@ function AgentDownView() {
       </div>
       <Card className="mt-8 w-full max-w-[460px] text-left">
         <CardTitle>{t('agentDown.fix')}</CardTitle>
-        <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody', { machine: ws.machineName })}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody')}</p>
         <div className="mt-3 flex items-center gap-2">
           <code className="min-w-0 flex-1 truncate rounded-lg bg-console px-3 py-2 text-xs text-[#e8e8e0]">{command}</code>
           <CopyButton text={command} />

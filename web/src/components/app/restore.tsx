@@ -205,16 +205,19 @@ export function RestoreDialog({ preview, server, onClose }: { preview: RestorePr
                     </label>
                   </div>
                 ) : (
-                  <label className="mt-4 flex flex-col gap-1.5 text-[13px]">
-                    <span>
-                      {rich(
-                        'restore.typeToConfirm',
-                        { b: (chunk) => <strong className="font-semibold">{chunk}</strong> },
-                        { server: server?.name ?? '', level: preview.currentWorld.levelName ?? m?.levelName ?? '', size: formatBytes(preview.currentWorld.sizeBytes), phrase: preview.confirmPhrase },
-                      )}
-                    </span>
-                    <Input value={phrase} onChange={(e) => setPhrase(e.target.value)} aria-label={t('restore.confirmLabel')} autoComplete="off" spellCheck={false} />
-                  </label>
+                  <>
+                    <p className="mt-3 text-[13px] text-muted-foreground">{t('restore.offline', { server: server?.name ?? '' })}</p>
+                    <label className="mt-4 flex flex-col gap-1.5 text-[13px]">
+                      <span>
+                        {rich(
+                          'restore.typeToConfirm',
+                          { b: (chunk) => <strong className="font-semibold">{chunk}</strong> },
+                          { server: server?.name ?? '', level: preview.currentWorld.levelName ?? m?.levelName ?? '', size: formatBytes(preview.currentWorld.sizeBytes), phrase: preview.confirmPhrase },
+                        )}
+                      </span>
+                      <Input value={phrase} onChange={(e) => setPhrase(e.target.value)} aria-label={t('restore.confirmLabel')} autoComplete="off" spellCheck={false} />
+                    </label>
+                  </>
                 ))}
             </DialogPanel>
             <DialogFooter variant="bare" className="border-t border-border pt-4">

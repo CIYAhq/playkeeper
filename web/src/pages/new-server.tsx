@@ -18,10 +18,10 @@ import { Input } from '@/components/ui/input'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatMB, relativeTime } from '@/lib/format'
+import { formatList, formatMB } from '@/lib/format'
 import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
-import { preset } from '@/lib/styles'
+import { playersFor, preset } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
 const stepKeys: MessageKey[] = ['new.step.type', 'new.step.version', 'new.step.style', 'new.step.memory', 'new.step.name']
@@ -131,23 +131,18 @@ export function NewServerPage() {
               <>
                 <div>
                   <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.typeQuestion')}</h1>
-                  <p className="mt-1 text-[15px] text-muted-foreground">{t('new.typeLeadPhone')}</p>
+                  <p className="mt-1 text-[15px] text-muted-foreground">{t('new.typeHint')}</p>
                 </div>
                 <GameCard phone />
               </>
             ) : (
               <section>
-                <h2 className="text-[15px] font-semibold">
-                  {t('new.game')} <span className="ml-1 text-[13px] font-normal text-muted-foreground">{t('new.gameHint')}</span>
-                </h2>
+                <h2 className="text-[15px] font-semibold">{t('new.game')}</h2>
                 <div className="mt-2.5 grid grid-cols-2 gap-2.5">
                   <GameCard />
                   <div className="flex items-center gap-3 rounded-2xl border border-dashed border-input bg-warm px-4 py-3 text-muted-foreground">
                     <Gamepad2Icon className="size-5" aria-hidden="true" />
-                    <span>
-                      <span className="block text-sm font-semibold text-foreground/80">{t('new.moreGames')}</span>
-                      <span className="block text-xs">{t('new.moreGamesHint')}</span>
-                    </span>
+                    <span className="text-sm font-semibold text-foreground/80">{t('new.moreGames')}</span>
                   </div>
                 </div>
               </section>
@@ -180,7 +175,7 @@ export function NewServerPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.versionTitle')}</h2>
-                <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('new.versionLeadPhone') : t('new.versionLead')}</p>
+                <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.versionLead')}</p>
               </div>
               <div className={cn('flex items-center gap-2 text-[13px]', phone ? 'w-full justify-between' : 'rounded-full border border-border bg-muted py-1 pr-3 pl-1.5')}>
                 <span className="flex items-center gap-2 font-medium">
@@ -194,14 +189,13 @@ export function NewServerPage() {
             </div>
             <VersionPicker catalog={catalog} servers={ws.servers} value={c.versionId} onChange={(versionId) => update({ versionId, acceptExperimental: false })} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} phone={phone} />
             {phone ? (
-              <p className="mt-2 text-[13px] text-muted-foreground">{t('new.forwardPhone')}</p>
+              <p className="mt-2 text-[13px] text-muted-foreground">{t('new.forwardBody')}</p>
             ) : (
               <div className="grid gap-4 sm:grid-cols-[1fr_1fr]">
                 <div />
                 <div>
                   <h3 className="text-[13px] font-semibold">{t('new.forward')}</h3>
                   <p className="mt-1 text-xs text-muted-foreground">{t('new.forwardBody')}</p>
-                  {catalog.versionsCheckedAt && <p className="mt-2 text-xs text-muted-foreground">{t('new.listFrom', { time: relativeTime(catalog.versionsCheckedAt) })}</p>}
                 </div>
               </div>
             )}
@@ -213,7 +207,7 @@ export function NewServerPage() {
           <div className="flex flex-col gap-4">
             <div>
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('style.question')}</h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('style.leadPhone') : t('style.lead')}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('style.lead')}</p>
             </div>
             <StyleCards
               catalog={catalog}
@@ -230,12 +224,13 @@ export function NewServerPage() {
         break
       case 3: {
         const suggested = styleMemory(catalog, c.style)
+        const largest = options[options.length - 1]
         const others = catalog.servers.filter((x) => !x.running)
         body = (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}</p>
+              {!noMemory && <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.memoryLead', { memory: formatMB(suggested), players: playersFor(suggested) })}</p>}
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
@@ -250,14 +245,17 @@ export function NewServerPage() {
                 </Card>
                 <Card className="p-4">
                   <h3 className="text-sm font-semibold">{t('new.memoryFor')}</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{t('new.memoryForHint')}</p>
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
                       <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={c.style} />
                     </div>
                   </div>
-                  {c.memoryMB === options[options.length - 1] && <p className="mt-4 text-xs text-muted-foreground">{t('new.maxNote')}</p>}
+                  {largest !== undefined && (
+                    <p className="mt-4 text-xs text-muted-foreground">
+                      {catalog.servers.length > 0 ? t('new.maxNote', { memory: formatMB(largest), servers: formatList(catalog.servers.map((x) => x.name)) }) : t('new.maxNoteAlone', { memory: formatMB(largest), machine: ws.machineName })}
+                    </p>
+                  )}
                 </Card>
               </>
             )}

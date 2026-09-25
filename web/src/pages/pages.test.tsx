@@ -146,8 +146,7 @@ describe('Home', () => {
     expect(text).toContain('Paper 26.1.2')
     expect(text).toContain('3 playing')
     expect(text).toContain(window.location.hostname)
-    expect(text).toContain('1 server on my-vps')
-    expect(text).toContain('3 people playing right now')
+    expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
@@ -214,9 +213,9 @@ describe('Overview', () => {
   it('offers more memory after running out of it', async () => {
     answer({ '/logs': { epoch: 'e', lines: [{ seq: 1, ts: '2026-09-25T18:52:57Z', text: '[18:52:57 ERROR]: java.lang.OutOfMemoryError: Java heap space' }], next: 1, truncated: false }, '/catalog': { memoryOptionsMB: [2048, 3072, 4096, 6144, 8192], maxMemoryMB: 8192, versions: [], types: [], servers: [] } })
     const text = await render(<Overview server={server({ phase: 'crashed', crashCount: 2, exitCode: 1 })} />)
-    expect(text).toContain('It ran out of memory. Survival has 4 GB')
+    expect(text).toContain('It ran out of its 4 GB of memory.')
     expect(text).toContain('Give Survival 6 GB')
-    expect(text).toContain('Playkeeper restarted it and it stopped each time')
+    expect(text).toContain('Fits in the 10.5 GB free')
   })
 })
 
@@ -240,7 +239,7 @@ describe('Players', () => {
     expect(text).toContain('≈ 6 h 10 m')
     expect(text).toContain('1 hour')
     expect(text).not.toContain('≈ 1 hour')
-    expect(text).toContain('≈ means a session ended in a crash')
+    expect(text).toContain('≈ means it ended in a crash.')
   })
 
   it('shows a new player at once and puts the name back if Minecraft refuses it', async () => {

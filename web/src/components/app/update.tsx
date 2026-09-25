@@ -12,7 +12,6 @@ import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, Dial
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatList } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /** Reads what Playkeeper knows about updates, while `enabled`. */
@@ -141,8 +140,7 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const lastPhase = useRef('downloading')
   if (live?.operation?.kind === 'update' && live.operation.phase) lastPhase.current = live.operation.phase
   const current = info?.current ?? live?.agentVersion ?? ws.me.version
-  const names = (ws.servers ?? []).map((s) => s.name)
-  const servers = formatList(names)
+  const hasServers = (ws.servers ?? []).length > 0
 
   async function apply() {
     if (!info?.latest || !ws.machine) return
@@ -167,7 +165,7 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           <div className="min-w-0 pt-1">
             <DialogTitle className="text-xl leading-7 font-bold">{updating ? t('update.updatingTitle', { version: target }) : t('update.title', { version: target })}</DialogTitle>
             <DialogDescription className="mt-0.5 text-[13px]">
-              {updating ? (names.length ? t('update.updatingLead', { servers }) : t('update.updatingLeadNoServers')) : phone ? t('update.metaPhone', { current }) : t('update.meta', { current })}
+              {updating ? (hasServers ? t('update.updatingLead') : t('update.updatingLeadNoServers')) : phone ? t('update.metaPhone', { current }) : t('update.meta', { current })}
             </DialogDescription>
           </div>
         </div>
@@ -199,14 +197,13 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 </>
               )}
               <p className="mt-4 text-xs leading-[18px] text-muted-foreground max-sm:text-[13px]">
-                {phone ? t('update.safetyPhone', { current, version: target }) : names.length ? t('update.safety', { servers, version: target, current }) : t('update.safetyNoServers', { version: target, current })}
+                {phone ? t('update.safetyPhone', { current }) : hasServers ? t('update.safety', { version: target, current }) : t('update.safetyNoServers', { version: target, current })}
               </p>
             </>
           )}
         </DialogPanel>
         {updating ? (
-          <DialogFooter variant="bare" className="items-center border-t border-border pt-4 sm:justify-between">
-            <span className="text-xs text-muted-foreground">{t('update.closeNote')}</span>
+          <DialogFooter variant="bare" className="items-center border-t border-border pt-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               {t('common.hide')}
             </Button>

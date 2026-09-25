@@ -157,7 +157,7 @@ export function versionCards(versions: CatalogEntry[], servers: ServerStatus[] |
   for (const s of servers ?? []) {
     const v = s.config?.minecraftVersion
     const e = v ? stable.find((x) => x.minecraftVersion === v) : undefined
-    add(e, phone ? t('new.sameAsShort', { server: s.name }) : t('new.sameAs', { server: s.name }))
+    add(e, t('new.sameAs', { server: s.name }))
   }
   const older = stable.filter((v) => !cards.some((c) => c.entry.id === v.id))
   return { cards, older }
@@ -346,7 +346,7 @@ export function EulaCheck({ checked, onChange, short, className }: { checked: bo
                 ),
               })}
         </span>
-        <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{short ? t('eula.hintShort') : t('eula.hint')}</span>
+        <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('eula.hint')}</span>
       </span>
     </label>
   )
