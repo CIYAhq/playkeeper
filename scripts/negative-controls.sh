@@ -273,6 +273,104 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
 
+# Wave 5: roles and server scopes, the team, invite links and Discord.
+control "an account uses only its own servers" internal/panel/workspace.go \
+  'case serverID != "" && !a.covers(serverID):' \
+  'case false && serverID != "" && !a.covers(serverID):' \
+  ./internal/panel '^TestEveryServerRouteChecksTheServer$'
+control "machine-wide actions need every server" internal/panel/workspace.go \
+  'case machineWide[act] && !a.Servers.All:' \
+  'case false && machineWide[act] && !a.Servers.All:' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "the server list shows only the account's servers" internal/panel/workspace.go \
+  'if !sess.Access.covers(id) {' \
+  'if false && !sess.Access.covers(id) {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "the single-server view shows only the account's servers" internal/panel/workspace.go \
+  'if id, _ := sv["id"].(string); sess.Access.covers(id) {' \
+  'if id, _ := sv["id"].(string); id != "" || sess.Access.covers(id) {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "restore uploads check the server" internal/panel/team.go \
+  'if err := permit(sess.Access, act, p.ServerID); err != nil {' \
+  'if err := permit(sess.Access, act, p.ServerID); false && err != nil {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "only owners are added to the workspace at start" internal/panel/workspace.go \
+  "'*', ? FROM users WHERE role = ?\`" \
+  "'*', ? FROM users WHERE role = ? OR 1\`" \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "a membership without servers has none" internal/panel/auth.go \
+  "ALTER TABLE project_members ADD COLUMN servers TEXT NOT NULL DEFAULT '';" \
+  "ALTER TABLE project_members ADD COLUMN servers TEXT NOT NULL DEFAULT '*';" \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "removing a member deletes their account" internal/panel/team.go \
+  'DELETE FROM users WHERE id = ? AND role = ?' \
+  'DELETE FROM project_members WHERE user_id = ? AND role != ?' \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "admin rights wait for a confirmation" internal/panel/workspace.go \
+  'a.TwoFactor = a.FactorOn && (!invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) || factor == adminFactor)' \
+  'a.TwoFactor = a.FactorOn' \
+  ./internal/panel '^TestAdminRightsWaitForConfirmation$'
+control "only an admin of the member's servers confirms" internal/panel/team.go \
+  'case !t.Servers.Within(a.Servers):' \
+  'case false:' \
+  ./internal/panel '^TestAdminRightsWaitForConfirmation$'
+control "sign-in lockouts are per account and address" internal/panel/server.go \
+  'key := account + "@" + s.addressKey(r)' \
+  'key := account' \
+  ./internal/panel '^TestFailedSignInsLockOnlyTheirOwnAddress$'
+control "guesses from many addresses are slowed per account" internal/panel/server.go \
+  'locked = !ready' \
+  'locked = false && !ready' \
+  ./internal/panel '^TestGuessesFromManyAddressesAreSlowedPerAccount$'
+control "one owner per install" internal/panel/auth.go \
+  'CREATE UNIQUE INDEX users_one_owner' \
+  'CREATE INDEX users_one_owner' \
+  ./internal/panel '^TestThereIsOnlyEverOneOwner$'
+control "team changes follow the rules" internal/panel/team.go \
+  'if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); err != nil {' \
+  'if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); false && err != nil {' \
+  ./internal/panel '^TestTeamChangesFollowTheRules$'
+control "team removals follow the rules" internal/panel/team.go \
+  'if err := invites.CanRemove(sess.Access.Account, t.Account); err != nil {' \
+  'if err := invites.CanRemove(sess.Access.Account, t.Account); false && err != nil {' \
+  ./internal/panel '^TestTeamChangesFollowTheRules$'
+control "public pages never show a username" internal/panel/join.go \
+  'a.Name = ""' \
+  '_ = a.Name' \
+  ./internal/panel '^(TestFriendInviteLetsFriendsIn|TestTeamInvitesMakeMembers)$'
+control "invite codes are kept out of the log" internal/panel/server.go \
+  '"path", invites.RedactPath(r.URL.Path)' \
+  '"path", r.URL.Path' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the join page is never stored" internal/panel/join.go \
+  's.writeIndex(w, "no-store")' \
+  's.writeIndex(w, "no-cache")' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "nothing under the join path is stored" internal/panel/server.go \
+  'cache = "no-store"' \
+  'cache = "no-cache"' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "public invite calls are limited per address" internal/panel/join.go \
+  'if err := s.joinGuard.Address(ip); err != nil {' \
+  'if err := s.joinGuard.Address(ip); false && err != nil {' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the last use of a link goes to one friend" internal/panel/friends.go \
+  'AND (max_uses = 0 OR uses < max_uses)' \
+  'AND (max_uses = 0 OR 1)' \
+  ./internal/panel '^TestTheLastUseGoesToOneFriend$' 3
+control "one join request per player" internal/panel/join.go \
+  'if waiting > 0 {' \
+  'if false && waiting > 0 {' \
+  ./internal/panel '^TestJoinRequestsWaitForAYes$'
+control "two-factor changes reach Discord whatever the switches say" internal/discord/alerts.go \
+  'return a.Has(k) || k.always()' \
+  'return a.Has(k)' \
+  ./internal/discord '^TestTwoFactorChangesArePostedWhateverTheSwitches$'
+control "the agent checks the member name it posts to Discord" internal/agent/discord.go \
+  'if invites.ValidUsername(req.Member) != nil {' \
+  'if false && invites.ValidUsername(req.Member) != nil {' \
+  ./internal/agent '^TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
