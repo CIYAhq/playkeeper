@@ -50,7 +50,14 @@ test('onboarding from first sign-in to joinable, keyboard only', async ({ page, 
   await page.keyboard.press('Enter')
 
   await expect(page.getByRole('heading', { name: 'Your Minecraft server' })).toBeVisible()
-  await expect(page.getByRole('radio', { name: /Paper 26.1.2/ })).toBeChecked()
+  const versions = page.getByRole('group', { name: 'Server version (from PaperMC)' })
+  const recommended = versions.getByRole('radio', { name: /Recommended/ })
+  await expect(recommended).toBeChecked()
+  // The protocol test bots speak Minecraft 26.1, so pick Paper 26.1.2 with the arrow keys.
+  const forBots = versions.getByRole('radio', { name: /Paper 26\.1\.2/ })
+  await tabTo(page, recommended)
+  for (let i = 0; i < 8 && !(await forBots.isChecked()); i++) await page.keyboard.press('ArrowDown')
+  await expect(forBots).toBeChecked()
   await expect(page.getByLabel('Memory for Minecraft')).toHaveValue(/\d+/)
   await shot(page, 'onboarding-4-server-desktop')
   screens++
