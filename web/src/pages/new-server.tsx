@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
-import { get, post } from '@/api/client'
+import { ApiError, get, post } from '@/api/client'
 import { useBuilds } from '@/api/software'
-import type { Operation, RestorePreview, ServerStatus } from '@/api/types'
+import { planTemplate } from '@/api/templates'
+import type { Operation, RestorePreview, ServerStatus, TemplatePlan } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
@@ -14,6 +15,7 @@ import { ModpackPicker, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
 import { BuildSelect, TypeCompare } from '@/components/app/software'
+import { TemplatePicker, type TemplateChoice } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -26,6 +28,7 @@ import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { addonKind, hasBuilds, typeTexts } from '@/lib/software'
 import { preset } from '@/lib/styles'
+import { templateFromHash } from '@/lib/templates'
 import { cn } from '@/lib/utils'
 
 const stepKeys: MessageKey[] = ['new.step.type', 'new.step.version', 'new.step.style', 'new.step.memory', 'new.step.name']
@@ -33,16 +36,22 @@ const nextKeys: MessageKey[] = ['new.nextVersion', 'new.nextStyle', 'new.nextMem
 const continueKeys: MessageKey[] = ['new.continueVersion', 'new.continueStyle', 'new.continueMemory', 'new.continueName']
 const noteKeys: MessageKey[] = ['new.note.type', 'new.note.version', 'new.note.version', 'new.note.memory', 'new.note.name']
 
-type StartFrom = 'type' | 'modpack'
+type StartFrom = 'type' | 'modpack' | 'template'
 
 const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
   { value: 'type', long: 'new.from.type', short: 'new.from.typeShort' },
   { value: 'modpack', long: 'new.from.modpack', short: 'new.from.modpackShort' },
+  { value: 'template', long: 'new.from.template', short: 'new.from.templateShort' },
 ]
 
 /** A server made from a pack runs the type and version the pack names. */
 function packRequest(c: CreateChoices, pack: ModpackChoice) {
   return { ...createRequest({ ...c, build: '' }), type: '', versionId: '', acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId } }
+}
+
+/** The template decides the type, version and settings: the request names only the plan the user saw. */
+function templateRequest(c: CreateChoices, choice: TemplateChoice) {
+  return { name: c.name.trim(), acceptEula: c.eula, memoryMB: c.memoryMB, acceptExperimental: !!choice.plan.experimental && c.acceptExperimental, template: { fingerprint: choice.plan.fingerprint } }
 }
 
 /** "Cobblemon Modpack" names its server "Cobblemon". */
@@ -78,9 +87,23 @@ export function NewServerPage() {
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [preview, setPreview] = useState<RestorePreview>()
   const [compareOpen, setCompareOpen] = useState(false)
-  const [from, setFrom] = useState<StartFrom>('type')
+  const [handoff, setHandoff] = useState(() => templateFromHash(window.location.hash))
+  useEffect(() => {
+    // Once read, a shared template's data stays out of the address bar and history.
+    if (templateFromHash(window.location.hash)) window.history.replaceState(null, '', window.location.pathname)
+  }, [])
+  const [from, setFrom] = useState<StartFrom>(handoff ? 'template' : 'type')
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
+  const [tpl, setTpl] = useState<TemplateChoice>()
+  const [tplProblem, setTplProblem] = useState<string>()
+  const templated = from === 'template' && !!tpl
+  const chooseTemplate = useCallback((choice: TemplateChoice | undefined) => {
+    setTpl(choice)
+    setTplProblem(undefined)
+    setHandoff(undefined)
+    setC((prev) => (prev ? { ...prev, acceptExperimental: false } : prev))
+  }, [])
   // The catalog keeps showing the last type's versions while the next type's load.
   const typeCatalog = catalog && c && catalog.type === c.type ? catalog : undefined
   const version = typeCatalog?.versions.find((v) => v.id === c?.versionId)
@@ -108,6 +131,7 @@ export function NewServerPage() {
     if (!c) return false
     switch (step) {
       case 0:
+        if (from === 'template') return !!tpl && tpl.plan.ready && (!tpl.plan.experimental || c.acceptExperimental)
         return from === 'modpack' ? !!pack : !!catalog?.types.some((ty) => ty.id === c.type && ty.available)
       case 1:
         return !!version && (!version.experimental || c.acceptExperimental)
@@ -125,9 +149,21 @@ export function NewServerPage() {
     setBusy(true)
     setCreateError(undefined)
     try {
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), packed && pack ? packRequest(c, pack) : createRequest(c))
+      const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack) : createRequest(c)
+      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), body)
       await openCreated(op, ws.refresh)
     } catch (e) {
+      if (templated && tpl && e instanceof ApiError && e.code === 'plan_changed') {
+        // The machine's versions moved on, or it forgot the plan: show the new plan before creating.
+        const problem = errorText(e)
+        const plan = await planTemplate(ws.machine.id, tpl.text).catch(() => undefined)
+        if (plan) {
+          setTpl({ ...tpl, plan })
+          setTplProblem(problem)
+          setStep(0)
+          return
+        }
+      }
       setCreateError(errorText(e))
       toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
@@ -142,8 +178,16 @@ export function NewServerPage() {
     update({ ...(memoryMB ? { memoryMB } : {}), ...(nameEdited ? {} : { name: freeName(packServerName(p.name), ws.servers) }) })
     setStep(3)
   }
-  const next = () => (step === 4 ? void create() : step === 0 && packed && pack ? startWithPack(pack) : setStep((s) => s + 1))
-  const back = () => setStep((s) => (s === 3 && packed ? 0 : Math.max(0, s - 1)))
+  // A template decides the type, version and settings, so it skips to memory too.
+  function startWithTemplate(choice: TemplateChoice) {
+    const opts = memoryOptions(catalog)
+    const memoryMB = choice.plan.memoryMB ? (opts.find((mb) => mb >= choice.plan.memoryMB) ?? opts[opts.length - 1]) : undefined
+    update({ ...(memoryMB ? { memoryMB } : {}), ...(nameEdited ? {} : { name: freeName(choice.plan.contents.name.slice(0, 32).trim(), ws.servers) }) })
+    setTplProblem(undefined)
+    setStep(3)
+  }
+  const next = () => (step === 4 ? void create() : step === 0 && templated && tpl ? startWithTemplate(tpl) : step === 0 && packed && pack ? startWithPack(pack) : setStep((s) => s + 1))
+  const back = () => setStep((s) => (s === 3 && (packed || templated) ? 0 : Math.max(0, s - 1)))
   const stepTitles = stepKeys.map((k) => t(k))
 
   let body: ReactNode
@@ -168,11 +212,16 @@ export function NewServerPage() {
     switch (step) {
       case 0:
         body = (
-          <div className={cn('flex flex-col', phone && from === 'modpack' ? 'gap-4' : 'gap-6')}>
+          <div className={cn('flex flex-col', phone && from !== 'type' ? 'gap-4' : 'gap-6')}>
             {phone && from === 'modpack' ? (
               <div>
                 <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.modpackQuestion')}</h1>
                 <p className="mt-1 text-[15px] text-muted-foreground">{t('new.modpackHintPhone')}</p>
+              </div>
+            ) : phone && from === 'template' ? (
+              <div>
+                <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.templateQuestion')}</h1>
+                <p className="mt-1 text-[15px] text-muted-foreground">{t('new.templateHint')}</p>
               </div>
             ) : phone ? (
               <>
@@ -197,7 +246,7 @@ export function NewServerPage() {
             <section>
               {phone ? (
                 <>
-                  <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-2 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-3 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
                   {from === 'type' && (
                     <div className="mt-1 mb-2 flex justify-end">
                       <button type="button" onClick={() => setCompareOpen(true)} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
@@ -216,6 +265,8 @@ export function NewServerPage() {
                   <p className="mt-0.5 text-[13px] text-muted-foreground">
                     {from === 'modpack' ? (
                       t('new.modpackHint')
+                    ) : from === 'template' ? (
+                      t('new.templateHint')
                     ) : (
                       <>
                         {t('new.typeHint')}{' '}
@@ -230,6 +281,8 @@ export function NewServerPage() {
               <div className={phone && from === 'type' ? '' : 'mt-3'}>
                 {from === 'modpack' && ws.machine ? (
                   <ModpackPicker machineId={ws.machine.id} value={pack} onChange={setPack} onUse={startWithPack} phone={phone} />
+                ) : from === 'template' && ws.machine ? (
+                  <TemplatePicker machineId={ws.machine.id} value={tpl} onChange={chooseTemplate} handoff={handoff} problem={tplProblem} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} />
                 ) : (
                   <TypeCards catalog={catalog} value={c.type} onChange={(type) => type !== c.type && update({ type, versionId: '', build: '', acceptExperimental: false })} phone={phone} />
                 )}
@@ -330,14 +383,16 @@ export function NewServerPage() {
         )
         break
       case 3: {
-        const packMB = packed ? (pack?.memoryMB ?? 0) : 0
+        const packMB = templated ? (tpl?.plan.memoryMB ?? 0) : packed ? (pack?.memoryMB ?? 0) : 0
         const suggested = packMB ? (options.find((mb) => mb >= packMB) ?? options[options.length - 1] ?? 0) : styleMemory(catalog, c.style)
         const others = catalog.servers.filter((x) => !x.running)
         body = (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
+                {templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}
+              </p>
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
@@ -387,10 +442,12 @@ export function NewServerPage() {
                 className="max-w-[360px] max-sm:max-w-none"
               />
             </label>
-            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-              {t('new.motdLabel')}
-              <Input value={c.motd} onChange={(e) => update({ motd: e.target.value })} maxLength={59} placeholder={c.name || t('new.motdPlaceholder')} autoComplete="off" className="max-w-[360px] max-sm:max-w-none" />
-            </label>
+            {!templated && (
+              <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                {t('new.motdLabel')}
+                <Input value={c.motd} onChange={(e) => update({ motd: e.target.value })} maxLength={59} placeholder={c.name || t('new.motdPlaceholder')} autoComplete="off" className="max-w-[360px] max-sm:max-w-none" />
+              </label>
+            )}
             <EulaCheck checked={c.eula} onChange={(eula) => update({ eula })} className="mt-2 rounded-2xl border border-border p-3.5 max-sm:bg-white" />
             {createError && (
               <p className="text-[13px] text-destructive-foreground" role="alert">
@@ -402,10 +459,12 @@ export function NewServerPage() {
     }
   }
 
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} />
-  const continueLabel = step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 && from === 'modpack' ? t('new.continuePack') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
-  const nextHint = step === 0 && from === 'modpack' ? t('new.nextPack') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
-  const note = step === 0 && from === 'modpack' ? t('new.note.modpack') : t(step === 1 && addonKind(c?.type) === 'mods' ? 'new.note.versionMods' : (noteKeys[step] ?? 'new.note.name'), { type: typeName(c?.type) })
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} />
+  const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
+  const continueLabel =
+    step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
+  const nextHint = step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
+  const note = step === 0 && from === 'template' ? '' : step === 0 && from === 'modpack' ? t('new.note.modpack') : t(step === 1 && addonKind(c?.type) === 'mods' ? 'new.note.versionMods' : (noteKeys[step] ?? 'new.note.name'), { type: typeName(c?.type) })
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
@@ -521,7 +580,7 @@ export function NewServerPage() {
           </div>
           <aside className="self-start">
             {summary}
-            <p className="mt-3 px-1 text-xs text-muted-foreground">{note}</p>
+            {note && <p className="mt-3 px-1 text-xs text-muted-foreground">{note}</p>}
           </aside>
         </div>
       </PageBody>
@@ -546,7 +605,7 @@ function GameCard({ phone }: { phone?: boolean }) {
   )
 }
 
-function Summary({ choices: c, step, port, version, from, pack }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice }) {
+function Summary({ choices: c, step, port, version, from, pack, plan }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice; plan?: TemplatePlan }) {
   const ws = useWorkspace()
   const p = preset(c.style)
   const v = (done: boolean, value: string) =>
@@ -560,8 +619,18 @@ function Summary({ choices: c, step, port, version, from, pack }: { choices: Cre
     ) : (
       <span className="text-muted-foreground">{t('common.notPicked')}</span>
     )
+  const upNext = <span className="font-semibold text-success-foreground">{t('common.notPicked')}</span>
   const rows: { label: string; value: ReactNode }[] =
-    from === 'modpack'
+    from === 'template'
+      ? [
+          { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
+          { label: t('new.row.startFrom'), value: v(true, t('new.startFrom.template')) },
+          { label: t('new.row.type'), value: plan ? v(true, t('new.fromTemplate', { value: typeName(plan.type || plan.contents.type) })) : v(false, '') },
+          { label: t('new.row.version'), value: plan ? v(true, t('new.fromTemplate', { value: plan.minecraftVersion || plan.contents.minecraftVersion })) : v(false, '') },
+          { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : plan ? upNext : v(false, '') },
+          { label: t('new.row.name'), value: step >= 4 ? v(false, c.name) : v(false, '') },
+        ]
+      : from === 'modpack'
       ? [
           { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
           { label: t('new.row.startFrom'), value: v(true, t('new.startFrom.modpack')) },

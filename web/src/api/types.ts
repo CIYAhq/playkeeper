@@ -70,6 +70,8 @@ export interface ServerConfig {
   software?: SoftwarePin
   /** The pack the server was created from. */
   modpack?: ServerModpack
+  /** The template the server was created from. */
+  template?: ServerTemplate
 }
 
 export interface Operation {
@@ -827,4 +829,79 @@ export interface ServerModpack {
   iconUrl?: string
   mods?: number
   pending?: boolean
+}
+
+// Wave 4: templates.
+
+export interface ServerTemplate {
+  name: string
+  /** Set until the template's add-ons are on the server; the next start installs the rest. */
+  pending?: boolean
+}
+
+export interface TemplateSettings {
+  difficulty?: Difficulty
+  pvp?: boolean
+  gameMode?: GameMode
+  hardcore?: boolean
+  viewDistance?: number
+  levelType?: LevelType
+  maxPlayers?: number
+  motd?: string
+  playStyle?: PlayStyle
+  memoryMB?: number
+}
+
+export interface TemplateAddon {
+  source: string
+  name: string
+  /** The pinned version; missing means the newest that fits. */
+  versionNumber?: string
+}
+
+export interface TemplateContents {
+  name: string
+  type: string
+  minecraftVersion: string
+  build?: string
+  settings: TemplateSettings
+  addons: TemplateAddon[]
+  modpack?: TemplateAddon
+  resourcePacks: number
+  dataPacks: number
+  /** The packs' names, the resource pack first. */
+  packs: string[]
+}
+
+export interface TemplateExport {
+  fileName: string
+  /** The template file's text. */
+  file: string
+  /** Empty when the template is too large for a link. */
+  link: string
+  /** Set when some chats would cut the link. */
+  linkLong?: boolean
+  contents: TemplateContents
+  /** What the template carries with every part included. */
+  available: TemplateContents
+  /** The server's packs, counting those that can't travel. */
+  packsHere: number
+  leftOut: AddonNotice[]
+  notes: AddonNotice[]
+}
+
+export interface TemplatePlan {
+  contents: TemplateContents
+  /** What the new server runs, which can differ from what the template names. */
+  type: string
+  versionId?: string
+  minecraftVersion?: string
+  build?: string
+  experimental?: boolean
+  memoryMB: number
+  skipped: AddonNotice[]
+  warnings: AddonNotice[]
+  blockers: AddonNotice[]
+  ready: boolean
+  fingerprint: string
 }

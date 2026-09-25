@@ -7,6 +7,7 @@ import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
+import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
@@ -169,6 +170,7 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 function MoreMenu({ server }: { server: ServerStatus }) {
   const { stale } = useWorkspace()
   const c = controls(server)
+  const [sharing, setSharing] = useState(false)
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>
@@ -191,12 +193,14 @@ function MoreMenu({ server }: { server: ServerStatus }) {
           <ArchiveIcon />
           {t('server.backUp')}
         </MenuItem>
+        <TemplateMenuItem onClick={() => setSharing(true)} />
         <MenuSeparator />
         <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
           <Trash2Icon />
           {t('server.deleteMenu')}
         </MenuItem>
       </MenuPopup>
+      <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />
     </Menu>
   )
 }

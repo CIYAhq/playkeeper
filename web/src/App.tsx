@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
+import { afterSignIn, signInPath } from '@/lib/templates'
 import { HomePage } from '@/pages/home'
 import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
@@ -33,7 +34,7 @@ export function App() {
   const signedOut = useCallback(() => {
     setMe(undefined)
     setState('login')
-    navigate('/login', true)
+    navigate(signInPath(window.location), true)
   }, [])
 
   useEffect(() => {
@@ -96,7 +97,7 @@ export function App() {
         <LoginPage
           onDone={(m) => {
             signedIn(m)
-            navigate('/', true)
+            navigate(afterSignIn(window.location), true)
           }}
         />
       )
