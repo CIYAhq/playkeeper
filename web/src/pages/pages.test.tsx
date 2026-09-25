@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, Candidate, InvitesResponse, JoinInfo, JoinPreview, JoinRequestView, MachineView, Me, Operation, PlayerProfile, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, Candidate, InvitesResponse, JoinInfo, JoinPreview, JoinRequestView, MachineView, Me, Operation, PlayerProfile, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus, TeamResponse } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -14,11 +14,13 @@ import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 import { PlayerProfilePage } from './server/profile'
+import { TeamSection } from './team'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  put: vi.fn(() => Promise.resolve({})),
 }))
 
 const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
@@ -201,6 +203,8 @@ afterEach(async () => {
   vi.mocked(client.get).mockImplementation(() => new Promise(() => {}))
   vi.mocked(client.post).mockReset()
   vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  vi.mocked(client.put).mockReset()
+  vi.mocked(client.put).mockImplementation(() => Promise.resolve({}))
 })
 
 describe('Home', () => {
@@ -531,6 +535,32 @@ describe('Invite page', () => {
     expect(text).toContain('Wait a few minutes, then try again.')
     await click(button('Try again'))
     expect(page()).toContain('You’re invited to Survival')
+  })
+})
+
+describe('Team', () => {
+  it('lists the owner, members and unused links, and confirms an admin', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { id: 2, username: 'mara', owner: false, you: false, role: 'moderator', servers: { servers: ['abcdefghjk', 'bcdefghjkm'] }, twoFactor: false, addedAt: hoursAgo(49), canEdit: true },
+        { id: 3, username: 'tobi', owner: false, you: false, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(3), canEdit: true, waiting: true, canConfirm: true },
+      ],
+      invites: [{ id: 'ti1', kind: 'member', projectId: 'p2345abcde', role: 'viewer', servers: { servers: ['abcdefghjk'] }, label: 'Juno', createdBy: 1, createdAt: hoursAgo(1), expiresAt: inHours(6 * 24 + 1), maxUses: 1, uses: 0, status: 'active', canEdit: true }],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [
+        { id: 'abcdefghjk', name: 'Survival' },
+        { id: 'bcdefghjkm', name: 'Creative' },
+      ],
+    }
+    answer({ '/api/team': team })
+    const text = await render(<TeamSection />)
+    for (const line of ['You · owner', 'Owner · Admin', 'Survival and Creative', 'two-factor off', 'waiting for confirmation', 'Juno', 'Invite link not used yet · runs out in 6 days', 'Survival only', 'What each role can do']) expect(text).toContain(line)
+    expect(text).toContain('tobi turned on two-factor sign-in.')
+    await click(button('Confirm Admin rights'))
+    expect(client.post).toHaveBeenCalledWith('/api/team/members/3/confirm-admin')
   })
 })
 
