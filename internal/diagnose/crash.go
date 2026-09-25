@@ -52,8 +52,12 @@ type CrashInput struct {
 	RoomMB       int // memory the machine could still give this server on top of BudgetMB
 	ViewDistance int // from ParseDistances, for advice when there is no room
 
-	Console         []string // the run's last console lines, oldest first; the last 2,000 are read
-	CrashReport     string   // newest crash report written during the run; "" if none
+	// Console is the run's last lines as Docker returns them, oldest first;
+	// the last 2,000 are read. Addresses are redacted here, in what is shown.
+	// Lines that already went through minecraft.CleanLine work too, but a jar
+	// with a four-part version (Jobs-5.2.6.0.jar) no longer matches its file.
+	Console         []string
+	CrashReport     string // newest crash report written during the run; "" if none
 	CrashReportName string
 
 	Addons     []Addon // installed plugin or mod jars
@@ -121,7 +125,7 @@ func newCrashCtx(in CrashInput) *crashCtx {
 		console = console[len(console)-maxConsoleLines:]
 	}
 	for _, l := range console {
-		l = minecraft.CleanLine(truncate(l, maxLineLen))
+		l = minecraft.StripANSI(truncate(l, maxLineLen))
 		c.lines = append(c.lines, l)
 		c.split = append(c.split, splitLog(l))
 	}
@@ -130,10 +134,26 @@ func newCrashCtx(in CrashInput) *crashCtx {
 			if i == maxReportLines {
 				break
 			}
-			c.report = append(c.report, minecraft.RedactIPs(strings.TrimRight(truncate(l, maxLineLen), "\r")))
+			c.report = append(c.report, strings.TrimRight(truncate(l, maxLineLen), "\r"))
 		}
 	}
 	return c
+}
+
+var reJarToken = regexp.MustCompile(`[A-Za-z0-9_.+-]{1,200}\.jar\b`)
+
+// redact removes addresses from text that is shown but keeps jar names
+// whole, because versions such as Jobs-5.2.6.0.jar look like addresses.
+func redact(s string) string {
+	var b strings.Builder
+	last := 0
+	for _, m := range reJarToken.FindAllStringIndex(s, -1) {
+		b.WriteString(minecraft.RedactIPs(s[last:m[0]]))
+		b.WriteString(s[m[0]:m[1]])
+		last = m[1]
+	}
+	b.WriteString(minecraft.RedactIPs(s[last:]))
+	return b.String()
 }
 
 // found is a line a rule matched, in the console (idx ≥ 0) or the crash
@@ -256,7 +276,7 @@ func (c *crashCtx) near(f found, re *regexp.Regexp, span int) (found, bool) {
 }
 
 func (c *crashCtx) evidence(f found) Evidence {
-	line := truncate(f.line, maxEvidenceLen)
+	line := truncate(redact(f.line), maxEvidenceLen)
 	if f.inReport() {
 		return Evidence{Kind: EvidenceCrashReport, Params: map[string]any{"file": c.in.CrashReportName, "line": line}, Text: line}
 	}
@@ -445,7 +465,7 @@ func (c *crashCtx) unknown() CrashDiagnosis {
 	for i := len(c.split) - 1; i >= 0 && len(ev) < 5; i-- {
 		l := c.split[i]
 		if l.prefixed && (l.level == "ERROR" || l.level == "FATAL") || !l.prefixed && reErrorLine.MatchString(strings.TrimSpace(l.msg)) {
-			ev = append([]Evidence{logEvidence(truncate(c.lines[i], maxEvidenceLen))}, ev...)
+			ev = append([]Evidence{c.evidence(found{idx: i, line: c.lines[i]})}, ev...)
 		}
 	}
 	if f, ok := c.crashReport(reDescription); ok {

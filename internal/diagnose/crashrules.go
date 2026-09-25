@@ -5,8 +5,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
 // crashRules run in order and the first match explains the stop. Causes that
@@ -81,7 +79,7 @@ func (c *crashCtx) dockerPort() (CrashDiagnosis, bool) {
 		return CrashDiagnosis{}, false
 	}
 	port, _ := strconv.Atoi(m[1] + m[2])
-	msg := truncate(minecraft.RedactIPs(strings.Join(strings.Fields(c.in.DockerError), " ")), maxEvidenceLen)
+	msg := truncate(redact(strings.Join(strings.Fields(c.in.DockerError), " ")), maxEvidenceLen)
 	return CrashDiagnosis{
 		Kind: CrashPortInUse, Params: map[string]any{"port": port},
 		Title:       fmt.Sprintf("Port %d is already in use", port),
@@ -463,7 +461,7 @@ func (c *crashCtx) permission() (CrashDiagnosis, bool) {
 	what := "some of its files"
 	if m := reDeniedPath.FindStringSubmatch(f.line); m != nil {
 		if p := firstNonEmpty(m[1:]...); p != "" {
-			p = truncate(p, 120)
+			p = truncate(redact(p), 120)
 			d.Params["path"] = p
 			what = p
 		}
