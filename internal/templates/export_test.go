@@ -85,9 +85,10 @@ func TestExportPaperServer(t *testing.T) {
 	}
 	sameTemplate(t, tp, fixture(t, "paper-server.json"))
 	wantKinds(t, "left out", rep.LeftOut, KindLeftOutFormatting)
-	wantKinds(t, "notes", rep.Notes, KindNoteWorld, KindNotePlayers, KindNoteAddonConfig)
-	if n := rep.Notes[2]; n.Params["kind"] != "plugin" || !strings.HasPrefix(n.Msg, "Plugin settings stay on this server") {
-		t.Errorf("got %+v, want a note about plugin settings", n)
+	if wantKinds(t, "notes", rep.Notes, KindNoteWorld, KindNotePlayers, KindNoteAddonConfig) {
+		if n := rep.Notes[2]; n.Params["kind"] != "plugin" || !strings.HasPrefix(n.Msg, "Plugin settings stay on this server") {
+			t.Errorf("got %+v, want a note about plugin settings", n)
+		}
 	}
 	roundTrip(t, tp)
 
@@ -116,12 +117,13 @@ func TestExportFabricModpack(t *testing.T) {
 	}
 	sameTemplate(t, tp, fixture(t, "fabric-modpack.json"))
 	wantKinds(t, "left out", rep.LeftOut)
-	wantKinds(t, "notes", rep.Notes, KindNoteWorld, KindNotePlayers, KindNoteAddonConfig, KindNoteLatest, KindNoteModpackAddons)
-	if n := rep.Notes[2]; n.Params["kind"] != "mod" {
-		t.Errorf("got %+v, want a note about mod settings", n)
-	}
-	if n := rep.Notes[4]; n.Params["count"] != "2" || n.Params["name"] != "Adrenaserver" {
-		t.Errorf("got %+v, want 2 mods travelling with Adrenaserver", n)
+	if wantKinds(t, "notes", rep.Notes, KindNoteWorld, KindNotePlayers, KindNoteAddonConfig, KindNoteLatest, KindNoteModpackAddons) {
+		if n := rep.Notes[2]; n.Params["kind"] != "mod" {
+			t.Errorf("got %+v, want a note about mod settings", n)
+		}
+		if n := rep.Notes[4]; n.Params["count"] != "2" || n.Params["name"] != "Adrenaserver" {
+			t.Errorf("got %+v, want 2 mods travelling with Adrenaserver", n)
+		}
 	}
 	roundTrip(t, tp)
 }
@@ -363,9 +365,9 @@ func TestExportLeavesOut(t *testing.T) {
 			if c.notes == nil {
 				c.notes = basic
 			}
-			wantKinds(t, "left out", rep.LeftOut, c.leftOut...)
-			wantKinds(t, "notes", rep.Notes, c.notes...)
-			if c.check != nil {
+			left := wantKinds(t, "left out", rep.LeftOut, c.leftOut...)
+			notes := wantKinds(t, "notes", rep.Notes, c.notes...)
+			if c.check != nil && left && notes {
 				c.check(t, tp, rep)
 			}
 			roundTrip(t, tp)

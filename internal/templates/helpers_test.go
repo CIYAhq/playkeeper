@@ -100,14 +100,15 @@ func kinds(t *testing.T, ns []Notice) []Kind {
 	return out
 }
 
-func wantKinds(t *testing.T, what string, ns []Notice, want ...Kind) {
+// wantKinds checks the kinds of notices, and reports whether they match,
+// so that a test only looks into notices it has.
+func wantKinds(t *testing.T, what string, ns []Notice, want ...Kind) bool {
 	t.Helper()
-	if want == nil {
-		want = []Kind{}
-	}
 	if got := kinds(t, ns); !slices.Equal(got, want) {
 		t.Errorf("%s: got %v, want %v", what, got, want)
+		return false
 	}
+	return true
 }
 
 // sameTemplate compares templates by their canonical JSON.
