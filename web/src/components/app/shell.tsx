@@ -11,6 +11,7 @@ import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
 import { inSettings, settingsHome } from '@/lib/access'
+import { demo } from '@/lib/demo'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -163,6 +164,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         <BrandMark size={24} />
         {t('brand.name')}
       </a>
+      {demo && <demo.BrandLine />}
       <button
         type="button"
         onClick={onSearch}
@@ -273,6 +275,7 @@ function PhoneShell({ route, overlays, children }: { route: Route; overlays: Rea
         {t('nav.skip')}
       </a>
       <main id="main" tabIndex={-1} className={cn('flex flex-1 flex-col px-4 pt-[max(env(safe-area-inset-top),8px)] outline-none', inServer ? 'pb-[calc(68px+env(safe-area-inset-bottom))]' : 'pb-[max(env(safe-area-inset-bottom),24px)]')}>
+        {demo && <demo.BrandLine />}
         {children}
       </main>
       {inServer && slug && (

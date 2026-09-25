@@ -13,6 +13,7 @@ import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { demo } from '@/lib/demo'
 import { formatBytes, formatMB, formatPercent, formatSpan, joinAddress } from '@/lib/format'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
@@ -61,14 +62,14 @@ export function HomePage() {
   const subtitle = servers ? `${t('home.servers', { count: servers.length, machine: ws.machineName })}${t('common.dot')}${t('home.playing', { count: players })}` : undefined
   return (
     <>
-      <PageHeader title={t('home.title')} subtitle={subtitle} actions={newButton} phoneAction={<PhoneMoreButton />} />
+      <PageHeader title={t('home.title')} subtitle={demo ? demo.homeSubtitle() : subtitle} actions={demo ? <demo.HomeAction /> : newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
         <MachineNotice />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {(servers ?? []).map((s) => (
             <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
           ))}
-          <NewServerCard />
+          {demo ? <demo.HomeCard /> : <NewServerCard />}
         </div>
         <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
           <Card>
