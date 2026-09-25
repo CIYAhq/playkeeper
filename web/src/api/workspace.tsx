@@ -7,8 +7,9 @@ export interface Workspace {
   me: Me
   servers: ServerStatus[] | undefined
   serversError: ApiError | undefined
-  /** The machine this dashboard runs on (the only one for now). */
+  /** The machine this dashboard runs on. */
   machine: MachineView | undefined
+  /** Every machine, the dashboard's own first. */
   machines: MachineView[]
   prefs: Record<string, string>
   setPrefs: (p: Record<string, string>) => Promise<void>
@@ -82,7 +83,7 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
     }
   }, [onSignedOut])
 
-  const machine = machines.data?.[0]
+  const machine = machines.data?.find((m) => m.kind === 'local') ?? machines.data?.[0]
   const live = machine?.live
   // While Playkeeper installs an update the agent and panel restart; the
   // failed polls in between are expected, not an outage.
@@ -96,9 +97,10 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
   if (servers.data) known.current = { list: servers.data, at: Date.now() }
   const stale = !servers.data && (agentDown || !!updating) && !!known.current
   const serverList = servers.data ?? (stale ? known.current?.list : undefined)
-  const knownMachine = useRef<MachineView | undefined>(undefined)
-  if (machine) knownMachine.current = machine
-  const shownMachine = useMemo(() => machine ?? (stale && knownMachine.current ? { ...knownMachine.current, live: undefined } : undefined), [machine, stale])
+  const knownMachines = useRef<MachineView[]>([])
+  if (machines.data) knownMachines.current = machines.data
+  const machineList = useMemo(() => machines.data ?? (stale ? knownMachines.current.map((m) => ({ ...m, live: undefined })) : []), [machines.data, stale])
+  const shownMachine = machine ?? machineList.find((m) => m.kind === 'local')
 
   // After an update the page still runs the previous version's code; load
   // the new one once the new version answers.
@@ -117,7 +119,7 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
       servers: serverList,
       serversError: servers.error,
       machine: shownMachine,
-      machines: machines.data ?? [],
+      machines: machineList,
       prefs,
       setPrefs,
       refresh,
@@ -131,7 +133,7 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
       setLastSlug,
       signOut,
     }),
-    [me, serverList, servers.error, shownMachine, machines.data, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut],
+    [me, serverList, servers.error, shownMachine, machineList, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

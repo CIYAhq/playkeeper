@@ -211,6 +211,9 @@ export const en = {
   'activity.started': '{server} started',
   'activity.stopped': '{server} stopped',
   'activity.restarted': '{server} restarted',
+  'activity.startedBy': '{actor} started {server}',
+  'activity.stoppedBy': '{actor} stopped {server}',
+  'activity.restartedBy': '{actor} restarted {server}',
   'activity.crashed': '{server} crashed',
   'activity.backup': '{actor} backed up {server}',
   'activity.downloaded': '{actor} downloaded a backup of {server}',
@@ -975,6 +978,8 @@ export const en = {
   'global.aboutBody': 'Paper is downloaded from PaperMC and the Minecraft server from Mojang, on your VPS, after you accept the EULA.',
   'global.notices': 'Third-party notices',
   'global.noticesUrl': 'https://github.com/CIYAhq/playkeeper/blob/main/THIRD_PARTY_NOTICES',
+  'global.actorToken': 'AI agent',
+  'global.actorCli': 'Command line',
 
   // Phone More tab
   'more.title': 'More',

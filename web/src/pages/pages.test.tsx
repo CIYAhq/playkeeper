@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
+import { activityText } from '@/components/app/activity'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
@@ -156,6 +157,17 @@ describe('Home', () => {
     expect(text).toContain('Survival')
     expect(text).toContain('No live status')
     expect(text).not.toContain('3 playing')
+  })
+})
+
+describe('Activity', () => {
+  it('names the AI agent or command-line user that acted, never its token id', () => {
+    const token = { actor: 'token:t2345abcde', actorKind: 'token' as const, actorName: 'Claude on my laptop' }
+    expect(activityText({ ts: '', kind: 'backup', ...token }, 'Survival', 'siya')).toBe('Claude on my laptop backed up Survival')
+    expect(activityText({ ts: '', kind: 'restarted', ...token }, 'Survival', 'siya')).toBe('Claude on my laptop restarted Survival')
+    expect(activityText({ ts: '', kind: 'stopped', actor: 'cli:alice', actorKind: 'cli', actorName: 'alice' }, 'Survival', 'siya')).toBe('alice stopped Survival')
+    expect(activityText({ ts: '', kind: 'restarted', actor: 'siya' }, 'Survival', 'siya')).toBe('Survival restarted')
+    expect(activityText({ ts: '', kind: 'backup', actor: 'siya' }, 'Survival', 'siya')).toBe('You backed up Survival')
   })
 })
 

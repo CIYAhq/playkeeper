@@ -213,7 +213,16 @@ function AuditCard() {
             {rows.map((e) => (
               <tr key={`${e.source}-${e.id}`} className="h-11 border-t border-border align-top">
                 <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDateTime(e.ts)}</td>
-                <td className="px-3 py-2">{e.actor}</td>
+                <td className="px-3 py-2">
+                  {e.actorKind && e.actorName ? (
+                    <>
+                      {e.actorName}
+                      <span className="block text-xs text-muted-foreground">{e.actorKind === 'token' ? t('global.actorToken') : t('global.actorCli')}</span>
+                    </>
+                  ) : (
+                    e.actor
+                  )}
+                </td>
                 <td className="px-3 py-2 font-mono text-xs">{e.action}</td>
                 <td className="px-3 py-2">{serverName(e.serverId)}</td>
                 <td className={cn('px-3 py-2', e.result === 'succeeded' ? 'text-success-foreground' : e.result === 'failed' || e.result === 'refused' ? 'text-destructive-foreground' : 'text-muted-foreground')}>{e.result}</td>
