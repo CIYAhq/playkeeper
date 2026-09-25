@@ -45,7 +45,6 @@ function summary(report: CrawlReport): string {
 
 for (const [name, size] of Object.entries(sizes)) {
   test(`every control does something on ${name}`, async ({ browser, baseURL }) => {
-    test.setTimeout(50 * 60_000)
     const base = baseURL ?? ''
     const options = { ...size, ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'UTC' }
     const report: CrawlReport = { results: [], notes: [] }

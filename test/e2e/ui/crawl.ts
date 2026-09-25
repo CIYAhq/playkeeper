@@ -179,6 +179,16 @@ export class Crawler {
     return h?.asElement() ?? null
   }
 
+  /** The control with this key, once it has rendered. */
+  private async find(key: string, timeout = 3000): Promise<ElementHandle | null> {
+    const end = Date.now() + timeout
+    for (;;) {
+      const h = await this.handle(key)
+      if (h || Date.now() > end) return h
+      await this.page.waitForTimeout(150)
+    }
+  }
+
   /** Waits until requests have finished and short animations have run. */
   private async settle(max = 4000) {
     const end = Date.now() + max
@@ -219,7 +229,7 @@ export class Crawler {
         await this.settle()
         continue
       }
-      const h = await this.handle(step)
+      const h = await this.find(step)
       if (!h) return null
       const info = (await this.controls()).find((c) => c.key === step)
       await h.focus().catch(() => {})
@@ -231,6 +241,11 @@ export class Crawler {
     }
     const base = await this.snap()
     return base ? { base, under } : null
+  }
+
+  /** Replays the steps to a state, once more if the page was still busy the first time. */
+  private async reach(route: string, path: string[]): Promise<State | null> {
+    return (await this.establish(route, path)) ?? (await this.establish(route, path))
   }
 
   /** Types sample values into the empty fields of the open form or page. */
@@ -439,7 +454,7 @@ export class Crawler {
     }
     while (queue.length) {
       const path = queue.shift() as string[]
-      let state = await this.establish(route, path)
+      let state = await this.reach(route, path)
       if (!state) {
         this.notes.push(`[${this.viewport}] ${route}: could not reach ${path.join(' › ')} again`)
         continue
@@ -457,7 +472,7 @@ export class Crawler {
         const again = !!done && !c.disabled && ((done.opened && !explored.has(c.key)) || (done.revealed && endsWithReveal && path.length < this.maxDepth))
         if (done && !again) continue
         if (dirty) {
-          state = await this.establish(route, path)
+          state = await this.reach(route, path)
           if (!state) {
             this.notes.push(`[${this.viewport}] ${route}: could not reach ${path.join(' › ') || 'the page'} again`)
             break
