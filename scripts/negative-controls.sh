@@ -305,6 +305,22 @@ control "server software is written inside the data directory's root" internal/m
   'f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'f, err := os.OpenFile(root.Name()+"/"+tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   ./internal/minecraft/software '^TestDownload$'
+control "template data packs never connect to a private address" internal/templates/fetch.go \
+  'if err != nil || !allowed(ap) {' \
+  'if false && (err != nil || !allowed(ap)) {' \
+  ./internal/templates '^TestPackClientRefusesPrivateAddresses$'
+control "template data packs download over HTTPS only" internal/templates/fetch.go \
+  'if r.URL.Scheme != "https" {' \
+  'if false {' \
+  ./internal/templates '^TestPackClientRefusesPlainHTTP$'
+control "each redirect of a template data pack is checked again" internal/templates/fetch.go \
+  'if u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") || !publicHost(u.Hostname()) {' \
+  'if false {' \
+  ./internal/templates '^TestPackRedirectsAreCheckedAgain$'
+control "a template data pack must match the template's checksum" internal/templates/fetch.go \
+  'if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, want) {' \
+  'if got := hex.EncodeToString(h.Sum(nil)); false && !strings.EqualFold(got, want) {' \
+  ./internal/templates '^TestFetchPack$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
