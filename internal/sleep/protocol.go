@@ -34,7 +34,8 @@ const (
 	// newer than any client that sends one.
 	legacyProtocol = 127
 
-	sleepingText = "Sleeping, join to wake it up"
+	// sleepingText is the design's "Asleep · join to wake it".
+	sleepingText = "Asleep · join to wake it"
 )
 
 var errMalformed = errors.New("malformed packet")

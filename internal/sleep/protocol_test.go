@@ -128,7 +128,7 @@ func TestStatusJSON(t *testing.T) {
 	if doc.Version.Protocol != 767 || doc.Version.Name != "Paper 26.2" || doc.Players.Max != 20 || doc.Players.Online != 0 || doc.Favicon != st.Icon {
 		t.Fatalf("got %+v", doc)
 	}
-	if got := doc.Description.plain(); got != "Bob's \"Realm\" <1>\nSleeping, join to wake it up" {
+	if got := doc.Description.plain(); got != "Bob's \"Realm\" <1>\nAsleep · join to wake it" {
 		t.Fatalf("description %q", got)
 	}
 	for _, p := range []int32{-1, 0} {
@@ -156,10 +156,10 @@ func TestLegacyEncoding(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 	st := Status{Name: "Survival", Version: "Paper 26.2", MaxPlayers: 20}
-	if got := legacyStatus(st, true); got != "Survival - Sleeping, join to wake it up§0§20" {
+	if got := legacyStatus(st, true); got != "Survival - Asleep · join to wake it§0§20" {
 		t.Errorf("beta: %q", got)
 	}
-	if got := legacyStatus(st, false); got != "§1\x00127\x00Paper 26.2\x00Survival - Sleeping, join to wake it up\x000\x0020" {
+	if got := legacyStatus(st, false); got != "§1\x00127\x00Paper 26.2\x00Survival - Asleep · join to wake it\x000\x0020" {
 		t.Errorf("1.4: %q", got)
 	}
 }

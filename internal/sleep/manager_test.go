@@ -231,7 +231,7 @@ func TestSetStatusCleansWhatClientsSee(t *testing.T) {
 	m, _ := newManager(t, nil)
 	m.SetStatus(Status{Name: "My\nServer §cRed\x00", Protocol: -5, MaxPlayers: -1, Icon: "https://example.com/icon.png"})
 	doc := queryStatus(t, m.Addr(), 767)
-	if got := doc.Description.plain(); got != "My Server cRed\nSleeping, join to wake it up" {
+	if got := doc.Description.plain(); got != "My Server cRed\nAsleep · join to wake it" {
 		t.Errorf("description %q", got)
 	}
 	if doc.Version.Name != "Minecraft" || doc.Players.Max != 0 || doc.Favicon != "" {

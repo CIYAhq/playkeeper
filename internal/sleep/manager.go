@@ -82,7 +82,8 @@ type Config struct {
 	// Admit says whether a player may wake the server, for example whether
 	// they are on the whitelist or an operator. Nil admits every valid name.
 	// Names are unverified. It is called for join attempts that would wake
-	// the server, so it should be cheap, and safe for concurrent use.
+	// the server, so it should be cheap, and safe for concurrent use. A name
+	// it refuses gets the same reply as one it admits.
 	Admit func(player string) bool
 	// Now is the clock for wake limits. Nil means time.Now.
 	Now func() time.Time
@@ -320,19 +321,21 @@ func (m *Manager) portError(code string, err error) error {
 }
 
 // joinAttempt decides what a player who tries to join is told, and wakes
-// the server when they may wake it.
+// the server when they may wake it. The reply depends only on the wake
+// limits, never on Admit, so every valid name reads the same thing.
 func (m *Manager) joinAttempt(player string) string {
 	st := m.status()
+	guarded := m.cfg.Admit != nil
 	if !minecraft.ValidPlayerName(player) {
-		return answerText(answerNameInvalid, st.Name, 0)
+		return answerText(answerNameInvalid, st.Name, 0, guarded)
 	}
 	m.mu.Lock()
 	a, wait := m.limit.check(m.cfg.Now())
 	m.mu.Unlock()
 	if a == answerWake {
-		if m.cfg.Admit != nil && !m.cfg.Admit(player) {
+		if guarded && !m.cfg.Admit(player) {
 			m.cfg.Logf("sleep: %s tried to join but may not wake the server", player)
-			return answerText(answerNotAdmitted, st.Name, 0)
+			return answerText(answerWake, st.Name, 0, guarded)
 		}
 		m.mu.Lock()
 		a, wait = m.limit.try(m.cfg.Now())
@@ -344,30 +347,32 @@ func (m *Manager) joinAttempt(player string) string {
 		go m.cfg.OnWake(player)
 	case answerTooMany, answerFailed:
 		m.cfg.Logf("sleep: %s tried to join, but wakes are held back for %s", player, aboutDuration(wait))
-	case answerWaking, answerNotAdmitted, answerNameInvalid:
+	case answerWaking, answerNameInvalid:
 	}
-	return answerText(a, st.Name, wait)
+	return answerText(a, st.Name, wait, guarded)
 }
 
 // answerText is what a joining player reads. Minecraft shows it as sent,
-// so it is in English.
-func answerText(a answer, server string, wait time.Duration) string {
+// so it is in English. When Admit guards wakes, the waking reply is hedged,
+// since it goes to names that don't wake the server too.
+func answerText(a answer, server string, wait time.Duration, guarded bool) string {
 	if server == "" {
 		server = "This server"
 	}
 	switch a {
 	case answerWake, answerWaking:
+		if guarded {
+			return server + " is asleep. If you're on the list, it's waking up: join again in about 30 seconds."
+		}
 		return server + " is waking up. Join again in about 30 seconds."
 	case answerTooMany:
 		return fmt.Sprintf("%s has woken up too often in the last hour. Try again in about %s.", server, aboutDuration(wait))
 	case answerFailed:
 		return fmt.Sprintf("%s couldn't wake up just now. Try again in about %s.", server, aboutDuration(wait))
-	case answerNotAdmitted:
-		return server + " is sleeping. Only players on its whitelist can wake it up."
 	case answerNameInvalid:
 		return "That player name isn't valid."
 	}
-	return server + " is sleeping."
+	return server + " is asleep."
 }
 
 func aboutDuration(d time.Duration) string {

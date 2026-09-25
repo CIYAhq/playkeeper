@@ -19,7 +19,6 @@ const (
 	answerWaking
 	answerTooMany
 	answerFailed
-	answerNotAdmitted
 	answerNameInvalid
 )
 

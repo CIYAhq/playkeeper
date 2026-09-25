@@ -37,7 +37,7 @@ func TestStatusShowsTheSleepingServer(t *testing.T) {
 	if doc.Version.Protocol != 767 || doc.Version.Name != "Paper 26.2" || doc.Players.Max != 20 || doc.Players.Online != 0 {
 		t.Fatalf("status %s", s)
 	}
-	if got := doc.Description.plain(); got != "Survival\nSleeping, join to wake it up" {
+	if got := doc.Description.plain(); got != "Survival\nAsleep · join to wake it" {
 		t.Fatalf("description %q", got)
 	}
 	if doc.Favicon != iconURI(t) {
@@ -111,18 +111,66 @@ func TestTransferCountsAsJoining(t *testing.T) {
 	expectWake(t, wakes, "Alex")
 }
 
-func TestOnlyAdmittedPlayersWakeTheServer(t *testing.T) {
+// guardedMsg is what every valid name reads when Admit guards wakes.
+const guardedMsg = "Survival is asleep. If you're on the list, it's waking up: join again in about 30 seconds."
+
+// TestRepliesNeverRevealTheWhitelist is the L9 regression test: listed and
+// unlisted names read exactly the same reply, before, during and after a
+// wake, and only listed names wake the server.
+func TestRepliesNeverRevealTheWhitelist(t *testing.T) {
+	clock := &testClock{t: t0}
+	var mu sync.Mutex
+	var asked []string
 	m, wakes := newManager(t, func(c *Config) {
-		c.Admit = func(p string) bool { return p == "Alex" }
+		c.Now = clock.Now
+		c.Admit = func(p string) bool {
+			mu.Lock()
+			asked = append(asked, p)
+			mu.Unlock()
+			return p == "Alex" || p == "JunoFox"
+		}
 	})
-	if got := mustJoin(t, m.Addr(), "Mallory"); got != "Survival is sleeping. Only players on its whitelist can wake it up." {
-		t.Fatalf("got %q", got)
+	replies := map[string]string{}
+	for _, name := range []string{"Mallory", "Eve_2", "Steve"} {
+		replies[name] = mustJoin(t, m.Addr(), name)
 	}
 	expectNoWake(t, wakes)
-	if got := mustJoin(t, m.Addr(), "Alex"); got != wakingMsg {
-		t.Fatalf("got %q", got)
-	}
+	replies["Alex"] = mustJoin(t, m.Addr(), "Alex")
 	expectWake(t, wakes, "Alex")
+	clock.add(time.Minute)
+	for _, name := range []string{"Mallory", "JunoFox"} {
+		replies[name+" while waking"] = mustJoin(t, m.Addr(), name)
+	}
+	expectNoWake(t, wakes)
+	for who, got := range replies {
+		if got != guardedMsg {
+			t.Errorf("%s read %q, want the same reply as everyone: %q", who, got, guardedMsg)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{"Mallory", "Eve_2", "Steve", "Alex"}; strings.Join(asked, ",") != strings.Join(want, ",") {
+		t.Errorf("Admit was asked about %v, want %v: nobody is asked while a wake is under way", asked, want)
+	}
+}
+
+func TestHeldBackWakesReadTheSameForEveryName(t *testing.T) {
+	clock := &testClock{t: t0}
+	m, wakes := newManager(t, func(c *Config) {
+		c.Now = clock.Now
+		c.Admit = func(p string) bool { return p != "Mallory" }
+	})
+	for i := range maxWakesPerHour {
+		name := fmt.Sprintf("Player%d", i)
+		mustJoin(t, m.Addr(), name)
+		expectWake(t, wakes, name)
+		clock.add(3 * time.Minute)
+	}
+	listed, unlisted := mustJoin(t, m.Addr(), "Steve"), mustJoin(t, m.Addr(), "Mallory")
+	if listed != unlisted || !strings.Contains(listed, "too often") {
+		t.Fatalf("listed %q, unlisted %q: want the same held-back reply", listed, unlisted)
+	}
+	expectNoWake(t, wakes)
 }
 
 func TestInvalidNamesDoNotWakeTheServer(t *testing.T) {
@@ -168,13 +216,13 @@ func TestWakesAreRateLimited(t *testing.T) {
 
 func TestLegacyPings(t *testing.T) {
 	m, _ := newManager(t, nil)
-	modern := "§1\x00127\x00Paper 26.2\x00Survival - Sleeping, join to wake it up\x000\x0020"
+	modern := "§1\x00127\x00Paper 26.2\x00Survival - Asleep · join to wake it\x000\x0020"
 	cases := []struct {
 		name string
 		send []byte
 		want string
 	}{
-		{"beta 1.8 to 1.3", []byte{0xFE}, "Survival - Sleeping, join to wake it up§0§20"},
+		{"beta 1.8 to 1.3", []byte{0xFE}, "Survival - Asleep · join to wake it§0§20"},
 		{"1.4 and 1.5", []byte{0xFE, 0x01}, modern},
 		{"1.6", legacy16Ping("play.example.com", 25565), modern},
 	}

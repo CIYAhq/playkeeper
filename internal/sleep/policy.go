@@ -7,7 +7,7 @@
 //
 // While the server sleeps, a Manager answers on its game port in its place,
 // speaking just enough of the Minecraft Java Edition protocol: the server
-// list shows the server's name, "Sleeping, join to wake it up" and its icon,
+// list shows the server's name, "Asleep · join to wake it" and its icon,
 // and a player who tries to join is told the server is waking up while the
 // agent starts it. The Manager hands the port back and forth with the
 // container: Wake closes the stand-in before the server starts, and Sleep
@@ -15,9 +15,10 @@
 //
 // The stand-in cannot check who a player is (that needs the encrypted
 // Mojang login), so a name is only a claim. Wakes are rate-limited, and
-// Config.Admit can refuse names, for example ones not on the whitelist; the
-// refusal says so, which tells anyone whether a name is admitted. Client
-// addresses are never logged.
+// Config.Admit can keep names from waking the server, for example ones not
+// on the whitelist. Every valid name gets the same reply, so the reply never
+// tells whether a name is admitted; only admitted names wake the server,
+// silently. Client addresses are never logged.
 package sleep
 
 import (
