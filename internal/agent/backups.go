@@ -331,6 +331,22 @@ func humanBytes(n int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
+// inWords says a wait the way a chat line does, rounded up to whole seconds:
+// "3 seconds", "1 minute".
+func inWords(d time.Duration) string {
+	n, unit := int((d+time.Second-1)/time.Second), "second"
+	if n < 1 {
+		n = 1
+	}
+	if n%60 == 0 {
+		n, unit = n/60, "minute"
+	}
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
+}
+
 // --- restore ---
 
 type stage struct {
@@ -791,11 +807,17 @@ func (s *server) warnBeforeBackup(ctx context.Context) {
 	if players == nil || players.Online == 0 {
 		return
 	}
-	if _, err := s.rconCommand("say Saving a backup: back in about 15 seconds!"); err != nil {
+	if _, err := s.rconCommand("say " + backupWarning(s.opts.BackupWarnDelay)); err != nil {
 		return
 	}
 	select {
 	case <-ctx.Done():
 	case <-time.After(s.opts.BackupWarnDelay):
 	}
+}
+
+// backupWarning is the chat line before a backup: it names the wait before
+// the server stops, not a guess at how long the backup takes.
+func backupWarning(wait time.Duration) string {
+	return "Saving a backup: the server stops in " + inWords(wait) + " and is back soon."
 }

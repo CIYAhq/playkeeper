@@ -292,7 +292,7 @@ func (s *server) warnPlayers(ctx context.Context, h *opHandle) {
 		return
 	}
 	h.phase("warning_players")
-	if _, err := s.rconCommand("say Updating in 1 minute, back soon!"); err != nil {
+	if _, err := s.rconCommand("say Updating in " + inWords(s.opts.WarnDelay) + ", back soon!"); err != nil {
 		s.log.Warn("could not warn players before the update", "server", s.id, "err", err)
 		return
 	}

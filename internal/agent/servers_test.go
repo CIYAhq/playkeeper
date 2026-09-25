@@ -588,14 +588,30 @@ func TestTickRateAndBackupWarning(t *testing.T) {
 	warned, savedAfter := false, false
 	for _, c := range e.rcon.commands {
 		switch {
-		case strings.HasPrefix(c, "say Saving a backup"):
+		case c == "say "+backupWarning(e.a.opts.BackupWarnDelay):
 			warned = true
 		case warned && strings.HasPrefix(c, "save-all"):
 			savedAfter = true
 		}
 	}
 	if !warned || !savedAfter {
-		t.Fatalf("players must be warned before the server saves and stops: %v", e.rcon.commands)
+		t.Fatalf("players must be warned, with the wait before the stop, before the server saves and stops: %v", e.rcon.commands)
+	}
+}
+
+// The chat line before a backup says when the server stops: after the wait
+// that follows it.
+func TestBackupWarningSaysWhenTheServerStops(t *testing.T) {
+	for wait, want := range map[time.Duration]string{
+		3 * time.Second:       "stops in 3 seconds",
+		10 * time.Millisecond: "stops in 1 second",
+		time.Minute:           "stops in 1 minute",
+		90 * time.Second:      "stops in 90 seconds",
+		2 * time.Minute:       "stops in 2 minutes",
+	} {
+		if got := backupWarning(wait); !strings.Contains(got, want) {
+			t.Errorf("%v: %q does not say %q", wait, got, want)
+		}
 	}
 }
 
