@@ -200,7 +200,9 @@ func TestTheDashboardServesTheAddressCertificateByName(t *testing.T) {
 	if l := leaf(&tls.ClientHelloInfo{ServerName: "alex.playkeeper.io"}); !slices.Contains(l.DNSNames, "alex.playkeeper.io") {
 		t.Fatalf("the address got %v", l.Subject)
 	}
-	selfSigned := func(l *x509.Certificate) bool { return slices.Contains(l.Subject.Organization, "Playkeeper self-signed") }
+	selfSigned := func(l *x509.Certificate) bool {
+		return slices.Contains(l.Subject.Organization, "Playkeeper self-signed")
+	}
 	for _, hello := range []*tls.ClientHelloInfo{{}, {ServerName: "localhost"}, {ServerName: "other.example.com"}} {
 		if l := leaf(hello); !selfSigned(l) {
 			t.Fatalf("%q got %v, want the self-signed certificate", hello.ServerName, l.Subject)
