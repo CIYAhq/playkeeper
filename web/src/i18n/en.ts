@@ -400,6 +400,7 @@ export const en = {
   'console.filter.problems': 'Problems',
   'console.search': 'Search the log',
   'console.follow': 'Follow',
+  'console.jumpToLatest': 'Jump to latest',
   'console.downloadLog': 'Download log',
   'console.log': 'Server output',
   'console.empty': 'No output yet. Start {server} to see what it says.',
