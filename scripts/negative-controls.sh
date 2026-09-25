@@ -286,6 +286,50 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
 
+# Wave 6: the shared map's link token and its players switch.
+control "shared map link tokens carry at least 128 bits" internal/webmap/share.go \
+  'const ShareTokenLen = 22' \
+  'const ShareTokenLen = 12' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "every link token character is equally likely" internal/webmap/share.go \
+  'if b < 248 && len(token) < ShareTokenLen {' \
+  'if len(token) < ShareTokenLen {' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "a shared map needs its sharing switch" internal/agent/maps.go \
+  'if err != nil || rec == nil || !rec.public {' \
+  'if err != nil || rec == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "a new link token each time sharing is switched on" internal/agent/maps.go \
+  "WHEN ?1 = 1 AND (public = 0 OR share_token = '') THEN ?2" \
+  "WHEN ?1 = 1 AND share_token = '' THEN ?2" \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the shared map's link token is compared" internal/agent/maps.go \
+  'if rows.Scan(&sid, &stored) == nil && webmap.ShareTokenMatches(stored, token) {' \
+  'if rows.Scan(&sid, &stored) == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "shared players hidden while their switch is off" internal/agent/maps.go \
+  'case rest == "players" && !rec.publicPlayers:' \
+  'case rest == "players" && !rec.publicPlayers && false:' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the panel checks a link token before asking the agent" internal/panel/maps.go \
+  'if !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  'if false && !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "a shared map shows faces only of players it lists" internal/panel/maps.go \
+  'if !strings.EqualFold(p.Name, name) {' \
+  'if false && !strings.EqualFold(p.Name, name) {' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "link tokens stay out of the request log" internal/panel/server.go \
+  '"path", redactMapToken(r.URL.Path),' \
+  '"path", r.URL.Path,' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "per-address shared map rate limit" internal/panel/maps.go \
+  'if ok, wait := s.mapViews.allow("ip:" + clientIP(r)); !ok {' \
+  'if ok, wait := s.mapViews.allow("ip:" + clientIP(r)); false && !ok {' \
+  ./internal/panel '^TestSharedMapIsRateLimitedPerAddress$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
