@@ -2,6 +2,12 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.0
+
+- More server types: Vanilla, Fabric, Quilt, NeoForge and Purpur alongside Paper, each downloaded from its project and checked against the checksum it publishes.
+- Modpacks from Modrinth, and from CurseForge with your own free key: browse them, see what's inside, and create a server from one, with each file checked as it downloads.
+- Share a server as a template, a file or a link with its type, version, settings and add-ons (names and versions only, never files or code), and create a server from one someone shared. The template's data packs download only over HTTPS from public websites and must match their checksums.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
