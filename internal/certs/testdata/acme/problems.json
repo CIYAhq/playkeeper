@@ -1,0 +1,220 @@
+{
+  "note": "Problem documents in the formats Let's Encrypt's server (Boulder) sends, written by hand after its message formats; none was captured from the live service. Each is answered at one step of issuing a certificate: directory, lookup-account, new-acct, new-order, validate (the challenge's error) or finalize.",
+  "now": "2025-01-18T20:00:00Z",
+  "cases": [
+    {
+      "name": "duplicate certificate, Retry-After header",
+      "step": "new-order",
+      "status": 429,
+      "headers": {"Retry-After": "6102"},
+      "problem": {"type": "urn:ietf:params:acme:error:rateLimited", "detail": "too many certificates (5) already issued for this exact set of identifiers in the last 168h0m0s, retry after 2025-01-18 21:41:42 UTC: see https://letsencrypt.org/docs/rate-limits/#new-certificates-per-exact-set-of-identifiers"},
+      "want": {"code": "rate_limited", "params": {"kind": "duplicate_certificate", "name": "mc.example.com", "until": "2025-01-18T21:41:42Z"}, "retryAt": "2025-01-18T21:41:42Z"}
+    },
+    {
+      "name": "certificates per registered domain, time in the message",
+      "step": "new-order",
+      "status": 429,
+      "problem": {"type": "urn:ietf:params:acme:error:rateLimited", "detail": "too many certificates (50) already issued for \"example.com\" in the last 168h0m0s, retry after 2025-01-19 06:12:00 UTC: see https://letsencrypt.org/docs/rate-limits/#new-certificates-per-registered-domain"},
+      "want": {"code": "rate_limited", "params": {"kind": "certificates_per_domain", "name": "mc.example.com", "domain": "example.com", "until": "2025-01-19T06:12:00Z"}, "retryAt": "2025-01-19T06:12:00Z"}
+    },
+    {
+      "name": "too many failed validations",
+      "step": "new-order",
+      "status": 429,
+      "headers": {"Retry-After": "1800"},
+      "problem": {"type": "urn:ietf:params:acme:error:rateLimited", "detail": "too many failed authorizations (5) for \"mc.example.com\" in the last 1h0m0s, retry after 2025-01-18 20:30:00 UTC: see https://letsencrypt.org/docs/rate-limits/#authorization-failures-per-identifier-per-account"},
+      "want": {"code": "rate_limited", "params": {"kind": "failed_validations", "name": "mc.example.com", "until": "2025-01-18T20:30:00Z"}, "retryAt": "2025-01-18T20:30:00Z", "needsAction": true}
+    },
+    {
+      "name": "too many new orders",
+      "step": "new-order",
+      "status": 429,
+      "headers": {"Retry-After": "600"},
+      "problem": {"type": "urn:ietf:params:acme:error:rateLimited", "detail": "too many new orders (300) from this account in the last 3h0m0s, retry after 2025-01-18 20:10:00 UTC: see https://letsencrypt.org/docs/rate-limits/#new-orders-per-account"},
+      "want": {"code": "rate_limited", "params": {"kind": "new_orders", "name": "mc.example.com", "until": "2025-01-18T20:10:00Z"}, "retryAt": "2025-01-18T20:10:00Z"}
+    },
+    {
+      "name": "too many new accounts",
+      "step": "new-acct",
+      "status": 429,
+      "headers": {"Retry-After": "10800"},
+      "problem": {"type": "urn:ietf:params:acme:error:rateLimited", "detail": "too many new registrations (10) from this IP address in the last 3h0m0s, retry after 2025-01-18 23:00:00 UTC: see https://letsencrypt.org/docs/rate-limits/#new-registrations-per-ip-address"},
+      "want": {"code": "rate_limited", "params": {"kind": "new_accounts", "name": "mc.example.com", "until": "2025-01-18T23:00:00Z"}, "retryAt": "2025-01-18T23:00:00Z"}
+    },
+    {
+      "name": "account paused for the name",
+      "step": "new-order",
+      "status": 429,
+      "problem": {"type": "urn:ietf:params:acme:error:rateLimited", "detail": "Your account is temporarily prevented from requesting certificates for mc.example.com and possibly others. Please visit: https://portal.letsencrypt.org/sfe/v1/unpause?jwt=eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0Ijp0cnVlfQ.ZmFrZQ"},
+      "want": {"code": "paused", "params": {"name": "mc.example.com", "url": "https://portal.letsencrypt.org/sfe/v1/unpause?jwt=eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0Ijp0cnVlfQ.ZmFrZQ"}, "needsAction": true,
+        "detail": "Your account is temporarily prevented from requesting certificates for mc.example.com and possibly others. Please visit: https://portal.letsencrypt.org/sfe/v1/unpause?jwt=[redacted]"}
+    },
+    {
+      "name": "port 80 closed",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:connection", "detail": "203.0.113.10: Fetching http://mc.example.com/.well-known/acme-challenge/3wZ0Hc5Nm1Ygth8HJnl3NqsbCAGHQ7Lzl8ffDKYVWqQ: Connection refused", "status": 400},
+      "want": {"code": "port80_unreachable", "params": {"name": "mc.example.com", "ip": "203.0.113.10"}, "needsAction": true}
+    },
+    {
+      "name": "port 80 filtered by a firewall",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:connection", "detail": "203.0.113.10: Fetching http://mc.example.com/.well-known/acme-challenge/3wZ0Hc5Nm1Ygth8HJnl3NqsbCAGHQ7Lzl8ffDKYVWqQ: Timeout during connect (likely firewall problem)", "status": 400},
+      "want": {"code": "port80_unreachable", "params": {"name": "mc.example.com", "ip": "203.0.113.10"}, "needsAction": true}
+    },
+    {
+      "name": "secondary validation over IPv6",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:connection", "detail": "During secondary validation: 2001:db8::10: Fetching http://mc.example.com/.well-known/acme-challenge/3wZ0Hc5Nm1Ygth8HJnl3NqsbCAGHQ7Lzl8ffDKYVWqQ: Connection refused", "status": 400},
+      "want": {"code": "port80_unreachable", "params": {"name": "mc.example.com", "ip": "2001:db8::10"}, "needsAction": true}
+    },
+    {
+      "name": "another web server answers",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "203.0.113.10: Invalid response from http://mc.example.com/.well-known/acme-challenge/3wZ0Hc5Nm1Ygth8HJnl3NqsbCAGHQ7Lzl8ffDKYVWqQ: 404", "status": 403},
+      "want": {"code": "challenge_wrong_answer", "params": {"name": "mc.example.com", "ip": "203.0.113.10"}, "needsAction": true}
+    },
+    {
+      "name": "no A or AAAA record",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:dns", "detail": "DNS problem: NXDOMAIN looking up A for mc.example.com - check that a DNS record exists for this domain; DNS problem: NXDOMAIN looking up AAAA for mc.example.com - check that a DNS record exists for this domain", "status": 400},
+      "want": {"code": "dns_no_record", "params": {"name": "mc.example.com"}, "needsAction": true}
+    },
+    {
+      "name": "nameservers fail to answer for CAA",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:dns", "detail": "DNS problem: SERVFAIL looking up CAA for example.com - the domain's nameservers may be malfunctioning", "status": 400},
+      "want": {"code": "dns_servers_failing", "params": {"name": "mc.example.com"}}
+    },
+    {
+      "name": "nameservers time out",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:dns", "detail": "DNS problem: query timed out looking up A for mc.example.com", "status": 400},
+      "want": {"code": "dns_servers_failing", "params": {"name": "mc.example.com"}}
+    },
+    {
+      "name": "no usable address",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:dns", "detail": "No valid IP addresses found for mc.example.com", "status": 400},
+      "want": {"code": "dns_no_record", "params": {"name": "mc.example.com"}, "needsAction": true}
+    },
+    {
+      "name": "CAA record forbids Let's Encrypt",
+      "step": "validate",
+      "challenge": "http-01",
+      "problem": {"type": "urn:ietf:params:acme:error:caa", "detail": "CAA record for example.com prevents issuance", "status": 403},
+      "want": {"code": "caa_forbids", "params": {"name": "mc.example.com"}, "needsAction": true}
+    },
+    {
+      "name": "dns-01 record does not exist",
+      "step": "validate",
+      "challenge": "dns-01",
+      "names": ["alex.playkeeper.io"],
+      "problem": {"type": "urn:ietf:params:acme:error:dns", "detail": "DNS problem: NXDOMAIN looking up TXT for _acme-challenge.alex.playkeeper.io - check that a DNS record exists for this domain", "status": 400},
+      "want": {"code": "dns01_not_visible", "params": {"name": "alex.playkeeper.io", "fqdn": "_acme-challenge.alex.playkeeper.io"}}
+    },
+    {
+      "name": "dns-01 record has another value",
+      "step": "validate",
+      "challenge": "dns-01",
+      "names": ["alex.playkeeper.io"],
+      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "Incorrect TXT record \"Nfe2DdYk9rTOxFnd6Nrkr7J5W4kY3ZL2VbYt8pS0tOQ\" found at _acme-challenge.alex.playkeeper.io", "status": 403},
+      "want": {"code": "dns01_record_wrong", "params": {"name": "alex.playkeeper.io", "fqdn": "_acme-challenge.alex.playkeeper.io"}}
+    },
+    {
+      "name": "dns-01 name has no TXT record",
+      "step": "validate",
+      "challenge": "dns-01",
+      "names": ["alex.playkeeper.io"],
+      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "No TXT record found at _acme-challenge.alex.playkeeper.io", "status": 403},
+      "want": {"code": "dns01_not_visible", "params": {"name": "alex.playkeeper.io", "fqdn": "_acme-challenge.alex.playkeeper.io"}}
+    },
+    {
+      "name": "name refused by policy",
+      "step": "new-order",
+      "names": ["blocked.example.com"],
+      "status": 400,
+      "problem": {"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "Cannot issue for \"blocked.example.com\": The ACME server refuses to issue a certificate for this domain name, because it is forbidden by policy"},
+      "want": {"code": "name_refused", "params": {"name": "blocked.example.com"}, "needsAction": true}
+    },
+    {
+      "name": "two of three names refused",
+      "step": "new-order",
+      "names": ["mc.example.com", "blocked.example.com", "bad.example.net"],
+      "status": 400,
+      "problem": {"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "Cannot issue for \"blocked.example.com\": The ACME server refuses to issue a certificate for this domain name, because it is forbidden by policy (and 1 more problems. Refer to sub-problems for more information.)",
+        "subproblems": [
+          {"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "The ACME server refuses to issue a certificate for this domain name, because it is forbidden by policy", "identifier": {"type": "dns", "value": "blocked.example.com"}},
+          {"type": "urn:ietf:params:acme:error:rejectedIdentifier", "detail": "The ACME server refuses to issue a certificate for this domain name, because it is forbidden by policy", "identifier": {"type": "dns", "value": "bad.example.net"}}
+        ]},
+      "want": {"code": "name_refused", "params": {"name": "blocked.example.com"}, "needsAction": true}
+    },
+    {
+      "name": "email address refused",
+      "step": "new-acct",
+      "email": "admin@example.com",
+      "status": 400,
+      "problem": {"type": "urn:ietf:params:acme:error:invalidContact", "detail": "Error validating contact(s) :: contact email has forbidden domain \"example.com\""},
+      "want": {"code": "email_refused", "needsAction": true}
+    },
+    {
+      "name": "new terms of service",
+      "step": "new-order",
+      "status": 403,
+      "headers": {"Link": "<https://letsencrypt.org/documents/LE-SA-v1.5-February-24-2025.pdf>;rel=\"terms-of-service\""},
+      "problem": {"type": "urn:ietf:params:acme:error:userActionRequired", "detail": "Terms of service have changed"},
+      "want": {"code": "terms_not_accepted", "params": {"url": "https://letsencrypt.org/documents/LE-SA-v1.5-February-24-2025.pdf"}, "needsAction": true}
+    },
+    {
+      "name": "account deactivated",
+      "step": "lookup-account",
+      "status": 403,
+      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "Account is not valid, has status \"deactivated\""},
+      "want": {"code": "account_disabled", "params": {"name": "mc.example.com"}, "needsAction": true}
+    },
+    {
+      "name": "account no longer exists",
+      "step": "new-order",
+      "status": 400,
+      "problem": {"type": "urn:ietf:params:acme:error:accountDoesNotExist", "detail": "Account \"https://acme-v02.api.letsencrypt.org/acme/acct/123456\" not found"},
+      "want": {"code": "account_disabled", "needsAction": true}
+    },
+    {
+      "name": "server error while finalizing",
+      "step": "finalize",
+      "status": 503,
+      "headers": {"Retry-After": "300"},
+      "problem": {"type": "urn:ietf:params:acme:error:serverInternal", "detail": "Error finalizing order :: failed to issue certificate"},
+      "want": {"code": "ca_unavailable", "retryAt": "2025-01-18T20:05:00Z"}
+    },
+    {
+      "name": "directory down for maintenance",
+      "step": "directory",
+      "status": 503,
+      "headers": {"Retry-After": "120"},
+      "problem": "<html><head><title>503 Service Temporarily Unavailable</title></head><body><h1>Down for maintenance</h1></body></html>",
+      "want": {"code": "ca_unavailable", "retryAt": "2025-01-18T20:02:00Z"}
+    },
+    {
+      "name": "CSR refused",
+      "step": "finalize",
+      "status": 400,
+      "problem": {"type": "urn:ietf:params:acme:error:badCSR", "detail": "Error finalizing order :: CSR contains a public key of an unsupported type"},
+      "want": {"code": "ca_error", "params": {"name": "mc.example.com"}}
+    },
+    {
+      "name": "external account required",
+      "step": "new-acct",
+      "status": 403,
+      "problem": {"type": "urn:ietf:params:acme:error:externalAccountRequired", "detail": "Account creation requires an external account binding"},
+      "want": {"code": "ca_needs_account", "needsAction": true}
+    }
+  ]
+}
