@@ -318,7 +318,7 @@ func TestPlanInstallManualSteps(t *testing.T) {
 		wantSteps(t, p, "Orebfuscator 5.6.2 30490")
 		sameJSON(t, "manual", p.Manual, []ManualStep{{
 			Notice: Notice{Kind: KindDepExternal, Params: map[string]string{"name": "Orebfuscator", "dependency": "ProtocolLib", "folder": "plugins"},
-				Msg: "Orebfuscator needs ProtocolLib, which is not on Hangar.", Hint: "Download ProtocolLib yourself and upload it to the plugins folder."},
+				Msg: "Orebfuscator needs ProtocolLib, which is not on Hangar.", Hint: "Download ProtocolLib yourself, then put it in the server's plugins folder."},
 			URL: "https://github.com/dmulloy2/ProtocolLib/",
 		}})
 		if !p.Ready {
@@ -343,7 +343,7 @@ func TestPlanInstallManualSteps(t *testing.T) {
 		}
 		sameJSON(t, "manual", p.Manual, []ManualStep{{
 			Notice: Notice{Kind: KindExternal, Params: map[string]string{"name": "Geyser", "version": "Geyser", "host": "download.geysermc.org", "folder": "plugins"},
-				Msg: "Geyser is only offered on download.geysermc.org, so Playkeeper cannot install it for you.", Hint: "Download it from that page and upload it to the plugins folder."},
+				Msg: "Geyser is only offered on download.geysermc.org, so Playkeeper cannot install it for you.", Hint: "Download it from that page, then put it in the server's plugins folder."},
 			URL: link,
 		}})
 
@@ -368,7 +368,7 @@ func TestPlanInstallManualSteps(t *testing.T) {
 		p := mustPlan(t, l, srv, nil, InstallRequest{Source: Modrinth, Project: "chunky"})
 		sameJSON(t, "manual", p.Manual, []ManualStep{{
 			Notice: Notice{Kind: KindDepUnlisted, Params: map[string]string{"name": "Chunky", "file": "SomeLib.jar", "folder": "plugins"},
-				Msg: "Chunky needs the file SomeLib.jar, which is not on Modrinth.", Hint: "Look on Chunky's page for where to get it, then upload it to the plugins folder."},
+				Msg: "Chunky needs the file SomeLib.jar, which is not on Modrinth.", Hint: "Look on Chunky's page for where to get it, then put it in the server's plugins folder."},
 			URL: "https://modrinth.com/plugin/chunky",
 		}})
 

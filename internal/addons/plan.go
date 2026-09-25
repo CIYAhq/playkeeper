@@ -722,11 +722,11 @@ func external(c candidate, parent *Step, t Target) ManualStep {
 		}
 		return ManualStep{Notice: notice(KindExternal, kv("name", c.Name, "version", c.Number, "host", host, "folder", t.Folder),
 			fmt.Sprintf("%s is only offered on %s, so Playkeeper cannot install it for you.", label, host),
-			fmt.Sprintf("Download it from that page and upload it to the %s folder.", t.Folder)), URL: link}
+			fmt.Sprintf("Download it from that page, then put it in the server's %s folder.", t.Folder)), URL: link}
 	}
 	return ManualStep{Notice: notice(KindDepExternal, kv("name", parent.Name, "dependency", c.Name, "host", host, "folder", t.Folder),
 		fmt.Sprintf("%s needs %s, which is only offered on %s.", parent.Name, c.Name, host),
-		fmt.Sprintf("Download it from that page and upload it to the %s folder.", t.Folder)), URL: link}
+		fmt.Sprintf("Download it from that page, then put it in the server's %s folder.", t.Folder)), URL: link}
 }
 
 // unlisted is a required dependency that is not a project on the source.
@@ -736,7 +736,7 @@ func unlisted(s Step, d dep, t Target) ManualStep {
 		link := safeLink(d.external)
 		return ManualStep{Notice: notice(KindDepExternal, kv("name", s.Name, "dependency", name, "folder", t.Folder),
 			fmt.Sprintf("%s needs %s, which is not on Hangar.", s.Name, name),
-			fmt.Sprintf("Download %s yourself and upload it to the %s folder.", name, t.Folder)), URL: link}
+			fmt.Sprintf("Download %s yourself, then put it in the server's %s folder.", name, t.Folder)), URL: link}
 	}
 	link := ""
 	if validRef(s.Slug) {
@@ -744,5 +744,5 @@ func unlisted(s Step, d dep, t Target) ManualStep {
 	}
 	return ManualStep{Notice: notice(KindDepUnlisted, kv("name", s.Name, "file", name, "folder", t.Folder),
 		fmt.Sprintf("%s needs the file %s, which is not on Modrinth.", s.Name, name),
-		fmt.Sprintf("Look on %s's page for where to get it, then upload it to the %s folder.", s.Name, t.Folder)), URL: link}
+		fmt.Sprintf("Look on %s's page for where to get it, then put it in the server's %s folder.", s.Name, t.Folder)), URL: link}
 }
