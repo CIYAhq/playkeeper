@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, Crash, LagCause, MetricsBucket, Running, ServerConfig, ServerStatus } from '@/api/types'
+import type { CatalogEntry, Crash, LagCause, MemoryAdvice, MetricsBucket, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
 import { lineRuns } from '@/components/app/line-chart'
 import { passwordStrength } from '@/pages/onboarding'
@@ -8,7 +8,7 @@ import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
 import { crashFixes, crashSummary, phoneLines, preselect } from './crash'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
-import { memorySegments } from './memory'
+import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
 import { controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone } from './phase'
 import { href, parse, type Route } from './router'
 import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadline, tickRateAxis, tickTimeAxis, timeLabels } from './running'
@@ -390,5 +390,56 @@ describe('how it’s running', () => {
     const buckets: MetricsBucket[] = Array.from({ length: 61 }, (_, i) => ({ start: new Date(start + i * 60_000).toISOString(), playersMax: 3, cpuAvg: null, memAvg: null, tpsAvg: 20, msptAvg: 30, coverage: 1, state: 'online' }))
     expect(timeLabels(buckets, '1h').map((l) => l.text)).toEqual(['17:52', '18:07', '18:22', '18:37', 'now'])
     expect(timeLabels(buckets, '1h', true).map((l) => l.text)).toEqual(['17:52', '18:22', 'now'])
+  })
+})
+
+describe('memory advice', () => {
+  const advice = (over: Partial<MemoryAdvice>): MemoryAdvice => ({ verdict: 'keep', title: '', explanation: 'From the agent.', evidence: [], actions: [], budgetMB: 4096, heapMB: 3072, days: [], options: [], ...over })
+
+  it('words each verdict as one line about the budget', () => {
+    const line = (over: Partial<MemoryAdvice>) => memoryAdviceLine(advice(over), 'my-vps')
+    expect(line({ params: { peak_mb: 2560, days: 14, reason: 'fits' } })).toBe('It never needed more than 2.5 GB in the last 14 days, so 4 GB is plenty.')
+    expect(line({ params: { peak_mb: 2200, days: 1, reason: 'smallest' } })).toBe('It never needed more than 2.1 GB in the last day, so 4 GB is plenty.')
+    expect(line({ params: { peak_mb: 2400, days: 9, reason: 'tight' } })).toBe('It needed up to 2.3 GB in the last 9 days, so 4 GB is just enough.')
+    expect(line({ params: { peak_mb: 2400, days: 14, reason: 'ran_short_once' } })).toBe('It ran short of memory once in the last 14 days, so it shouldn’t have less than 4 GB.')
+    expect(line({ params: { days: 14, reason: 'fits' } })).toBe('From the agent.')
+    expect(line({ verdict: 'lower', params: { peak_mb: 1200, days: 14, to_mb: 3072 } })).toBe('It never needed more than 1.2 GB in the last 14 days, so 3 GB would be enough.')
+    expect(line({ verdict: 'raise', params: { days: 14, to_mb: 6144 } })).toBe('It ran short of memory in the last 14 days, so give it 6 GB.')
+    expect(line({ verdict: 'raise', params: { days: 3 } })).toBe('It ran short of memory in the last 3 days, and my-vps has none to spare.')
+  })
+
+  it('counts measured days, then a week, before suggesting a size', () => {
+    const early = (params: Record<string, unknown>, over: Partial<MemoryAdvice> = {}) => advice({ verdict: 'not_enough_data', params: { min_days: 3, min_span_days: 7, ...params }, ...over })
+    expect(memoryProgress(early({ days: 0 }))).toBeUndefined()
+    expect(memoryProgress(early({ days: 1, span_days: 1 }))).toEqual({ day: 1, of: 3 })
+    expect(memoryProgress(early({ days: 3, span_days: 5 }))).toEqual({ day: 5, of: 7 })
+    expect(memoryProgress(advice({ params: { days: 14 } }))).toBeUndefined()
+    expect(memoryAdviceLine(early({ days: 1 }), 'my-vps')).toBe('Suggests a size after 3 days of play. Until then, 4 GB suits up to 10 friends.')
+    expect(memoryAdviceLine(early({ days: 4 }), 'my-vps')).toBe('Suggests a size after a week. Until then, 4 GB suits up to 10 friends.')
+    expect(memoryAdviceLine(early({ days: 0 }, { fromNextStart: true, budgetMB: 2048 }), 'my-vps')).toBe('Starts measuring at its next restart. Until then, 2 GB suits up to 4 friends.')
+  })
+
+  it('says how each budget would fit, and which one it recommends', () => {
+    const keep = advice({ recommendedMB: 4096 })
+    const hint = (o: Partial<MemoryAdvice['options'][number]>, a: MemoryAdvice | undefined = keep) => memoryOptionHint({ memoryMB: 4096, heapMB: 3072, fits: true, ...o }, a, 'my-vps')
+    expect(hint({ fit: 'room_to_grow' })).toBe('Recommended · room to grow')
+    expect(hint({})).toBe('Recommended')
+    expect(hint({ memoryMB: 2048, fit: 'too_tight' })).toBe('Too tight')
+    expect(hint({ memoryMB: 3072, fit: 'little_room' })).toBe('Little room to spare')
+    expect(hint({ memoryMB: 6144, fit: 'more_than_needed' })).toBe('More than it uses')
+    expect(hint({ memoryMB: 8192, fit: 'more_than_needed', fits: false })).toBe('Not enough free on my-vps')
+    expect(hint({ memoryMB: 6144 }, undefined)).toBe('Up to 20 friends')
+  })
+
+  it('always offers the budget the server has', () => {
+    const catalog = { memoryOptionsMB: [2048, 4096, 8192], maxMemoryMB: 4096 }
+    expect(memoryOffers(5120, undefined, catalog).map((o) => [o.memoryMB, o.fits])).toEqual([
+      [2048, true],
+      [4096, true],
+      [5120, true],
+      [8192, false],
+    ])
+    expect(memoryOffers(4096, advice({ options: [{ memoryMB: 6144, heapMB: 4608, fits: true }] }), catalog).map((o) => o.memoryMB)).toEqual([4096, 6144])
+    expect(memoryOffers(4096, undefined, undefined).map((o) => o.memoryMB)).toEqual([4096])
   })
 })

@@ -4,6 +4,11 @@ function num(v: number, digits = 0): string {
   return new Intl.NumberFormat(formatLocale(), { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v)
 }
 
+/** The browser's IANA time zone, for routes that count local days. */
+export function localTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+}
+
 /** A memory budget in MB, like "4 GB", "1.5 GB" or "768 MB". */
 export function formatMB(mb: number): string {
   if (mb >= 1024) return t('unit.gb', { value: num(mb / 1024, 1) })

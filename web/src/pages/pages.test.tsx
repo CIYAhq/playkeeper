@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Crash, MachineView, Me, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
+import type { Crash, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -12,6 +12,7 @@ import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 import { RunningPage } from './server/running'
+import { ServerSettingsPage } from './server/settings'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -337,6 +338,79 @@ describe('How it’s running', () => {
     expect(text).toContain('Playkeeper measures how Survival runs while it’s online.')
     expect(text).not.toContain('Nothing is slowing it down')
     expect(document.querySelectorAll('svg path').length).toBeGreaterThan(0)
+  })
+})
+
+describe('Settings › Memory', () => {
+  const peaks = [2150, 2300, 2200, 2400, 2350, 2450, 2300, 2250, 2400, 2420, 2380, 2350, 2500, 2560]
+  const options: MemoryAdvice['options'] = [
+    { memoryMB: 2048, heapMB: 1536, fits: true, fit: 'too_tight' },
+    { memoryMB: 3072, heapMB: 2304, fits: true, fit: 'little_room' },
+    { memoryMB: 4096, heapMB: 3072, fits: true, fit: 'room_to_grow' },
+    { memoryMB: 6144, heapMB: 4608, fits: true, fit: 'more_than_needed' },
+    { memoryMB: 8192, heapMB: 6144, fits: false, fit: 'more_than_needed' },
+  ]
+  const keep: MemoryAdvice = {
+    verdict: 'keep',
+    params: { budget_mb: 4096, heap_mb: 3072, peak_mb: 2560, days: 14, reason: 'fits', smaller_mb: 3072, smaller_heap_mb: 2304 },
+    title: 'Its memory fits',
+    explanation: 'It needed up to 2.5 GB in the last 14 days, and it has 3 GB for the game.',
+    evidence: [],
+    actions: [],
+    budgetMB: 4096,
+    heapMB: 3072,
+    recommendedMB: 4096,
+    days: peaks.map((peakMB, i) => ({ date: `2026-09-${String(12 + i).padStart(2, '0')}`, peakMB })),
+    options,
+  }
+  const at = (path: string) => window.history.replaceState(null, '', path)
+
+  afterEach(() => at('/'))
+
+  it('says what the last 14 days needed, with a bar for each day', async () => {
+    answer({ '/memory': keep })
+    const text = await render(<ServerSettingsPage server={server()} />)
+    expect(text).toContain('It never needed more than 2.5 GB in the last 14 days, so 4 GB is plenty.')
+    const chart = document.querySelector('[role="img"]')
+    expect(chart?.getAttribute('aria-label')).toBe('Most memory it needed each day for 14 days: at most 2.5 GB of 4 GB')
+    expect(chart?.querySelectorAll('[title]')).toHaveLength(14)
+    expect(chart?.textContent).toContain('14 days agoPeak each daytoday')
+    expect(text).not.toContain('How much of my-vps')
+    expect(text).toContain('Stops it when empty, wakes it on join.')
+    expect(text).not.toContain('unsaved change')
+  })
+
+  it('counts the days until it can suggest a size', async () => {
+    const early: MemoryAdvice = {
+      ...keep,
+      verdict: 'not_enough_data',
+      params: { days: 1, min_days: 3, min_span_days: 7, peak_mb: 2200, heap_mb: 3072, span_days: 1 },
+      recommendedMB: undefined,
+      options: options.map((o) => ({ ...o, fit: undefined })),
+    }
+    answer({ '/memory': early })
+    const text = await render(<ServerSettingsPage server={server()} />)
+    expect(text).toContain('Suggests a size after 3 days of play. Until then, 4 GB suits up to 10 friends.')
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('33')
+    expect(text).toContain('Day 1 of 3')
+    expect(document.querySelector('[role="img"]')).toBeNull()
+  })
+
+  it('takes the fixes How it’s running links to as unsaved changes', async () => {
+    at('/servers/survival/settings?memory=6144&view=10#memory')
+    answer({ '/memory': { ...keep, verdict: 'raise', params: { budget_mb: 4096, heap_mb: 3072, days: 14, full_gcs: 2, to_mb: 6144 }, recommendedMB: 6144 } })
+    const text = await render(<ServerSettingsPage server={server({ gameplay: { viewDistance: 16 } })} />)
+    expect(text).toContain('It ran short of memory in the last 14 days, so give it 6 GB.')
+    expect(text).toContain('2 unsaved changes')
+    expect(document.querySelector('#memory [aria-label="Memory"]')?.textContent).toContain('6 GB')
+    expect(document.querySelector('nav [aria-current="location"]')?.textContent).toBe('Memory')
+  })
+
+  it('ignores a size the machine has no room for', async () => {
+    at('/servers/survival/settings?memory=8192#memory')
+    answer({ '/memory': keep })
+    const text = await render(<ServerSettingsPage server={server()} />)
+    expect(text).not.toContain('unsaved change')
   })
 })
 
