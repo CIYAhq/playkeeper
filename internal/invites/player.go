@@ -204,8 +204,8 @@ type JoinInfo struct {
 	Steps   []Step `json:"steps"`
 }
 
-// Step is one instruction, as a stable key with parameters for
-// translation, and in English.
+// Step is one line the UI shows (an instruction, or a line of a notice), as
+// a stable key with parameters for translation, and in English.
 type Step struct {
 	Key    string            `json:"key"`
 	Params map[string]string `json:"params,omitempty"`

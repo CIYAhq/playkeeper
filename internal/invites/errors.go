@@ -20,6 +20,8 @@ const (
 	CodeServersNotAllowed = "invite_servers_not_allowed"
 	CodePlayersNotAllowed = "players_not_allowed"
 	CodeTwoFactorRequired = "two_factor_required"
+	CodeRequestsFull      = "join_requests_full"
+	CodeRequestDecided    = "join_request_decided"
 	CodeRateLimited       = "rate_limited"
 	CodePlayerName        = "player_name_invalid"
 	CodePlayerUnknown     = "player_not_found"
@@ -169,6 +171,21 @@ func roleNotAllowed(role string) *Error {
 func serversNotAllowed() *Error {
 	return &Error{Code: CodeServersNotAllowed, Status: http.StatusForbidden,
 		Msg: "You can only give access to servers you can use yourself.", Hint: "Choose from your servers, or ask the owner to send the invite."}
+}
+
+func requestsFull(scope string) *Error {
+	e := &Error{Code: CodeRequestsFull, Status: http.StatusTooManyRequests, Params: map[string]string{"scope": scope},
+		Msg: "Too many people on your network are waiting to join.", Hint: "Try again once their requests have been answered."}
+	if scope == "invite" {
+		e.Msg = "Too many people are waiting to join with this link."
+		e.Hint = "Ask the person who sent it to answer the requests, then try again."
+	}
+	return e
+}
+
+func requestDecided() *Error {
+	return &Error{Code: CodeRequestDecided, Status: http.StatusConflict,
+		Msg: "Someone already answered this request.", Hint: "Reload the Players tab to see the answer."}
 }
 
 func playersNotAllowed() *Error {

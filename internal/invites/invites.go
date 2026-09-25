@@ -240,8 +240,8 @@ func newID() string {
 	return string(b)
 }
 
-// ValidID reports whether id could be an invite id, for routes that take
-// one.
+// ValidID reports whether id could be an invite or join request id, for
+// routes that take one.
 func ValidID(id string) bool {
 	if len(id) != 10 {
 		return false
@@ -453,6 +453,12 @@ func RecordUse(inv Invite, now time.Time) (Invite, error) {
 }
 
 // Revoke returns inv revoked at now. Revoking twice keeps the first time.
+// The caller declines the invite's pending join requests in the same
+// write, so turning off a link that leaked also clears what it let people
+// ask:
+//
+//	UPDATE join_requests SET state = 'declined', decided_at = :now, decided_by = :user, address = ''
+//	WHERE invite_id = :id AND state = 'pending'
 func Revoke(inv Invite, now time.Time) Invite {
 	if inv.RevokedAt.IsZero() {
 		inv.RevokedAt = stamp(now)

@@ -493,7 +493,7 @@ func TestErrors(t *testing.T) {
 	all := []*Error{
 		NotFound(), UsernameTaken(), expired(), usedUp(KindPlayer), usedUp(KindMember),
 		badOptions("uses", "An invite link can be for 1 to 100 friends, or have no limit."), roleUnknown(), roleNotAllowed(RoleAdmin), roleNotAllowed(InstallOwner),
-		serversNotAllowed(), playersNotAllowed(), TwoFactorRequired(),
+		serversNotAllowed(), playersNotAllowed(), TwoFactorRequired(), requestsFull("invite"), requestsFull("address"), requestDecided(),
 		rateLimited("address", 1200*time.Millisecond), rateLimited("invite", time.Minute),
 		playerName(), playerNotFound("Nobody"), playerDemo("PipDemo42"), playerLegacy("OldTimer"),
 		mojangBusy(time.Minute, cause), mojangDown(cause),
