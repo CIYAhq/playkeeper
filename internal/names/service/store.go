@@ -47,6 +47,9 @@ CREATE TABLE nonces (
 	PRIMARY KEY (key, nonce)
 ) STRICT;
 CREATE INDEX nonces_by_expiry ON nonces (expires_at);
+`, `
+ALTER TABLE names ADD COLUMN network TEXT NOT NULL DEFAULT '';
+CREATE INDEX names_by_network ON names (network);
 `}
 
 type queryer interface {
@@ -86,13 +89,15 @@ type nameRow struct {
 	IPv4, IPv6                                   string
 	ClaimedAt, RefreshedAt, LapsedAt, ReleasedAt int64
 	Version, Synced                              int64
+	// Network is the network (see network) the name was claimed from.
+	Network string
 }
 
-const nameColumns = `name, key, state, ipv4, ipv6, claimed_at, refreshed_at, lapsed_at, released_at, version, synced`
+const nameColumns = `name, key, state, ipv4, ipv6, claimed_at, refreshed_at, lapsed_at, released_at, version, synced, network`
 
 func scanName(sc interface{ Scan(...any) error }) (*nameRow, error) {
 	var n nameRow
-	err := sc.Scan(&n.Name, &n.Key, &n.State, &n.IPv4, &n.IPv6, &n.ClaimedAt, &n.RefreshedAt, &n.LapsedAt, &n.ReleasedAt, &n.Version, &n.Synced)
+	err := sc.Scan(&n.Name, &n.Key, &n.State, &n.IPv4, &n.IPv6, &n.ClaimedAt, &n.RefreshedAt, &n.LapsedAt, &n.ReleasedAt, &n.Version, &n.Synced, &n.Network)
 	return &n, err
 }
 

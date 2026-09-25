@@ -119,6 +119,13 @@ func newEnv(t *testing.T, setup ...func(*testEnv)) *testEnv {
 
 func (e *testEnv) tick() { e.svc.tick(context.Background()) }
 
+// grown lets the names claimed so far reach the age at which they may have
+// server addresses.
+func (e *testEnv) grown() {
+	e.clk.Add(serverAddressAge)
+	e.tick()
+}
+
 // machine is where an install runs: its public addresses, which the
 // service's proxy reports in X-Forwarded-For. An empty address means the
 // machine has no route of that IP version.

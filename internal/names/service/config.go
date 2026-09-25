@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -18,25 +19,30 @@ import (
 // Environment variables the service reads; services/names/README.md
 // explains each one for the owner.
 const (
-	EnvBase           = "NAMES_BASE_DOMAIN"
-	EnvToken          = "NAMES_CLOUDFLARE_API_TOKEN"
-	EnvZone           = "NAMES_CLOUDFLARE_ZONE_ID"
-	EnvDataDir        = "NAMES_DATA_DIR"
-	EnvListen         = "NAMES_LISTEN"
-	EnvTrustedProxies = "NAMES_TRUSTED_PROXIES"
-	EnvMaxNamesPerKey = "NAMES_MAX_NAMES_PER_KEY"
-	EnvClaimsPerDay   = "NAMES_CLAIMS_PER_DAY"
-	EnvRecordReserve  = "NAMES_RECORD_RESERVE"
-	EnvBlocklist      = "NAMES_BLOCKLIST_FILE"
+	EnvBase               = "NAMES_BASE_DOMAIN"
+	EnvToken              = "NAMES_CLOUDFLARE_API_TOKEN"
+	EnvZone               = "NAMES_CLOUDFLARE_ZONE_ID"
+	EnvDataDir            = "NAMES_DATA_DIR"
+	EnvListen             = "NAMES_LISTEN"
+	EnvTrustedProxies     = "NAMES_TRUSTED_PROXIES"
+	EnvMaxNamesPerKey     = "NAMES_MAX_NAMES_PER_KEY"
+	EnvMaxNamesPerNetwork = "NAMES_MAX_NAMES_PER_NETWORK"
+	EnvClaimsPerDay       = "NAMES_CLAIMS_PER_DAY"
+	EnvRecordReserve      = "NAMES_RECORD_RESERVE"
+	EnvRecordQuota        = "NAMES_RECORD_QUOTA"
+	EnvBlocklist          = "NAMES_BLOCKLIST_FILE"
+	EnvAlertWebhook       = "NAMES_ALERT_WEBHOOK_URL"
 )
 
 // Defaults of the settings that have one.
 const (
-	DefaultDataDir        = "/data"
-	DefaultListen         = ":8080"
-	DefaultMaxNamesPerKey = 1
-	DefaultClaimsPerDay   = 30
-	DefaultRecordReserve  = 10
+	DefaultDataDir            = "/data"
+	DefaultListen             = ":8080"
+	DefaultMaxNamesPerKey     = 1
+	DefaultMaxNamesPerNetwork = 3
+	DefaultClaimsPerDay       = 30
+	DefaultRecordReserve      = 10
+	DefaultRecordQuota        = 200
 )
 
 // Config is what the service needs to run.
@@ -55,21 +61,31 @@ type Config struct {
 	// X-Forwarded-For.
 	TrustedProxies []netip.Prefix
 	MaxNamesPerKey int
+	// MaxNamesPerNetwork bounds the names claimed from one network (see
+	// network) that are not released.
+	MaxNamesPerNetwork int
 	// ClaimsPerDay bounds new names per day across everyone.
 	ClaimsPerDay int
-	// RecordReserve is how many of the zone's DNS records new names and
-	// server addresses must leave free.
+	// RecordReserve is how many of the zone's DNS records the service
+	// always leaves free for the owner.
 	RecordReserve int
+	// RecordQuota is the most records the zone may hold. Cloudflare's own
+	// quota wins when it is lower.
+	RecordQuota int
 	// BlocklistFile optionally lists names nobody may claim, one per line;
 	// claimed names on it are taken away.
 	BlocklistFile string
+	// AlertWebhook optionally receives the owner's alerts as Discord's
+	// {"content": "..."} JSON. Its path is a secret.
+	AlertWebhook string
 
 	Log  *slog.Logger
 	Now  func() time.Time
 	HTTP *http.Client
 
-	cloudflareAPI string
-	pageSize      int
+	cloudflareAPI  string
+	pageSize       int
+	alertTransport http.RoundTripper
 }
 
 var (
@@ -93,9 +109,13 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		DataDir:         get(EnvDataDir, DefaultDataDir),
 		Listen:          get(EnvListen, DefaultListen),
 		BlocklistFile:   get(EnvBlocklist, ""),
+		AlertWebhook:    get(EnvAlertWebhook, ""),
 	}
 	var errs []error
 	if err := checkBase(cfg.Base); err != nil {
+		errs = append(errs, err)
+	}
+	if err := checkWebhook(cfg.AlertWebhook); err != nil {
 		errs = append(errs, err)
 	}
 	if !reToken.MatchString(cfg.CloudflareToken) {
@@ -122,9 +142,25 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		return n
 	}
 	cfg.MaxNamesPerKey = number(EnvMaxNamesPerKey, DefaultMaxNamesPerKey, 1, 100)
+	cfg.MaxNamesPerNetwork = number(EnvMaxNamesPerNetwork, DefaultMaxNamesPerNetwork, 1, 10000)
 	cfg.ClaimsPerDay = number(EnvClaimsPerDay, DefaultClaimsPerDay, 1, 100000)
 	cfg.RecordReserve = number(EnvRecordReserve, DefaultRecordReserve, 0, 100000)
+	cfg.RecordQuota = number(EnvRecordQuota, DefaultRecordQuota, 1, 1000000)
 	return cfg, errors.Join(errs...)
+}
+
+// checkWebhook accepts an empty setting or an https:// URL without a user
+// name or password. The error never shows the URL, since its path is the
+// webhook's secret.
+func checkWebhook(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return fmt.Errorf("%s must be an https:// address, like the Discord webhook URL", EnvAlertWebhook)
+	}
+	return nil
 }
 
 func checkBase(base string) error {

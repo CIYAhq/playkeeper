@@ -368,22 +368,59 @@ func (s *Service) checkFree(ctx context.Context, name string) error {
 				Message: names.Address(name, s.base) + " is already in use.", Hint: "Choose another name."}
 		}
 	}
-	return s.checkRoom(ctx, 2)
+	return s.checkRoom(ctx, 2, forName)
 }
 
-// checkRoom refuses a change that needs n more records when the zone would
-// be left with fewer than the reserve.
-func (s *Service) checkRoom(ctx context.Context, n int) error {
+// recordUse is what a change needs records for. A filling zone refuses
+// server addresses first, then new names, and certificate challenges last.
+type recordUse int
+
+const (
+	forServer recordUse = iota
+	forName
+	forChallenge
+)
+
+// checkRoom refuses a change that needs n more records when it would leave
+// the zone fewer free records than use must leave: challenges leave the
+// owner's reserve, new names also challengeRoom, and server addresses also
+// nameRoom. The zone holds the lower of Cloudflare's quota and RecordQuota.
+func (s *Service) checkRoom(ctx context.Context, n int, use recordUse) error {
 	u, err := s.cf.usage(ctx)
 	if err != nil {
 		s.log.Warn("Could not read the zone's record usage", "error", err)
 		return dnsUnavailable(err)
 	}
-	if u.Quota == nil || u.Usage+n+s.cfg.RecordReserve <= *u.Quota {
+	quota := s.cfg.RecordQuota
+	if u.Quota != nil && *u.Quota < quota {
+		quota = *u.Quota
+	}
+	free := quota - u.Usage
+	if free-1 < s.cfg.RecordReserve+challengeRoom+nameRoom {
+		s.alerts.send(alertZoneNearlyFull, fmt.Sprintf("The DNS zone is nearly full (%d of %d records used), so new server addresses are refused. See \"Zone full\" in services/names/README.md.", u.Usage, quota),
+			"used", u.Usage, "quota", quota)
+	}
+	keep := s.cfg.RecordReserve
+	if use != forChallenge {
+		keep += challengeRoom
+	}
+	if use == forServer {
+		keep += nameRoom
+	}
+	if free-n >= keep {
 		return nil
 	}
-	s.log.Warn("The zone is almost out of DNS records, so new names and server addresses are refused (see services/names/README.md)",
-		"used", u.Usage, "quota", *u.Quota, "reserve", s.cfg.RecordReserve)
+	if use == forChallenge {
+		s.alerts.send(alertChallenges, fmt.Sprintf("The DNS zone is full (%d of %d records used), so certificate challenges are refused and dashboards cannot get certificates. See \"Zone full\" in services/names/README.md.", u.Usage, quota),
+			"used", u.Usage, "quota", quota)
+		return &names.Error{Status: 507, Code: names.CodeZoneFull,
+			Message: "The names service cannot publish certificate challenges right now, because its DNS zone is full.",
+			Hint:    "Try again later."}
+	}
+	if use == forName {
+		s.alerts.send(alertZoneFull, fmt.Sprintf("The DNS zone is full (%d of %d records used), so new names are refused. See \"Zone full\" in services/names/README.md.", u.Usage, quota),
+			"used", u.Usage, "quota", quota)
+	}
 	return &names.Error{Status: 507, Code: names.CodeZoneFull,
 		Message: "No more " + s.base + " addresses can be handed out right now.",
 		Hint:    "Use your own domain instead, or try again later."}

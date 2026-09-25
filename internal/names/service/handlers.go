@@ -253,6 +253,22 @@ func (s *Service) limitReached(ctx context.Context, q queryer, key, name string)
 		Hint:    "Release it first to choose another one."}
 }
 
+// networkFull refuses a name claimed from addr when addr's network already
+// holds as many names that are not released, other than except, as allowed.
+func (s *Service) networkFull(ctx context.Context, q queryer, addr netip.Addr, except string) error {
+	nw := network(addr)
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM names WHERE network = ? AND name != ? AND state != ?`, nw, except, names.StateReleased).Scan(&n); err != nil {
+		return err
+	}
+	if n < s.cfg.MaxNamesPerNetwork {
+		return nil
+	}
+	return &names.Error{Status: http.StatusForbidden, Code: names.CodeNetworkLimit, Params: map[string]any{"limit": s.cfg.MaxNamesPerNetwork, "network": nw},
+		Message: fmt.Sprintf("Servers in this network (%s) already have %d %s addresses, the most one network can have.", nw, n, s.base),
+		Hint:    "Use your own domain instead."}
+}
+
 func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 	ctx := r.Context()
 	name := r.PathValue("name")
@@ -276,6 +292,9 @@ func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 		if err := s.limitReached(ctx, s.db, c.key, name); err != nil {
 			return err
 		}
+		if err := s.networkFull(ctx, s.db, c.addr, name); err != nil {
+			return err
+		}
 	}
 	if row == nil {
 		if ok, wait := s.claimsAddr.allow(addrBucket(c.addr, 56)); !ok {
@@ -286,6 +305,7 @@ func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 		}
 		// Taken last, so claims of names in use cannot use up everyone's.
 		if ok, wait := s.claimsAll.allow("all"); !ok {
+			s.alerts.send(alertClaims, fmt.Sprintf("New names are refused for now: the %d a day that %s allows are used up. See \"Limits\" in services/names/README.md.", s.cfg.ClaimsPerDay, EnvClaimsPerDay))
 			return rateLimited(wait, "new names today")
 		}
 	}
@@ -313,6 +333,9 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call) error {
 		if err := s.limitReached(ctx, q, c.key, name); err != nil {
 			return err
 		}
+		if err := s.networkFull(ctx, q, c.addr, name); err != nil {
+			return err
+		}
 		now := s.now().Unix()
 		v4, v6 := "", ""
 		if c.addr.Is4() {
@@ -320,11 +343,11 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call) error {
 		} else {
 			v6 = c.addr.String()
 		}
-		res, err := q.ExecContext(ctx, `INSERT INTO names (name, key, state, ipv4, ipv6, claimed_at, refreshed_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (name) DO UPDATE SET state = excluded.state, ipv4 = excluded.ipv4, ipv6 = excluded.ipv6,
+		res, err := q.ExecContext(ctx, `INSERT INTO names (name, key, state, ipv4, ipv6, network, claimed_at, refreshed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (name) DO UPDATE SET state = excluded.state, ipv4 = excluded.ipv4, ipv6 = excluded.ipv6, network = excluded.network,
 			claimed_at = excluded.claimed_at, refreshed_at = excluded.refreshed_at, lapsed_at = 0, released_at = 0, version = version + 1
 			WHERE names.key = excluded.key`,
-			name, c.key, names.StateActive, v4, v6, now, now)
+			name, c.key, names.StateActive, v4, v6, network(c.addr), now, now)
 		if err != nil {
 			return err
 		}
@@ -507,6 +530,15 @@ func (s *Service) setChallenge(w http.ResponseWriter, r *http.Request, c *call) 
 	}
 	now := s.now()
 	expires := now.Add(challengeTTL)
+	var live int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM challenges WHERE name = ? AND value = ? AND expires_at > ?`, row.Name, value, now.Unix()).Scan(&live); err != nil {
+		return err
+	}
+	if live == 0 {
+		if err := s.checkRoom(ctx, 1, forChallenge); err != nil {
+			return err
+		}
+	}
 	err = s.writeTx(ctx, func(q queryer) error {
 		var others int
 		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM challenges WHERE name = ? AND value != ? AND expires_at > ?`, row.Name, value, now.Unix()).Scan(&others); err != nil {
@@ -607,25 +639,21 @@ func (s *Service) setServer(w http.ResponseWriter, r *http.Request, c *call) err
 			current = sv.Port
 		}
 	}
-	tooMany := &names.Error{Status: http.StatusConflict, Code: names.CodeTooManyServers, Params: map[string]any{"max": maxServers},
-		Message: fmt.Sprintf("A name can have at most %d server addresses.", maxServers),
-		Hint:    "Remove one you no longer use first."}
 	if current < 0 {
-		if len(servers) >= maxServers {
-			return tooMany
+		if err := s.serverAddressesAllowed(row, req.Port); err != nil {
+			return err
 		}
-		if err := s.checkRoom(ctx, 1); err != nil {
+		if err := s.serversFull(ctx, s.db, row, label); err != nil {
+			return err
+		}
+		if err := s.checkRoom(ctx, 1, forServer); err != nil {
 			return err
 		}
 	}
 	if current != req.Port {
 		err := s.writeTx(ctx, func(q queryer) error {
-			var others int
-			if err := q.QueryRowContext(ctx, `SELECT count(*) FROM servers WHERE name = ? AND label != ?`, row.Name, label).Scan(&others); err != nil {
+			if err := s.serversFull(ctx, q, row, label); err != nil {
 				return err
-			}
-			if others >= maxServers {
-				return tooMany
 			}
 			if _, err := q.ExecContext(ctx, `INSERT INTO servers (name, label, port) VALUES (?, ?, ?)
 				ON CONFLICT (name, label) DO UPDATE SET port = excluded.port`, row.Name, label, req.Port); err != nil {
@@ -639,6 +667,44 @@ func (s *Service) setServer(w http.ResponseWriter, r *http.Request, c *call) err
 		}
 	}
 	return s.respondServer(w, r, row.Name, label, req.Port)
+}
+
+// serverAddressesAllowed refuses a name's first server addresses until it
+// is serverAddressAge old; port is the server's, for the hint.
+func (s *Service) serverAddressesAllowed(row *nameRow, port int) error {
+	addr := names.Address(row.Name, s.base)
+	if from := time.Unix(row.ClaimedAt, 0).Add(serverAddressAge); s.now().Before(from) {
+		return &names.Error{Status: http.StatusConflict, Code: names.CodeServerNotYet, Params: map[string]any{"name": row.Name, "from": from.Unix()},
+			Message: fmt.Sprintf("%s can have server addresses from %s, %d days after it was claimed.", addr, from.UTC().Format("2 January 2006 15:04 UTC"), int(serverAddressAge.Hours()/24)),
+			Hint:    fmt.Sprintf("Until then players can join at %s:%d.", addr, port)}
+	}
+	return nil
+}
+
+// serversFull refuses another server address under row's name when its
+// install, or the network the name was claimed from, already has as many
+// as allowed. The label itself is not counted, so a port can always change.
+func (s *Service) serversFull(ctx context.Context, q queryer, row *nameRow, label string) error {
+	var byKey, byNetwork int
+	err := q.QueryRowContext(ctx, `SELECT coalesce(sum(n.key = ?), 0), coalesce(sum(n.network = ?), 0)
+		FROM servers sv JOIN names n ON n.name = sv.name
+		WHERE (n.key = ? OR n.network = ?) AND NOT (sv.name = ? AND sv.label = ?)`,
+		row.Key, row.Network, row.Key, row.Network, row.Name, label).Scan(&byKey, &byNetwork)
+	if err != nil {
+		return err
+	}
+	e := &names.Error{Status: http.StatusConflict, Code: names.CodeTooManyServers, Hint: "Remove one you no longer use first."}
+	switch {
+	case byKey >= serversPerKey:
+		e.Params = map[string]any{"max": serversPerKey, "scope": "install"}
+		e.Message = fmt.Sprintf("This server already has %d server addresses, the most it can have.", byKey)
+	case byNetwork >= serversPerNetwork:
+		e.Params = map[string]any{"max": serversPerNetwork, "scope": "network", "network": row.Network}
+		e.Message = fmt.Sprintf("Servers in this network (%s) already have %d server addresses, the most one network can have.", row.Network, byNetwork)
+	default:
+		return nil
+	}
+	return e
 }
 
 func (s *Service) removeServer(w http.ResponseWriter, r *http.Request, c *call) error {

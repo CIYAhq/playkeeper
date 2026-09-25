@@ -386,9 +386,9 @@ control "challenge records per name" internal/names/service/handlers.go \
   'if false && others >= maxChallenges {' \
   ./internal/names/service '^TestClaimRefreshServersChallengesAndReleaseEndToEnd$'
 control "the zone keeps a reserve of free records" internal/names/service/dns.go \
-  'u.Usage+n+s.cfg.RecordReserve <= *u.Quota' \
-  'u.Usage+n <= *u.Quota' \
-  ./internal/names/service '^TestAFullZoneRefusesNewNamesAndServerAddresses$'
+  'keep := s.cfg.RecordReserve' \
+  'keep := 0' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
 control "challenge records expire after an hour" internal/names/service/jobs.go \
   'SELECT DISTINCT name FROM challenges WHERE expires_at <= ?' \
   'SELECT DISTINCT name FROM challenges WHERE expires_at <= ? AND 0' \
@@ -406,7 +406,7 @@ control "Cloudflare errors never show the token" internal/names/service/cloudfla
   'scrub(nil, c.token)' \
   ./internal/names/service '^TestCloudflareErrorsNeverShowTheToken$'
 control "names service follows no redirects from Cloudflare" internal/names/service/service.go \
-  'CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },' \
+  'CheckRedirect: noRedirects,' \
   'CheckRedirect: nil,' \
   ./internal/names/service '^TestTheServiceFollowsNoRedirects$'
 control "names request signature" internal/names/sign.go \

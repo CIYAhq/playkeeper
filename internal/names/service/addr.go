@@ -109,6 +109,18 @@ func addrBucket(a netip.Addr, v6bits int) string {
 	return p.String()
 }
 
+// network is the range a claim counts against for the record budget: the
+// smallest block routed on the internet (IPv4 /24) or assigned to one site
+// (IPv6 /48).
+func network(a netip.Addr) string {
+	bits := 48
+	if a.Is4() {
+		bits = 24
+	}
+	p, _ := a.Prefix(bits)
+	return p.String()
+}
+
 func family(a netip.Addr) string {
 	if a.Is4() {
 		return "ipv4"

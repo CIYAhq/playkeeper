@@ -164,6 +164,7 @@ func TestRecordsTheServiceDoesNotManageAreNeverTouched(t *testing.T) {
 	cf := e.cf
 	m := newMachine(aliceV4, aliceV6)
 	alice := e.claimed("alice", "alice", m)
+	e.grown()
 	value := acmeValue("alice-token.thumbprint")
 	if _, err := alice.SetServer(ctx, "", 25565); err != nil {
 		t.Fatal(err)

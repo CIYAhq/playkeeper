@@ -40,13 +40,27 @@ const (
 	// the install never clears it.
 	challengeTTL  = time.Hour
 	maxChallenges = 2
-	maxServers    = 5
 	maxBody       = 4 << 10
 
 	requestsPerIPBurst, requestsPerIPHour   = 60, 120
 	requestsPerKeyBurst, requestsPerKeyHour = 30, 60
 	// claimsPerAddress: new names per day from one IPv4 address or IPv6 /56.
 	claimsPerAddress = 3
+
+	// Server addresses (SRV records) one install may have across its names,
+	// and all names claimed from one network together.
+	serversPerKey     = 5
+	serversPerNetwork = 10
+	// serverAddressAge: a name gets server addresses only this long after
+	// it was claimed, so names claimed in bulk cost two records each.
+	serverAddressAge = 3 * 24 * time.Hour
+
+	// Records the zone keeps free on top of the owner's reserve: new names
+	// and server addresses leave challengeRoom free for certificate
+	// challenges, and server addresses also leave nameRoom free for new
+	// names. The owner is alerted once server addresses are refused.
+	challengeRoom = 10
+	nameRoom      = 40
 )
 
 // Service is the names service. Handler serves its API; Run does the
@@ -62,6 +76,7 @@ type Service struct {
 	block                 *blocklist
 	perIP, perKey         *limiter
 	claimsAddr, claimsAll *limiter
+	alerts                *alerter
 
 	locks       nameLocks
 	zoneOK      atomic.Bool
@@ -82,7 +97,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.HTTP == nil {
 		cfg.HTTP = &http.Client{
 			Timeout:       30 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			CheckRedirect: noRedirects,
 		}
 	}
 	if cfg.cloudflareAPI == "" {
@@ -94,10 +109,19 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.MaxNamesPerKey == 0 {
 		cfg.MaxNamesPerKey = DefaultMaxNamesPerKey
 	}
+	if cfg.MaxNamesPerNetwork == 0 {
+		cfg.MaxNamesPerNetwork = DefaultMaxNamesPerNetwork
+	}
 	if cfg.ClaimsPerDay == 0 {
 		cfg.ClaimsPerDay = DefaultClaimsPerDay
 	}
+	if cfg.RecordQuota == 0 {
+		cfg.RecordQuota = DefaultRecordQuota
+	}
 	if err := checkBase(cfg.Base); err != nil {
+		return nil, err
+	}
+	if err := checkWebhook(cfg.AlertWebhook); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
@@ -116,6 +140,10 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		perKey:     newLimiter(requestsPerKeyBurst, requestsPerKeyHour, time.Hour, now),
 		claimsAddr: newLimiter(claimsPerAddress, claimsPerAddress, 24*time.Hour, now),
 		claimsAll:  newLimiter(cfg.ClaimsPerDay, cfg.ClaimsPerDay, 24*time.Hour, now),
+		alerts: &alerter{
+			url: cfg.AlertWebhook, from: "playkeeper-names for " + cfg.Base + ": ", log: cfg.Log, now: now, last: map[string]time.Time{},
+			hc: &http.Client{Timeout: alertTimeout, CheckRedirect: noRedirects, Transport: cfg.alertTransport},
+		},
 	}
 	s.block.reload(s.log)
 	if err := s.ensureZone(ctx); err != nil {
@@ -135,8 +163,15 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	return s, nil
 }
 
-// Close closes the database.
-func (s *Service) Close() error { return s.db.Close() }
+// Close waits for alerts still being sent and closes the database.
+func (s *Service) Close() error {
+	s.alerts.wait()
+	return s.db.Close()
+}
+
+// noRedirects makes an http.Client hand back redirects instead of
+// following them.
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // Run does the periodic work every minute until ctx ends.
 func (s *Service) Run(ctx context.Context) {
