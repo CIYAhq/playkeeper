@@ -281,6 +281,9 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				}
 			}
 			if !permit(&sess, rt.Act) {
+				if rt.Act == actRecoveryKey {
+					s.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")
+				}
 				writeErr(w, http.StatusForbidden, api.CodeForbidden, "Your account is not allowed to do this.", "")
 				return
 			}
