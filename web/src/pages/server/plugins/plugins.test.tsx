@@ -215,6 +215,19 @@ describe('Plugins tab', () => {
     expect(text).toContain('Keeps going if you close this.')
   })
 
+  it('keeps the restart line for a new file the agent does not flag, and puts its update first', async () => {
+    const newer: AddonChecks = { ...checks, updates: [...checks.updates, { source: 'modrinth', projectId: 'multiversecore', available: true, latest: version('5.1.0') }] }
+    answer([
+      ['/addons/checks', newer],
+      ['/addons', { ...installed, restartNeeded: false }],
+    ])
+    const text = await render(server())
+    expect(text).toContain('Restart Survival to load 1 new plugin')
+    const row = [...document.querySelectorAll('li')].find((li) => li.textContent?.includes('Multiverse-Core'))
+    expect(row?.textContent).toContain('Update available · 5.1.0')
+    expect(row?.textContent).not.toContain('New')
+  })
+
   it('says nothing is installed yet', async () => {
     answer([['/addons', { ...installed, files: [], missing: [], restartNeeded: false }]])
     const text = await render(server())

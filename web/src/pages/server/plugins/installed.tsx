@@ -51,7 +51,7 @@ function useListActions() {
   const updatable = updatableRows(a.rows)
   const pending = pendingCount(a.rows)
   const running = !ws.stale && a.server.phase === 'online'
-  const restartLine = running && a.addons?.restartNeeded && pending > 0 ? t(a.kind === 'mod' ? 'addons.restartToLoadMods' : 'addons.restartToLoad', { server: a.server.name, count: pending }) : undefined
+  const restartLine = running && pending > 0 ? t(a.kind === 'mod' ? 'addons.restartToLoadMods' : 'addons.restartToLoad', { server: a.server.name, count: pending }) : undefined
   const busyOp = !!a.server.operation
   const restart = async () => {
     setBusy('restart')
@@ -172,10 +172,10 @@ function RowStatus({ row: r }: { row: AddonRow }) {
   let body: ReactNode
   switch (r.state) {
     case 'managed':
-      body = r.pending ? (
-        <Marker tone="amber">{t('addons.new')}</Marker>
-      ) : r.update ? (
+      body = r.update ? (
         <Marker tone="green">{t('addons.updateAvailable', { version: r.update.versionNumber })}</Marker>
+      ) : r.pending ? (
+        <Marker tone="amber">{t('addons.new')}</Marker>
       ) : (
         <Marker>{t('addons.upToDate')}</Marker>
       )
@@ -331,8 +331,8 @@ function PhoneMark({ row: r }: { row: AddonRow }) {
   if (r.state === 'changed') return <Marker tone="amber" className={cls}>{t('addons.markChanged')}</Marker>
   if (r.state === 'missing') return <Marker tone="red" className={cls}>{t('addons.markMissing')}</Marker>
   if (r.state === 'identified') return <Marker tone="green" className={cls}>{t('addons.markManage')}</Marker>
-  if (r.pending) return <Marker tone="amber" className={cls}>{t('addons.new')}</Marker>
   if (r.update) return <Marker tone="green" className={cls}>{t('addons.markUpdate')}</Marker>
+  if (r.pending) return <Marker tone="amber" className={cls}>{t('addons.new')}</Marker>
   return <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
 }
 
