@@ -226,9 +226,6 @@ func (s Store) Prune(keep func(sum string) bool) error {
 // openZip reads a zip's table of contents after the checks Inspect makes
 // of it.
 func openZip(r io.ReaderAt, size int64) (*zip.Reader, bool) {
-	if size < directoryEndLen {
-		return nil, false
-	}
 	records, err := checkDirectory(r, size, DefaultLimits().MaxFiles)
 	if err != nil {
 		return nil, false

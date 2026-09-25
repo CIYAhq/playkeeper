@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from 'react'
-import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
+import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, PuzzleIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
@@ -16,12 +16,14 @@ import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
 import { controls, isSettingUp, phaseTone } from '@/lib/phase'
-import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
+import { addonTab } from '@/lib/addons'
+import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
+import { PluginsPage, PluginsPhoneHeader } from './plugins'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
 
@@ -30,6 +32,8 @@ const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
   { tab: 'console', key: 'tab.console', icon: <SquareTerminalIcon /> },
   { tab: 'players', key: 'tab.players', icon: <UsersIcon /> },
   { tab: 'world', key: 'tab.world', icon: <GlobeIcon /> },
+  { tab: 'plugins', key: 'tab.plugins', icon: <PuzzleIcon /> },
+  { tab: 'mods', key: 'tab.mods', icon: <PuzzleIcon /> },
   { tab: 'settings', key: 'tab.settings', icon: <SlidersHorizontalIcon /> },
 ]
 
@@ -43,7 +47,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
+export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; sub?: ServerSub }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -71,6 +75,10 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     case 'world':
       body = <WorldPage server={server} />
       break
+    case 'plugins':
+    case 'mods':
+      body = <PluginsPage server={server} tab={tab} sub={sub} />
+      break
     case 'settings':
       body = <ServerSettingsPage server={server} />
       break
@@ -85,6 +93,8 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       {phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
+        ) : (tab === 'plugins' || tab === 'mods') && !settingUp ? (
+          <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
         ) : (
           <PhoneServerHeader server={server} tab={tab} />
         )
@@ -268,7 +278,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
-        {tabs.map((x) => {
+        {tabs.filter((x) => (x.tab !== 'plugins' && x.tab !== 'mods') || x.tab === addonTab(s.type)).map((x) => {
           const active = x.tab === tab
           const cls = cn(
             'inline-flex h-10 shrink-0 items-center gap-2 border-b-2 text-sm font-medium outline-none [&_svg]:size-4',

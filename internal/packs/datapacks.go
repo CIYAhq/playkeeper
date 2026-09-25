@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -175,7 +176,7 @@ func (d DataPacks) List() ([]DataPack, error) {
 	}
 	defer root.Close()
 	dir := d.Level + "/datapacks"
-	f, err := root.Open(dir)
+	f, err := root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return []DataPack{}, nil
 	}

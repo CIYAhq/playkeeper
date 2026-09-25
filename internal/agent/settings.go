@@ -7,13 +7,12 @@ import (
 	"image/png"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
@@ -125,7 +124,12 @@ func gameplayEnv(g api.Gameplay) []string {
 
 // readProperties reads server.properties (key=value lines).
 func readProperties(dataDir string) map[string]string {
-	b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))
+	d, err := gamefiles.Open(dataDir, nil)
+	if err != nil {
+		return nil
+	}
+	defer d.Close()
+	b, err := d.ReadProperties()
 	if err != nil {
 		return nil
 	}
@@ -219,9 +223,10 @@ func gameplayChanges(before, after, asked api.Gameplay) []string {
 
 // Server icon: a 64×64 PNG the Minecraft server list shows.
 
-const maxIconBytes = 64 << 10
-
-func (s *server) iconPath() string { return filepath.Join(s.dataDir(), "server-icon.png") }
+const (
+	maxIconBytes = 64 << 10
+	iconFile     = "server-icon.png"
+)
 
 // iconNewer reports whether the icon changed after the running server
 // started, so a restart is needed to show it.
@@ -230,7 +235,12 @@ func iconNewer(sc *api.ServerConfig, startedAt *time.Time) bool {
 }
 
 func (s *server) hIcon(w http.ResponseWriter, r *http.Request) {
-	b, err := os.ReadFile(s.iconPath())
+	d, err := s.gameFiles()
+	var b []byte
+	if err == nil {
+		b, err = d.ReadFile(iconFile, maxIconBytes)
+		d.Close()
+	}
 	if err != nil {
 		writeError(w, errNotFound("Server icon"))
 		return
@@ -295,16 +305,13 @@ func (s *server) saveIcon(b []byte) error {
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
-	tmp := s.iconPath() + ".new"
-	if err := os.WriteFile(tmp, b, 0o640); err != nil {
+	d, err := s.gameFiles()
+	if err != nil {
 		return err
 	}
-	if os.Geteuid() == 0 {
-		_ = os.Chown(tmp, s.cfg.GameUID, s.cfg.GameGID)
-	}
-	if err := os.Rename(tmp, s.iconPath()); err != nil {
-		os.Remove(tmp)
-		return err
+	defer d.Close()
+	if err := d.WriteFile(iconFile, b, 0o640); err != nil {
+		return gameFileError(err, "The server icon could not be saved.")
 	}
 	now := s.now().UTC()
 	sc.IconUpdatedAt = &now

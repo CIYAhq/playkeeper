@@ -338,6 +338,224 @@ control "friends' pack pages are limited by the connection's address" internal/p
   'key := rt.prefix + " " + addressKey(r.RemoteAddr)' \
   'key := rt.prefix + " " + r.Header.Get("X-Forwarded-For")' \
   ./internal/panel '^TestFriendsPackPagesAreLimitedPerAddress$'
+control "game files: a link on the way to a file is refused" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "game files: a link or special file is refused before it is opened" internal/gamefiles/gamefiles.go \
+  'err = fileError(name, fi)' \
+  'err = nil' \
+  ./internal/gamefiles '^(TestLinksAreRefusedAtEveryStep|TestSpecialFilesAreRefusedWithoutWaiting)$'
+control "game files: a link or special file is not written over" internal/gamefiles/gamefiles.go \
+  'if err := fileError(name, fi); err != nil {' \
+  'if err := fileError(name, fi); false && err != nil {' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "game files: opening a named pipe does not wait" internal/gamefiles/gamefiles.go \
+  'os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)' \
+  'os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/gamefiles '^TestFilesSwappedAfterTheCheckAreRefused$'
+control "game files: the opened file is the one checked" internal/gamefiles/gamefiles.go \
+  'if err == nil && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  'if false && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  ./internal/gamefiles '^TestFilesSwappedAfterTheCheckAreRefused$'
+control "game files: reads are capped" internal/gamefiles/gamefiles.go \
+  'if int64(len(b)) > limit {' \
+  'if false {' \
+  ./internal/gamefiles '^TestOversizedFilesAreRefused$'
+control "game files: a file too large to hash is not read" internal/gamefiles/gamefiles.go \
+  'if size > limit {' \
+  'if false {' \
+  ./internal/gamefiles '^TestHugeSparseFilesAreRefusedQuickly$'
+control "game files: hashing reads only the size it checked" internal/gamefiles/gamefiles.go \
+  'io.LimitReader(f, size)' \
+  'f' \
+  ./internal/gamefiles '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "game files: hashing stops with its context" internal/gamefiles/gamefiles.go \
+  'if err := c.ctx.Err(); err != nil {' \
+  'if err := c.ctx.Err(); false && err != nil {' \
+  ./internal/gamefiles '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "game files: the temporary file is always a new one" internal/gamefiles/gamefiles.go \
+  'os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW' \
+  'os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW' \
+  ./internal/gamefiles '^TestTheTemporaryFileIsAlwaysANewOne$'
+control "game files: a new folder is given to the game through its own handle" internal/gamefiles/gamefiles.go \
+  'if err == nil && (!st.IsDir() || !os.SameFile(fi, st)) {' \
+  'if false && (!st.IsDir() || !os.SameFile(fi, st)) {' \
+  ./internal/gamefiles '^TestNewFoldersAreGivenToTheGameThroughTheirOwnHandle$'
+control "game files: folder listings are capped" internal/gamefiles/gamefiles.go \
+  'if len(es) > limit {' \
+  'if false {' \
+  ./internal/gamefiles '^TestReadDirListsRealFoldersOnly$'
+control "game files: paths stay inside the server's files" internal/gamefiles/gamefiles.go \
+  'if !fs.ValidPath(name) || name == "." {' \
+  'if false {' \
+  ./internal/gamefiles '^TestPathsMustStayInsideTheDataDirectory$'
+control "a planted link stops the start before the bStats write" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
+  ./internal/agent '^TestPlantedLinksCannotRedirectTheBStatsWrite$'
+control "the agent reads no game file through a link" internal/gamefiles/gamefiles.go \
+  'err = fileError(name, fi)' \
+  'err = nil' \
+  ./internal/agent '^TestGameFilesAreReadWithoutFollowingLinks$'
+control "the jar is hashed only up to a size no Paper jar reaches" internal/agent/lifecycle.go \
+  'const maxJarBytes = 256 << 20' \
+  'const maxJarBytes = 1 << 62' \
+  ./internal/agent '^TestAHugeSparseJarDoesNotHoldUpTheStart$'
+control "a backup reads the level name without following a link or waiting on a pipe" internal/backup/archive.go \
+  'b, err := readProperties(dataDir)' \
+  'b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
+  ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "a restored world is given to the game without following links" internal/agent/backups.go \
+  'if d.Type()&fs.ModeSymlink != 0 {' \
+  'if false {' \
+  ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
+control "add-on files: opening a named pipe does not wait" internal/addons/files.go \
+  'os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)' \
+  'os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/addons '^TestPipesSwappedInAreRefusedWithoutWaiting$'
+control "add-on files: the opened file is the regular file checked" internal/addons/files.go \
+  'if err == nil && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  'if false && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  ./internal/addons '^TestPipesSwappedInAreRefusedWithoutWaiting$'
+control "add-on folder: a named pipe swapped in fails at once" internal/addons/files.go \
+  'data.OpenRoot(t.Folder + "/.")' \
+  'data.OpenRoot(t.Folder)' \
+  ./internal/addons '^TestPipesSwappedInAreRefusedWithoutWaiting$'
+control "add-on files: only a file of the recorded size is hashed" internal/addons/files.go \
+  '|| rec.Size > 0 && size != rec.Size ||' \
+  '||' \
+  ./internal/addons '^TestGrownJarsAreNotHashed$'
+control "add-on files: a record without a size is hashed only up to the size limit" internal/addons/files.go \
+  '|| rec.Size <= 0 && size > max {' \
+  '{' \
+  ./internal/addons '^TestGrownJarsAreNotHashed$'
+control "add-on files: hashing reads only the size it saw" internal/addons/files.go \
+  'ctxReader{ctx, io.NewSectionReader(f, 0, size)}' \
+  'ctxReader{ctx, f}' \
+  ./internal/addons '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "add-on files: hashing stops with its context" internal/addons/files.go \
+  'if err := c.ctx.Err(); err != nil {' \
+  'if err := c.ctx.Err(); false && err != nil {' \
+  ./internal/addons '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "add-on scan: stops with its context" internal/addons/scan.go \
+  'l.readLocal(ctx, root, lf, identify, verify)
+			if err := ctx.Err(); err != nil {' \
+  'l.readLocal(ctx, root, lf, identify, verify)
+			if err := ctx.Err(); false && err != nil {' \
+  ./internal/addons '^TestAScanStopsWithItsContext$'
+control "pre-generation: a named pipe for the plugins folder is not waited on" internal/pregen/detect.go \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/pregen '^TestDetectDoesNotWaitOnAPipe$'
+control "data packs: a named pipe for the datapacks folder is not waited on" internal/packs/datapacks.go \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/packs '^TestListDoesNotWaitOnAPipe$'
+control "add-on jars: the table of contents is checked before archive/zip reads it" internal/addons/jar.go \
+  'n, err := zipdir.Check(r, size, zipdir.Metadata)
+	if err != nil {' \
+  'n, err := zipdir.Check(r, size, zipdir.Metadata)
+	if false && err != nil {' \
+  ./internal/addons '^TestJarsWithHugeTablesOfContentsAreNotRead$'
+control "pre-generation: a jar's table of contents is checked before archive/zip reads it" internal/pregen/detect.go \
+  'n, err := zipdir.Check(f, st.Size(), zipdir.Metadata)
+	if err != nil {' \
+  'n, err := zipdir.Check(f, st.Size(), zipdir.Metadata)
+	if false && err != nil {' \
+  ./internal/pregen '^TestDetectDoesNotReadHugeTablesOfContents$'
+control "jar metadata: a table of contents is bounded to what metadata needs" internal/zipdir/zipdir.go \
+  'var Metadata = Limits{Bytes: 16 << 20, Entries: 100_000}' \
+  'var Metadata = Limits{Bytes: 1 << 40, Entries: 1 << 40}' \
+  ./internal/addons '^TestJarsWithHugeTablesOfContentsAreNotRead$'
+control "zip tables of contents: more entries than the limit are refused" internal/zipdir/zipdir.go \
+  'case records > uint64(max(lim.Entries, 0)):' \
+  'case false:' \
+  ./internal/zipdir '^TestCheck$'
+control "zip tables of contents: one larger than the limit is refused" internal/zipdir/zipdir.go \
+  'case dirSize > uint64(max(lim.Bytes, 0)):' \
+  'case false:' \
+  ./internal/zipdir '^TestCheck$'
+control "agent unit: its memory is capped" internal/install/units.go \
+  'MemoryMax=384M
+' \
+  '' \
+  ./internal/install '^TestAgentUnitCapsItsMemory$'
+control "public routes: limited per address" internal/panel/public.go \
+  'if ok, wait := perMinute.allow(key); !ok {' \
+  'if ok, wait := perMinute.allow(key); false && !ok {' \
+  ./internal/panel '^TestPublicRoutesAreLimitedPerAddress$'
+control "public routes: an address is the connection's, not a forwarded header" internal/panel/public.go \
+  'key := rt.prefix + " " + addressKey(r.RemoteAddr)' \
+  'key := rt.prefix + " " + addressKey(r.RemoteAddr) + r.Header.Get("X-Forwarded-For")' \
+  ./internal/panel '^TestPublicRoutesAreLimitedPerAddress$'
+control "public routes: an IPv6 address counts as its /64" internal/panel/public.go \
+  'p, err := a.Prefix(64)' \
+  'p, err := a.Prefix(128)' \
+  ./internal/panel '^TestAddressKeyIgnoresHeadersAndGroupsIPv6$'
+control "public routes: the requests an address has open are capped" internal/panel/public.go \
+  'if !g.enter(key, rt.limits.open) {' \
+  'if false && !g.enter(key, rt.limits.open) {' \
+  ./internal/panel '^TestPublicDownloadsAreCapped$'
+control "public downloads: capped for every address together" internal/panel/public.go \
+  'downloads: make(chan struct{}, publicDownloads)' \
+  'downloads: make(chan struct{}, 10*publicDownloads)' \
+  ./internal/panel '^TestPublicDownloadsAreCapped$'
+control "public downloads: a client that stops reading is dropped" internal/panel/public.go \
+  '_ = w.rc.SetWriteDeadline(d)' \
+  '_ = d' \
+  ./internal/panel '^TestPublicDownloadsDropClientsThatStopReading$'
+control "public routes: unknown, switched off and stopped answer one 404" internal/panel/public.go \
+  'return status == http.StatusForbidden || status == http.StatusNotFound || status == http.StatusGone || status >= 500' \
+  'return status == http.StatusNotFound' \
+  ./internal/panel '^TestPublicRoutesAnswerOneNotFound$'
+control "public routes: a 404 comes no sooner than one the agent was asked for" internal/panel/public.go \
+  'if wait := publicNotFoundAfter - time.Since(start); wait > 0 {' \
+  'if wait := publicNotFoundAfter - time.Since(start); false && wait > 0 {' \
+  ./internal/panel '^TestPublicRoutesAnswerOneNotFound$'
+control "public routes: a 404 frees its download slot while it waits" internal/panel/public.go \
+  'rt.handler.ServeHTTP(pw, r)
+		release()' \
+  'rt.handler.ServeHTTP(pw, r)' \
+  ./internal/panel '^TestPublicRoutesAnswerOneNotFound$'
+control "public routes: a handler can't make an answer cacheable" internal/panel/public.go \
+  'w.Header().Set("Cache-Control", cache)' \
+  '_ = cache' \
+  ./internal/panel '^TestPublicRoutesCacheOnlyWhatTheyMay$'
+control "public routes: only successful answers may be cached" internal/panel/public.go \
+  'if w.cache != "" && (status < 300 || status == http.StatusNotModified) {' \
+  'if w.cache != "" {' \
+  ./internal/panel '^TestPublicRoutesCacheOnlyWhatTheyMay$'
+control "add-on installs: a confirmed plan is required" internal/agent/addons.go \
+  'if err := confirmedPlan(req.Fingerprint); err != nil {' \
+  'if err := confirmedPlan(req.Fingerprint); false && err != nil {' \
+  ./internal/agent '^TestAddonRoutesRejectBadInput$'
+control "add-on updates: a confirmed plan is required" internal/agent/addons.go \
+  'keys, err := updateKeys(req.Addons)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := confirmedPlan(req.Fingerprint); err != nil {' \
+  'keys, err := updateKeys(req.Addons)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := confirmedPlan(req.Fingerprint); false && err != nil {' \
+  ./internal/agent '^TestAddonRoutesRejectBadInput$'
+control "add-on installs: only the confirmed plan is carried out" internal/agent/addons.go \
+  'Project: key.ProjectID, Fingerprint: req.Fingerprint, OnProgress: progress' \
+  'Project: key.ProjectID, OnProgress: progress' \
+  ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "add-on updates: only the confirmed plan is carried out" internal/agent/addons.go \
+  'Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress' \
+  'Changed: req.Changed, OnProgress: progress' \
+  ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "port sharing: a connection nobody accepts is closed" internal/portshare/portshare.go \
+  't := time.NewTimer(l.s.handoff)' \
+  't := time.NewTimer(time.Hour)' \
+  ./internal/portshare '^TestHandoffTimeout$'
 control "creating from a template checks the plan the user confirmed" internal/agent/templates.go \
   'if err := p.Confirm(fingerprint); err != nil {' \
   'if err := p.Confirm(p.Fingerprint); err != nil {' \

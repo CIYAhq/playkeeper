@@ -852,19 +852,31 @@ type AddonProgress struct {
 type AddonInstallRequest struct {
 	Source    string `json:"source"`
 	ProjectID string `json:"projectId"`
-	// Fingerprint is the plan the user confirmed; the install is refused
-	// when the plan has changed since.
-	Fingerprint string `json:"fingerprint,omitempty"`
+	// Fingerprint is the plan the user confirmed, AddonDetails.Plan; the
+	// install is refused without it, or when the plan has changed since.
+	Fingerprint string `json:"fingerprint"`
 	Actor       string `json:"actor"`
 }
 
-type AddonUpdateRequest struct {
+// AddonUpdatePlanRequest asks what an update would do, for the user to
+// confirm before sending the AddonUpdateRequest with the same add-ons and
+// Changed.
+type AddonUpdatePlanRequest struct {
 	// Addons are the add-ons to update; empty means every one with an
 	// update.
 	Addons []AddonKey `json:"addons,omitempty"`
 	// Changed replaces files that changed since they were installed.
 	Changed bool   `json:"changed,omitempty"`
 	Actor   string `json:"actor"`
+}
+
+type AddonUpdateRequest struct {
+	Addons  []AddonKey `json:"addons,omitempty"`
+	Changed bool       `json:"changed,omitempty"`
+	// Fingerprint is the plan the user confirmed; the update is refused
+	// without it, or when the plan has changed since.
+	Fingerprint string `json:"fingerprint"`
+	Actor       string `json:"actor"`
 }
 
 // AddonRemovePreview is what removing an add-on would involve.

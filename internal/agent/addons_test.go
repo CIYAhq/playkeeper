@@ -84,9 +84,16 @@ func writeTestFile(t *testing.T, path string, data []byte, mtime time.Time) {
 	}
 }
 
+const (
+	// otherPlan is a well-formed fingerprint of a plan the user never saw.
+	otherPlan   = "0123456789abcdef0123456789abcdef"
+	planChanged = "What this would do has changed since you confirmed it."
+)
+
 // A plugin installs with the dependency it needs, loads at the next restart,
 // updates, and comes out again with the dependency nothing needs any more;
 // a changed file or a dependency still in use is only removed when asked.
+// Installs and updates carry out only the plan the user confirmed.
 func TestAddonsInstallUpdateRemove(t *testing.T) {
 	e := newAgentEnv(t)
 	f := e.withSources()
@@ -125,7 +132,14 @@ func TestAddonsInstallUpdateRemove(t *testing.T) {
 		t.Fatalf("plan steps %q, want %q", steps, want)
 	}
 
-	op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": "mvportal", "fingerprint": d.Plan.Fingerprint, "actor": "admin"})
+	op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": "mvportal", "fingerprint": otherPlan, "actor": "admin"})
+	if op.Status != api.OpFailed || op.Error != planChanged {
+		t.Fatalf("an install of a plan the user didn't confirm: %+v", op)
+	}
+	if jars, _ := filepath.Glob(filepath.Join(plugins, "*.jar")); len(jars) != 0 {
+		t.Fatalf("an install of a plan the user didn't confirm left %v", jars)
+	}
+	op = e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": "mvportal", "fingerprint": d.Plan.Fingerprint, "actor": "admin"})
 	if op.Status != api.OpSucceeded || op.Kind != "addon-install" {
 		t.Fatalf("install: %+v", op)
 	}
@@ -226,7 +240,18 @@ func TestAddonsInstallUpdateRemove(t *testing.T) {
 		t.Fatalf("details of an installed add-on with an update: %+v", installed)
 	}
 
-	op = e.addonOp("/addons/update", map[string]any{"addons": []map[string]string{{"source": "modrinth", "projectId": "mvcore00"}}, "actor": "admin"})
+	mvcore := []map[string]string{{"source": "modrinth", "projectId": "mvcore00"}}
+	var plan api.AddonPlan
+	code, out = e.call("POST", e.sp("/addons/update/plan"), map[string]any{"addons": mvcore, "actor": "admin"})
+	if b, _ := json.Marshal(out); code != 200 || json.Unmarshal(b, &plan) != nil || !plan.Ready || len(plan.Steps) != 1 ||
+		plan.Steps[0].Action != "update" || plan.Steps[0].Was != "5.0.1" || plan.Steps[0].VersionNumber != "5.0.2" || !reFingerprint.MatchString(plan.Fingerprint) {
+		t.Fatalf("update plan: %d %v", code, out)
+	}
+	op = e.addonOp("/addons/update", map[string]any{"addons": mvcore, "fingerprint": otherPlan, "actor": "admin"})
+	if op.Status != api.OpFailed || op.Error != planChanged {
+		t.Fatalf("an update of a plan the user didn't confirm: %+v", op)
+	}
+	op = e.addonOp("/addons/update", map[string]any{"addons": mvcore, "fingerprint": plan.Fingerprint, "actor": "admin"})
 	if op.Status != api.OpSucceeded || op.Kind != "addon-update" {
 		t.Fatalf("update: %+v", op)
 	}
@@ -303,6 +328,11 @@ func TestAddonAdoptAndForget(t *testing.T) {
 	list := e.addonList()
 	if got := fileStatus(list.Files); !maps.Equal(got, map[string]string{name: "unknown", "HomeGrown.jar": "unknown"}) {
 		t.Fatalf("files added by hand: %v", got)
+	}
+	for _, fl := range list.Files {
+		if fl.FileName == "HomeGrown.jar" && (fl.Name != "HomeGrown" || fl.Version != "0.1") {
+			t.Fatalf("a plugin added by hand goes by %q %q, not its plugin.yml name and version", fl.Name, fl.Version)
+		}
 	}
 	var checks api.AddonChecks
 	e.decode("GET", e.sp("/addons/checks"), &checks)
@@ -393,12 +423,18 @@ func TestAddonRoutesRejectBadInput(t *testing.T) {
 		{"page beyond the end", "GET", e.sp("/addons/search?page=801"), nil, 400},
 		{"unknown category", "GET", e.sp("/addons/search?category=nope"), nil, 400},
 		{"unknown order", "GET", e.sp("/addons/search?sort=chaos"), nil, 400},
+		{"install without a plan", "POST", e.sp("/addons/install"), install(nil), 400},
 		{"bad fingerprint", "POST", e.sp("/addons/install"), install(map[string]any{"fingerprint": "zz"}), 400},
-		{"install without actor", "POST", e.sp("/addons/install"), install(map[string]any{"actor": ""}), 400},
-		{"install from a file address", "POST", e.sp("/addons/install"), `{"source":"modrinth","projectId":"mvcore00","actor":"admin","url":"https://203.0.113.9/x.jar"}`, 400},
-		{"install from an unknown source", "POST", e.sp("/addons/install"), install(map[string]any{"source": "curseforge"}), 400},
-		{"install a traversal project", "POST", e.sp("/addons/install"), install(map[string]any{"projectId": "../../x"}), 400},
-		{"too many updates", "POST", e.sp("/addons/update"), map[string]any{"addons": many, "actor": "admin"}, 400},
+		{"install without actor", "POST", e.sp("/addons/install"), install(map[string]any{"actor": "", "fingerprint": otherPlan}), 400},
+		{"install from a file address", "POST", e.sp("/addons/install"), `{"source":"modrinth","projectId":"mvcore00","fingerprint":"` + otherPlan + `","actor":"admin","url":"https://203.0.113.9/x.jar"}`, 400},
+		{"install from an unknown source", "POST", e.sp("/addons/install"), install(map[string]any{"source": "curseforge", "fingerprint": otherPlan}), 400},
+		{"install a traversal project", "POST", e.sp("/addons/install"), install(map[string]any{"projectId": "../../x", "fingerprint": otherPlan}), 400},
+		{"update without a plan", "POST", e.sp("/addons/update"), map[string]any{"actor": "admin"}, 400},
+		{"update with a bad fingerprint", "POST", e.sp("/addons/update"), map[string]any{"fingerprint": strings.ToUpper(otherPlan), "actor": "admin"}, 400},
+		{"too many updates", "POST", e.sp("/addons/update"), map[string]any{"addons": many, "fingerprint": otherPlan, "actor": "admin"}, 400},
+		{"too many updates to plan", "POST", e.sp("/addons/update/plan"), map[string]any{"addons": many, "actor": "admin"}, 400},
+		{"plan an update of a traversal project", "POST", e.sp("/addons/update/plan"), map[string]any{"addons": []map[string]string{{"source": "modrinth", "projectId": ".."}}, "actor": "admin"}, 400},
+		{"plan an update without actor", "POST", e.sp("/addons/update/plan"), map[string]any{}, 400},
 		{"traversal adopt", "POST", e.sp("/addons/adopt"), map[string]any{"fileName": "../../etc/x.jar", "actor": "admin"}, 400},
 		{"adopt a file that is not a jar", "POST", e.sp("/addons/adopt"), map[string]any{"fileName": "server.properties", "actor": "admin"}, 400},
 		{"remove what was never installed", "POST", e.sp("/addons/remove"), install(nil), 404},

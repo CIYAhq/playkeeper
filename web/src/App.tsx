@@ -145,7 +145,7 @@ function page(route: Route) {
     case 'new-server':
       return <NewServerPage />
     case 'server':
-      return <ServerPage slug={route.slug} tab={route.tab} />
+      return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} />
     case 'machine':
       return <MachinePage id={route.id} />
     case 'settings':

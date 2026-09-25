@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"maps"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -13,13 +14,18 @@ import (
 )
 
 // publicRoutes is the public group: the only routes the panel answers
-// without a sign-in. Every one goes through publicGroup.guard and is
-// logged by its prefix only.
+// without a sign-in. Every one goes through publicGroup.guard, which limits
+// each address, caps downloads, sets deadlines and caching, and answers
+// what is unknown, switched off or on a stopped server with one 404; the
+// log shows only its prefix. A later route, such as /join/, /packs/ or
+// /map/, plugs in here with its prefix, limits, caching and handler, which
+// answers those cases with 404, 410 or the agent's 503 (see hidden).
 func (s *Server) publicRoutes() []publicRoute {
 	return []publicRoute{
-		{packs.PathPrefix, packLimits, packs.NewHandler(packs.Store{Dir: s.cfg.ResourcePacksDir()}, s.activePacks.has)},
+		{prefix: packs.PathPrefix, limits: packLimits, cache: packCache,
+			handler: packs.NewHandler(packs.Store{Dir: s.cfg.ResourcePacksDir()}, s.activePacks.has)},
 		// Wave 4: the friends' pack pages, /packs/<token>.
-		{share.PathPrefix, friendsPackLimits, s.friendsPacks()},
+		{prefix: share.PathPrefix, limits: friendsPackLimits, handler: s.friendsPacks()},
 	}
 }
 
@@ -27,16 +33,28 @@ func (s *Server) publicRoutes() []publicRoute {
 // game downloads the pack once when it joins, and a pack may be 250 MiB.
 var packLimits = publicLimits{perMinute: 60, open: 8, download: true, read: 10 * time.Second, write: 30 * time.Minute, stall: time.Minute}
 
+// packCache lets caches keep a pack, which its SHA-1 names, as long as they
+// ask again before each use, so a pack no server offers any more isn't
+// served from a cache.
+const packCache = "public, no-cache"
+
 // publicDownloads is how many downloads the public group serves at once,
 // to every address together.
 const publicDownloads = 32
+
+// publicNotFoundAfter is the soonest the public group answers 404, so that
+// what is unknown answers no sooner than what the agent was asked about.
+const publicNotFoundAfter = 200 * time.Millisecond
 
 // publicRoute is one route of the public group.
 type publicRoute struct {
 	// prefix is the path prefix the route serves, logged in place of the
 	// full path.
-	prefix  string
-	limits  publicLimits
+	prefix string
+	limits publicLimits
+	// cache is the Cache-Control of the route's successful answers; every
+	// other answer, and every answer of a route without it, is no-store.
+	cache   string
 	handler http.Handler
 }
 
@@ -96,6 +114,8 @@ func (g *publicGroup) logPath(p string) string {
 
 func (g *publicGroup) guard(rt publicRoute, perMinute *limiter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		before := w.Header().Clone()
 		w.Header().Set("Cache-Control", "no-store")
 		key := rt.prefix + " " + addressKey(r.RemoteAddr)
 		if ok, wait := perMinute.allow(key); !ok {
@@ -107,22 +127,49 @@ func (g *publicGroup) guard(rt publicRoute, perMinute *limiter) http.Handler {
 			return
 		}
 		defer g.leave(key)
+		release := func() {}
 		if rt.limits.download {
 			select {
 			case g.downloads <- struct{}{}:
-				defer func() { <-g.downloads }()
+				release = sync.OnceFunc(func() { <-g.downloads })
 			default:
 				refuse(w, http.StatusServiceUnavailable, 5*time.Second)
 				return
 			}
 		}
+		defer release()
 		rc := http.NewResponseController(w)
-		start := time.Now()
 		end := start.Add(rt.limits.write)
 		_ = rc.SetReadDeadline(start.Add(rt.limits.read))
 		_ = rc.SetWriteDeadline(end)
-		rt.handler.ServeHTTP(&stallWriter{ResponseWriter: w, rc: rc, stall: rt.limits.stall, end: end}, r)
+		pw := &publicWriter{ResponseWriter: w, rc: rc, stall: rt.limits.stall, end: end, cache: rt.cache}
+		rt.handler.ServeHTTP(pw, r)
+		release()
+		if !pw.hidden {
+			return
+		}
+		if wait := publicNotFoundAfter - time.Since(start); wait > 0 {
+			t := time.NewTimer(wait)
+			select {
+			case <-t.C:
+			case <-r.Context().Done():
+			}
+			t.Stop()
+		}
+		h := w.Header()
+		clear(h)
+		maps.Copy(h, before)
+		h.Set("Cache-Control", "no-store")
+		http.NotFound(w, r)
 	})
+}
+
+// hidden reports whether the guard answers in place of a route with its
+// 404: what is unknown, switched off (403, 404, 410) or on a stopped server
+// (the agent's 503), or failed on the panel's side, must look alike to
+// someone without a sign-in.
+func hidden(status int) bool {
+	return status == http.StatusForbidden || status == http.StatusNotFound || status == http.StatusGone || status >= 500
 }
 
 func (g *publicGroup) enter(key string, limit int) bool {
@@ -166,17 +213,46 @@ func addressKey(remote string) string {
 	return p.String()
 }
 
-// stallWriter moves the write deadline on before each write, so that a
-// client that stops reading is dropped after stall, while one that keeps
-// reading has until end.
-type stallWriter struct {
+// publicWriter is what a public route answers through. It holds back the
+// answers hidden reports for the guard's 404, gives the others the route's
+// Cache-Control, and moves the write deadline on before each write, so
+// that a client that stops reading is dropped after stall, while one that
+// keeps reading has until end.
+type publicWriter struct {
 	http.ResponseWriter
 	rc    *http.ResponseController
 	stall time.Duration
 	end   time.Time
+	cache string
+
+	wrote, hidden bool
 }
 
-func (w *stallWriter) Write(p []byte) (int, error) {
+func (w *publicWriter) WriteHeader(status int) {
+	switch {
+	case w.wrote:
+		return
+	case hidden(status):
+		w.wrote, w.hidden = true, true
+		return
+	case status >= 200:
+		w.wrote = true
+	}
+	cache := "no-store"
+	if w.cache != "" && (status < 300 || status == http.StatusNotModified) {
+		cache = w.cache
+	}
+	w.Header().Set("Cache-Control", cache)
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *publicWriter) Write(p []byte) (int, error) {
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.hidden {
+		return len(p), nil
+	}
 	if w.stall > 0 {
 		d := time.Now().Add(w.stall)
 		if d.After(w.end) {
@@ -187,4 +263,14 @@ func (w *stallWriter) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
-func (w *stallWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *publicWriter) FlushError() error {
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.hidden {
+		return nil
+	}
+	return w.rc.Flush()
+}
+
+func (w *publicWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
