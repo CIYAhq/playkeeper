@@ -6,7 +6,7 @@ import type { Operation, RestorePreview, ServerStatus } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
-import { CardGroup, ChoiceCard, Stepper, useIsPhone } from '@/components/app/controls'
+import { CardGroup, ChoiceCard, ChoiceSelect, Stepper, useIsPhone } from '@/components/app/controls'
 import { budgetAdvice, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
@@ -18,6 +18,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatMB, relativeTime } from '@/lib/format'
+import { isAway, machineLabel } from '@/lib/machines'
 import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { preset } from '@/lib/styles'
@@ -43,10 +44,14 @@ async function openCreated(op: Operation, refresh: () => Promise<void>) {
   navigate({ name: 'home' })
 }
 
-export function NewServerPage() {
+/** Makes a server on the dashboard's machine, or on the joined machine given while it's connected. */
+export function NewServerPage({ machine }: { machine?: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const { catalog, error, reload } = useCatalog(ws.machine?.id, { fresh: true })
+  const targets = ws.machines.filter((m) => !isAway(m))
+  const target = targets.find((m) => m.id === machine) ?? ws.machine
+  const machineName = target?.kind === 'remote' ? machineLabel(target) : ws.machineName
+  const { catalog, error, reload } = useCatalog(target?.id, { fresh: true })
   const [step, setStep] = useState(0)
   const [c, setC] = useState<CreateChoices>()
   const [nameEdited, setNameEdited] = useState(false)
@@ -85,11 +90,11 @@ export function NewServerPage() {
   }
 
   async function create() {
-    if (!c || !ws.machine) return
+    if (!c || !target) return
     setBusy(true)
     setCreateError(undefined)
     try {
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), createRequest(c))
+      const op = await post<Operation>(machineApi(target.id, '/servers'), createRequest(c))
       await openCreated(op, ws.refresh)
     } catch (e) {
       setCreateError(errorText(e))
@@ -238,12 +243,12 @@ export function NewServerPage() {
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
-                {t('new.noMemory', { machine: ws.machineName })}
+                {t('new.noMemory', { machine: machineName })}
               </Notice>
             ) : (
               <>
                 <Card className="p-4">
-                  <h3 className="text-sm font-semibold">{t('new.machineHas', { machine: ws.machineName, total: formatMB(catalog.hostMemoryMB) })}</h3>
+                  <h3 className="text-sm font-semibold">{t('new.machineHas', { machine: machineName, total: formatMB(catalog.hostMemoryMB) })}</h3>
                   <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{others[0] ? t('new.shareHintStopped', { server: others[0].name }) : t('new.shareHint')}</p>
                   <MemoryBar catalog={catalog} memoryMB={c.memoryMB} />
                 </Card>
@@ -299,7 +304,7 @@ export function NewServerPage() {
     }
   }
 
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} />
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} machine={machineName} />
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
@@ -324,6 +329,7 @@ export function NewServerPage() {
           </div>
           <DialogPanel className="pt-3">
             <RestoreDropZone
+              machine={target?.id}
               onPreview={(p) => {
                 setRestoreOpen(false)
                 setPreview(p)
@@ -332,7 +338,7 @@ export function NewServerPage() {
           </DialogPanel>
         </DialogPopup>
       </Dialog>
-      <RestoreDialog preview={preview} onClose={() => setPreview(undefined)} />
+      <RestoreDialog preview={preview} machine={target?.id} onClose={() => setPreview(undefined)} />
     </>
   )
 
@@ -377,7 +383,7 @@ export function NewServerPage() {
       <PageHeader
         breadcrumb={
           <span className="flex items-center gap-1.5">
-            {ws.machineName}
+            {machineName}
             <span className="text-muted-foreground/60" aria-hidden="true">
               /
             </span>
@@ -385,12 +391,26 @@ export function NewServerPage() {
           </span>
         }
         title={t('new.title')}
-        subtitle={t('new.lead', { machine: ws.machineName })}
+        subtitle={t('new.lead', { machine: machineName })}
         actions={
-          <Button variant="ghost" render={<a {...linkProps({ name: 'home' })} />}>
-            {t('new.cancel')}
-            <XIcon />
-          </Button>
+          <>
+            {targets.length > 1 && target && (
+              <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                {t('machines.newServerOn')}
+                <ChoiceSelect
+                  value={target.id}
+                  onChange={(id) => navigate({ name: 'new-server', machine: id }, true)}
+                  label={t('machines.newServerOn')}
+                  options={targets.map((m) => ({ value: m.id, label: m.kind === 'remote' ? machineLabel(m) : ws.machineName }))}
+                  className="min-w-36 text-foreground"
+                />
+              </label>
+            )}
+            <Button variant="ghost" render={<a {...linkProps({ name: 'home' })} />}>
+              {t('new.cancel')}
+              <XIcon />
+            </Button>
+          </>
         }
       />
       <PageBody className="flex flex-col gap-5">
@@ -440,8 +460,7 @@ function GameCard({ phone }: { phone?: boolean }) {
   )
 }
 
-function Summary({ choices: c, step, port, version }: { choices: CreateChoices; step: number; port?: number; version: string }) {
-  const ws = useWorkspace()
+function Summary({ choices: c, step, port, version, machine }: { choices: CreateChoices; step: number; port?: number; version: string; machine: string }) {
   const p = preset(c.style)
   const v = (done: boolean, value: string) =>
     done ? (
@@ -469,7 +488,7 @@ function Summary({ choices: c, step, port, version }: { choices: CreateChoices; 
         <Pip pose="wave" size={44} />
         <div>
           <div className="text-[15px] font-semibold">{t('new.summary')}</div>
-          <div className="text-xs text-muted-foreground">{t('new.onMachine', { machine: ws.machineName })}</div>
+          <div className="text-xs text-muted-foreground">{t('new.onMachine', { machine })}</div>
         </div>
       </div>
       <dl className="mt-4 flex flex-col gap-2.5 border-t border-border pt-4 text-xs">

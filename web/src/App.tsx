@@ -141,7 +141,7 @@ function page(route: Route) {
     case 'legacy':
       return <HomePage />
     case 'new-server':
-      return <NewServerPage />
+      return <NewServerPage key={route.machine ?? ''} machine={route.machine} />
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} />
     case 'machine':
