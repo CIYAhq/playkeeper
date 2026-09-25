@@ -38,6 +38,8 @@ type Level struct {
 	Seed   string   `json:"seed,omitempty"`
 	// Owner is the UUID of the player of a singleplayer world.
 	Owner string `json:"owner,omitempty"`
+	// Spawn is the world spawn's block column, when level.dat has one.
+	Spawn *Spawn `json:"spawn,omitempty"`
 	// FromBackup is set when level.dat was unreadable and this comes from
 	// level.dat_old, the copy Minecraft keeps from the previous save.
 	FromBackup bool `json:"fromBackup,omitempty"`
@@ -45,6 +47,12 @@ type Level struct {
 	// ownerInLevel is set when level.dat itself holds the singleplayer
 	// player's inventory and position, which a dedicated server ignores.
 	ownerInLevel bool
+}
+
+// Spawn is a block column: x runs east, z south.
+type Spawn struct {
+	X int `json:"x"`
+	Z int `json:"z"`
 }
 
 const (
@@ -121,7 +129,24 @@ func ParseLevel(gz []byte, maxBytes int64) (*Level, error) {
 			lv.Owner = uuidString(u)
 		}
 	}
+	lv.Spawn = spawnOf(data)
 	return lv, nil
+}
+
+// spawnOf reads the world spawn: SpawnX and SpawnZ until Minecraft 1.21.9,
+// then the spawn compound's pos (x, y, z).
+func spawnOf(data nbt.Compound) *Spawn {
+	if sp, ok := data.Compound("spawn"); ok {
+		if pos, ok := sp.IntArray("pos"); ok && len(pos) == 3 {
+			return &Spawn{X: int(pos[0]), Z: int(pos[2])}
+		}
+	}
+	x, okX := data.Int("SpawnX")
+	z, okZ := data.Int("SpawnZ")
+	if okX && okZ {
+		return &Spawn{X: clampInt(x), Z: clampInt(z)}
+	}
+	return nil
 }
 
 // readSeed reads the seed from world_gen_settings.dat, where it lives since

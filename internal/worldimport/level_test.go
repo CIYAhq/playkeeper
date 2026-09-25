@@ -43,10 +43,37 @@ func TestParseLevelBefore26_1(t *testing.T) {
 		Hardcore: true, Difficulty: "hard", LastPlayed: testTime,
 		DataPacks: []string{"vanilla", "file/terralith.zip"}, DisabledPacks: []string{"bundle"},
 		Features: []string{"minecraft:trade_rebalance"}, Brands: []string{"vanilla", "fabric"}, Modded: true,
-		Seed: "-4172144997902289642", Owner: uuidOnline, ownerInLevel: true,
+		Seed: "-4172144997902289642", Owner: uuidOnline, Spawn: &Spawn{X: -120, Z: 32}, ownerInLevel: true,
 	}
 	if got := parseLevel(t, data); !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestParseLevelSpawn(t *testing.T) {
+	modern := modernLevel("Survival", "26.1.2", 4786)
+	modern["spawn"] = nbt.Compound{"pos": []int32{40, 71, 12}, "dimension": "minecraft:overworld", "yaw": float32(0), "pitch": float32(0)}
+	short := modernLevel("Survival", "26.1.2", 4786)
+	short["spawn"] = nbt.Compound{"pos": []int32{40, 71}}
+	halfLegacy := legacyLevel("Old", "1.21.4", 4189)
+	delete(halfLegacy, "SpawnZ")
+	cases := []struct {
+		name string
+		data nbt.Compound
+		want *Spawn
+	}{
+		{"SpawnX and SpawnZ before 1.21.9", legacyLevel("Old", "1.21.4", 4189), &Spawn{X: -120, Z: 32}},
+		{"the spawn compound since 1.21.9", modern, &Spawn{X: 40, Z: 12}},
+		{"no spawn", modernLevel("Survival", "26.1.2", 4786), nil},
+		{"a pos without three numbers", short, nil},
+		{"SpawnX without SpawnZ", halfLegacy, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := parseLevel(t, c.data).Spawn; !reflect.DeepEqual(got, c.want) {
+				t.Errorf("spawn = %+v, want %+v", got, c.want)
+			}
+		})
 	}
 }
 
