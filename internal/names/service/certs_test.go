@@ -147,25 +147,30 @@ func TestANamesFirstCertificateSinceItsClaimOrInNinetyDaysIsNew(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	c := e.claimed("alice", "alice", newMachine(aliceV4, ""))
+	// No tick in between: counting must look back 90 days by itself,
+	// whether or not older attempts were forgotten yet.
 	for i, step := range []struct {
 		after       time.Duration
 		sets, first int
 	}{
 		{0, 1, 1},
 		{60 * 24 * time.Hour, 2, 1},
-		{renewalLookback, 1, 1},
+		{renewalLookback, 3, 2},
 	} {
 		e.clk.Add(step.after)
 		if _, err := c.Refresh(ctx); err != nil {
 			t.Fatal(err)
 		}
-		e.tick()
 		if err := certify(t, c, fmt.Sprint(i)); err != nil {
 			t.Fatal(err)
 		}
 		if sets, first := e.certSets("alice"); sets != step.sets || first != step.first {
 			t.Errorf("attempt %d: %d kept (%d new), want %d (%d)", i+1, sets, first, step.sets, step.first)
 		}
+	}
+	e.tick()
+	if sets, first := e.certSets("alice"); sets != 1 || first != 1 {
+		t.Errorf("once attempts older than 90 days are forgotten: %d kept (%d new), want 1 (1)", sets, first)
 	}
 
 	if _, err := c.Release(ctx); err != nil {

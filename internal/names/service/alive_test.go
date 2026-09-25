@@ -86,6 +86,11 @@ func TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswer
 	if row := e.row("alice"); row.State != names.StateLapsed {
 		t.Fatalf("a name that does not answer came back: %s", row.State)
 	}
+	e.clk.Add(freeSilentAfter)
+	e.tick()
+	if e.row("alice") == nil {
+		t.Fatal("a name that answered before was freed a week after it lapsed")
+	}
 
 	e.panelOf(c).setDown(false)
 	n, err := c.Refresh(ctx)
@@ -96,6 +101,41 @@ func TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswer
 		t.Error("the records did not come back")
 	}
 	e.cf.checkUntouched(t)
+}
+
+func TestANameLapsesOnlyAfterFourFailedChecksInARow(t *testing.T) {
+	e := newEnv(t)
+	a := e.claimed("alice", "alice", newMachine(aliceV4, ""))
+	e.claimed("bob", "bob", newMachine("5.75.161.7", ""))
+	e.tick()
+	// The service was down for over a week, and alice's dashboard too.
+	outage := func() {
+		e.panelOf(a).setDown(true)
+		e.clk.Add(unansweredAfter)
+	}
+	failChecks := func(n int) {
+		t.Helper()
+		for i := range n {
+			e.clk.Add(checkEvery)
+			e.tick()
+			if row := e.row("alice"); row.State != names.StateActive {
+				t.Fatalf("%s after %d failed checks", row.State, i+1)
+			}
+		}
+	}
+
+	outage()
+	failChecks(minFailedChecks - 1)
+	e.panelOf(a).setDown(false)
+	e.clk.Add(checkEvery)
+	e.tick()
+	outage()
+	failChecks(minFailedChecks - 1)
+	e.clk.Add(checkEvery)
+	e.tick()
+	if row := e.row("alice"); row.State != names.StateLapsed || row.LapseReason != names.LapseNoAnswer {
+		t.Errorf("after %d failed checks in a row: %s (%s)", minFailedChecks, row.State, row.LapseReason)
+	}
 }
 
 func TestANameThatNeverAnsweredIsFreedAWeekAfterItLapses(t *testing.T) {
