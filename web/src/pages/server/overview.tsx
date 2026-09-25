@@ -10,6 +10,7 @@ import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace } from '@/com
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { PlayersChart } from '@/components/app/players-chart'
+import { SoftwareChangedView } from '@/components/app/software'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
@@ -27,6 +28,7 @@ export function Overview({ server }: { server: ServerStatus }) {
   const ws = useWorkspace()
   if (ws.agentDown) return <AgentDownView />
   if (!ws.stale && isSettingUp(server)) return <SettingUpView server={server} />
+  if (!ws.stale && server.softwareChanged && !server.operation) return <SoftwareChangedView server={server} change={server.softwareChanged} />
   if (!ws.stale && server.phase === 'crashed' && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }

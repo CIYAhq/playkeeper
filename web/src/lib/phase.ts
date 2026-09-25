@@ -70,7 +70,7 @@ export function controls(st: ServerStatus) {
   const running = ['online', 'starting', 'starting_container', 'preparing_world', 'downloading_server', 'stopping'].includes(st.phase)
   const dockerDown = st.phase === 'docker_unavailable'
   return {
-    canStart: st.exists && !busy && !dockerDown && !running,
+    canStart: st.exists && !busy && !dockerDown && !running && !st.softwareChanged,
     canStop: st.exists && !busy && !dockerDown && running && st.phase !== 'stopping',
     canRestart: st.exists && !busy && !dockerDown && st.phase === 'online',
     busy,
@@ -89,6 +89,8 @@ const opKeys: Record<string, MessageKey> = {
   'update-version': 'op.update-version',
   delete: 'op.delete',
   update: 'op.update',
+  // Wave 4.
+  reinstall: 'op.reinstall',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */

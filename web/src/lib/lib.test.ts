@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CatalogEntry, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
-import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
+import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
@@ -9,7 +9,8 @@ import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativ
 import { memorySegments } from './memory'
 import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
 import { href, parse, type Route } from './router'
-import { newerStable, softwareLabel } from './servers'
+import { newerStable, softwareLabel, softwareName } from './servers'
+import { addonKind, formatReleased, shortHash } from './software'
 import { memoryForStyle } from './styles'
 import { upgradeTargets } from './versions'
 
@@ -221,8 +222,32 @@ describe('versions', () => {
     const others = [server({ id: 'x', name: 'Survival', config: { ...cfg } as ServerConfig })]
     const { cards, older } = versionCards(versions, others)
     expect(cards.map((c) => c.entry.id)).toEqual(['paper-26.2.1', 'paper-26.3', 'paper-26.2', 'paper-26.1.2'])
-    expect(cards[3]?.hint).toContain('Survival')
+    expect(cards.map((c) => c.note)).toEqual(['Paper build 41', 'plugins and worlds can break', '', 'same as Survival'])
     expect(older.map((v) => v.id)).toEqual(['old', 'paper-1.21.11'])
+  })
+
+  it('writes each version’s release date and a note for its type', () => {
+    const released = entry('26.2.1', { recommended: true, paperBuild: 41, releasedAt: '2026-09-02T09:30:00Z' })
+    const date = formatReleased('2026-09-02T09:30:00Z')
+    expect(date).toMatch(/Sep/)
+    expect(versionLine(released, 'Paper build 41')).toBe(`Released ${date} · Paper build 41`)
+    expect(versionLine(released, '')).toBe(`Released ${date}`)
+    expect(versionLine(entry('26.2'), 'same as Survival')).toBe('same as Survival')
+    const fabric = (v: string, over: Partial<CatalogEntry> = {}) => entry(v, { id: `fabric-${v}`, software: { type: 'fabric', minecraftVersion: v, fabricLoader: '0.17.2' }, build: '0.17.2', paperBuild: 0, ...over })
+    const { cards } = versionCards([fabric('26.2.1', { recommended: true }), fabric('26.3', { experimental: true }), fabric('26.2')], [], false, 'fabric')
+    expect(cards.map((c) => c.note)).toEqual(['most Fabric mods support it', 'many mods aren’t ready yet', ''])
+    const purpur = entry('26.2.1', { id: 'purpur-26.2.1', recommended: true, software: { type: 'purpur', minecraftVersion: '26.2.1', purpurBuild: 2430 }, build: '2430', paperBuild: 0 })
+    expect(versionCards([purpur], [], false, 'purpur').cards[0]?.note).toBe('Purpur build 2430')
+    expect(versionCards([purpur], [], true, 'purpur').cards[0]?.note).toBe('latest stable, recommended')
+  })
+
+  it('only offers a server versions of its own type', () => {
+    const fabricCfg = { type: 'fabric', minecraftVersion: '26.2', paperBuild: 0, software: { type: 'fabric', minecraftVersion: '26.2', fabricLoader: '0.16.14' } } as ServerConfig
+    const fabric = (v: string, loader: string, over: Partial<CatalogEntry> = {}) => entry(v, { id: `fabric-${v}`, software: { type: 'fabric', minecraftVersion: v, fabricLoader: loader }, build: loader, paperBuild: 0, ...over })
+    const mixed = [entry('26.2.1', { recommended: true }), fabric('26.2.1', '0.17.2', { recommended: true }), fabric('26.2', '0.17.2'), fabric('26.1.2', '0.17.2')]
+    expect(upgradeTargets(fabricCfg, mixed).map((v) => v.id)).toEqual(['fabric-26.2.1', 'fabric-26.2'])
+    expect(newerStable(fabricCfg, mixed)?.id).toBe('fabric-26.2.1')
+    expect(newerStable(fabricCfg, [entry('26.3', { recommended: true })])).toBeUndefined()
   })
 
   it('keeps offering older versions PaperMC no longer updates', () => {
@@ -231,7 +256,7 @@ describe('versions', () => {
     expect(cards.map((c) => c.entry.id)).toEqual(['paper-26.2', 'paper-26.3', 'paper-26.1.2'])
     expect(older.map((v) => v.id)).toEqual(['paper-1.21.11'])
     const legacy = [server({ id: 'x', name: 'Legacy', config: { minecraftVersion: '1.21.11', paperBuild: 132 } as ServerConfig })]
-    expect(versionCards(live, legacy).cards.at(-1)?.hint).toContain('Legacy')
+    expect(versionCards(live, legacy).cards.at(-1)?.note).toContain('Legacy')
   })
 })
 
@@ -242,8 +267,27 @@ describe('creating a server', () => {
   })
 
   it('turns hardcore on as a play style with hard difficulty', () => {
-    const req = createRequest({ type: 'paper', versionId: 'v', acceptExperimental: false, style: 'friends', hardcore: true, levelType: 'flat', memoryMB: 4096, name: ' Hard ', motd: '', eula: true })
+    const req = createRequest({ type: 'paper', versionId: 'v', acceptExperimental: false, style: 'friends', hardcore: true, levelType: 'flat', memoryMB: 4096, name: ' Hard ', motd: '', eula: true, build: '' })
     expect(req).toMatchObject({ name: 'Hard', motd: 'Hard', playStyle: 'hardcore', gameplay: { hardcore: true, difficulty: 'hard', levelType: 'flat', pvp: false } })
+    expect(req).not.toHaveProperty('build')
+  })
+
+  it('sends the chosen build only for types that have one', () => {
+    const base = { versionId: 'v', acceptExperimental: false, style: 'friends' as const, hardcore: false, levelType: 'normal' as const, memoryMB: 2048, name: 'Mods', motd: '', eula: true }
+    expect(createRequest({ ...base, type: 'fabric', build: '0.17.2' })).toMatchObject({ type: 'fabric', build: '0.17.2' })
+    expect(createRequest({ ...base, type: 'fabric', build: '' })).not.toHaveProperty('build')
+    expect(createRequest({ ...base, type: 'vanilla', build: '0.17.2' })).not.toHaveProperty('build')
+  })
+
+  it('names each type’s build the way people say it', () => {
+    expect(softwareName('paper', 41)).toBe('Paper build 41')
+    expect(softwareName('fabric', '0.17.2')).toBe('Fabric loader 0.17.2')
+    expect(softwareName('neoforge', '26.2.1.7')).toBe('NeoForge version 26.2.1.7')
+    expect(softwareName('vanilla', 0)).toBe('Vanilla')
+    expect(addonKind('purpur')).toBe('plugins')
+    expect(addonKind('quilt')).toBe('mods')
+    expect(addonKind('vanilla')).toBe('none')
+    expect(shortHash('9f3c1a0e22b4c6d87b2da17e')).toBe('9f3c 1a0e … 7b2d a17e')
   })
 
   it('rates passwords', () => {

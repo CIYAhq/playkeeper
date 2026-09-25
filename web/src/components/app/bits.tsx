@@ -63,6 +63,7 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
         labelClass: 'text-success-foreground',
       }
     case 'crashed':
+      if (st.softwareChanged) return { tone, label: t('status.couldntStart'), detail: relativeTime(st.softwareChanged.detectedAt), labelClass: 'text-destructive-foreground' }
       return { tone, label: t('status.crashed'), detail: st.stoppedAt ? relativeTime(st.stoppedAt) : undefined, labelClass: 'text-destructive-foreground' }
     case 'busy':
       return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }

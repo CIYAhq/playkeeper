@@ -21,6 +21,7 @@ import { rich } from '@/i18n/rich'
 import { formatBytes, formatMB } from '@/lib/format'
 import { navigate } from '@/lib/router'
 import { iconURL, newerStable, typeName } from '@/lib/servers'
+import { buildLabel, configBuild } from '@/lib/software'
 import { cn } from '@/lib/utils'
 import { usePoll } from '@/lib/usePoll'
 import { upgradeTargets } from '@/lib/versions'
@@ -261,7 +262,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         <Section id="memory" title={t('settings.memory')} hint={t('settings.memoryHint', { machine: ws.machineName })}>
           {memory}
         </Section>
-        <Section id="version" title={t('settings.version')} hint={t('settings.versionMeta', { type: typeName(s.type), version: s.config?.minecraftVersion ?? '', build: s.config?.paperBuild ?? 0 })}>
+        <Section id="version" title={t('settings.version')} hint={versionMeta(s)}>
           <VersionRows server={s} versions={catalog?.versions} />
         </Section>
         <Section id="danger" title={t('settings.danger')}>
@@ -344,6 +345,14 @@ function IconRow({ server: s }: { server: ServerStatus }) {
   )
 }
 
+/** "Paper 26.1.2 · build 41", "Fabric 26.2.1 · loader 0.17.2", "Vanilla 26.1.2". */
+function versionMeta(s: ServerStatus): string {
+  const type = typeName(s.type)
+  const version = s.config?.minecraftVersion ?? ''
+  const build = buildLabel(s.type || 'paper', configBuild(s.config))
+  return build ? t('settings.versionMeta', { type, version, build }) : t('soft.typeVersion', { type, version })
+}
+
 function VersionRows({ server: s, versions }: { server: ServerStatus; versions: CatalogEntry[] | undefined }) {
   const [open, setOpen] = useState<CatalogEntry | 'pick'>()
   const cfg = s.config
@@ -354,7 +363,7 @@ function VersionRows({ server: s, versions }: { server: ServerStatus; versions: 
     <>
       <SettingRow
         label={newest ? t('settings.updateAvailable') : t('settings.upToDate')}
-        hint={newest ? t('settings.updateBody', { version: newest.minecraftVersion }) : versions ? t('settings.upToDateBody') : undefined}
+        hint={newest ? t('settings.updateBody', { version: newest.minecraftVersion }) : versions ? t('settings.upToDateBody', { type: typeName(s.type) }) : undefined}
         control={
           newest && (
             <Button variant="outline" size="sm" onClick={() => setOpen(newest)} disabled={!!s.operation}>
@@ -415,11 +424,14 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
       close()
     }
   }
-  const options: Choice<string>[] = targets.map((x) => ({
-    value: x.id,
-    label: t('mcupdate.toOption', { type, version: x.minecraftVersion, label: x.experimental ? t('common.experimental') : x.recommended ? t('mcupdate.latest') : t('mcupdate.build', { build: x.paperBuild }) }),
-    marker: x.experimental ? <span className="text-xs font-medium text-warning-foreground">{t('common.experimental')}</span> : undefined,
-  }))
+  const options: Choice<string>[] = targets.map((x) => {
+    const label = x.experimental ? t('common.experimental') : x.recommended ? t('mcupdate.latest') : buildLabel(s.type || 'paper', x.build ?? x.paperBuild)
+    return {
+      value: x.id,
+      label: label ? t('mcupdate.toOption', { type, version: x.minecraftVersion, label }) : t('soft.typeVersion', { type, version: x.minecraftVersion }),
+      marker: x.experimental ? <span className="text-xs font-medium text-warning-foreground">{t('common.experimental')}</span> : undefined,
+    }
+  })
   const version = target?.minecraftVersion ?? ''
   const steps = [
     { title: t('mcupdate.step1'), hint: t('mcupdate.step1Hint', { server: s.name }) },

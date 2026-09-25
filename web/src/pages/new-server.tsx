@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ExternalLinkIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
+import { useBuilds } from '@/api/software'
 import type { Operation, RestorePreview, ServerStatus } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
@@ -11,15 +12,18 @@ import { createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySli
 import { PhoneActions } from '@/components/app/frame'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
+import { BuildSelect, TypeCompare } from '@/components/app/software'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatMB, relativeTime } from '@/lib/format'
+import { formatMB } from '@/lib/format'
 import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
+import { addonKind, hasBuilds, typeTexts } from '@/lib/software'
 import { preset } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
@@ -46,33 +50,43 @@ async function openCreated(op: Operation, refresh: () => Promise<void>) {
 export function NewServerPage() {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const { catalog, error, reload } = useCatalog(ws.machine?.id, { fresh: true })
-  const [step, setStep] = useState(0)
   const [c, setC] = useState<CreateChoices>()
+  const { catalog, error, reload } = useCatalog(ws.machine?.id, { type: c?.type ?? 'paper', fresh: true })
+  const [step, setStep] = useState(0)
   const [nameEdited, setNameEdited] = useState(false)
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<string>()
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [preview, setPreview] = useState<RestorePreview>()
+  const [compareOpen, setCompareOpen] = useState(false)
+  // The catalog keeps showing the last type's versions while the next type's load.
+  const typeCatalog = catalog && c && catalog.type === c.type ? catalog : undefined
+  const version = typeCatalog?.versions.find((v) => v.id === c?.versionId)
+  const builds = useBuilds(ws.machine?.id, c?.type ?? 'paper', c && hasBuilds(c.type) ? version?.minecraftVersion : undefined)
 
   useEffect(() => {
     if (!catalog || c) return
     const style = 'friends'
     const p = preset(style)
     const name = freeName(p ? t(p.name) : t('nav.newServer'), ws.servers)
-    setC({ type: 'paper', versionId: recommendedVersion(catalog)?.id ?? '', acceptExperimental: false, style, hardcore: false, levelType: 'normal', memoryMB: styleMemory(catalog, style), name, motd: '', eula: false })
+    setC({ type: 'paper', versionId: recommendedVersion(catalog)?.id ?? '', acceptExperimental: false, style, hardcore: false, levelType: 'normal', memoryMB: styleMemory(catalog, style), name, motd: '', eula: false, build: '' })
   }, [catalog, c, ws.servers])
+
+  useEffect(() => {
+    if (!typeCatalog || !c || c.versionId) return
+    const rec = recommendedVersion(typeCatalog)
+    if (rec) setC((prev) => (prev && !prev.versionId ? { ...prev, versionId: rec.id } : prev))
+  }, [typeCatalog, c])
 
   const update = (patch: Partial<CreateChoices>) => setC((prev) => (prev ? { ...prev, ...patch } : prev))
   const options = memoryOptions(catalog)
-  const version = catalog?.versions.find((v) => v.id === c?.versionId)
   const noMemory = !!catalog && options.length === 0
 
   function canContinue(): boolean {
     if (!c) return false
     switch (step) {
       case 0:
-        return c.type === 'paper'
+        return !!catalog?.types.some((ty) => ty.id === c.type && ty.available)
       case 1:
         return !!version && (!version.experimental || c.acceptExperimental)
       case 2:
@@ -130,56 +144,62 @@ export function NewServerPage() {
               <>
                 <div>
                   <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.typeQuestion')}</h1>
-                  <p className="mt-1 text-[15px] text-muted-foreground">{t('new.typeLeadPhone')}</p>
+                  <p className="mt-1 text-[15px] text-muted-foreground">{t('new.typeHint')}</p>
                 </div>
                 <GameCard phone />
               </>
             ) : (
               <section>
-                <h2 className="text-[15px] font-semibold">
-                  {t('new.game')} <span className="ml-1 text-[13px] font-normal text-muted-foreground">{t('new.gameHint')}</span>
-                </h2>
+                <h2 className="text-[15px] font-semibold">{t('new.game')}</h2>
                 <div className="mt-2.5 grid grid-cols-2 gap-2.5">
                   <GameCard />
                   <div className="flex items-center gap-3 rounded-2xl border border-dashed border-input bg-warm px-4 py-3 text-muted-foreground">
                     <Gamepad2Icon className="size-5" aria-hidden="true" />
-                    <span>
-                      <span className="block text-sm font-semibold text-foreground/80">{t('new.moreGames')}</span>
-                      <span className="block text-xs">{t('new.moreGamesHint')}</span>
-                    </span>
+                    <span className="text-sm font-semibold text-foreground/80">{t('new.moreGames')}</span>
                   </div>
                 </div>
               </section>
             )}
             <section>
               {phone ? (
-                <div className="section-label mb-2">{t('new.typeTitle')}</div>
-              ) : (
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <h2 className="text-[15px] font-semibold">{t('new.typeTitle')}</h2>
-                    <p className="mt-0.5 text-[13px] text-muted-foreground">{t('new.typeHint')}</p>
-                  </div>
-                  <a href={t('new.differenceUrl')} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="section-label">{t('new.typeTitle')}</div>
+                  <button type="button" onClick={() => setCompareOpen(true)} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
                     {t('new.difference')}
-                    <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-                  </a>
+                    <ChevronRightIcon className="size-4" aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <h2 className="text-[15px] font-semibold">{t('new.typeTitle')}</h2>
+                  <p className="mt-0.5 text-[13px] text-muted-foreground">
+                    {t('new.typeHint')}{' '}
+                    <button type="button" onClick={() => setCompareOpen(true)} className="font-medium text-primary hover:underline">
+                      {t('new.difference')}
+                    </button>
+                  </p>
                 </div>
               )}
               <div className={phone ? '' : 'mt-3'}>
-                <TypeCards catalog={catalog} value={c.type} onChange={(type) => update({ type })} phone={phone} />
+                <TypeCards catalog={catalog} value={c.type} onChange={(type) => type !== c.type && update({ type, versionId: '', build: '', acceptExperimental: false })} phone={phone} />
               </div>
+              <TypeCompare catalog={catalog} open={compareOpen} onOpenChange={setCompareOpen} />
             </section>
           </div>
         )
         break
-      case 1:
+      case 1: {
+        const mods = addonKind(c.type) === 'mods'
+        const typeCheck = catalog.types.find((ty) => ty.id === c.type)?.check
+        const weakCheck = typeCheck && typeCheck !== 'full' ? typeTexts(c.type)?.check : undefined
+        const latest = typeCatalog?.latestRelease
+        const notListed = !!latest && !!typeCatalog && typeCatalog.versions.length > 0 && !typeCatalog.versions.some((v) => v.minecraftVersion === latest)
         body = (
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.versionTitle')}</h2>
-                <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('new.versionLeadPhone') : t('new.versionLead')}</p>
+                <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.versionLead')}</p>
               </div>
               <div className={cn('flex items-center gap-2 text-[13px]', phone ? 'w-full justify-between' : 'rounded-full border border-border bg-muted py-1 pr-3 pl-1.5')}>
                 <span className="flex items-center gap-2 font-medium">
@@ -191,22 +211,53 @@ export function NewServerPage() {
                 </button>
               </div>
             </div>
-            <VersionPicker catalog={catalog} servers={ws.servers} value={c.versionId} onChange={(versionId) => update({ versionId, acceptExperimental: false })} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} phone={phone} />
-            {phone ? (
-              <p className="mt-2 text-[13px] text-muted-foreground">{t('new.forwardPhone')}</p>
+            {typeCatalog?.versionsError && typeCatalog.versions.length === 0 ? (
+              <Notice
+                tone="error"
+                title={t('new.versionsErrorType', { type: typeName(c.type) })}
+                action={
+                  <Button variant="outline" size="sm" onClick={reload}>
+                    <RefreshCwIcon />
+                    {t('common.tryAgain')}
+                  </Button>
+                }
+              >
+                {typeCatalog.versionsError}
+              </Notice>
+            ) : typeCatalog ? (
+              <VersionPicker catalog={typeCatalog} servers={ws.servers} value={c.versionId} onChange={(versionId) => update({ versionId, build: '', acceptExperimental: false })} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} phone={phone} />
+            ) : (
+              <div className="flex flex-col gap-2.5" aria-busy="true">
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-[62px] rounded-2xl" />
+                ))}
+              </div>
+            )}
+            {notListed && <p className="-mt-1 px-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{t('new.notListed', { version: latest, type: typeName(c.type) })}</p>}
+            {hasBuilds(c.type) && version && <BuildSelect type={c.type} builds={builds.builds?.builds} loading={builds.loading} error={builds.error} onRetry={builds.reload} value={c.build} onChange={(build) => update({ build })} />}
+            {weakCheck && (
+              <div>
+                <h3 className="text-[13px] font-semibold max-sm:text-[15px]">{t('types.compare.check')}</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{t(weakCheck)}</p>
+              </div>
+            )}
+            {mods ? (
+              <p className="text-xs text-muted-foreground max-sm:text-[13px]">{t(c.type === 'neoforge' ? 'new.friendsNeoForge' : 'new.friendsLoader')}</p>
+            ) : phone ? (
+              <p className="mt-2 text-[13px] text-muted-foreground">{t('new.forwardBody')}</p>
             ) : (
               <div className="grid gap-4 sm:grid-cols-[1fr_1fr]">
                 <div />
                 <div>
                   <h3 className="text-[13px] font-semibold">{t('new.forward')}</h3>
                   <p className="mt-1 text-xs text-muted-foreground">{t('new.forwardBody')}</p>
-                  {catalog.versionsCheckedAt && <p className="mt-2 text-xs text-muted-foreground">{t('new.listFrom', { time: relativeTime(catalog.versionsCheckedAt) })}</p>}
                 </div>
               </div>
             )}
           </div>
         )
         break
+      }
       case 2:
         body = (
           <div className="flex flex-col gap-4">
@@ -415,7 +466,7 @@ export function NewServerPage() {
           </div>
           <aside className="self-start">
             {summary}
-            <p className="mt-3 px-1 text-xs text-muted-foreground">{t(noteKeys[step] ?? 'new.note.name')}</p>
+            <p className="mt-3 px-1 text-xs text-muted-foreground">{t(step === 1 && addonKind(c?.type) === 'mods' ? 'new.note.versionMods' : (noteKeys[step] ?? 'new.note.name'), { type: typeName(c?.type) })}</p>
           </aside>
         </div>
       </PageBody>

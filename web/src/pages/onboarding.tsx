@@ -417,7 +417,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
 
   useEffect(() => {
     if (!catalog || c) return
-    setC({ type: 'paper', versionId: recommendedVersion(catalog)?.id ?? '', acceptExperimental: false, style: 'friends', hardcore: false, levelType: 'normal', memoryMB: styleMemory(catalog, 'friends'), name: freeName(t('style.friends.name'), ws.servers), motd: '', eula: false })
+    setC({ type: 'paper', versionId: recommendedVersion(catalog)?.id ?? '', acceptExperimental: false, style: 'friends', hardcore: false, levelType: 'normal', memoryMB: styleMemory(catalog, 'friends'), name: freeName(t('style.friends.name'), ws.servers), motd: '', eula: false, build: '' })
   }, [catalog, c, ws.servers])
 
   const update = (patch: Partial<CreateChoices>) => setC((prev) => (prev ? { ...prev, ...patch } : prev))

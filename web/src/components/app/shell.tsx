@@ -138,7 +138,7 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
     case 'online':
       return <span className="text-xs text-muted-foreground tabular-nums">{s.players ? `${s.players.online}/${s.players.max}` : ''}</span>
     case 'crashed':
-      return <span className="text-xs font-medium text-destructive-foreground">{t('status.crashed')}</span>
+      return <span className="text-xs font-medium text-destructive-foreground">{s.softwareChanged ? t('status.couldntStart') : t('status.crashed')}</span>
     case 'busy':
       return <span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>
     case 'stopped':

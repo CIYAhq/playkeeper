@@ -66,6 +66,8 @@ export interface ServerConfig {
   playStyle?: PlayStyle | ''
   gameplay?: Gameplay
   iconUpdatedAt?: string
+  /** The exact software of a type other than Paper. */
+  software?: SoftwarePin
 }
 
 export interface Operation {
@@ -145,6 +147,8 @@ export interface ServerStatus {
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
+  /** Set when the server's software no longer matches what Playkeeper installed. */
+  softwareChanged?: SoftwareChange
 }
 
 export interface PreflightCheck {
@@ -241,12 +245,17 @@ export interface CatalogEntry {
   channel: string
   experimental: boolean
   supported: boolean
+  /** When Mojang released the Minecraft version. */
+  releasedAt?: string
+  software?: SoftwarePin
+  build?: string
 }
 
 export interface ServerType {
   id: string
   name: string
   available: boolean
+  check?: SoftwareCheck
 }
 
 export interface ServerMemory {
@@ -271,6 +280,8 @@ export interface Catalog {
   servers: ServerMemory[]
   suggestedPort?: number
   image: string
+  /** The newest Minecraft release Mojang lists, whether or not the type offers it yet. */
+  latestRelease?: string
 }
 
 export interface LogLine {
@@ -414,6 +425,8 @@ export interface ManifestSummary {
   totalBytes: number
   sourceInstall: string
   settings: Record<string, string>
+  type?: string
+  build?: string
 }
 
 export interface RestorePreview {
@@ -454,4 +467,42 @@ export interface Me {
   expiresAt: string
   idleTimeoutSeconds: number
   version: string
+}
+
+// Wave 4: every server type.
+
+/** How a type's downloads are verified. */
+export type SoftwareCheck = 'full' | 'weak_hash' | 'recorded_outputs'
+
+export interface SoftwarePin {
+  type: string
+  minecraftVersion: string
+  purpurBuild?: number
+  fabricLoader?: string
+  quiltLoader?: string
+  neoforgeVersion?: string
+}
+
+export interface SoftwareBuild {
+  version: string
+  channel: string
+  recommended: boolean
+}
+
+export interface SoftwareBuilds {
+  type: string
+  minecraftVersion: string
+  builds: SoftwareBuild[]
+  checkedAt: string
+}
+
+export interface SoftwareChange {
+  file: string
+  algorithm: string
+  recorded: string
+  found?: string
+  installedAt?: string
+  changedAt?: string
+  detectedAt: string
+  software: string
 }
