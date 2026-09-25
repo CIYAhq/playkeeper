@@ -53,6 +53,8 @@ type agentEnv struct {
 	sid string
 	// live is the running agent, for the fake RCON's password check.
 	live atomic.Pointer[Agent]
+	// discordClient, when set, is what the agent talks to Discord with.
+	discordClient *http.Client
 }
 
 // srv is the current server's runtime handle.
@@ -130,6 +132,7 @@ func (e *agentEnv) start() {
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
+		DiscordClient: e.discordClient,
 	})
 	if err != nil {
 		e.t.Fatal(err)

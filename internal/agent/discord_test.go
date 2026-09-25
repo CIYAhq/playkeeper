@@ -1,0 +1,370 @@
+package agent
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/api"
+)
+
+// The webhook the tests connect; the token is made up.
+const (
+	hookID    = "1289345123456789012"
+	hookToken = "pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_"
+	hookURL   = "https://discord.com/api/webhooks/" + hookID + "/" + hookToken
+)
+
+// fakeHook stands in for Discord's webhook API for one webhook: Get
+// Webhook, Execute Webhook with wait=true and Edit Webhook Message. The
+// discord package's own tests check the requests in detail.
+type fakeHook struct {
+	srv *httptest.Server
+
+	mu     sync.Mutex
+	got    []hookRequest
+	posted int
+}
+
+type hookRequest struct {
+	Method, Path, Raw string
+}
+
+func startFakeHook(t *testing.T) *fakeHook {
+	t.Helper()
+	f := &fakeHook{}
+	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+// client sends the agent's requests for discord.com to the fake, as
+// DiscordURLEnv does.
+func (f *fakeHook) client() *http.Client {
+	u, _ := url.Parse(f.srv.URL)
+	return &http.Client{Transport: discordRedirect{to: u}}
+}
+
+func (f *fakeHook) serve(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	f.mu.Lock()
+	f.got = append(f.got, hookRequest{r.Method, r.URL.Path, string(raw)})
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	base := "/api/v10/webhooks/" + hookID + "/" + hookToken
+	switch {
+	case r.Host != "discord.com" || !strings.HasPrefix(r.URL.Path, "/api/v10/webhooks/"+hookID+"/"):
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"message": "Unknown Webhook", "code": 10015}`)
+	case r.URL.Path != base && !strings.HasPrefix(r.URL.Path, base+"/"):
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"message": "Invalid Webhook Token", "code": 50027}`)
+	case r.Method == http.MethodGet && r.URL.Path == base:
+		fmt.Fprintf(w, `{"id": %q, "name": "Playkeeper", "type": 1}`, hookID)
+	case r.Method == http.MethodPost && r.URL.Path == base && r.URL.Query().Get("wait") == "true":
+		f.mu.Lock()
+		f.posted++
+		id := fmt.Sprintf("12893459990000%05d", f.posted)
+		f.mu.Unlock()
+		fmt.Fprintf(w, `{"id": %q}`, id)
+	case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, base+"/messages/"):
+		fmt.Fprintf(w, `{"id": %q}`, strings.TrimPrefix(r.URL.Path, base+"/messages/"))
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		io.WriteString(w, `{"message": "405: Method Not Allowed", "code": 0}`)
+	}
+}
+
+// messages are the messages posted or edited so far whose body contains
+// every one of want.
+func (f *fakeHook) messages(want ...string) []hookRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []hookRequest
+	for _, r := range f.got {
+		if r.Method == http.MethodGet {
+			continue
+		}
+		ok := true
+		for _, w := range want {
+			ok = ok && strings.Contains(r.Raw, w)
+		}
+		if ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (f *fakeHook) waitMessage(e *agentEnv, want ...string) {
+	e.t.Helper()
+	e.waitFor("a Discord message with "+strings.Join(want, ", "), func() bool { return len(f.messages(want...)) > 0 })
+}
+
+// newDiscordEnv is an agent that talks to the fake Discord.
+func newDiscordEnv(t *testing.T) (*agentEnv, *fakeHook) {
+	t.Helper()
+	f := startFakeHook(t)
+	e := newAgentEnv(t)
+	e.stop()
+	e.discordClient = f.client()
+	e.start()
+	return e, f
+}
+
+func (e *agentEnv) connectDiscord() map[string]any {
+	e.t.Helper()
+	code, out := e.call("POST", "/v1/discord/connect", map[string]any{"webhookUrl": hookURL, "host": "play.example.com", "actor": "admin"})
+	if code != 200 {
+		e.t.Fatalf("connect Discord: %d %v", code, out)
+	}
+	return out
+}
+
+// noToken fails the test if the webhook's token shows up in v.
+func noToken(t *testing.T, what string, v any) {
+	t.Helper()
+	b, _ := json.Marshal(v)
+	if strings.Contains(string(b), hookToken) || strings.Contains(string(b), "webhooks/"+hookID) {
+		t.Fatalf("%s gives away the webhook URL: %s", what, b)
+	}
+}
+
+func TestDiscordConnectKeepsTheWebhookURLInTheAgent(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	if code, out := e.call("GET", "/v1/discord", nil); code != 200 || out["connected"] != false {
+		t.Fatalf("before connecting: %d %v", code, out)
+	}
+	out := e.connectDiscord()
+	if out["connected"] != true || out["webhookName"] != "Playkeeper" || out["liveStatus"] != true || out["connectedAt"] == nil {
+		t.Fatalf("connected: %v", out)
+	}
+	alerts, _ := json.Marshal(out["alerts"])
+	if string(alerts) != `["crash","recovered","low_disk","backup_failed","update_available","join_requested"]` {
+		t.Fatalf("default alerts: %s", alerts)
+	}
+	noToken(t, "the connect answer", out)
+	_, got := e.call("GET", "/v1/discord", nil)
+	noToken(t, "the settings", got)
+	var n int
+	e.a.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE detail LIKE ? OR target LIKE ?`, "%"+hookToken+"%", "%"+hookToken+"%").Scan(&n)
+	if n != 0 {
+		t.Fatalf("the audit log recorded the webhook URL %d times", n)
+	}
+	if e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'discord.connect' AND result = 'succeeded' AND detail = ''`) != 1 {
+		t.Fatal("connecting is audited")
+	}
+	// Live status is on at the first connect: one message lists the servers.
+	f.waitMessage(e, "No servers yet.")
+	e.waitFor("the status message id saved", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM discord WHERE status_message_id != ''`) == 1
+	})
+	// A restarted agent keeps the connection.
+	e.stop()
+	e.start()
+	if _, out := e.call("GET", "/v1/discord", nil); out["connected"] != true || out["webhookName"] != "Playkeeper" {
+		t.Fatalf("after a restart: %v", out)
+	}
+}
+
+func TestDiscordConnectExplainsBadWebhooks(t *testing.T) {
+	e, _ := newDiscordEnv(t)
+	for _, c := range []struct {
+		url, code string
+		status    int
+	}{
+		{"https://example.com/api/webhooks/" + hookID + "/" + hookToken, "discord_invalid_webhook_url", 400},
+		{"https://discord.com/api/webhooks/1289345000000000001/" + hookToken, "discord_webhook_gone", 422},
+		{"https://discord.com/api/webhooks/" + hookID + "/" + strings.Repeat("x", 72), "discord_webhook_rejected", 422},
+	} {
+		code, out := e.call("POST", "/v1/discord/connect", map[string]any{"webhookUrl": c.url, "actor": "admin"})
+		if code != c.status || out["code"] != c.code || out["error"] == "" {
+			t.Errorf("%s: %d %v", c.url, code, out)
+		}
+		noToken(t, "an error", out)
+	}
+	if e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'discord.connect' AND result = 'failed' AND detail = 'webhook_gone'`) != 1 {
+		t.Fatal("a failed connect is audited with the reason only")
+	}
+	if _, out := e.call("GET", "/v1/discord", nil); out["connected"] != false {
+		t.Fatalf("a webhook that doesn't work is not saved: %v", out)
+	}
+}
+
+func TestDiscordSettingsTestMessageAndDisconnect(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	if code, out := e.call("POST", "/v1/discord/test", map[string]any{"actor": "admin"}); code != 409 || out["code"] != "discord_not_connected" {
+		t.Fatalf("test before connecting: %d %v", code, out)
+	}
+	e.connectDiscord()
+	code, out := e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{"crash", "backup_failed"}, "liveStatus": false, "actor": "admin"})
+	alerts, _ := json.Marshal(out["alerts"])
+	if code != 200 || string(alerts) != `["crash","backup_failed"]` || out["liveStatus"] != false {
+		t.Fatalf("settings: %d %v", code, out)
+	}
+	if code, out := e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{"crash", "everything"}, "actor": "admin"}); code != 400 || out["code"] != "discord_invalid_settings" {
+		t.Fatalf("unknown alert: %d %v", code, out)
+	}
+	if code, out := e.call("POST", "/v1/discord/test", map[string]any{"actor": "admin"}); code != 200 || out["connected"] != true {
+		t.Fatalf("test message: %d %v", code, out)
+	}
+	f.waitMessage(e, "Test message", "Discord is connected")
+	if code, _ := e.call("DELETE", "/v1/discord?actor=admin", nil); code != 204 {
+		t.Fatalf("disconnect: %d", code)
+	}
+	if _, out := e.call("GET", "/v1/discord", nil); out["connected"] != false || out["webhookName"] != nil {
+		t.Fatalf("after disconnecting: %v", out)
+	}
+	if e.countRows(`SELECT COUNT(*) FROM discord WHERE webhook_url = '' AND status_message_id = ''`) != 1 {
+		t.Fatal("disconnecting forgets the webhook")
+	}
+	// Reconnecting keeps the choices made before.
+	out = e.connectDiscord()
+	if alerts, _ := json.Marshal(out["alerts"]); string(alerts) != `["crash","backup_failed"]` || out["liveStatus"] != false {
+		t.Fatalf("reconnected: %v", out)
+	}
+	for _, action := range []string{"discord.settings", "discord.test", "discord.disconnect"} {
+		if e.countRows(`SELECT COUNT(*) FROM audit WHERE action = ? AND result = 'succeeded'`, action) == 0 {
+			t.Errorf("%s is not audited", action)
+		}
+	}
+}
+
+func TestDiscordAlertsComeFromTheAgent(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{"crash", "recovered", "player_joined"}, "liveStatus": true, "actor": "admin"})
+	e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+	f.waitMessage(e, "Player joined", "PkBotBuilder")
+	e.fd.crash(137)
+	f.waitMessage(e, "Server crashed", "Playkeeper is restarting it")
+	e.waitFor("auto-restart", func() bool { return e.status().Phase == api.PhaseOnline })
+	f.waitMessage(e, "Back online")
+	// Alerts link to the server's page on the dashboard.
+	f.waitMessage(e, "https://play.example.com:"+fmt.Sprint(e.cfg.PanelPort)+"/servers/")
+}
+
+func TestBackupFailureIsPostedToDiscord(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	world := filepath.Join(e.dataDir(), "world")
+	deep := filepath.Join(world, strings.Repeat("a", 250), strings.Repeat("b", 250), strings.Repeat("c", 250), strings.Repeat("d", 250))
+	if err := os.MkdirAll(deep, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("the backup should fail: %+v", op)
+	}
+	f.waitMessage(e, "Backup failed", "a restore would refuse it")
+	e.waitFor("server running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+}
+
+func TestLowDiskAlertFiresOnceAndRearms(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.diskFree.Store(4 << 30)
+	f.waitMessage(e, "Low disk space")
+	e.diskFree.Store(5<<30 + 512<<20)
+	time.Sleep(500 * time.Millisecond)
+	if n := len(f.messages("Low disk space")); n != 1 {
+		t.Fatalf("%d low disk alerts while the disk stayed nearly full", n)
+	}
+	e.a.disc.mu.Lock()
+	still := e.a.disc.lowDisk
+	e.a.disc.mu.Unlock()
+	if !still {
+		t.Fatal("the alert rearms only once the space is back above 6 GiB")
+	}
+	e.diskFree.Store(7 << 30)
+	e.waitFor("the alert rearmed", func() bool {
+		e.a.disc.mu.Lock()
+		defer e.a.disc.mu.Unlock()
+		return !e.a.disc.lowDisk
+	})
+}
+
+func TestUpdateAlertGoesOutOncePerVersion(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.a.alertUpdate("0.9.0")
+	e.connectDiscord()
+	e.a.alertUpdate("0.9.0")
+	e.a.alertUpdate("0.9.0")
+	f.waitMessage(e, "Playkeeper update available")
+	e.stop()
+	e.start()
+	e.a.alertUpdate("0.9.0")
+	time.Sleep(300 * time.Millisecond)
+	if n := len(f.messages("Playkeeper update available")); n != 1 {
+		t.Fatalf("%d alerts about one release", n)
+	}
+}
+
+func TestDiscordNotifyTakesJoinRequestsOnly(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.addIdleServer()
+	for _, c := range []struct {
+		body   map[string]any
+		status int
+	}{
+		{map[string]any{"kind": "player_joined", "serverId": e.sid, "player": "mara_k", "actor": "panel"}, 400},
+		{map[string]any{"kind": "join_requested", "serverId": e.sid, "player": "mara k", "actor": "panel"}, 400},
+		{map[string]any{"kind": "join_requested", "serverId": "zzzzzzzzzz", "player": "mara_k", "actor": "panel"}, 404},
+		{map[string]any{"kind": "join_requested", "serverId": e.sid, "player": "mara_k"}, 400},
+	} {
+		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != c.status {
+			t.Errorf("%v: %d %v", c.body, code, out)
+		}
+	}
+	if code, out := e.call("POST", "/v1/discord/notify", map[string]any{"kind": "join_requested", "serverId": e.sid, "player": "mara_k", "actor": "panel"}); code != 204 {
+		t.Fatalf("join request: %d %v", code, out)
+	}
+	f.waitMessage(e, "Join request", `mara\\_k`, "wants to join")
+}
+
+func TestDiscordTestEndpointMustBeOnThisMachine(t *testing.T) {
+	log := slog.New(slog.DiscardHandler)
+	for _, bad := range []string{
+		"http://203.0.113.7:8090", "http://example.com:8090", "http://127.0.0.1", "http://user:pw@127.0.0.1:8090",
+		"http://127.0.0.1:8090/api", "http://127.0.0.1:8090?to=discord", "ftp://127.0.0.1:8090", "127.0.0.1:8090",
+	} {
+		t.Setenv(DiscordURLEnv, bad)
+		if _, err := discordClientFromEnv(log); err == nil {
+			t.Errorf("%s was accepted", bad)
+		}
+		if err := (&Agent{log: log}).initDiscord(); err == nil {
+			t.Errorf("the agent started with %s", bad)
+		}
+	}
+	t.Setenv(DiscordURLEnv, "")
+	if c, err := discordClientFromEnv(log); c != nil || err != nil {
+		t.Fatalf("unset: %v %v", c, err)
+	}
+	t.Setenv(DiscordURLEnv, "http://[::1]:8090")
+	c, err := discordClientFromEnv(log)
+	if err != nil || c == nil {
+		t.Fatalf("loopback: %v", err)
+	}
+	if _, err := c.Get("https://example.com/"); err == nil || !strings.Contains(err.Error(), "only requests for discord.com") {
+		t.Fatalf("the test endpoint only stands in for discord.com: %v", err)
+	}
+}

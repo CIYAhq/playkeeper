@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -501,6 +502,8 @@ type fakeRCON struct {
 	mu       sync.Mutex
 	commands []string
 	online   []string
+	// listed are the names whitelist add was given, lower case.
+	listed map[string]bool
 }
 
 func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
@@ -574,7 +577,29 @@ func (fr *fakeRCON) handle(c net.Conn) {
 			case body == "tps":
 				reply(id, 0, "§6TPS from last 1m, 5m, 15m: §a*20.0, §a19.95, §a19.98")
 			case strings.HasPrefix(body, "whitelist add "):
-				reply(id, 0, "Added "+strings.TrimPrefix(body, "whitelist add ")+" to the whitelist")
+				name := strings.TrimPrefix(body, "whitelist add ")
+				fr.mu.Lock()
+				already := fr.listed[strings.ToLower(name)]
+				if fr.listed == nil {
+					fr.listed = map[string]bool{}
+				}
+				fr.listed[strings.ToLower(name)] = true
+				fr.mu.Unlock()
+				if already {
+					reply(id, 0, "Player is already whitelisted")
+				} else {
+					reply(id, 0, "Added "+name+" to the whitelist")
+				}
+			case strings.HasPrefix(body, "tellraw "):
+				name, _, _ := strings.Cut(strings.TrimPrefix(body, "tellraw "), " ")
+				if slices.ContainsFunc(online, func(n string) bool { return strings.EqualFold(n, name) }) {
+					reply(id, 0, "")
+				} else {
+					reply(id, 0, "No player was found")
+				}
+			case strings.HasPrefix(body, "ban "):
+				name, reason, _ := strings.Cut(strings.TrimPrefix(body, "ban "), " ")
+				reply(id, 0, "Banned "+name+": "+reason)
 			case strings.HasPrefix(body, "op "):
 				reply(id, 0, "Made "+strings.TrimPrefix(body, "op ")+" a server operator")
 			case strings.HasPrefix(body, "kick "):
