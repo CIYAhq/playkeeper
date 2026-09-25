@@ -352,6 +352,19 @@ func TestServerSleepsWhenEmptyAndWakesForAListedPlayer(t *testing.T) {
 	if m := e.a.Machine(context.Background()); m.SleepingMemoryMB != 1536 {
 		t.Fatalf("sleeping memory %d MB", m.SleepingMemoryMB)
 	}
+	if code, out := e.call("GET", e.sp("/sleep?tz=Mars%2FOlympus"), nil); code != http.StatusBadRequest {
+		t.Fatalf("sleep with an unknown time zone: %d %s", code, out)
+	}
+	berlin, _ := time.LoadLocation("Europe/Berlin")
+	fellToday := 0.0
+	if st.Sleep.AsleepSince.In(berlin).Format(time.DateOnly) == e.srv().now().In(berlin).Format(time.DateOnly) {
+		fellToday = 1
+	}
+	if code, out := e.call("GET", e.sp("/sleep?tz=Europe%2FBerlin"), nil); code != http.StatusOK {
+		t.Fatalf("sleep: %d %v", code, out)
+	} else if today, _ := out["today"].(map[string]any); today["count"] != fellToday {
+		t.Fatalf("sleep today: %v, want %v times", out, fellToday)
+	}
 	// The reconciler leaves a sleeping server alone.
 	time.Sleep(300 * time.Millisecond)
 	if _, running, err := e.srv().containerRunning(context.Background()); err != nil || running || e.status().Phase != api.PhaseAsleep {

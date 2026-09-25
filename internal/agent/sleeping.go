@@ -374,11 +374,57 @@ func (s *server) sleepStatus(desired string) *api.SleepStatus {
 	return st
 }
 
+// sleepToday is how often the server fell asleep today in loc, and how long
+// it slept today in all, counting a sleep that began before midnight from
+// midnight.
+func (s *server) sleepToday(loc *time.Location) (int, time.Duration) {
+	now := s.now()
+	y, m, d := now.In(loc).Date()
+	midnight := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	rows, err := s.db.Query(`SELECT start_ts, end_ts FROM sleep_periods WHERE server_id = ? AND (end_ts IS NULL OR end_ts > ?)`, s.id, midnight.UnixMilli())
+	if err != nil {
+		return 0, 0
+	}
+	defer rows.Close()
+	count, total := 0, time.Duration(0)
+	for rows.Next() {
+		var start int64
+		var end sql.NullInt64
+		if rows.Scan(&start, &end) != nil {
+			continue
+		}
+		from, to := time.UnixMilli(start), now
+		if end.Valid {
+			to = time.UnixMilli(end.Int64)
+		}
+		if from.Before(midnight) {
+			from = midnight
+		} else {
+			count++
+		}
+		if to.After(from) {
+			total += to.Sub(from)
+		}
+	}
+	return count, total
+}
+
 func (s *server) hSleep(w http.ResponseWriter, r *http.Request) {
+	loc := time.UTC
+	if tz := r.URL.Query().Get("tz"); tz != "" {
+		l, err := time.LoadLocation(tz)
+		if err != nil || len(tz) > 64 {
+			writeError(w, &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: "Unknown time zone.", Field: "timeZone", Reason: "time_zone_invalid"})
+			return
+		}
+		loc = l
+	}
 	st := s.sleepStatus(s.desired())
+	count, slept := s.sleepToday(loc)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": st.Enabled, "idleMinutes": st.IdleMinutes, "asleepSince": st.AsleepSince, "listening": st.Listening, "sleepAt": st.SleepAt,
 		"defaultIdleMinutes": sleep.DefaultIdleMinutes, "minIdleMinutes": sleep.MinIdleMinutes, "maxIdleMinutes": sleep.MaxIdleMinutes,
+		"today": map[string]int{"count": count, "seconds": int(slept.Seconds())},
 	})
 }
 
