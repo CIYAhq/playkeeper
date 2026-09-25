@@ -208,8 +208,8 @@ func TestSecretNeverPrintsItself(t *testing.T) {
 	s := rfcSecret(t)
 	wrapped := struct{ Secret Secret }{s}
 	for _, out := range []string{
-		fmt.Sprint(s), fmt.Sprintf("%v %+v %#v %s %q %x", s, s, s, s, s, s),
-		fmt.Sprintf("%v %+v %#v", wrapped, wrapped, wrapped), fmt.Sprint(&s),
+		fmt.Sprint(s), fmt.Sprintf("%v %+v %#v %s %q %x %X %d %o %b", s, s, s, s, s, s, s, s, s, s),
+		fmt.Sprintf("%v %+v %#v %d", wrapped, wrapped, wrapped, wrapped), fmt.Sprint(&s),
 	} {
 		if strings.Contains(out, "GEZD") || strings.Contains(out, "1234") || strings.Contains(out, "49 50") || strings.Contains(out, "3132") {
 			t.Errorf("secret leaked in %q", out)

@@ -41,9 +41,9 @@ var (
 
 var b32 = base32.StdEncoding.WithPadding(base32.NoPadding)
 
-// Secret is a shared TOTP secret. It prints as "[secret]" with fmt and as {}
-// in JSON, so it cannot end up in a log or a response by accident; Base32 and
-// Grouped show it on purpose.
+// Secret is a shared TOTP secret. It prints as "[secret]" with every fmt verb
+// and as {} in JSON, so it cannot end up in a log or a response by accident;
+// Base32 and Grouped show it on purpose.
 type Secret struct{ key []byte }
 
 // NewSecret reads a new secret from rand (crypto/rand.Reader in production).
@@ -95,6 +95,15 @@ func (s Secret) IsZero() bool { return len(s.key) == 0 }
 
 func (Secret) String() string   { return "[secret]" }
 func (Secret) GoString() string { return "totp.Secret{[secret]}" }
+
+// Format stops verbs such as %d, which bypass String, from printing the key.
+func (s Secret) Format(f fmt.State, verb rune) {
+	if verb == 'v' && f.Flag('#') {
+		io.WriteString(f, s.GoString())
+		return
+	}
+	io.WriteString(f, s.String())
+}
 
 // Step is the RFC 6238 time step t falls in: whole periods since 1970.
 func Step(t time.Time) int64 {
