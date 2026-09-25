@@ -1056,6 +1056,7 @@ export const en = {
   'time.inHours': 'in {count} h',
   'time.inMinutes': 'in {count} min',
   'activity.teamJoined': '{name} joined the team as {role}',
+  'activity.allowlistedByLink': '{player} joined with an invite link',
   'team.title': 'Team',
   'team.add': 'Add a team member',
   'team.inviteLink': 'Invite link',

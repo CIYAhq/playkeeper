@@ -264,6 +264,17 @@ describe('Home for team members', () => {
     expect(link('Turn it on').getAttribute('href')).toBe('/account/two-factor')
     expect(text).not.toContain('Welcome, mara')
   })
+  it('says who got in with an invite link, never the link’s id', async () => {
+    answer({ '/activity': [
+      { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'allowlisted', player: 'Lenn0x', actor: 'invite:ymckepm6wx' },
+      { ts: hoursAgo(2), serverId: 'abcdefghjk', kind: 'allowlisted', player: 'pixelpia', actor: 'siya' },
+    ] })
+    const text = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: both() }))
+    expect(text).toContain('Lenn0x joined with an invite link')
+    expect(text).toContain('siya added pixelpia to the allowlist')
+    expect(text).not.toContain('invite:')
+  })
+
 
   it('gives a viewer no Start button and a member no first steps', async () => {
     const stopped = [server({ phase: 'stopped', desired: 'stopped', startedAt: undefined })]

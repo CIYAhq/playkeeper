@@ -70,7 +70,7 @@ export function activityText(a: Activity, server: string, me: string, here = fal
     case 'stopped_outside':
       return t('activity.stopped_outside', { server })
     case 'allowlisted':
-      return t('activity.allowlisted', { actor, player })
+      return a.actor?.startsWith('invite:') ? t('activity.allowlistedByLink', { player }) : t('activity.allowlisted', { actor, player })
     case 'unlisted':
       return t('activity.unlisted', { actor, player })
     case 'operator':
