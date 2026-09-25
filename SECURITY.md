@@ -16,7 +16,7 @@ Implementation constraints: authenticated HTTPS management, fail-closed authoriz
 
 ## Exposure review (v0.1.0, 2026-09-24)
 
-**Network.** The panel listens on 8443 (TLS only; plain HTTP gets `400 Client sent an HTTP request to an HTTPS server`), and each Minecraft server on its own game port (25565 for the first, then the next free port from 25566), published by Docker. RCON (25575) stays inside the container on a private bridge; the Docker API is only the local Unix socket; the agent has no TCP listener. Checked with `nmap -p-` from another host during a rehearsal install.
+**Network.** The panel listens on 8443, and each Minecraft server on its own game port (25565 for the first, then the next free port from 25566), published by Docker. The panel itself is served only over TLS. In v0.1.0 plain HTTP on its port got `400 Client sent an HTTP request to an HTTPS server`; from 0.4.0 it gets a 308 redirect to HTTPS (400 when its Host header is missing or not a valid host), except under `/resource-packs/`: players' games refuse the panel's self-signed certificate, so that path serves over plain HTTP, without a sign-in, only the resource packs a server offers every player, by their SHA-1 (`/resource-packs/<sha1>.zip`, GET and HEAD), answers 404 to everything else, and limits each address to 60 requests a minute and 8 open downloads. RCON (25575) stays inside the container on a private bridge; the Docker API is only the local Unix socket; the agent has no TCP listener. Checked with `nmap -p-` from another host during a rehearsal install.
 
 **Privilege boundary.**
 - `playkeeper panel` runs as the `playkeeper` user (not in the `docker` group) under a systemd sandbox that only allows writes to `/var/lib/playkeeper/panel`.
