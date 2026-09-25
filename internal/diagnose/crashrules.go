@@ -38,7 +38,8 @@ var crashRules = []struct {
 }
 
 var (
-	reDockerPort = regexp.MustCompile(`Bind for \S*:(\d{1,5}) failed: port is already allocated|listen (?:tcp|udp)[46]? \S*:(\d{1,5}): bind: address already in use`)
+	reDockerPort = regexp.MustCompile(`Bind for \S*:(\d{1,5}) failed: port is already allocated|listen (?:tcp|udp)[46]? \S*:(\d{1,5}): bind: address already in use|` +
+		`failed to bind host port (?:for )?(?:\[[0-9A-Fa-f:.]*\]|[0-9.]*):(\d{1,5})\S*: address already in use`)
 
 	reNoSpace = regexp.MustCompile(`No space left on device`)
 	reEULA    = regexp.MustCompile(`^You need to agree to the EULA in order to run the server`)
@@ -92,7 +93,7 @@ func (c *crashCtx) dockerPort() (CrashDiagnosis, bool) {
 	if m == nil {
 		return CrashDiagnosis{}, false
 	}
-	port, _ := strconv.Atoi(m[1] + m[2])
+	port, _ := strconv.Atoi(m[1] + m[2] + m[3])
 	msg := truncate(redact(strings.Join(strings.Fields(c.in.DockerError), " ")), maxEvidenceLen)
 	return CrashDiagnosis{
 		Kind: CrashPortInUse, Params: map[string]any{"port": port},

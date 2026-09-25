@@ -194,6 +194,22 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			kind: CrashPortInUse, certain: true, params: map[string]any{"port": 25566}, fixes: "change_port* port=25566; restart",
 		},
 		{
+			name: "Docker 29 host port bound by another program",
+			in: with(paperCrash(nil), func(in *CrashInput) {
+				in.ExitCode = 0
+				in.DockerError = "failed to set up container networking: driver failed programming external connectivity on endpoint pk-survival (e8c1b689): failed to bind host port 0.0.0.0:25800/tcp: address already in use"
+			}),
+			kind: CrashPortInUse, certain: true, params: map[string]any{"port": 25800}, fixes: "change_port* port=25800; restart",
+		},
+		{
+			name: "Docker 28 host port bound by another program",
+			in: with(paperCrash(nil), func(in *CrashInput) {
+				in.ExitCode = 0
+				in.DockerError = "driver failed programming external connectivity on endpoint pk-survival (e8c1b689): failed to bind host port for [::]:25801:172.18.0.2:25565/tcp: address already in use"
+			}),
+			kind: CrashPortInUse, certain: true, params: map[string]any{"port": 25801}, fixes: "change_port* port=25801; restart",
+		},
+		{
 			name: "plugin built for a newer Java is only a possible cause",
 			in:   with(paperCrash(crashConsole(t, "paper_plugin_java.txt")), func(in *CrashInput) { in.Addons = addonFiles("FancyNpcs-2.8.0.jar") }),
 			kind: CrashNewerJava, params: map[string]any{"required": 26, "available": 25, "jar": "FancyNpcs-2.8.0.jar"},
