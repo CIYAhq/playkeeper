@@ -745,6 +745,24 @@ func TestToolCallsAreRateLimitedPerToken(t *testing.T) {
 	})
 }
 
+func TestRefusedCallsCountAgainstTheLimit(t *testing.T) {
+	eachTransport(t, func(t *testing.T, open opener) {
+		f := newFixture(t, func(o *Options) { o.MutatingCallsPerMinute = 2 })
+		c := start(t, open(t, f, principal(ScopeRead)), version20260728)
+		kinds := []string{}
+		for range 3 {
+			res := c.call(t, "tools/call", map[string]any{"name": "create_backup", "arguments": map[string]any{}}).wantResult(t)
+			kinds = append(kinds, fmt.Sprint(dig(t, res, "_meta", metaToolError, "kind")))
+		}
+		if want := []string{"scope_missing", "scope_missing", "rate_limited"}; !slices.Equal(kinds, want) {
+			t.Errorf("kinds %v, want %v", kinds, want)
+		}
+		if got, want := f.outcomes(), []Outcome{OutcomeDenied, OutcomeDenied, OutcomeLimited}; !slices.Equal(got, want) {
+			t.Errorf("outcomes %v, want %v", got, want)
+		}
+	})
+}
+
 func TestSlowToolCallsTimeOut(t *testing.T) {
 	eachTransport(t, func(t *testing.T, open opener) {
 		f := newFixture(t, func(o *Options) { o.CallTimeout = 20 * time.Millisecond })

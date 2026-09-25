@@ -470,12 +470,11 @@ func decodeArguments(raw json.RawMessage) (map[string]any, *rpcError) {
 	return obj, nil
 }
 
-// execute checks scope, rate limit and arguments, then runs the handler.
-// Exactly one of res, terr and rerr is set on return.
+// execute checks rate limit, scope and arguments, then runs the handler.
+// Refused calls count against the limit too, so a token can't make
+// unlimited calls it isn't allowed. Exactly one of res, terr and rerr is
+// set on return.
 func (s *Server) execute(ctx context.Context, c caller, t *registered, args map[string]any) (res *Result, structured json.RawMessage, terr *ToolError, rerr *rpcError, outcome Outcome) {
-	if !c.principal.Allows(t.Scope) {
-		return nil, nil, scopeError(c.principal, t), nil, OutcomeDenied
-	}
 	lim := s.writeLimit
 	if t.Effect == ReadOnly {
 		lim = s.readLimit
@@ -487,6 +486,9 @@ func (s *Server) execute(ctx context.Context, c caller, t *registered, args map[
 			Msg:    fmt.Sprintf("Too many tool calls with this token. Try again in %s.", plural(secs, "second")),
 			Params: map[string]string{"retry_after_seconds": strconv.Itoa(secs)},
 		}, nil, OutcomeLimited
+	}
+	if !c.principal.Allows(t.Scope) {
+		return nil, nil, scopeError(c.principal, t), nil, OutcomeDenied
 	}
 	p := problems{root: "The arguments"}
 	normalised := t.InputSchema.validate(args, "", &p)
