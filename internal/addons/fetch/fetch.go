@@ -114,7 +114,9 @@ func (e *StatusError) Error() string {
 	return msg
 }
 
-func (e *StatusError) Is(target error) bool { return target == ErrNotFound && e.Status == http.StatusNotFound }
+func (e *StatusError) Is(target error) bool {
+	return target == ErrNotFound && e.Status == http.StatusNotFound
+}
 
 // RateLimitError is returned when a service asked for a pause longer than
 // the caller is willing to wait.
