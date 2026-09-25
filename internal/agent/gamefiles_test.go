@@ -199,8 +199,8 @@ func TestGameFilesAreReadWithoutFollowingLinks(t *testing.T) {
 	}
 }
 
-// A plugin can truncate the server's jar to gigabytes of holes. The start
-// does not spend minutes hashing it: it is too large to be Paper, so it is
+// A plugin can truncate the server's jar to a terabyte of holes. The start
+// does not spend hours hashing it: it is too large to be Paper, so it is
 // downloaded and checked again.
 func TestAHugeSparseJarDoesNotHoldUpTheStart(t *testing.T) {
 	e := newAgentEnv(t)
@@ -212,7 +212,7 @@ func TestAHugeSparseJarDoesNotHoldUpTheStart(t *testing.T) {
 	if len(jars) != 1 {
 		t.Fatalf("jars: %v", jars)
 	}
-	if err := os.Truncate(jars[0], 1<<36); err != nil {
+	if err := os.Truncate(jars[0], 1<<40); err != nil {
 		t.Fatal(err)
 	}
 	if op := e.act("start"); op.Status != api.OpSucceeded {
