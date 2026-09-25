@@ -46,6 +46,43 @@ CREATE TABLE audit (
   detail TEXT NOT NULL DEFAULT ''
 );
 `,
+	// 0.3.0: projects, machines and roles (decision 0004). Existing accounts
+	// are owners of the install.
+	`
+ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'owner';
+CREATE TABLE projects (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE project_members (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (project_id, user_id)
+);
+CREATE TABLE machines (
+  id         TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  name       TEXT NOT NULL DEFAULT '',
+  kind       TEXT NOT NULL,
+  endpoint   TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE user_prefs (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key     TEXT NOT NULL,
+  value   TEXT NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+CREATE TABLE player_heads (
+  name       TEXT PRIMARY KEY,
+  status     TEXT NOT NULL,
+  png        BLOB,
+  fetched_at INTEGER NOT NULL
+);
+`,
 }
 
 const (
@@ -148,6 +185,9 @@ func tokenHash(t string) string {
 type user struct {
 	ID       int64
 	Username string
+	// Role is the account's role on the install: owner, or member (only what
+	// its project memberships grant).
+	Role string
 }
 
 type session struct {
@@ -184,14 +224,15 @@ func (s *Server) createFirstAdmin(username, password string) (user, error) {
 		return user{}, errSetupDone
 	}
 	id, _ := res.LastInsertId()
-	return user{ID: id, Username: username}, nil
+	s.ensureMember(id)
+	return user{ID: id, Username: username, Role: roleOwner}, nil
 }
 
 // authenticate verifies credentials with constant work for unknown users.
 func (s *Server) authenticate(username, password string) (user, bool) {
 	var u user
 	var h string
-	err := s.db.QueryRow(`SELECT id, username, password_hash FROM users WHERE username = ?`, username).Scan(&u.ID, &u.Username, &h)
+	err := s.db.QueryRow(`SELECT id, username, role, password_hash FROM users WHERE username = ?`, username).Scan(&u.ID, &u.Username, &u.Role, &h)
 	if err != nil {
 		checkPassword(dummyHash, password)
 		return user{}, false
@@ -218,9 +259,9 @@ func (s *Server) lookupSession(token string) (session, error) {
 	}
 	var sess session
 	var created, lastSeen, expires int64
-	err := s.db.QueryRow(`SELECT s.id_hash, s.csrf, s.created_at, s.last_seen, s.expires_at, u.id, u.username
+	err := s.db.QueryRow(`SELECT s.id_hash, s.csrf, s.created_at, s.last_seen, s.expires_at, u.id, u.username, u.role
 		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ?`, tokenHash(token)).
-		Scan(&sess.IDHash, &sess.CSRF, &created, &lastSeen, &expires, &sess.User.ID, &sess.User.Username)
+		Scan(&sess.IDHash, &sess.CSRF, &created, &lastSeen, &expires, &sess.User.ID, &sess.User.Username, &sess.User.Role)
 	if err != nil {
 		return session{}, errNoSession
 	}
