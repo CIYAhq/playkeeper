@@ -703,6 +703,9 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	if prev != nil {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
 		prevPack = prev.ResourcePack
+		if prev.Modpack != nil && !prev.Modpack.Pending {
+			sc.Modpack = prev.Modpack
+		}
 	} else {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy = s.now().UTC(), actor
 	}

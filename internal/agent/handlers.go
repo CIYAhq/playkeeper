@@ -330,7 +330,12 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	if typ == "" {
 		typ = api.TypePaper
 	}
-	if !typeAvailable(typ) {
+	if req.Modpack != nil {
+		if req.Type != "" || req.VersionID != "" || req.Build != "" {
+			writeError(w, errInvalid("A server made from a modpack runs the type and version the pack names."))
+			return
+		}
+	} else if !typeAvailable(typ) {
 		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
@@ -345,19 +350,31 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Unknown play style."))
 		return
 	}
-	entry, err := a.typeEntry(r.Context(), typ, req.VersionID)
-	if err != nil {
+	var entry api.CatalogEntry
+	var pin software.Pin
+	var pack *api.ServerModpack
+	if req.Modpack != nil {
+		var rt restoreTarget
+		if rt, pack, err = a.packCreateTarget(r.Context(), *req.Modpack); err != nil {
+			writeError(w, err)
+			return
+		}
+		typ, entry, pin = rt.typ, rt.entry, rt.pin
+	} else if entry, err = a.typeEntry(r.Context(), typ, req.VersionID); err != nil {
 		writeError(w, err)
 		return
 	}
-	var pin software.Pin
 	experimental := entry.Experimental
-	if typ == api.TypePaper {
+	switch {
+	case pack != nil:
+		// The pack names its loader, and its authors chose it.
+		experimental = false
+	case typ == api.TypePaper:
 		if req.Build != "" {
 			writeError(w, errInvalid("Paper servers run the build the version list names."))
 			return
 		}
-	} else {
+	default:
 		var channel software.Channel
 		if pin, channel, err = a.pinFor(r.Context(), entry, req.Build); err != nil {
 			writeError(w, err)
@@ -396,6 +413,9 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	if typ != api.TypePaper {
 		sc = withPin(base, entry, pin)
 		label = softwareLabel(sc)
+	}
+	if pack != nil {
+		sc.Modpack, label = pack, pack.Name+" "+pack.VersionNumber
 	}
 	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {

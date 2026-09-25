@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
@@ -25,6 +26,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
+	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 )
@@ -104,6 +107,10 @@ type Options struct {
 	// their fixed HTTPS hosts; tests swap its transport. It defaults to
 	// HTTPClient.
 	UpstreamClient *http.Client
+	// Modpacks is the modpack library (tests). By default it reaches
+	// Modrinth, and CurseForge with the machine's key, through
+	// UpstreamClient, and is built again when the key changes.
+	Modpacks *modpacks.Library
 }
 
 // Retention bounds stored analytics and audit data.
@@ -169,6 +176,16 @@ type Agent struct {
 	packMu sync.Mutex
 
 	software softwareCache
+
+	// Wave 4: the modpack library with the CurseForge key in effect, and
+	// answers from the pack sources kept for a little while.
+	packLib          atomic.Pointer[modpacks.Library]
+	packKeyMu        sync.Mutex
+	packKey          curseforge.Key
+	packSearches     *ttlCache[*api.ModpackResults]
+	packDetails      *ttlCache[*api.ModpackDetail]
+	packPreviews     *ttlCache[*api.ModpackPreview]
+	packPreviewSlots chan struct{}
 }
 
 func New(opts Options) (*Agent, error) {
@@ -272,7 +289,13 @@ func New(opts Options) (*Agent, error) {
 		started: opts.Now(),
 		mopLock: make(chan struct{}, 1),
 		servers: map[string]*server{},
+
+		packSearches:     newTTLCache[*api.ModpackResults](5*time.Minute, 64),
+		packDetails:      newTTLCache[*api.ModpackDetail](10*time.Minute, 64),
+		packPreviews:     newTTLCache[*api.ModpackPreview](30*time.Minute, 32),
+		packPreviewSlots: make(chan struct{}, 2),
 	}
+	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	a.allowed = map[uint32]bool{}
 	if len(opts.AllowedUIDs) > 0 {
@@ -606,6 +629,10 @@ func (a *Agent) routeTable() []Route {
 		// Wave 4: every server type.
 		{"GET", "/v1/catalog/builds", a.hCatalogBuilds},
 		{"POST", "/v1/servers/{id}/software/reinstall", srv((*server).hSoftwareReinstall)},
+		// Wave 4: modpacks.
+		{"GET", "/v1/modpacks", a.hModpackSearch},
+		{"GET", "/v1/modpacks/{source}/{project}", a.hModpackDetail},
+		{"GET", "/v1/modpacks/{source}/{project}/versions/{version}/preview", a.hModpackPreview},
 	}
 }
 

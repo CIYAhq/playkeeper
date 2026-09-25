@@ -235,6 +235,8 @@ type ServerConfig struct {
 	// Minecraft version and the type's build. JarVerifiedAt is when its
 	// install was last verified.
 	Software *SoftwarePin `json:"software,omitempty"`
+	// Modpack is the pack the server was created from (wave 4).
+	Modpack *ServerModpack `json:"modpack,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -255,6 +257,9 @@ type CreateServerRequest struct {
 	// Fabric or Quilt loader, a NeoForge version); empty takes the one the
 	// catalog recommends. Paper and Vanilla have none.
 	Build string `json:"build,omitempty"`
+	// Modpack creates the server from a pack (wave 4), which decides the
+	// type, versions and build: Type, VersionID and Build stay empty.
+	Modpack *ModpackRef `json:"modpack,omitempty"`
 }
 
 type SettingsRequest struct {
@@ -1092,4 +1097,110 @@ type SoftwareChange struct {
 	DetectedAt  time.Time  `json:"detectedAt"`
 	// Software is what a reinstall downloads again: "Paper 26.1.2 build 41".
 	Software string `json:"software"`
+}
+
+// Wave 4: modpacks.
+
+// ModpackCard is a pack in the create flow's list.
+type ModpackCard struct {
+	Source            string    `json:"source"`
+	ProjectID         string    `json:"projectId"`
+	Slug              string    `json:"slug"`
+	Name              string    `json:"name"`
+	Author            string    `json:"author,omitempty"`
+	Summary           string    `json:"summary"`
+	Downloads         int64     `json:"downloads"`
+	IconURL           string    `json:"iconUrl,omitempty"`
+	Updated           time.Time `json:"updated"`
+	PageURL           string    `json:"pageUrl"`
+	Types             []string  `json:"types"`
+	MinecraftVersions []string  `json:"minecraftVersions"`
+	// Mods counts the mods the pack's newest version bundles, and MemoryMB
+	// is the memory Playkeeper suggests for that many; both are 0 when the
+	// source doesn't say.
+	Mods     int `json:"mods,omitempty"`
+	MemoryMB int `json:"memoryMB,omitempty"`
+	// Unavailable says why Playkeeper can't install the pack at all.
+	Unavailable *AddonNotice `json:"unavailable,omitempty"`
+}
+
+// ModpackResults is one page of packs from one source.
+type ModpackResults struct {
+	Cards  []ModpackCard `json:"cards"`
+	Total  int           `json:"total"`
+	Offset int           `json:"offset"`
+	Limit  int           `json:"limit"`
+	// Sources are where packs can come from on this machine: modrinth, and
+	// curseforge once there's a key.
+	Sources []string `json:"sources"`
+}
+
+// ModpackVersion is one version of a pack.
+type ModpackVersion struct {
+	ID               string       `json:"id"`
+	Number           string       `json:"number"`
+	Name             string       `json:"name,omitempty"`
+	Channel          string       `json:"channel"`
+	Published        time.Time    `json:"published"`
+	Size             int64        `json:"size"`
+	Type             string       `json:"type,omitempty"`
+	MinecraftVersion string       `json:"minecraftVersion,omitempty"`
+	Mods             int          `json:"mods,omitempty"`
+	Unsupported      *AddonNotice `json:"unsupported,omitempty"`
+}
+
+// ModpackDetail is a pack's details sheet.
+type ModpackDetail struct {
+	ModpackCard
+	SourceURL string `json:"sourceUrl,omitempty"`
+	IssuesURL string `json:"issuesUrl,omitempty"`
+	WikiURL   string `json:"wikiUrl,omitempty"`
+	// Headline is the mod the pack is built around ("Cobblemon"), when its
+	// title names one it bundles.
+	Headline string           `json:"headline,omitempty"`
+	Versions []ModpackVersion `json:"versions"`
+	// Newest is the id of the version a new server gets; empty when
+	// Playkeeper can install none.
+	Newest string `json:"newest,omitempty"`
+}
+
+// ModpackPreview is what a pack version needs and puts on a new server, read
+// from the pack itself.
+type ModpackPreview struct {
+	Type             string `json:"type"`
+	MinecraftVersion string `json:"minecraftVersion"`
+	// LoaderVersion is the Fabric Loader, Quilt Loader or NeoForge version;
+	// empty for vanilla packs.
+	LoaderVersion string `json:"loaderVersion,omitempty"`
+	// Files counts the files the pack puts on the server; DownloadSize is
+	// what downloading them takes.
+	Files        int           `json:"files"`
+	DownloadSize int64         `json:"downloadSize"`
+	Ready        bool          `json:"ready"`
+	Blockers     []AddonNotice `json:"blockers"`
+	Warnings     []AddonNotice `json:"warnings"`
+	Manual       []AddonNotice `json:"manual"`
+}
+
+// ModpackRef names a pack version to create a server from.
+type ModpackRef struct {
+	Source    string `json:"source"`
+	ProjectID string `json:"projectId"`
+	VersionID string `json:"versionId"`
+}
+
+// ServerModpack is the pack a server runs.
+type ServerModpack struct {
+	Source        string `json:"source"`
+	ProjectID     string `json:"projectId"`
+	VersionID     string `json:"versionId"`
+	Name          string `json:"name"`
+	VersionNumber string `json:"versionNumber"`
+	PageURL       string `json:"pageUrl,omitempty"`
+	IconURL       string `json:"iconUrl,omitempty"`
+	// Mods counts the pack's mods on the server.
+	Mods int `json:"mods,omitempty"`
+	// Pending is set until the pack's files are in place; the next start
+	// puts them there.
+	Pending bool `json:"pending,omitempty"`
 }

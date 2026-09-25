@@ -529,6 +529,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureNetwork(ctx); err != nil {
 		return err
 	}
+	if sc.Modpack != nil && sc.Modpack.Pending {
+		if err := s.installPendingPack(ctx, h, &sc); err != nil {
+			return err
+		}
+	}
 	if err := s.ensureSoftware(ctx, h, &sc); err != nil {
 		return err
 	}

@@ -55,7 +55,9 @@ func (s *server) saveServerConfig(sc api.ServerConfig) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(`UPDATE servers SET config = ? WHERE id = ?`, string(b), s.id)
+	// The type column follows the software, which a restore or a modpack
+	// can change; configs made before 0.3.0 have no type and stay Paper.
+	res, err := s.db.Exec(`UPDATE servers SET config = ?, type = CASE WHEN ? = '' THEN type ELSE ? END WHERE id = ?`, string(b), sc.Type, sc.Type, s.id)
 	if err != nil {
 		return err
 	}

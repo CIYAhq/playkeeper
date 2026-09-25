@@ -175,4 +175,18 @@ CREATE TABLE pregen (
 );
 ALTER TABLE servers ADD COLUMN addons_changed_at INTEGER;
 `,
+	// Wave 4: the modpack on each server, stored once its files are in place
+	// (record is the modpacks.Record as JSON), and whether the server's
+	// friends' pack page is public (off until the user shares a link).
+	`
+CREATE TABLE modpacks (
+  server_id    TEXT PRIMARY KEY,
+  source       TEXT NOT NULL,
+  project_id   TEXT NOT NULL,
+  record       TEXT NOT NULL,
+  installed_at INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+ALTER TABLE servers ADD COLUMN packs_public INTEGER NOT NULL DEFAULT 0;
+`,
 }
