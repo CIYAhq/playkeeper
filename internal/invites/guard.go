@@ -35,7 +35,7 @@ const (
 // Guard limits attempts on the public invite pages: every request counts
 // against the client's address, and failures that cost a Mojang lookup or
 // reveal an account count against the invite. Invites are only tracked
-// once a request has shown a working token, so knowing an invite's id is
+// once a request has shown a working code, so knowing an invite's id is
 // not enough to lock it. It is safe for concurrent use.
 type Guard struct {
 	now       func() time.Time
@@ -83,7 +83,7 @@ func (g *Guard) Address(ip netip.Addr) error {
 }
 
 // Invite refuses an invite that has had too many failures lately. Call it
-// once the token checked out, before any lookup.
+// once the code checked out, before any lookup.
 func (g *Guard) Invite(id string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()

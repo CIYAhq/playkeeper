@@ -29,8 +29,8 @@ type PlayerGrant struct {
 
 // PreviewPlayer checks a player invite for the join page and returns what
 // the page may show.
-func PreviewPlayer(inv Invite, token string, now time.Time) (Public, error) {
-	if err := Check(inv, token, KindPlayer, now); err != nil {
+func PreviewPlayer(inv Invite, code string, now time.Time) (Public, error) {
+	if err := Check(inv, code, KindPlayer, now); err != nil {
 		return Public{}, err
 	}
 	return inv.public(), nil
@@ -41,8 +41,8 @@ func PreviewPlayer(inv Invite, token string, now time.Time) (Public, error) {
 // no lookup. The caller then counts the use (see RecordUse; a friend who
 // already used this invite shouldn't use it up twice) and asks the agent
 // to add the player.
-func RedeemPlayer(ctx context.Context, lookup ProfileLookup, inv Invite, token, name string, now time.Time) (PlayerGrant, error) {
-	if err := Check(inv, token, KindPlayer, now); err != nil {
+func RedeemPlayer(ctx context.Context, lookup ProfileLookup, inv Invite, code, name string, now time.Time) (PlayerGrant, error) {
+	if err := Check(inv, code, KindPlayer, now); err != nil {
 		return PlayerGrant{}, err
 	}
 	if !minecraft.ValidPlayerName(name) {

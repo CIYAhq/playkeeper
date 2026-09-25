@@ -50,9 +50,9 @@ func newLookup() *fakeLookup {
 }
 
 func TestRedeemPlayer(t *testing.T) {
-	inv, token := newPlayer(t, PlayerSpec{})
+	inv, code := newPlayer(t, PlayerSpec{})
 	lookup := newLookup()
-	got, err := RedeemPlayer(context.Background(), lookup, inv, token, "nOTCH", t0)
+	got, err := RedeemPlayer(context.Background(), lookup, inv, code, "nOTCH", t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,36 +65,36 @@ func TestRedeemPlayer(t *testing.T) {
 }
 
 func TestRedeemPlayerRefusals(t *testing.T) {
-	inv, token := newPlayer(t, PlayerSpec{})
-	member, memberToken := memberInvite(t, owner, RoleViewer)
+	inv, code := newPlayer(t, PlayerSpec{})
+	member, memberCode := memberInvite(t, owner, RoleViewer)
 	used := inv
 	used.Uses = used.MaxUses
 	for _, tc := range []struct {
 		name      string
 		inv       Invite
-		token     string
+		link      string
 		player    string
 		lookupErr error
 		code      string
 		lookups   int
 	}{
-		{"wrong token", inv, NewToken(), "Notch", nil, CodeNotWorking, 0},
-		{"co-admin invite on the join page", member, memberToken, "Notch", nil, CodeNotWorking, 0},
-		{"revoked", Revoke(inv, t0), token, "Notch", nil, CodeNotWorking, 0},
-		{"used up", used, token, "Notch", nil, CodeUsedUp, 0},
-		{"expired", inv, token, "Notch", nil, CodeExpired, 0},
-		{"no name", inv, token, "", nil, CodePlayerName, 0},
-		{"name too short", inv, token, "ab", nil, CodePlayerName, 0},
-		{"name too long", inv, token, "abcdefghijklmnopq", nil, CodePlayerName, 0},
-		{"name with a space", inv, token, "Not ch", nil, CodePlayerName, 0},
-		{"name with a slash", inv, token, "../Notch", nil, CodePlayerName, 0},
-		{"console command in the name", inv, token, "Notch;op", nil, CodePlayerName, 0},
-		{"unknown name", inv, token, "Nobody_here", nil, CodePlayerUnknown, 1},
-		{"demo account", inv, token, "pipdemo42", nil, CodePlayerDemo, 1},
-		{"legacy account", inv, token, "OldTimer", nil, CodePlayerLegacy, 1},
-		{"Mojang rate limited", inv, token, "Notch", &mojang.Error{Err: mojang.ErrRateLimited, RetryAfter: 42 * time.Second}, CodeMojangBusy, 1},
-		{"Mojang unavailable", inv, token, "Notch", &mojang.Error{Err: mojang.ErrUnavailable, Detail: "HTTP 500"}, CodeMojangDown, 1},
-		{"lookup canceled", inv, token, "Notch", context.Canceled, CodeMojangDown, 1},
+		{"wrong code", inv, NewCode(), "Notch", nil, CodeNotWorking, 0},
+		{"co-admin invite used as a friend invite", member, memberCode, "Notch", nil, CodeNotWorking, 0},
+		{"revoked", Revoke(inv, t0), code, "Notch", nil, CodeNotWorking, 0},
+		{"used up", used, code, "Notch", nil, CodeUsedUp, 0},
+		{"expired", inv, code, "Notch", nil, CodeExpired, 0},
+		{"no name", inv, code, "", nil, CodePlayerName, 0},
+		{"name too short", inv, code, "ab", nil, CodePlayerName, 0},
+		{"name too long", inv, code, "abcdefghijklmnopq", nil, CodePlayerName, 0},
+		{"name with a space", inv, code, "Not ch", nil, CodePlayerName, 0},
+		{"name with a slash", inv, code, "../Notch", nil, CodePlayerName, 0},
+		{"console command in the name", inv, code, "Notch;op", nil, CodePlayerName, 0},
+		{"unknown name", inv, code, "Nobody_here", nil, CodePlayerUnknown, 1},
+		{"demo account", inv, code, "pipdemo42", nil, CodePlayerDemo, 1},
+		{"legacy account", inv, code, "OldTimer", nil, CodePlayerLegacy, 1},
+		{"Mojang rate limited", inv, code, "Notch", &mojang.Error{Err: mojang.ErrRateLimited, RetryAfter: 42 * time.Second}, CodeMojangBusy, 1},
+		{"Mojang unavailable", inv, code, "Notch", &mojang.Error{Err: mojang.ErrUnavailable, Detail: "HTTP 500"}, CodeMojangDown, 1},
+		{"lookup canceled", inv, code, "Notch", context.Canceled, CodeMojangDown, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lookup := newLookup()
@@ -103,7 +103,7 @@ func TestRedeemPlayerRefusals(t *testing.T) {
 			if tc.code == CodeExpired {
 				now = inv.ExpiresAt
 			}
-			_, err := RedeemPlayer(context.Background(), lookup, tc.inv, tc.token, tc.player, now)
+			_, err := RedeemPlayer(context.Background(), lookup, tc.inv, tc.link, tc.player, now)
 			wantCode(t, err, tc.code)
 			if len(lookup.calls) != tc.lookups {
 				t.Errorf("%d lookups, want %d", len(lookup.calls), tc.lookups)
@@ -113,12 +113,12 @@ func TestRedeemPlayerRefusals(t *testing.T) {
 }
 
 func TestRedeemPlayerMessages(t *testing.T) {
-	inv, token := newPlayer(t, PlayerSpec{})
+	inv, code := newPlayer(t, PlayerSpec{})
 	redeem := func(name string, lookupErr error) *Error {
 		t.Helper()
 		lookup := newLookup()
 		lookup.err = lookupErr
-		_, err := RedeemPlayer(context.Background(), lookup, inv, token, name, t0)
+		_, err := RedeemPlayer(context.Background(), lookup, inv, code, name, t0)
 		var e *Error
 		if !errors.As(err, &e) {
 			t.Fatalf("error %v is not an *Error", err)
@@ -175,12 +175,12 @@ func TestRedeemPlayerWithMojangClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inv, token := newPlayer(t, PlayerSpec{})
-	got, err := RedeemPlayer(context.Background(), client, inv, token, "NOTCH", t0)
+	inv, code := newPlayer(t, PlayerSpec{})
+	got, err := RedeemPlayer(context.Background(), client, inv, code, "NOTCH", t0)
 	if err != nil || got.Profile != notch {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	_, err = RedeemPlayer(context.Background(), client, inv, token, "Nobody_here", t0)
+	_, err = RedeemPlayer(context.Background(), client, inv, code, "Nobody_here", t0)
 	wantCode(t, err, CodePlayerUnknown)
 }
 

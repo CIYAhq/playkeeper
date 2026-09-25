@@ -3,12 +3,12 @@
 // opens a member invite to create a Playkeeper account with a role in one
 // project.
 //
-// A link carries a random token that exists only when the invite is
-// created. The panel stores the token's SHA-256 and looks invites up by it,
-// so a copy of the database can't be turned back into working links. The
-// token sits in the link's fragment (after "#"), which browsers never send,
-// so it stays out of request logs and Referer headers; the public pages
-// post it in a request body.
+// Both kinds of link point at the panel's public page, /join/<code>. The
+// code is random and the panel looks invites up by its SHA-256. A member
+// invite's code exists only when the invite is created. A player invite
+// keeps its code too, so the Players tab can show and copy the link again:
+// it only ever adds a name to a whitelist, and it can be turned off. Codes
+// are secrets, so they never appear in logs or error messages.
 //
 // Everything here is pure: functions take the stored Invite and the time,
 // and return structs for the caller to store. The caller's database counts
@@ -18,10 +18,6 @@ package invites
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -55,18 +51,6 @@ const (
 	MaxLabelRunes    = 64
 )
 
-// Paths of the public pages. The token follows "#t=" in the link.
-const (
-	JoinPath   = "/join"
-	AcceptPath = "/accept"
-)
-
-// TokenBytes is the randomness in a token: 256 bits, written as 43
-// URL-safe base64 characters.
-const TokenBytes = 32
-
-const tokenLen = (TokenBytes*8 + 5) / 6
-
 // Invite is one invite as the panel stores it: one row of its invites
 // table. Times are UTC with millisecond precision, like the panel's
 // columns; a zero RevokedAt means not revoked.
@@ -75,8 +59,12 @@ type Invite struct {
 	// secret and opens nothing.
 	ID   string `json:"id"`
 	Kind Kind   `json:"kind"`
-	// TokenHash is HashToken of the link's token.
-	TokenHash string `json:"-"`
+	// CodeHash is HashCode of the link's code. Invites are looked up by it.
+	CodeHash string `json:"-"`
+	// Code is the link's code, kept for a player invite so the Players tab
+	// can show and copy the link again. A member invite's code is shown
+	// once and never stored, so this is empty.
+	Code string `json:"-"`
 	// ProjectID is the project a member joins, or the project of the server
 	// a player joins.
 	ProjectID string `json:"projectId"`
@@ -84,7 +72,7 @@ type Invite struct {
 	ServerID string `json:"serverId,omitempty"`
 	// Role is the project role a member invite gives.
 	Role string `json:"role,omitempty"`
-	// Label is the creator's note to tell links apart ("Discord friends").
+	// Label is the creator's note to tell links apart ("Discord crew").
 	// Public pages don't show it.
 	Label     string    `json:"label,omitempty"`
 	CreatedBy int64     `json:"createdBy"`
@@ -93,6 +81,16 @@ type Invite struct {
 	MaxUses   int       `json:"maxUses"`
 	Uses      int       `json:"uses"`
 	RevokedAt time.Time `json:"revokedAt,omitzero"`
+}
+
+// Format keeps the code out of anything printed with fmt.
+func (inv Invite) Format(f fmt.State, verb rune) {
+	fmt.Fprintf(f, "{ID:%s Kind:%s Project:%s Server:%s Code:[hidden]}", inv.ID, inv.Kind, inv.ProjectID, inv.ServerID)
+}
+
+// LogValue keeps the code out of slog output.
+func (inv Invite) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("id", inv.ID), slog.String("kind", string(inv.Kind)))
 }
 
 // Status is where an invite is in its life, for lists.
@@ -125,16 +123,27 @@ func (inv Invite) UsesLeft() int { return max(0, inv.MaxUses-inv.Uses) }
 // Actor names the invite in audit trails, as "invite:<id>".
 func (inv Invite) Actor() string { return "invite:" + inv.ID }
 
-// Summary is an invite as the Players tab and the team page list it.
+// Path is the link of a player invite, or "" for a member invite, whose
+// code isn't kept.
+func (inv Invite) Path() string {
+	if inv.Code == "" {
+		return ""
+	}
+	return LinkPath(inv.Code)
+}
+
+// Summary is an invite as the Players tab and the team page list it. Only
+// signed-in management routes may send it, since Path holds the code.
 type Summary struct {
 	Invite
 	Status   Status `json:"status"`
 	UsesLeft int    `json:"usesLeft"`
+	Path     string `json:"path,omitempty"`
 }
 
 // Summarize returns inv with its status at now.
 func (inv Invite) Summarize(now time.Time) Summary {
-	return Summary{Invite: inv, Status: inv.StatusAt(now), UsesLeft: inv.UsesLeft()}
+	return Summary{Invite: inv, Status: inv.StatusAt(now), UsesLeft: inv.UsesLeft(), Path: inv.Path()}
 }
 
 // Public is what a public page may show about an invite that works:
@@ -147,60 +156,6 @@ type Public struct {
 
 func (inv Invite) public() Public {
 	return Public{Kind: inv.Kind, Role: inv.Role, ExpiresAt: inv.ExpiresAt}
-}
-
-// NewToken returns a fresh link token.
-func NewToken() string {
-	b := make([]byte, TokenBytes)
-	_, _ = rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
-}
-
-// HashToken is what is stored for a token, and what invites are looked up
-// by: its SHA-256 in lower-case hex.
-func HashToken(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
-}
-
-// WellFormed reports whether s has the shape of a token, so the panel can
-// refuse garbage without a database lookup.
-func WellFormed(s string) bool {
-	if len(s) != tokenLen {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
-			return false
-		}
-	}
-	return true
-}
-
-// tokenMatches compares the token's digest with the stored one in constant
-// time. Both are 32 bytes whatever the token, so timing says nothing about
-// how much of a token was right.
-func tokenMatches(storedHash, token string) bool {
-	want, err := hex.DecodeString(storedHash)
-	if err != nil || len(want) != sha256.Size {
-		return false
-	}
-	got := sha256.Sum256([]byte(token))
-	return subtle.ConstantTimeCompare(got[:], want) == 1
-}
-
-// LinkPath is the path and fragment of an invite's link; the UI puts the
-// panel's address in front.
-func LinkPath(kind Kind, token string) string {
-	switch kind {
-	case KindPlayer:
-		return JoinPath + "#t=" + token
-	case KindMember:
-		return AcceptPath + "#t=" + token
-	default:
-		return ""
-	}
 }
 
 const idAlphabet = "abcdefghijkmnpqrstuvwxyz23456789"
@@ -245,11 +200,11 @@ func validRef(s string) bool {
 	return true
 }
 
-// Created is a new invite and its link. The link exists only here: the UI
-// shows it once, and only Invite is stored.
+// Created is a new invite and its link. The UI shows the link right away;
+// only Invite is stored.
 type Created struct {
 	Invite Invite `json:"invite"`
-	// Path is LinkPath with the token.
+	// Path is LinkPath with the code.
 	Path string `json:"path"`
 }
 
@@ -295,8 +250,13 @@ func NewPlayer(spec PlayerSpec, createdBy int64, now time.Time) (Created, error)
 	if uses < 1 || uses > MaxPlayerUses {
 		return Created{}, badOptions("uses", fmt.Sprintf("A friend invite can work from 1 to %d times.", MaxPlayerUses), "max", strconv.Itoa(MaxPlayerUses))
 	}
-	return create(Invite{Kind: KindPlayer, ServerID: spec.ServerID, ProjectID: spec.ProjectID, MaxUses: uses},
+	c, err := create(Invite{Kind: KindPlayer, ServerID: spec.ServerID, ProjectID: spec.ProjectID, MaxUses: uses},
 		spec.Label, spec.TTL, DefaultPlayerTTL, MaxPlayerTTL, createdBy, now)
+	if err != nil {
+		return Created{}, err
+	}
+	c.Invite.Code, _ = CodeFromPath(c.Path)
+	return c, nil
 }
 
 // NewMember creates an invite that lets one person create an account with
@@ -326,14 +286,14 @@ func create(inv Invite, label string, ttl, defaultTTL, maxTTL time.Duration, cre
 		return Created{}, err
 	}
 	now = stamp(now)
-	token := NewToken()
+	code := NewCode()
 	inv.ID = newID()
-	inv.TokenHash = HashToken(token)
+	inv.CodeHash = HashCode(code)
 	inv.Label = label
 	inv.CreatedBy = createdBy
 	inv.CreatedAt = now
 	inv.ExpiresAt = now.Add(ttl)
-	return Created{Invite: inv, Path: LinkPath(inv.Kind, token)}, nil
+	return Created{Invite: inv, Path: LinkPath(code)}, nil
 }
 
 func cleanLabel(s string) (string, error) {
@@ -348,15 +308,15 @@ func cleanLabel(s string) (string, error) {
 	return s, nil
 }
 
-// Check reports whether token opens inv as an invite of kind at now. A
-// malformed or wrong token, a revoked invite and one of the other kind are
+// Check reports whether code opens inv as an invite of kind at now. A
+// malformed or wrong code, a revoked invite and one of the other kind are
 // all refused with the same public message; only Reason tells them apart.
-func Check(inv Invite, token string, kind Kind, now time.Time) error {
+func Check(inv Invite, code string, kind Kind, now time.Time) error {
 	switch {
-	case !WellFormed(token):
-		return notWorking("the token is malformed")
-	case !tokenMatches(inv.TokenHash, token):
-		return notWorking("the token does not match")
+	case !WellFormed(code):
+		return notWorking("the code is malformed")
+	case !codeMatches(inv.CodeHash, code):
+		return notWorking("the code does not match")
 	case inv.Kind != kind:
 		return notWorking("the invite is of another kind")
 	}

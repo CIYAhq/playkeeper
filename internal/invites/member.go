@@ -40,19 +40,19 @@ func ValidPassword(pw, username string) error {
 	return nil
 }
 
-// MemberRequest is what the accept page sends.
+// MemberRequest is what the join page sends to create an account.
 type MemberRequest struct {
-	Token    string `json:"token"`
+	Code     string `json:"code"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-// Format keeps the token and password out of anything printed with fmt.
+// Format keeps the code and password out of anything printed with fmt.
 func (r MemberRequest) Format(f fmt.State, verb rune) {
-	fmt.Fprintf(f, "{Username:%q Token:[hidden] Password:[hidden]}", r.Username)
+	fmt.Fprintf(f, "{Username:%q Code:[hidden] Password:[hidden]}", r.Username)
 }
 
-// LogValue keeps the token and password out of slog output.
+// LogValue keeps the code and password out of slog output.
 func (r MemberRequest) LogValue() slog.Value {
 	return slog.GroupValue(slog.String("username", r.Username))
 }
@@ -68,12 +68,11 @@ type MemberGrant struct {
 	Username    string
 }
 
-// PreviewMember checks a member invite for the accept page and returns
-// what the page may show. inviter is the invite's creator as it stands
-// now: an invite stops working when its creator can no longer give the
-// role.
-func PreviewMember(inv Invite, token string, inviter Inviter, now time.Time) (Public, error) {
-	if err := checkMember(inv, token, inviter, now); err != nil {
+// PreviewMember checks a member invite for the join page and returns what
+// the page may show. inviter is the invite's creator as it stands now: an
+// invite stops working when its creator can no longer give the role.
+func PreviewMember(inv Invite, code string, inviter Inviter, now time.Time) (Public, error) {
+	if err := checkMember(inv, code, inviter, now); err != nil {
 		return Public{}, err
 	}
 	return inv.public(), nil
@@ -84,7 +83,7 @@ func PreviewMember(inv Invite, token string, inviter Inviter, now time.Time) (Pu
 // in one transaction, refusing a username that is taken in any
 // capitalisation with UsernameTaken.
 func AcceptMember(inv Invite, req MemberRequest, inviter Inviter, now time.Time) (MemberGrant, error) {
-	if err := checkMember(inv, req.Token, inviter, now); err != nil {
+	if err := checkMember(inv, req.Code, inviter, now); err != nil {
 		return MemberGrant{}, err
 	}
 	if err := ValidUsername(req.Username); err != nil {
@@ -96,8 +95,8 @@ func AcceptMember(inv Invite, req MemberRequest, inviter Inviter, now time.Time)
 	return MemberGrant{InviteID: inv.ID, ProjectID: inv.ProjectID, Role: inv.Role, InstallRole: InstallMember, Username: req.Username}, nil
 }
 
-func checkMember(inv Invite, token string, inviter Inviter, now time.Time) error {
-	if err := Check(inv, token, KindMember, now); err != nil {
+func checkMember(inv Invite, code string, inviter Inviter, now time.Time) error {
+	if err := Check(inv, code, KindMember, now); err != nil {
 		return err
 	}
 	if inviter.UserID != inv.CreatedBy || CanGrant(inviter, inv.Role) != nil {

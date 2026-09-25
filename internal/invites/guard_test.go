@@ -118,7 +118,7 @@ func TestGuardInviteFailures(t *testing.T) {
 	wantCode(t, g.Invite(id), CodeRateLimited)
 }
 
-// Invites are only tracked after a failure behind a working token, so an
+// Invites are only tracked after a failure behind a working code, so an
 // invite id alone can't lock anybody out.
 func TestGuardInviteNeedsNoEntryUntilItFails(t *testing.T) {
 	g := NewGuard(GuardLimits{}, (&fakeClock{t: t0}).Now)

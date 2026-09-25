@@ -2,7 +2,6 @@ package invites
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,13 +18,13 @@ const (
 	projectID = "p8vx2hc4ne"
 )
 
-func tokenOf(t *testing.T, c Created) string {
+func codeOf(t *testing.T, c Created) string {
 	t.Helper()
-	_, token, ok := strings.Cut(c.Path, "#t=")
-	if !ok || !WellFormed(token) {
-		t.Fatalf("path %q has no token", c.Path)
+	code, ok := CodeFromPath(c.Path)
+	if !ok {
+		t.Fatalf("path %q has no code", c.Path)
 	}
-	return token
+	return code
 }
 
 func newPlayer(t *testing.T, spec PlayerSpec) (Invite, string) {
@@ -40,7 +39,7 @@ func newPlayer(t *testing.T, spec PlayerSpec) (Invite, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return c.Invite, tokenOf(t, c)
+	return c.Invite, codeOf(t, c)
 }
 
 func wantCode(t *testing.T, err error, code string) *Error {
@@ -52,90 +51,64 @@ func wantCode(t *testing.T, err error, code string) *Error {
 	return e
 }
 
-func TestNewTokenEncodingAndEntropy(t *testing.T) {
-	var set, clear [TokenBytes]byte
-	seen := map[string]bool{}
-	for range 64 {
-		token := NewToken()
-		if len(token) != 43 || !WellFormed(token) {
-			t.Fatalf("token %q is not 43 URL-safe characters", token)
-		}
-		raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
-		if err != nil || len(raw) != TokenBytes {
-			t.Fatalf("token %q does not decode to %d bytes: %v", token, TokenBytes, err)
-		}
-		if seen[token] {
-			t.Fatal("a token repeated")
-		}
-		seen[token] = true
-		for i, b := range raw {
-			set[i] |= b
-			clear[i] |= ^b
+// leaks lists the ways an invite could end up in a log or an answer where
+// its code must not.
+func leaks(t *testing.T, code string, values ...any) {
+	t.Helper()
+	var logged bytes.Buffer
+	for _, v := range values {
+		slog.New(slog.NewJSONHandler(&logged, nil)).Info("x", "v", v)
+		slog.New(slog.NewTextHandler(&logged, nil)).Info("x", "v", v)
+		for _, s := range []string{fmt.Sprint(v), fmt.Sprintf("%v", v), fmt.Sprintf("%+v", v), fmt.Sprintf("%#v", v), fmt.Sprintf("%s", v), fmt.Sprintf("%q", v), fmt.Sprintf("%x", v), fmt.Sprintf("%d", v)} {
+			if strings.Contains(s, code) || strings.Contains(s, HashCode(code)) {
+				t.Errorf("the code leaked into %q", s)
+			}
 		}
 	}
-	// Across 64 tokens every one of the 256 bits must have been both 1 and
-	// 0; a random bit stays put with probability 2^-63.
-	for i := range set {
-		if set[i] != 0xff || clear[i] != 0xff {
-			t.Fatalf("byte %d has bits that never change: ever set %08b, ever clear %08b", i, set[i], clear[i])
-		}
+	if strings.Contains(logged.String(), code) || strings.Contains(logged.String(), HashCode(code)) {
+		t.Errorf("the code leaked into the log: %s", logged.String())
 	}
 }
 
-func TestHashToken(t *testing.T) {
-	if got := HashToken("abc"); got != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" {
-		t.Errorf("HashToken(abc) = %s, want the SHA-256 in hex", got)
-	}
-	token := NewToken()
-	if h := HashToken(token); len(h) != 64 || h != strings.ToLower(h) || strings.Contains(h, token) {
-		t.Errorf("HashToken = %q", h)
-	}
-}
-
-func TestCreatedStoresOnlyTheHash(t *testing.T) {
-	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "Discord friends"}, 7, t0)
+func TestFriendInviteKeepsItsCode(t *testing.T) {
+	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "Discord crew"}, 7, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := tokenOf(t, c)
-	if c.Path != "/join#t="+token {
-		t.Errorf("Path = %q", c.Path)
+	code := codeOf(t, c)
+	if c.Path != "/join/"+code || c.Invite.CodeHash != HashCode(code) {
+		t.Errorf("path %q, hash %q", c.Path, c.Invite.CodeHash)
 	}
-	if c.Invite.TokenHash != HashToken(token) {
-		t.Error("the stored hash is not the token's")
+	if c.Invite.Code != code || c.Invite.Path() != c.Path {
+		t.Error("a friend invite should keep its code, so the link can be copied again")
 	}
 	sent, err := json.Marshal(c.Invite)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(sent), c.Invite.TokenHash) {
-		t.Error("the token hash should not go to the UI")
+	if strings.Contains(string(sent), code) || strings.Contains(string(sent), c.Invite.CodeHash) {
+		t.Errorf("the invite's JSON holds its code: %s", sent)
 	}
-	var logged bytes.Buffer
-	slog.New(slog.NewJSONHandler(&logged, nil)).Info("created", "invite", c)
-	slog.New(slog.NewTextHandler(&logged, nil)).Info("created", "invite", c)
-	for _, s := range []string{
-		fmt.Sprintf("%+v", c.Invite), fmt.Sprintf("%#v", c.Invite), string(sent),
-		fmt.Sprint(c), fmt.Sprintf("%+v", c), fmt.Sprintf("%#v", c), fmt.Sprintf("%v", &c), fmt.Sprintf("%s", c),
-		logged.String(),
-	} {
-		if strings.Contains(s, token) {
-			t.Errorf("the token leaked into %q", s)
-		}
+	s := c.Invite.Summarize(t0)
+	listed, _ := json.Marshal(s)
+	if s.Path != c.Path || !strings.Contains(string(listed), `"path":"/join/`+code+`"`) {
+		t.Errorf("the management list should carry the link: %s", listed)
 	}
+	inv := c.Invite
+	leaks(t, code, c, &c, inv, &inv, s, &s)
 }
 
 func TestNewPlayerDefaults(t *testing.T) {
-	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "  Discord friends  "}, 7, t0)
+	c, err := NewPlayer(PlayerSpec{ServerID: serverID, ProjectID: projectID, Label: "  Discord crew  "}, 7, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	inv := c.Invite
 	created := t0.Truncate(time.Millisecond)
-	want := Invite{ID: inv.ID, Kind: KindPlayer, TokenHash: inv.TokenHash, ProjectID: projectID, ServerID: serverID,
-		Label: "Discord friends", CreatedBy: 7, CreatedAt: created, ExpiresAt: created.Add(DefaultPlayerTTL), MaxUses: DefaultPlayerUses}
+	want := Invite{ID: inv.ID, Kind: KindPlayer, CodeHash: inv.CodeHash, Code: codeOf(t, c), ProjectID: projectID, ServerID: serverID,
+		Label: "Discord crew", CreatedBy: 7, CreatedAt: created, ExpiresAt: created.Add(DefaultPlayerTTL), MaxUses: DefaultPlayerUses}
 	if inv != want {
-		t.Fatalf("got  %+v\nwant %+v", inv, want)
+		t.Fatalf("got  %#v\nwant %#v", inv.Summarize(t0), want.Summarize(t0))
 	}
 	if !ValidID(inv.ID) {
 		t.Errorf("id %q is not valid", inv.ID)
@@ -162,7 +135,7 @@ func TestNewPlayerOptions(t *testing.T) {
 		{"negative uses", func(s *PlayerSpec) { s.MaxUses = -1 }, "uses"},
 		{"longest label", func(s *PlayerSpec) { s.Label = strings.Repeat("é", MaxLabelRunes) }, ""},
 		{"label too long", func(s *PlayerSpec) { s.Label = strings.Repeat("é", MaxLabelRunes+1) }, "label"},
-		{"label on two lines", func(s *PlayerSpec) { s.Label = "Discord\nfriends" }, "label"},
+		{"label on two lines", func(s *PlayerSpec) { s.Label = "Discord\ncrew" }, "label"},
 		{"label with a control character", func(s *PlayerSpec) { s.Label = "Discord\x00" }, "label"},
 		{"label not UTF-8", func(s *PlayerSpec) { s.Label = "Discord \xff" }, "label"},
 		{"no server", func(s *PlayerSpec) { s.ServerID = "" }, "server"},
@@ -209,74 +182,78 @@ func TestIDs(t *testing.T) {
 	}
 }
 
+// other returns a character of the code alphabet that differs from c.
+func other(c byte) string {
+	if c == 'A' {
+		return "B"
+	}
+	return "A"
+}
+
 func TestCheck(t *testing.T) {
-	inv, token := newPlayer(t, PlayerSpec{MaxUses: 2})
-	first, last := byte('_'), byte('A')
-	if token[0] == '_' {
-		first = '-'
-	}
-	if token[42] == 'A' {
-		last = 'B'
-	}
+	inv, code := newPlayer(t, PlayerSpec{MaxUses: 2})
+	last := CodeLen - 1
 	with := func(f func(*Invite)) Invite {
 		c := inv
 		f(&c)
 		return c
 	}
 	for _, tc := range []struct {
-		name  string
-		inv   Invite
-		token string
-		kind  Kind
-		now   time.Time
-		code  string
+		name string
+		inv  Invite
+		code string
+		kind Kind
+		now  time.Time
+		want string
 	}{
-		{"works", inv, token, KindPlayer, t0, ""},
-		{"works until the last moment", inv, token, KindPlayer, inv.ExpiresAt.Add(-time.Millisecond), ""},
-		{"works with one use left", with(func(i *Invite) { i.Uses = 1 }), token, KindPlayer, t0, ""},
-		{"stored hash in upper case", with(func(i *Invite) { i.TokenHash = strings.ToUpper(i.TokenHash) }), token, KindPlayer, t0, ""},
-		{"no token", inv, "", KindPlayer, t0, CodeNotWorking},
-		{"token cut short", inv, token[:42], KindPlayer, t0, CodeNotWorking},
-		{"token too long", inv, token + "A", KindPlayer, t0, CodeNotWorking},
-		{"token with other characters", inv, strings.Repeat("+", 43), KindPlayer, t0, CodeNotWorking},
-		{"another token", inv, NewToken(), KindPlayer, t0, CodeNotWorking},
-		{"last character changed", inv, token[:42] + string(last), KindPlayer, t0, CodeNotWorking},
-		{"first character changed", inv, string(first) + token[1:], KindPlayer, t0, CodeNotWorking},
-		{"stored hash corrupted", with(func(i *Invite) { i.TokenHash = "zz" + i.TokenHash[2:] }), token, KindPlayer, t0, CodeNotWorking},
-		{"stored hash cut short", with(func(i *Invite) { i.TokenHash = i.TokenHash[:62] }), token, KindPlayer, t0, CodeNotWorking},
-		{"no stored hash", with(func(i *Invite) { i.TokenHash = "" }), token, KindPlayer, t0, CodeNotWorking},
-		{"wrong kind", inv, token, KindMember, t0, CodeNotWorking},
-		{"revoked", Revoke(inv, t0), token, KindPlayer, t0, CodeNotWorking},
-		{"revoked after expiring", Revoke(inv, inv.ExpiresAt), token, KindPlayer, inv.ExpiresAt.Add(time.Hour), CodeNotWorking},
-		{"expired", inv, token, KindPlayer, inv.ExpiresAt, CodeExpired},
-		{"used up", with(func(i *Invite) { i.Uses = 2 }), token, KindPlayer, t0, CodeUsedUp},
+		{"works", inv, code, KindPlayer, t0, ""},
+		{"works until the last moment", inv, code, KindPlayer, inv.ExpiresAt.Add(-time.Millisecond), ""},
+		{"works with one use left", with(func(i *Invite) { i.Uses = 1 }), code, KindPlayer, t0, ""},
+		{"stored hash in upper case", with(func(i *Invite) { i.CodeHash = strings.ToUpper(i.CodeHash) }), code, KindPlayer, t0, ""},
+		{"no code", inv, "", KindPlayer, t0, CodeNotWorking},
+		{"code cut short", inv, code[:last], KindPlayer, t0, CodeNotWorking},
+		{"code too long", inv, code + "A", KindPlayer, t0, CodeNotWorking},
+		{"code with other characters", inv, strings.Repeat("-", CodeLen), KindPlayer, t0, CodeNotWorking},
+		{"code in other capitals", inv, strings.ToUpper(code), KindPlayer, t0, CodeNotWorking},
+		{"another code", inv, NewCode(), KindPlayer, t0, CodeNotWorking},
+		{"last character changed", inv, code[:last] + other(code[last]), KindPlayer, t0, CodeNotWorking},
+		{"first character changed", inv, other(code[0]) + code[1:], KindPlayer, t0, CodeNotWorking},
+		{"the stored code without its hash", with(func(i *Invite) { i.CodeHash = "" }), code, KindPlayer, t0, CodeNotWorking},
+		{"stored hash corrupted", with(func(i *Invite) { i.CodeHash = "zz" + i.CodeHash[2:] }), code, KindPlayer, t0, CodeNotWorking},
+		{"stored hash cut short", with(func(i *Invite) { i.CodeHash = i.CodeHash[:62] }), code, KindPlayer, t0, CodeNotWorking},
+		{"the hash given as the code", inv, inv.CodeHash, KindPlayer, t0, CodeNotWorking},
+		{"wrong kind", inv, code, KindMember, t0, CodeNotWorking},
+		{"revoked", Revoke(inv, t0), code, KindPlayer, t0, CodeNotWorking},
+		{"revoked after expiring", Revoke(inv, inv.ExpiresAt), code, KindPlayer, inv.ExpiresAt.Add(time.Hour), CodeNotWorking},
+		{"expired", inv, code, KindPlayer, inv.ExpiresAt, CodeExpired},
+		{"used up", with(func(i *Invite) { i.Uses = 2 }), code, KindPlayer, t0, CodeUsedUp},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := Check(tc.inv, tc.token, tc.kind, tc.now)
-			if tc.code == "" {
+			err := Check(tc.inv, tc.code, tc.kind, tc.now)
+			if tc.want == "" {
 				if err != nil {
 					t.Fatal(err)
 				}
 				return
 			}
-			e := wantCode(t, err, tc.code)
-			if tc.token != "" && strings.Contains(e.Reason+e.Msg+e.Hint, tc.token) {
-				t.Error("the refusal repeats the token")
+			e := wantCode(t, err, tc.want)
+			if tc.code != "" && strings.Contains(e.Reason+e.Msg+e.Hint+fmt.Sprint(e.Params), tc.code) {
+				t.Error("the refusal repeats the code")
 			}
 		})
 	}
 }
 
 // A page must not be able to tell a link that never existed from one that
-// was revoked, mistyped, or meant for the other page.
+// was revoked, mistyped, or meant for the other kind.
 func TestRefusalsLookAlike(t *testing.T) {
-	inv, token := newPlayer(t, PlayerSpec{})
+	inv, code := newPlayer(t, PlayerSpec{})
 	refusals := map[string]error{
 		"unknown":    NotFound(),
 		"malformed":  Check(inv, "nope", KindPlayer, t0),
-		"mismatch":   Check(inv, NewToken(), KindPlayer, t0),
-		"wrong kind": Check(inv, token, KindMember, t0),
-		"revoked":    Check(Revoke(inv, t0), token, KindPlayer, t0),
+		"mismatch":   Check(inv, NewCode(), KindPlayer, t0),
+		"wrong kind": Check(inv, code, KindMember, t0),
+		"revoked":    Check(Revoke(inv, t0), code, KindPlayer, t0),
 	}
 	want := NotFound()
 	reasons := map[string]bool{}
@@ -332,7 +309,7 @@ func TestMemberInviteWorksOnce(t *testing.T) {
 }
 
 func TestRevoke(t *testing.T) {
-	inv, token := newPlayer(t, PlayerSpec{})
+	inv, code := newPlayer(t, PlayerSpec{})
 	revoked := Revoke(inv, t0.Add(time.Hour))
 	if !revoked.RevokedAt.Equal(t0.Add(time.Hour).Truncate(time.Millisecond)) || revoked.StatusAt(t0.Add(2*time.Hour)) != StatusRevoked {
 		t.Fatalf("RevokedAt = %v, status %s", revoked.RevokedAt, revoked.StatusAt(t0))
@@ -343,7 +320,7 @@ func TestRevoke(t *testing.T) {
 	if !inv.RevokedAt.IsZero() {
 		t.Error("Revoke changed its argument")
 	}
-	wantCode(t, Check(revoked, token, KindPlayer, t0), CodeNotWorking)
+	wantCode(t, Check(revoked, code, KindPlayer, t0), CodeNotWorking)
 }
 
 func TestStatusAt(t *testing.T) {
@@ -369,7 +346,7 @@ func TestStatusAt(t *testing.T) {
 	}
 	s := used.Summarize(t0)
 	if s.Status != StatusUsedUp || s.UsesLeft != 0 || s.ID != inv.ID {
-		t.Errorf("summary %+v", s)
+		t.Errorf("summary %#v", s)
 	}
 	b, _ := json.Marshal(s)
 	if !strings.Contains(string(b), `"status":"used_up"`) || strings.Contains(string(b), "revokedAt") {
@@ -377,22 +354,9 @@ func TestStatusAt(t *testing.T) {
 	}
 }
 
-func TestLinkPath(t *testing.T) {
-	token := NewToken()
-	for kind, want := range map[Kind]string{KindPlayer: "/join#t=" + token, KindMember: "/accept#t=" + token, "other": ""} {
-		got := LinkPath(kind, token)
-		if got != want {
-			t.Errorf("LinkPath(%s) = %q, want %q", kind, got, want)
-		}
-		if path, _, _ := strings.Cut(got, "#"); strings.Contains(path, token) {
-			t.Errorf("the token is in the path part of %q, which browsers send", got)
-		}
-	}
-}
-
 func TestPublicViewHidesTheRest(t *testing.T) {
-	inv, token := newPlayer(t, PlayerSpec{Label: "Secret plans"})
-	p, err := PreviewPlayer(inv, token, t0)
+	inv, code := newPlayer(t, PlayerSpec{Label: "Secret plans"})
+	p, err := PreviewPlayer(inv, code, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +364,7 @@ func TestPublicViewHidesTheRest(t *testing.T) {
 		t.Errorf("preview %+v", p)
 	}
 	b, _ := json.Marshal(p)
-	for _, s := range []string{"Secret plans", "createdBy", "uses", "serverId", inv.ID} {
+	for _, s := range []string{"Secret plans", "createdBy", "uses", "serverId", inv.ID, code} {
 		if strings.Contains(string(b), s) {
 			t.Errorf("preview %s shows %q", b, s)
 		}

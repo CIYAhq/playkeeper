@@ -85,9 +85,13 @@ func TestNewMember(t *testing.T) {
 	}
 	inv := c.Invite
 	if inv.Kind != KindMember || inv.Role != RoleModerator || inv.MaxUses != 1 || inv.CreatedBy != admin.UserID || inv.ServerID != "" ||
-		inv.ExpiresAt.Sub(inv.CreatedAt) != DefaultMemberTTL || !strings.HasPrefix(c.Path, "/accept#t=") || inv.TokenHash != HashToken(tokenOf(t, c)) {
-		t.Errorf("invite %+v, path %q", inv, c.Path)
+		inv.ExpiresAt.Sub(inv.CreatedAt) != DefaultMemberTTL || c.Path != "/join/"+codeOf(t, c) || inv.CodeHash != HashCode(codeOf(t, c)) {
+		t.Errorf("invite %#v, path %q", inv.Summarize(t0), c.Path)
 	}
+	if inv.Code != "" || inv.Path() != "" || inv.Summarize(t0).Path != "" {
+		t.Error("a co-admin invite's code must be shown once, not stored")
+	}
+	leaks(t, codeOf(t, c), c, inv, inv.Summarize(t0))
 
 	_, err = NewMember(MemberSpec{ProjectID: projectID, Role: RoleAdmin}, admin, t0)
 	wantCode(t, err, CodeRoleNotAllowed)
@@ -167,12 +171,12 @@ func memberInvite(t *testing.T, inviter Inviter, role string) (Invite, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return c.Invite, tokenOf(t, c)
+	return c.Invite, codeOf(t, c)
 }
 
 func TestAcceptMember(t *testing.T) {
-	inv, token := memberInvite(t, admin, RoleModerator)
-	req := MemberRequest{Token: token, Username: "sam", Password: "correct horse"}
+	inv, code := memberInvite(t, admin, RoleModerator)
+	req := MemberRequest{Code: code, Username: "sam", Password: "correct horse"}
 	got, err := AcceptMember(inv, req, admin, t0)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +187,7 @@ func TestAcceptMember(t *testing.T) {
 	}
 
 	used, _ := RecordUse(inv, t0)
-	player, playerToken := newPlayer(t, PlayerSpec{})
+	player, playerCode := newPlayer(t, PlayerSpec{})
 	with := func(f func(*MemberRequest)) MemberRequest {
 		r := req
 		f(&r)
@@ -197,9 +201,9 @@ func TestAcceptMember(t *testing.T) {
 		now     time.Time
 		code    string
 	}{
-		{"wrong token", inv, with(func(r *MemberRequest) { r.Token = NewToken() }), admin, t0, CodeNotWorking},
-		{"wrong token and bad username", inv, with(func(r *MemberRequest) { r.Token = "x"; r.Username = "no" }), admin, t0, CodeNotWorking},
-		{"friend invite on the accept page", player, with(func(r *MemberRequest) { r.Token = playerToken }), Inviter{UserID: 1, InstallRole: InstallOwner}, t0, CodeNotWorking},
+		{"wrong code", inv, with(func(r *MemberRequest) { r.Code = NewCode() }), admin, t0, CodeNotWorking},
+		{"wrong code and bad username", inv, with(func(r *MemberRequest) { r.Code = "x"; r.Username = "no" }), admin, t0, CodeNotWorking},
+		{"friend invite used to make an account", player, with(func(r *MemberRequest) { r.Code = playerCode }), Inviter{UserID: 1, InstallRole: InstallOwner}, t0, CodeNotWorking},
 		{"expired", inv, req, admin, inv.ExpiresAt, CodeExpired},
 		{"already accepted", used, req, admin, t0, CodeUsedUp},
 		{"revoked", Revoke(inv, t0), req, admin, t0, CodeNotWorking},
@@ -223,35 +227,35 @@ func TestAcceptMember(t *testing.T) {
 }
 
 func TestAcceptMemberAfterPromotion(t *testing.T) {
-	inv, token := memberInvite(t, admin, RoleViewer)
+	inv, code := memberInvite(t, admin, RoleViewer)
 	promoted := Inviter{UserID: admin.UserID, InstallRole: InstallOwner}
-	if _, err := AcceptMember(inv, MemberRequest{Token: token, Username: "sam", Password: "correct horse"}, promoted, t0); err != nil {
+	if _, err := AcceptMember(inv, MemberRequest{Code: code, Username: "sam", Password: "correct horse"}, promoted, t0); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestPreviewMember(t *testing.T) {
-	inv, token := memberInvite(t, owner, RoleAdmin)
-	p, err := PreviewMember(inv, token, owner, t0)
+	inv, code := memberInvite(t, owner, RoleAdmin)
+	p, err := PreviewMember(inv, code, owner, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p != (Public{Kind: KindMember, Role: RoleAdmin, ExpiresAt: inv.ExpiresAt}) {
 		t.Errorf("preview %+v", p)
 	}
-	_, err = PreviewMember(inv, token, Inviter{}, t0)
+	_, err = PreviewMember(inv, code, Inviter{}, t0)
 	wantCode(t, err, CodeNotWorking)
-	_, err = PreviewMember(inv, NewToken(), owner, t0)
+	_, err = PreviewMember(inv, NewCode(), owner, t0)
 	wantCode(t, err, CodeNotWorking)
 }
 
 func TestMemberRequestHidesSecrets(t *testing.T) {
-	req := MemberRequest{Token: NewToken(), Username: "sam", Password: "correct horse battery"}
+	req := MemberRequest{Code: NewCode(), Username: "sam", Password: "correct horse battery"}
 	var logged bytes.Buffer
 	slog.New(slog.NewJSONHandler(&logged, nil)).Info("accept", "req", req)
 	slog.New(slog.NewTextHandler(&logged, nil)).Info("accept", "req", &req)
 	for _, s := range []string{fmt.Sprint(req), fmt.Sprintf("%+v", req), fmt.Sprintf("%#v", req), fmt.Sprintf("%v", &req), logged.String()} {
-		if strings.Contains(s, req.Token) || strings.Contains(s, req.Password) || !strings.Contains(s, "sam") {
+		if strings.Contains(s, req.Code) || strings.Contains(s, req.Password) || !strings.Contains(s, "sam") {
 			t.Errorf("printed as %q", s)
 		}
 	}

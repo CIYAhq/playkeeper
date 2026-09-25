@@ -33,7 +33,7 @@ const (
 // translations; Error returns the English sentence, and Hint says what to
 // do next. Reason and Err are for logs only: a public page never shows
 // them, so they may say what the page must not (that a link was revoked,
-// say). Neither ever contains a token or password.
+// say). Neither ever contains a code or password.
 type Error struct {
 	Code   string
 	Params map[string]string
@@ -60,11 +60,11 @@ func CodeOf(err error) string {
 	return ""
 }
 
-// NotFound is the refusal for a token that matches no stored invite. It
+// NotFound is the refusal for a code that matches no stored invite. It
 // reads exactly like a revoked link or one of the wrong kind.
-func NotFound() *Error { return notWorking("no invite has this token") }
+func NotFound() *Error { return notWorking("no invite has this code") }
 
-// UsernameTaken is the refusal when the username chosen on the accept page
+// UsernameTaken is the refusal when the username chosen on the join page
 // already belongs to an account.
 func UsernameTaken() *Error {
 	return &Error{Code: CodeUsernameTaken, Status: http.StatusConflict,
