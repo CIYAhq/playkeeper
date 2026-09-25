@@ -145,15 +145,21 @@ func (s *server) withRefusalHint(err error) error {
 	return &apiError{Msg: strings.ToUpper(msg[:1]) + msg[1:], Hint: hint}
 }
 
-// archiveRefusal is the refusal an archive of the world would get, found
-// before the server stops for it, so players are not disconnected for
-// nothing. Anything else Check runs into is left to createArchive.
-func (s *server) archiveRefusal() error {
+// archiveRefusal is the refusal an archive of the world would get, with what
+// to do, found before the server stops for it, so players are not
+// disconnected for nothing. unchanged, like "Nothing was replaced.", starts
+// the hint. Anything else Check runs into is left to createArchive.
+func (s *server) archiveRefusal(unchanged string) error {
 	var refused *backup.RefusedError
-	if err := backup.Check(s.dataDir(), archiveLimits()); errors.As(err, &refused) {
-		return err
+	err := backup.Check(s.dataDir(), archiveLimits())
+	if !errors.As(err, &refused) {
+		return nil
 	}
-	return nil
+	err = s.withRefusalHint(err)
+	if e, ok := err.(*apiError); ok && unchanged != "" {
+		e.Hint = unchanged + " " + e.Hint
+	}
+	return err
 }
 
 func sanitizeName(s string) string {
@@ -292,8 +298,8 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space for a backup: %s free, about %s needed.", humanBytes(free), humanBytes(need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
 	}
-	if err := s.archiveRefusal(); err != nil {
-		return s.withRefusalHint(err)
+	if err := s.archiveRefusal(""); err != nil {
+		return err
 	}
 	_, running, err := s.containerRunning(ctx)
 	if err != nil {
@@ -943,8 +949,8 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	wasRunning := false
 	if prev != nil {
 		if st.preview.CurrentWorld.Exists {
-			if err := s.archiveRefusal(); err != nil {
-				return s.withRefusalHint(fmt.Errorf("could not save a verified rollback archive of the current world, so nothing was replaced: %w", err))
+			if err := s.archiveRefusal("Nothing was replaced."); err != nil {
+				return err
 			}
 		}
 		_, wasRunning, _ = s.containerRunning(ctx)

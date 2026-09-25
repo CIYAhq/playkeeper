@@ -2138,7 +2138,7 @@ func TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping(t *tes
 	live := worldHash(t, e.dataDir())
 	stops := e.dockerStops()
 	op := e.applyRestore(id, phrase)
-	if op.Status != api.OpFailed || !strings.Contains(op.Error, "Could not save a verified rollback archive of the current world, so nothing was replaced") || !strings.Contains(op.Error, "entry name too long") {
+	if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "Cannot back up ") || !strings.Contains(op.Error, "entry name too long") || !strings.HasPrefix(op.Hint, "Nothing was replaced. Rename or remove that file in "+e.dataDir()) {
 		t.Fatalf("a restore over a world its rollback archive would refuse must fail and say why: %+v", op)
 	}
 	if n := e.dockerStops() - stops; n != 0 {
@@ -2148,7 +2148,7 @@ func TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping(t *tes
 	if code != 202 {
 		t.Fatalf("change: %d %v", code, out)
 	}
-	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "Could not save a verified backup first, so nothing was changed") || !strings.Contains(op.Error, "entry name too long") {
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "Cannot back up ") || !strings.Contains(op.Error, "entry name too long") || !strings.HasPrefix(op.Hint, "Nothing was changed. Rename or remove that file in "+e.dataDir()) {
 		t.Fatalf("an update of a world its backup would refuse must fail and say why: %+v", op)
 	}
 	if n := e.dockerStops() - stops; n != 0 {

@@ -380,12 +380,14 @@ control "no world copy is discarded while the live world folder is missing" inte
   'if false && !dirExists(s.dataDir()) {' \
   ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
 control "a world a restore would refuse is refused before the server stops" internal/agent/backups.go \
-  'if err := backup.Check(s.dataDir(), archiveLimits()); errors.As(err, &refused) {' \
-  'if err := backup.Check(s.dataDir(), archiveLimits()); false && errors.As(err, &refused) {' \
+  'err := backup.Check(s.dataDir(), archiveLimits())
+	if !errors.As(err, &refused) {' \
+  'err := backup.Check(s.dataDir(), archiveLimits())
+	if true {' \
   ./internal/agent '^(TestBackupRefusesAWorldARestoreWouldRefuse|TestBackupRefusesAWholeWorldOverALimitBeforeStopping|TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping)$'
 control "an update refuses such a world before the server stops" internal/agent/versions.go \
-  'if err := s.archiveRefusal(); err != nil {' \
-  'if err := s.archiveRefusal(); false && err != nil {' \
+  'if err := s.archiveRefusal("Nothing was changed."); err != nil {' \
+  'if err := s.archiveRefusal("Nothing was changed."); false && err != nil {' \
   ./internal/agent '^TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping$'
 control "the pre-stop check applies the archive limits" internal/backup/archive.go \
   'if err := tally.add(rel, size); err != nil {' \
