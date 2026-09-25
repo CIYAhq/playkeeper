@@ -302,6 +302,7 @@ func (c *Client) responseError(op, name string, r *http.Request, status int, h h
 			e.Msg += ": " + d
 		}
 		e.Msg += "."
+		e.Hint = "Check the storage settings against the provider's instructions. If it keeps happening, look up the error code in the provider's documentation."
 	}
 	return e
 }
@@ -389,7 +390,7 @@ func (c *Client) transportError(op, name string, err error) *Error {
 		e.Kind, e.Field = KindTLS, "endpoint"
 		e.Msg = "The storage service's certificate could not be verified, so nothing was sent."
 		e.Hint = "Check the endpoint address. A self-hosted service needs a certificate from a public authority, such as Let's Encrypt."
-	case errors.As(err, &record):
+	case errors.As(err, &record) || errors.Is(err, http.ErrSchemeMismatch):
 		e.Kind, e.Field = KindTLS, "endpoint"
 		e.Msg = "The endpoint didn't answer with HTTPS."
 		e.Hint = "Check the endpoint's address and port; the service must accept HTTPS there."
