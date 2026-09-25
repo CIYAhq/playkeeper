@@ -46,6 +46,9 @@ type fakeHost struct {
 	// records the versions checked.
 	unhealthy    map[string]error
 	healthChecks []string
+	// stopsAfterAnswering is a version that passes its first health check
+	// and fails the next ones: it crashed right after starting.
+	stopsAfterAnswering string
 	// onStart runs when Playkeeper's services are started; unitsJSON is what
 	// a playkeeper binary's `units` command prints (default: this version's).
 	onStart   func()
@@ -202,6 +205,14 @@ func (h *fakeHost) system(t *testing.T) System {
 		WaitVersion: func(_ context.Context, _, _ string, _ int, want string) error {
 			h.mu.Lock()
 			defer h.mu.Unlock()
+			if want == h.stopsAfterAnswering {
+				for _, v := range h.healthChecks {
+					if v == want {
+						h.healthChecks = append(h.healthChecks, want)
+						return errors.New("the agent exited")
+					}
+				}
+			}
 			h.healthChecks = append(h.healthChecks, want)
 			if err := h.unhealthy[want]; err != nil {
 				return err

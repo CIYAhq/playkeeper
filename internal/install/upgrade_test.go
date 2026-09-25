@@ -194,6 +194,32 @@ func TestUnhealthyUpgradePutsTheOldVersionBack(t *testing.T) {
 	}
 }
 
+func TestUpgradeRollsBackAVersionThatStopsRightAfterAnswering(t *testing.T) {
+	h := newFakeHost(t)
+	installedAt(t, h, "0.1.0", false)
+	before := snapshot(t, h.root)
+	h.stopsAfterAnswering = "0.2.0"
+	sys := h.system(t)
+	bin := newBinary(t, "0.2.0")
+	sys.Executable = func() (string, error) { return bin, nil }
+	o := opts("")
+	o.Yes = true
+	_, err := Run(context.Background(), sys, o, "0.2.0")
+	var rb *RolledBackError
+	if !errors.As(err, &rb) || rb.Version != "0.1.0" || !strings.Contains(err.Error(), "answered, then stopped") {
+		t.Fatalf("a version that stops right after answering must be rolled back: %v", err)
+	}
+	var d []string
+	for _, x := range diff(before, snapshot(t, h.root)) {
+		if !strings.Contains(x, "agent/update") {
+			d = append(d, x)
+		}
+	}
+	if len(d) != 0 {
+		t.Fatalf("after the rollback the host must be as before: %v", d)
+	}
+}
+
 func TestInstallerNeverGoesBackAndLeavesTheCurrentVersionAlone(t *testing.T) {
 	for _, tc := range []struct {
 		installed, want string
