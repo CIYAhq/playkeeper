@@ -36,6 +36,7 @@ type fakeHost struct {
 	freeBytes     int64
 	healthErr     error
 	failCmd       string
+	ufwActive     bool
 	fw4, fw6      *fakeFirewall
 	clock         time.Time
 	lockPolls     int  // the package lock is reported held this many more times
@@ -43,9 +44,10 @@ type fakeHost struct {
 	lockFreedAt   int  // len(cmds) when a held lock was released
 	aptLockErrors int  // apt-get fails this many more times with a lock error
 	// unhealthy makes the health check for a version fail; healthChecks
-	// records the versions checked.
+	// records the versions checked, and panelPorts the panel ports.
 	unhealthy    map[string]error
 	healthChecks []string
+	panelPorts   []int
 	// stopsAfterAnswering is a version that passes its first health check
 	// and fails the next ones: it crashed right after starting.
 	stopsAfterAnswering string
@@ -103,8 +105,14 @@ func (h *fakeHost) system(t *testing.T) System {
 				if h.unitsJSON != "" {
 					return h.unitsJSON, nil
 				}
-				b, _ := json.Marshal(Units(config.Default()))
+				cfg, err := config.Load(filepath.Join(h.root, ConfigDir, "config.json"))
+				if err != nil {
+					cfg = config.Default()
+				}
+				b, _ := json.Marshal(Units(cfg, Joined(cfg, h.root)))
 				return string(b), nil
+			case name == "ufw" && h.ufwActive:
+				return "Status: active\n", nil
 			case name == "ufw":
 				return "Status: inactive\n", nil
 			case name == "dpkg-query":
@@ -201,10 +209,16 @@ func (h *fakeHost) system(t *testing.T) System {
 			}
 			return false
 		},
-		WaitHealthy: func(context.Context, string, string, int) error { return h.healthErr },
-		WaitVersion: func(_ context.Context, _, _ string, _ int, want string) error {
+		WaitHealthy: func(_ context.Context, _, _ string, port int) error {
 			h.mu.Lock()
 			defer h.mu.Unlock()
+			h.panelPorts = append(h.panelPorts, port)
+			return h.healthErr
+		},
+		WaitVersion: func(_ context.Context, _, _ string, port int, want string) error {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.panelPorts = append(h.panelPorts, port)
 			if want == h.stopsAfterAnswering {
 				for _, v := range h.healthChecks {
 					if v == want {

@@ -184,8 +184,8 @@ control "upgrade waits for the new version to be healthy" internal/install/upgra
   'func() error { return nil }' \
   ./internal/install '^(TestUnhealthyUpgradePutsTheOldVersionBack|TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne)$'
 control "upgrade checks the new version again after it answers" internal/install/upgrade.go \
-  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); err != nil {' \
-  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); false && err != nil {' \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.panelPort, version); err != nil {' \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.panelPort, version); false && err != nil {' \
   ./internal/install '^TestUpgradeRollsBackAVersionThatStopsRightAfterAnswering$'
 control "rollback puts the databases back" internal/install/upgrade.go \
   'errs = append(errs, u.restoreDatabases())' \
@@ -241,9 +241,21 @@ control "an install manifest problem does not fail a finished update" internal/i
   'return u.updateManifest(o.NewVersion)' \
   ./internal/install '^TestAnUpdateThatCannotRecordItsVersionIsStillAnUpdate$'
 control "uninstall disables the updater even if the manifest misses it" internal/install/uninstall.go \
-  'if contains(m.Units, u) || updater[u] {' \
+  'if contains(m.Units, u) || extra[u] {' \
   'if contains(m.Units, u) {' \
   ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
+control "a machine joins one dashboard at a time" internal/install/link.go \
+  'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); err == nil {' \
+  'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); false && err == nil {' \
+  ./internal/install '^TestJoiningStartsTheLinkAndLeavingTellsTheDashboardFirst$'
+control "leaving changes nothing unless the dashboard was told or --force is set" internal/install/link.go \
+  'if err != nil && !force {' \
+  'if false && err != nil && !force {' \
+  ./internal/install '^TestLeavingADashboardThatIsGoneNeedsForce$'
+control "a machine installed to join opens only the game port" internal/install/install.go \
+  'return []int{o.GamePort}' \
+  'return []int{o.PanelPort, o.GamePort}' \
+  ./internal/install '^TestInstallingToJoinRunsNoDashboardAndOpensOnlyTheGamePort$'
 control "Paper versions are sorted newest first" internal/minecraft/fill.go \
   'return CompareMinecraft(b.Version.ID, a.Version.ID)' \
   'return 0' \

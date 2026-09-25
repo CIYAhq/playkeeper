@@ -46,6 +46,9 @@ type Config struct {
 	ReleaseURL string `json:"releaseURL,omitempty"`
 	// Dev relaxes host checks for `playkeeper dev`; never set by the installer.
 	Dev bool `json:"dev,omitempty"`
+	// NoPanel is set on a machine installed to join another dashboard: it
+	// runs the agent and the link, and no dashboard of its own.
+	NoPanel bool `json:"noPanel,omitempty"`
 }
 
 func Default() Config {
@@ -108,3 +111,9 @@ func (c Config) RCONSecretPath() string { return filepath.Join(c.AgentDir(), "rc
 func (c Config) TLSDir() string         { return filepath.Join(c.PanelDir(), "tls") }
 func (c Config) SetupTokenPath() string { return filepath.Join(c.PanelDir(), "setup-token.sha256") }
 func (c Config) ManifestPath() string   { return filepath.Join(c.DataDir, "install-manifest.json") }
+
+// LinkDir holds a joined machine's key and what it knows of the dashboard
+// it joined; the second file exists only while the machine is joined.
+func (c Config) LinkDir() string           { return filepath.Join(c.DataDir, "link") }
+func (c Config) LinkKeyPath() string       { return filepath.Join(c.LinkDir(), "machine.key") }
+func (c Config) LinkDashboardPath() string { return filepath.Join(c.LinkDir(), "dashboard.json") }

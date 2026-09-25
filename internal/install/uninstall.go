@@ -13,6 +13,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
@@ -53,7 +54,12 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 		return fmt.Errorf("no install manifest found (%v); Playkeeper does not look installed here", err)
 	}
 	rd := bufio.NewReader(o.In)
+	cfg := config.Default()
+	joined, _ := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath()))
 	fmt.Fprintln(out, "Playkeeper uninstall will remove:")
+	if joined.Address != "" {
+		fmt.Fprintln(out, "  • this machine from the dashboard at "+joined.Address+", where it is "+joined.Name+" (it leaves first)")
+	}
 	fmt.Fprintln(out, "  • services: "+strings.Join(m.Units, ", "))
 	fmt.Fprintln(out, "  • Playkeeper's Minecraft containers, the 'playkeeper' Docker network and the pinned server image")
 	for _, f := range m.FilesCreated {
@@ -100,21 +106,33 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			problems = append(problems, err.Error())
 		}
 	}
-	// The updater's units are removed whenever they exist, even if an upgrade
-	// could not record them in the manifest.
-	updater := map[string]bool{}
-	for _, u := range []string{UpdatePathUnit, UpdateServiceUnit} {
-		if _, err := os.Stat(sys.P(UnitDir + "/" + u)); err == nil {
-			updater[u] = true
+	if joined.Address != "" {
+		fmt.Fprintln(out, "Leaving the dashboard at "+joined.Address+"…")
+		left, err := Leave(ctx, sys, cfg, true)
+		if left.Untold != nil {
+			problems = append(problems, fmt.Sprintf("the dashboard at %s was not told that this machine left (%v); remove %s there, in Settings › Machines",
+				joined.Address, left.Untold, joined.Name))
+		}
+		if !errors.Is(err, ErrNotJoined) {
+			note(err)
 		}
 	}
-	for _, u := range []string{UpdatePathUnit, UpdateServiceUnit, PanelUnit, AgentUnit} {
-		if contains(m.Units, u) || updater[u] {
+	// The updater's units and the link's are removed whenever they exist:
+	// an upgrade may not have recorded them in the manifest, and joining a
+	// dashboard installs the link's.
+	extra := map[string]bool{}
+	for _, u := range []string{LinkUnit, UpdatePathUnit, UpdateServiceUnit} {
+		if _, err := os.Stat(sys.P(UnitDir + "/" + u)); err == nil {
+			extra[u] = true
+		}
+	}
+	for _, u := range []string{LinkUnit, UpdatePathUnit, UpdateServiceUnit, PanelUnit, AgentUnit} {
+		if contains(m.Units, u) || extra[u] {
 			_, err := sys.Run("systemctl", "disable", "--now", u)
 			note(err)
 		}
 	}
-	for u := range updater {
+	for u := range extra {
 		note(removeIfExists(sys.P(UnitDir + "/" + u)))
 	}
 	foreign := removeDockerObjects(ctx, sys, note)

@@ -292,7 +292,7 @@ func runUnits(args []string) error {
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(os.Stdout).Encode(install.Units(cfg))
+	return json.NewEncoder(os.Stdout).Encode(install.Units(cfg, install.Joined(cfg, "/")))
 }
 
 // writeInstallSummary tells the user what to do next. A reinstall that kept an
