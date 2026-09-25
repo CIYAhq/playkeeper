@@ -40,6 +40,7 @@ Usage:
   sudo playkeeper status                          show the server state from the agent
   sudo playkeeper setup-code                      new one-time setup code (before the first admin exists)
   sudo playkeeper reset-password <username>       print a new random password for an admin
+  sudo playkeeper mcp                             serve the tools to an AI assistant over stdio (for SSH)
        playkeeper version
        playkeeper dev         [--dir .dev]        run agent + panel locally for development
 
@@ -78,6 +79,8 @@ func main() {
 		err = runSetupCode(args)
 	case "reset-password":
 		err = runResetPassword(args)
+	case "mcp":
+		err = runMCP(args)
 	case "self-update":
 		err = runSelfUpdate(args)
 	case "units":
