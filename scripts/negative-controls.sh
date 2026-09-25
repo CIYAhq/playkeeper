@@ -428,6 +428,51 @@ control "agent unit: its memory is capped" internal/install/units.go \
 ' \
   '' \
   ./internal/install '^TestAgentUnitCapsItsMemory$'
+control "public routes: limited per address" internal/panel/public.go \
+  'if ok, wait := perMinute.allow(key); !ok {' \
+  'if ok, wait := perMinute.allow(key); false && !ok {' \
+  ./internal/panel '^TestPublicRoutesAreLimitedPerAddress$'
+control "public routes: an address is the connection's, not a forwarded header" internal/panel/public.go \
+  'key := rt.prefix + " " + addressKey(r.RemoteAddr)' \
+  'key := rt.prefix + " " + addressKey(r.RemoteAddr) + r.Header.Get("X-Forwarded-For")' \
+  ./internal/panel '^TestPublicRoutesAreLimitedPerAddress$'
+control "public routes: an IPv6 address counts as its /64" internal/panel/public.go \
+  'p, err := a.Prefix(64)' \
+  'p, err := a.Prefix(128)' \
+  ./internal/panel '^TestAddressKeyIgnoresHeadersAndGroupsIPv6$'
+control "public routes: the requests an address has open are capped" internal/panel/public.go \
+  'if !g.enter(key, rt.limits.open) {' \
+  'if false && !g.enter(key, rt.limits.open) {' \
+  ./internal/panel '^TestPublicDownloadsAreCapped$'
+control "public downloads: capped for every address together" internal/panel/public.go \
+  'downloads: make(chan struct{}, publicDownloads)' \
+  'downloads: make(chan struct{}, 10*publicDownloads)' \
+  ./internal/panel '^TestPublicDownloadsAreCapped$'
+control "public downloads: a client that stops reading is dropped" internal/panel/public.go \
+  '_ = w.rc.SetWriteDeadline(d)' \
+  '_ = d' \
+  ./internal/panel '^TestPublicDownloadsDropClientsThatStopReading$'
+control "public routes: unknown, switched off and stopped answer one 404" internal/panel/public.go \
+  'return status == http.StatusForbidden || status == http.StatusNotFound || status == http.StatusGone || status >= 500' \
+  'return status == http.StatusNotFound' \
+  ./internal/panel '^TestPublicRoutesAnswerOneNotFound$'
+control "public routes: a 404 comes no sooner than one the agent was asked for" internal/panel/public.go \
+  'if wait := publicNotFoundAfter - time.Since(start); wait > 0 {' \
+  'if wait := publicNotFoundAfter - time.Since(start); false && wait > 0 {' \
+  ./internal/panel '^TestPublicRoutesAnswerOneNotFound$'
+control "public routes: a 404 frees its download slot while it waits" internal/panel/public.go \
+  'rt.handler.ServeHTTP(pw, r)
+		release()' \
+  'rt.handler.ServeHTTP(pw, r)' \
+  ./internal/panel '^TestPublicRoutesAnswerOneNotFound$'
+control "public routes: a handler can't make an answer cacheable" internal/panel/public.go \
+  'w.Header().Set("Cache-Control", cache)' \
+  '_ = cache' \
+  ./internal/panel '^TestPublicRoutesCacheOnlyWhatTheyMay$'
+control "public routes: only successful answers may be cached" internal/panel/public.go \
+  'if w.cache != "" && (status < 300 || status == http.StatusNotModified) {' \
+  'if w.cache != "" {' \
+  ./internal/panel '^TestPublicRoutesCacheOnlyWhatTheyMay$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
