@@ -2,6 +2,11 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.0
+
+- A name instead of the IP address: **Machine settings › Address** gives your servers a free `yourname.playkeeper.io` name or your own domain. Each server joins at its own address without a port, Home and each server's Overview show it, and the dashboard gets a Let's Encrypt certificate that renews by itself, so the browser warning goes away. The IP address keeps working. An own domain needs port 80 open while its certificate is issued and renewed; if you use ufw, allow it after this update with `sudo ufw allow 80/tcp`.
+- Two-factor sign-in with an authenticator app, turned on under **Account**, with ten recovery codes. Wrong codes pause and then block app codes, the dashboard tells you after signing in when someone entered wrong codes or your recovery codes run low, and `sudo playkeeper reset-2fa <user>` turns it off if you lose your phone.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
