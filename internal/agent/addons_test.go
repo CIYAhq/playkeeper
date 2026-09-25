@@ -329,6 +329,11 @@ func TestAddonAdoptAndForget(t *testing.T) {
 	if got := fileStatus(list.Files); !maps.Equal(got, map[string]string{name: "unknown", "HomeGrown.jar": "unknown"}) {
 		t.Fatalf("files added by hand: %v", got)
 	}
+	for _, fl := range list.Files {
+		if fl.FileName == "HomeGrown.jar" && (fl.Name != "HomeGrown" || fl.Version != "0.1") {
+			t.Fatalf("a plugin added by hand goes by %q %q, not its plugin.yml name and version", fl.Name, fl.Version)
+		}
+	}
 	var checks api.AddonChecks
 	e.decode("GET", e.sp("/addons/checks"), &checks)
 	if len(checks.Identified) != 1 || checks.Identified[0].FileName != name || checks.Identified[0].Addon == nil || checks.Identified[0].Addon.ProjectID != "fALzjamp" {

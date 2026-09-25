@@ -342,6 +342,10 @@ func apiPlan(p *addons.Plan, installed []addons.Installed) *api.AddonPlan {
 // the running server started loads at the next restart.
 func apiFile(e addons.ScanEntry, running bool, started time.Time) api.AddonFile {
 	f := api.AddonFile{FileName: e.FileName, Size: e.Size, Status: string(e.Status), Name: e.Meta.Name, Version: e.Meta.Version}
+	if f.Name == "" && e.Meta.Kind == "plugin" {
+		// A plugin's name in plugin.yml is also its ID.
+		f.Name = e.Meta.ID
+	}
 	switch {
 	case e.Installed != nil:
 		a := apiAddon(*e.Installed)
