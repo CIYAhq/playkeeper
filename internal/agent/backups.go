@@ -721,9 +721,6 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 			"Start the server and wait until it is online",
 		}
 	}
-	if p.NeedsEULA {
-		p.Warnings = append(p.Warnings, "The restore creates a new server, so you must accept the Minecraft EULA first.")
-	}
 	return p
 }
 

@@ -446,6 +446,12 @@ func TestBackupRestoresAsANewServer(t *testing.T) {
 	if code != 200 || preview["needsEula"] != true || preview["confirmPhrase"] != "restore" || preview["serverId"] != nil {
 		t.Fatalf("a restore that makes a new server: %d %v", code, preview)
 	}
+	warnings, _ := preview["warnings"].([]any)
+	for _, w := range warnings {
+		if s, _ := w.(string); strings.Contains(s, "EULA") {
+			t.Fatalf("the dashboard asks for the EULA from needsEula until its box is ticked, so it is not also a warning: %q", s)
+		}
+	}
 	id := preview["id"].(string)
 	if code, out := e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": "restore", "actor": "admin"}); code != 400 || out["code"] != api.CodeEULARequired {
 		t.Fatalf("without the EULA: %d %v", code, out)

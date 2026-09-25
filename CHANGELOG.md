@@ -8,6 +8,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - The **World** tab shows a world a restore left behind, such as a restored world that did not start, with a button to discard it and free the space.
 - A backup, restore or Minecraft update that has to refuse the world, for example because a file's name is too long for a restore, now says so before stopping the server, so nobody is disconnected for nothing.
 - `playkeeper uninstall` names the Docker folders it removes, and no longer shows an empty services line when it's run a second time.
+- Restoring a backup as a new server no longer warns that you must accept the Minecraft EULA once you've ticked its box.
 
 ## 0.3.0
 

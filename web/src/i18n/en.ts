@@ -1043,4 +1043,5 @@ export const en = {
   'world.leftoverDiscardTitle': 'Discard this world copy?',
   'world.leftoverDiscardBody': 'The copy set aside {time} is deleted from this VPS. Your current world and your backups aren’t affected.',
   'world.leftoverDiscardConfirm': 'Discard copy',
+  'restore.eulaWarning': 'The restore creates a new server, so you must accept the Minecraft EULA first.',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

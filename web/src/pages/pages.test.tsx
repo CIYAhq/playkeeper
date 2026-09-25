@@ -3,10 +3,11 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { MachineView, Me, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { RestoreDialog } from '@/components/app/restore'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
@@ -337,5 +338,38 @@ describe('World', () => {
   it('shows nothing when no restore left a copy', async () => {
     answer({ '/world-copies': [], '/backups': [] })
     expect(await render(<WorldPage server={server()} />)).not.toContain('still on this VPS')
+  })
+})
+
+describe('Restore as a new server', () => {
+  const preview: RestorePreview = {
+    id: 'r2345abcde',
+    source: 'Uploaded file world.tar.gz',
+    receivedAt: '2026-09-25T10:00:00Z',
+    sizeBytes: 50 * 2 ** 20,
+    sha256: 'ab'.repeat(32),
+    manifest: { createdAt: '2026-09-24T09:00:00Z', playkeeperVersion: '0.3.0', minecraftVersion: '26.1.2', paperBuild: 74, versionId: 'paper-26.1.2', levelName: 'world', fileCount: 89, totalBytes: 120 * 2 ** 20, sourceInstall: 'a1b2c3', settings: {} },
+    compatible: true,
+    problems: [],
+    warnings: ['This backup was made on a different Playkeeper host.'],
+    currentWorld: { exists: false, sizeBytes: 0 },
+    willCreateRollback: false,
+    needsEula: true,
+    memoryMB: 1536,
+    confirmPhrase: 'restore',
+    steps: ['Install the world "world" from the backup'],
+    notRestored: [],
+  }
+
+  it('asks for the EULA only until its box is ticked', async () => {
+    const text = await render(<RestoreDialog preview={preview} onClose={() => {}} />)
+    expect(text).toContain('you must accept the Minecraft EULA first')
+    const box = document.querySelector<HTMLElement>('[role="checkbox"]')
+    const label = box?.closest('label')
+    if (!box || !label) throw new Error('no EULA checkbox')
+    await act(async () => label.click())
+    expect(box.getAttribute('aria-checked')).toBe('true')
+    expect(document.body.textContent).not.toContain('you must accept the Minecraft EULA first')
+    expect(document.body.textContent).toContain('This backup was made on a different Playkeeper host.')
   })
 })
