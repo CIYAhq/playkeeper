@@ -126,10 +126,10 @@ func startFakeSquaremapWeb(t *testing.T) *fakeSquaremapWeb {
 	png.Encode(&tile, img)
 	world := `{"spawn":{"x":16,"z":-48},"zoom":{"def":3,"max":3,"extra":2}}`
 	files := map[string]string{
-		"/tiles/settings.json":                     `{"worlds":[{"name":"minecraft_overworld","display_name":"minecraft:overworld","type":"normal","order":0},{"name":"minecraft_the_nether","display_name":"minecraft:the_nether","type":"nether","order":0}]}`,
+		"/tiles/settings.json":                      `{"worlds":[{"name":"minecraft_overworld","display_name":"minecraft:overworld","type":"normal","order":0},{"name":"minecraft_the_nether","display_name":"minecraft:the_nether","type":"nether","order":0}]}`,
 		"/tiles/minecraft_overworld/settings.json":  world,
 		"/tiles/minecraft_the_nether/settings.json": world,
-		"/tiles/players.json":                      `{"max":10,"players":[{"world":"minecraft_overworld","name":"Alex","x":120,"y":64,"z":-40,"uuid":"853c80ef3c3749fdaa49938b674adae6","yaw":0}]}`,
+		"/tiles/players.json":                       `{"max":10,"players":[{"world":"minecraft_overworld","name":"Alex","x":120,"y":64,"z":-40,"uuid":"853c80ef3c3749fdaa49938b674adae6","yaw":0}]}`,
 	}
 	f := &fakeSquaremapWeb{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
