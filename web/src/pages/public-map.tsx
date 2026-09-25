@@ -39,7 +39,7 @@ export function PublicMapPage({ slug }: { slug: string }) {
   }, [shown, off])
 
   return (
-    <div className="flex min-h-dvh flex-col bg-sidebar px-6 pt-4 pb-3 max-sm:px-4 max-sm:pt-[max(env(safe-area-inset-top),16px)] max-sm:pb-[max(env(safe-area-inset-bottom),16px)]">
+    <div className="flex min-h-dvh flex-col bg-sidebar px-8 pt-4 pb-3.5 max-sm:px-4 max-sm:pt-[max(env(safe-area-inset-top),16px)] max-sm:pb-[max(env(safe-area-inset-bottom),16px)]">
       {off ? <Unavailable /> : shown ? <SharedMap slug={slug} base={base} info={shown} /> : <Loading />}
       <Footer />
     </div>
@@ -47,12 +47,11 @@ export function PublicMapPage({ slug }: { slug: string }) {
 }
 
 function Unavailable() {
-  const phone = useIsPhone()
   return (
     <main className="flex flex-1 animate-in flex-col items-center justify-center text-center duration-300 fade-in-0">
-      <Pip pose="sleep" size={phone ? 88 : 80} />
+      <Pip pose="sleep" size={120} />
       <h1 className="mt-4 text-[28px] leading-9 font-bold tracking-[-0.02em] max-sm:text-2xl">{t('publicMap.offTitle')}</h1>
-      <p className="mt-2 text-[15px] text-muted-foreground">{t('publicMap.offLead')}</p>
+      <p className="mt-4 text-base text-muted-foreground max-sm:mt-3.5">{t('publicMap.offLead')}</p>
     </main>
   )
 }
@@ -60,37 +59,37 @@ function Unavailable() {
 function Loading() {
   return (
     <main className="flex flex-1 flex-col" aria-busy="true" aria-label={t('common.loading')}>
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-9 rounded-[22%]" />
+      <div className="flex items-center gap-4 max-sm:gap-2.5">
+        <Skeleton className="size-9 rounded-[22%] max-sm:size-8" />
         <div className="flex flex-col gap-1.5">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-3 w-48" />
         </div>
       </div>
-      <Skeleton className="mt-3 min-h-[320px] flex-1 rounded-2xl" />
+      <Skeleton className="mt-4 min-h-[320px] flex-1 rounded-2xl max-sm:mt-3" />
     </main>
   )
 }
 
 function Footer() {
   return (
-    <footer className="mt-3 flex items-center justify-between gap-4 text-xs text-muted-foreground max-sm:mt-6 max-sm:flex-col max-sm:gap-1 max-sm:text-center">
+    <footer className="mt-4 flex items-center justify-between gap-4 text-xs text-muted-foreground max-sm:mt-9 max-sm:flex-col max-sm:gap-0.5 max-sm:text-center">
       <span className="inline-flex items-center gap-2 text-[13px] text-foreground/80">
-        <BrandMark size={16} />
+        <BrandMark size={18} className="max-sm:size-4" />
         {t('publicMap.madeWith')}
       </span>
-      <p className="max-sm:text-[11px] max-sm:leading-4">{t('footer.notOfficial')}</p>
+      <p className="max-sm:text-[11px] max-sm:leading-[13px]">{t('footer.notOfficial')}</p>
     </footer>
   )
 }
 
 /** The server's own icon when it has one, otherwise the Playkeeper emblem. */
-function PublicEmblem({ base, name }: { base: string; name: string }) {
+function PublicEmblem({ base, name, size }: { base: string; name: string; size: number }) {
   const [failed, setFailed] = useState(false)
-  if (failed) return <Emblem size={36} name={name} />
+  if (failed) return <Emblem size={size} name={name} />
   return (
-    <span className="inline-flex size-9 shrink-0 overflow-hidden rounded-[22%] border border-black/10">
-      <img src={`${base}/icon`} width={36} height={36} alt={t('server.emblem', { server: name })} className="pixelated size-full" onError={() => setFailed(true)} />
+    <span className="inline-flex shrink-0 overflow-hidden rounded-[22%] border border-black/10" style={{ width: size, height: size }}>
+      <img src={`${base}/icon`} width={size} height={size} alt={t('server.emblem', { server: name })} className="pixelated size-full" onError={() => setFailed(true)} />
     </span>
   )
 }
@@ -113,20 +112,20 @@ function SharedMap({ slug, base, info }: { slug: string; base: string; info: Pub
 
   return (
     <main className="flex flex-1 animate-in flex-col duration-300 fade-in-0">
-      <header className="flex items-center gap-3">
-        <PublicEmblem base={base} name={info.name} />
+      <header className="flex items-center gap-4 max-sm:gap-2.5">
+        <PublicEmblem base={base} name={info.name} size={phone ? 32 : 36} />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[17px] leading-6 font-bold tracking-[-0.01em]">{info.name}</h1>
-          <p className="truncate text-[13px] leading-[18px] text-muted-foreground">{subtitle}</p>
+          <h1 className="truncate text-[17px] leading-5 font-bold tracking-[-0.01em]">{info.name}</h1>
+          <p className="truncate text-[13px] leading-4 text-muted-foreground">{subtitle}</p>
         </div>
         {!phone && toggle}
         <CoordsReadout coords={coords} className={cn('text-[13px] text-muted-foreground', !phone && 'ml-2')} />
       </header>
       {phone && toggle && <div className="mt-3">{toggle}</div>}
       {world && worlds.data ? (
-        <MapView world={world} tileSize={worlds.data.tileSize} tileURL={tileURL} players={list} faceURL={faceURL} coords={coords} zoomButtons caption={caption} className="mt-3 min-h-[320px] flex-1" />
+        <MapView world={world} tileSize={worlds.data.tileSize} tileURL={tileURL} players={list} faceURL={faceURL} coords={coords} zoomButtons caption={caption} className="mt-4 min-h-[320px] flex-1 max-sm:mt-3" />
       ) : (
-        <Skeleton className="mt-3 min-h-[320px] flex-1 rounded-2xl" />
+        <Skeleton className="mt-4 min-h-[320px] flex-1 rounded-2xl max-sm:mt-3" />
       )}
     </main>
   )
