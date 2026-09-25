@@ -109,8 +109,8 @@ export function PackShareSheet({ server, pack, open, onOpenChange }: { server: S
   if (phone) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetPopup side="bottom" variant="inset" showCloseButton>
-          <SheetPanel className="flex flex-col gap-4 px-5 pt-5">
+        <SheetPopup side="bottom" variant="inset" showCloseButton closeProps={{ className: 'absolute end-3 top-[21px]' }}>
+          <SheetPanel className="flex flex-col gap-4 px-5 pt-3">
             <div className="pr-8">
               <SheetTitle className="text-xl font-bold">{title}</SheetTitle>
               <SheetDescription className={cn('mt-0.5 text-[13px]', link && 'sr-only')}>{holds}</SheetDescription>
@@ -142,7 +142,7 @@ export function PackShareSheet({ server, pack, open, onOpenChange }: { server: S
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="sm:max-w-[560px]">
+      <DialogPopup className="sm:max-w-[560px]" showCloseButton={false}>
         <div className="flex items-center gap-3.5 px-6 pt-6 pb-1">
           {server.machineId && server.config?.modpack ? <PackIcon machineId={server.machineId} url={server.config.modpack.iconUrl} size={44} /> : <Emblem size={44} icon={iconURL(server)} name={server.name} />}
           <div className="min-w-0">
@@ -151,7 +151,7 @@ export function PackShareSheet({ server, pack, open, onOpenChange }: { server: S
           </div>
         </div>
         <DialogPanel className="flex flex-col gap-4 pt-4">{body}</DialogPanel>
-        <DialogFooter variant="bare" className="items-center border-t border-border pt-4 sm:justify-between">
+        <DialogFooter variant="bare" className="mx-6 items-center border-t border-border px-0 pt-4 sm:justify-between">
           {link ? (
             <Button variant="ghost" loading={busy === 'off'} onClick={() => void setPublic(false)}>
               <XIcon />
@@ -221,7 +221,7 @@ function SharedBody({ ps, server, link, phone }: { ps: PackShare; server: Server
         <p className="mt-1.5 text-xs text-muted-foreground max-sm:text-[13px]">{phone ? t('packShare.linkHintPhone') : t('packShare.linkHint')}</p>
       </div>
       <Section title={t('packShare.steps')}>
-        <ol className="flex list-decimal flex-col gap-1 pl-5 text-[13px] leading-5 max-sm:gap-1.5 max-sm:text-[15px]">
+        <ol className="flex list-decimal flex-col gap-1 pl-5 text-[13px] leading-5 max-sm:gap-1.5 max-sm:text-sm">
           {steps.map((s) => (
             <li key={s} className="pl-1">
               {s}
