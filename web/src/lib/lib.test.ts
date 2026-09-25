@@ -256,6 +256,15 @@ describe('crash helper', () => {
     expect(crashFixes({ ...oom, roomMB: 0 }, 'Survival', 'my-vps', false)[0]?.hint).toBeUndefined()
   })
 
+  it('names a file Playkeeper refused and says to delete it', () => {
+    const refused = (reason: string) => crash({ start: true, kind: 'refused_file', params: { path: 'plugins/bStats/config.yml', reason }, fixes: [{ kind: 'restart', title: 'Start the server again', recommended: true }] })
+    expect(crashSummary(refused('link'), 'Survival', 'my-vps')).toBe('plugins/bStats/config.yml is a link, which Playkeeper won’t follow. Delete it, then start again.')
+    expect(crashSummary(refused('special_file'), 'Survival', 'my-vps')).toBe('plugins/bStats/config.yml isn’t a normal file, so Playkeeper won’t open it. Delete it, then start again.')
+    expect(crashSummary(refused('too_large'), 'Survival', 'my-vps')).toBe('The agent’s words.')
+    expect(crashFixes(refused('link'), 'Survival', 'my-vps', false)).toMatchObject([{ title: 'Start Survival again', hint: 'Once it’s deleted', plan: { kind: 'start' }, button: 'Start Survival' }])
+    expect(statusLabel(server({ phase: 'stopped', crash: refused('link') }))).toBe('Couldn’t start')
+  })
+
   it('always leaves a way to start again', () => {
     const eula = crash({ kind: 'eula', fixes: [{ kind: 'accept_eula', title: 'Accept', recommended: true }] })
     expect(titles(eula)).toEqual([

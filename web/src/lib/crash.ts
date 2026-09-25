@@ -75,6 +75,12 @@ export function crashSummary(c: Crash, server: string, machine: string): string 
       return t('crash.killed')
     case 'incompatible_addon':
       return c.explanation
+    case 'refused_file': {
+      const path = str(p, 'path')
+      const reason = str(p, 'reason')
+      if (path && reason === 'link') return t('crash.refusedLink', { path })
+      return path && reason === 'special_file' ? t('crash.refusedSpecial', { path }) : c.explanation
+    }
     case 'unknown':
       return c.start ? t('crash.unknownStart') : t('crash.unknown')
     default: {
@@ -228,6 +234,7 @@ function restartText(c: Crash, server: string): FixText {
   if (c.kind === 'port_in_use' && port && !str(p, 'reason')) return startText(t('crash.fix.samePort', { port }), server, t('crash.fix.samePortHint'))
   if (c.kind === 'corrupt_world' && str(p, 'file') !== 'level.dat') return startText(t('crash.fix.regrow'), server, t('crash.fix.regrowHint'))
   if (c.kind === 'world_locked') return startText(t('crash.fix.again', { server }), server, t('crash.fix.lockedHint'))
+  if (c.kind === 'refused_file') return startText(t('crash.fix.again', { server }), server, t('crash.fix.deletedHint'))
   if (c.kind === 'disk_full' && free !== undefined) return startText(t('crash.fix.again', { server }), server, t('crash.fix.freeNow', { free: formatMB(free) }))
   return startText(t('crash.fix.again', { server }), server)
 }

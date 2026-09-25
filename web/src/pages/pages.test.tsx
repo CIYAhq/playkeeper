@@ -582,6 +582,24 @@ describe('Crash helper', () => {
     expect(posts()).toEqual([['/addons/remove', { jar: 'Multiverse-Portals-5.0.2.jar', start: true }]])
   })
 
+  it('names a link Playkeeper refused in one line and starts again once it’s gone', async () => {
+    vi.mocked(client.post).mockClear()
+    const refused = crash({
+      start: true,
+      kind: 'refused_file',
+      params: { path: 'plugins/bStats/config.yml', reason: 'link' },
+      explanation: 'plugins/bStats/config.yml in the server’s files is a link, which Playkeeper does not follow. Delete it, or replace it with the file or folder it points to, then try again.',
+      fixes: [{ kind: 'restart', title: 'Start the server again', recommended: true }],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: refused })} />)
+    expect(text).toContain('plugins/bStats/config.yml is a link, which Playkeeper won’t follow. Delete it, then start again.')
+    expect(text).not.toContain('replace it with the file')
+    expect(text).not.toContain('Last lines before it stopped')
+    expect(text).toContain('Start Survival againRecommendedOnce it’s deleted')
+    await press('Start Survival')
+    expect(posts()).toEqual([['/start', undefined]])
+  })
+
   it('puts the damaged area back as the agent recommends, or restores the backup it names', async () => {
     vi.mocked(client.post).mockClear()
     const made = new Date()
