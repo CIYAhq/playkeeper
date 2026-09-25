@@ -244,6 +244,19 @@ control "uninstall disables the updater even if the manifest misses it" internal
   'if contains(m.Units, u) || updater[u] {' \
   'if contains(m.Units, u) {' \
   ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
+control "RCON finds a closed connection before writing" internal/minecraft/rcon.go \
+  'if err := r.probe(); err != nil {' \
+  'if err := r.probe(); false && err != nil {' \
+  ./internal/minecraft '^TestRCONExecOnClosedConnectionIsUnsent$'
+control "RCON stops when the caller's context ends" internal/minecraft/rcon.go \
+  '		_ = r.conn.SetDeadline(time.Unix(1, 0))
+' \
+  '' \
+  ./internal/minecraft '^(TestRCONExecHonoursContextDeadline|TestRCONExecStopsWhenCancelled)$'
+control "a console command that went out is never sent again" internal/agent/collector.go \
+  'if attempt == 1 || !errors.Is(err, minecraft.ErrUnsent) || ctx.Err() != nil {' \
+  'if attempt == 1 || ctx.Err() != nil {' \
+  ./internal/agent '^TestConsoleNeverSendsACommandTwice$'
 control "Paper versions are sorted newest first" internal/minecraft/fill.go \
   'return CompareMinecraft(b.Version.ID, a.Version.ID)' \
   'return 0' \
