@@ -46,15 +46,22 @@ function transitionMs(): number {
   return Number.parseFloat(token) || 200
 }
 
+function sameItems<T>(a: T[] | undefined, b: T[] | undefined): boolean {
+  if (a === b) return true
+  return !!a && !!b && a.length === b.length && a.every((item, i) => item === b[i])
+}
+
 /**
  * A list's rows with their enter/leave state, for `data-entering` and
  * `data-leaving` (styles.css animates both). Undefined items mean the list
- * isn't loaded, so its first data shows without animating every row.
+ * isn't loaded, so its first data shows without animating every row. Items
+ * are compared one by one, so a list rebuilt from the same items each render
+ * is fine.
  */
 export function useListPresence<T>(items: T[] | undefined, keyOf: (item: T) => string): Present<T>[] {
   const [seen, setSeen] = useState(items)
   const [rows, setRows] = useState<Present<T>[]>(() => presence([], items ?? [], keyOf, true))
-  if (items !== seen) {
+  if (!sameItems(items, seen)) {
     setSeen(items)
     setRows(items ? presence(rows, items, keyOf, seen === undefined) : [])
   }

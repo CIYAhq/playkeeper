@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
-import { WorkspaceContext, type Workspace } from '@/api/workspace'
-import { GetStartedCard } from '@/components/app/checklist'
+import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
+import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
@@ -242,6 +242,31 @@ describe('Players', () => {
     expect(text).toContain('≈ means a session ended in a crash')
   })
 
+  it('shows a new player at once and puts the name back if Minecraft refuses it', async () => {
+    answer({ '/whitelist': [], '/operators': [], '/players/summary': { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    let refuse: (e: unknown) => void = () => {}
+    vi.mocked(client.post).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject
+        }),
+    )
+    await render(<PlayersPage server={server()} />)
+    const field = () => document.querySelector('input[aria-label="Minecraft username"]') as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field(), 'tobi2009')
+      field().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => field().form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(document.body.textContent).not.toContain('Nobody’s joined yet')
+    expect(document.querySelector('li')?.textContent).toContain('tobi2009')
+    expect(field().value).toBe('')
+    await act(async () => refuse(new client.ApiError(422, { error: 'That player does not exist', code: 'invalid' })))
+    expect(document.body.textContent).toContain('Nobody’s joined yet')
+    expect(field().value).toBe('tobi2009')
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('That player does not exist')
+  })
+
   it('explains how to invite someone when nobody has joined', async () => {
     answer({ '/whitelist': [], '/operators': [], '/players/summary': { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
     const text = await render(<PlayersPage server={server()} />)
@@ -258,7 +283,41 @@ describe('Get started', () => {
   })
 
   it('hides once the owner hid it', async () => {
-    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { 'firstSteps.hidden.abcdefghjk': '1' } }))).toBe('')
+    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { 'checklist.hidden.abcdefghjk': '1' } }))).toBe('')
+  })
+
+  it('hides under a key the panel accepts', () => {
+    for (const s of [server(), undefined]) expect(hiddenKey(s)).toMatch(/^[a-z][a-z0-9.:_-]{0,63}$/)
+  })
+
+  it('hides at once and comes back if the panel refuses', async () => {
+    let refuse: (e: unknown) => void = () => {}
+    vi.mocked(client.post).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject
+        }),
+    )
+    const failed = vi.fn()
+    function Hide() {
+      const { prefs, setPrefs } = useWorkspace()
+      return (
+        <button type="button" onClick={() => void setPrefs({ [hiddenKey(server())]: '1' }).catch(failed)}>
+          {Object.keys(prefs).join(',')}
+        </button>
+      )
+    }
+    await render(
+      <WorkspaceProvider me={me} onSignedOut={() => {}}>
+        <Hide />
+      </WorkspaceProvider>,
+    )
+    const button = document.querySelector('button') as HTMLButtonElement
+    await act(async () => button.click())
+    expect(button.textContent).toBe('checklist.hidden.abcdefghjk')
+    await act(async () => refuse(new client.ApiError(0, { error: 'The dashboard can’t be reached.', code: 'internal' })))
+    expect(button.textContent).toBe('')
+    expect(failed).toHaveBeenCalled()
   })
 })
 

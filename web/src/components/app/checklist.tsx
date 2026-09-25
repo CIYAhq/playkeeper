@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { ArchiveIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, DownloadIcon, LockIcon, PlusIcon, UserPlusIcon, XIcon } from 'lucide-react'
 import type { ServerStatus } from '@/api/types'
-import { useWorkspace } from '@/api/workspace'
+import { errorText, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Progress, SectionLabel } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
+import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { checklist, complete, progress, type Step, type StepId } from '@/lib/checklist'
 import { relativeTime } from '@/lib/format'
@@ -12,8 +13,9 @@ import { isSettingUp } from '@/lib/phase'
 import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
+/** The preference that hides a server's first steps (keys are lower case, see hPrefsSet). */
 export function hiddenKey(server: ServerStatus | undefined): string {
-  return server ? `firstSteps.hidden.${server.id}` : 'firstSteps.hidden'
+  return server ? `checklist.hidden.${server.id}` : 'checklist.hidden'
 }
 
 /** The server the "Get started" steps are about on a page: the open one, or the first with steps left. */
@@ -200,7 +202,9 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
   if (complete(steps) || prefs[hiddenKey(server)] === '1') return null
   const p = progress(steps)
   const left = p.total - p.done
-  const hide = () => void setPrefs({ [hiddenKey(server)]: '1' })
+  const hide = () => {
+    setPrefs({ [hiddenKey(server)]: '1' }).catch((e: unknown) => toastManager.add({ title: t('checklist.hideFailed'), description: errorText(e), type: 'error' }))
+  }
   if (phone) {
     const next = p.next
     return (

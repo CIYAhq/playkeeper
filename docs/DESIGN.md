@@ -34,6 +34,7 @@ In Tailwind they are `duration-(--motion-fast)`, `ease-standard`, `ease-enter`, 
 - **Overlays.** Dialogs, sheets, menus and selects animate through Base UI's `data-starting-style` and `data-ending-style`: dialogs fade in from 98% size, sheets slide in from their edge, menus and selects fade in from 97%. Menus and selects open fast; everything closes fast with the exit easing.
 - **Lists.** Rows added after a list first shows fade in from 4 px above (`data-entering`); removed rows fade out where they were before the list closes up (`data-leaving`). `useListPresence` in `web/src/lib/presence.ts` handles both.
 - **State changes.** Switch thumbs slide, status dots and labels fade to their new state, and progress bars ease to their new value.
+- **Optimistic updates.** Small changes that are easy to take back show at once: hiding the first steps, and adding or removing players and operators. If saving fails the change is undone and a plain message says what didn't happen. Deleting, restoring, updating, backups and anything else long or destructive waits for the server. Helpers are in `web/src/lib/optimistic.ts`.
 - **Reduced motion.** When the system asks for less motion, every transition is instant, nothing shrinks when pressed, and spinners and pulses hold still.
 
 ## Screens
