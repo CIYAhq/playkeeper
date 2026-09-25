@@ -276,7 +276,7 @@ func (e *agentEnv) dataDir() string { return filepath.Join(e.cfg.DataDir, "serve
 func (e *agentEnv) addIdleServer() string {
 	e.t.Helper()
 	sc := api.ServerConfig{Type: api.TypePaper, VersionID: "paper-26.1.2", MinecraftVersion: "26.1.2", PaperBuild: 74, MemoryMB: 1536, HeapMB: 1024, LevelName: "world", MOTD: defaultMOTD, MaxPlayers: 10, Whitelist: true}
-	s, err := e.a.addServer(newServerSpec{typ: api.TypePaper, config: sc, desired: api.DesiredStopped})
+	s, _, err := e.a.addServer(newServerSpec{typ: api.TypePaper, config: sc, desired: api.DesiredStopped}, "", nil)
 	if err != nil {
 		e.t.Fatal(err)
 	}

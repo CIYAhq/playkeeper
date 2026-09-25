@@ -80,12 +80,21 @@ var opLabels = map[string]string{
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
 }
 
-func (s *server) busyError() error {
-	if v := s.installingUpdate(); v != "" {
+// machineBusy is the error for a request that has to wait for a machine-wide
+// operation (a Playkeeper update being staged or installed), or nil.
+func (a *Agent) machineBusy() error {
+	if v := a.installingUpdate(); v != "" {
 		return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
 	}
-	if op := s.machineOp(); op != nil {
+	if op := a.machineOp(); op != nil {
 		return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + opLabels[op.Kind] + ".", Hint: "Wait for it to finish, then try again.", Op: op}
+	}
+	return nil
+}
+
+func (s *server) busyError() error {
+	if err := s.machineBusy(); err != nil {
+		return err
 	}
 	cur := s.currentOp()
 	what := "another operation"
@@ -116,10 +125,16 @@ func (s *server) beginOp(kind, actor string, fn func(ctx context.Context, h *opH
 	default:
 		return nil, s.busyError()
 	}
-	if s.installingUpdate() != "" || s.machineOp() != nil {
+	if err := s.machineBusy(); err != nil {
 		<-s.opLock
-		return nil, s.busyError()
+		return nil, err
 	}
+	return s.startOp(kind, actor, fn), nil
+}
+
+// startOp starts fn as the server's operation. The caller holds the
+// operation lock, which the operation releases when fn returns.
+func (s *server) startOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
 	op := &api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}
 	s.opMu.Lock()
 	s.op = op
@@ -146,7 +161,7 @@ func (s *server) beginOp(kind, actor string, fn func(ctx context.Context, h *opH
 			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
 		}
 	}()
-	return snap, nil
+	return snap
 }
 
 func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opHandle) error) (err error) {

@@ -496,6 +496,48 @@ func TestUpdateWaitsForEveryServer(t *testing.T) {
 	}
 }
 
+// While a machine-wide operation runs, a new server or a restore as a new
+// server is refused and leaves nothing behind: no server that holds memory
+// and a port, or that could start by itself afterwards.
+func TestNoServerIsAddedWhileTheMachineIsBusy(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("backup: %+v", op)
+	}
+	list, _ := e.srv().listBackups("")
+	archive, err := os.ReadFile(filepath.Join(e.cfg.BackupsDir(), list[0].FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, preview := e.uploadTo("/v1/restore/upload", archive)
+	if code != 200 {
+		t.Fatalf("upload: %d %v", code, preview)
+	}
+	e.waitFor("Survival idle", e.onlineIdle)
+
+	release := make(chan struct{})
+	if _, err := e.a.beginMachineOp("update", "admin", func(ctx context.Context, h *opHandle) error {
+		<-release
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code, out = e.call("POST", "/v1/servers", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "name": "Creative", "actor": "admin"})
+	restoreCode, restoreOut := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
+	close(release)
+	if code != 409 || out["code"] != api.CodeBusy || restoreCode != 409 || restoreOut["code"] != api.CodeBusy {
+		t.Fatalf("while the machine is busy: create %d %v, restore %d %v", code, out, restoreCode, restoreOut)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM servers`); n != 1 || len(e.a.serverList()) != 1 {
+		t.Fatalf("refused requests left %d servers", n)
+	}
+}
+
 func (e *agentEnv) decode(method, path string, out any) {
 	e.t.Helper()
 	req, _ := http.NewRequest(method, e.ts.URL+path, nil)

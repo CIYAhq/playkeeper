@@ -336,12 +336,16 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 			<-s.opLock
 		}
 	}
+	// createMu keeps a new server from appearing between taking the servers'
+	// locks and publishing the operation, which addServer checks for.
+	a.createMu.Lock()
 	for _, s := range a.serverList() {
 		select {
 		case s.opLock <- struct{}{}:
 			held = append(held, s)
 		default:
 			release()
+			a.createMu.Unlock()
 			<-a.mopLock
 			cur := s.currentOp()
 			what := "an operation"
@@ -356,6 +360,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 	a.mop = op
 	snap := copyOp(op)
 	a.mopMu.Unlock()
+	a.createMu.Unlock()
 	a.saveOperation(snap)
 	h := &opHandle{save: a.saveOperation, op: op, mu: func() func() { a.mopMu.Lock(); return a.mopMu.Unlock }}
 	a.wg.Add(1)

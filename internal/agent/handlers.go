@@ -342,19 +342,16 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
 		PlayStyle: req.PlayStyle, Gameplay: gp,
 	}, entry)
-	s, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	op, err := s.beginOp("create", actor, func(ctx context.Context, h *opHandle) error {
-		s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-		s.recordEvent(s.now(), "server_created", "", "playkeeper", entry.Label)
-		if err := s.startServer(ctx, h, sc); err != nil {
-			s.startFailed(ctx)
-			return err
+	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
+		return func(ctx context.Context, h *opHandle) error {
+			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
+			s.recordEvent(s.now(), "server_created", "", "playkeeper", entry.Label)
+			if err := s.startServer(ctx, h, sc); err != nil {
+				s.startFailed(ctx)
+				return err
+			}
+			return nil
 		}
-		return nil
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1072,19 +1069,20 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if target == nil {
-		target, err = a.newServerForRestore(st, req, name, actor)
-		if err != nil {
-			writeError(w, err)
-			return
+	restore := func(s *server) func(ctx context.Context, h *opHandle) error {
+		return func(ctx context.Context, h *opHandle) error {
+			if p.NeedsEULA {
+				s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
+			}
+			return s.restoreOp(ctx, h, st, req, actor)
 		}
 	}
-	op, err := target.beginOp("restore", actor, func(ctx context.Context, h *opHandle) error {
-		if p.NeedsEULA {
-			target.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-		}
-		return target.restoreOp(ctx, h, st, req, actor)
-	})
+	var op *api.Operation
+	if target == nil {
+		op, err = a.restoreAsNewServer(st, req, name, actor, restore)
+	} else {
+		op, err = target.beginOp("restore", actor, restore(target))
+	}
 	if err != nil {
 		writeError(w, err)
 		return

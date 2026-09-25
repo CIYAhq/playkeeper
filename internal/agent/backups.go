@@ -522,9 +522,9 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 	return st, nil
 }
 
-// newServerForRestore records the server a restore creates: stopped, with
-// the backup's settings, until the restore puts its world in place.
-func (a *Agent) newServerForRestore(st *stage, req api.RestoreApplyRequest, name, actor string) (*server, error) {
+// restoreAsNewServer records the server a restore creates, stopped and with
+// the backup's settings, and starts the restore that puts its world in place.
+func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name, actor string, restore func(s *server) func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
 	m := st.manifest
 	entry, err := a.restoreBuild(a.ctx, m.MinecraftVersion, m.PaperBuild)
 	if err != nil {
@@ -548,7 +548,8 @@ func (a *Agent) newServerForRestore(st *stage, req api.RestoreApplyRequest, name
 		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
 		MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
 	}, entry)
-	return a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor})
+	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
+	return op, err
 }
 
 // uniqueName is name, or name with a number after it if another server has it.

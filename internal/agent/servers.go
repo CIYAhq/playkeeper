@@ -359,46 +359,58 @@ type newServerSpec struct {
 	auditMsg string
 }
 
-// addServer records a new v2 server and starts its loops. It holds createMu
-// so two new servers never get the same slug, port or memory.
-func (a *Agent) addServer(spec newServerSpec) (*server, error) {
+// addServer records a new v2 server and starts its first operation, kind,
+// which runs the function first returns for the server. It holds createMu,
+// so two new servers never get the same slug, port or memory and none is
+// recorded while a machine-wide operation runs. The server holds its
+// operation lock before anything can see it, so neither a machine-wide
+// operation nor an automatic start gets in ahead of its first operation.
+// With first nil, the server is only recorded.
+func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server) func(ctx context.Context, h *opHandle) error) (*server, *api.Operation, error) {
 	a.createMu.Lock()
 	defer a.createMu.Unlock()
-	if v := a.installingUpdate(); v != "" {
-		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
+	if err := a.machineBusy(); err != nil {
+		return nil, nil, err
 	}
 	name := spec.name
 	if name == "" {
 		name = a.defaultName()
 	} else if a.nameTaken(name, "") {
-		return nil, errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+		return nil, nil, errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
 	}
 	if err := a.validMemory(spec.config.MemoryMB, ""); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	port, err := a.nextGamePort()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	id := newServerID()
 	slug := a.uniqueSlug(slugFor(name))
 	cfgJSON, err := json.Marshal(spec.config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	now := a.now().UTC()
 	var pos int
 	_ = a.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM servers`).Scan(&pos)
 	if _, err := a.db.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, api.GameMinecraftJava, spec.typ, layoutV2, port, string(cfgJSON), spec.desired, pos, now.UnixMilli(), now.UnixMilli()); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s := a.newServerHandle(id, layoutV2, port)
+	s.opLock <- struct{}{}
 	a.srvMu.Lock()
 	a.servers[id] = s
 	a.srvMu.Unlock()
+	var op *api.Operation
+	if first != nil {
+		op = s.startOp(kind, spec.actor, first(s))
+	} else {
+		<-s.opLock
+	}
 	s.startLoops()
-	return s, nil
+	return s, op, nil
 }
 
 // migrateSingleServer turns the single server of an install made by 0.1.0 or
