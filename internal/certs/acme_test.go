@@ -665,7 +665,7 @@ func TestIssueHTTP01(t *testing.T) {
 
 func TestIssueDNS01(t *testing.T) {
 	f := newFakeCA(t)
-	ch := newChallenger()
+	ch := newChallenger(t)
 	f.txt = ch.txt
 	base := t.TempDir()
 	h := &HTTP01Responder{}
@@ -823,7 +823,7 @@ func TestIssuePort80Busy(t *testing.T) {
 func TestIssueChallengeNotOffered(t *testing.T) {
 	f := newFakeCA(t)
 	base := t.TempDir()
-	ch := newChallenger()
+	ch := newChallenger(t)
 	cases := []struct {
 		offer     []string
 		req       Request
@@ -1079,7 +1079,7 @@ func TestIssueProblems(t *testing.T) {
 		t.Run(c.Name, func(t *testing.T) {
 			f := newFakeCA(t)
 			f.fail[c.Step] = c.caFailure
-			ch := newChallenger()
+			ch := newChallenger(t)
 			f.txt = ch.txt
 			base := t.TempDir()
 			is := f.issuer(base)

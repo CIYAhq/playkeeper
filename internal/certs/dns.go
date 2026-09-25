@@ -11,6 +11,8 @@ import (
 
 // Resolver looks up the DNS records the checks need. *net.Resolver
 // satisfies it, as do PublicResolver and the resolvers DNSServer returns.
+// Names are passed with a trailing dot, so that a system resolver never
+// tries them with its search domains appended.
 type Resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 	LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error)
@@ -99,7 +101,7 @@ func CheckName(ctx context.Context, r Resolver, name string, expected []netip.Ad
 	c := NameCheck{Name: n}
 	var failed []string
 	for _, q := range []struct{ network, typ string }{{"ip4", "A"}, {"ip6", "AAAA"}} {
-		addrs, err := r.LookupNetIP(ctx, q.network, n)
+		addrs, err := r.LookupNetIP(ctx, q.network, n+".")
 		if err != nil {
 			if !isNotFound(err) {
 				failed = append(failed, q.typ)

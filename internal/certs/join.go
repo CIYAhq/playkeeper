@@ -255,7 +255,7 @@ func (p Plan) checkSRV(ctx context.Context, r Resolver, s JoinServer, rec Record
 	host := strings.TrimPrefix(rec.Name, "_minecraft._tcp.")
 	params := map[string]string{"host": host, "port": strconv.Itoa(s.Port), "target": p.Name, "record": rec.Name}
 	rc := RecordCheck{Record: rec}
-	_, srvs, err := r.LookupSRV(ctx, "minecraft", "tcp", host)
+	_, srvs, err := r.LookupSRV(ctx, "minecraft", "tcp", host+".")
 	var code string
 	switch {
 	case err != nil && isNotFound(err) || err == nil && len(srvs) == 0:

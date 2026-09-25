@@ -14,6 +14,7 @@ import (
 
 // fakeChallenger keeps TXT records in memory, the way a DNS provider would.
 type fakeChallenger struct {
+	t        *testing.T
 	mu       sync.Mutex
 	records  map[string][]string
 	calls    []string
@@ -21,7 +22,9 @@ type fakeChallenger struct {
 	clearCtx error
 }
 
-func newChallenger() *fakeChallenger { return &fakeChallenger{records: map[string][]string{}} }
+func newChallenger(t *testing.T) *fakeChallenger {
+	return &fakeChallenger{t: t, records: map[string][]string{}}
+}
 
 func (c *fakeChallenger) SetTXT(ctx context.Context, fqdn, value string) error {
 	c.mu.Lock()
@@ -44,7 +47,11 @@ func (c *fakeChallenger) ClearTXT(ctx context.Context, fqdn, value string) error
 }
 
 // lookup answers like a resolver: not found when the name has no TXT.
-func (c *fakeChallenger) lookup(_ context.Context, fqdn string) ([]string, error) {
+func (c *fakeChallenger) lookup(_ context.Context, name string) ([]string, error) {
+	fqdn, ok := strings.CutSuffix(name, ".")
+	if !ok {
+		c.t.Errorf("looked up %q without a trailing dot", name)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.records[fqdn]) == 0 {
@@ -68,7 +75,7 @@ func (c *fakeChallenger) log() []string {
 const alexTXT = "_acme-challenge.alex.playkeeper.io"
 
 func TestDNS01Present(t *testing.T) {
-	c := newChallenger()
+	c := newChallenger(t)
 	d := &DNS01{Challenger: c, LookupTXT: c.lookup, Interval: time.Millisecond}
 	remove, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
 	if err != nil {
@@ -88,7 +95,7 @@ func TestDNS01Present(t *testing.T) {
 }
 
 func TestDNS01WaitsForPropagation(t *testing.T) {
-	c := newChallenger()
+	c := newChallenger(t)
 	var lookups atomic.Int32
 	d := &DNS01{Challenger: c, Interval: time.Millisecond, Timeout: 5 * time.Second,
 		LookupTXT: func(ctx context.Context, fqdn string) ([]string, error) {
@@ -108,7 +115,7 @@ func TestDNS01WaitsForPropagation(t *testing.T) {
 }
 
 func TestDNS01NotVisible(t *testing.T) {
-	c := newChallenger()
+	c := newChallenger(t)
 	d := &DNS01{Challenger: c, Interval: time.Millisecond, Timeout: 50 * time.Millisecond,
 		LookupTXT: func(context.Context, string) ([]string, error) { return []string{"stale"}, nil }}
 	start := time.Now()
@@ -131,7 +138,7 @@ func TestDNS01NotVisible(t *testing.T) {
 func TestDNS01LookupsFail(t *testing.T) {
 	// Outgoing DNS may be blocked on this server while the record is
 	// fine; then Let's Encrypt is asked to look anyway.
-	c := newChallenger()
+	c := newChallenger(t)
 	var lookups atomic.Int32
 	d := &DNS01{Challenger: c, Interval: time.Millisecond, Timeout: 50 * time.Millisecond,
 		LookupTXT: func(_ context.Context, fqdn string) ([]string, error) {
@@ -152,7 +159,7 @@ func TestDNS01LookupsFail(t *testing.T) {
 }
 
 func TestDNS01PublishFails(t *testing.T) {
-	c := newChallenger()
+	c := newChallenger(t)
 	c.setErr = errors.New("the playkeeper.io service refused the change: too many records")
 	d := &DNS01{Challenger: c, LookupTXT: c.lookup}
 	_, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
@@ -173,7 +180,7 @@ func TestDNS01PublishFails(t *testing.T) {
 }
 
 func TestDNS01Canceled(t *testing.T) {
-	c := newChallenger()
+	c := newChallenger(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	var lookups atomic.Int32

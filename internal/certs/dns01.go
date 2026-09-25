@@ -25,8 +25,9 @@ type DNSChallenger interface {
 // afterwards.
 type DNS01 struct {
 	Challenger DNSChallenger
-	// LookupTXT reads the record back; nil asks the zone's authoritative
-	// nameservers directly, so that no cache hides a new record.
+	// LookupTXT reads the record back, given its name with a trailing dot;
+	// nil asks the zone's authoritative nameservers directly, so that no
+	// cache hides a new record.
 	LookupTXT func(ctx context.Context, fqdn string) ([]string, error)
 	// Timeout bounds the wait for the record; 0 means 2 minutes.
 	Timeout time.Duration
@@ -75,7 +76,7 @@ func (d *DNS01) wait(ctx context.Context, fqdn, value string, params map[string]
 	var seen []string
 	for {
 		lctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		vals, err := lookup(lctx, fqdn)
+		vals, err := lookup(lctx, fqdn+".")
 		cancel()
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -108,6 +109,7 @@ func (d *DNS01) wait(ctx context.Context, fqdn, value string, params map[string]
 // authoritativeTXT asks the nameservers of fqdn's zone directly. A value
 // counts when every nameserver that answers has it.
 func authoritativeTXT(ctx context.Context, fqdn string) ([]string, error) {
+	fqdn = strings.TrimSuffix(fqdn, ".")
 	servers, err := nameservers(ctx, fqdn)
 	if err != nil {
 		return nil, err

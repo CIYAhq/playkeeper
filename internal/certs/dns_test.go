@@ -22,7 +22,21 @@ func notFoundErr(name string) error {
 	return &net.DNSError{Err: "no such host", Name: name, IsNotFound: true}
 }
 
+// rooted strips the trailing dot the checks must send, failing the lookup
+// without it.
+func rooted(name string) (string, error) {
+	n, ok := strings.CutSuffix(name, ".")
+	if !ok {
+		return "", &net.DNSError{Err: "the name has no trailing dot, so search domains would be tried", Name: name}
+	}
+	return n, nil
+}
+
 func (f *fakeResolver) LookupNetIP(_ context.Context, network, host string) ([]netip.Addr, error) {
+	host, err := rooted(host)
+	if err != nil {
+		return nil, err
+	}
 	typ, m := "A", f.a
 	if network == "ip6" {
 		typ, m = "AAAA", f.aaaa
@@ -42,6 +56,10 @@ func (f *fakeResolver) LookupNetIP(_ context.Context, network, host string) ([]n
 }
 
 func (f *fakeResolver) LookupSRV(_ context.Context, service, proto, name string) (string, []*net.SRV, error) {
+	name, err := rooted(name)
+	if err != nil {
+		return "", nil, err
+	}
 	q := "_" + service + "._" + proto + "." + name
 	if err := f.fail["SRV "+q]; err != nil {
 		return "", nil, err
