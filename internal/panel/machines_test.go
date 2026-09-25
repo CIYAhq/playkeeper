@@ -587,6 +587,23 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 	}
 }
 
+func TestAMachineCantFillTheDatabaseWithServers(t *testing.T) {
+	e := newEnv(t)
+	alpha := e.addRemote(t, "alphaalpha", "alpha")
+	var many []string
+	for range maxMachineServers + 50 {
+		many = append(many, randomID())
+	}
+	if got := e.srv.claimServers(alpha, serverList(many...)); len(got) != maxMachineServers {
+		t.Fatalf("alpha shows %d servers", len(got))
+	}
+	var n int
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, alpha.ID).Scan(&n)
+	if n != maxMachineServers || !strings.Contains(e.logs.String(), "more servers than the dashboard keeps") {
+		t.Fatalf("rows kept: %d", n)
+	}
+}
+
 func TestAnOfflineMachineShowsItsLastKnownServers(t *testing.T) {
 	e := newEnv(t)
 	cookie, csrf := e.setup(t)

@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
@@ -72,6 +73,11 @@ type Server struct {
 	heads   *headFetcher
 	hub     *machinelink.Hub
 	proxies proxyCache
+	// audits counts audit rows written, to prune the log every so often;
+	// auditMaxAge and maxAudit are how much of it is kept.
+	audits      atomic.Int64
+	auditMaxAge time.Duration
+	maxAudit    int
 }
 
 func New(opts Options) (*Server, error) {
@@ -108,15 +114,18 @@ func New(opts Options) (*Server, error) {
 	}
 	s := &Server{
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
-		loginIP: newLimiter(10, 15*time.Minute, opts.Now),
-		control: newLimiter(30, time.Minute, opts.Now),
-		locks:   newLockout(opts.Now),
-		heads:   newHeadFetcher(src),
+		loginIP:     newLimiter(10, 15*time.Minute, opts.Now),
+		control:     newLimiter(30, time.Minute, opts.Now),
+		locks:       newLockout(opts.Now),
+		heads:       newHeadFetcher(src),
+		auditMaxAge: 365 * 24 * time.Hour,
+		maxAudit:    100_000,
 	}
 	if err := s.ensureWorkspace(); err != nil {
 		db.Close()
 		return nil, err
 	}
+	s.pruneAudit()
 	if len(opts.LinkRoutes) > 0 {
 		if err := s.startHub(opts.LinkRoutes); err != nil {
 			db.Close()

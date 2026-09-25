@@ -330,10 +330,28 @@ func (s *Server) deleteUserSessions(userID int64) {
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID)
 }
 
+// pruneAuditEvery is how many audit rows are written between prunes.
+const pruneAuditEvery = 1000
+
 func (s *Server) audit(actor, action, target, result, detail string) {
 	if _, err := s.db.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail) VALUES(?,?,?,?,?,?)`,
 		s.now().UnixMilli(), actor, action, target, result, detail); err != nil {
 		s.log.Error("audit write failed", "err", err)
+		return
+	}
+	if s.audits.Add(1)%pruneAuditEvery == 0 {
+		s.pruneAudit()
+	}
+}
+
+// pruneAudit drops audit rows older than auditMaxAge and all but the newest
+// maxAudit.
+func (s *Server) pruneAudit() {
+	if _, err := s.db.Exec(`DELETE FROM audit WHERE ts < ?`, s.now().Add(-s.auditMaxAge).UnixMilli()); err != nil {
+		s.log.Error("audit prune failed", "err", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM audit WHERE id <= (SELECT id FROM audit ORDER BY id DESC LIMIT 1 OFFSET ?)`, s.maxAudit); err != nil {
+		s.log.Error("audit prune failed", "err", err)
 	}
 }
 

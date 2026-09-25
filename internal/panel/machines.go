@@ -505,6 +505,10 @@ func (s *Server) hJoinCodeCancel(w http.ResponseWriter, r *http.Request, sess *s
 // for when it is away.
 const lastKnownAfter = 30 * time.Second
 
+// maxMachineServers is how many of a joined machine's servers the
+// dashboard keeps and shows.
+const maxMachineServers = 100
+
 // errDisputed is a server two joined machines both list.
 var errDisputed = errors.New("two machines list this server")
 
@@ -573,6 +577,10 @@ func (s *Server) claimServers(m machine, servers []map[string]any) []map[string]
 		id, _ := sv["id"].(string)
 		if !reMachineID.MatchString(id) {
 			continue
+		}
+		if len(runs)+len(disputes) == maxMachineServers {
+			s.log.Warn("a machine lists more servers than the dashboard keeps", "machine", m.ID, "kept", maxMachineServers)
+			break
 		}
 		b, err := json.Marshal(sv)
 		if err != nil {

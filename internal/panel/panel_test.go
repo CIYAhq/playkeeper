@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -548,4 +549,57 @@ func TestSelfSignedCertIsStable(t *testing.T) {
 		t.Fatalf("private key mode %v", st.Mode().Perm())
 	}
 	_ = context.Background()
+}
+
+func TestTheAuditLogKeepsAYearAndBoundedRows(t *testing.T) {
+	e := newEnv(t)
+	s := e.srv
+	actions := func() string {
+		rows, err := s.db.Query(`SELECT action FROM audit ORDER BY id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var a string
+			rows.Scan(&a)
+			out = append(out, a)
+		}
+		return strings.Join(out, " ")
+	}
+	s.maxAudit = 4
+	s.audit("admin", "old", "", "succeeded", "")
+	e.clock.add(366 * 24 * time.Hour)
+	for i := range 6 {
+		s.audit("admin", fmt.Sprint("a", i), "", "succeeded", "")
+	}
+	s.pruneAudit()
+	if got := actions(); got != "a2 a3 a4 a5" {
+		t.Fatalf("kept %q", got)
+	}
+
+	// Writing prunes every pruneAuditEvery rows.
+	for range pruneAuditEvery - int(s.audits.Load()%pruneAuditEvery) {
+		s.audit("admin", "flood", "", "refused", "")
+	}
+	if got := actions(); got != "flood flood flood flood" {
+		t.Fatalf("after a flood: %q", got)
+	}
+
+	// Opening the database prunes too.
+	s.maxAudit = 100_000
+	s.audit("admin", "b", "", "succeeded", "")
+	e.clock.add(366 * 24 * time.Hour)
+	s.Close()
+	again, err := New(Options{Config: e.cfg, Now: e.clock.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(e.cfg.SocketPath)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	var n int
+	again.db.QueryRow(`SELECT COUNT(*) FROM audit`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("a year later %d rows are left", n)
+	}
 }
