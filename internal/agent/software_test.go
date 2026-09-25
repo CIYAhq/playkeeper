@@ -73,6 +73,9 @@ func TestCatalogOffersEveryTypeWithReleaseDates(t *testing.T) {
 	if !dated {
 		t.Fatalf("Paper's versions carry Mojang's release dates: %v", out["versions"])
 	}
+	if out["latestRelease"] != "26.2" {
+		t.Fatalf("the newest release, snapshots left out: %v", out["latestRelease"])
+	}
 
 	code, out = e.call("GET", "/v1/catalog?type=vanilla", nil)
 	if code != 200 || out["type"] != "vanilla" {

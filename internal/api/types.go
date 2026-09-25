@@ -391,6 +391,10 @@ type Catalog struct {
 	Servers             []ServerMemory `json:"servers"`
 	SuggestedPort       int            `json:"suggestedPort,omitempty"`
 	Image               string         `json:"image"`
+
+	// LatestRelease is the newest Minecraft release Mojang lists, whether
+	// or not the type offers it yet.
+	LatestRelease string `json:"latestRelease,omitempty"`
 }
 
 type PreflightCheck struct {

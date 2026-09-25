@@ -150,6 +150,18 @@ func (a *Agent) releaseDates(ctx context.Context) map[string]time.Time {
 	return d
 }
 
+// latestRelease is the Minecraft release Mojang released last.
+func latestRelease(dates map[string]time.Time) string {
+	var id string
+	var at time.Time
+	for v, t := range dates {
+		if t.After(at) || (t.Equal(at) && v > id) {
+			id, at = v, t
+		}
+	}
+	return id
+}
+
 // withReleaseDates returns a copy of entries with Mojang's release dates.
 func withReleaseDates(entries []api.CatalogEntry, dates map[string]time.Time) []api.CatalogEntry {
 	out := slices.Clone(entries)

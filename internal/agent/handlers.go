@@ -121,8 +121,10 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catal
 	case err != nil:
 		c.VersionsError = fmt.Sprintf("Could not load the %s versions: %v.", typeName(typ), err)
 	default:
-		c.Versions = withReleaseDates(v, <-dates)
+		d := <-dates
+		c.Versions = withReleaseDates(v, d)
 		c.VersionsCheckedAt = &at
+		c.LatestRelease = latestRelease(d)
 	}
 	return c
 }
