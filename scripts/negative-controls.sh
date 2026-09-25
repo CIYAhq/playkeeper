@@ -319,8 +319,10 @@ control "every unavailable friends' pack link gets one answer" internal/panel/pa
 control "a machine that can't answer leaves a friends' pack link unavailable" internal/panel/packshare.go \
   'case err != nil:
 			packGone(w)' \
-  'case err != nil:
-			http.Error(w, err.Error(), http.StatusNotFound)' \
+  'case errors.Is(err, errPackGone):
+			packGone(w)
+		case err != nil:
+			http.Error(w, "Try again later.", http.StatusServiceUnavailable)' \
   ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
 control "the friends' pack page itself never tells a working link from another" internal/panel/packshare.go \
   'if !sub {
