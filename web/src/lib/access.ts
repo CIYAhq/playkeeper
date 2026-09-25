@@ -48,7 +48,7 @@ export function roleHint(role: ProjectRole): string {
 export function scopeText(scope: Scope, servers: { id: string; name: string }[]): string {
   if (scope.all) return t('scope.all')
   const ids = scope.servers ?? []
-  const names = ids.map((id) => servers.find((s) => s.id === id)?.name).filter((n): n is string => !!n)
+  const names = servers.filter((s) => ids.includes(s.id)).map((s) => s.name)
   if (ids.length === 0) return t('scope.none')
   if (names.length < ids.length || ids.length > 3) return t('scope.count', { count: ids.length })
   if (names.length === 1) return t('scope.only', { server: names[0] ?? '' })
