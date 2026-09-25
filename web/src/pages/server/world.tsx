@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
@@ -17,6 +17,7 @@ import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
 
 function downloadURL(s: ServerStatus, b: Backup): string {
   return serverApi(s.id, `/backups/${b.id}/download`)
@@ -75,14 +76,16 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             ))}
           </ul>
         </section>
-        <button type="button" onClick={() => setRestoreSheet(true)} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 text-left">
-          <RotateCcwIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-base font-medium">{t('world.restorePhone')}</span>
-            <span className="block text-[13px] text-muted-foreground">{t('world.restorePhoneHint')}</span>
-          </span>
-          <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-        </button>
+        <ul className="overflow-hidden rounded-3xl border border-border bg-white">
+          <li className="border-b border-border">
+            <button type="button" onClick={() => setRestoreSheet(true)} className={phoneRow}>
+              <RotateCcwIcon aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-base">{t('world.restorePhone')}</span>
+              <ChevronRightIcon aria-hidden="true" />
+            </button>
+          </li>
+          <PhoneWorldLinks server={s} />
+        </ul>
         <p className="px-1 pt-2 text-[13px] text-muted-foreground">{t('world.footnote')}</p>
         <Sheet open={restoreSheet} onOpenChange={setRestoreSheet}>
           <SheetPopup side="bottom">
@@ -241,8 +244,6 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
 
 function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] }) {
   const later = [
-    { icon: <MapIcon />, title: t('world.pregen'), hint: t('world.pregenHint') },
-    { icon: <PackageIcon />, title: t('world.packs'), hint: t('world.packsHint') },
     { icon: <UploadIcon />, title: t('world.ownWorld'), hint: t('world.ownWorldHint') },
   ]
   return (
@@ -264,6 +265,7 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
         </div>
       </dl>
       <ul className="mt-1 flex flex-col">
+        <WorldLinks server={s} />
         {later.map((l) => (
           <li key={l.title} className="flex items-center gap-3 py-2.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
             {l.icon}
@@ -449,6 +451,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
           </li>
         ))}
       </ol>
+      <WorldTools server={s} phone={phone} className="mt-6" />
     </div>
   )
 }
