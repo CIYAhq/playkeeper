@@ -146,10 +146,10 @@ function PhoneMapHeader({ onMenu }: { onMenu?: () => void }) {
 function StateScreen({ pose, title, lead, facts, note, children }: { pose: PipPose; title: string; lead: ReactNode; facts?: string[]; note?: ReactNode; children?: ReactNode }) {
   const phone = useIsPhone()
   return (
-    <section className="flex flex-1 animate-in flex-col items-center py-12 text-center duration-300 fade-in-0 max-sm:justify-center max-sm:py-8">
-      <Pip pose={pose} size={phone ? 80 : 88} />
-      <h2 className="mt-4 text-[22px] leading-7 font-bold tracking-[-0.015em] max-sm:text-xl">{title}</h2>
-      <p className="mt-1.5 text-[15px] text-muted-foreground max-sm:text-[15px]">{lead}</p>
+    <section className="flex flex-1 animate-in flex-col items-center py-12 text-center duration-300 fade-in-0 max-sm:justify-center max-sm:px-2 max-sm:py-8">
+      <Pip pose={pose} size={phone ? 96 : 112} />
+      <h2 className="mt-5 text-[22px] leading-7 font-bold tracking-[-0.015em] max-sm:mt-3">{title}</h2>
+      <p className="mt-2 text-[15px] text-muted-foreground max-sm:mt-1">{lead}</p>
       {facts && (
         <ul className="mt-5 flex flex-col gap-1 text-sm">
           {facts.map((f) => (
@@ -158,7 +158,7 @@ function StateScreen({ pose, title, lead, facts, note, children }: { pose: PipPo
         </ul>
       )}
       {children && <div className="mt-5 flex items-center gap-2 max-sm:mt-4 max-sm:w-full max-sm:flex-col-reverse max-sm:gap-3 max-sm:[&>*]:w-full">{children}</div>}
-      {note && <p className="mt-3.5 max-w-[440px] text-xs leading-[18px] text-muted-foreground max-sm:text-[13px]">{note}</p>}
+      {note && <p className="mt-5 max-w-[440px] text-xs leading-[18px] text-muted-foreground max-sm:mt-3.5 max-sm:text-[13px]">{note}</p>}
     </section>
   )
 }

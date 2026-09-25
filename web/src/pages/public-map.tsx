@@ -48,10 +48,10 @@ export function PublicMapPage({ slug }: { slug: string }) {
 
 function Unavailable() {
   return (
-    <main className="flex flex-1 animate-in flex-col items-center justify-center text-center duration-300 fade-in-0">
+    <main className="flex flex-1 animate-in flex-col items-center justify-center pt-13 text-center duration-300 fade-in-0 max-sm:pt-0">
       <Pip pose="sleep" size={120} />
-      <h1 className="mt-4 text-[28px] leading-9 font-bold tracking-[-0.02em] max-sm:text-2xl">{t('publicMap.offTitle')}</h1>
-      <p className="mt-4 text-base text-muted-foreground max-sm:mt-3.5">{t('publicMap.offLead')}</p>
+      <h1 className="mt-4 text-[28px] leading-9 font-bold tracking-[-0.02em] max-sm:mt-3 max-sm:text-2xl max-sm:leading-8">{t('publicMap.offTitle')}</h1>
+      <p className="mt-4 text-base text-muted-foreground max-sm:mt-3">{t('publicMap.offLead')}</p>
     </main>
   )
 }
