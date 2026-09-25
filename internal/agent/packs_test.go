@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -45,7 +46,29 @@ type fakeDataPacks struct {
 	strange []string
 }
 
-var reDatapackSwitch = regexp.MustCompile(`^minecraft:datapack (enable|disable) "(file/[^"\\]+)"$`)
+var reDatapackSwitch = regexp.MustCompile(`^minecraft:datapack (enable|disable) "(file/[^"\\]+)"( after "([^"\\]*)")?$`)
+
+// paperList is Paper's answer to "datapack list enabled" or "datapack list
+// available" (which) with the packs ids. Paper renders at most 33 pieces of
+// a message's text and ends a longer one in "...", and each pack takes
+// seven: ", ", "[", its ID, " (", its source, ")" and "]".
+func paperList(which string, ids []string) string {
+	pieces := []string{"There are ", strconv.Itoa(len(ids)), " data pack(s) " + which + ": "}
+	for i, id := range ids {
+		if i > 0 {
+			pieces = append(pieces, ", ")
+		}
+		source := "world"
+		if !strings.HasPrefix(id, "file/") {
+			source = "built-in"
+		}
+		pieces = append(pieces, "[", id, " (", source, ")", "]")
+	}
+	if len(pieces) > 33 {
+		return strings.Join(pieces[:33], "") + "..."
+	}
+	return strings.Join(pieces, "")
+}
 
 // dataPackConsole puts the datapack command on the current server's console.
 func (e *agentEnv) dataPackConsole() *fakeDataPacks {
@@ -75,32 +98,27 @@ func (fp *fakeDataPacks) answer(cmd string) (string, bool) {
 		fp.reloads++
 		return "Reloading!", true
 	case "minecraft:datapack list enabled":
-		items := []string{"[vanilla (built-in)]"}
-		for _, id := range fp.enabled {
-			items = append(items, "["+id+" (world)]")
-		}
-		items = append(items, "[paper (built-in)]")
-		return fmt.Sprintf("There are %d data pack(s) enabled: %s", len(items), strings.Join(items, ", ")), true
+		return paperList("enabled", slices.Concat([]string{"vanilla"}, fp.enabled, []string{"paper"})), true
 	case "minecraft:datapack list available":
 		fp.found = map[string]bool{}
 		entries, _ := os.ReadDir(fp.dir)
-		var items []string
+		var ids []string
 		for _, e := range entries {
 			id := packs.DataPackID(e.Name())
 			if strings.HasSuffix(e.Name(), ".zip") {
 				fp.found[id] = true
 				if !slices.Contains(fp.enabled, id) {
-					items = append(items, "["+id+" (world)]")
+					ids = append(ids, id)
 				}
 			}
 		}
-		if len(items) == 0 {
+		if len(ids) == 0 {
 			return "There are no more data packs available", true
 		}
-		return fmt.Sprintf("There are %d data pack(s) available: %s", len(items), strings.Join(items, ", ")), true
+		return paperList("available", ids), true
 	}
 	m := reDatapackSwitch.FindStringSubmatch(cmd)
-	if m == nil {
+	if m == nil || m[3] != "" && (m[1] != "enable" || m[4] != "") {
 		fp.strange = append(fp.strange, cmd)
 		return "", true
 	}
@@ -112,6 +130,10 @@ func (fp *fakeDataPacks) answer(cmd string) (string, bool) {
 		return fmt.Sprintf("Pack '%s' is already enabled!", id), true
 	case m[1] == "enable" && fp.needFeatures[id]:
 		return fmt.Sprintf("Pack '%s' cannot be enabled, since required flags are not enabled in this world: minecraft:trade_rebalance!", id), true
+	case m[1] == "enable" && m[3] != "":
+		// The game checks the pack before the one to put it after, and no
+		// pack is named "".
+		return "Unknown data pack ''", true
 	case m[1] == "enable":
 		fp.enabled = append(fp.enabled, id)
 		return fmt.Sprintf("Enabling data pack [%s (world)]", id), true
@@ -352,14 +374,62 @@ func TestDataPacksOnARunningServer(t *testing.T) {
 	}
 }
 
+// Paper's lists of packs stop after four packs or so, yet seven uploaded
+// packs all switch on, and each one's switch shows its state.
+func TestManyDataPacks(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	fp := e.dataPackConsole()
+	names := []string{"Multiplayer_sleep", "Graves", "More_mob_heads", "Coordinates_HUD", "Armor_statues", "Villager_workstations", "Double_shulker_shells"}
+	for _, n := range names {
+		list := e.addDataPack(n+".zip", dataPackZip(t, n, false))
+		if p := packNamed(list, n+".zip"); !list.Live || list.NotEnabled || list.Problem != "" || enabledState(p) != "on" {
+			t.Fatalf("adding %s: %+v, pack %s", n, list, enabledState(p))
+		}
+	}
+	// Paper 26.2's answer with the same packs enabled.
+	const paper = "There are 9 data pack(s) enabled: [vanilla (built-in)], [file/Multiplayer_sleep.zip (world)], [file/Graves.zip (world)], [file/More_mob_heads.zip (world)], [file/Coordinates_HUD.zip..."
+	if got, _ := fp.answer("minecraft:datapack list enabled"); got != paper {
+		t.Fatalf("the fake's list of enabled packs:\n%s\nwant Paper's:\n%s", got, paper)
+	}
+
+	states := func(list api.DataPacks) []string {
+		var out []string
+		for _, n := range names {
+			out = append(out, n+" "+enabledState(packNamed(list, n+".zip")))
+		}
+		return out
+	}
+	allOnBut := func(off string) []string {
+		var out []string
+		for _, n := range names {
+			out = append(out, n+map[bool]string{true: " off", false: " on"}[n == off])
+		}
+		return out
+	}
+	if list := e.dataPackList(); !list.Live || !slices.Equal(states(list), allOnBut("")) {
+		t.Fatalf("the listed packs: live %v, %q", list.Live, states(list))
+	}
+	if got := states(e.switchDataPack("Double_shulker_shells.zip", "disable")); !slices.Equal(got, allOnBut("Double_shulker_shells")) {
+		t.Fatalf("after switching the seventh off: %q", got)
+	}
+	if got := states(e.dataPackList()); !slices.Equal(got, allOnBut("Double_shulker_shells")) {
+		t.Fatalf("listed after switching the seventh off: %q", got)
+	}
+	if got := states(e.switchDataPack("Double_shulker_shells.zip", "enable")); !slices.Equal(got, allOnBut("")) {
+		t.Fatalf("after switching it on again: %q", got)
+	}
+}
+
 // Folder packs are listed and left alone; the one Paper keeps in every
-// world for its plugins isn't listed at all.
+// world for its plugins isn't listed at all, and one whose name can't be
+// sent to the console has no known state.
 func TestFolderDataPacks(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	e.dataPackConsole()
 	dir := filepath.Join(e.dataDir(), "world", "datapacks")
-	for _, name := range []string{"bukkit", "Hand Made"} {
+	for _, name := range []string{"bukkit", "Hand Made", "Tab\tMade"} {
 		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -367,11 +437,14 @@ func TestFolderDataPacks(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(dir, "Hand Made", "pack.png"), iconPNG(t), 0o644)
 	list := e.dataPackList()
-	if len(list.Packs) != 1 {
-		t.Fatalf("the listed packs: %+v", list.Packs)
+	if len(list.Packs) != 2 || !list.Live {
+		t.Fatalf("the listed packs: live %v, %+v", list.Live, list.Packs)
 	}
 	if p := list.Packs[0]; p.Name != "Hand Made" || !p.Folder || p.Description != "Made by hand" || !p.Icon || p.Size != 0 || enabledState(&p) != "off" {
 		t.Fatalf("the folder pack: %+v", p)
+	}
+	if p := list.Packs[1]; p.Name != "Tab\tMade" || !p.Folder || enabledState(&p) != "unknown" {
+		t.Fatalf("the folder pack with a tab in its name: %+v", p)
 	}
 	if code, out := e.call("DELETE", e.sp("/datapacks/"+url.PathEscape("Hand Made")+"?actor=admin"), nil); code != 409 || out["code"] != packs.CodeFolderPack {
 		t.Fatalf("removing a folder pack: %d %v", code, out)

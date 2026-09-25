@@ -135,25 +135,40 @@ func (s *server) dataPackList(ctx context.Context, sc *api.ServerConfig) (api.Da
 		return api.DataPacks{}, err
 	}
 	out := api.DataPacks{Packs: make([]api.DataPack, 0, len(list))}
-	var enabled []string
+	var enabled map[string]bool
 	if s.online(ctx) {
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		ids, err := s.packConsole(sc).Enabled(cctx)
+		enabled, out.Live = s.enabledDataPacks(cctx, sc, list)
 		cancel()
-		if err == nil {
-			enabled, out.Live = ids, true
-		}
 	}
 	for _, p := range list {
 		sum, _ := d.Summary(ctx, p.Name)
 		dp := api.DataPack{Name: p.Name, Description: sum.Description, Icon: sum.Icon, Size: p.Size, Folder: p.Folder, AddedAt: p.ModTime.UTC()}
-		if out.Live {
-			on := slices.Contains(enabled, p.ID)
+		if on, ok := enabled[p.ID]; ok {
 			dp.Enabled = &on
 		}
 		out.Packs = append(out.Packs, dp)
 	}
 	return out, nil
+}
+
+// enabledDataPacks asks the running server which of the packs in list it
+// has enabled, one at a time, leaving out packs whose IDs can't be sent to
+// its console. It reports false when the server can't say.
+func (s *server) enabledDataPacks(ctx context.Context, sc *api.ServerConfig, list []packs.DataPack) (map[string]bool, bool) {
+	con := s.packConsole(sc)
+	enabled := make(map[string]bool, len(list))
+	for _, p := range list {
+		on, err := con.IsEnabled(ctx, p.ID)
+		if errors.Is(err, packs.ErrInvalidID) {
+			continue
+		}
+		if err != nil {
+			return nil, false
+		}
+		enabled[p.ID] = on
+	}
+	return enabled, true
 }
 
 // findDataPack is the installed data pack name.
@@ -237,11 +252,11 @@ func (s *server) applyDataPack(ctx context.Context, sc *api.ServerConfig, name s
 	defer cancel()
 	con := s.packConsole(sc)
 	id := packs.DataPackID(name)
-	enabled, err := con.Enabled(ctx)
+	enabled, err := con.IsEnabled(ctx, id)
 	if err != nil {
 		return err
 	}
-	if slices.Contains(enabled, id) {
+	if enabled {
 		return con.Reload(ctx)
 	}
 	if err := con.Enable(ctx, id); err != nil {
@@ -366,8 +381,8 @@ func (s *server) switchOff(ctx context.Context, sc *api.ServerConfig, id string)
 	ctx, cancel := context.WithTimeout(ctx, s.opts.DataPackWait)
 	defer cancel()
 	con := s.packConsole(sc)
-	enabled, err := con.Enabled(ctx)
-	if err != nil || !slices.Contains(enabled, id) {
+	enabled, err := con.IsEnabled(ctx, id)
+	if err != nil || !enabled {
 		return err
 	}
 	if err := con.Disable(ctx, id); err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,23 +16,18 @@ type Commander interface {
 	Command(ctx context.Context, cmd string) (string, error)
 }
 
-// Console enables, disables and lists a running server's data packs
-// through its console, and reloads the server's data. It matches the
-// server's English replies, which don't depend on players' languages.
+// Console enables and disables a running server's data packs through its
+// console, tells whether one is enabled, and reloads the server's data. It
+// matches the server's English replies, which don't depend on players'
+// languages.
 type Console struct {
 	Commander Commander
 	// ServerType is the server's type, such as "paper" or "fabric".
 	ServerType string
 }
 
-var (
-	// reFormatting matches formatting codes and terminal escapes in
-	// replies.
-	reFormatting = regexp.MustCompile(`§.|\x1b\[[0-9;?]*[ -/]*[@-~]`)
-	// rePackItem matches a pack in a datapack list reply: its ID in
-	// brackets with its source, as in "[file/terralith.zip (world)]".
-	rePackItem = regexp.MustCompile(`(?m)\[(.+?) \(([^()\[\]\n]+)\)\](?:, |$)`)
-)
+// reFormatting matches formatting codes and terminal escapes in replies.
+var reFormatting = regexp.MustCompile(`§.|\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 // Enable enables the installed data pack id, such as
 // "file/terralith.zip". It first makes the server rescan its datapacks
@@ -76,16 +70,29 @@ func (c Console) Disable(ctx context.Context, id string) error {
 	return packError(id, reply)
 }
 
-// Enabled returns the IDs of the server's enabled data packs, in the
-// order it applies them.
-func (c Console) Enabled(ctx context.Context) ([]string, error) {
-	return c.list(ctx, "enabled", "There are no data packs enabled")
-}
-
-// Available returns the IDs of the data packs the server found but hasn't
-// enabled. Listing them makes the server rescan its datapacks folder.
-func (c Console) Available(ctx context.Context) ([]string, error) {
-	return c.list(ctx, "available", "There are no more data packs available")
+// IsEnabled reports whether the server has the data pack id enabled. The
+// server's lists of packs can't tell: Paper renders at most 33 pieces of a
+// message's text, so its answer to "datapack list" names four packs or so
+// and ends in "...". Instead IsEnabled asks to enable the pack after one
+// named "", which never exists. The server checks the pack first and then
+// fails to find the other, so the command changes nothing.
+func (c Console) IsEnabled(ctx context.Context, id string) (bool, error) {
+	p, q, err := c.prepare(id)
+	if err != nil {
+		return false, err
+	}
+	reply, err := c.run(ctx, p+"datapack enable "+q+` after ""`)
+	if err != nil {
+		return false, err
+	}
+	switch {
+	case strings.Contains(reply, "Pack '"+id+"' is already enabled!"):
+		return true, nil
+	case strings.Contains(reply, "Unknown data pack ''"), strings.Contains(reply, "Unknown data pack '"+id+"'"),
+		strings.Contains(reply, "Pack '"+id+"' cannot be enabled, since required flags are not enabled in this world: "):
+		return false, nil
+	}
+	return false, unexpectedReply(reply)
 }
 
 // Reload makes the server reload its data packs, as after a pack's files
@@ -116,14 +123,14 @@ func (c Console) WaitEnabled(ctx context.Context, id string, want bool, every ti
 		every = time.Second
 	}
 	for {
-		enabled, err := c.Enabled(ctx)
+		enabled, err := c.IsEnabled(ctx, id)
 		if err != nil {
 			if ctx.Err() != nil {
 				return notApplied(id, want, ctx.Err())
 			}
 			return err
 		}
-		if slices.Contains(enabled, id) == want {
+		if enabled == want {
 			return nil
 		}
 		t := time.NewTimer(every)
@@ -172,28 +179,6 @@ func (c Console) prepare(id string) (prefix, quoted string, err error) {
 		}
 	}
 	return prefix, `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(id) + `"`, nil
-}
-
-func (c Console) list(ctx context.Context, which, none string) ([]string, error) {
-	p, err := c.prefix()
-	if err != nil {
-		return nil, err
-	}
-	reply, err := c.run(ctx, p+"datapack list "+which)
-	if err != nil {
-		return nil, err
-	}
-	if strings.Contains(reply, none) {
-		return []string{}, nil
-	}
-	if !strings.Contains(reply, " data pack(s) "+which+": ") {
-		return nil, unexpectedReply(reply)
-	}
-	ids := []string{}
-	for _, m := range rePackItem.FindAllStringSubmatch(reply, -1) {
-		ids = append(ids, m[1])
-	}
-	return ids, nil
 }
 
 func (c Console) run(ctx context.Context, cmd string) (string, error) {

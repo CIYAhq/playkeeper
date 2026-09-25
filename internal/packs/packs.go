@@ -235,6 +235,7 @@ var (
 	ErrWrongKind        = &Error{Code: CodeWrongKind}
 	ErrAlreadyInstalled = &Error{Code: CodeAlreadyInstalled}
 	ErrNotFound         = &Error{Code: CodeNotFound}
+	ErrInvalidID        = &Error{Code: CodeInvalidID}
 	ErrUnknownPack      = &Error{Code: CodeUnknownPack}
 	ErrNotApplied       = &Error{Code: CodeNotApplied}
 	ErrUnexpectedReply  = &Error{Code: CodeUnexpectedReply}
