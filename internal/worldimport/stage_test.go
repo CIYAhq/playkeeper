@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/nbt"
 )
 
 // stageTo plans and stages an import, checks that both agree, and returns
@@ -447,6 +449,25 @@ func TestStageCustomLevelName(t *testing.T) {
 	if !equalLists(p.Folders, []string{"survival", "survival_nether", "survival_the_end"}) || got["survival_the_end/level.dat"] != lv ||
 		got["survival/region/r.0.0.mca"] != regionData+"overworld" || p.Warnings[0].Params["levelName"] != "survival" {
 		t.Errorf("folders %v, warnings %+v", p.Folders, p.Warnings)
+	}
+}
+
+func TestPlanListsTheWorldsDataPacks(t *testing.T) {
+	level := legacyLevel("world", "1.21.4", 4189)
+	level["DataPacks"] = nbt.Compound{"Enabled": stringList("vanilla", "paper", "file/bukkit", "file/gone.zip"), "Disabled": stringList("file/old")}
+	files := withPrefix("Island/", []tf{
+		f("level.dat", levelDat(t, level)), f("region/r.0.0.mca", regionData),
+		f("datapacks/graves/pack.mcmeta", "{}"), f("datapacks/graves/data/graves/function/tick.mcfunction", "say hi"),
+		f("datapacks/sleep.zip", "pack"), f("datapacks/bukkit/pack.mcmeta", "{}"), f("datapacks/old/pack.mcmeta", "{}"),
+		f("datapacks/notes.txt", "notes"), f("datapacks/unpacked/data/x/function/y.mcfunction", "say hi"),
+	})
+	in := inspect(t, Limits{}, upload(t, "Island.zip", zipBytes(t, files)))
+	p, err := in.Plan(Target{Type: TypePaper, MinecraftVersion: "1.21.4"}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"file/graves", "file/sleep.zip"}; !equalLists(p.DataPacks, want) {
+		t.Errorf("data packs %v, want %v", p.DataPacks, want)
 	}
 }
 

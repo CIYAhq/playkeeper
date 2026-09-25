@@ -737,13 +737,7 @@ func (pl *planner) finish() error {
 	}
 
 	pl.warnings(terrain, opsKept)
-	if pl.lv != nil {
-		for _, dp := range pl.lv.DataPacks {
-			if dp != "vanilla" {
-				p.DataPacks = append(p.DataPacks, dp)
-			}
-		}
-	}
+	p.DataPacks = pl.dataPacks()
 	p.Players = pl.w.Players
 	if opsKept {
 		p.Operators = operatorNames(pl.w.ops)
@@ -757,6 +751,29 @@ func (pl *planner) finish() error {
 		}
 	}
 	return nil
+}
+
+// dataPacks lists the packs in the world's datapacks folder that level.dat
+// doesn't turn off: Minecraft turns on a pack it finds there for the first
+// time, so level.dat alone misses packs added since the last save. Paper
+// writes its own "bukkit" pack for plugins; it isn't the world's.
+func (pl *planner) dataPacks() []string {
+	off := map[string]bool{"file/bukkit": true}
+	if pl.lv != nil {
+		for _, id := range pl.lv.DisabledPacks {
+			off[id] = true
+		}
+	}
+	var out []string
+	dir := pl.w.root + "/datapacks"
+	for _, name := range pl.in.ix.children(dir) {
+		p := dir + "/" + name
+		pack := pl.in.ix.hasFile(p+"/pack.mcmeta") || strings.HasSuffix(strings.ToLower(name), ".zip") && pl.in.ix.hasFile(p)
+		if id := "file/" + name; pack && !off[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func destConflict(dest string) *Error {
