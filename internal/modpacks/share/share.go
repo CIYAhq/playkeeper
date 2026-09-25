@@ -161,7 +161,8 @@ type Mod struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitempty"`
 	// Path is where it goes in the game's folder, such as
-	// mods/sodium-fabric-0.9.2+mc26.2.jar.
+	// mods/sodium-fabric-0.9.2+mc26.2.jar; a Hangar plugin's is where it
+	// sits on the server.
 	Path string `json:"path"`
 	From From   `json:"from"`
 	// Source and Project name the add-on record for the user's mods. For
@@ -295,7 +296,7 @@ func addonItems(ins []addons.Installed) []*item {
 			it.Page = modrinthPage("mod", in.Slug, in.ProjectID)
 		case addons.Hangar:
 			// Hangar only has server plugins.
-			it.own = ServerOnly
+			it.Path, it.own = "plugins/"+in.FileName, ServerOnly
 		}
 		it.setHash(in.HashAlgo, in.Hash)
 		items = append(items, it)
@@ -497,9 +498,9 @@ func (it *item) resolve() {
 	}
 }
 
-// raise gives each mod's required dependencies at least the mod's own need:
-// friends need Balm for Waystones, though Balm alone could stay on the
-// server.
+// raise gives each mod's required dependencies, and the other copies of the
+// same mod, at least the mod's own need: friends need Balm for Waystones,
+// though Balm alone could stay on the server.
 func raise(items []*item) {
 	byProject := map[string][]*item{}
 	projectOf := map[string]string{}
@@ -517,7 +518,7 @@ func raise(items []*item) {
 			if it.Need.rank() == 0 {
 				continue
 			}
-			for _, p := range it.dependencies(projectOf) {
+			for _, p := range append(it.dependencies(projectOf), it.modrinthProject()) {
 				for _, d := range byProject[p] {
 					if d.Need.rank() < it.Need.rank() {
 						d.Need, changed = it.Need, true
@@ -621,7 +622,7 @@ func (it *item) yourself(pk *Pack) Yourself {
 	switch other := otherHost(it.downloads); {
 	case it.curseForge:
 		y.Page = it.Page
-		y.Reason = text("share.yourself.curseforge", "{name} is only on CurseForge. Download it there and put it in the game's {folder} folder.",
+		y.Reason = text("share.yourself.curseforge", "{name} comes from CurseForge. Download it there and put it in the game's {folder} folder.",
 			"name", it.Name, "folder", folder)
 	case it.origin == modpacks.Override && pk != nil:
 		y.Page = pk.Page
@@ -643,7 +644,7 @@ func (it *item) yourself(pk *Pack) Yourself {
 // Modrinth allows in packs.
 func otherHost(downloads []string) string {
 	for _, d := range downloads {
-		if u, err := url.Parse(d); err == nil && fetch.Hosts(mrpack.Hosts()).Allows(u) && u.Port() == "" {
+		if u, err := url.Parse(d); err == nil && fetch.Hosts(mrpack.Hosts()).Allows(u) {
 			return d
 		}
 	}
@@ -664,19 +665,23 @@ func packInfo(r *modpacks.Record, items []*item) *Pack {
 }
 
 // notice is the line at the top of the Mods tab. It names the mods the user
-// added that friends need, leaving out dependencies of mods it names.
+// added that friends need, leaving out dependencies of mods it names and
+// mods the pack has too.
 func notice(pk *Pack, items []*item) Text {
-	needed := map[string]bool{}
+	needed, inPack := map[string]bool{}, map[string]bool{}
 	optional := false
 	for _, it := range items {
 		if it.From == FromUser && it.Need == Required {
 			needed[it.Project] = true
 		}
+		if p := it.modrinthProject(); it.From == FromPack && p != "" {
+			inPack[p] = true
+		}
 		optional = optional || it.Need == Optional || it.Need == Unknown
 	}
 	var mods []*item
 	for _, it := range items {
-		if it.From == FromUser && it.Need == Required && !(it.DependencyOf != "" && needed[it.DependencyOf]) {
+		if it.From == FromUser && it.Need == Required && !(it.DependencyOf != "" && needed[it.DependencyOf]) && !inPack[it.modrinthProject()] {
 			mods = append(mods, it)
 		}
 	}

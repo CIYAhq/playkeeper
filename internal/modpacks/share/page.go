@@ -15,8 +15,14 @@ import (
 // Signed-in users' downloads don't depend on it.
 func Enabled(on bool, serverType string) bool { return on && Supported(serverType) }
 
-// FilePath is the public route of a server's file.
-func FilePath(slug string) string { return "/api/public/packs/" + slug + "/" + FileName(slug) }
+// FilePath is the public route of a server's file, or "" for a slug that
+// isn't valid.
+func FilePath(slug string) string {
+	if !ValidSlug(slug) {
+		return ""
+	}
+	return "/api/public/packs/" + slug + "/" + FileName(slug)
+}
 
 // Page is the data of the public /packs/<slug> page. It lists only what
 // friends get; server-only mods stay off it.
