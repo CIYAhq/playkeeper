@@ -34,19 +34,21 @@ type opHandle struct {
 func (h *opHandle) phase(p string) {
 	unlock := h.mu()
 	h.op.Phase = p
-	snap := *h.op
+	snap := copyOp(h.op)
 	unlock()
-	h.save(&snap)
+	h.save(snap)
 }
 
 func (h *opHandle) set(key string, v any) {
 	unlock := h.mu()
 	h.op.Detail[key] = v
-	snap := *h.op
+	snap := copyOp(h.op)
 	unlock()
-	h.save(&snap)
+	h.save(snap)
 }
 
+// copyOp copies an operation with its own Detail map, so the copy can be read
+// and encoded while the operation goes on.
 func copyOp(op *api.Operation) *api.Operation {
 	if op == nil {
 		return nil
@@ -121,9 +123,9 @@ func (s *server) beginOp(kind, actor string, fn func(ctx context.Context, h *opH
 	op := &api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}
 	s.opMu.Lock()
 	s.op = op
-	snap := *op
+	snap := copyOp(op)
 	s.opMu.Unlock()
-	s.saveOperation(&snap)
+	s.saveOperation(snap)
 	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }}
 	s.wg.Add(1)
 	go func() {
@@ -144,8 +146,7 @@ func (s *server) beginOp(kind, actor string, fn func(ctx context.Context, h *opH
 			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
 		}
 	}()
-	c := snap
-	return &c, nil
+	return snap, nil
 }
 
 func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opHandle) error) (err error) {
@@ -173,7 +174,7 @@ func finishOp(op *api.Operation, h *opHandle, err error, fin time.Time) api.Oper
 		op.FinishedAt = &fin
 		op.Status = api.OpSucceeded
 	}
-	return *op
+	return *copyOp(op)
 }
 
 func (a *Agent) offline() bool { return a.opts.OfflineModeTest }

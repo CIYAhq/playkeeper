@@ -646,6 +646,46 @@ func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	}
 }
 
+// The operation a request gets back is its own copy: the running operation
+// records progress without touching it, so the handler can encode it safely.
+func TestStartedOperationsAreCopies(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	s := e.srv()
+	type opFn = func(context.Context, *opHandle) error
+	for _, c := range []struct {
+		name  string
+		begin func(opFn) (*api.Operation, error)
+	}{
+		{"server", func(fn opFn) (*api.Operation, error) { return s.beginOp("backup", "admin", fn) }},
+		{"machine", func(fn opFn) (*api.Operation, error) { return e.a.beginMachineOp("update", "admin", fn) }},
+	} {
+		recorded, release := make(chan struct{}), make(chan struct{})
+		op, err := c.begin(func(ctx context.Context, h *opHandle) error {
+			h.set("step", "copying")
+			close(recorded)
+			<-release
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		<-recorded
+		_, shared := op.Detail["step"]
+		close(release)
+		if shared {
+			t.Errorf("%s: the returned operation changed while the operation ran", c.name)
+		}
+		e.waitFor(c.name+" operation to end", func() bool {
+			done, ok := s.holdOpLock()
+			if ok {
+				done()
+			}
+			return ok
+		})
+	}
+}
+
 func TestConcurrentStartAndStopLeaveDesiredMatchingContainer(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()

@@ -354,9 +354,9 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}
 	a.mopMu.Lock()
 	a.mop = op
-	snap := *op
+	snap := copyOp(op)
 	a.mopMu.Unlock()
-	a.saveOperation(&snap)
+	a.saveOperation(snap)
 	h := &opHandle{save: a.saveOperation, op: op, mu: func() func() { a.mopMu.Lock(); return a.mopMu.Unlock }}
 	a.wg.Add(1)
 	go func() {
@@ -378,8 +378,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}
 	}()
-	c := snap
-	return &c, nil
+	return snap, nil
 }
 
 // Serve listens on the configured Unix socket until ctx is cancelled. The
