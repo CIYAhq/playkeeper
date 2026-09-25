@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,8 +37,19 @@ func (c *clock) add(d time.Duration) {
 type fakeAgent struct {
 	mu   sync.Mutex
 	hits []string
+	// reqs are the forwarded requests with their query and JSON body.
+	reqs []agentRequest
 	// replies are canned bodies by "METHOD /path"; others get {"ok":true}.
 	replies map[string]string
+	// statuses are the replies' HTTP statuses by "METHOD /path"; others
+	// are 200.
+	statuses map[string]int
+}
+
+type agentRequest struct {
+	method, path string
+	query        url.Values
+	body         map[string]any
 }
 
 func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
@@ -47,15 +59,24 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}}
+	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20)); len(b) > 0 {
+			_ = json.Unmarshal(b, &body)
+		}
 		fa.mu.Lock()
 		fa.hits = append(fa.hits, r.Method+" "+r.URL.Path)
+		fa.reqs = append(fa.reqs, agentRequest{r.Method, r.URL.Path, r.URL.Query(), body})
 		reply, ok := fa.replies[r.Method+" "+r.URL.Path]
+		status := fa.statuses[r.Method+" "+r.URL.Path]
 		fa.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if !ok {
 			reply = `{"ok":true}`
+		}
+		if status != 0 {
+			w.WriteHeader(status)
 		}
 		io.WriteString(w, reply)
 	})}

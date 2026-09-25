@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -151,6 +153,12 @@ func (s *Server) Routes() []Route {
 	mm := func(method, p, agentPath string, act action) Route {
 		return Route{method, p, needSessionCSRF, act, s.machineProxy(method, agentPath)}
 	}
+	ag := func(p, agentPath string) Route {
+		return Route{"GET", p, needSession, actView, s.addressProxy("GET", agentPath)}
+	}
+	am := func(p, agentPath string) Route {
+		return Route{"POST", p, needSessionCSRF, actManageMachine, s.addressProxy("POST", agentPath)}
+	}
 	return []Route{
 		{"GET", "/api/health", public, "", s.hHealth},
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
@@ -181,6 +189,15 @@ func (s *Server) Routes() []Route {
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		mm("POST", "/api/machines/{mid}/update/apply", "/v1/update/apply", actManageMachine),
+		ag("/api/machines/{mid}/address", "/v1/address"),
+		mg("/api/machines/{mid}/address/available", "/v1/address/available"),
+		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
+		am("/api/machines/{mid}/address/claim", "/v1/address/claim"),
+		am("/api/machines/{mid}/address/refresh", "/v1/address/refresh"),
+		am("/api/machines/{mid}/address/release", "/v1/address/release"),
+		am("/api/machines/{mid}/address/check", "/v1/address/check"),
+		am("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
+		mm("DELETE", "/api/machines/{mid}/address", "/v1/address", actManageMachine),
 		mm("POST", "/api/machines/{mid}/servers", "/v1/servers", actManageServers),
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		mg("/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}"),
@@ -330,9 +347,24 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
-		h.Set("Strict-Transport-Security", "max-age=31536000")
+		h.Set("Strict-Transport-Security", hsts(r.Host))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hsts is the Strict-Transport-Security value for a request's host.
+// Browsers ignore it for IP addresses, so the dashboard's IP address always
+// stays reachable. On a name it lasts a day: if the name's certificate ever
+// lapses, the browser refuses the self-signed fallback for at most a day
+// after the last visit, instead of a year.
+func hsts(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if _, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		return "max-age=31536000"
+	}
+	return "max-age=86400"
 }
 
 type statusWriter struct {
@@ -708,10 +740,24 @@ func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, 
 	return s.forward(method, pattern)
 }
 
+// addressProxy forwards an address route with panelHost, the host the
+// dashboard was opened with, in the query or body. The agent keeps it when
+// it is a public IP address: behind NAT that address is on no network
+// interface, and an own domain's A record needs it.
+func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forwardTo(method, pattern, true)
+}
+
 // forward sends the request to its machine's agent. GETs pass the query on;
 // JSON bodies get the signed-in account stamped as actor (the agent checks
 // every field and rejects unknown ones); DELETEs pass the actor in the query.
 func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forwardTo(method, pattern, false)
+}
+
+// forwardTo is forward, also stamping panelHost when withHost is set. What
+// the panel stamps replaces anything the browser sent under the same name.
+func (s *Server) forwardTo(method, pattern string, withHost bool) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {
@@ -723,7 +769,11 @@ func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http
 		var err error
 		switch method {
 		case "GET":
-			status, err = m.agent.Do(r.Context(), "GET", path, r.URL.Query(), nil, &raw)
+			q := r.URL.Query()
+			if withHost {
+				q.Set("panelHost", r.Host)
+			}
+			status, err = m.agent.Do(r.Context(), "GET", path, q, nil, &raw)
 		case "DELETE":
 			status, err = m.agent.Do(r.Context(), "DELETE", path, url.Values{"actor": {sess.User.Username}}, nil, &raw)
 		default:
@@ -738,6 +788,9 @@ func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http
 					writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
 					return
 				}
+			}
+			if withHost {
+				body["panelHost"] = r.Host
 			}
 			body["actor"] = sess.User.Username
 			status, err = m.agent.Do(r.Context(), method, path, nil, body, &raw)
@@ -885,13 +938,29 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-// ListenAndServeTLS serves the panel over HTTPS until ctx ends.
-func (s *Server) ListenAndServeTLS(ctx context.Context) error {
+// tlsConfig serves the certificate the agent saved for the name a browser
+// asks for (the machine's address), and the self-signed one otherwise: for
+// the IP address, the installer's check on localhost, and a name whose
+// certificate lapsed. New and renewed certificates are picked up without a
+// restart.
+func (s *Server) tlsConfig() (*tls.Config, error) {
 	certFile, keyFile := filepath.Join(s.cfg.TLSDir(), "cert.pem"), filepath.Join(s.cfg.TLSDir(), "key.pem")
 	if _, err := EnsureSelfSignedCert(s.cfg.TLSDir(), s.now()); err != nil {
-		return err
+		return nil, err
 	}
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	store, err := certs.NewStore(certs.StoreOptions{Dir: s.cfg.CertsDir(), FallbackCert: certFile, FallbackKey: keyFile, Now: s.now})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := store.Loaded(); err != nil {
+		s.log.Warn("a saved certificate cannot be used; the self-signed one is served instead", "err", err)
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: store.GetCertificate}, nil
+}
+
+// ListenAndServeTLS serves the panel over HTTPS until ctx ends.
+func (s *Server) ListenAndServeTLS(ctx context.Context) error {
+	tc, err := s.tlsConfig()
 	if err != nil {
 		return err
 	}
@@ -899,7 +968,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           s.Handler(),
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}},
+		TLSConfig:         tc,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
