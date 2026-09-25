@@ -173,7 +173,7 @@ control "a crash that logs Stopping server is still a crash" internal/agent/life
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
 control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
   'in.Console = s.runLog(ctx, id, runStart)' \
-  'in.Console = nil' \
+  'in.Console = s.runLog(ctx, id, runStart)[:0]' \
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
 control "a crash report from an earlier run explains nothing" internal/agent/crash.go \
   'info.ModTime().Before(since.Add(-time.Second)) ||' \
