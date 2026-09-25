@@ -1,17 +1,21 @@
 // Package retention decides which of one server's backups the rules keep
-// and which they delete, on this machine and off the server: the newest few,
-// then one a day, one a week and one a month. It is a pure function of the
-// backups and the rules. It deletes nothing itself, and every decision
-// carries plain reasons with a stable code for translation.
+// and which they delete, on this machine and off the server: every backup
+// from the last day, then one a day, one a week and one a month. It is a
+// pure function of the backups and the rules. It deletes nothing itself,
+// and every decision carries plain reasons with a stable code for
+// translation. Estimate says what the rules come to at a steady pace, for
+// the rules editor.
 //
-// Days, weeks and months are counted in the user's time zone, and only those
-// that have a backup count, so a pause in backups never makes the rules
-// delete older ones. Some backups are always kept: pinned ones, the newest
-// one that passed its check, ones a restore or update may still need, and
-// ones that are the only copy of something no other backup has (the world
-// as it was before a restore replaced it, or the last world on an earlier
-// Minecraft version) unless they were downloaded or copied off the server,
-// or Settings.DeleteOnlyCopies says otherwise.
+// The last hours are counted back from the newest backup, and days, weeks
+// and months in the user's time zone, where only those that have a backup
+// count, so a pause in backups never makes the rules delete older ones.
+// Some backups are always kept: pinned ones, the newest one, the newest one
+// that passed its check, ones made by hand, ones a restore or update may
+// still need, and ones that are the only copy of something no other backup
+// has (the world as it was before a restore replaced it, or the last world
+// on an earlier Minecraft version) unless they were downloaded or copied
+// off the server. Settings.IncludeManual and Settings.DeleteOnlyCopies let
+// the rules delete the last two kinds.
 package retention
 
 import (
@@ -67,6 +71,11 @@ type Backup struct {
 type Rules struct {
 	// KeepAll keeps every backup and ignores the numbers below.
 	KeepAll bool `json:"keepAll"`
+	// Hours keeps every backup made less than this many hours before the
+	// newest one. Counting back from the newest backup rather than from now
+	// keeps the last day of backups whole through a pause, such as a server
+	// nobody played on.
+	Hours int `json:"hours"`
 	// Last keeps the newest backups.
 	Last int `json:"last"`
 	// Daily keeps the newest backup of each of the most recent days that
@@ -93,39 +102,35 @@ type Settings struct {
 
 // Upper bounds Validate enforces.
 const (
+	MaxHours   = 720
 	MaxLast    = 1000
 	MaxDaily   = 3660
 	MaxWeekly  = 520
 	MaxMonthly = 240
 )
 
-// DefaultSettings keep about a dozen backups on this machine with daily
-// backups (the newest 3, one a day for a week, one a week for 4 weeks and one
-// a month for 3 months) and more off the server, where space is cheaper.
+// DefaultSettings keep, on this machine, every backup from the last 24
+// hours, one a day for 7 days and one a week for 4 weeks, and backups made
+// by hand until someone deletes them. Off the server they keep a longer
+// history, one a day for 14 days, one a week for 8 weeks and one a month for
+// a year: space there is cheaper, and those copies are all that's left if
+// the machine is lost.
 func DefaultSettings() Settings {
 	return Settings{
-		OnHost:  Rules{Last: 3, Daily: 7, Weekly: 4, Monthly: 3},
-		OffSite: Rules{Last: 3, Daily: 14, Weekly: 8, Monthly: 12},
+		OnHost:  Rules{Hours: 24, Daily: 7, Weekly: 4},
+		OffSite: Rules{Daily: 14, Weekly: 8, Monthly: 12},
 	}
-}
-
-// MaxKept is the most backups r can keep in one place, not counting the
-// backups that are always kept, or -1 when it keeps every backup.
-func (r Rules) MaxKept() int {
-	if r.KeepAll {
-		return -1
-	}
-	return r.Last + r.Daily + r.Weekly + r.Monthly
 }
 
 // rules are the place's rules, with numbers out of Validate's range moved
-// into it, so the newest backup always counts.
+// into it.
 func (s Settings) rules(where Where) Rules {
 	r := s.OnHost
 	if where == OffSite {
 		r = s.OffSite
 	}
-	r.Last = min(max(r.Last, 1), MaxLast)
+	r.Hours = min(max(r.Hours, 0), MaxHours)
+	r.Last = min(max(r.Last, 0), MaxLast)
 	r.Daily = min(max(r.Daily, 0), MaxDaily)
 	r.Weekly = min(max(r.Weekly, 0), MaxWeekly)
 	r.Monthly = min(max(r.Monthly, 0), MaxMonthly)
@@ -384,6 +389,15 @@ func plan(all []Backup, s Settings, loc *time.Location, where Where, only map[st
 			add(b, keepAllText(where))
 		}
 	} else {
+		if r.Hours > 0 && len(ruled) > 0 {
+			from := ruled[0].CreatedAt.Add(-time.Duration(r.Hours) * time.Hour)
+			for i, b := range ruled {
+				if !b.CreatedAt.After(from) {
+					break
+				}
+				add(b, hoursText(r.Hours, i+1))
+			}
+		}
 		for i, b := range ruled[:min(r.Last, len(ruled))] {
 			add(b, lastText(r.Last, i+1))
 		}
@@ -399,6 +413,9 @@ func plan(all []Backup, s Settings, loc *time.Location, where Where, only map[st
 		for _, p := range months {
 			add(p.kept, monthlyText(p, r.Monthly))
 		}
+	}
+	if len(ruled) > 0 && len(reasons[ruled[0].ID]) == 0 {
+		add(ruled[0], latestText())
 	}
 
 	for _, b := range here {

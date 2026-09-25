@@ -15,7 +15,7 @@ func place(where Where) string {
 
 func isRule(code string) bool {
 	switch code {
-	case "keep_all", "last", "daily", "weekly", "monthly":
+	case "keep_all", "hours", "last", "daily", "weekly", "monthly":
 		return true
 	}
 	return false
@@ -40,6 +40,18 @@ func neededText(by string) Text {
 
 func keepAllText(where Where) Text {
 	return Text{Code: "keep_all", Params: map[string]string{"where": string(where)}, Text: "The rules keep every backup " + place(where) + "."}
+}
+
+func hoursText(n, rank int) Text {
+	s := "Made in the " + hoursSpan(n) + " up to the newest backup"
+	if rank == 1 {
+		s = "The newest backup"
+	}
+	return Text{Code: "hours", Params: map[string]string{"n": itoa(n), "rank": itoa(rank)}, Text: s + " (" + hoursPhrase(n) + ")."}
+}
+
+func latestText() Text {
+	return Text{Code: "latest", Text: "The newest backup is always kept."}
 }
 
 func lastText(n, rank int) Text {
@@ -151,7 +163,7 @@ func sameText(code string, p period, n int) Text {
 }
 
 func beyondText(r Rules, where Where) Text {
-	return Text{Code: "beyond_rules", Params: r.params(where), Text: "Older than what the rules keep " + place(where) + ": " + r.phrase() + "."}
+	return Text{Code: "beyond_rules", Params: r.params(where), Text: "Older than what the rules keep " + place(where) + ": " + r.keeps() + "."}
 }
 
 func noCopyLeftText(b Backup, where Where) Text {
@@ -170,6 +182,20 @@ func noCopyLeftText(b Backup, where Where) Text {
 	return Text{Code: "no_copy_left", Params: map[string]string{"where": string(where), "otherDeleted": strconv.FormatBool(other)}, Text: s}
 }
 
+// hoursSpan is n hours in words after "the last", e.g. "hour", "24 hours"
+// or "3 days".
+func hoursSpan(n int) string {
+	switch {
+	case n == 1:
+		return "hour"
+	case n%24 == 0 && n > 24:
+		return fmt.Sprintf("%d days", n/24)
+	}
+	return fmt.Sprintf("%d hours", n)
+}
+
+func hoursPhrase(n int) string { return "every backup from the last " + hoursSpan(n) }
+
 func lastPhrase(n int) string {
 	if n == 1 {
 		return "the newest"
@@ -178,12 +204,6 @@ func lastPhrase(n int) string {
 }
 
 func dailyPhrase(n int) string {
-	switch {
-	case n == 7:
-		return "one a day for a week"
-	case n%7 == 0 && n <= 28:
-		return fmt.Sprintf("one a day for %d weeks", n/7)
-	}
 	return fmt.Sprintf("one a day for %d %s", n, plural(n, "day", "days"))
 }
 
@@ -225,13 +245,16 @@ func joinAnd(parts []string) string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
 
-// phrase is the rules in words, e.g. "the newest 3, one a day for a week and
-// one a month for 3 months".
+// phrase is the rules in words, e.g. "every backup from the last 24 hours,
+// one a day for 7 days and one a week for 4 weeks".
 func (r Rules) phrase() string {
 	if r.KeepAll {
 		return "every backup"
 	}
 	var parts []string
+	if r.Hours > 0 {
+		parts = append(parts, hoursPhrase(r.Hours))
+	}
 	if r.Last > 0 {
 		parts = append(parts, lastPhrase(r.Last))
 	}
@@ -247,24 +270,28 @@ func (r Rules) phrase() string {
 	return joinAnd(parts)
 }
 
+// keeps is phrase for a sentence that needs one even when no rule is set.
+func (r Rules) keeps() string {
+	if p := r.phrase(); p != "" {
+		return p
+	}
+	return "only the backups that are always kept"
+}
+
 func (r Rules) params(where Where) map[string]string {
-	return map[string]string{"where": string(where), "keepAll": strconv.FormatBool(r.KeepAll),
+	return map[string]string{"where": string(where), "keepAll": strconv.FormatBool(r.KeepAll), "hours": itoa(r.Hours),
 		"last": itoa(r.Last), "daily": itoa(r.Daily), "weekly": itoa(r.Weekly), "monthly": itoa(r.Monthly)}
 }
 
 // Describe says in a sentence what r keeps in one place.
 func (r Rules) Describe(where Where) Text {
-	s := "Keeps " + r.phrase() + " " + place(where) + "."
-	if !r.KeepAll {
-		s = "Keeps " + r.phrase() + " " + place(where) + ", at most " + itoa(r.MaxKept()) + " backups besides the ones that are always kept."
-	}
-	return Text{Code: "rules", Params: r.params(where), Text: s}
+	return Text{Code: "rules", Params: r.params(where), Text: "Keeps " + r.keeps() + " " + place(where) + "."}
 }
 
 // Describe explains s for the rules editor: what each place keeps, how
 // periods are counted, and which backups are always kept.
 func (s Settings) Describe() []Text {
-	always := []string{"pinned backups", "the newest backup that passed its check", "backups a restore or update may still need"}
+	always := []string{"pinned backups", "the newest backup", "the newest backup that passed its check", "backups a restore or update may still need"}
 	if !s.IncludeManual {
 		always = append(always, "backups made by hand")
 	}
@@ -274,7 +301,7 @@ func (s Settings) Describe() []Text {
 	return []Text{
 		s.rules(OnHost).Describe(OnHost),
 		s.rules(OffSite).Describe(OffSite),
-		{Code: "gaps", Text: "Days, weeks and months without a backup don't count, so a pause in backups never makes the rules delete older ones."},
+		{Code: "gaps", Text: "The last hours are counted back from the newest backup, and days, weeks and months without a backup don't count, so a pause in backups never makes the rules delete older ones."},
 		{Code: "always_kept", Params: map[string]string{"includeManual": strconv.FormatBool(s.IncludeManual), "deleteOnlyCopies": strconv.FormatBool(s.DeleteOnlyCopies)},
 			Text: "Always kept: " + joinAnd(always) + "."},
 	}
@@ -291,9 +318,9 @@ func summaryText(p Plan, r Rules, extra map[string]int) Text {
 		}
 		return Text{Code: "summary_empty", Params: params, Text: s}
 	}
+	kept := fmt.Sprintf("%d %s (%s) %s", p.Keep, plural(p.Keep, "backup", "backups"), humanBytes(p.KeepBytes), place(p.Where))
 	if r.KeepAll {
-		return Text{Code: "summary", Params: params,
-			Text: fmt.Sprintf("Keeps all %d %s %s (%s).", p.Keep, plural(p.Keep, "backup", "backups"), place(p.Where), humanBytes(p.KeepBytes))}
+		return Text{Code: "summary", Params: params, Text: "Keeps all " + kept + "."}
 	}
 	newest := "the newest that passed its check"
 	if p.Where == OffSite {
@@ -306,6 +333,7 @@ func summaryText(p Plan, r Rules, extra map[string]int) Text {
 	}{
 		{"pinned", "1 pinned", "%d pinned"},
 		{"needed", "1 a restore or update still needs", "%d a restore or update still needs"},
+		{"latest", "the newest", "the newest"},
 		{"newest", newest, newest},
 		{"manual", "1 made by hand", "%d made by hand"},
 		{"only_copy", "1 that is the only copy of an earlier world", "%d that are the only copies of earlier worlds"},
@@ -320,9 +348,14 @@ func summaryText(p Plan, r Rules, extra map[string]int) Text {
 			plus = append(plus, strings.ReplaceAll(e.many, "%d", itoa(n)))
 		}
 	}
-	s := fmt.Sprintf("Keeps %d %s %s (%s): %s", p.Keep, plural(p.Keep, "backup", "backups"), place(p.Where), humanBytes(p.KeepBytes), r.phrase())
-	if len(plus) > 0 {
-		s += ", plus " + joinAnd(plus)
+	s := "Keeps " + kept
+	switch rules := r.phrase(); {
+	case rules != "" && len(plus) > 0:
+		s += ": " + rules + ", plus " + joinAnd(plus)
+	case rules != "":
+		s += ": " + rules
+	case len(plus) > 0:
+		s += ": " + joinAnd(plus)
 	}
 	s += "."
 	if p.Delete == 0 {
@@ -335,17 +368,21 @@ func summaryText(p Plan, r Rules, extra map[string]int) Text {
 
 func isoWeek(year, week int) string { return fmt.Sprintf("%04d-W%02d", year, week) }
 
+// humanBytes writes n in decimal units the way the design does: "312 MB",
+// "4.6 GB".
 func humanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
+	const k, m, g, t = 1_000, 1_000_000, 1_000_000_000, 1_000_000_000_000
+	switch {
+	case n >= t || (n+g/20)/(g/10) >= 10*k:
+		return fmt.Sprintf("%.1f TB", float64(n)/t)
+	case n >= g || (n+m/2)/m >= k:
+		return fmt.Sprintf("%.1f GB", float64(n)/g)
+	case n >= m || (n+k/2)/k >= k:
+		return fmt.Sprintf("%d MB", (n+m/2)/m)
+	case n >= k:
+		return fmt.Sprintf("%d kB", (n+k/2)/k)
 	}
-	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit; m /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%d B", n)
 }
 
 // Error is a setting Validate refuses. Field names it, e.g. "offSite.daily".
@@ -376,7 +413,8 @@ func (s Settings) Validate() error {
 			what     string
 			hint     string
 		}{
-			{"last", c.r.Last, 1, MaxLast, "The number of newest backups to keep", "The newest backup is always kept, so the smallest number is 1."},
+			{"hours", c.r.Hours, 0, MaxHours, "The number of hours to keep every backup for", "Use 0 to let the other rules decide alone. The most is 720 hours, which is 30 days."},
+			{"last", c.r.Last, 0, MaxLast, "The number of newest backups to keep", "Use 0 to keep no fixed number of newest backups; the newest one is always kept."},
 			{"daily", c.r.Daily, 0, MaxDaily, "The number of days to keep one backup a day for", "Use 0 to keep no daily backups."},
 			{"weekly", c.r.Weekly, 0, MaxWeekly, "The number of weeks to keep one backup a week for", "Use 0 to keep no weekly backups."},
 			{"monthly", c.r.Monthly, 0, MaxMonthly, "The number of months to keep one backup a month for", "Use 0 to keep no monthly backups."},
