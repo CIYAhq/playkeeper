@@ -477,6 +477,7 @@ describe('an own domain', () => {
     expect(text()).toContain('play.example.com is ready')
     expect(text()).toContain('Couldn’t renew the certificate')
     expect(text()).toContain(`It runs out on ${formatDate(notAfter)}. Open port 80 while it renews, then try again.`)
+    expect(text()).not.toContain('renews by itself')
   })
 
   it('changes the domain from the done view, and Cancel goes back', async () => {

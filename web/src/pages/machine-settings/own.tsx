@@ -415,7 +415,7 @@ export function OwnDomain(props: AddressProps) {
     return (
       <>
         <DoneView
-          header={<DoneHeader pip="cheer" title={t('address.ready', { domain })} sub={t('address.certActiveShort')} open={open} openLabel={openLabel(open, phone)} openEnabled />}
+          header={<DoneHeader pip="cheer" title={t('address.ready', { domain })} sub={a.certificate?.problem ? undefined : t('address.certActiveShort')} open={open} openLabel={openLabel(open, phone)} openEnabled />}
           notices={<CertificateNotice a={a} now={now} busy={busy === 'certificate'} onRetry={() => void certificate()} />}
           rows={rows}
           ip={a.ip}
