@@ -27,7 +27,7 @@ const usage = `Usage:
         NAMES_BASE_DOMAIN               domain names live under (default playkeeper.io)
         NAMES_DATA_DIR                  database and daily snapshots (default /data)
         NAMES_LISTEN                    listen address (default :8080)
-        NAMES_TRUSTED_PROXIES           networks of the reverse proxy, e.g. 10.0.1.0/24 (default none)
+        NAMES_TRUSTED_PROXIES           the reverse proxy's own address, e.g. 10.0.1.5 (default none)
         NAMES_MAX_NAMES_PER_KEY         names one install may hold (default 1)
         NAMES_MAX_NAMES_PER_NETWORK     names one IPv4 /24 or IPv6 /48 may hold (default 3)
         NAMES_CLAIMS_PER_DAY            new names per day across everyone (default 30)
@@ -95,7 +95,7 @@ func serve() error {
 	go func() { errc <- srv.ListenAndServe() }()
 	log.Info("playkeeper-names is listening", "address", cfg.Listen, "base", cfg.Base, "trusted_proxies", len(cfg.TrustedProxies))
 	if len(cfg.TrustedProxies) == 0 {
-		log.Warn(service.EnvTrustedProxies + " is empty, so X-Forwarded-For is ignored; behind a reverse proxy, set it to the proxy's network")
+		log.Warn(service.EnvTrustedProxies + " is empty, so X-Forwarded-For is ignored; behind a reverse proxy, set it to the proxy's own address")
 	}
 	select {
 	case err = <-errc:

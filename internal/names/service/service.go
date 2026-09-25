@@ -92,10 +92,9 @@ type Service struct {
 	rechecks              *limiter
 	alerts                *alerter
 
-	locks       nameLocks
-	zoneOK      atomic.Bool
-	warnedProxy atomic.Bool
-	lastBackup  string
+	locks      nameLocks
+	zoneOK     atomic.Bool
+	lastBackup string
 }
 
 // New opens the database in cfg.DataDir and checks the Cloudflare zone. A
@@ -167,6 +166,12 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		},
 	}
 	s.block.reload(s.log)
+	for _, p := range cfg.TrustedProxies {
+		if p.Bits() < p.Addr().BitLen() {
+			s.log.Warn(EnvTrustedProxies+" lists a whole network, so anything in it can make the service believe any client address. List only the reverse proxy's own address, unless the network holds nothing but the proxy and this service (see services/names/README.md).",
+				"network", p.String())
+		}
+	}
 	if err := s.ensureZone(ctx); err != nil {
 		var ce *cfError
 		if !errors.As(err, &ce) || !ce.temporary() {

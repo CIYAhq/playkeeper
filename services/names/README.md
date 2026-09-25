@@ -78,20 +78,20 @@ It must be **DNS only**: the service has to see each Playkeeper server's own add
    - **Ports Exposes**: `8080`
 3. Select **Continue**. In **Configuration** → **General**, set **Domains** to `https://names.playkeeper.io` and select **Save**.
 4. In **Persistent Storage**, select **+ Add** → **Volume Mount**, set **Name** to `names-data` and **Destination Path** to `/data`, and save. The database of who owns which name lives there; without the volume, every deploy forgets all names.
-5. On the server, print the network of Coolify's proxy:
+5. On the server, print the address of Coolify's proxy on the `coolify` network:
 
    ```bash
-   docker network inspect coolify --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+   docker inspect coolify-proxy --format '{{with index .NetworkSettings.Networks "coolify"}}{{.IPAddress}}{{end}}'
    ```
 
-   It prints something like `10.0.1.0/24`.
+   It prints something like `10.0.1.5`. The service believes only this address when a request says which visitor it passes on, so other containers on the server cannot pretend to be Playkeeper servers somewhere else.
 6. In **Environment Variables**, add these three. On each, untick **Available at Buildtime** (older Coolify versions call it **Build Variable?**): the service reads them only when it runs, and build variables can end up in the image.
 
    | Name | Value |
    | --- | --- |
    | `NAMES_CLOUDFLARE_API_TOKEN` | the token from step 2 |
    | `NAMES_CLOUDFLARE_ZONE_ID` | the zone ID from step 2 |
-   | `NAMES_TRUSTED_PROXIES` | what the command in step 5 printed |
+   | `NAMES_TRUSTED_PROXIES` | the address the command in step 5 printed |
 
 7. Select **Deploy** and wait until the deployment log says it has finished. The first build takes a minute or two and needs about 1 GB of free memory.
 
@@ -118,6 +118,17 @@ curl -s https://names.playkeeper.io/v1/names/www   # ... "available":false,"code
 ```
 
 `/v1/ip` must show your own public address with `"public":true`. An address starting with `10.`, `172.` or `192.168.` means the service sees Coolify's proxy instead of you: check `NAMES_TRUSTED_PROXIES`. Any other address that is not yours means the `names` record is proxied: make it **DNS only**.
+
+Coolify's proxy can get a new address when it is recreated, for example by a Coolify update. The service then refuses claims until you update `NAMES_TRUSTED_PROXIES`, and says so in its log with `alert=unlisted_proxy` and the proxy's new address (and on the webhook in `NAMES_ALERT_WEBHOOK_URL`, if you set one). Check the new address with the `docker inspect` command from step 4, change the variable and redeploy.
+
+**Or give the service a network of its own.** Its address then stays the same when the proxy is recreated. Before step 4, open **Servers** → your server → **Destinations** in Coolify and add one named `playkeeper-names`, then choose it as the destination when you create the application. Coolify connects its proxy to every destination's network. On the server, check that the network holds only the proxy and the names service, and print its range:
+
+```bash
+docker network inspect playkeeper-names --format '{{range .Containers}}{{.Name}} {{end}}'   # coolify-proxy and the names container, nothing else
+docker network inspect playkeeper-names --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+```
+
+If `coolify-proxy` is missing from the list, restart the proxy (**Servers** → your server → **Proxy** → **Restart Proxy**) and check again. Set `NAMES_TRUSTED_PROXIES` to the range, such as `10.0.5.0/24`. The service warns at start that it trusts a whole network; that is expected here. Deploy nothing else to this destination.
 
 In Coolify, the application's **Logs** should show `playkeeper-names is listening` and no line with `level=ERROR`. If the token, its IP filter or the zone ID is wrong, the service stops at start and the log names the setting to fix; for the IP filter, Cloudflare's message includes the address it saw.
 

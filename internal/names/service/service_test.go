@@ -269,7 +269,8 @@ func TestForwardedForIsOnlyBelievedFromTrustedProxies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{cfg: Config{TrustedProxies: proxies}, log: slog.New(slog.NewTextHandler(log, nil))}
+	logger := slog.New(slog.NewTextHandler(log, nil))
+	s := &Service{cfg: Config{TrustedProxies: proxies}, log: logger, alerts: &alerter{log: logger, now: time.Now, last: map[string]time.Time{}}}
 	for _, tc := range []struct {
 		peer string
 		xff  []string
@@ -316,8 +317,17 @@ func TestForwardedForIsOnlyBelievedFromTrustedProxies(t *testing.T) {
 			t.Errorf("an untrusted proxy: got %s, %v", got, err)
 		}
 	}
-	if n := strings.Count(log.String(), "does not list"); n != 1 {
-		t.Errorf("warned %d times about an unlisted proxy, want once", n)
+	if n := strings.Count(log.String(), "does not list"); n != 1 || !strings.Contains(log.String(), "alert="+alertProxy) {
+		t.Errorf("alerted %d times about an unlisted proxy, want once", n)
+	}
+}
+
+func TestTrustingAWholeNetworkIsWarnedAbout(t *testing.T) {
+	e := newEnv(t, func(e *testEnv) {
+		e.cfg.TrustedProxies = mustPrefixes("127.0.0.1/32", "10.0.1.0/24", "fd00::7/128")
+	})
+	if log := e.log.String(); strings.Count(log, "lists a whole network") != 1 || !strings.Contains(log, "network=10.0.1.0/24") {
+		t.Errorf("warnings about trusted networks: %s", log)
 	}
 }
 

@@ -64,9 +64,9 @@ type Config struct {
 	DataDir string
 	// Listen is the address main listens on; the service itself ignores it.
 	Listen string
-	// TrustedProxies are the networks of the reverse proxy in front of the
-	// service; only requests from them may name the client address in
-	// X-Forwarded-For.
+	// TrustedProxies are the reverse proxy's own addresses, or a network
+	// only it shares with the service; only requests from them may name
+	// the client address in X-Forwarded-For.
 	TrustedProxies []netip.Prefix
 	MaxNamesPerKey int
 	// MaxNamesPerNetwork bounds the names claimed from one network (see
@@ -191,10 +191,10 @@ func checkBase(base string) error {
 	return nil
 }
 
-// ParsePrefixes reads a list of networks ("10.0.1.0/24, fd00::/64") or
-// single addresses, separated by commas or spaces. A prefix that covers
-// every address is refused: trusting everyone would let anyone name any
-// address.
+// ParsePrefixes reads a list of addresses ("10.0.1.5, fd00::7") or
+// networks ("10.0.1.0/24"), separated by commas or spaces. A prefix that
+// covers every address is refused: trusting everyone would let anyone name
+// any address.
 func ParsePrefixes(s string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
 	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }) {
@@ -202,12 +202,12 @@ func ParsePrefixes(s string) ([]netip.Prefix, error) {
 		if err != nil {
 			a, aerr := netip.ParseAddr(f)
 			if aerr != nil {
-				return nil, fmt.Errorf("%q is not a network like 10.0.1.0/24 or an address", f)
+				return nil, fmt.Errorf("%q is not an address like 10.0.1.5 or a network like 10.0.1.0/24", f)
 			}
 			p = netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen())
 		}
 		if p.Bits() == 0 {
-			return nil, fmt.Errorf("%s would trust every address; list only the proxy's own network", f)
+			return nil, fmt.Errorf("%s would trust every address; list only the proxy's own address", f)
 		}
 		out = append(out, p.Masked())
 	}

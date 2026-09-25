@@ -21,6 +21,7 @@ const (
 	alertChallenges     = "challenges_refused"
 	alertChecks         = "liveness_checks"
 	alertCertificates   = "certificate_budget"
+	alertProxy          = "unlisted_proxy"
 )
 
 const (

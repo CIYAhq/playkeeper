@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -20,8 +21,9 @@ func (s *Service) clientAddr(r *http.Request) (netip.Addr, error) {
 	}
 	addr := ap.Addr().Unmap().WithZone("")
 	if !s.trusted(addr) {
-		if r.Header.Get("X-Forwarded-For") != "" && (addr.IsPrivate() || addr.IsLoopback()) && s.warnedProxy.CompareAndSwap(false, true) {
-			s.log.Warn("A request came through a proxy that "+EnvTrustedProxies+" does not list, so the client address it forwarded was ignored. Set "+EnvTrustedProxies+" to the proxy's network (see services/names/README.md).", "proxy", addr.String())
+		if r.Header.Get("X-Forwarded-For") != "" && (addr.IsPrivate() || addr.IsLoopback()) {
+			s.alerts.send(alertProxy, fmt.Sprintf("Requests come through a proxy at %s that %s does not list, so the service ignores the client addresses it passes on and refuses claims. If that is your reverse proxy, which gets a new address when it is recreated, set %s to its address. See \"Set it up\" in services/names/README.md.",
+				addr, EnvTrustedProxies, EnvTrustedProxies), "proxy", addr.String())
 		}
 		return addr, nil
 	}
