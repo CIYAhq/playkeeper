@@ -224,6 +224,15 @@ describe('versions', () => {
     expect(cards[3]?.hint).toContain('Survival')
     expect(older.map((v) => v.id)).toEqual(['old', 'paper-1.21.11'])
   })
+
+  it('keeps offering older versions PaperMC no longer updates', () => {
+    const live = [entry('26.3', { experimental: true, channel: 'ALPHA' }), entry('26.2', { recommended: true, paperBuild: 129 }), entry('26.1.2', { supported: false, paperBuild: 74 }), entry('1.21.11', { supported: false, paperBuild: 132 })]
+    const { cards, older } = versionCards(live, [])
+    expect(cards.map((c) => c.entry.id)).toEqual(['paper-26.2', 'paper-26.3', 'paper-26.1.2'])
+    expect(older.map((v) => v.id)).toEqual(['paper-1.21.11'])
+    const legacy = [server({ id: 'x', name: 'Legacy', config: { minecraftVersion: '1.21.11', paperBuild: 132 } as ServerConfig })]
+    expect(versionCards(live, legacy).cards.at(-1)?.hint).toContain('Legacy')
+  })
 })
 
 describe('creating a server', () => {

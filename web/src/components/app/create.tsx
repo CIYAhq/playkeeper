@@ -117,18 +117,21 @@ interface VersionCard {
   hint: string
 }
 
-/** The versions worth a card of their own, and the older ones behind a search. */
+/**
+ * The versions worth a card of their own, and the older ones behind a search.
+ * Older versions PaperMC no longer updates stay on offer, for friends or
+ * plugins that still need them.
+ */
 export function versionCards(versions: CatalogEntry[], servers: ServerStatus[] | undefined, phone?: boolean): { cards: VersionCard[]; older: CatalogEntry[] } {
-  const supported = versions.filter((v) => v.supported)
   const byVersion = (a: CatalogEntry, b: CatalogEntry) => compareMinecraft(b.minecraftVersion, a.minecraftVersion) || b.paperBuild - a.paperBuild
-  const stable = supported.filter((v) => !v.experimental).sort(byVersion)
-  const rec = supported.find((v) => v.recommended) ?? stable[0]
+  const stable = versions.filter((v) => !v.experimental).sort(byVersion)
+  const rec = versions.find((v) => v.recommended) ?? stable.find((v) => v.supported) ?? stable[0]
   const cards: VersionCard[] = []
   const add = (e: CatalogEntry | undefined, hint: string) => {
     if (e && !cards.some((c) => c.entry.id === e.id)) cards.push({ entry: e, hint })
   }
   add(rec, t('new.latestStable'))
-  const exp = supported.filter((v) => v.experimental && (!rec || compareMinecraft(v.minecraftVersion, rec.minecraftVersion) > 0)).sort(byVersion)[0]
+  const exp = versions.filter((v) => v.experimental && v.supported && (!rec || compareMinecraft(v.minecraftVersion, rec.minecraftVersion) > 0)).sort(byVersion)[0]
   add(exp, phone ? t('new.experimentalShort') : t('new.experimentalHint'))
   const next = stable.find((v) => rec && compareMinecraft(v.minecraftVersion, rec.minecraftVersion) < 0)
   add(next, t('new.build', { build: next?.paperBuild ?? 0 }))
