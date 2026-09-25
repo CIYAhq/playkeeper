@@ -148,6 +148,9 @@ func (s *Schema) prepare(path string, depth int, nodes *int) (*Schema, error) {
 
 	c := *s
 	c.Properties, c.Required, c.Items, c.Enum, c.Default, c.re = nil, nil, nil, nil, nil, nil
+	c.MinItems, c.MaxItems = clonePtr(s.MinItems), clonePtr(s.MaxItems)
+	c.MinLength, c.MaxLength = clonePtr(s.MinLength), clonePtr(s.MaxLength)
+	c.Minimum, c.Maximum = clonePtr(s.Minimum), clonePtr(s.Maximum)
 	if s.Type == "object" {
 		c.Properties = make(map[string]*Schema, len(s.Properties))
 		folded := map[string]string{}
@@ -223,6 +226,13 @@ func (s *Schema) prepare(path string, depth int, nodes *int) (*Schema, error) {
 		c.Default = d
 	}
 	return &c, nil
+}
+
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	return new(*p)
 }
 
 func checkBounds(path string, s *Schema) error {
@@ -444,6 +454,10 @@ func (s *Schema) checkEnum(v any, path string, p *problems) {
 		if sameValue(e, v) {
 			return
 		}
+	}
+	if len(s.Enum) == 1 {
+		p.add("%s must be %s.", p.subject(path), listValues(s.Enum))
+		return
 	}
 	p.add("%s must be one of %s.", p.subject(path), listValues(s.Enum))
 }
