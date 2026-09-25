@@ -100,7 +100,7 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			problems = append(problems, err.Error())
 		}
 	}
-	for _, u := range []string{PanelUnit, AgentUnit} {
+	for _, u := range []string{UpdatePathUnit, UpdateServiceUnit, PanelUnit, AgentUnit} {
 		if contains(m.Units, u) {
 			_, err := sys.Run("systemctl", "disable", "--now", u)
 			note(err)
@@ -116,6 +116,8 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			note(removeIfExists(sys.P(f)))
 		}
 	}
+	// Staged updates and the copy of the previous version are not user data.
+	note(os.RemoveAll(sys.P(UpdateDir(config.Default()))))
 	if len(m.Units) > 0 {
 		_, err := sys.Run("systemctl", "daemon-reload")
 		note(err)

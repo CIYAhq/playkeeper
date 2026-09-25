@@ -1,6 +1,74 @@
 package install
 
-import "fmt"
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/CIYAhq/playkeeper/internal/config"
+)
+
+const (
+	UpdatePathUnit    = "playkeeper-update.path"
+	UpdateServiceUnit = "playkeeper-update.service"
+)
+
+// unitNames are the only systemd units Playkeeper installs; an update may
+// write no other file into /etc/systemd/system.
+var unitNames = []string{AgentUnit, PanelUnit, UpdatePathUnit, UpdateServiceUnit}
+
+// Units returns every systemd unit this version installs, by name.
+func Units(cfg config.Config) map[string]string {
+	return map[string]string{
+		AgentUnit:         agentUnit(),
+		PanelUnit:         panelUnit(cfg.PanelPort),
+		UpdatePathUnit:    updatePathUnit(cfg),
+		UpdateServiceUnit: updateServiceUnit(),
+	}
+}
+
+// UpdateDir holds a verified update the agent staged, the updater's
+// request and result, and the copy of the previous version it can put back.
+func UpdateDir(cfg config.Config) string { return filepath.Join(cfg.AgentDir(), "update") }
+
+// updatePathUnit starts the updater when the agent has staged a verified
+// update, and again if an update was interrupted (the updater then finishes
+// or rolls it back). The agent cannot replace the binary itself: its sandbox
+// is read-only outside /var/lib/playkeeper.
+func updatePathUnit(cfg config.Config) string {
+	dir := UpdateDir(cfg)
+	return fmt.Sprintf(`[Unit]
+Description=Playkeeper updater trigger
+
+[Path]
+PathExists=%s
+PathExists=%s
+Unit=%s
+
+[Install]
+WantedBy=multi-user.target
+`, filepath.Join(dir, "request.json"), filepath.Join(dir, "applying.json"), UpdateServiceUnit)
+}
+
+// updateServiceUnit runs the installed (previous) binary as the updater: it
+// installs the staged release, restarts the agent and panel, and puts the
+// previous version back if the new one does not come up healthy. It may only
+// write the binary, the units, the config and Playkeeper's state.
+func updateServiceUnit() string {
+	return `[Unit]
+Description=Playkeeper updater (installs a verified release; rolls back if it is unhealthy)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/playkeeper self-update --config /etc/playkeeper/config.json
+TimeoutStartSec=20min
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadWritePaths=/usr/local/bin /etc/systemd/system /etc/playkeeper /var/lib/playkeeper
+ProtectHome=yes
+PrivateTmp=yes
+`
+}
 
 // agentUnit runs the root agent with a read-only view of the host except its
 // own state directory and runtime socket directory.

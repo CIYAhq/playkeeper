@@ -50,8 +50,11 @@ type Options struct {
 	Yes                    bool
 	AllowUntestedOS        bool
 	AllowExistingMinecraft bool
-	In                     io.Reader
-	Out                    io.Writer
+	// ReleaseURL, when set, is where the installed agent looks for updates
+	// (get.sh passes the location it downloaded from, if not the default).
+	ReleaseURL string
+	In         io.Reader
+	Out        io.Writer
 }
 
 type Check struct {
@@ -196,7 +199,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 			"Leave that server alone and use a different VPS, or, if you are sure the two will not conflict, re-run with --allow-existing-minecraft (Playkeeper never modifies it) and a free --game-port.")
 	}
 	if _, err := os.Stat(sys.P(ConfigDir + "/config.json")); err == nil {
-		add("installed", "Existing Playkeeper", "fail", "Playkeeper is already installed.", "To reinstall, run: sudo playkeeper uninstall (keeps worlds and backups), then install again.")
+		add("installed", "Existing Playkeeper", "fail", "Playkeeper is already installed.", "To upgrade it, run the one-line installer (or install.sh from a newer release) again: it upgrades in place and keeps worlds, backups and settings.")
 	} else if _, err := os.Stat(sys.P(filepath.Join(config.DefaultDataDir, "server", "data"))); err == nil {
 		f.ReuseData = true
 		f.ExistingAdmin = hasAdmin(sys.P(filepath.Join(config.DefaultDataDir, "panel", "panel.db")))
@@ -382,10 +385,19 @@ type Result struct {
 	Fingerprint string
 	Duration    time.Duration
 	ExistingAdm bool
+	// Upgraded is set when an existing install was upgraded in place from
+	// FromVersion; UpToDate when it already ran this version.
+	Upgraded    bool
+	UpToDate    bool
+	FromVersion string
 }
 
-// Run installs Playkeeper. On any failure every completed step is undone.
+// Run installs Playkeeper, or upgrades an existing install in place. On any
+// failure every completed step is undone.
 func Run(ctx context.Context, sys System, o Options, version string) (*Result, error) {
+	if _, err := os.Stat(sys.P(ConfigDir + "/config.json")); err == nil {
+		return runUpgrade(ctx, sys, o, version)
+	}
 	start := sys.Now()
 	out := o.Out
 	fmt.Fprintf(out, "Playkeeper %s installer\n\nChecking this server (nothing is changed yet):\n", version)
@@ -466,6 +478,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	sys := in.sys
 	cfg := config.Default()
 	cfg.PanelPort, cfg.GamePort = in.o.PanelPort, in.o.GamePort
+	cfg.ReleaseURL = in.o.ReleaseURL
 	cfg.InstallID = randomHex(16)
 	in.m.InstallID = cfg.InstallID
 	fmt.Fprintln(in.out, "\nInstalling:")
@@ -663,8 +676,8 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	}
 
 	if err := in.exec(step{name: "install and start systemd services", do: func() error {
-		units := map[string]string{AgentUnit: agentUnit(), PanelUnit: panelUnit(cfg.PanelPort)}
-		for _, name := range []string{AgentUnit, PanelUnit} {
+		units := Units(cfg)
+		for _, name := range unitNames {
 			if err := os.WriteFile(sys.P(UnitDir+"/"+name), []byte(units[name]), 0o644); err != nil {
 				return err
 			}
@@ -674,19 +687,25 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		if _, err := sys.Run("systemctl", "daemon-reload"); err != nil {
 			return err
 		}
-		if _, err := sys.Run("systemctl", "enable", "--now", AgentUnit); err != nil {
-			return err
-		}
-		if _, err := sys.Run("systemctl", "enable", "--now", PanelUnit); err != nil {
-			return err
+		for _, name := range []string{AgentUnit, PanelUnit, UpdatePathUnit} {
+			if _, err := sys.Run("systemctl", "enable", "--now", name); err != nil {
+				return err
+			}
 		}
 		hctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		return sys.WaitHealthy(hctx, cfg.SocketPath, sys.P(filepath.Join(cfg.TLSDir(), "cert.pem")), cfg.PanelPort)
 	}, undo: func() error {
 		var errs []error
-		for _, name := range []string{PanelUnit, AgentUnit} {
+		for _, name := range []string{UpdatePathUnit, PanelUnit, AgentUnit, UpdateServiceUnit} {
 			if _, err := os.Stat(sys.P(UnitDir + "/" + name)); err != nil {
+				continue
+			}
+			// The updater is a oneshot that never ran during an install.
+			if name == UpdateServiceUnit {
+				if err := removeIfExists(sys.P(UnitDir + "/" + name)); err != nil {
+					errs = append(errs, err)
+				}
 				continue
 			}
 			if _, err := sys.Run("systemctl", "disable", "--now", name); err != nil {
@@ -883,6 +902,13 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	// The mode passed to OpenFile is narrowed by the umask (the updater runs
+	// with 0077), and the panel user must be able to run the binary.
+	if err := os.Chmod(tmp, mode); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, dst)
@@ -931,16 +957,75 @@ func waitHealthy(ctx context.Context, socket, certPath string, port int) error {
 	}
 }
 
-func panelHealth(ctx context.Context, certPath string, port int) error {
+// waitVersion is waitHealthy for an upgrade: the agent and the panel must
+// both report version want, so the old version still running is not taken
+// for the new one.
+func waitVersion(ctx context.Context, socket, certPath string, port int, want string) error {
+	ac := agentclient.New(socket)
+	var lastErr error
+	for {
+		var h api.Health
+		_, err := ac.Do(ctx, "GET", "/v1/health", nil, nil, &h)
+		switch {
+		case err != nil:
+			lastErr = err
+		case h.Version != want:
+			lastErr = fmt.Errorf("the agent reports version %s", h.Version)
+		default:
+			lastErr = panelVersion(ctx, certPath, port, want)
+			if lastErr == nil {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("Playkeeper %s did not come up healthy: %v", want, lastErr)
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func panelClient(certPath string) (*http.Client, error) {
 	pem, err := os.ReadFile(certPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(pem) {
-		return errors.New("cannot parse panel certificate")
+		return nil, errors.New("cannot parse panel certificate")
 	}
-	hc := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12}}}
+	return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12}}}, nil
+}
+
+// panelVersion reads the version the panel reports on its public health route.
+func panelVersion(ctx context.Context, certPath string, port int, want string) error {
+	hc, err := panelClient(certPath)
+	if err != nil {
+		return err
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://127.0.0.1:%d/api/health", port), nil)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Version string `json:"version"`
+	}
+	if resp.StatusCode != 200 || json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body) != nil {
+		return fmt.Errorf("panel health returned %d", resp.StatusCode)
+	}
+	if body.Version != want {
+		return fmt.Errorf("the panel reports version %s", body.Version)
+	}
+	return nil
+}
+
+func panelHealth(ctx context.Context, certPath string, port int) error {
+	hc, err := panelClient(certPath)
+	if err != nil {
+		return err
+	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://127.0.0.1:%d/healthz", port), nil)
 	resp, err := hc.Do(req)
 	if err != nil {
