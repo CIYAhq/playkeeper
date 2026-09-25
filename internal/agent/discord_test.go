@@ -341,6 +341,35 @@ func TestDiscordNotifyTakesJoinRequestsOnly(t *testing.T) {
 	f.waitMessage(e, "Join request", `mara\\_k`, "wants to join")
 }
 
+func TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	if code, out := e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{}, "liveStatus": false, "actor": "admin"}); code != 200 {
+		t.Fatalf("turn every alert off: %d %v", code, out)
+	}
+	for _, c := range []struct {
+		body   map[string]any
+		status int
+	}{
+		{map[string]any{"kind": "two_factor_changed", "member": "", "on": true, "admin": true, "actor": "panel"}, 400},
+		{map[string]any{"kind": "two_factor_changed", "member": "mara k", "on": true, "admin": true, "actor": "panel"}, 400},
+		{map[string]any{"kind": "two_factor_changed", "member": "@everyone", "on": true, "admin": true, "actor": "panel"}, 400},
+		{map[string]any{"kind": "two_factor_changed", "member": "mara", "on": true, "admin": true}, 400},
+		{map[string]any{"kind": "two_factor", "member": "mara", "on": true, "admin": true, "actor": "panel"}, 400},
+	} {
+		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != c.status {
+			t.Errorf("%v: %d %v", c.body, code, out)
+		}
+	}
+	if code, out := e.call("POST", "/v1/discord/notify", map[string]any{"kind": "two_factor_changed", "member": "mara", "on": true, "admin": true, "actor": "panel"}); code != 204 {
+		t.Fatalf("two-factor change: %d %v", code, out)
+	}
+	f.waitMessage(e, "Two-factor sign-in turned on", "**mara**", "confirm them on the Team page")
+	if n := len(f.messages("Two-factor sign-in")); n != 1 {
+		t.Fatalf("%d messages for one change", n)
+	}
+}
+
 func TestDiscordTestEndpointMustBeOnThisMachine(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	for _, bad := range []string{

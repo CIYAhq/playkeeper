@@ -729,10 +729,21 @@ type DiscordSettingsRequest struct {
 	Actor      string   `json:"actor"`
 }
 
-// DiscordNotifyRequest is an alert the panel reports (a join request).
+// DiscordNotifyRequest is an alert the panel reports: a join request
+// (ServerID and Player), or a team member turning two-factor sign-in on or
+// off (Member, On, and Admin for an admin).
 type DiscordNotifyRequest struct {
 	Kind     string `json:"kind"`
-	ServerID string `json:"serverId"`
-	Player   string `json:"player"`
+	ServerID string `json:"serverId,omitempty"`
+	Player   string `json:"player,omitempty"`
+	Member   string `json:"member,omitempty"`
+	On       bool   `json:"on,omitempty"`
+	Admin    bool   `json:"admin,omitempty"`
 	Actor    string `json:"actor"`
 }
+
+// Kinds of DiscordNotifyRequest.
+const (
+	DiscordJoinRequested    = "join_requested"
+	DiscordTwoFactorChanged = "two_factor_changed"
+)
