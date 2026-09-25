@@ -155,7 +155,8 @@ describe('Home', () => {
     expect(text).toContain('Playkeeper can’t see your servers right now')
     expect(text).toContain('Survival')
     expect(text).toContain('No live status')
-    expect(text).not.toContain('3 playing')
+    expect(text).toContain('1 server on my-vps')
+    expect(text).not.toContain('playing')
   })
 })
 

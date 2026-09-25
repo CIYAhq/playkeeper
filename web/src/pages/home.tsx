@@ -59,8 +59,8 @@ export function HomePage() {
     )
   }
 
-  const players = playersOnline(servers)
-  const subtitle = servers ? `${t('home.servers', { count: servers.length, machine: ws.machineName })}${t('common.dot')}${t('home.playing', { count: players })}` : <InlineSkeleton className="w-56" />
+  const count = servers && t('home.servers', { count: servers.length, machine: ws.machineName })
+  const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers) })}`
   return (
     <>
       <PageHeader title={t('home.title')} subtitle={subtitle} actions={newButton} phoneAction={<PhoneMoreButton />} />
