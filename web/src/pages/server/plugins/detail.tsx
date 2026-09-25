@@ -86,19 +86,23 @@ function DetailBody({ detail }: { detail: Detail }) {
 
   const software = softwareLabel(a.server)
   const inst = d.installed
+  const byHand = detail.adoptFile ? a.rows.find((r) => r.fileName === detail.adoptFile) : undefined
   const update = d.updateAvailable ? d.latest : undefined
-  const also = alsoInstalls(d)
+  const also = byHand ? [] : alsoInstalls(d)
   const whatsNew = inst && update ? versionPage(d.card, update) : undefined
   const rows: [string, ReactNode][] = []
-  if (d.card.license && !(phone && inst)) rows.push([t('addons.licence'), d.card.license])
+  if (d.card.license && !(phone && (inst || byHand))) rows.push([t('addons.licence'), d.card.license])
   if (inst) {
     rows.push([t('addons.installed'), t('addons.installedFrom', { version: inst.versionNumber, source: sourceNames[inst.source] })])
     if (update) rows.push([t('addons.newest'), t('addons.versionFor', { version: update.versionNumber, software })])
+  } else if (byHand) {
+    rows.push([t('addons.installed'), [byHand.version, t('addons.addedByHand')].filter(Boolean).join(t('common.dot'))])
+    if (d.latest && d.latest.versionNumber !== byHand.version) rows.push([t('addons.newest'), t('addons.versionFor', { version: d.latest.versionNumber, software })])
   } else {
     rows.push([t('addons.downloads'), compactCount(d.card.downloads)])
   }
   if (d.card.updated) rows.push([t('addons.lastUpdated'), updatedAgo(d.card.updated)])
-  if (!inst && !phone && d.latest) rows.push([t('addons.version'), t('addons.versionFor', { version: d.latest.versionNumber, software })])
+  if (!inst && !byHand && !phone && d.latest) rows.push([t('addons.version'), t('addons.versionFor', { version: d.latest.versionNumber, software })])
   const warnings = inst || detail.adoptFile ? [] : (d.plan?.warnings ?? [])
 
   return (
@@ -163,8 +167,8 @@ function Blocked({ title, body, children }: { title: string; body?: string; chil
   return (
     <>
       <div>
-        <p className="text-[13px] font-semibold">{title}</p>
-        {body && <p className="mt-0.5 text-xs text-muted-foreground">{body}</p>}
+        <p className="text-sm font-semibold">{title}</p>
+        {body && <p className="mt-1.5 text-xs text-muted-foreground">{body}</p>}
       </div>
       {children}
     </>
@@ -259,7 +263,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
                 <Button variant="outline" size={size} className={phone ? 'w-full' : ''} onClick={() => void run('forget', () => a.forget(key))} loading={busy === 'forget'}>
                   {t('addons.forget')}
                 </Button>
-                <Button size={size} className="flex-1" onClick={() => void run('update', () => a.update([key], t('addons.installing', { name })))} loading={busy === 'update'} disabled={!!op}>
+                <Button size={size} className={phone ? 'w-full' : 'flex-1'} onClick={() => void run('update', () => a.update([key], t('addons.installing', { name })))} loading={busy === 'update'} disabled={!!op}>
                   <DownloadIcon />
                   {t('addons.reinstall')}
                 </Button>
@@ -282,7 +286,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
               {remove}
               <Button
                 size={size}
-                className="flex-1"
+                className={phone ? 'w-full' : 'flex-1'}
                 onClick={() =>
                   f.changed ? a.askUpdate({ key, name, version: up.versionNumber }) : void run('update', () => a.update([key], t('addons.updatingOne', { name })))
                 }
@@ -304,7 +308,8 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
         break
       }
       case 'blocked':
-        body = f.notice ? <Blocked title={f.notice.message} body={f.notice.hint} /> : null
+        // Installs can't allow pre-releases yet, so that hint has nothing to point at.
+        body = f.notice ? <Blocked title={f.notice.message} body={f.notice.kind === 'only_prerelease' ? undefined : f.notice.hint} /> : null
         break
       default: {
         const unreachable: never = f
