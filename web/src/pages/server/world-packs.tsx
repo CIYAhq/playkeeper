@@ -67,7 +67,12 @@ function useResourcePack(s: ServerStatus, every: number): Poll<ResourcePack> {
 }
 
 function useDataPacks(s: ServerStatus, every: number): Poll<DataPacks> {
-  return usePoll(() => get<DataPacks>(serverApi(s.id, '/datapacks')), every, `${s.id}:${s.phase}`)
+  return usePoll(() => get<DataPacks>(serverApi(s.id, '/datapacks')).then(oldestFirst), every, `${s.id}:${s.phase}`)
+}
+
+function oldestFirst(dp: DataPacks): DataPacks {
+  const at = (p: DataPack) => Date.parse(p.addedAt) || 0
+  return { ...dp, packs: [...dp.packs].sort((a, b) => at(a) - at(b) || a.name.localeCompare(b.name)) }
 }
 
 /** packsLine for a server, or undefined until it's known. */

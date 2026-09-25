@@ -89,15 +89,15 @@ const offer: ResourcePackOffer = {
   prompt: 'Grab our pack for the full look!',
 }
 
+/** In name order, as the server sends them. */
 function dataPacks(live = true): DataPacks {
-  const at = '2026-09-24T10:00:00Z'
   return {
     live,
     packs: [
-      { name: 'Multiplayer_sleep.zip', description: 'Skip the night when half are asleep', size: 12_000, enabled: live ? true : undefined, addedAt: at },
-      { name: 'Graves.zip', size: 30_000, enabled: live ? true : undefined, addedAt: at },
-      { name: 'More_mob_heads.zip', size: 800_000, enabled: live ? false : undefined, addedAt: at },
-      { name: 'coordinates_hud', size: 0, folder: true, enabled: live ? true : undefined, addedAt: at },
+      { name: 'Graves.zip', size: 30_000, enabled: live ? true : undefined, addedAt: '2026-09-24T10:01:00Z' },
+      { name: 'More_mob_heads.zip', size: 800_000, enabled: live ? false : undefined, addedAt: '2026-09-24T10:02:00.5Z' },
+      { name: 'Multiplayer_sleep.zip', description: 'Skip the night when half are asleep', size: 12_000, enabled: live ? true : undefined, addedAt: '2026-09-24T10:00:00Z' },
+      { name: 'coordinates_hud', size: 0, folder: true, enabled: live ? true : undefined, addedAt: '2026-09-24T10:02:00Z' },
     ],
   }
 }
@@ -346,6 +346,7 @@ describe('Packs page', () => {
     expect(document.querySelector<HTMLInputElement>('input[placeholder^="e.g."]')?.value).toBe('Grab our pack for the full look!')
     expect(text).toContain('Skip the night when half are asleep')
     expect(switches()).toEqual({ 'Players must accept it to join': 'true', 'Multiplayer sleep': 'true', Graves: 'true', 'More mob heads': 'false', 'coordinates hud': 'true' })
+    expect(Object.keys(switches()).slice(1)).toEqual(['Multiplayer sleep', 'Graves', 'coordinates hud', 'More mob heads'])
     expect(document.querySelectorAll('[aria-label^="Actions for"]')).toHaveLength(3)
   })
 
