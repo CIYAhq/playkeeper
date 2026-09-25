@@ -252,6 +252,45 @@ func TestPeekTimeout(t *testing.T) {
 	}
 }
 
+func TestHandoffTimeout(t *testing.T) {
+	if s := Split(listen(t), Options{}); s.handoff != 10*time.Second {
+		t.Errorf("default handoff timeout %v, want 10s", s.handoff)
+	}
+	ln := listen(t)
+	s := Split(ln, Options{HandoffTimeout: 50 * time.Millisecond})
+	defer s.Close()
+	start := time.Now()
+	c := dial(t, ln.Addr())
+	send(t, c, "GET / HTTP/1.1\r\n")
+	wantClosed(t, c, "a plain connection nobody accepted")
+	if d := time.Since(start); d < 40*time.Millisecond {
+		t.Errorf("an unaccepted connection was closed after %v, before its timeout", d)
+	}
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		got, err := s.Plain().Accept()
+		if err != nil {
+			t.Errorf("Accept after a handoff timeout: %v", err)
+		}
+		accepted <- got
+	}()
+	c = dial(t, ln.Addr())
+	send(t, c, "G")
+	select {
+	case got := <-accepted:
+		if got == nil {
+			return
+		}
+		defer got.Close()
+		if r := readN(t, got, 1); r != "G" {
+			t.Errorf("after a handoff timeout, read %q", r)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("nothing accepted after a handoff timeout")
+	}
+}
+
 func TestClose(t *testing.T) {
 	ln := listen(t)
 	s := Split(ln, Options{PeekTimeout: time.Minute})
