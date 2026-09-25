@@ -602,11 +602,7 @@ func (r *resolver) finish() *Plan {
 		}
 		seen[s.FileName] = true
 		if _, err := r.l.fileHosts(s.Source).Check(s.url); err != nil {
-			host := s.url
-			if u, perr := url.Parse(s.url); perr == nil && u.Host != "" {
-				host = u.Hostname()
-			}
-			r.block(hostNotAllowed(s, printable(host)).Notice)
+			r.block(hostNotAllowed(s).Notice)
 		}
 		if old := s.Replaces; old != nil {
 			switch lf := r.inv.byName[old.FileName]; {

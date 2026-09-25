@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
@@ -26,11 +27,12 @@ func (l *Library) FetchIcon(ctx context.Context, rawURL string) (*Icon, error) {
 	hosts := l.iconHosts()
 	u, err := hosts.Check(rawURL)
 	if err != nil {
-		var he *fetch.HostError
-		errors.As(err, &he)
-		host := "an invalid address"
-		if he != nil && he.Host != "" {
-			host = printable(he.Host)
+		host, scheme := "an invalid address", ""
+		if pu, perr := url.Parse(rawURL); perr == nil && pu.Host != "" {
+			host, scheme = printable(pu.Hostname()), pu.Scheme
+		}
+		if scheme != "" && scheme != "https" {
+			return nil, &Error{Notice: notice(KindNotHTTPS, kv("host", host), "Playkeeper only loads icons over HTTPS.", ""), Err: err}
 		}
 		return nil, &Error{Notice: notice(KindHostNotAllowed, kv("host", host),
 			"Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from "+host+".", ""), Err: err}

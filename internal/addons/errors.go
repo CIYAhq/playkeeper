@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"strconv"
 
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
@@ -40,6 +41,7 @@ const (
 	KindNeededBy          Kind = "needed_by"
 	KindBadFileName       Kind = "bad_file_name"
 	KindHostNotAllowed    Kind = "host_not_allowed"
+	KindNotHTTPS          Kind = "not_https"
 	KindRedirectRefused   Kind = "redirect_refused"
 	KindTooLarge          Kind = "too_large"
 	KindSizeMismatch      Kind = "size_mismatch"
@@ -158,7 +160,7 @@ func downloadError(s Step, err error, max int64) error {
 			fmt.Sprintf("The download of %s was redirected to %s, which is not one of %s's own file hosts.", file, re.To, src),
 			"Playkeeper only downloads add-ons from Modrinth's and Hangar's file hosts. Nothing was installed."), Err: err}
 	case errors.As(err, &ho):
-		return hostNotAllowed(s, ho.Host)
+		return hostNotAllowed(s)
 	}
 	return upstream(s.Source, err)
 }
@@ -169,11 +171,17 @@ func tooLarge(s Step, max int64) *Error {
 		"Install it by hand if you trust it. Nothing was installed.")
 }
 
-func hostNotAllowed(s Step, host string) *Error {
-	if host == "" {
-		host = "an address Playkeeper cannot check"
+// hostNotAllowed refuses the address of step s's file.
+func hostNotAllowed(s Step) *Error {
+	host, scheme := "an address Playkeeper cannot check", ""
+	if u, err := url.Parse(s.url); err == nil && u.Host != "" {
+		host, scheme = printable(u.Hostname()), u.Scheme
 	}
-	return fail(KindHostNotAllowed, kv("name", s.Name, "file", s.FileName, "host", host),
-		fmt.Sprintf("%s would be downloaded from %s, which is not one of %s's own file hosts.", s.FileName, host, s.Source.Name()),
-		"Playkeeper only downloads add-ons from Modrinth's and Hangar's file hosts. Nothing was installed.")
+	params := kv("name", s.Name, "file", s.FileName, "host", host)
+	hint := "Playkeeper only downloads add-ons over HTTPS from Modrinth's and Hangar's file hosts. Nothing was installed."
+	if scheme != "" && scheme != "https" {
+		return fail(KindNotHTTPS, params, fmt.Sprintf("%s would be downloaded from %s without HTTPS.", s.FileName, host), hint)
+	}
+	return fail(KindHostNotAllowed, params,
+		fmt.Sprintf("%s would be downloaded from %s, which is not one of %s's own file hosts.", s.FileName, host, s.Source.Name()), hint)
 }
