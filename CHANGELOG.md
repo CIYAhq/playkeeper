@@ -2,6 +2,11 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.0
+
+- **Pre-generate the map** from a server's World tab so exploring doesn't lag: pick how far out from spawn, with the time and disk space each size takes, then follow its progress, pause, resume or cancel it. It can pause by itself while people are playing, and installs the Chunky plugin or mod the first time.
+- **Resource and data packs** on the World tab: offer a resource pack that players download when they join, optionally required and with your own message, served by Playkeeper from the address you opened the dashboard at; and add, switch on or off and remove data packs.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
