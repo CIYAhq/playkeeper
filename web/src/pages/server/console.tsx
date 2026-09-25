@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowUpRightIcon, CloudRainIcon, DownloadIcon, MessageSquareIcon, SaveIcon, SearchIcon, SendIcon, SunIcon, UsersIcon } from 'lucide-react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { ArrowDownIcon, ArrowUpRightIcon, CloudRainIcon, DownloadIcon, MessageSquareIcon, SaveIcon, SearchIcon, SendIcon, SunIcon, UsersIcon } from 'lucide-react'
 import { ApiError, get, post } from '@/api/client'
 import type { LogLine, LogsResponse, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/i18n'
-import { behindSeconds, parseLine, type LineKind } from '@/lib/console'
+import { behindSeconds, followAfterScroll, isAtBottom, keepTail, mergeByTime, parseLine, type LineKind } from '@/lib/console'
 import { formatClock, formatTime } from '@/lib/format'
 import { opLabel } from '@/lib/phase'
 import { cn } from '@/lib/utils'
@@ -31,6 +31,12 @@ interface Row {
   kind: LineKind | 'sent' | 'reply'
 }
 
+/** A line of server output, parsed once when it arrives. */
+interface OutputRow extends Row {
+  /** The line as the server printed it, for the downloaded log. */
+  raw: string
+}
+
 const keep = 2000
 
 const quick: { command: string; key: MessageKey; icon: ReactNode; fillOnly?: boolean }[] = [
@@ -41,15 +47,24 @@ const quick: { command: string; key: MessageKey; icon: ReactNode; fillOnly?: boo
   { command: 'say ', key: 'console.quick.say', icon: <MessageSquareIcon />, fillOnly: true },
 ]
 
+function toRow(l: LogLine): OutputRow {
+  const p = parseLine(l.text)
+  return { key: `l${l.seq}`, ts: l.ts, text: p.text, raw: l.text, level: p.level, kind: p.kind }
+}
+
 function useLog(server: ServerStatus) {
-  const [lines, setLines] = useState<LogLine[]>([])
+  const [rows, setRows] = useState<OutputRow[]>([])
   const [truncated, setTruncated] = useState(false)
   const cursor = useRef<{ epoch: string; next: number }>({ epoch: '', next: 0 })
   useEffect(() => {
     let stopped = false
+    // One read at a time: two in flight would both append the same lines.
+    let reading = false
     cursor.current = { epoch: '', next: 0 }
-    setLines([])
+    setRows([])
     async function poll() {
+      if (reading) return
+      reading = true
       try {
         const c = cursor.current
         const r = await get<LogsResponse>(serverApi(server.id, `/logs?epoch=${encodeURIComponent(c.epoch)}&after=${c.next}&limit=500`))
@@ -57,9 +72,11 @@ function useLog(server: ServerStatus) {
         const reset = r.epoch !== c.epoch
         cursor.current = { epoch: r.epoch, next: r.next }
         if (r.truncated && !reset) setTruncated(true)
-        setLines((prev) => (reset ? r.lines : [...prev, ...r.lines]).slice(-keep))
+        setRows((prev) => keepTail(prev, r.lines.map(toRow), reset, keep))
       } catch {
         // The next poll tries again; the agent being away shows elsewhere.
+      } finally {
+        reading = false
       }
     }
     void poll()
@@ -69,49 +86,201 @@ function useLog(server: ServerStatus) {
       window.clearInterval(id)
     }
   }, [server.id])
-  return { lines, truncated }
+  return { rows, truncated }
 }
 
-export function ConsolePage({ server: s }: { server: ServerStatus }) {
+/**
+ * Keeps the log on its newest line while the reader is at the bottom, and on
+ * the line they're reading once they scroll up, as new lines arrive and the
+ * oldest drop off. Safari has no native scroll anchoring, so the log turns it
+ * off and keeps the reader's place itself, the same way in every browser.
+ * `layout` changes when the log is rendered into a different element.
+ */
+function useFollow(layout: unknown) {
+  const scroller = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  const [following, setFollowing] = useState(true)
+  const state = useRef({ following: true, paused: false, jump: 0, anchor: undefined as { row: Element; top: number } | undefined })
+
+  const follow = useCallback((on: boolean) => {
+    state.current.following = on
+    setFollowing(on)
+  }, [])
+
+  const remember = useCallback(() => {
+    const el = scroller.current
+    const rows = list.current?.children
+    if (!el || !rows?.length) return
+    const top = el.getBoundingClientRect().top
+    let lo = 0
+    let hi = rows.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if ((rows[mid] as Element).getBoundingClientRect().bottom <= top) lo = mid + 1
+      else hi = mid
+    }
+    const row = rows[lo] as Element
+    state.current.anchor = { row, top: row.getBoundingClientRect().top - top }
+  }, [])
+
+  const settle = useCallback(() => {
+    const el = scroller.current
+    if (!el) return
+    const s = state.current
+    if (s.following) {
+      if (s.jump) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      else el.scrollTop = el.scrollHeight
+      return
+    }
+    const a = s.anchor
+    if (!a) return
+    if (!a.row.isConnected) {
+      el.scrollTop = 0
+      return
+    }
+    const moved = a.row.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top
+    if (Math.abs(moved) >= 1) el.scrollTop += moved
+  }, [])
+
+  const stopJump = useCallback(() => {
+    window.clearTimeout(state.current.jump)
+    state.current.jump = 0
+  }, [])
+
+  const endJump = useCallback(() => {
+    stopJump()
+    const el = scroller.current
+    if (el && state.current.following && !isAtBottom(el)) el.scrollTop = el.scrollHeight
+  }, [stopJump])
+
+  const onScroll = useCallback(() => {
+    const el = scroller.current
+    if (!el) return
+    const s = state.current
+    const bottom = isAtBottom(el)
+    if (bottom && s.jump) stopJump()
+    if (!bottom) s.paused = false
+    const on = !s.paused && followAfterScroll(s.following, bottom, s.jump !== 0)
+    if (on !== s.following) follow(on)
+    if (!on) remember()
+  }, [follow, remember, stopJump])
+
+  const jump = useCallback(() => {
+    const el = scroller.current
+    if (!el) return
+    stopJump()
+    state.current.paused = false
+    follow(true)
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.scrollTop = el.scrollHeight
+      return
+    }
+    state.current.jump = window.setTimeout(endJump, 1000)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [endJump, follow, stopJump])
+
+  const pause = useCallback(() => {
+    stopJump()
+    state.current.paused = true
+    follow(false)
+    remember()
+  }, [follow, remember, stopJump])
+
+  const resume = useCallback(() => {
+    stopJump()
+    state.current.paused = false
+    follow(true)
+  }, [follow, stopJump])
+
+  useEffect(() => {
+    const el = scroller.current
+    const rows = list.current
+    if (!el || !rows) return
+    const observer = new ResizeObserver(() => settle())
+    observer.observe(el)
+    observer.observe(rows)
+    return () => observer.disconnect()
+  }, [settle, layout])
+
+  return { scroller, list, following, onScroll, stopJump, jump, pause, resume, settle }
+}
+
+const Line = memo(function Line({ row: r, phone }: { row: Row; phone: boolean }) {
+  const warn = r.level === 'WARN'
+  const error = r.level === 'ERROR' || r.level === 'FATAL'
+  return (
+    <div className={cn('flex gap-3 rounded-md px-2 py-0.5', warn && 'bg-[#f5b94a]/10', error && 'bg-[#f87171]/10')}>
+      <span className="w-[4.5rem] shrink-0 text-[#a3a89c] tabular-nums max-sm:w-11">{phone ? formatClock(r.ts) : formatTime(r.ts)}</span>
+      {!phone && <span className={cn('w-12 shrink-0 text-xs leading-5 font-semibold', warn ? 'text-[#f5b94a]' : 'text-[#f87171]')}>{warn ? t('console.warnTag') : error ? t('console.errorTag') : ''}</span>}
+      <span className={cn('min-w-0 break-words whitespace-pre-wrap', r.kind === 'sent' && 'text-[#93b4f5]', warn && 'text-[#f5b94a]', error && 'text-[#f87171]')}>{r.text}</span>
+    </div>
+  )
+})
+
+function QuickChips({ disabled, onPick, className }: { disabled: boolean; onPick: (command: string) => void; className?: string }) {
+  return (
+    <div className={cn('flex gap-2 overflow-x-auto pb-1', className)}>
+      {quick.map((q) => (
+        <button key={q.command} type="button" disabled={disabled} onClick={() => onPick(q.command)} className="shrink-0 rounded-full border border-border bg-white px-3.5 py-2 text-sm font-medium disabled:opacity-60">
+          {q.fillOnly ? `${q.command.trim()} …` : q.command}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function ConsolePage({ server }: { server: ServerStatus }) {
+  return <Console key={server.id} server={server} />
+}
+
+function Console({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const { lines, truncated } = useLog(s)
+  const { rows, truncated } = useLog(s)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
-  const [follow, setFollow] = useState(true)
   const [sent, setSent] = useState<Sent[]>([])
   const [command, setCommand] = useState('')
   const [sending, setSending] = useState(false)
   const input = useRef<HTMLInputElement>(null)
-  const scroller = useRef<HTMLDivElement>(null)
+  const { scroller, list, following, onScroll, stopJump, jump, pause, resume, settle } = useFollow(phone)
   const online = !ws.stale && s.phase === 'online'
   const busy = s.operation
 
-  const rows = useMemo<Row[]>(() => {
-    const out: Row[] = lines.map((l) => {
-      const p = parseLine(l.text)
-      return { key: `l${l.seq}`, ts: l.ts, text: p.text, level: p.level, kind: p.kind }
+  const sentRows = useMemo<Row[]>(
+    () =>
+      sent.flatMap((c, i) => {
+        const out: Row[] = [{ key: `s${i}`, ts: c.ts, text: `> ${c.command}`, kind: 'sent' }]
+        if (c.reply !== undefined) out.push({ key: `r${i}`, ts: c.ts, text: c.reply || t('console.noReply'), kind: 'reply', level: c.error ? 'ERROR' : undefined })
+        return out
+      }),
+    [sent],
+  )
+  const all = useMemo(() => mergeByTime<Row>(rows, sentRows), [rows, sentRows])
+  const shown = useMemo(() => {
+    if (filter === 'all' && !query) return all
+    const q = query.toLowerCase()
+    return all.filter((r) => {
+      if (filter === 'chat' && r.kind !== 'chat') return false
+      if (filter === 'players' && r.kind !== 'players') return false
+      if (filter === 'problems' && r.kind !== 'problem') return false
+      return !q || r.text.toLowerCase().includes(q)
     })
-    sent.forEach((c, i) => {
-      out.push({ key: `s${i}`, ts: c.ts, text: `> ${c.command}`, kind: 'sent' })
-      if (c.reply !== undefined) out.push({ key: `r${i}`, ts: c.ts, text: c.reply || t('console.noReply'), kind: 'reply', level: c.error ? 'ERROR' : undefined })
-    })
-    return out.sort((a, b) => a.ts.localeCompare(b.ts))
-  }, [lines, sent])
+  }, [all, filter, query])
+  const warning = useMemo(() => all.findLast((r) => behindSeconds(r.text) !== undefined), [all])
+  const lastReply = sent.findLast((c) => c.reply !== undefined)
 
-  const shown = rows.filter((r) => {
-    if (filter === 'chat' && r.kind !== 'chat') return false
-    if (filter === 'players' && r.kind !== 'players') return false
-    if (filter === 'problems' && r.kind !== 'problem') return false
-    return !query || r.text.toLowerCase().includes(query.toLowerCase())
-  })
-  const warning = [...rows].reverse().find((r) => behindSeconds(r.text) !== undefined)
-  const lastReply = [...sent].reverse().find((c) => c.reply !== undefined)
+  useLayoutEffect(() => settle(), [settle, shown, truncated, warning])
 
-  useEffect(() => {
-    const el = scroller.current
-    if (follow && el) el.scrollTop = el.scrollHeight
-  }, [shown.length, follow])
+  function show(f: Filter) {
+    setFilter(f)
+    resume()
+  }
+
+  function search(q: string) {
+    setQuery(q)
+    resume()
+  }
 
   async function send(e?: FormEvent, text = command) {
     e?.preventDefault()
@@ -121,6 +290,7 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
     setSent((p) => [...p, entry])
     setCommand('')
     setSending(true)
+    resume()
     try {
       const r = await post<{ output: string }>(serverApi(s.id, '/command'), { command: cmd })
       setSent((p) => p.map((x) => (x === entry ? { ...x, reply: r.output } : x)))
@@ -143,7 +313,7 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
   }
 
   function download() {
-    const text = lines.map((l) => `${l.ts} ${l.text}`).join('\n')
+    const text = rows.map((r) => `${r.ts} ${r.raw}`).join('\n')
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }))
     const a = document.createElement('a')
     a.href = url
@@ -161,35 +331,45 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
   ]
 
   const log = (
-    <div
-      ref={scroller}
-      onScroll={(e) => {
-        const el = e.currentTarget
-        if (el.scrollHeight - el.scrollTop - el.clientHeight > 40 && follow) setFollow(false)
-      }}
-      className={cn('min-h-0 flex-1 overflow-y-auto rounded-3xl bg-console px-3 py-3 font-mono text-[13px] leading-5 text-[#e8e8e0]', phone ? 'h-[calc(100dvh-330px)] min-h-[260px]' : 'h-[calc(100dvh-330px)] min-h-[380px]')}
-      role="log"
-      aria-live={follow ? 'polite' : 'off'}
-      aria-label={t('console.log')}
-      tabIndex={0}
-    >
-      {truncated && <p className="px-2 pb-2 text-xs text-[#a3a89c]">{t('console.truncated', { count: keep })}</p>}
-      {shown.length === 0 ? (
-        <p className="px-2 py-1 text-[#a3a89c]">{rows.length ? t('console.noMatch') : t('console.empty', { server: s.name })}</p>
-      ) : (
-        shown.map((r) => (
-          <div key={r.key} className={cn('flex gap-3 rounded-md px-2 py-0.5', r.level === 'WARN' && 'bg-[#f5b94a]/10', (r.level === 'ERROR' || r.level === 'FATAL') && 'bg-[#f87171]/10')}>
-            <span className="w-[4.5rem] shrink-0 text-[#a3a89c] tabular-nums max-sm:w-11">{phone ? formatClock(r.ts) : formatTime(r.ts)}</span>
-            {!phone && <span className={cn('w-12 shrink-0 text-xs leading-5 font-semibold', r.level === 'WARN' ? 'text-[#f5b94a]' : 'text-[#f87171]')}>{r.level === 'WARN' ? t('console.warnTag') : r.level === 'ERROR' || r.level === 'FATAL' ? t('console.errorTag') : ''}</span>}
-            <span className={cn('min-w-0 break-words whitespace-pre-wrap', r.kind === 'sent' && 'text-[#93b4f5]', r.level === 'WARN' && 'text-[#f5b94a]', (r.level === 'ERROR' || r.level === 'FATAL') && 'text-[#f87171]')}>{r.text}</span>
-          </div>
-        ))
-      )}
-      {warning && filter !== 'chat' && filter !== 'players' && (
-        <div className="mt-3 max-w-[560px] px-2 font-sans sm:pl-[8.75rem]">
-          <p className="text-xs font-semibold text-[#f5b94a]">{t('console.warnTitle', { time: formatClock(warning.ts) })}</p>
-          <p className="mt-0.5 text-xs text-[#b8bdb2]">{t('console.warnBody', { count: Math.max(1, Math.round(behindSeconds(warning.text) ?? 1)), server: s.name })}</p>
+    <div className={cn('relative flex-1', phone ? 'min-h-40' : 'min-h-48')}>
+      <div
+        ref={scroller}
+        onScroll={onScroll}
+        onWheel={stopJump}
+        onPointerDown={stopJump}
+        className="absolute inset-0 overflow-y-auto overscroll-contain rounded-3xl bg-console px-3 py-3 font-mono text-[13px] leading-5 text-[#e8e8e0] [overflow-anchor:none]"
+        role="log"
+        aria-live={following ? 'polite' : 'off'}
+        aria-label={t('console.log')}
+        tabIndex={0}
+      >
+        {truncated && <p className="px-2 pb-2 text-xs text-[#a3a89c]">{t('console.truncated', { count: keep })}</p>}
+        {shown.length === 0 && <p className="px-2 py-1 text-[#a3a89c]">{all.length ? t('console.noMatch') : t('console.empty', { server: s.name })}</p>}
+        <div ref={list}>
+          {shown.map((r) => (
+            <Line key={r.key} row={r} phone={phone} />
+          ))}
         </div>
+        {warning && filter !== 'chat' && filter !== 'players' && (
+          <div className="mt-3 max-w-[560px] px-2 font-sans sm:pl-[8.75rem]">
+            <p className="text-xs font-semibold text-[#f5b94a]">{t('console.warnTitle', { time: formatClock(warning.ts) })}</p>
+            <p className="mt-0.5 text-xs text-[#b8bdb2]">{t('console.warnBody', { count: Math.max(1, Math.round(behindSeconds(warning.text) ?? 1)), server: s.name })}</p>
+          </div>
+        )}
+      </div>
+      {!following && (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            jump()
+            scroller.current?.focus({ preventScroll: true })
+          }}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-popup transition-[opacity,translate] duration-150 starting:translate-y-1 starting:opacity-0"
+        >
+          <ArrowDownIcon />
+          {t('console.jumpToLatest')}
+        </Button>
       )}
     </div>
   )
@@ -230,16 +410,10 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
 
   if (phone) {
     return (
-      <div className="flex flex-col gap-3">
-        <Segmented value={filter} onChange={setFilter} options={filters} label={t('console.filter')} className="self-start" />
+      <div className="flex flex-1 flex-col gap-3">
+        <Segmented value={filter} onChange={show} options={filters} label={t('console.filter')} className="self-start" />
         {log}
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-          {quick.map((q) => (
-            <button key={q.command} type="button" disabled={!!disabledReason} onClick={() => fill(q.command)} className="shrink-0 rounded-full border border-border bg-white px-3.5 py-2 text-sm font-medium disabled:opacity-60">
-              {q.fillOnly ? `${q.command.trim()} …` : q.command}
-            </button>
-          ))}
-        </div>
+        <QuickChips disabled={!!disabledReason} onPick={fill} className="-mx-4 px-4" />
         {form}
       </div>
     )
@@ -249,27 +423,28 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
     <div className="grid flex-1 gap-4 xl:grid-cols-[1fr_280px]">
       <div className="flex min-w-0 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <Segmented value={filter} onChange={setFilter} options={filters} label={t('console.filter')} />
+          <Segmented value={filter} onChange={show} options={filters} label={t('console.filter')} />
           <InputGroup className="w-56">
             <InputGroupAddon>
               <SearchIcon aria-hidden="true" />
             </InputGroupAddon>
-            <InputGroupInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('console.search')} aria-label={t('console.search')} type="search" />
+            <InputGroupInput value={query} onChange={(e) => search(e.target.value)} placeholder={t('console.search')} aria-label={t('console.search')} type="search" />
           </InputGroup>
           <label className="ml-auto flex items-center gap-2 text-[13px] font-medium">
-            <Switch checked={follow} onCheckedChange={setFollow} />
+            <Switch checked={following} onCheckedChange={(on) => (on ? jump() : pause())} />
             {t('console.follow')}
           </label>
-          <Button variant="outline" size="sm" onClick={download} disabled={!lines.length}>
+          <Button variant="outline" size="sm" onClick={download} disabled={!rows.length}>
             <DownloadIcon />
             {t('console.downloadLog')}
           </Button>
         </div>
         {log}
+        <QuickChips disabled={!!disabledReason} onPick={fill} className="xl:hidden" />
         {form}
         <p className="text-xs text-muted-foreground">{t('console.help')}</p>
       </div>
-      <Card className="self-start">
+      <Card className="self-start max-xl:hidden">
         <CardTitle>{t('console.quick')}</CardTitle>
         <CardHint>{t('console.quickHint')}</CardHint>
         <ul className="mt-3 flex flex-col gap-2">
