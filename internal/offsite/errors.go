@@ -410,7 +410,7 @@ func (c *s3Client) transportError(op, name string, err error) *Error {
 		e.Hint = "Check this machine's internet connection, then try again."
 	case errors.As(err, &refused):
 		e.Kind, e.Field = KindInvalidConfig, "endpoint"
-		e.Msg = fmt.Sprintf("The endpoint's host name points to %s, a link-local, multicast or cloud metadata address Playkeeper never connects to.", refused.ip)
+		e.Msg = fmt.Sprintf("The endpoint's host name points to %s, a link-local, multicast, unspecified or cloud metadata address Playkeeper never connects to.", refused.ip)
 		e.Hint = "Check the endpoint address."
 	case errors.As(err, &dnsErr):
 		e.Kind, e.Field = KindNetwork, "endpoint"

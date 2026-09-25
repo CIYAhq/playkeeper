@@ -446,7 +446,7 @@ func TestNewHTTPClient(t *testing.T) {
 	c.sleep = func(context.Context, time.Duration) error { t.Error("retried"); return nil }
 	_, err = c.list(context.Background())
 	e := wantKind(t, err, KindInvalidConfig)
-	if e.Field != "endpoint" || e.Msg != "The endpoint's host name points to 224.0.0.251, a link-local, multicast or cloud metadata address Playkeeper never connects to." {
+	if e.Field != "endpoint" || e.Msg != "The endpoint's host name points to 224.0.0.251, a link-local, multicast, unspecified or cloud metadata address Playkeeper never connects to." {
 		t.Errorf("error %+v", e)
 	}
 }

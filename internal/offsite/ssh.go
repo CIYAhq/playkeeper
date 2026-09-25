@@ -461,7 +461,7 @@ func (c *sftpClient) netError(op, name string, err error) *Error {
 	switch {
 	case errors.As(err, &refused):
 		e.Kind, e.Retry, e.Field = KindInvalidConfig, false, "host"
-		e.Msg = fmt.Sprintf("The host name points to %s, a link-local, multicast or cloud metadata address Playkeeper never connects to.", refused.ip)
+		e.Msg = fmt.Sprintf("The host name points to %s, a link-local, multicast, unspecified or cloud metadata address Playkeeper never connects to.", refused.ip)
 		e.Hint = "Check the other machine's address."
 	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
 		e.Retry, e.Field = false, "host"

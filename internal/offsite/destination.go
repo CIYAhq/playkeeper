@@ -60,7 +60,8 @@ type Options struct {
 	// HTTPClient sends S3 requests; NewHTTPClient() if nil.
 	HTTPClient *http.Client
 	// Dial connects to the SFTP server; if nil, a dialer that never
-	// connects to link-local, multicast or cloud metadata addresses.
+	// connects to link-local, multicast, unspecified or cloud metadata
+	// addresses.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	Now  func() time.Time // time.Now if nil
 	// DiskFree reports the bytes free in the file system holding a
