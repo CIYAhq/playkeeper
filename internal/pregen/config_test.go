@@ -197,7 +197,7 @@ func TestReadTask(t *testing.T) {
 		t.Errorf("ReadTask without tasks = %v, %v", found, err)
 	}
 	// As Chunky 1.5.3's TaskLoader writes it after the radius-640 task in
-	// testdata/paper-chunky.log finished.
+	// testdata/paper-chunky.txt finished.
 	writeTask(t, dir, "plugins/Chunky/tasks/world.properties", "world=world\ncancelled=true\ncenter-x=0.0\ncenter-z=0.0\nradius=640.0\nshape=square\npattern=region\nchunks=6561\ntime=154321\n")
 	task, found, err := ReadTask(dir, Bukkit, "world")
 	want := Task{World: "world", Cancelled: true, Radius: 640, Shape: "square", Pattern: "region", Chunks: 6561, ElapsedSeconds: 154, Total: 6561}
