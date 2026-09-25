@@ -548,6 +548,36 @@ describe('Invite page', () => {
     expect(onSignedIn).toHaveBeenCalledWith(signedIn)
   })
 
+  it('offers a new admin two-factor sign-in, or Moderator rights until it’s on', async () => {
+    const preview: JoinPreview = { kind: 'member', inviter: '', role: 'admin', servers: { all: true }, expiresAt: '2026-10-02T12:00:00Z', serverNames: [], team: 'Friends' }
+    const signedIn = member('admin', moderatorCan, { servers: { all: true }, needsTwoFactor: true })
+    answerPosts({ '/preview': preview, '/accept': signedIn, '/2fa/setup': new client.ApiError(404, { error: 'Not found.', code: 'not_found' }) })
+    const join = async (onSignedIn: (me: Me, to?: string) => void) => {
+      const text = await render(<JoinPage code={code} onSignedIn={onSignedIn} />)
+      expect(text).toContain('Help run Friends as Admin')
+      await typeInto('#join-username', 'alex')
+      await typeInto('#join-password', 'correct horse battery')
+      await typeInto('#join-again', 'correct horse battery')
+      await click(button('Join as Admin'))
+    }
+
+    const later = vi.fn()
+    await join(later)
+    expect(later).not.toHaveBeenCalled()
+    expect(page()).toContain('One more step: two-factor sign-in')
+    expect(page()).toContain('Admins must use it. Until then, you have Moderator rights.')
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain('Two-factor')
+    await click(button('Not now, continue as Moderator'))
+    expect(later).toHaveBeenCalledWith(signedIn)
+    expect(client.post).not.toHaveBeenCalledWith('/api/auth/2fa/setup', expect.anything())
+
+    const setUp = vi.fn()
+    await join(setUp)
+    await click(button('Set up two-factor'))
+    expect(client.post).toHaveBeenCalledWith('/api/auth/2fa/setup', { password: 'correct horse battery' })
+    expect(setUp).toHaveBeenCalledWith(signedIn, '/account/two-factor')
+  })
+
   it('says when a link can’t be used, offering sign-in only for team links', async () => {
     answerPosts({ '/preview': new client.ApiError(410, { error: 'This invite was for 5 friends, and they’ve all joined.', code: 'invite_used_up', hint: 'Ask the person who sent it for a new link.', params: { inviter: '', maxUses: '5' } }) })
     let text = await render(<JoinPage code={code} onSignedIn={() => {}} />)

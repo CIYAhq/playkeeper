@@ -72,9 +72,9 @@ export function App() {
     return (
       <JoinPage
         code={route.code}
-        onSignedIn={(m) => {
+        onSignedIn={(m, to) => {
           signedIn(m)
-          navigate('/', true)
+          navigate(to ?? '/', true)
         }}
       />
     )

@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent, type HTMLAttributes, type ReactNode } from 'react'
-import { ExternalLinkIcon, KeyRoundIcon, UserRoundIcon, UsersRoundIcon } from 'lucide-react'
+import { ExternalLinkIcon, KeyRoundIcon, ShieldCheckIcon, UserRoundIcon, UsersRoundIcon } from 'lucide-react'
 import { ApiError, post, setCsrfToken } from '@/api/client'
 import type { AcceptResponse, Candidate, JoinInfo, JoinPreview, Me, MemberPreview, PlayerPreview } from '@/api/types'
 import { BrandMark, Emblem, Pip, type PipPose } from '@/components/app/art'
 import { CopyButton, Dot } from '@/components/app/bits'
-import { useIsPhone } from '@/components/app/controls'
+import { Stepper, useIsPhone } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -49,10 +49,11 @@ function refusedKind(e: ApiError, known: Kind | undefined): Kind | undefined {
   return e.code === 'invite_not_working' ? undefined : 'member'
 }
 
-export function JoinPage({ code, onSignedIn }: { code: string; onSignedIn: (me: Me) => void }) {
+export function JoinPage({ code, onSignedIn }: { code: string; onSignedIn: (me: Me, to?: string) => void }) {
   const [preview, setPreview] = useState<JoinPreview>()
   const [error, setError] = useState<ApiError>()
   const [attempt, setAttempt] = useState(0)
+  const [admin, setAdmin] = useState<{ me: Me; password: string }>()
 
   useEffect(() => {
     if (!code) return
@@ -71,6 +72,14 @@ export function JoinPage({ code, onSignedIn }: { code: string; onSignedIn: (me: 
     }
   }, [code, attempt])
 
+  if (admin) {
+    return (
+      <JoinShell step={1}>
+        <AdminStep me={admin.me} password={admin.password} onSignedIn={onSignedIn} />
+      </JoinShell>
+    )
+  }
+
   let body: ReactNode
   if (!code) body = <RefusalCard refusal="not_working" />
   else if (error && refusalOf(error)) body = <RefusalCard refusal={refusalOf(error) ?? 'not_working'} kind={refusedKind(error, preview?.kind)} error={error} inviter={preview?.inviter} />
@@ -86,13 +95,15 @@ export function JoinPage({ code, onSignedIn }: { code: string; onSignedIn: (me: 
     )
   else if (!preview) body = <JoinSkeleton />
   else if (preview.kind === 'player') body = <FriendJoin code={code} preview={preview} onRefused={setError} />
-  else body = <TeamJoin code={code} preview={preview} onRefused={setError} onSignedIn={onSignedIn} />
+  else body = <TeamJoin code={code} preview={preview} onRefused={setError} onJoined={(me, password) => (me.access.needsTwoFactor ? setAdmin({ me, password }) : onSignedIn(me))} />
 
   return <JoinShell>{body}</JoinShell>
 }
 
+const setupSteps = () => [t('join.stepAccount'), t('join.stepTwoFactor'), t('join.stepCodes')]
+
 /** The public pages' frame: the brand and Help, the card, and the legal line with "Made with Playkeeper". */
-function JoinShell({ children }: { children: ReactNode }) {
+function JoinShell({ step, children }: { step?: number; children: ReactNode }) {
   const phone = useIsPhone()
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
@@ -105,6 +116,7 @@ function JoinShell({ children }: { children: ReactNode }) {
             <BrandMark size={24} />
             {t('brand.name')}
           </span>
+          {step !== undefined && <Stepper steps={setupSteps()} current={step} label={t('join.steps')} className="mx-auto w-full max-w-[420px]" />}
           <a
             href={t('onboarding.helpUrl')}
             target="_blank"
@@ -342,7 +354,7 @@ function JoinedCard({ info }: { info: JoinInfo }) {
   )
 }
 
-function TeamJoin({ code, preview, onRefused, onSignedIn }: { code: string; preview: MemberPreview; onRefused: (e: ApiError) => void; onSignedIn: (me: Me) => void }) {
+function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; preview: MemberPreview; onRefused: (e: ApiError) => void; onJoined: (me: Me, password: string) => void }) {
   const phone = useIsPhone()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -366,7 +378,7 @@ function TeamJoin({ code, preview, onRefused, onSignedIn }: { code: string; prev
       const me = await post<AcceptResponse>(joinApi('accept'), { code, username: username.trim(), password })
       setCsrfToken(me.csrfToken)
       await post('/api/me/prefs', { [welcomeKey]: '1' }).catch(() => undefined)
-      onSignedIn(me)
+      onJoined(me, password)
     } catch (err) {
       setBusy(false)
       const ae = apiError(err)
@@ -471,6 +483,45 @@ function TeamJoin({ code, preview, onRefused, onSignedIn }: { code: string; prev
       </form>
       <p className="mt-2.5 text-center text-xs text-muted-foreground max-sm:text-[13px]">{t('join.once')}</p>
     </JoinCard>
+  )
+}
+
+/** After an Admin invite: two-factor sign-in, which admins must use, or Moderator rights until it's on. */
+function AdminStep({ me, password, onSignedIn }: { me: Me; password: string; onSignedIn: (me: Me, to?: string) => void }) {
+  const phone = useIsPhone()
+  const [busy, setBusy] = useState(false)
+
+  async function setUp() {
+    setBusy(true)
+    // A setup started with the password they just chose opens at its scan
+    // step, so they aren't asked for it again.
+    await post('/api/auth/2fa/setup', { password }).catch(() => undefined)
+    onSignedIn(me, '/account/two-factor')
+  }
+
+  return (
+    <div className="flex w-full max-w-[520px] flex-col">
+      {phone && <p className="mb-2 px-1 text-[13px] text-muted-foreground">{t('join.stepOf', { n: 2, total: 3, step: t('join.stepTwoFactor') })}</p>}
+      <JoinCard className="max-w-none">
+        <div className="flex items-center gap-4 max-sm:gap-3.5">
+          <Pip pose="hardhat" size={phone ? 48 : 52} />
+          <div className="min-w-0">
+            <h1 className="text-lg leading-6 font-bold tracking-[-0.01em] max-sm:text-[17px] max-sm:leading-[22px]">{t('join.adminTitle')}</h1>
+            {!phone && <p className="mt-0.5 text-[13px] text-muted-foreground">{t('join.adminBody')}</p>}
+          </div>
+        </div>
+        {phone && <p className="mt-3 text-sm text-muted-foreground">{t('join.adminBody')}</p>}
+        <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4 max-sm:mt-5 max-sm:flex-col-reverse max-sm:items-stretch max-sm:gap-2 max-sm:border-t-0 max-sm:pt-0">
+          <Button variant="ghost" size={phone ? 'touch' : 'default'} className="text-muted-foreground" disabled={busy} onClick={() => onSignedIn(me)}>
+            {t('join.adminLater')}
+          </Button>
+          <Button size={phone ? 'touch' : 'default'} loading={busy} onClick={() => void setUp()}>
+            <ShieldCheckIcon aria-hidden="true" />
+            {t('join.adminSetUp')}
+          </Button>
+        </div>
+      </JoinCard>
+    </div>
   )
 }
 
