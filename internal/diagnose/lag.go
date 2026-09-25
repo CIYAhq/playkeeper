@@ -128,7 +128,7 @@ func lagStatus(in LagInput) LagDiagnosis {
 		}
 	}
 	window := minutesText(in.Window)
-	spikes := fmt.Sprintf("it fell behind %d %s in the last %s, by up to %s seconds", count, plural(count, "time", "times"), window, trimZero(worst.Seconds()))
+	spikes := fmt.Sprintf("it fell behind %s in the last %s, by up to %s seconds", timesText(count), window, trimZero(worst.Seconds()))
 	d := LagDiagnosis{Params: map[string]any{"overloads": count}}
 	t := in.Ticks
 	var target float64
@@ -150,7 +150,7 @@ func lagStatus(in LagInput) LagDiagnosis {
 	if count > 0 {
 		d.Evidence = append(d.Evidence, Evidence{Kind: EvidenceOverloads,
 			Params: map[string]any{"count": count, "max_behind_ms": worst.Milliseconds(), "minutes": in.Window.Minutes()},
-			Text:   fmt.Sprintf("The server logged \"Can't keep up!\" %d %s in the last %s.", count, plural(count, "time", "times"), window)})
+			Text:   fmt.Sprintf("The server logged \"Can't keep up!\" %s in the last %s.", timesText(count), window)})
 	}
 	if in.Players != nil {
 		d.Evidence = append(d.Evidence, Evidence{Kind: EvidencePlayers, Params: map[string]any{"count": *in.Players},
@@ -323,14 +323,14 @@ func memoryCause(in LagInput) (Cause, bool) {
 	var said []string
 	if full > 0 {
 		c.Score = max(c.Score, 85)
-		said = append(said, fmt.Sprintf("It had to stop everything for a full clean-up %d %s in the last %s, the longest for %s seconds.",
-			full, plural(full, "time", "times"), window, trimZero(longest.Seconds())))
+		said = append(said, fmt.Sprintf("It had to stop everything for a full clean-up %s in the last %s, the longest for %s seconds.",
+			timesText(full), window, trimZero(longest.Seconds())))
 		c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceFullGC, Params: map[string]any{"count": full, "minutes": in.Window.Minutes()},
 			Text: fmt.Sprintf("%d full garbage %s in the last %s.", full, plural(full, "collection", "collections"), window)})
 	}
 	if evac > 0 {
 		c.Score = max(c.Score, 80)
-		said = append(said, fmt.Sprintf("Memory ran out in the middle of a clean-up %d %s.", evac, plural(evac, "time", "times")))
+		said = append(said, fmt.Sprintf("Memory ran out in the middle of a clean-up %s.", timesText(evac)))
 		c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceEvacuationFailure, Params: map[string]any{"count": evac},
 			Text: fmt.Sprintf("%d %s.", evac, plural(evac, "evacuation failure", "evacuation failures"))})
 	}
@@ -568,6 +568,17 @@ func thousands(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// timesText renders a count of occurrences: "once", "twice", "3 times".
+func timesText(n int) string {
+	switch n {
+	case 1:
+		return "once"
+	case 2:
+		return "twice"
+	}
+	return fmt.Sprintf("%d times", n)
 }
 
 func upperFirst(s string) string {

@@ -100,7 +100,7 @@ func TestExplainLagStatusThresholds(t *testing.T) {
 		}
 	}
 	d := ExplainLag(LagInput{Now: lagNow, Console: []ConsoleLine{overload(time.Minute, 2034), overload(3*time.Minute, 4200), overload(20*time.Minute, 9000)}})
-	if d.Params["overloads"] != 2 || !strings.Contains(d.Explanation, "fell behind 2 times in the last 10 minutes, by up to 4.2 seconds") {
+	if d.Params["overloads"] != 2 || !strings.Contains(d.Explanation, "fell behind twice in the last 10 minutes, by up to 4.2 seconds") {
 		t.Errorf("overloads outside the window must not count: %+v", d)
 	}
 }
@@ -136,7 +136,7 @@ func TestExplainLagRanksCausesByTheirEvidence(t *testing.T) {
 	if got := actionSummary(mem.Actions); got != "raise_memory* from_mb=4096 to_mb=6144" {
 		t.Errorf("memory actions: %s", got)
 	}
-	if !strings.Contains(mem.Explanation, "full clean-up 1 time") || len(mem.Evidence) == 0 {
+	if !strings.Contains(mem.Explanation, "full clean-up once") || len(mem.Evidence) == 0 {
 		t.Errorf("memory cause: %+v", mem)
 	}
 	chunks := findCause(t, d, CauseChunkGeneration)
@@ -194,7 +194,7 @@ func TestMemoryPressureIgnoresPausesAFullHeapDidNotForce(t *testing.T) {
 		}
 	}
 	in.GC[0].Cause = "G1 Compaction Pause"
-	if c := findCause(t, ExplainLag(in), CauseMemoryPressure); !strings.Contains(c.Explanation, "full clean-up 1 time") {
+	if c := findCause(t, ExplainLag(in), CauseMemoryPressure); !strings.Contains(c.Explanation, "full clean-up once") {
 		t.Errorf("a forced full collection counts: %s", c.Explanation)
 	}
 }
