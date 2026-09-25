@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUpstreamErrors(t *testing.T) {
@@ -85,6 +86,46 @@ func TestUpstreamFollowsRedirectsOnItsHosts(t *testing.T) {
 	}
 	if hc.CheckRedirect != nil {
 		t.Error("the caller's HTTP client was changed")
+	}
+}
+
+// NeoForge's Maven sometimes answers 404 for files it has; other hosts'
+// 404s count the first time.
+func TestUpstreamAsksNeoForgeAgainAfterA404(t *testing.T) {
+	defer func(w time.Duration) { flakyWait = w }(flakyWait)
+	flakyWait = time.Millisecond
+	f := newFakeNet(t)
+	metadata := neoforgeMaven + "/maven-metadata.xml"
+	misses := 0
+	f.handle(metadata, func(w http.ResponseWriter, r *http.Request) {
+		if misses < flakyRetries {
+			misses++
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`<metadata><versioning><versions><version>26.2.0.88</version></versions></versioning></metadata>`))
+	})
+	got, err := neoforgeVersions(context.Background(), f.client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got["26.2"]) != 1 || f.hitCount(metadata) != flakyRetries+1 {
+		t.Errorf("got %v after %d requests", got, f.hitCount(metadata))
+	}
+
+	f.status(metadata, http.StatusNotFound)
+	before := f.hitCount(metadata)
+	_, err = neoforgeVersions(context.Background(), f.client())
+	wantKind(t, err, KindNotFound)
+	if n := f.hitCount(metadata) - before; n != flakyRetries+1 {
+		t.Errorf("asked %d times, want %d", n, flakyRetries+1)
+	}
+
+	f.status(mojangManifestURL, http.StatusNotFound)
+	_, err = mojangManifest(context.Background(), f.client())
+	wantKind(t, err, KindNotFound)
+	if n := f.hitCount(mojangManifestURL); n != 1 {
+		t.Errorf("asked Mojang %d times, want once", n)
 	}
 }
 

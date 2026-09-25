@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const userAgent = "playkeeper (https://github.com/CIYAhq/playkeeper)"
@@ -84,6 +85,16 @@ func (u upstream) client(what string) *http.Client {
 	return &c
 }
 
+// NeoForge's Maven now and then answers 404 for files it has (about one
+// request in five at times), so a 404 from it is asked again before it
+// counts.
+var (
+	flaky404Hosts = []string{"maven.neoforged.net"}
+	flakyWait     = 400 * time.Millisecond
+)
+
+const flakyRetries = 2
+
 // open sends a GET and returns the response only when it is 200 OK. what
 // names the thing asked for, as it reads in a sentence: "its version list".
 func (u upstream) open(ctx context.Context, raw, what string) (*http.Response, error) {
@@ -91,22 +102,18 @@ func (u upstream) open(ctx context.Context, raw, what string) (*http.Response, e
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.String(), nil)
+	resp, err := u.get(ctx, p, what)
+	for try := 1; err == nil && resp.StatusCode == http.StatusNotFound && try <= flakyRetries && slices.Contains(flaky404Hosts, p.Hostname()); try++ {
+		resp.Body.Close()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(try) * flakyWait):
+		}
+		resp, err = u.get(ctx, p, what)
+	}
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := u.client(what).Do(req)
-	if err != nil {
-		var e *Error
-		if errors.As(err, &e) {
-			return nil, e
-		}
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, &Error{Kind: KindUnreachable, Msg: fmt.Sprintf("Playkeeper could not reach %s to load %s (%v).", u.name, what, unwrapURLError(err)),
-			Hint: "Check that this host can reach " + p.Hostname() + ", then try again.", Params: u.params(p.Hostname(), "what", what), Err: err}
 	}
 	status := strconv.Itoa(resp.StatusCode)
 	switch {
@@ -125,6 +132,28 @@ func (u upstream) open(ctx context.Context, raw, what string) (*http.Response, e
 		return nil, &Error{Kind: KindUpstreamStatus, Msg: fmt.Sprintf("%s answered HTTP %d when Playkeeper asked for %s.", u.name, resp.StatusCode, what),
 			Hint: u.name + " may be having problems. Try again in a few minutes.", Params: u.params(p.Hostname(), "status", status, "what", what)}
 	}
+}
+
+// get sends one GET, whatever its status.
+func (u upstream) get(ctx context.Context, p *url.URL, what string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := u.client(what).Do(req)
+	if err != nil {
+		var e *Error
+		if errors.As(err, &e) {
+			return nil, e
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, &Error{Kind: KindUnreachable, Msg: fmt.Sprintf("Playkeeper could not reach %s to load %s (%v).", u.name, what, unwrapURLError(err)),
+			Hint: "Check that this host can reach " + p.Hostname() + ", then try again.", Params: u.params(p.Hostname(), "what", what), Err: err}
+	}
+	return resp, nil
 }
 
 // read returns the whole body, refusing more than limit bytes.
