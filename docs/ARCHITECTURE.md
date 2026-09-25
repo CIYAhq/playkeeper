@@ -10,6 +10,7 @@ All of it is one Go binary with the TypeScript/React UI compiled in; the process
 - A new server gets its own directory (`/var/lib/playkeeper/servers/<id>/`), container (`playkeeper-mc-<id>`), RCON secret and the next free game port. A server migrated from 0.2.0 keeps 0.2.0's container, paths, secret and labels exactly, so its container definition does not change and it keeps running through the upgrade.
 - Operations are exclusive per server, so two servers can back up or restart at the same time; a Playkeeper update waits until every server is idle. Each server reserves its memory budget even while stopped, so it can always start.
 - The panel routes each request by server to the machine that runs it. Player faces are fetched from Mojang by the panel and cached in its database; browsers never contact Mojang.
+- The few routes that work without a sign-in are all in the panel's public group (`publicRoutes()` in `internal/panel`), which limits what each address can do and logs only each route's prefix. The friends' pack page, `/packs/<token>` (from 0.4.0), is one: the panel asks its machines which server the token belongs to, and that server's agent answers only while sharing is on and the server is running.
 
 ## Invariants
 

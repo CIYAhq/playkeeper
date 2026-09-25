@@ -42,6 +42,8 @@ Everything else happens in the browser: create the admin account and pass the ch
 
 **More servers:** **New server** sets up another one in five steps: game and type, version, play style, memory and name. Each server has its own world, players, backups, settings and game port, and its own share of the VPS's memory, kept even while it's stopped so it can always start. The dashboard shows how the memory is shared before you create it.
 
+**Friends on a modded server:** **Share with friends** on the Mods tab makes one link to a page that shows friends what to install and gives them a `.mrpack` file for the Modrinth App or Prism Launcher. The link is random and changes when you stop and start sharing, and the page shows names and versions only; server-only mods stay hidden.
+
 **Update Playkeeper:** when a new release is available, **Update available** appears in the sidebar (under **More** on a phone); it shows what changed and installs it when you click **Update**. Before anything from the download runs, Playkeeper checks that the release's manifest is signed with the Playkeeper release key built into your installed version, and that the download matches the manifest. Only the dashboard and agent restart; the Minecraft servers keep running. If the new version is not healthy within two minutes, the previous version, its services, settings and databases are put back automatically. Playkeeper looks for a new release a minute after it starts and then twice a day, and downloads nothing until you click. It never goes back to an older version.
 
 **Upgrade from 0.2.0:** install 0.3.0 from the dashboard. Your server keeps running through the upgrade and becomes the first of your servers, with its world, backups, players and settings.
