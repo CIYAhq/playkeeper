@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/mojang"
 )
 
 func (e *env) reply(method, path, body string) {
@@ -110,6 +112,10 @@ func TestMembersCanLookButNotManage(t *testing.T) {
 	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('friend', ?, 0, 0, 'member')`, h); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := e.srv.db.Exec(`INSERT INTO project_members(project_id, user_id, role, servers, created_at)
+		SELECT p.id, u.id, 'viewer', '*', 0 FROM projects p, users u WHERE u.username = 'friend'`); err != nil {
+		t.Fatal(err)
+	}
 	r := e.do(t, "POST", "/api/auth/login", `{"username":"friend","password":"member password 1"}`, map[string]string{"X-Requested-With": "playkeeper"})
 	if r.status != 200 {
 		t.Fatalf("member login: %d %v", r.status, r.body)
@@ -178,28 +184,45 @@ func TestPlayerFacesComeFromTheirOwnSkin(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer skins.Close()
-	mojang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	profiles := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lookups.Add(1)
 		switch r.URL.Path {
-		case "/users/profiles/minecraft/maraK":
+		case "/minecraft/profile/lookup/name/mara_k":
 			io.WriteString(w, `{"id":"0123456789abcdef0123456789abcdef","name":"mara_k"}`)
-		case "/users/profiles/minecraft/elsewhere":
+		case "/minecraft/profile/lookup/name/elsewhere":
 			io.WriteString(w, `{"id":"2123456789abcdef0123456789abcdef","name":"elsewhere"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer profiles.Close()
+	sessions := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lookups.Add(1)
+		switch r.URL.Path {
 		case "/session/minecraft/profile/0123456789abcdef0123456789abcdef":
 			io.WriteString(w, `{"name":"mara_k","properties":[{"name":"textures","value":"`+textures(skins.URL+"/texture/custom")+`"}]}`)
 		case "/session/minecraft/profile/2123456789abcdef0123456789abcdef":
 			io.WriteString(w, `{"name":"elsewhere","properties":[{"name":"textures","value":"`+textures("https://evil.example/texture/x")+`"}]}`)
 		case "/session/minecraft/profile/3123456789abcdef0123456789abcdef":
 			io.WriteString(w, `{"name":"somebody","properties":[{"name":"textures","value":"`+textures(skins.URL+"/texture/5c500205248f3af53ea628f862ebf756fe8e7c9ec8afa4bd963fed1497f46ee1")+`"}]}`)
+		case "/session/minecraft/profile/4123456789abcdef0123456789abcdef":
+			io.WriteString(w, `{"name":"tobi_k","properties":[{"name":"textures","value":"`+textures(skins.URL+"/texture/custom")+`"}]}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	defer mojang.Close()
-	e := newEnvWith(t, &HeadSources{ProfilesURL: mojang.URL, SessionURL: mojang.URL, TexturesURL: skins.URL, Client: &http.Client{Timeout: 5 * time.Second}})
+	defer sessions.Close()
+	mc, err := mojang.NewClient(mojang.Options{BaseURL: profiles.URL, HTTP: profiles.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEnvWith(t, func(o *Options) {
+		o.Heads = &HeadSources{SessionURL: sessions.URL, TexturesURL: skins.URL, Client: &http.Client{Timeout: 5 * time.Second}}
+		o.Mojang = mc
+	})
 	cookie, _ := e.setup(t)
 
-	req, _ := http.NewRequest("GET", e.ts.URL+"/api/players/maraK/head", nil)
+	req, _ := http.NewRequest("GET", e.ts.URL+"/api/players/mara_k/head", nil)
 	req.Header.Set("Cookie", cookieName+"="+cookie)
 	resp, err := e.ts.Client().Do(req)
 	if err != nil {
@@ -221,7 +244,7 @@ func TestPlayerFacesComeFromTheirOwnSkin(t *testing.T) {
 		t.Fatalf("the hat layer lies over the face: %v", face.At(1, 1))
 	}
 	before := lookups.Load()
-	if r := e.do(t, "GET", "/api/players/maraK/head", "", auth(cookie, "")); r.status != 200 || lookups.Load() != before {
+	if r := e.do(t, "GET", "/api/players/MARA_K/head", "", auth(cookie, "")); r.status != 200 || lookups.Load() != before {
 		t.Fatalf("a cached face is not looked up again: %d, %d lookups", r.status, lookups.Load()-before)
 	}
 	for name, why := range map[string]string{"nobody_here": "an unknown player", "elsewhere": "a skin outside the textures host"} {
@@ -236,7 +259,7 @@ func TestPlayerFacesComeFromTheirOwnSkin(t *testing.T) {
 	if r := e.do(t, "GET", "/api/players/Alice/head?uuid=0123456789abcdef0123456789abcdef", "", auth(cookie, "")); r.status != http.StatusNotFound {
 		t.Errorf("a UUID that isn't Alice's gives no face: %d", r.status)
 	}
-	if r := e.do(t, "GET", "/api/players/MARA_K/head?uuid=0123456789abcdef0123456789abcdef", "", auth(cookie, "")); r.status != http.StatusOK {
+	if r := e.do(t, "GET", "/api/players/TOBI_K/head?uuid=4123456789abcdef0123456789abcdef", "", auth(cookie, "")); r.status != http.StatusOK {
 		t.Errorf("a UUID matches its name in any case: %d", r.status)
 	}
 	if r := e.do(t, "GET", "/api/players/bad;name/head", "", auth(cookie, "")); r.status != http.StatusBadRequest {

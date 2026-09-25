@@ -36,8 +36,12 @@ func (c *clock) add(d time.Duration) {
 type fakeAgent struct {
 	mu   sync.Mutex
 	hits []string
+	// bodies are the request bodies and queries, in the order of hits.
+	bodies []string
 	// replies are canned bodies by "METHOD /path"; others get {"ok":true}.
 	replies map[string]string
+	// statuses are canned statuses by "METHOD /path"; others get 200.
+	statuses map[string]int
 }
 
 func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
@@ -47,15 +51,22 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}}
+	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		key := r.Method + " " + r.URL.Path
 		fa.mu.Lock()
-		fa.hits = append(fa.hits, r.Method+" "+r.URL.Path)
-		reply, ok := fa.replies[r.Method+" "+r.URL.Path]
+		fa.hits = append(fa.hits, key)
+		fa.bodies = append(fa.bodies, r.URL.RawQuery+string(body))
+		reply, ok := fa.replies[key]
+		status := fa.statuses[key]
 		fa.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if !ok {
 			reply = `{"ok":true}`
+		}
+		if status != 0 {
+			w.WriteHeader(status)
 		}
 		io.WriteString(w, reply)
 	})}
@@ -77,7 +88,9 @@ func newEnv(t *testing.T) *env {
 	return newEnvWith(t, nil)
 }
 
-func newEnvWith(t *testing.T, heads *HeadSources) *env {
+// newEnvWith lets a test change the panel's options, for example to point
+// faces and name lookups at local fakes.
+func newEnvWith(t *testing.T, tweak func(*Options)) *env {
 	t.Helper()
 	dir := t.TempDir()
 	sock, fa := startFakeAgent(t, dir)
@@ -85,7 +98,12 @@ func newEnvWith(t *testing.T, heads *HeadSources) *env {
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = sock
 	clk := &clock{t: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
-	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour, Heads: heads})
+	opts := Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour}
+	if tweak != nil {
+		tweak(&opts)
+		cfg = opts.Config
+	}
+	s, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,9 +174,13 @@ func auth(cookie, csrf string) map[string]string {
 
 const sampleServer = "abcdefghjk"
 
+// sampleCode has the shape of an invite code but opens nothing.
+const sampleCode = "AbCdEfGhJkMnPqRsTuVwXy"
+
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend").Replace(p)
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend",
+		"{invite}", "qrstuvwxyz", "{request}", "zyxwvutsrq", "{uid}", "2", "{code}", sampleCode).Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {

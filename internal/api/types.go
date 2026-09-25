@@ -747,3 +747,8 @@ const (
 	DiscordJoinRequested    = "join_requested"
 	DiscordTwoFactorChanged = "two_factor_changed"
 )
+
+// CodeAdminUnconfirmed refuses an admin action to an admin who turned on
+// two-factor sign-in but whose Admin rights the owner or an admin hasn't
+// confirmed yet.
+const CodeAdminUnconfirmed = "admin_unconfirmed"

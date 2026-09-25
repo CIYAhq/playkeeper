@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -28,6 +29,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
+	"github.com/CIYAhq/playkeeper/internal/invites"
+	"github.com/CIYAhq/playkeeper/internal/mojang"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -43,6 +46,10 @@ type Options struct {
 	Agent  *agentclient.Client
 	// Heads are where player faces come from (default: Mojang).
 	Heads *HeadSources
+	// Mojang looks Minecraft accounts up by name, for invite links and
+	// faces (default: Mojang's profile service). One client keeps one
+	// cache and one request budget.
+	Mojang *mojang.Client
 }
 
 type Server struct {
@@ -56,7 +63,14 @@ type Server struct {
 	loginIP *limiter
 	control *limiter
 	locks   *lockout
-	heads   *headFetcher
+	// loginUser counts failed sign-ins per account from every address, so
+	// guesses spread over many addresses stay slow. One address can't use
+	// it up before its own lockout stops it.
+	loginUser *limiter
+	heads     *headFetcher
+	mojang    *mojang.Client
+	// joinGuard limits attempts on the public invite pages.
+	joinGuard *invites.Guard
 }
 
 func New(opts Options) (*Server, error) {
@@ -86,12 +100,22 @@ func New(opts Options) (*Server, error) {
 	if opts.Heads != nil {
 		src = *opts.Heads
 	}
+	mc := opts.Mojang
+	if mc == nil {
+		if mc, err = mojang.NewClient(mojang.Options{Now: opts.Now}); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	s := &Server{
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
-		loginIP: newLimiter(10, 15*time.Minute, opts.Now),
-		control: newLimiter(30, time.Minute, opts.Now),
-		locks:   newLockout(opts.Now),
-		heads:   newHeadFetcher(src),
+		loginIP:   newLimiter(10, 15*time.Minute, opts.Now),
+		control:   newLimiter(30, time.Minute, opts.Now),
+		locks:     newLockout(opts.Now),
+		loginUser: newLimiter(30, time.Hour, opts.Now),
+		heads:     newHeadFetcher(src, mc),
+		mojang:    mc,
+		joinGuard: invites.NewGuard(invites.GuardLimits{}, opts.Now),
 	}
 	if err := s.ensureWorkspace(); err != nil {
 		db.Close()
@@ -136,8 +160,13 @@ func (s *Server) Routes() []Route {
 	sg := func(p, agentPath string) Route {
 		return Route{"GET", p, needSession, actView, s.serverProxy("GET", agentPath)}
 	}
+	// sm routes change a server; they need an admin unless smAs names a
+	// lesser action.
 	sm := func(method, p, agentPath string) Route {
 		return Route{method, p, needSessionCSRF, actManageServers, s.serverProxy(method, agentPath)}
+	}
+	smAs := func(act action, method, p, agentPath string) Route {
+		return Route{method, p, needSessionCSRF, act, s.serverProxy(method, agentPath)}
 	}
 	// Machine routes are forwarded to the machine named in the path.
 	mg := func(p, agentPath string) Route {
@@ -146,66 +175,106 @@ func (s *Server) Routes() []Route {
 	mm := func(method, p, agentPath string, act action) Route {
 		return Route{method, p, needSessionCSRF, act, s.machineProxy(method, agentPath)}
 	}
-	return []Route{
+	routes := []Route{
 		{"GET", "/api/health", public, "", s.hHealth},
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
 		{"POST", "/api/setup", publicMutation, "", s.hSetup},
 		{"POST", "/api/auth/login", publicMutation, "", s.hLogin},
-		view("/api/auth/me", s.hMe),
-		{"POST", "/api/auth/logout", needSessionCSRF, actView, s.hLogout},
+		{"GET", "/api/auth/me", needSession, actManageAccount, s.hMe},
+		{"POST", "/api/auth/logout", needSessionCSRF, actManageAccount, s.hLogout},
 		{"POST", "/api/auth/logout-all", needSessionCSRF, actManageAccount, s.hLogoutAll},
 		{"POST", "/api/auth/password", needSessionCSRF, actManageAccount, s.hPassword},
-		view("/api/me/prefs", s.hPrefs),
-		{"POST", "/api/me/prefs", needSessionCSRF, actView, s.hPrefsSet},
+		{"GET", "/api/me/prefs", needSession, actManageAccount, s.hPrefs},
+		{"POST", "/api/me/prefs", needSessionCSRF, actManageAccount, s.hPrefsSet},
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
 		view("/api/projects", s.hProjects),
 		view("/api/machines", s.hMachines),
 		view("/api/machines/{mid}", s.hMachine),
 		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
 		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
-		mg("/api/machines/{mid}/activity", "/v1/activity"),
+		view("/api/machines/{mid}/activity", s.hMachineActivity),
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		mm("POST", "/api/machines/{mid}/update/apply", "/v1/update/apply", actManageMachine),
-		mm("POST", "/api/machines/{mid}/servers", "/v1/servers", actManageServers),
-		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
-		mg("/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}"),
-		mm("POST", "/api/machines/{mid}/restore/{rid}/apply", "/v1/restore/{rid}/apply", actManageServers),
-		mm("DELETE", "/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}", actManageServers),
-		mg("/api/machines/{mid}/operations/{op}", "/v1/operations/{op}"),
+		mm("POST", "/api/machines/{mid}/servers", "/v1/servers", actCreateServers),
+		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
+		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}")},
+		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actRestore, s.restoreProxy("POST", "/v1/restore/{rid}/apply")},
+		{"DELETE", "/api/machines/{mid}/restore/{rid}", needSessionCSRF, actRestore, s.restoreProxy("DELETE", "/v1/restore/{rid}")},
+		view("/api/machines/{mid}/operations/{op}", s.hOperation),
 		view("/api/servers", s.hServers),
 		sg("/api/servers/{id}", "/v1/servers/{id}"),
-		sm("POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
-		sm("POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
-		sm("POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
+		smAs(actRunServers, "POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
+		smAs(actRunServers, "POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
+		smAs(actRunServers, "POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
 		sm("POST", "/api/servers/{id}/settings", "/v1/servers/{id}/settings"),
 		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
-		sm("POST", "/api/servers/{id}/delete", "/v1/servers/{id}/delete"),
+		smAs(actCreateServers, "POST", "/api/servers/{id}/delete", "/v1/servers/{id}/delete"),
 		view("/api/servers/{id}/icon", s.rawGet("/v1/servers/{id}/icon", "image/png")),
 		{"POST", "/api/servers/{id}/icon", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/icon", "image/png")},
 		sg("/api/servers/{id}/logs", "/v1/servers/{id}/logs"),
-		sm("POST", "/api/servers/{id}/command", "/v1/servers/{id}/command"),
-		sg("/api/servers/{id}/whitelist", "/v1/servers/{id}/whitelist"),
-		sm("POST", "/api/servers/{id}/whitelist", "/v1/servers/{id}/whitelist"),
-		sm("DELETE", "/api/servers/{id}/whitelist/{name}", "/v1/servers/{id}/whitelist/{name}"),
+		smAs(actConsole, "POST", "/api/servers/{id}/command", "/v1/servers/{id}/command"),
+		view("/api/servers/{id}/whitelist", s.hWhitelist),
+		smAs(actManagePlayers, "POST", "/api/servers/{id}/whitelist", "/v1/servers/{id}/whitelist"),
+		{"DELETE", "/api/servers/{id}/whitelist/{name}", needSessionCSRF, actManagePlayers, s.hWhitelistRemove},
 		sg("/api/servers/{id}/operators", "/v1/servers/{id}/operators"),
-		sm("POST", "/api/servers/{id}/operators", "/v1/servers/{id}/operators"),
-		sm("DELETE", "/api/servers/{id}/operators/{name}", "/v1/servers/{id}/operators/{name}"),
-		sm("POST", "/api/servers/{id}/kick", "/v1/servers/{id}/kick"),
+		smAs(actManagePlayers, "POST", "/api/servers/{id}/operators", "/v1/servers/{id}/operators"),
+		smAs(actManagePlayers, "DELETE", "/api/servers/{id}/operators/{name}", "/v1/servers/{id}/operators/{name}"),
+		smAs(actManagePlayers, "POST", "/api/servers/{id}/kick", "/v1/servers/{id}/kick"),
 		sg("/api/servers/{id}/metrics", "/v1/servers/{id}/metrics"),
 		sg("/api/servers/{id}/players/sessions", "/v1/servers/{id}/players/sessions"),
 		sg("/api/servers/{id}/players/summary", "/v1/servers/{id}/players/summary"),
 		sg("/api/servers/{id}/events", "/v1/servers/{id}/events"),
 		view("/api/servers/{id}/activity", s.hServerActivity),
 		sg("/api/servers/{id}/backups", "/v1/servers/{id}/backups"),
-		sm("POST", "/api/servers/{id}/backups", "/v1/servers/{id}/backups"),
-		sm("POST", "/api/servers/{id}/backups/{bid}/verify", "/v1/servers/{id}/backups/{bid}/verify"),
-		{"GET", "/api/servers/{id}/backups/{bid}/download", needSession, actView, s.hDownload},
+		smAs(actMakeBackups, "POST", "/api/servers/{id}/backups", "/v1/servers/{id}/backups"),
+		smAs(actMakeBackups, "POST", "/api/servers/{id}/backups/{bid}/verify", "/v1/servers/{id}/backups/{bid}/verify"),
+		{"GET", "/api/servers/{id}/backups/{bid}/download", needSession, actMakeBackups, s.hDownload},
 		sm("DELETE", "/api/servers/{id}/backups/{bid}", "/v1/servers/{id}/backups/{bid}"),
-		sm("POST", "/api/servers/{id}/backups/{bid}/restore", "/v1/servers/{id}/backups/{bid}/restore"),
-		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
+		smAs(actRestore, "POST", "/api/servers/{id}/backups/{bid}/restore", "/v1/servers/{id}/backups/{bid}/restore"),
+		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actRestore, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
 		view("/api/server", s.hLegacyStatus),
+	}
+	// Wave 5: invite links and join requests, player profiles, the team
+	// and Discord.
+	routes = append(routes, []Route{
+		{"GET", "/api/servers/{id}/invites", needSession, actManagePlayers, s.hInvites},
+		{"POST", "/api/servers/{id}/invites", needSessionCSRF, actManagePlayers, s.hInviteCreate},
+		{"DELETE", "/api/servers/{id}/invites/{invite}", needSessionCSRF, actManagePlayers, s.hInviteRevoke},
+		{"GET", "/api/servers/{id}/join-requests", needSession, actManagePlayers, s.hJoinRequests},
+		{"POST", "/api/servers/{id}/join-requests/{request}/approve", needSessionCSRF, actManagePlayers, s.hJoinRequestApprove},
+		{"POST", "/api/servers/{id}/join-requests/{request}/decline", needSessionCSRF, actManagePlayers, s.hJoinRequestDecline},
+		view("/api/servers/{id}/players/profile", s.hProfile),
+		smAs(actManagePlayers, "POST", "/api/servers/{id}/players/message", "/v1/servers/{id}/players/message"),
+		smAs(actManagePlayers, "POST", "/api/servers/{id}/ban", "/v1/servers/{id}/ban"),
+		{"GET", "/api/team", needSession, actManageTeam, s.hTeam},
+		{"POST", "/api/team/invites", needSessionCSRF, actManageTeam, s.hTeamInviteCreate},
+		{"PUT", "/api/team/invites/{invite}", needSessionCSRF, actManageTeam, s.hTeamInviteEdit},
+		{"DELETE", "/api/team/invites/{invite}", needSessionCSRF, actManageTeam, s.hTeamInviteRevoke},
+		{"PUT", "/api/team/members/{uid}", needSessionCSRF, actManageTeam, s.hTeamMemberEdit},
+		{"DELETE", "/api/team/members/{uid}", needSessionCSRF, actManageTeam, s.hTeamMemberRemove},
+		{"POST", "/api/team/members/{uid}/confirm-admin", needSessionCSRF, actManageTeam, s.hTeamConfirmAdmin},
+		{"GET", "/api/discord", needSession, actManageMachine, s.discordProxy("GET", "/v1/discord")},
+		{"POST", "/api/discord/connect", needSessionCSRF, actManageMachine, s.discordProxy("POST", "/v1/discord/connect")},
+		{"PUT", "/api/discord", needSessionCSRF, actManageMachine, s.discordProxy("PUT", "/v1/discord")},
+		{"DELETE", "/api/discord", needSessionCSRF, actManageMachine, s.discordProxy("DELETE", "/v1/discord")},
+		{"POST", "/api/discord/test", needSessionCSRF, actManageMachine, s.discordProxy("POST", "/v1/discord/test")},
+	}...)
+	return append(routes, s.publicPages()...)
+}
+
+// publicPages are the only routes anyone can use without signing in,
+// besides health, setup and login: the page a friend or new team member
+// opens from an invite link, and the calls it makes. Every answer is
+// no-store, and paths are logged with their codes redacted.
+func (s *Server) publicPages() []Route {
+	return []Route{
+		{"GET", invites.JoinPath + "/{code}", public, "", s.hJoinPage},
+		{"POST", "/api/public/join/preview", publicMutation, "", s.hJoinPreview},
+		{"POST", "/api/public/join/lookup", publicMutation, "", s.hJoinLookup},
+		{"POST", "/api/public/join/redeem", publicMutation, "", s.hJoinRedeem},
+		{"POST", "/api/public/join/accept", publicMutation, "", s.hJoinAccept},
 	}
 }
 
@@ -257,8 +326,14 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 					return
 				}
 			}
-			if !permit(&sess, rt.Act) {
-				writeErr(w, http.StatusForbidden, api.CodeForbidden, "Your account is not allowed to do this.", "")
+			acct, err := s.access(sess.User)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+				return
+			}
+			sess.Access = acct
+			if err := permit(acct, rt.Act, r.PathValue("id")); err != nil {
+				refuse(w, err)
 				return
 			}
 			rt.handler(w, r, &sess)
@@ -326,14 +401,15 @@ func (w *statusWriter) Flush() {
 }
 
 // logRequests records method, path, status and duration. It never logs query
-// strings, headers or bodies (which may carry codes, cookies or passwords).
+// strings, headers or bodies (which may carry codes, cookies or passwords),
+// and invite codes in paths are redacted.
 func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
 		if strings.HasPrefix(r.URL.Path, "/api/") || sw.status >= 400 {
-			s.log.Info("request", "method", r.Method, "path", r.URL.Path, "status", sw.status, "ms", time.Since(start).Milliseconds())
+			s.log.Info("request", "method", r.Method, "path", invites.RedactPath(r.URL.Path), "status", sw.status, "ms", time.Since(start).Milliseconds())
 		}
 	})
 }
@@ -367,6 +443,16 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// addressKey is the client's address for limits: an IPv4 address or an
+// IPv6 /64, which one household usually has to itself.
+func (s *Server) addressKey(r *http.Request) string {
+	ip, err := netip.ParseAddr(clientIP(r))
+	if err != nil {
+		return clientIP(r)
+	}
+	return invites.AddressKey(ip)
 }
 
 // --- public routes ---
@@ -455,8 +541,15 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request, _ *session) {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
 		return
 	}
-	key := "user:" + strings.ToLower(c.Username)
-	if locked, wait := s.locks.locked(key); locked {
+	account := "user:" + strings.ToLower(c.Username)
+	key := account + "@" + s.addressKey(r)
+	locked, wait := s.locks.locked(key)
+	if !locked {
+		var ready bool
+		ready, wait = s.loginUser.ready(account)
+		locked = !ready
+	}
+	if locked {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		writeErr(w, http.StatusTooManyRequests, api.CodeRateLimited, "Too many failed sign-ins for this account. Try again later.", "")
 		return
@@ -464,6 +557,7 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request, _ *session) {
 	u, ok := s.authenticate(c.Username, c.Password)
 	if !ok {
 		s.locks.fail(key)
+		s.loginUser.allow(account)
 		actor := "(unknown user)"
 		if u.Username != "" {
 			actor = u.Username
@@ -491,10 +585,32 @@ func (s *Server) userByName(name string) (user, error) {
 	return u, err
 }
 
+// accessBody is what the signed-in account may do, for the UI to show only
+// what works. The panel checks every request anyway.
+type accessBody struct {
+	ProjectID string        `json:"projectId,omitempty"`
+	Role      string        `json:"role"`
+	Servers   invites.Scope `json:"servers"`
+	TwoFactor bool          `json:"twoFactor"`
+	// NeedsTwoFactor is set for an admin whose admin rights wait until
+	// two-factor sign-in is on; AwaitingConfirmation once it's on and they
+	// wait for the owner or an admin to confirm them.
+	NeedsTwoFactor       bool     `json:"needsTwoFactor,omitempty"`
+	AwaitingConfirmation bool     `json:"awaitingConfirmation,omitempty"`
+	Can                  []action `json:"can"`
+}
+
 func (s *Server) meBody(sess session) map[string]any {
+	a := sess.Access
+	if a.UserID == 0 {
+		a, _ = s.access(sess.User)
+	}
 	return map[string]any{
-		"user":               map[string]string{"username": sess.User.Username, "role": sess.User.Role},
-		"csrfToken":          sess.CSRF,
+		"user":      map[string]string{"username": sess.User.Username, "role": sess.User.Role},
+		"csrfToken": sess.CSRF,
+		"access": accessBody{ProjectID: a.ProjectID, Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
+			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
+			AwaitingConfirmation: a.awaitingConfirmation(), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
 		"version":            version.Version,
@@ -814,6 +930,12 @@ func (s *Server) rawUpload(pattern, contentType string) func(http.ResponseWriter
 const uiMissing = `<!doctype html><meta charset="utf-8"><title>Playkeeper</title><p>The Playkeeper web UI is not built into this binary. Run <code>make web</code> and rebuild.</p>`
 
 func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
+	cache := "no-cache"
+	if invites.RedactPath(r.URL.Path) != r.URL.Path {
+		// Anything under the invite path may carry a code.
+		cache = "no-store"
+		w.Header().Set("Cache-Control", cache)
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -837,14 +959,22 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	b, err := fs.ReadFile(s.static, "index.html")
-	if err != nil {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.writeIndex(w, cache)
+}
+
+// writeIndex answers with the UI's index.html.
+func (s *Server) writeIndex(w http.ResponseWriter, cacheControl string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", cacheControl)
+	if s.static == nil {
 		io.WriteString(w, uiMissing)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
+	b, err := fs.ReadFile(s.static, "index.html")
+	if err != nil {
+		io.WriteString(w, uiMissing)
+		return
+	}
 	w.Write(b)
 }
 
