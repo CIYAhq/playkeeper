@@ -14,7 +14,7 @@ import (
 // DNSChallenger publishes the TXT records of DNS-01 checks. fqdn is the
 // record's name without a trailing dot, such as
 // _acme-challenge.alex.playkeeper.io. Errors are shown to the admin, so they
-// must not contain secrets.
+// must not contain secrets; a *Problem from SetTXT is kept as it is.
 type DNSChallenger interface {
 	SetTXT(ctx context.Context, fqdn, value string) error
 	ClearTXT(ctx context.Context, fqdn, value string) error
@@ -54,6 +54,9 @@ func (d *DNS01) present(ctx context.Context, name, value string) (func(), error)
 		remove()
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if p := (*Problem)(nil); errors.As(err, &p) {
+			return nil, p
 		}
 		return nil, newProblem(err, CodeDNS01PublishFailed, params)
 	}

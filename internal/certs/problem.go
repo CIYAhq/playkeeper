@@ -92,6 +92,9 @@ const (
 	CodeDNS01PublishFailed  = "dns01_publish_failed"
 	CodeDNS01NotVisible     = "dns01_not_visible"
 	CodeDNS01RecordWrong    = "dns01_record_wrong"
+	// CodeCertificateLimit: the names service refuses a free name's
+	// certificate for now (see CertificateLimit).
+	CodeCertificateLimit = "certificate_limit"
 
 	CodePort80Busy     = "port80_busy"
 	CodePort80Denied   = "port80_denied"
@@ -204,7 +207,12 @@ var catalog = map[string]text{
 	CodeValidationTimeout:   {msg: "Let's Encrypt did not finish checking {name} in time.", hint: "Try again in a few minutes."},
 	CodeChallengeNotOffered: {msg: "Let's Encrypt did not offer the {challenge} check for {name}.", hint: "Try again later. If it keeps happening, report the details."},
 	CodeDNS01PublishFailed:  {msg: "Playkeeper could not create the DNS record {fqdn} that Let's Encrypt checks.", hint: "Try again in a few minutes."},
-	CodeDNS01NotVisible:     {msg: "The DNS record {fqdn} that Let's Encrypt checks did not appear in time.", hint: "DNS changes can take a few minutes to spread. Try again shortly."},
+	CodeCertificateLimit:    {msg: "The free address service is not handing out new certificates for now.", hint: "Playkeeper tries again after {until}. Players can still join."},
+	CodeCertificateLimit + ".name": {msg: "{name} has asked for as many certificates this week as one free address can.",
+		hint: "Playkeeper tries again after {until}. Players can still join."},
+	CodeCertificateLimit + ".all": {msg: "New certificates for free addresses are paused this week, to stay within Let's Encrypt's limits.",
+		hint: "Playkeeper tries again after {until}. Players can still join."},
+	CodeDNS01NotVisible: {msg: "The DNS record {fqdn} that Let's Encrypt checks did not appear in time.", hint: "DNS changes can take a few minutes to spread. Try again shortly."},
 	CodeDNS01RecordWrong: {msg: "Let's Encrypt found a different value in the DNS record {fqdn}.",
 		hint: "Wait a few minutes for old values to expire and try again. If you added _acme-challenge records by hand, delete them."},
 
@@ -256,6 +264,15 @@ func newProblem(err error, code string, params map[string]string) *Problem {
 	if err != nil {
 		p.Detail = cleanDetail(err.Error())
 	}
+	return p
+}
+
+// CertificateLimit is the Problem for a names service that refuses name's
+// certificate until retryAt: scope is "name" when the name has had its share
+// this week, "all" when every name has.
+func CertificateLimit(err error, name, scope string, retryAt time.Time) *Problem {
+	p := newProblem(err, CodeCertificateLimit, map[string]string{"name": name, "kind": scope, "until": retryAt.UTC().Format(time.RFC3339)})
+	p.RetryAt = retryAt.UTC()
 	return p
 }
 

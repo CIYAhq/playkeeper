@@ -4,16 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/certs"
+	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
 // The dashboard's certificate for the machine's name. The agent gets it
@@ -125,6 +128,45 @@ func (a *Agent) certificateDue(st addressState) bool {
 	return row == nil || row.status.Due(a.now())
 }
 
+// namesChallenger publishes DNS-01 records through the names service. Its
+// certificate_limit refusal becomes a Problem that waits until the service
+// allows the certificate again.
+type namesChallenger struct {
+	c   *names.Client
+	now func() time.Time
+}
+
+func (n namesChallenger) SetTXT(ctx context.Context, fqdn, value string) error {
+	err := n.c.SetTXT(ctx, fqdn, value)
+	var ne *names.Error
+	if !errors.As(err, &ne) || ne.Code != names.CodeCertificateLimit {
+		return err
+	}
+	now := n.now().UTC()
+	retry := now.Add(time.Hour)
+	if s, ok := ne.Params["retryAt"].(string); ne.RetryAfter > 0 {
+		retry = now.Add(ne.RetryAfter)
+	} else if t, perr := time.Parse(time.RFC3339, s); ok && perr == nil {
+		retry = t
+	}
+	if earliest := now.Add(time.Minute); retry.Before(earliest) {
+		retry = earliest
+	}
+	if latest := now.Add(8 * 24 * time.Hour); retry.After(latest) {
+		retry = latest
+	}
+	retry = retry.Add(time.Second - 1).Truncate(time.Second)
+	scope, _ := ne.Params["scope"].(string)
+	if scope != "name" && scope != "all" {
+		scope = ""
+	}
+	return certs.CertificateLimit(err, strings.TrimPrefix(fqdn, "_acme-challenge."), scope, retry)
+}
+
+func (n namesChallenger) ClearTXT(ctx context.Context, fqdn, value string) error {
+	return n.c.ClearTXT(ctx, fqdn, value)
+}
+
 // issueCertificate gets or renews the certificate for the machine's name:
 // over DNS-01 through the names service for a free address, or over HTTP-01
 // on port 80 for an own domain, and only once the public DNS shows that the
@@ -139,7 +181,7 @@ func (a *Agent) issueCertificate(ctx context.Context, h *opHandle) error {
 		if err != nil {
 			return err
 		}
-		req.DNS01 = &certs.DNS01{Challenger: c}
+		req.DNS01 = &certs.DNS01{Challenger: namesChallenger{c: c, now: a.now}}
 		challenge = "dns-01"
 	case api.AddressOwn:
 		h.phase("checking")

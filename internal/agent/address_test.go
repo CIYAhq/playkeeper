@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1168,5 +1170,122 @@ func TestLivenessCheckIsAnsweredOnlyForTheMachinesName(t *testing.T) {
 	}
 	if code, _ := ask("alex.playkeeper.io:8443"); code != http.StatusNotFound {
 		t.Errorf("released: %d", code)
+	}
+}
+
+func TestCertificateLimitWaitsForTheNamesService(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	retryAt := time.Now().Add(49 * time.Hour).UTC().Truncate(time.Second)
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		if r.Method != "PUT" || !strings.Contains(r.URL.Path, "/acme-challenge/") {
+			return nil
+		}
+		return &fakeRefusal{status: http.StatusTooManyRequests, code: names.CodeCertificateLimit, msg: "New certificates for playkeeper.io names are paused.",
+			params: map[string]any{"scope": "all", "limit": 50, "retryAt": retryAt.Format(time.RFC3339)}, retryAfter: strconv.Itoa(int(time.Until(retryAt).Seconds()))}
+	})
+	v := e.claim("alex")
+	c := v.Certificate
+	if c == nil || c.Problem == nil || c.Problem.Code != certs.CodeCertificateLimit || c.Problem.Params["kind"] != "all" || c.Problem.RetryAt == nil {
+		t.Fatalf("certificate: %+v", c)
+	}
+	if d := c.Problem.RetryAt.Sub(retryAt); d < -5*time.Second || d > 5*time.Second {
+		t.Fatalf("retry at %v, want the service's Retry-After, %v", c.Problem.RetryAt, retryAt)
+	}
+	if c.NextAttempt == nil || c.NextAttempt.Before(*c.Problem.RetryAt) {
+		t.Fatalf("next attempt %v before %v", c.NextAttempt, c.Problem.RetryAt)
+	}
+	code, out := e.call("POST", "/v1/address/certificate", map[string]any{"actor": "admin"})
+	if code != http.StatusConflict || out["code"] != api.CodeRetryLater || !strings.HasPrefix(fmt.Sprint(out["error"]), "The free address service refuses") {
+		t.Fatalf("trying again before the service allows it: %d %v", code, out)
+	}
+}
+
+func TestServerAddressesWaitForTheNamesService(t *testing.T) {
+	e := newAddressEnv(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.addServerNamed("Survival")
+	from := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+	var mu sync.Mutex
+	refuse := names.CodeServerNotYet
+	setRefusal := func(code string) {
+		mu.Lock()
+		refuse = code
+		mu.Unlock()
+	}
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		mu.Lock()
+		code := refuse
+		mu.Unlock()
+		if r.Method != "PUT" || !strings.Contains(r.URL.Path, "/servers/") || code == "" {
+			return nil
+		}
+		params := map[string]any{"name": "alex", "port": names.AlivePort}
+		if code == names.CodeServerNotYet {
+			params = map[string]any{"name": "alex", "from": from.Unix()}
+		}
+		return &fakeRefusal{status: http.StatusConflict, code: code, msg: "Not yet.", params: params}
+	})
+	retryNow := func() {
+		_ = e.a.updateAddress(func(st *addressState) {
+			f := *st.Free
+			f.ServersRetry = time.Time{}
+			st.Free = &f
+		})
+	}
+
+	// Publishing does not wait for server records the service refuses.
+	start := time.Now()
+	v := e.claim("alex")
+	if time.Since(start) > time.Minute {
+		t.Fatalf("the claim waited %v for refused server records", time.Since(start))
+	}
+	if f := v.Free; f.ServersWait != names.CodeServerNotYet || f.ServersFrom == nil || !f.ServersFrom.Equal(from) || len(v.Servers) != 1 || v.Servers[0].Published {
+		t.Fatalf("waiting for the name's age: %+v %+v", v.Free, v.Servers)
+	}
+	puts := func() int { return e.names.count("PUT /v1/names/alex/servers/") }
+	n := puts()
+	time.Sleep(200 * time.Millisecond)
+	if puts() != n {
+		t.Fatal("the loop asked again before the service allows server addresses")
+	}
+
+	setRefusal(names.CodeNotAnswering)
+	retryNow()
+	e.waitFor("the not-answering refusal", func() bool {
+		f := e.address().Free
+		return f.ServersWait == names.CodeNotAnswering && f.ServersFrom == nil
+	})
+	n = puts()
+	time.Sleep(200 * time.Millisecond)
+	if puts() != n {
+		t.Fatal("the loop asked again at once after the dashboard did not answer")
+	}
+
+	setRefusal("")
+	retryNow()
+	e.waitFor("the server's record", func() bool {
+		v := e.address()
+		return v.Free.ServersWait == "" && len(v.Servers) == 1 && v.Servers[0].Published
+	})
+}
+
+func TestFreeViewSaysWhyANameLapsed(t *testing.T) {
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	claimed, answered, refreshed := now.Add(-20*24*time.Hour), now.Add(-9*24*time.Hour), now.Add(-31*24*time.Hour)
+	for _, c := range []struct {
+		name    string
+		n       names.Name
+		reason  string
+		stopped time.Time
+	}{
+		{"no answer since the last one", names.Name{State: names.StateLapsed, LapseReason: names.LapseNoAnswer, ClaimedAt: claimed, RefreshedAt: now, AnsweredAt: answered}, names.LapseNoAnswer, answered.Add(7 * 24 * time.Hour)},
+		{"never answered", names.Name{State: names.StateLapsed, LapseReason: names.LapseNoAnswer, ClaimedAt: claimed, RefreshedAt: now}, names.LapseNoAnswer, claimed.Add(7 * 24 * time.Hour)},
+		{"not refreshed", names.Name{State: names.StateLapsed, LapseReason: names.LapseNotRefreshed, ClaimedAt: claimed, RefreshedAt: refreshed}, names.LapseNotRefreshed, refreshed.Add(namesLapseAfter)},
+		{"not refreshed, by the clock", names.Name{State: names.StateActive, ClaimedAt: claimed, RefreshedAt: refreshed, RefreshBy: refreshed.Add(namesLapseAfter)}, names.LapseNotRefreshed, refreshed.Add(namesLapseAfter)},
+	} {
+		c.n.Name = "alex"
+		v := freeView(&freeState{Name: c.n}, now)
+		if v.State != names.StateLapsed || v.LapseReason != c.reason || v.StoppedAt == nil || !v.StoppedAt.Equal(c.stopped) {
+			t.Errorf("%s: %s %q %v", c.name, v.State, v.LapseReason, v.StoppedAt)
+		}
 	}
 }

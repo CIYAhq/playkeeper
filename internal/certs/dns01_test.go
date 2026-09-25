@@ -204,3 +204,22 @@ func TestDNS01Canceled(t *testing.T) {
 		t.Errorf("ClearTXT got a context that was already done: %v", c.clearCtx)
 	}
 }
+
+func TestDNS01KeepsTheChallengersProblem(t *testing.T) {
+	c := newChallenger(t)
+	retryAt := time.Date(2026, 10, 2, 15, 4, 0, 0, time.UTC)
+	refused := errors.New("New certificates for playkeeper.io names are paused.")
+	c.setErr = CertificateLimit(refused, "alex.playkeeper.io", "all", retryAt)
+	d := &DNS01{Challenger: c, LookupTXT: c.lookup}
+	_, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
+	p := wantProblem(t, err, CodeCertificateLimit, "all")
+	if !p.RetryAt.Equal(retryAt) || !errors.Is(err, refused) || !strings.Contains(p.Message, "paused this week") || !strings.Contains(p.Hint, "2026-10-02 15:04 UTC") {
+		t.Errorf("problem = %+v", p)
+	}
+	if got := c.log(); len(got) != 2 || !strings.HasPrefix(got[1], "clear ") {
+		t.Errorf("calls = %q", got)
+	}
+	if p := CertificateLimit(refused, "alex.playkeeper.io", "name", retryAt); !strings.HasPrefix(p.Message, "alex.playkeeper.io has asked for as many certificates") || !p.RetryAt.Equal(retryAt) {
+		t.Errorf("one name's limit: %+v", p)
+	}
+}

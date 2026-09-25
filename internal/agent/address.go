@@ -35,6 +35,9 @@ const (
 	namesLapseAfter  = 30 * 24 * time.Hour
 	namesReleaseHold = 30 * 24 * time.Hour
 	namesMaxServers  = 5
+	// namesUnansweredAfter: a name whose dashboard does not answer the
+	// liveness check on port 8443 for a week stops pointing here too.
+	namesUnansweredAfter = 7 * 24 * time.Hour
 
 	freeRefreshEvery = 24 * time.Hour
 	freeRetryEvery   = time.Hour
@@ -69,6 +72,12 @@ type freeState struct {
 	CheckedAt time.Time  `json:"checkedAt"`
 	// NextRefresh is when the loop refreshes the name next.
 	NextRefresh time.Time `json:"nextRefresh,omitzero"`
+	// ServersWait is the names service's reason for giving the servers no
+	// address yet (names.CodeServerNotYet or names.CodeNotAnswering), with
+	// ServersFrom from the first; the loop asks again at ServersRetry.
+	ServersWait  string    `json:"serversWait,omitempty"`
+	ServersFrom  time.Time `json:"serversFrom,omitzero"`
+	ServersRetry time.Time `json:"serversRetry,omitzero"`
 }
 
 // addressRuntime is the address's in-memory side. lock allows one change
@@ -526,6 +535,7 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 		}
 	}
 	if len(remove) == 0 && len(set) == 0 {
+		a.saveServersWait("", time.Time{})
 		return nil
 	}
 	c, err := a.namesClient(true)
@@ -538,16 +548,49 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	wait, from := "", time.Time{}
 	for _, s := range set {
-		if _, err := c.SetServer(ctx, s.slug, s.port); err != nil {
+		_, err := c.SetServer(ctx, s.slug, s.port)
+		var ne *names.Error
+		if errors.As(err, &ne) && (ne.Code == names.CodeServerNotYet || ne.Code == names.CodeNotAnswering) {
+			// The name gets no server addresses at all yet, so the
+			// other servers would be refused too.
+			wait = ne.Code
+			if sec, ok := ne.Params["from"].(float64); ok {
+				from = time.Unix(int64(sec), 0).UTC()
+			}
+			break
+		}
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+	a.saveServersWait(wait, from)
 	a.pollFree(ctx, c)
 	if len(errs) > 0 {
 		return a.namesError(errs[0])
 	}
 	return nil
+}
+
+// saveServersWait records why the names service gives the servers no
+// address yet, or that it does ("").
+func (a *Agent) saveServersWait(wait string, from time.Time) {
+	now := a.now().UTC()
+	_ = a.updateAddress(func(st *addressState) {
+		if st.Kind != api.AddressPlaykeeper || st.Free == nil || (st.Free.ServersWait == "" && wait == "") {
+			return
+		}
+		f := *st.Free
+		f.ServersWait, f.ServersFrom, f.ServersRetry = wait, from, time.Time{}
+		switch {
+		case wait == names.CodeServerNotYet && from.After(now):
+			f.ServersRetry = from
+		case wait != "":
+			f.ServersRetry = now.Add(freeRetryEvery)
+		}
+		st.Free = &f
+	})
 }
 
 // pollFree asks the names service how the machine's name is doing.
@@ -575,7 +618,7 @@ func freePublished(st addressState, servers []joinServer) bool {
 		return false
 	}
 	for _, s := range freeServers(servers) {
-		if !st.Free.serverPublished(s) {
+		if !st.Free.serverPublished(s) && st.Free.ServersWait == "" {
 			return false
 		}
 	}
@@ -943,13 +986,26 @@ func (a *Agent) addressView() api.Address {
 func freeView(f *freeState, now time.Time) *api.FreeAddress {
 	n := f.Name
 	v := &api.FreeAddress{Name: n.Name, State: n.State, DNS: n.DNS, IPv4: n.IPv4, IPv6: n.IPv6, ClaimedAt: n.ClaimedAt,
-		RefreshedAt: n.RefreshedAt, CheckedAt: f.CheckedAt, HoldDays: int(namesReleaseHold / (24 * time.Hour))}
+		RefreshedAt: n.RefreshedAt, CheckedAt: f.CheckedAt, HoldDays: int(namesReleaseHold / (24 * time.Hour)), ServersWait: f.ServersWait}
+	if !f.ServersFrom.IsZero() {
+		t := f.ServersFrom
+		v.ServersFrom = &t
+	}
 	switch {
+	case n.State == names.StateLapsed && n.LapseReason == names.LapseNoAnswer:
+		v.LapseReason = n.LapseReason
+		t := n.ClaimedAt
+		if n.AnsweredAt.After(t) {
+			t = n.AnsweredAt
+		}
+		t = t.Add(namesUnansweredAfter)
+		v.StoppedAt = &t
 	case n.State == names.StateLapsed:
+		v.LapseReason = names.LapseNotRefreshed
 		t := n.RefreshedAt.Add(namesLapseAfter)
 		v.StoppedAt = &t
 	case freeLapsed(n, now):
-		v.State = names.StateLapsed
+		v.State, v.LapseReason = names.StateLapsed, names.LapseNotRefreshed
 		t := n.RefreshBy
 		v.StoppedAt = &t
 	}
@@ -1065,7 +1121,11 @@ func (a *Agent) hAddressCertificate(w http.ResponseWriter, r *http.Request) {
 		}
 		if row := a.loadCertificate(st.Host); row != nil && row.status.Problem != nil && row.status.Problem.RetryAt.After(a.now()) {
 			until := row.status.Problem.RetryAt.UTC()
-			return "", &apiError{Status: http.StatusConflict, Code: api.CodeRetryLater, Msg: "Let's Encrypt refuses new attempts until " + until.Format("2006-01-02 15:04 UTC") + ".",
+			who := "Let's Encrypt refuses"
+			if row.status.Problem.Code == certs.CodeCertificateLimit {
+				who = "The free address service refuses"
+			}
+			return "", &apiError{Status: http.StatusConflict, Code: api.CodeRetryLater, Msg: who + " new attempts until " + until.Format("2006-01-02 15:04 UTC") + ".",
 				Hint: "Playkeeper tries again by itself then.", Params: map[string]any{"retryAt": until.Format(time.RFC3339)}}
 		}
 		return "certificate.issue", nil
@@ -1288,6 +1348,9 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 			return
 		}
 		changed := a.takeServersChanged()
+		if st.Free.ServersWait != "" && !now.Before(st.Free.ServersRetry) {
+			changed = true
+		}
 		switch {
 		case start || !now.Before(st.Free.NextRefresh):
 			if err := a.refreshFree(ctx); err != nil {

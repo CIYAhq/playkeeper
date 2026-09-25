@@ -122,7 +122,7 @@ var allCodes = []string{
 	CodeAccountDisabled, CodeAccountKeyDamaged, CodeNameRefused, CodeEmailRefused,
 	CodePort80Unreachable, CodeWrongAnswer, CodeDNSNoRecord, CodeDNSServersFailing, CodeCAAForbids,
 	CodeValidationTimeout, CodeChallengeNotOffered, CodeDNS01PublishFailed, CodeDNS01NotVisible,
-	CodeDNS01RecordWrong,
+	CodeDNS01RecordWrong, CodeCertificateLimit,
 	CodePort80Busy, CodePort80Denied, CodePort80Failed, CodeSaveFailed, CodeBadCertificate, CodeCanceled,
 	CodeCAUnreachable, CodeClockWrong, CodeCAUntrusted, CodeCAUnavailable, CodeCAError, CodeFailed,
 }

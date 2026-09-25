@@ -699,9 +699,20 @@ type JoinAddress struct {
 // FreeAddress is a free playkeeper.io address at the names service.
 type FreeAddress struct {
 	Name string `json:"name"`
-	// State is "active", "lapsed" (not refreshed for a month, so its
-	// records were removed) or "released".
+	// State is "active", "lapsed" (its records were removed, for the
+	// reason in LapseReason) or "released".
 	State string `json:"state"`
+	// LapseReason is "not_refreshed" (the machine did not refresh the name
+	// for a month) or "no_answer" (the names service could not reach the
+	// dashboard on port 8443 for a week).
+	LapseReason string `json:"lapseReason,omitempty"`
+	// ServersWait is why the servers have no address under the name yet:
+	// "server_address_not_yet" until ServersFrom, a few days after the
+	// claim, or "not_answering" until the names service has reached the
+	// dashboard on port 8443. Players join at the name with the server's
+	// port meanwhile.
+	ServersWait string     `json:"serversWait,omitempty"`
+	ServersFrom *time.Time `json:"serversFrom,omitempty"`
 	// DNS is "ok" once the name's own records are published, else
 	// "pending".
 	DNS         string    `json:"dns"`
