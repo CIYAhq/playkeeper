@@ -12,7 +12,7 @@ import (
 // messages (lang/en.json) behind each platform's log layout.
 
 func TestParsePaperLog(t *testing.T) {
-	f, err := os.Open("testdata/paper-chunky.log")
+	f, err := os.Open("testdata/paper-chunky.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
