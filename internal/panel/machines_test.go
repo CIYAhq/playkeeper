@@ -626,6 +626,27 @@ func TestAnOfflineMachineShowsItsLastKnownServers(t *testing.T) {
 	}
 }
 
+// With other machines joined, the dashboard's own servers stay listed as
+// last known while its agent is down, instead of vanishing from the list.
+func TestTheDashboardsServersStayListedWhileItsAgentIsDown(t *testing.T) {
+	e := newEnv(t)
+	cookie, _ := e.setup(t)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	var list []map[string]any
+	e.get(t, "/api/servers", cookie, &list)
+	e.addRemote(t, "alphaalpha", "alpha")
+	os.Remove(e.cfg.SocketPath)
+	e.srv.agent = agentclient.New(e.cfg.SocketPath)
+	if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk" ||
+		list[0]["machineId"] != e.localMachine(t) || list[0]["phase"] != "online" || list[0]["lastKnownAt"] == nil {
+		t.Fatalf("servers while the dashboard's agent is down: %d %v", r, list)
+	}
+	local := e.machineView(t, cookie, e.localMachine(t))
+	if merr, _ := local["error"].(map[string]any); merr["code"] != api.CodeAgentUnavailable {
+		t.Fatalf("the dashboard's machine says its agent is down: %v", local)
+	}
+}
+
 func TestJoinCodesAreForThoseWhoManageMachines(t *testing.T) {
 	e := newEnvConfig(t, nil, withDomain)
 	cookie, csrf := e.setup(t)

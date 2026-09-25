@@ -317,9 +317,9 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 }
 
 // allServers lists every server on every machine, each with its machine's
-// id, and the machines. A joined machine that can't be reached shows its
-// servers as it last listed them, with lastKnownAt. When the dashboard's
-// own machine is the only one, its error is the list's.
+// id, and the machines. A machine that can't be reached shows its servers
+// as it last listed them, with lastKnownAt. When the dashboard's own
+// machine is the only one, its error is the list's.
 func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -351,9 +351,9 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 	for i, m := range list {
 		servers := got[i].servers
 		switch {
-		case m.Kind == localKind:
 		case got[i].err != nil:
 			servers = s.lastKnownServers(m)
+		case m.Kind == localKind:
 		default:
 			servers = s.claimServers(m, servers)
 		}

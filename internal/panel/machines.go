@@ -513,8 +513,9 @@ var errDisputed = errors.New("two machines list this server")
 const codeServerDisputed = "server_disputed"
 
 // claimLocal records the servers the dashboard's own machine lists, taking
-// them over from joined machines, and forgets those it no longer lists. It
-// writes only what changed.
+// them over from joined machines, keeps their statuses for when its agent
+// stops answering, and forgets those it no longer lists. It writes only what
+// changed.
 func (s *Server) claimLocal(m machine, servers []map[string]any) {
 	rows, err := s.db.Query(`SELECT server_id FROM server_machines WHERE machine_id = ?`, m.ID)
 	if err != nil {
@@ -529,13 +530,24 @@ func (s *Server) claimLocal(m machine, servers []map[string]any) {
 		}
 	}
 	rows.Close()
+	now := s.now()
 	listed := map[string]bool{}
 	for _, sv := range servers {
-		if id, _ := sv["id"].(string); reMachineID.MatchString(id) {
-			listed[id] = true
-			if !had[id] {
-				s.takeServer(m, id)
-			}
+		id, _ := sv["id"].(string)
+		if !reMachineID.MatchString(id) {
+			continue
+		}
+		listed[id] = true
+		if !had[id] {
+			s.takeServer(m, id)
+		}
+		b, err := json.Marshal(sv)
+		if err != nil {
+			continue
+		}
+		if _, err := s.db.Exec(`UPDATE server_machines SET status = ?, seen_at = ? WHERE server_id = ? AND machine_id = ? AND (seen_at < ? OR status = '')`,
+			string(b), millis(now), id, m.ID, millis(now.Add(-lastKnownAfter))); err != nil {
+			s.log.Error("record server machines", "err", err)
 		}
 	}
 	for id := range had {
