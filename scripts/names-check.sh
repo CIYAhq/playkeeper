@@ -6,7 +6,9 @@
 # /v1/ip, availability from its database and that unsigned changes are
 # refused; then that it runs as a non-root user who can write /data, has CA
 # certificates and wget (Coolify's health check), logs no error and no token,
-# reports healthy and stops cleanly. Needs Docker.
+# reports healthy and stops cleanly; last, that it refuses to start with a
+# plain http:// alert webhook and names the setting without showing its
+# value. Needs Docker.
 # Usage: scripts/names-check.sh   (NAMES_CHECK_PORT picks the local port, default 8081)
 set -euo pipefail
 
@@ -76,4 +78,12 @@ docker stop "$name" >/dev/null
 exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$name")
 [ "$exit_code" = 0 ] || fail "the service exited with $exit_code when stopped, not 0"
 
-echo "Names image checks out: /healthz is ok, / links the source, /v1/ip and availability answer, unsigned claims get 401, runs as uid $uid and writes /data, no error or token in the log, healthy, stops cleanly."
+hook_secret=names-check-dummy-hook-not-a-secret
+if docker run --rm --network none -e NAMES_CLOUDFLARE_API_TOKEN="$token" -e NAMES_CLOUDFLARE_ZONE_ID=0123456789abcdef0123456789abcdef \
+  -e NAMES_ALERT_WEBHOOK_URL="http://discord.com/api/webhooks/1/$hook_secret" "$image" >"$out" 2>&1; then
+  fail "the service started with a plain http:// NAMES_ALERT_WEBHOOK_URL"
+fi
+grep -qF NAMES_ALERT_WEBHOOK_URL "$out" || fail "refusing a plain http:// webhook does not name NAMES_ALERT_WEBHOOK_URL: $(cat "$out")"
+if grep -qF "$hook_secret" "$out"; then fail "refusing a plain http:// webhook shows its URL"; fi
+
+echo "Names image checks out: /healthz is ok, / links the source, /v1/ip and availability answer, unsigned claims get 401, runs as uid $uid and writes /data, no error or token in the log, healthy, stops cleanly, refuses a plain http:// webhook without showing it."
