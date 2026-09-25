@@ -68,6 +68,9 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// SoftwareChanged is set when the server's software no longer matches
+	// what Playkeeper installed, so it was not started.
+	SoftwareChanged *SoftwareChange `json:"softwareChanged,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -224,6 +227,10 @@ type ServerConfig struct {
 	Gameplay Gameplay `json:"gameplay,omitzero"`
 	// IconUpdatedAt is when the server-list icon was last changed.
 	IconUpdatedAt *time.Time `json:"iconUpdatedAt,omitempty"`
+	// Software pins the exact software of a type other than Paper: the
+	// Minecraft version and the type's build. JarVerifiedAt is when its
+	// install was last verified.
+	Software *SoftwarePin `json:"software,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -240,6 +247,10 @@ type CreateServerRequest struct {
 	PlayStyle          string    `json:"playStyle,omitempty"`
 	Gameplay           *Gameplay `json:"gameplay,omitempty"`
 	Actor              string    `json:"actor"`
+	// Build is the build of a type's software to pin (a Purpur build, a
+	// Fabric or Quilt loader, a NeoForge version); empty takes the one the
+	// catalog recommends. Paper and Vanilla have none.
+	Build string `json:"build,omitempty"`
 }
 
 type SettingsRequest struct {
@@ -330,6 +341,12 @@ type CatalogEntry struct {
 	Experimental bool   `json:"experimental"`
 	// Supported is false for versions PaperMC no longer updates.
 	Supported bool `json:"supported"`
+	// ReleasedAt is when Mojang released the Minecraft version.
+	ReleasedAt *time.Time `json:"releasedAt,omitempty"`
+	// Software is the pin for a type other than Paper, with the build the
+	// catalog recommends; Build names that build.
+	Software *SoftwarePin `json:"software,omitempty"`
+	Build    string       `json:"build,omitempty"`
 }
 
 // ServerType is one kind of server software and whether it can be chosen yet.
@@ -337,6 +354,10 @@ type ServerType struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Available bool   `json:"available"`
+	// Check is how the type's downloads are verified: full, weak_hash
+	// (Purpur's MD5) or recorded_outputs (NeoForge's installer builds files
+	// nobody publishes a hash for).
+	Check string `json:"check,omitempty"`
 }
 
 // ServerMemory is one server's share of the machine's memory.
@@ -543,6 +564,9 @@ type ManifestSummary struct {
 	TotalBytes        int64             `json:"totalBytes"`
 	SourceInstall     string            `json:"sourceInstall"`
 	Settings          map[string]string `json:"settings"`
+	// Type and Build are the backup's server software when it is not Paper.
+	Type  string `json:"type,omitempty"`
+	Build string `json:"build,omitempty"`
 }
 
 type CurrentWorld struct {
@@ -624,3 +648,53 @@ const (
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
 )
+
+// Wave 4: every server type.
+
+// CodeUpstream is an error from a download site Playkeeper reads (Mojang,
+// Fabric, Modrinth and the others): unreachable, or answering with
+// something Playkeeper refuses to use.
+const CodeUpstream = "upstream_unavailable"
+
+// SoftwarePin is the exact software of a server type other than Paper. It
+// mirrors software.Pin field for field; only its own type's build is set.
+type SoftwarePin struct {
+	Type             string `json:"type"`
+	MinecraftVersion string `json:"minecraftVersion"`
+	PurpurBuild      int    `json:"purpurBuild,omitempty"`
+	FabricLoader     string `json:"fabricLoader,omitempty"`
+	QuiltLoader      string `json:"quiltLoader,omitempty"`
+	NeoForgeVersion  string `json:"neoforgeVersion,omitempty"`
+}
+
+// SoftwareBuild is one build of a type's software for a Minecraft version:
+// a Purpur build, a Fabric or Quilt loader, or a NeoForge version.
+type SoftwareBuild struct {
+	Version     string `json:"version"`
+	Channel     string `json:"channel"`
+	Recommended bool   `json:"recommended"`
+}
+
+// SoftwareBuilds lists a type's builds for one Minecraft version, newest
+// first.
+type SoftwareBuilds struct {
+	Type             string          `json:"type"`
+	MinecraftVersion string          `json:"minecraftVersion"`
+	Builds           []SoftwareBuild `json:"builds"`
+	CheckedAt        time.Time       `json:"checkedAt"`
+}
+
+// SoftwareChange says which of a server's software files no longer matches
+// what Playkeeper installed and recorded. Hashes are lowercase hex; Found is
+// empty when the file is missing.
+type SoftwareChange struct {
+	File        string     `json:"file"`
+	Algorithm   string     `json:"algorithm"`
+	Recorded    string     `json:"recorded"`
+	Found       string     `json:"found,omitempty"`
+	InstalledAt *time.Time `json:"installedAt,omitempty"`
+	ChangedAt   *time.Time `json:"changedAt,omitempty"`
+	DetectedAt  time.Time  `json:"detectedAt"`
+	// Software is what a reinstall downloads again: "Paper 26.1.2 build 41".
+	Software string `json:"software"`
+}
