@@ -712,11 +712,16 @@ func (a *Agent) reconcile(ctx context.Context) {
 	case fin.Before(a.started):
 		// The server stopped while the agent was not running (a host reboot or
 		// an agent restart), or its container never started. How it stopped is
-		// unknown, so it is not counted as a crash: sessions still open end
-		// then, uncertain, and a server that should be running is brought back.
-		// The restart policy lives in memory and starts over with each agent
-		// process, so a server it gave up on is tried again.
-		a.closeOpenSessions(fin, "server_stopped", true)
+		// unknown, so it is not counted as a crash: sessions still open end at
+		// the exit, or now if there was none, uncertain, and a server that
+		// should be running is brought back. The restart policy lives in memory
+		// and starts over with each agent process, so a server it gave up on is
+		// tried again.
+		end := fin
+		if end.IsZero() {
+			end = a.now()
+		}
+		a.closeOpenSessions(end, "server_stopped", true)
 		a.mu.Lock()
 		due := len(a.crashes) < maxCrashes && a.now().After(a.nextAutoRestart)
 		a.mu.Unlock()

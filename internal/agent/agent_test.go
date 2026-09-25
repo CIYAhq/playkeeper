@@ -831,6 +831,8 @@ func TestAgentRestartBringsBackAServerThatShouldBeRunning(t *testing.T) {
 	t.Run("a container created but never started", func(t *testing.T) {
 		e := newAgentEnv(t)
 		e.create()
+		e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+		e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
 		e.stop()
 		// The agent was killed after creating the container and before starting it.
 		e.fd.mu.Lock()
@@ -841,6 +843,12 @@ func TestAgentRestartBringsBackAServerThatShouldBeRunning(t *testing.T) {
 		e.waitFor("the start to be finished", e.onlineIdle)
 		if n := e.opsOf("recover", api.OpSucceeded); n != 1 {
 			t.Fatalf("want one recover, got %d", n)
+		}
+		var reason string
+		var uncertain int
+		e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason, &uncertain)
+		if reason != "server_stopped" || uncertain != 1 {
+			t.Fatalf("the session left open ended with reason %q, uncertain %d; want it ended before the start, uncertain", reason, uncertain)
 		}
 	})
 
