@@ -59,6 +59,8 @@ An update from the dashboard, and the one-line upgrade from 0.1.0, put the previ
    sudo journalctl -u playkeeper-update -n 100 --no-pager
    ```
 
+   If an update did not finish (`/var/lib/playkeeper/agent/update/applying.json` exists; the one-line installer refuses to run until it is resolved), let the updater finish it or put the previous version back: `sudo systemctl start playkeeper-update.service`. If that does not help, continue with step 2.
+
 2. The copy of the previous version is in `/var/lib/playkeeper/agent/update/previous/`: `snapshot.json` names its version and services, next to its `playkeeper` binary, `config.json`, the systemd units in `units/`, and the databases in `db/` as they were just before the update. Put it back:
 
    ```bash
