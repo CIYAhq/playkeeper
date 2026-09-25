@@ -9,6 +9,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { HomePage } from '@/pages/home'
+import { JoinPage } from '@/pages/join'
 import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
 import { MorePage } from '@/pages/more'
@@ -36,7 +37,11 @@ export function App() {
     navigate('/login', true)
   }, [])
 
+  // The invite page works without an account, so it skips signing in.
+  const onJoin = route.name === 'join'
+
   useEffect(() => {
+    if (onJoin) return
     let cancelled = false
     async function boot() {
       try {
@@ -61,7 +66,19 @@ export function App() {
       cancelled = true
       off()
     }
-  }, [signedIn, signedOut])
+  }, [signedIn, signedOut, onJoin])
+
+  if (route.name === 'join') {
+    return (
+      <JoinPage
+        code={route.code}
+        onSignedIn={(m) => {
+          signedIn(m)
+          navigate('/', true)
+        }}
+      />
+    )
+  }
 
   switch (state) {
     case 'loading':
@@ -139,6 +156,7 @@ function page(route: Route) {
     case 'setup':
     case 'welcome':
     case 'legacy':
+    case 'join':
       return <HomePage />
     case 'new-server':
       return <NewServerPage />

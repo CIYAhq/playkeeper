@@ -3,11 +3,13 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, Candidate, JoinInfo, JoinPreview, MachineView, Me, Operation, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { formatDate } from '@/lib/format'
 import { HomePage } from './home'
+import { JoinPage } from './join'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
@@ -109,12 +111,66 @@ function failed(kind: string, phase: string, error: string, detail?: Record<stri
   return { id: `${kind}-1`, kind, status: 'failed', phase, actor: 'siya', startedAt: at, finishedAt: at, error, detail }
 }
 
-/** Answers GETs by path prefix; anything else never resolves. */
+/** Answers GETs by path prefix, rejecting with an Error; anything else never resolves. */
 function answer(routes: Record<string, unknown>) {
   vi.mocked(client.get).mockImplementation(((path: string) => {
     const hit = Object.entries(routes).find(([prefix]) => path.includes(prefix))
-    return hit ? Promise.resolve(hit[1]) : new Promise(() => {})
+    if (!hit) return new Promise(() => {})
+    return hit[1] instanceof Error ? Promise.reject(hit[1]) : Promise.resolve(hit[1])
   }) as typeof client.get)
+}
+
+/** Answers POSTs by how their path ends: a value resolves, an Error rejects, a function answers each call. */
+function answerPosts(routes: Record<string, unknown>) {
+  vi.mocked(client.post).mockImplementation(((path: string, body?: unknown) => {
+    const hit = Object.entries(routes).find(([end]) => path.endsWith(end))?.[1]
+    const value: unknown = typeof hit === 'function' ? (hit as (body: unknown) => unknown)(body) : hit
+    return value instanceof Error ? Promise.reject(value) : Promise.resolve(value ?? {})
+  }) as typeof client.post)
+}
+
+const page = () => document.body.textContent ?? ''
+
+function buttons(label: string): HTMLButtonElement[] {
+  return [...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)
+}
+
+function button(label: string): HTMLButtonElement {
+  const b = buttons(label)[0]
+  if (!b) throw new Error(`no button "${label}"`)
+  return b
+}
+
+function link(label: string): HTMLAnchorElement {
+  const a = [...document.querySelectorAll('a')].find((x) => x.textContent?.trim() === label)
+  if (!a) throw new Error(`no link "${label}"`)
+  return a
+}
+
+async function click(el: HTMLElement) {
+  await act(async () => el.click())
+}
+
+/** Types into a controlled field the way a browser does, so React sees the change. */
+async function typeInto(selector: string, value: string) {
+  const input = document.querySelector<HTMLInputElement>(selector)
+  if (!input) throw new Error(`no field ${selector}`)
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  await act(async () => {
+    setValue?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+async function wait(ms: number) {
+  await act(async () => new Promise((resolve) => setTimeout(resolve, ms)))
+}
+
+const moderatorCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make']
+
+/** An account that joined the team with an invite link. */
+function member(role: ProjectRole, can: Action[], over: Partial<Me['access']> = {}): Me {
+  return { ...me, user: { username: 'mara', role: 'member' }, access: { projectId: 'p2345abcde', role, servers: { servers: ['abcdefghjk', 'bcdefghjkm'] }, twoFactor: false, can, ...over } }
 }
 
 let root: Root | undefined
@@ -139,6 +195,8 @@ afterEach(async () => {
   document.body.innerHTML = ''
   vi.mocked(client.get).mockReset()
   vi.mocked(client.get).mockImplementation(() => new Promise(() => {}))
+  vi.mocked(client.post).mockReset()
+  vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
 })
 
 describe('Home', () => {
@@ -309,5 +367,124 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+})
+
+describe('Invite page', () => {
+  const code = 'Qm7xK2pLw9RtVb4n'
+  const friend: JoinPreview = { kind: 'player', inviter: '', server: 'Survival', version: '26.1.2', online: true, playing: 2, approval: 'right_away' }
+  const mara: Candidate = { name: 'mara_k', uuid: '0f3a6c2e9b1d4e7fa2c5b8d1e4f7a0c3', face: 'data:image/png;base64,iVBORw0KGgo=' }
+  const steps = [
+    { key: 'invite.join.open', params: { version: '26.1.2' }, text: 'Open Minecraft: Java Edition 26.1.2.' },
+    { key: 'invite.join.addServer', text: 'Pick Multiplayer, then Add Server.' },
+    { key: 'invite.join.paste', text: 'Paste the address and press Done, then Join.' },
+  ]
+  const notFound = (name: string) => new client.ApiError(422, { error: `No Minecraft: Java Edition account is called ${name}.`, code: 'player_not_found', hint: 'Check the spelling.', params: { name } })
+
+  it('checks a friend’s Minecraft name, shows their face and puts them on the list', async () => {
+    const joined: JoinInfo = { player: 'mara_k', server: 'Survival', address: '203.0.113.10', version: '26.1.2', steps }
+    answerPosts({ '/preview': friend, '/lookup': mara, '/redeem': joined })
+    const text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/preview', { code })
+    expect(text).toContain('You’re invited to Survival')
+    expect(text).toContain('Java Edition 26.1.2 · 2 playing now')
+    expect(text).toContain('Needs Minecraft: Java Edition 26.1.2.')
+    expect(button('Add me to Survival').disabled).toBe(true)
+    await typeInto('#join-name', 'mara_k')
+    expect(page()).toContain('Looking up mara_k…')
+    await wait(500)
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/lookup', { code, name: 'mara_k' })
+    expect(page()).toContain('Is this you?')
+    expect(document.querySelector(`img[src="${mara.face}"]`)).not.toBeNull()
+    await click(button('Add me to Survival'))
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/redeem', { code, name: 'mara_k' })
+    expect(page()).toContain('You’re on the list!')
+    expect(page()).toContain('Welcome to Survival, mara_k.')
+    expect(page()).toContain('203.0.113.10')
+    expect([...document.querySelectorAll('ol > li')].map((li) => li.textContent)).toEqual(steps.map((s, i) => `${i + 1}.${s.text}`))
+    expect(page()).not.toContain(code)
+  })
+
+  it('says when no Java account has the name, and asks for a yes on links that need one', async () => {
+    const waiting: JoinInfo = { player: 'mara_k', server: 'Survival', address: '203.0.113.10', waiting: true, steps: [{ key: 'invite.join.waitAnyone', text: 'Wait for the person who sent the link to let you in.' }, ...steps] }
+    answerPosts({ '/preview': { ...friend, approval: 'after_yes' }, '/lookup': (body: { name: string }) => (body.name === 'mara_k' ? mara : notFound(body.name)), '/redeem': waiting })
+    await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    await typeInto('#join-name', 'mara_kk')
+    await wait(500)
+    expect(page()).toContain('No Minecraft: Java Edition account is called mara_kk. Check the spelling.')
+    expect(document.querySelector('#join-name')?.getAttribute('aria-invalid')).toBe('true')
+    expect(button('Ask to join Survival').disabled).toBe(true)
+    await typeInto('#join-name', 'mara_k')
+    await wait(500)
+    expect(page()).not.toContain('No Minecraft: Java Edition account')
+    await click(button('Ask to join Survival'))
+    expect(page()).toContain('Almost there!')
+    expect(page()).toContain('You asked to join Survival as mara_k.')
+    expect(page()).toContain('1.Wait for the person who sent the link to let you in.')
+  })
+
+  it('makes a team account with the role the link gives, and asks Home to welcome it', async () => {
+    const preview: JoinPreview = { kind: 'member', inviter: '', role: 'moderator', servers: { servers: ['abcdefghjk', 'bcdefghjkm'] }, expiresAt: '2026-10-02T12:00:00Z', serverNames: ['Survival', 'Creative'] }
+    const signedIn = member('moderator', moderatorCan)
+    let tries = 0
+    answerPosts({ '/preview': preview, '/accept': () => (++tries === 1 ? new client.ApiError(409, { error: 'That username is taken.', code: 'username_taken', hint: 'Choose another one.' }) : signedIn) })
+    const onSignedIn = vi.fn()
+    const text = await render(<JoinPage code={code} onSignedIn={onSignedIn} />)
+    expect(text).toContain('Join the team as Moderator')
+    expect(text).toContain('You’re invited to a Playkeeper dashboard.')
+    expect(text).toContain('Runs the servers day to day')
+    expect(text).toContain('Survival and Creative')
+    expect(text).toContain(`${formatDate('2026-10-02T12:00:00Z')}, for one person`)
+    expect(text).toContain('This link works once.')
+    expect(button('Join as Moderator').disabled).toBe(true)
+    await typeInto('#join-username', 'siya')
+    await typeInto('#join-password', 'correct horse battery')
+    await typeInto('#join-again', 'correct horse batterz')
+    expect(page()).toContain('The passwords don’t match.')
+    expect(button('Join as Moderator').disabled).toBe(true)
+    await typeInto('#join-again', 'correct horse battery')
+    expect(page()).not.toContain('The passwords don’t match.')
+    await click(button('Join as Moderator'))
+    expect(page()).toContain('That username is taken. Choose another one.')
+    expect(document.querySelector('#join-username')?.getAttribute('aria-invalid')).toBe('true')
+    await typeInto('#join-username', 'mara')
+    expect(page()).not.toContain('That username is taken.')
+    await click(button('Join as Moderator'))
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/accept', { code, username: 'mara', password: 'correct horse battery' })
+    expect(client.post).toHaveBeenCalledWith('/api/me/prefs', { 'home.welcome': '1' })
+    expect(onSignedIn).toHaveBeenCalledWith(signedIn)
+  })
+
+  it('says when a link can’t be used, offering sign-in only for team links', async () => {
+    answerPosts({ '/preview': new client.ApiError(410, { error: 'This invite was for 5 friends, and they’ve all joined.', code: 'invite_used_up', hint: 'Ask the person who sent it for a new link.', params: { inviter: '', maxUses: '5' } }) })
+    let text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('This invite has run out')
+    expect(text).toContain('It was for 5 friends, and they’ve all joined.')
+    expect(text).toContain('Ask whoever sent it for a new link.')
+    expect(text).not.toContain('Sign in')
+
+    answerPosts({ '/preview': new client.ApiError(410, { error: 'This invite has already been used.', code: 'invite_used_up', hint: 'If you accepted it, sign in with the username and password you chose.' }) })
+    text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('This invite link was already used')
+    expect(link('Sign in').getAttribute('href')).toBe('/login')
+
+    answerPosts({ '/preview': new client.ApiError(410, { error: 'This invite link has expired.', code: 'invite_expired', hint: 'Ask the person who sent it for a new link.' }) })
+    text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('This invite link has expired')
+    expect(text).toContain('Ask whoever sent it for a new one.')
+
+    text = await render(<JoinPage code="" onSignedIn={() => {}} />)
+    expect(text).toContain('This invite link doesn’t work any more')
+    expect(link('Already on the team? Sign in').getAttribute('href')).toBe('/login')
+  })
+
+  it('lets someone try again after too many tries', async () => {
+    let calls = 0
+    answerPosts({ '/preview': () => (++calls === 1 ? new client.ApiError(429, { error: 'Too many tries from your network.', code: 'rate_limited', hint: 'Wait a few minutes, then try again.' }) : friend) })
+    const text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('Too many tries from your network.')
+    expect(text).toContain('Wait a few minutes, then try again.')
+    await click(button('Try again'))
+    expect(page()).toContain('You’re invited to Survival')
   })
 })

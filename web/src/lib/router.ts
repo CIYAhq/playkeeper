@@ -15,8 +15,12 @@ export type Route =
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
+  // Wave 5: invite links, player profiles, the team and Discord.
+  | { name: 'join'; code: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
+const reCode = /^[A-Za-z0-9]{1,64}$/
+export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 
 export function parse(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
@@ -30,6 +34,8 @@ export function parse(pathname: string): Route {
       return { name: 'setup' }
     case 'welcome':
       return { name: 'welcome' }
+    case 'join':
+      return { name: 'join', code: second && reCode.test(second) && !third ? second : '' }
     case 'settings':
       return { name: 'settings' }
     case 'more':
@@ -74,6 +80,8 @@ export function href(route: Route): string {
       return '/more'
     case 'legacy':
       return `/${route.tab}`
+    case 'join':
+      return route.code ? `/join/${route.code}` : '/join'
     default: {
       const unreachable: never = route
       return unreachable
