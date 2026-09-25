@@ -662,7 +662,7 @@ function TurnOffDialog({ open, onOpenChange, server, info, onDone }: { open: boo
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="sm:max-w-[400px]" showCloseButton={phone}>
+      <DialogPopup className="sm:max-w-[520px]" showCloseButton={phone}>
         <DialogHeader className="gap-1.5 max-sm:px-5 max-sm:pt-3">
           <DialogTitle className="text-lg leading-6 font-bold">{t('map.offTitle')}</DialogTitle>
           <DialogDescription className="text-[13px] max-sm:mt-2 max-sm:text-[15px]">{online ? t('map.offLead', { server: server.name }) : t('map.offLeadStopped')}</DialogDescription>
