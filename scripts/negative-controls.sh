@@ -285,6 +285,41 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if sum != want {' \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
+# Wave 4: the friends' pack page at /packs/<token>.
+control "friends' pack links hold at least 128 random bits" internal/modpacks/share/token.go \
+  'const TokenLen = 22' \
+  'const TokenLen = 12' \
+  ./internal/modpacks/share '^TestNewTokenHasTheInviteCodesShape$'
+control "friends' pack links favour no letter" internal/modpacks/share/token.go \
+  'if b < 248 && len(out) < TokenLen {' \
+  'if len(out) < TokenLen {' \
+  ./internal/modpacks/share '^TestNewToken(IsUniform|SkipsBiasedBytes)$'
+control "stopping sharing forgets the friends' pack link" internal/agent/packshare.go \
+  "UPDATE servers SET packs_public = 0, packs_token = '' WHERE id = ?" \
+  'UPDATE servers SET packs_public = 0 WHERE id = ?' \
+  ./internal/agent '^TestPackShareLinkIsMadeWhenSharedAndReplacedAfterward$'
+control "a friends' pack link opens only with its own token" internal/agent/packshare.go \
+  'subtle.ConstantTimeCompare([]byte(t), []byte(token)) == 1' \
+  'true' \
+  ./internal/agent '^TestPackLinkAnswersAlikeWhateverTheReason$'
+control "a stopped server's pack page is unavailable" internal/agent/packshare.go \
+  ' || s.desired() != api.DesiredRunning {' \
+  ' {' \
+  ./internal/agent '^TestPackLinkAnswersAlikeWhateverTheReason$'
+control "server-only mods stay off the friends' pack page" internal/modpacks/share/page.go \
+  'if m.InFile || m.ByHand {' \
+  'if true {' \
+  ./internal/panel '^TestFriendsPackPageIsPublicAndListsOnlyWhatFriendsGet$'
+control "every unavailable friends' pack link gets one answer" internal/panel/packshare.go \
+  'default:
+			packGone(w)' \
+  'default:
+			http.Error(w, fp.share.Server+" has no such file.", http.StatusNotFound)' \
+  ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
+control "friends' pack pages are limited by the connection's address" internal/panel/public.go \
+  'key := rt.prefix + " " + addressKey(r.RemoteAddr)' \
+  'key := rt.prefix + " " + r.Header.Get("X-Forwarded-For")' \
+  ./internal/panel '^TestFriendsPackPagesAreLimitedPerAddress$'
 control "creating from a template checks the plan the user confirmed" internal/agent/templates.go \
   'if err := p.Confirm(fingerprint); err != nil {' \
   'if err := p.Confirm(p.Fingerprint); err != nil {' \
