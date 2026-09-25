@@ -39,10 +39,11 @@
 //
 // # Playkeeper tools
 //
-// This package holds no Playkeeper tools; the panel registers them. The
-// proposed set follows, with its scope, effect and the agent route (as of
-// v0.3.0) each one wraps. Tools about one server take a required "server"
-// argument, the server's id or slug as in decision 0004.
+// This package holds no Playkeeper tools; package mcptools does, and the
+// dashboard and "playkeeper mcp" serve them. The set follows, with its
+// scope, effect and the agent route (as of v0.3.0) each one wraps. Tools
+// about one server take a required "server" argument, the server's id or
+// slug as in decision 0004 (or its name, when only one server has it).
 //
 //	list_servers           read    read-only    GET /v1/servers, only servers the token's user can see
 //	get_server_status      read    read-only    GET /v1/servers/{id}
