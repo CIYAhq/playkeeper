@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,9 +14,6 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/update"
 )
-
-// trustedKeys are the release keys the updater accepts (tests replace it).
-var trustedKeys = update.TrustedKeys
 
 // lockFile in the update directory is held by whoever is upgrading.
 const lockFile = "upgrade.lock"
@@ -71,9 +69,9 @@ func pendingUpdate(sys System, cfg config.Config) string {
 // SelfUpdate is the updater. playkeeper-update.service runs it with the
 // installed binary when the agent has staged a verified update, and again if
 // an update was interrupted. It checks the staged release once more against
-// the keys compiled into this (the installed) version, upgrades, and leaves
-// a result for the agent to report.
-func SelfUpdate(ctx context.Context, sys System, cfg config.Config, current string, out io.Writer) error {
+// keys, the release keys compiled into this (the installed) version,
+// upgrades, and leaves a result for the agent to report.
+func SelfUpdate(ctx context.Context, sys System, cfg config.Config, current string, keys []ed25519.PublicKey, out io.Writer) error {
 	unlock, err := lockUpgrades(sys, cfg, true)
 	if err != nil {
 		return err
@@ -112,7 +110,7 @@ func SelfUpdate(ctx context.Context, sys System, cfg config.Config, current stri
 			}
 		} else {
 			fmt.Fprintf(out, "Updating Playkeeper %s to %s:\n", current, req.Version)
-			res.Outcome, res.Error = applyStaged(ctx, sys, cfg, current, req, out)
+			res.Outcome, res.Error = applyStaged(ctx, sys, cfg, current, keys, req, out)
 		}
 	}
 	res.FinishedAt = sys.Now().UTC()
@@ -131,7 +129,7 @@ func SelfUpdate(ctx context.Context, sys System, cfg config.Config, current stri
 }
 
 // applyStaged checks and installs the staged release.
-func applyStaged(ctx context.Context, sys System, cfg config.Config, current string, req update.Request, out io.Writer) (outcome, reason string) {
+func applyStaged(ctx context.Context, sys System, cfg config.Config, current string, keys []ed25519.PublicKey, req update.Request, out io.Writer) (outcome, reason string) {
 	refuse := func(format string, args ...any) (string, string) {
 		return update.OutcomeRefused, fmt.Sprintf(format, args...)
 	}
@@ -155,7 +153,7 @@ func applyStaged(ctx context.Context, sys System, cfg config.Config, current str
 	}
 	staged := filepath.Join(sys.P(UpdateDir(cfg)), update.StagedDir)
 	bin := filepath.Join(staged, update.BinaryFile)
-	if err := verifyStaged(staged, bin, req.Version); err != nil {
+	if err := verifyStaged(staged, bin, req.Version, keys); err != nil {
 		return refuse("%v", err)
 	}
 	if v, err := sys.Version(bin); err != nil || v != req.Version {
@@ -183,10 +181,10 @@ func applyStaged(ctx context.Context, sys System, cfg config.Config, current str
 	return update.OutcomeFailed, err.Error()
 }
 
-// verifyStaged checks the staged manifest's signature with the keys compiled
-// into this build and the staged binary against it. The agent checked the
-// same before staging; the updater does not take that on trust.
-func verifyStaged(staged, bin, version string) error {
+// verifyStaged checks the staged manifest's signature with keys and the
+// staged binary against it. The agent checked the same before staging; the
+// updater does not take that on trust.
+func verifyStaged(staged, bin, version string, keys []ed25519.PublicKey) error {
 	raw, err := os.ReadFile(filepath.Join(staged, update.ManifestFile))
 	if err != nil {
 		return err
@@ -195,7 +193,7 @@ func verifyStaged(staged, bin, version string) error {
 	if err != nil {
 		return err
 	}
-	m, err := update.VerifyManifest(raw, sig, trustedKeys())
+	m, err := update.VerifyManifest(raw, sig, keys)
 	if err != nil {
 		return err
 	}

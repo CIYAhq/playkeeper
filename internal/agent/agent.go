@@ -25,7 +25,6 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/store"
-	"github.com/CIYAhq/playkeeper/internal/update"
 )
 
 const (
@@ -70,8 +69,9 @@ type Options struct {
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
 	CrashBackoff []time.Duration
-	// UpdateKeys are the release signing keys updates must be signed with
-	// (default: the keys compiled into this build).
+	// UpdateKeys are the release signing keys updates must be signed with;
+	// without any, this agent cannot install updates. The playkeeper command
+	// passes the keys compiled into the build.
 	UpdateKeys []ed25519.PublicKey
 	// UpdateCheckInterval is how often the agent looks for a new release
 	// (default 12h; negative turns the automatic check off).
@@ -201,9 +201,6 @@ func New(opts Options) (*Agent, error) {
 	}
 	if len(opts.CrashBackoff) == 0 {
 		opts.CrashBackoff = []time.Duration{0, 30 * time.Second, 2 * time.Minute}
-	}
-	if opts.UpdateKeys == nil {
-		opts.UpdateKeys = update.TrustedKeys()
 	}
 	if opts.UpdateCheckInterval == 0 {
 		opts.UpdateCheckInterval = 12 * time.Hour

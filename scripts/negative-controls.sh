@@ -160,8 +160,8 @@ control "agent installs only newer releases" internal/agent/update.go \
   'if c, err := update.CompareVersions(m.Version, current); false && (err != nil || c <= 0) {' \
   ./internal/agent '^TestUpdateRefusesDownloadsThatDoNotMatchAndStaleChoices$'
 control "updater checks the staged release again" internal/install/selfupdate.go \
-  'if err := verifyStaged(staged, bin, req.Version); err != nil {' \
-  'if err := verifyStaged(staged, bin, req.Version); false && err != nil {' \
+  'if err := verifyStaged(staged, bin, req.Version, keys); err != nil {' \
+  'if err := verifyStaged(staged, bin, req.Version, keys); false && err != nil {' \
   ./internal/install '^TestUpdaterRefusesAnythingItCannotVerify$'
 control "updater installs only newer releases" internal/install/selfupdate.go \
   'if c, err := update.CompareVersions(req.Version, current); err != nil || c <= 0 {' \
