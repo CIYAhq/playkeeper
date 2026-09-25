@@ -358,21 +358,21 @@ func memoryCause(in LagInput) (Cause, bool) {
 		return Cause{}, false
 	}
 	c.Explanation = "Java stops the game while it cleans up memory (garbage collection), and it has to do that a lot when memory is tight. " + strings.Join(said, " ")
-	c.Actions = memoryActions(in)
+	c.Actions = memoryFixes(in.BudgetMB, in.HostMB, in.RoomMB, in.ViewDistance)
 	return c, true
 }
 
-// memoryActions offers the next budget when the machine has room for it, and
+// memoryFixes offers the next budget when the machine has room for it, and
 // otherwise what to do instead.
-func memoryActions(in LagInput) []Action {
-	if next, ok := nextBudget(in.BudgetMB, in.HostMB, in.RoomMB); ok {
-		return []Action{{Kind: ActionRaiseMemory, Params: map[string]any{"from_mb": in.BudgetMB, "to_mb": next},
-			Title: fmt.Sprintf("Give it %s instead of %s", sizeText(next), sizeText(in.BudgetMB)), Recommended: true}}
+func memoryFixes(budgetMB, hostMB, roomMB, viewDistance int) []Action {
+	if next, ok := nextBudget(budgetMB, hostMB, roomMB); ok {
+		return []Action{{Kind: ActionRaiseMemory, Params: map[string]any{"from_mb": budgetMB, "to_mb": next},
+			Title: fmt.Sprintf("Give it %s instead of %s", sizeText(next), sizeText(budgetMB)), Recommended: true}}
 	}
 	var out []Action
-	if in.ViewDistance > 8 {
-		out = append(out, Action{Kind: ActionLowerView, Params: map[string]any{"from": in.ViewDistance, "to": 8},
-			Title: fmt.Sprintf("Lower the view distance from %d to 8 so fewer chunks stay in memory", in.ViewDistance), Recommended: true})
+	if viewDistance > 8 {
+		out = append(out, Action{Kind: ActionLowerView, Params: map[string]any{"from": viewDistance, "to": 8},
+			Title: fmt.Sprintf("Lower the view distance from %d to 8 so fewer chunks stay in memory", viewDistance), Recommended: true})
 	}
 	return append(out, Action{Kind: ActionUpgradeHost, Params: map[string]any{"resource": "memory"},
 		Title: "This machine has no memory left for a bigger budget; move to one with more memory", Recommended: len(out) == 0})
@@ -381,6 +381,9 @@ func memoryActions(in LagInput) []Action {
 // nextBudget is the smallest offered budget above budgetMB that still fits
 // in the memory the machine has left for this server.
 func nextBudget(budgetMB, hostMB, roomMB int) (int, bool) {
+	if budgetMB <= 0 {
+		return 0, false
+	}
 	options, _, _ := minecraft.MemoryOptions(hostMB)
 	for _, o := range options {
 		if o > budgetMB && o <= budgetMB+roomMB {

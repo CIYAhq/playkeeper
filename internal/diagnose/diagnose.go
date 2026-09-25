@@ -80,6 +80,7 @@ const (
 	ActionRemoveAddon     ActionKind = "remove_addon"              // jar
 	ActionUpdateAddon     ActionKind = "update_addon"              // jar
 	ActionInstallAddon    ActionKind = "install_addon"             // name
+	ActionRemoveDatapack  ActionKind = "remove_datapack"           // pack: its name in the world's datapacks folder
 	ActionRestoreBackup   ActionKind = "restore_backup"            //
 	ActionFreeDisk        ActionKind = "free_disk"                 // free_mb
 	ActionChangePort      ActionKind = "change_port"               // port
