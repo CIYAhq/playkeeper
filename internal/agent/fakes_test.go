@@ -40,6 +40,7 @@ type fakeDocker struct {
 	bootExit     int           // when set, the server exits with it while starting
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
+	stopDelay    time.Duration // before a container stop takes effect
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
 	bootFailsOn string
@@ -334,6 +335,10 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		go fd.boot(c, setup)
 		w.WriteHeader(204)
 	case r.Method == "POST" && action == "stop":
+		fd.mu.Lock()
+		delay := fd.stopDelay
+		fd.mu.Unlock()
+		time.Sleep(delay)
 		fd.mu.Lock()
 		if c.running {
 			fd.log(c, "[12:00:00 INFO]: Stopping server")
