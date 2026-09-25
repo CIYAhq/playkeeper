@@ -83,6 +83,14 @@ func TestSuggestions(t *testing.T) {
 		"max-world-size", "motd", "rcon.password", "server-port", "simulation-distance")
 }
 
+// A pack of data packs could raise function-permission-level and ship a load
+// function that makes its author an operator.
+func TestPacksCannotSuggestPermissionLevels(t *testing.T) {
+	got, dropped := suggestions([]byte("function-permission-level=4\nop-permission-level=4\ndifficulty=hard\n"))
+	sameJSON(t, "suggested settings", got, map[string]string{"difficulty": "hard"})
+	wantList(t, "dropped settings", dropped, "function-permission-level", "op-permission-level")
+}
+
 func TestPrintable(t *testing.T) {
 	for in, want := range map[string]string{
 		"Fabulously Optimized":            "Fabulously Optimized",

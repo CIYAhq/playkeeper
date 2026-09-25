@@ -493,23 +493,28 @@ func (s *server) ownSoftware(p software.Plan) error {
 	if p.Launcher != nil {
 		rels = append(rels, p.Launcher.Path)
 	}
+	root, err := os.OpenRoot(s.dataDir())
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	done := map[string]bool{}
 	for _, rel := range rels {
-		cur := s.dataDir()
-		for _, seg := range strings.Split(rel, "/") {
-			cur = filepath.Join(cur, seg)
+		segs := strings.Split(rel, "/")
+		for i := range segs {
+			cur := strings.Join(segs[:i+1], "/")
 			if done[cur] {
 				continue
 			}
 			done[cur] = true
-			fi, err := os.Lstat(cur)
+			fi, err := root.Lstat(cur)
 			if err != nil {
 				return err
 			}
 			if fi.Mode()&fs.ModeSymlink != 0 {
 				return &apiError{Msg: "Playkeeper refused to use " + rel + ": part of it is a symbolic link.", Hint: "Reinstall the server software."}
 			}
-			if err := os.Lchown(cur, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+			if err := root.Lchown(cur, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 				return err
 			}
 		}

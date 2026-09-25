@@ -3,6 +3,7 @@ package software
 import (
 	"context"
 	"crypto/md5"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -15,10 +16,10 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Algorithm is a hash algorithm an upstream publishes.
@@ -160,48 +161,48 @@ func unsafePath(p, why string) error {
 		Params: map[string]string{"file": p}}
 }
 
-// within returns rel inside dataDir, refusing unclean paths and symlinks in
-// any existing part of it: the server container can write to the data
-// directory, and Playkeeper must never follow a link it planted.
-func within(dataDir, rel string) (string, error) {
+// inside refuses unclean paths and symlinks in any existing part of rel:
+// the server container can write to the data directory, and Playkeeper
+// must never follow a link it planted. Every file operation also goes
+// through root, so a folder swapped for a link after this check can't send
+// a write, delete or hash outside the data directory.
+func inside(root *os.Root, rel string) error {
 	if !cleanRel(rel) {
-		return "", unsafePath(rel, "it is not a plain relative path")
+		return unsafePath(rel, "it is not a plain relative path")
 	}
 	segs := strings.Split(rel, "/")
-	p := dataDir
-	for i, s := range segs {
-		p = filepath.Join(p, s)
-		fi, err := os.Lstat(p)
+	for i := range segs {
+		fi, err := root.Lstat(strings.Join(segs[:i+1], "/"))
 		if errors.Is(err, fs.ErrNotExist) {
-			return filepath.Join(dataDir, filepath.FromSlash(rel)), nil
+			return nil
 		}
 		if err != nil {
-			return "", err
+			return err
 		}
 		if fi.Mode()&fs.ModeSymlink != 0 {
-			return "", unsafePath(rel, "part of it is a symbolic link")
+			return unsafePath(rel, "part of it is a symbolic link")
 		}
 		if i < len(segs)-1 && !fi.IsDir() {
-			return "", unsafePath(rel, "part of it is not a folder")
+			return unsafePath(rel, "part of it is not a folder")
 		}
 	}
-	return p, nil
+	return nil
 }
 
 // mkdirs creates rel's parent directories one at a time, for the same
-// reason within refuses symlinks.
-func mkdirs(dataDir, rel string) error {
+// reason inside refuses symlinks.
+func mkdirs(root *os.Root, rel string) error {
 	dir := path.Dir(rel)
 	if dir == "." {
 		return nil
 	}
-	p := dataDir
-	for _, s := range strings.Split(dir, "/") {
-		p = filepath.Join(p, s)
-		if err := os.Mkdir(p, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+	segs := strings.Split(dir, "/")
+	for i := range segs {
+		p := strings.Join(segs[:i+1], "/")
+		if err := root.Mkdir(p, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
 			return err
 		}
-		fi, err := os.Lstat(p)
+		fi, err := root.Lstat(p)
 		if err != nil {
 			return err
 		}
@@ -212,20 +213,34 @@ func mkdirs(dataDir, rel string) error {
 	return nil
 }
 
-// hashFile hashes a regular file inside dataDir.
-func hashFile(dataDir, rel string, a Algorithm) (sum string, n int64, err error) {
-	p, err := within(dataDir, rel)
-	if err != nil {
-		return "", 0, err
+// openRegular opens rel for reading only if it is a regular file, and still
+// the one Lstat saw once open: a link or a FIFO swapped in between is
+// refused, and O_NONBLOCK keeps a FIFO from hanging the open.
+func openRegular(root *os.Root, rel string) (*os.File, fs.FileInfo, error) {
+	if err := inside(root, rel); err != nil {
+		return nil, nil, err
 	}
-	fi, err := os.Lstat(p)
+	fi, err := root.Lstat(rel)
 	if err != nil {
-		return "", 0, err
+		return nil, nil, err
 	}
 	if !fi.Mode().IsRegular() {
-		return "", 0, unsafePath(rel, "it is not a regular file")
+		return nil, nil, unsafePath(rel, "it is not a regular file")
 	}
-	f, err := os.Open(p)
+	f, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	if opened, err := f.Stat(); err != nil || !os.SameFile(fi, opened) {
+		f.Close()
+		return nil, nil, unsafePath(rel, "it changed while Playkeeper was reading it")
+	}
+	return f, fi, nil
+}
+
+// hashFile hashes a regular file inside the data directory.
+func hashFile(root *os.Root, rel string, a Algorithm) (sum string, n int64, err error) {
+	f, _, err := openRegular(root, rel)
 	if err != nil {
 		return "", 0, err
 	}
@@ -262,14 +277,18 @@ func Download(ctx context.Context, hc *http.Client, dataDir string, a Artifact) 
 		return &Error{Kind: KindTooLarge, Msg: fmt.Sprintf("The file %s is listed as %d bytes, more than the %s Playkeeper downloads for one file.", path.Base(a.Path), a.Size, size(maxArtifact)),
 			Hint: "Choose another version.", Params: map[string]string{"file": a.Path}}
 	}
-	target, err := within(dataDir, a.Path)
+	root, err := os.OpenRoot(dataDir)
 	if err != nil {
 		return err
 	}
-	if sum, n, err := hashFile(dataDir, a.Path, a.Hash.Algorithm); err == nil && sum == a.Hash.Value && (a.Size == 0 || n == a.Size) {
+	defer root.Close()
+	if err := inside(root, a.Path); err != nil {
+		return err
+	}
+	if sum, n, err := hashFile(root, a.Path, a.Hash.Algorithm); err == nil && sum == a.Hash.Value && (a.Size == 0 || n == a.Size) {
 		return nil
 	}
-	if err := mkdirs(dataDir, a.Path); err != nil {
+	if err := mkdirs(root, a.Path); err != nil {
 		return err
 	}
 	name := path.Base(a.Path)
@@ -286,38 +305,28 @@ func Download(ctx context.Context, hc *http.Client, dataDir string, a Artifact) 
 	if resp.ContentLength > limit || (a.Size > 0 && resp.ContentLength >= 0 && resp.ContentLength != a.Size) {
 		return sizeMismatch(a, resp.ContentLength)
 	}
-	f, err := os.CreateTemp(filepath.Dir(target), "."+name+".*.partial")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp)
-	h := a.Hash.Algorithm.new()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, limit+1))
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	return replace(root, a.Path, func(w io.Writer) error {
+		h := a.Hash.Algorithm.new()
+		n, err := io.Copy(io.MultiWriter(w, h), io.LimitReader(resp.Body, limit+1))
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return &Error{Kind: KindUnreachable, Msg: fmt.Sprintf("The download of %s from %s broke off (%v).", name, a.Upstream, err),
+				Hint: "Check this host's connection, then try again.", Params: map[string]string{"file": a.Path, "upstream": a.Upstream}, Err: err}
 		}
-		return &Error{Kind: KindUnreachable, Msg: fmt.Sprintf("The download of %s from %s broke off (%v).", name, a.Upstream, err),
-			Hint: "Check this host's connection, then try again.", Params: map[string]string{"file": a.Path, "upstream": a.Upstream}, Err: err}
-	}
-	if n > limit || (a.Size > 0 && n != a.Size) {
-		return sizeMismatch(a, n)
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != a.Hash.Value {
-		return &Error{Kind: KindHashMismatch,
-			Msg: fmt.Sprintf("The downloaded %s does not match the %s from %s (got %s, want %s). It was deleted and not used.",
-				name, a.Hash.Algorithm.label(), a.Source, short(got), short(a.Hash.Value)),
-			Hint:   "This can mean a corrupted download or a tampered mirror. Try again.",
-			Params: map[string]string{"file": a.Path, "algorithm": string(a.Hash.Algorithm), "got": got, "want": a.Hash.Value, "source": a.Source}}
-	}
-	if err := os.Chmod(tmp, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, target)
+		if n > limit || (a.Size > 0 && n != a.Size) {
+			return sizeMismatch(a, n)
+		}
+		if got := hex.EncodeToString(h.Sum(nil)); got != a.Hash.Value {
+			return &Error{Kind: KindHashMismatch,
+				Msg: fmt.Sprintf("The downloaded %s does not match the %s from %s (got %s, want %s). It was deleted and not used.",
+					name, a.Hash.Algorithm.label(), a.Source, short(got), short(a.Hash.Value)),
+				Hint:   "This can mean a corrupted download or a tampered mirror. Try again.",
+				Params: map[string]string{"file": a.Path, "algorithm": string(a.Hash.Algorithm), "got": got, "want": a.Hash.Value, "source": a.Source}}
+		}
+		return nil
+	})
 }
 
 // sizeMismatch explains a download whose size is wrong. got is only exact when
@@ -342,21 +351,30 @@ func sizeMismatch(a Artifact, got int64) error {
 // Verify checks files against their hashes and sizes, stopping at the first
 // one that is missing or differs.
 func Verify(dataDir string, checks []Check) error {
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return verify(root, checks)
+}
+
+func verify(root *os.Root, checks []Check) error {
 	for _, c := range checks {
-		if err := verifyOne(dataDir, c); err != nil {
+		if err := verifyOne(root, c); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func verifyOne(dataDir string, c Check) error {
+func verifyOne(root *os.Root, c Check) error {
 	params := map[string]string{"file": c.Path, "origin": string(c.Origin), "algorithm": string(c.Hash.Algorithm), "want": c.Hash.Value}
 	if !c.Hash.valid() {
 		return &Error{Kind: KindMalformed, Msg: fmt.Sprintf("Playkeeper has no valid checksum for %s.", c.Path),
 			Hint: "Reinstall the server software.", Params: params}
 	}
-	sum, n, err := hashFile(dataDir, c.Path, c.Hash.Algorithm)
+	sum, n, err := hashFile(root, c.Path, c.Hash.Algorithm)
 	if errors.Is(err, fs.ErrNotExist) {
 		return &Error{Kind: KindMissingFile, Msg: fmt.Sprintf("The server software file %s is missing.", c.Path),
 			Hint: "Reinstall the server software.", Params: params}
@@ -382,10 +400,10 @@ const recordedSource = "Playkeeper's record, made right after the verified insta
 
 // record hashes files that have no upstream hash, right after a verified
 // install.
-func record(dataDir string, paths []string) ([]Check, error) {
+func record(root *os.Root, paths []string) ([]Check, error) {
 	var out []Check
 	for _, p := range paths {
-		sum, _, err := hashFile(dataDir, p, SHA256)
+		sum, _, err := hashFile(root, p, SHA256)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, &Error{Kind: KindMissingFile, Msg: fmt.Sprintf("The install did not create %s.", p),
 				Hint: "Check the console for errors from the installer, then reinstall the server software.", Params: map[string]string{"file": p}}
@@ -398,41 +416,48 @@ func record(dataDir string, paths []string) ([]Check, error) {
 	return out, nil
 }
 
-// writeFile writes data to rel inside dataDir through a temporary file and a
-// rename.
-func writeFile(dataDir, rel string, data []byte) error {
-	target, err := within(dataDir, rel)
+// replace writes rel through a new hidden file beside it and renames that
+// into place only when write succeeds, so a failed or tampered write never
+// leaves a file that could be run.
+func replace(root *os.Root, rel string, write func(io.Writer) error) error {
+	tmp := path.Join(path.Dir(rel), "."+path.Base(rel)+"."+rand.Text()+".partial")
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	if err := mkdirs(dataDir, rel); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(target), "."+path.Base(rel)+".*.partial")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp)
-	_, err = f.Write(data)
+	defer root.Remove(tmp)
+	err = write(f)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, 0o644); err != nil {
+	if err := root.Chmod(tmp, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, target)
+	return root.Rename(tmp, rel)
 }
 
-func removeFile(dataDir, rel string) error {
-	p, err := within(dataDir, rel)
-	if err != nil {
+// writeFile writes data to rel inside the data directory.
+func writeFile(root *os.Root, rel string, data []byte) error {
+	if err := inside(root, rel); err != nil {
 		return err
 	}
-	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := mkdirs(root, rel); err != nil {
+		return err
+	}
+	return replace(root, rel, func(w io.Writer) error {
+		_, err := w.Write(data)
+		return err
+	})
+}
+
+func removeFile(root *os.Root, rel string) error {
+	if err := inside(root, rel); err != nil {
+		return err
+	}
+	if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return nil

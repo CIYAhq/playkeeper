@@ -2,6 +2,7 @@ package software
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -288,6 +289,11 @@ func Prepare(dataDir string, p Plan) error {
 	if l == nil {
 		return nil
 	}
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	need := append(slices.Clone(l.ClassPath), l.MainClassFrom)
 	var checks []Check
 	for _, c := range p.Checks {
@@ -295,12 +301,12 @@ func Prepare(dataDir string, p Plan) error {
 			checks = append(checks, c)
 		}
 	}
-	if err := Verify(dataDir, checks); err != nil {
+	if err := verify(root, checks); err != nil {
 		return err
 	}
 	main := l.MainClass
 	if l.MainClassFrom != "" {
-		m, err := readZipEntry(dataDir, l.MainClassFrom, "META-INF/MANIFEST.MF", 1<<20)
+		m, err := readZipEntry(root, l.MainClassFrom, "META-INF/MANIFEST.MF", 1<<20)
 		if err != nil {
 			return err
 		}
@@ -312,7 +318,7 @@ func Prepare(dataDir string, p Plan) error {
 	if err != nil {
 		return err
 	}
-	return writeFile(dataDir, l.Path, jar)
+	return writeFile(root, l.Path, jar)
 }
 
 // Finish checks an install once every step before it has run: the downloads
@@ -324,23 +330,28 @@ func Finish(dataDir string, p Plan) (Manifest, error) {
 	if err := p.validate(); err != nil {
 		return Manifest{}, err
 	}
-	if err := Verify(dataDir, p.Checks); err != nil {
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return Manifest{}, err
+	}
+	defer root.Close()
+	if err := verify(root, p.Checks); err != nil {
 		return Manifest{}, err
 	}
 	checks := slices.Clone(p.Checks)
 	toRecord := slices.Clone(p.Record)
 	for _, d := range p.Derive {
-		cs, rec, err := derive(dataDir, p, d)
+		cs, rec, err := derive(root, p, d)
 		if err != nil {
 			return Manifest{}, err
 		}
-		if err := Verify(dataDir, cs); err != nil {
+		if err := verify(root, cs); err != nil {
 			return Manifest{}, err
 		}
 		checks = append(checks, cs...)
 		toRecord = append(toRecord, rec...)
 	}
-	recorded, err := record(dataDir, toRecord)
+	recorded, err := record(root, toRecord)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -356,7 +367,7 @@ func Finish(dataDir string, p Plan) (Manifest, error) {
 		return Manifest{}, err
 	}
 	for _, rel := range p.Remove {
-		if err := removeFile(dataDir, rel); err != nil {
+		if err := removeFile(root, rel); err != nil {
 			return Manifest{}, err
 		}
 	}
@@ -365,10 +376,10 @@ func Finish(dataDir string, p Plan) (Manifest, error) {
 
 // derive reads the hashes one derivation lists. The file they are read from
 // is verified before derive runs.
-func derive(dataDir string, p Plan, d Derivation) ([]Check, []string, error) {
+func derive(root *os.Root, p Plan, d Derivation) ([]Check, []string, error) {
 	switch d.Kind {
 	case DeriveBundler:
-		libs, err := bundlerList(dataDir, d.From, "META-INF/libraries.list")
+		libs, err := bundlerList(root, d.From, "META-INF/libraries.list")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -379,7 +390,7 @@ func derive(dataDir string, p Plan, d Derivation) ([]Check, []string, error) {
 		}
 		return checks, nil, nil
 	case DerivePaperclip:
-		c, err := paperclipCheck(dataDir, d.From, d.Into)
+		c, err := paperclipCheck(root, d.From, d.Into)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -388,7 +399,7 @@ func derive(dataDir string, p Plan, d Derivation) ([]Check, []string, error) {
 		}
 		return []Check{c}, nil, nil
 	case DeriveNeoForge:
-		return neoforgeInstallerChecks(dataDir, d.From, d.Into, p.Pin)
+		return neoforgeInstallerChecks(root, d.From, d.Into, p.Pin)
 	}
 	return nil, nil, fmt.Errorf("unknown derivation %q", d.Kind)
 }
@@ -396,9 +407,9 @@ func derive(dataDir string, p Plan, d Derivation) ([]Check, []string, error) {
 // paperclipCheck reads the SHA-256 a Paperclip jar expects of Mojang's
 // server jar from its META-INF/download-context: one "sha256<TAB>url<TAB>
 // file name" line.
-func paperclipCheck(dataDir, jar, into string) (Check, error) {
+func paperclipCheck(root *os.Root, jar, into string) (Check, error) {
 	const entry = "META-INF/download-context"
-	b, err := readZipEntry(dataDir, jar, entry, 4<<10)
+	b, err := readZipEntry(root, jar, entry, 4<<10)
 	if err != nil {
 		return Check{}, err
 	}

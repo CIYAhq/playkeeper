@@ -112,6 +112,10 @@ type Options struct {
 	// Modrinth, and CurseForge with the machine's key, through
 	// UpstreamClient, and is built again when the key changes.
 	Modpacks *modpacks.Library
+	// PackClient downloads the data packs a template names, from any
+	// public host but only over HTTPS to public addresses (default
+	// templates.PackClient); tests swap it.
+	PackClient *http.Client
 }
 
 // Retention bounds stored analytics and audit data.
@@ -259,6 +263,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.UpstreamClient == nil {
 		opts.UpstreamClient = opts.HTTPClient
+	}
+	if opts.PackClient == nil {
+		opts.PackClient = templates.PackClient()
 	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {

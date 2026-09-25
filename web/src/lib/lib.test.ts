@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
+import { templateQuery } from '@/api/templates'
+import type { CatalogEntry, MetricsBucket, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
@@ -7,11 +8,12 @@ import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memorySegments } from './memory'
-import { controls, createStepOf, isSettingUp, packStepOf, phaseTone } from './phase'
+import { controls, createStepOf, isSettingUp, packStepOf, phaseTone, templateStepOf } from './phase'
 import { href, parse, type Route } from './router'
 import { newerStable, softwareLabel, softwareName } from './servers'
 import { addonKind, formatReleased, shortHash } from './software'
 import { memoryForStyle } from './styles'
+import { addonsLine, afterSignIn, leftOutAddons, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
 import { upgradeTargets } from './versions'
 
 function server(over: Partial<ServerStatus> = {}): ServerStatus {
@@ -197,8 +199,17 @@ describe('server state', () => {
     expect(packStepOf('preparing_modpack')).toBe(1)
     expect(packStepOf('verifying_download')).toBe(1)
     expect(packStepOf('installing_modpack')).toBe(2)
+    expect(packStepOf('installing_addons')).toBe(2)
     expect(packStepOf('starting_container')).toBe(3)
     expect(packStepOf('online')).toBe(4)
+  })
+
+  it('puts a template’s add-ons between the software and the first start', () => {
+    expect(templateStepOf('')).toBe(0)
+    expect(templateStepOf('verifying_download')).toBe(1)
+    expect(templateStepOf('installing_addons')).toBe(2)
+    expect(templateStepOf('preparing_world')).toBe(3)
+    expect(templateStepOf('online')).toBe(4)
   })
 })
 
@@ -308,5 +319,75 @@ describe('creating a server', () => {
 
   it('labels the software', () => {
     expect(softwareLabel(server({ config: { minecraftVersion: '26.1.2' } as ServerConfig }))).toBe('Paper 26.1.2')
+  })
+})
+
+describe('templates', () => {
+  const contents = (over: Partial<TemplateContents> = {}): TemplateContents => ({
+    name: 'Survival with friends',
+    type: 'paper',
+    minecraftVersion: '26.1.2',
+    settings: {},
+    addons: [
+      { source: 'modrinth', name: 'Chunky', versionNumber: '1.4.40' },
+      { source: 'hangar', name: 'LuckPerms', versionNumber: 'v5.5.0' },
+    ],
+    resourcePacks: 0,
+    dataPacks: 0,
+    packs: [],
+    ...over,
+  })
+
+  it('names the settings a template carries, four at most', () => {
+    expect(settingNames({ difficulty: 'normal', pvp: false, viewDistance: 10, motd: 'Hi' })).toBe('Difficulty, PvP, view distance, server list message')
+    expect(settingNames({ difficulty: 'normal', pvp: false, viewDistance: 10, motd: 'Hi', maxPlayers: 10, hardcore: false })).toBe('Difficulty, PvP, view distance, server list message and 2 more')
+    expect(settingNames({ motd: '' })).toBe('')
+  })
+
+  it('sums up the settings for the create page', () => {
+    expect(settingsSummary({ difficulty: 'normal', pvp: false, viewDistance: 10, maxPlayers: 10 })).toBe('Normal difficulty · friends can’t hurt each other · view distance 10 · up to 10 players')
+    expect(settingsSummary({ hardcore: true, pvp: true })).toBe('Hardcore · friends can hurt each other')
+    expect(settingsSummary({})).toBe('')
+  })
+
+  it('describes add-ons and packs', () => {
+    expect(addonsLine(contents())).toBe('2 plugins')
+    expect(addonsLine(contents({ type: 'fabric', addons: [{ source: 'modrinth', name: 'Lithium' }] }))).toBe('1 mod')
+    expect(addonsLine(contents({ type: 'fabric', modpack: { source: 'modrinth', name: 'Fabulously Optimized', versionNumber: '9.0.0' } }))).toBe('Fabulously Optimized and 2 more mods')
+    expect(addonsLine(contents({ type: 'fabric', addons: [], modpack: { source: 'modrinth', name: 'Fabulously Optimized' } }))).toBe('Fabulously Optimized')
+    expect(packsLine(contents({ resourcePacks: 1, dataPacks: 3, packs: ['Faithful 32x', 'a', 'b', 'c'] }))).toBe('Faithful 32x and 3 data packs')
+    expect(packsLine(contents({ resourcePacks: 1, packs: ['Faithful 32x'] }))).toBe('Faithful 32x')
+    expect(packsLine(contents({ dataPacks: 1, packs: ['Terralith'] }))).toBe('1 data pack')
+  })
+
+  it('knows when every add-on keeps its version', () => {
+    expect(pinned(contents())).toBe(true)
+    expect(pinned(contents({ addons: [{ source: 'modrinth', name: 'Chunky' }] }))).toBe(false)
+    expect(pinned(contents({ modpack: { source: 'modrinth', name: 'Pack' } }))).toBe(false)
+  })
+
+  it('lists the add-ons an export left out', () => {
+    const notices = [
+      { kind: 'left_out_addon_upload', params: { name: 'MyPlugin' }, message: '' },
+      { kind: 'left_out_modpack', params: { name: 'Pack' }, message: '' },
+      { kind: 'left_out_icon', message: '' },
+      { kind: 'left_out_addon_missing', message: '' },
+    ]
+    expect(leftOutAddons(notices)).toEqual(['MyPlugin', 'Pack'])
+  })
+
+  it('carries a shared template through signing in', () => {
+    expect(templateFromHash('#template=eyJ2IjoxfQ')).toBe('eyJ2IjoxfQ')
+    expect(templateFromHash('#template=')).toBeUndefined()
+    expect(templateFromHash('#code=abc')).toBeUndefined()
+    expect(signInPath({ hash: '#template=eyJ2IjoxfQ' })).toBe('/login#template=eyJ2IjoxfQ')
+    expect(signInPath({ hash: '' })).toBe('/login')
+    expect(afterSignIn({ hash: '#template=eyJ2IjoxfQ' })).toBe('/servers/new#template=eyJ2IjoxfQ')
+    expect(afterSignIn({ hash: '#code=abc' })).toBe('/')
+  })
+
+  it('asks for the parts the dialog leaves out', () => {
+    expect(templateQuery({ addons: true, settings: true, packs: true, latest: false })).toBe('')
+    expect(templateQuery({ addons: false, settings: false, packs: false, latest: true })).toBe('?addons=off&settings=off&packs=off&versions=latest')
   })
 })

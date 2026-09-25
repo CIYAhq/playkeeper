@@ -129,8 +129,19 @@ export function packStepOf(phase: string): number {
     case 'preparing_modpack':
       return 1
     case 'installing_modpack':
+    case 'installing_addons':
       return 2
   }
+  const at = createStepOf(phase)
+  return at >= 2 ? at + 1 : at
+}
+
+/**
+ * The setup steps of a server made from a template with add-ons: checked,
+ * the server software, the add-ons, starting, reachable.
+ */
+export function templateStepOf(phase: string): number {
+  if (phase === 'installing_addons') return 2
   const at = createStepOf(phase)
   return at >= 2 ? at + 1 : at
 }

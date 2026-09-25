@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
+	"github.com/CIYAhq/playkeeper/internal/packs"
 	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
@@ -23,8 +25,8 @@ import (
 // build, a Fabric or Quilt loader, a NeoForge version).
 const templateBuildKey = "build"
 
-// kindTemplatePacks reports a template's packs, which an import leaves out:
-// Playkeeper does not download data packs from addresses a template names.
+// kindTemplatePacks reports a template's resource pack, which an import
+// leaves out: offering it to players is a setting of its own.
 const kindTemplatePacks addons.Kind = "template_packs_left_out"
 
 // templateSubstitutes are the types whose versions an import lists when the
@@ -218,19 +220,33 @@ func (a *Agent) hTemplatePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 // planTemplate plans a template's import with this machine's versions and
-// memory, leaving the template's packs out.
+// memory, leaving the template's resource pack out.
 func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templates.Plan, error) {
 	tt := *t
 	tt.Packs = nil
+	for _, pk := range t.Packs {
+		if pk.Kind == templates.DataPack {
+			tt.Packs = append(tt.Packs, pk)
+		}
+	}
 	p, err := templates.PlanImport(&tt, a.templateCatalog(ctx, &tt))
 	if err != nil {
 		return nil, err
 	}
-	if n := len(t.Packs); n > 0 {
+	if n := len(t.Packs) - len(tt.Packs); n > 0 {
 		p.Skipped = append(p.Skipped, addons.Notice{Kind: kindTemplatePacks, Params: map[string]string{"count": strconv.Itoa(n)},
-			Msg: "The template's packs are left out.", Hint: "Add packs on the World tab once the server exists."})
+			Msg: "The template's resource pack is left out.", Hint: "Add it on the World tab once the server exists."})
 	}
 	return p, nil
+}
+
+// templateDataPacks are the data packs a confirmed import downloads.
+func templateDataPacks(p *templates.Plan) []templates.Pack {
+	out := make([]templates.Pack, 0, len(p.Packs))
+	for _, pp := range p.Packs {
+		out = append(out, pp.Pack)
+	}
+	return out
 }
 
 // templateCatalog is what an import chooses from: this machine's types, the
@@ -310,7 +326,7 @@ type templateImport struct {
 func (a *Agent) confirmTemplate(ctx context.Context, fingerprint string) (*templateImport, error) {
 	t, ok := a.templatePlans.get(fingerprint, a.now())
 	if !ok {
-		return nil, errInvalid("Playkeeper no longer has that template. Choose it again.")
+		return nil, &apiError{Status: http.StatusConflict, Code: string(addons.KindPlanChanged), Msg: "Playkeeper no longer has that template.", Hint: "Choose it again."}
 	}
 	p, err := a.planTemplate(ctx, t)
 	if err != nil {
@@ -349,10 +365,11 @@ func (ti *templateImport) fill(req *api.CreateServerRequest) {
 // skipped and reported; a failure such as an unreachable source stops the
 // start, and the next start installs the rest.
 func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *api.ServerConfig) error {
-	planned, remaining, err := s.templateInstall()
+	planned, remaining, dataPacks, err := s.templateInstall()
 	if err != nil {
 		return err
 	}
+	skipped := []api.AddonNotice{}
 	if len(remaining) > 0 {
 		lib := s.lib()
 		if lib == nil {
@@ -367,7 +384,6 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 		done := len(planned) - len(remaining)
 		h.set("addons", done)
 		h.set("addonsTotal", len(planned))
-		skipped := []api.AddonNotice{}
 		for len(remaining) > 0 {
 			installed, err := s.installedAddons()
 			if err != nil {
@@ -391,6 +407,13 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 					return packFailure(h, &addons.Error{Notice: *res.Reason})
 				}
 				n := apiNotice(*res.Reason)
+				if n.Params["name"] == "" {
+					n.Params = maps.Clone(n.Params)
+					if n.Params == nil {
+						n.Params = map[string]string{}
+					}
+					n.Params["name"] = pa.Name
+				}
 				skipped = append(skipped, n)
 				h.set("skipped", skipped)
 				s.audit(h.op.Actor, "addon.skipped", string(pa.Source)+":"+pa.Project, "skipped", pa.Name+": "+n.Message)
@@ -412,6 +435,9 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 			return err
 		}
 	}
+	if err := s.installTemplatePacks(ctx, h, sc, dataPacks, skipped); err != nil {
+		return err
+	}
 	if _, err := s.db.Exec(`DELETE FROM template_installs WHERE server_id = ?`, s.id); err != nil {
 		return err
 	}
@@ -421,39 +447,117 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 	return s.saveServerConfig(*sc)
 }
 
+// installTemplatePacks downloads the template's data packs into the world
+// before the first start, through PackClient. A pack's host is anyone's, so
+// a pack that can't be downloaded or doesn't match its checksum is skipped
+// and reported rather than stopping the start.
+func (s *server) installTemplatePacks(ctx context.Context, h *opHandle, sc *api.ServerConfig, list []templates.Pack, skipped []api.AddonNotice) error {
+	if len(list) == 0 {
+		return nil
+	}
+	if err := s.ensureDirs(); err != nil {
+		return err
+	}
+	h.phase("installing_addons")
+	s.setRunPhase(api.PhaseDownloading, "")
+	h.set("packsTotal", len(list))
+	d := s.dataPacks(sc)
+	for i, pk := range list {
+		h.set("packs", i)
+		err := s.installTemplatePack(ctx, d, pk)
+		if err == nil {
+			s.audit(h.op.Actor, "datapack.added", pk.Name, "succeeded", "from the template")
+			continue
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		n := templatePackNotice(err)
+		n.Params["name"] = pk.Name
+		skipped = append(skipped, n)
+		h.set("skipped", skipped)
+		s.audit(h.op.Actor, "datapack.skipped", pk.Name, "skipped", n.Message)
+	}
+	h.set("packs", len(list))
+	return nil
+}
+
+// templatePackNotice is why a template's data pack was skipped, keeping
+// the code of the download's or the pack's own error.
+func templatePackNotice(err error) api.AddonNotice {
+	n := api.AddonNotice{Kind: string(templates.KindPackUnreachable), Message: err.Error()}
+	var ae *addons.Error
+	var pe *packs.Error
+	switch {
+	case errors.As(err, &ae):
+		n = apiNotice(ae.Notice)
+		n.Params = maps.Clone(n.Params)
+	case errors.As(err, &pe):
+		n = api.AddonNotice{Kind: pe.Code, Message: pe.Msg, Hint: pe.Hint}
+		for k, v := range pe.Params {
+			if n.Params == nil {
+				n.Params = map[string]string{}
+			}
+			n.Params[k] = fmt.Sprint(v)
+		}
+	}
+	if n.Params == nil {
+		n.Params = map[string]string{}
+	}
+	return n
+}
+
+func (s *server) installTemplatePack(ctx context.Context, d packs.DataPacks, pk templates.Pack) error {
+	f, n, err := templates.FetchPack(ctx, s.opts.PackClient, s.cfg.StagingDir(), pk, packs.Limits{})
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, _, err = d.Install(ctx, packs.SafeName(pk.Name), f, n, true)
+	return err
+}
+
 // sourceDown is true for the add-on library's refusals that say a source
 // didn't answer, rather than that the add-on can't be installed.
 func sourceDown(k addons.Kind) bool {
 	return k == addons.KindUnreachable || k == addons.KindUpstream || k == addons.KindRateLimited
 }
 
-// templateInstall is the template's add-ons: all of them, and those still
-// to install.
-func (s *server) templateInstall() (planned, remaining []templates.PlannedAddon, err error) {
-	var p, r string
-	err = s.db.QueryRow(`SELECT planned, remaining FROM template_installs WHERE server_id = ?`, s.id).Scan(&p, &r)
+// templateInstall is the template's add-ons, all of them and those still
+// to install, and its data packs.
+func (s *server) templateInstall() (planned, remaining []templates.PlannedAddon, dataPacks []templates.Pack, err error) {
+	var p, r, d string
+	err = s.db.QueryRow(`SELECT planned, remaining, packs FROM template_installs WHERE server_id = ?`, s.id).Scan(&p, &r, &d)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := json.Unmarshal([]byte(p), &planned); err != nil {
-		return nil, nil, fmt.Errorf("the stored template add-ons are damaged: %w", err)
+		return nil, nil, nil, fmt.Errorf("the stored template add-ons are damaged: %w", err)
 	}
 	if err := json.Unmarshal([]byte(r), &remaining); err != nil {
-		return nil, nil, fmt.Errorf("the stored template add-ons are damaged: %w", err)
+		return nil, nil, nil, fmt.Errorf("the stored template add-ons are damaged: %w", err)
 	}
-	return planned, remaining, nil
+	if err := json.Unmarshal([]byte(d), &dataPacks); err != nil {
+		return nil, nil, nil, fmt.Errorf("the stored template data packs are damaged: %w", err)
+	}
+	return planned, remaining, dataPacks, nil
 }
 
-func (s *server) saveTemplateInstall(planned []templates.PlannedAddon) error {
-	b, err := json.Marshal(planned)
+func (s *server) saveTemplateInstall(planned []templates.PlannedAddon, dataPacks []templates.Pack) error {
+	b, err := json.Marshal(append([]templates.PlannedAddon{}, planned...))
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO template_installs(server_id, planned, remaining, created_at) VALUES(?,?,?,?)
-		ON CONFLICT(server_id) DO UPDATE SET planned = excluded.planned, remaining = excluded.remaining`, s.id, string(b), string(b), s.now().UnixMilli())
+	d, err := json.Marshal(append([]templates.Pack{}, dataPacks...))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO template_installs(server_id, planned, remaining, packs, created_at) VALUES(?,?,?,?,?)
+		ON CONFLICT(server_id) DO UPDATE SET planned = excluded.planned, remaining = excluded.remaining, packs = excluded.packs`,
+		s.id, string(b), string(b), string(d), s.now().UnixMilli())
 	return err
 }
 

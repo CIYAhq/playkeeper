@@ -200,6 +200,9 @@ CREATE TABLE template_installs (
   created_at INTEGER NOT NULL
 );
 `,
+	// Wave 4: the data packs that template's first start downloads into the
+	// world, as a JSON list of templates.Pack.
+	`ALTER TABLE template_installs ADD COLUMN packs TEXT NOT NULL DEFAULT '[]';`,
 	// Wave 4: the link token of each server's friends' pack page, made when
 	// sharing is turned on and forgotten when it is turned off.
 	`

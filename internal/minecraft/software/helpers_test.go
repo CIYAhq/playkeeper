@@ -308,6 +308,16 @@ func writeData(t *testing.T, dataDir, rel string, body []byte) {
 	}
 }
 
+func openRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { root.Close() })
+	return root
+}
+
 func servePurpur(t *testing.T, f *fakeNet) {
 	f.serve(purpurAPI, readFixture(t, "purpur/project.json"))
 	for _, mc := range []string{"26.3", "26.2", "26.1.2", "1.21.11"} {
