@@ -7,7 +7,7 @@ import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memorySegments } from './memory'
-import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
+import { busyReason, controls, createStepOf, isSettingUp, phaseTone, whyNot } from './phase'
 import { href, parse, type Route } from './router'
 import { newerStable, softwareLabel } from './servers'
 import { memoryForStyle } from './styles'
@@ -190,6 +190,22 @@ describe('server state', () => {
     expect(isSettingUp(server({ operation: { id: '1', kind: 'create', status: 'running', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(true)
     expect(isSettingUp(server({ phase: 'stopped', lastOperation: { id: '1', kind: 'create', status: 'failed', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(true)
     expect(isSettingUp(server({ phase: 'online', startedAt: at, lastOperation: { id: '1', kind: 'create', status: 'succeeded', phase: '', actor: 'a', startedAt: at } }))).toBe(false)
+  })
+
+  it('says in a few words why a control can’t be used', () => {
+    const backup = { id: '1', kind: 'backup', status: 'running', phase: '', actor: 'a', startedAt: '2026-09-25T10:00:00Z' } as const
+    expect(whyNot(server(), 'restart', false)).toBeUndefined()
+    expect(whyNot(server(), 'start', false)).toBe('Survival is already running.')
+    expect(whyNot(server({ phase: 'stopped' }), 'stop', false)).toBe('Survival is already stopped.')
+    expect(whyNot(server({ phase: 'stopped' }), 'command', false)).toBe('Start Survival first.')
+    expect(whyNot(server({ phase: 'stopping' }), 'start', false)).toBe('Stopping Survival. Try again when it’s done.')
+    expect(whyNot(server({ phase: 'starting' }), 'command', false)).toBe('Starting Survival. Try again when it’s done.')
+    expect(whyNot(server({ operation: backup }), 'change', false)).toBe('Backing up Survival. Try again when it’s done.')
+    expect(whyNot(server({ exists: false, phase: 'not_created' }), 'start', false)).toBe('Survival isn’t set up yet.')
+    expect(whyNot(server({ phase: 'docker_unavailable' }), 'change', false)).toBe('Docker not responding')
+    expect(whyNot(server(), 'change', true)).toBe('Waiting for the Playkeeper agent to answer.')
+    expect(busyReason(server())).toBeUndefined()
+    expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
   })
 
   it('maps phases to tones and setup steps', () => {
