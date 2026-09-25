@@ -121,18 +121,51 @@ func NewSSHKey(server string) (SSHKey, error) {
 
 // stallConn fails a read or write that makes no progress for d, so a
 // connection that stops answering doesn't hold an upload forever. The
-// session's keepalives keep an idle connection busy.
+// session's keepalives keep an idle connection busy. It keeps the first
+// bytes the other machine sends, to tell an SSH server from something
+// else answering on the port.
 type stallConn struct {
 	net.Conn
 	d       time.Duration
 	stalled atomic.Bool
+	mu      sync.Mutex
+	head    []byte
 }
+
+const headSize = 256
 
 func (c *stallConn) Read(p []byte) (int, error) {
 	_ = c.Conn.SetReadDeadline(time.Now().Add(c.d))
 	n, err := c.Conn.Read(p)
 	c.note(err)
+	c.keep(p[:n])
 	return n, err
+}
+
+func (c *stallConn) keep(b []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if room := headSize - len(c.head); room > 0 {
+		c.head = append(c.head, b[:min(len(b), room)]...)
+	}
+}
+
+// notSSH reports whether the other machine sent something without the
+// line an SSH server starts with. Lines before it are allowed.
+func (c *stallConn) notSSH() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	lines := bytes.Split(c.head, []byte("\n"))
+	last := lines[len(lines)-1]
+	if len(c.head) == 0 || len(last) > 0 && bytes.HasPrefix([]byte("SSH-"), last) {
+		return false
+	}
+	for _, l := range lines {
+		if bytes.HasPrefix(l, []byte("SSH-")) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *stallConn) Write(p []byte) (int, error) {
@@ -233,7 +266,7 @@ func (c *sftpClient) connect(ctx context.Context, op string, stall time.Duration
 	if err != nil {
 		stop()
 		raw.Close()
-		return nil, hk, c.handshakeError(ctx, op, err, h, slow.Load())
+		return nil, hk, c.handshakeError(ctx, op, err, h, conn, slow.Load())
 	}
 	client := ssh.NewClient(sc, chans, reqs)
 	sf, err := sftp.NewClient(client, sftp.UseConcurrentWrites(true), sftp.MaxConcurrentRequestsPerFile(64))
@@ -299,7 +332,7 @@ func (c *sftpClient) auth(h *handshake) []ssh.AuthMethod {
 	}
 }
 
-func (c *sftpClient) handshakeError(ctx context.Context, op string, err error, h *handshake, slow bool) error {
+func (c *sftpClient) handshakeError(ctx context.Context, op string, err error, h *handshake, conn *stallConn, slow bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	hk := hostKeyOf(h.key)
@@ -327,14 +360,14 @@ func (c *sftpClient) handshakeError(ctx context.Context, op string, err error, h
 		return c.loginError(op, append(h.tried, "challenge"))
 	case strings.Contains(err.Error(), "unable to authenticate"):
 		return c.loginError(op, h.tried)
+	case conn.notSSH() || strings.Contains(err.Error(), "version string"):
+		return &Error{Kind: KindUnexpected, Op: op, Field: "port", Err: err,
+			Msg:  fmt.Sprintf("Something other than an SSH server answered on port %d of %s.", c.port, c.cfg.Host),
+			Hint: "Check the port. SSH usually listens on port 22."}
 	case slow:
 		return &Error{Kind: KindNetwork, Op: op, Retry: true, Err: err,
 			Msg:  "The other machine didn't finish connecting in time.",
 			Hint: "Check that the address and port are the other machine's SSH server, then try again."}
-	case strings.Contains(err.Error(), "version string"):
-		return &Error{Kind: KindUnexpected, Op: op, Field: "port", Err: err,
-			Msg:  fmt.Sprintf("Something other than an SSH server answered on port %d of %s.", c.port, c.cfg.Host),
-			Hint: "Check the port. SSH usually listens on port 22."}
 	}
 	return c.netError(op, "", err)
 }
