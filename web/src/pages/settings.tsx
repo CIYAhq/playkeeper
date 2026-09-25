@@ -10,20 +10,21 @@ import { UpdateDialog, useUpdateInfo } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { can, settingsHome, settingsSections } from '@/lib/access'
+import { can, settingsHome, settingsSections, type SettingsSectionName } from '@/lib/access'
 import { formatDateTime, relativeTime } from '@/lib/format'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { AiAgentsSection } from './ai-agents'
+import { MachineDetailsSection, MachinesSection } from './machines'
 import { PasswordField } from './onboarding'
 
-export type SettingsPage = 'general' | 'ai-agents'
+export type SettingsPage = Extract<Route, { name: 'settings' | SettingsSectionName | 'machine-settings' }>
 
 /** Settings: the account page, or a section. */
-export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
-  switch (section) {
-    case 'general':
+export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
+  switch (page.name) {
+    case 'settings':
       return <AccountSettings />
     case 'ai-agents':
       return (
@@ -31,15 +32,27 @@ export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
           <AiAgentsSection />
         </SettingsSection>
       )
+    case 'machines':
+      return (
+        <SettingsSection current="machines">
+          <MachinesSection />
+        </SettingsSection>
+      )
+    case 'machine-settings':
+      return (
+        <SettingsSection current="machines" phoneBack={{ to: { name: 'machines' }, label: t('global.nav.machines') }}>
+          <MachineDetailsSection key={page.id} id={page.id} />
+        </SettingsSection>
+      )
     default: {
-      const unreachable: never = section
+      const unreachable: never = page
       return unreachable
     }
   }
 }
 
 /** A Settings section: the sections list beside it on desktop, a back link on phones (to More, where the sections are listed). */
-function SettingsSection({ current, phoneBack, children }: { current: 'ai-agents'; phoneBack?: { to: Route; label: string }; children: ReactNode }) {
+function SettingsSection({ current, phoneBack, children }: { current: SettingsSectionName; phoneBack?: { to: Route; label: string }; children: ReactNode }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const sections = settingsSections.filter((s) => can(ws.me, s.act))

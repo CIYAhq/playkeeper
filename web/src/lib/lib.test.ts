@@ -52,9 +52,17 @@ describe('router', () => {
       { name: 'ai-agents' },
       { name: 'more' },
       { name: 'welcome' },
+      { name: 'machines' },
+      { name: 'machine-settings', id: 'm2345abcde' },
+      { name: 'new-server', machine: 'm2345abcde' },
     ]
-    for (const r of routes) expect(parse(href(r))).toEqual(r)
+    for (const r of routes) {
+      const [path = '', query = ''] = href(r).split('?')
+      expect(parse(path, query ? `?${query}` : '')).toEqual(r)
+    }
     expect(parse('/settings/ai-agents/extra')).toEqual({ name: 'settings' })
+    expect(parse('/settings/machines/Not-An-Id')).toEqual({ name: 'settings' })
+    expect(parse('/servers/new', '?machine=../../x')).toEqual({ name: 'new-server' })
   })
 
   it('keeps 0.2.0 links working and sends unknown paths home', () => {

@@ -8,7 +8,7 @@ export type Route =
   | { name: 'login' }
   | { name: 'setup' }
   | { name: 'welcome' }
-  | { name: 'new-server' }
+  | { name: 'new-server'; machine?: string }
   | { name: 'server'; slug: string; tab: ServerTab }
   | { name: 'machine'; id: string }
   | { name: 'settings' }
@@ -17,10 +17,19 @@ export type Route =
   | { name: 'legacy'; tab: ServerTab }
   // Wave 8: AI agents, and the machines beyond the dashboard's own.
   | { name: 'ai-agents' }
+  | { name: 'machines' }
+  | { name: 'machine-settings'; id: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
+const reMachineId = /^[a-z2-9]{10}$/
 
-export function parse(pathname: string): Route {
+/** The machine a new server goes on, from ?machine= in the address. */
+function targetMachine(search: string): { machine?: string } {
+  const id = new URLSearchParams(search).get('machine')
+  return id && reMachineId.test(id) ? { machine: id } : {}
+}
+
+export function parse(pathname: string, search = ''): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
   const [first, second, third] = parts
   switch (first) {
@@ -34,6 +43,8 @@ export function parse(pathname: string): Route {
       return { name: 'welcome' }
     case 'settings':
       if (second === 'ai-agents' && !third) return { name: 'ai-agents' }
+      if (second === 'machines' && !third) return { name: 'machines' }
+      if (second === 'machines' && third && reMachineId.test(third) && parts.length === 3) return { name: 'machine-settings', id: third }
       return { name: 'settings' }
     case 'more':
       return { name: 'more' }
@@ -42,14 +53,14 @@ export function parse(pathname: string): Route {
     case 'world':
       return { name: 'legacy', tab: first }
     case 'servers':
-      if (second === 'new' && !third) return { name: 'new-server' }
+      if (second === 'new' && !third) return { name: 'new-server', ...targetMachine(search) }
       if (second && reSlug.test(second)) {
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
       }
       return { name: 'home' }
     case 'machines':
-      if (second && /^[a-z2-9]{10}$/.test(second) && !third) return { name: 'machine', id: second }
+      if (second && reMachineId.test(second) && !third) return { name: 'machine', id: second }
       return { name: 'home' }
   }
   return { name: 'home' }
@@ -66,7 +77,7 @@ export function href(route: Route): string {
     case 'welcome':
       return '/welcome'
     case 'new-server':
-      return '/servers/new'
+      return route.machine ? `/servers/new?machine=${route.machine}` : '/servers/new'
     case 'server':
       return route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
     case 'machine':
@@ -79,6 +90,10 @@ export function href(route: Route): string {
       return `/${route.tab}`
     case 'ai-agents':
       return '/settings/ai-agents'
+    case 'machines':
+      return '/settings/machines'
+    case 'machine-settings':
+      return `/settings/machines/${route.id}`
     default: {
       const unreachable: never = route
       return unreachable
@@ -98,9 +113,9 @@ export function navigate(to: Route | string, replace = false) {
 }
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState<Route>(() => parse(window.location.pathname))
+  const [route, setRoute] = useState<Route>(() => parse(window.location.pathname, window.location.search))
   useEffect(() => {
-    const update = () => setRoute(parse(window.location.pathname))
+    const update = () => setRoute(parse(window.location.pathname, window.location.search))
     listeners.add(update)
     window.addEventListener('popstate', update)
     return () => {
