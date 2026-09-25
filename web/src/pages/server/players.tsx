@@ -20,7 +20,7 @@ const reName = /^[A-Za-z0-9_]{3,16}$/
 
 type Days = '1' | '7' | '30'
 
-function tz(): string {
+export function tz(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 }
 
@@ -111,7 +111,7 @@ function AddPlayer({ server, onAdded, big, placeholder, iconButton }: { server: 
   )
 }
 
-async function playerAction(server: ServerStatus, method: 'POST' | 'DELETE', path: string, name: string, done: string, after: () => void) {
+export async function playerAction(server: ServerStatus, method: 'POST' | 'DELETE', path: string, name: string, done: string, after: () => void) {
   try {
     if (method === 'POST') await post(serverApi(server.id, path), { name })
     else await del(serverApi(server.id, `${path}/${encodeURIComponent(name)}`))

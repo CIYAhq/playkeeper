@@ -28,7 +28,7 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
   const [palette, setPalette] = useState<{ open: boolean; servers?: boolean }>({ open: false })
   const [shortcuts, setShortcuts] = useState(false)
 
-  const slug = route.name === 'server' ? route.slug : undefined
+  const slug = route.name === 'server' || route.name === 'player' ? route.slug : undefined
   useEffect(() => {
     if (slug && servers?.some((s) => s.slug === slug)) setLastSlug(slug)
   }, [slug, servers, setLastSlug])
@@ -154,7 +154,7 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
 function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const ws = useWorkspace()
   const live = ws.machine?.live
-  const tab: ServerTab = route.name === 'server' ? route.tab : 'overview'
+  const tab: ServerTab = route.name === 'server' ? route.tab : route.name === 'player' ? 'players' : 'overview'
   const healthy = !!ws.updating || (!ws.agentDown && !!live && live.docker)
   return (
     <aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col px-3 pt-3 pb-2">
@@ -193,7 +193,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           <SideItem
             key={s.id}
             to={{ name: 'server', slug: s.slug, tab }}
-            active={route.name === 'server' && route.slug === s.slug}
+            active={(route.name === 'server' || route.name === 'player') && route.slug === s.slug}
             icon={!ws.stale && isSettingUp(s) ? <Spinner /> : <Dot tone={ws.stale ? 'unknown' : phaseTone(s.phase)} />}
             trailing={serverMeta(s, ws.stale)}
           >
@@ -261,9 +261,9 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const inServer = route.name === 'server' || (route.name === 'more' && !!phoneServer)
-  const slug = route.name === 'server' ? route.slug : phoneServer?.slug
-  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : route.name === 'more' ? 'more' : undefined
+  const inServer = route.name === 'server' || route.name === 'player' || (route.name === 'more' && !!phoneServer)
+  const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
+  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : route.name === 'player' ? 'players' : route.name === 'more' ? 'more' : undefined
   const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
@@ -341,12 +341,12 @@ export function PhoneMoreButton() {
 /** The phone header of pages opened from another: a back link and a title. */
 export function PhoneBackHeader({ to, label, title }: { to: Route; label: string; title?: ReactNode }) {
   return (
-    <header className="flex items-center gap-1 pt-2 pb-2">
-      <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-success-strong">
+    <header className="relative flex items-center gap-1 pt-2 pb-2">
+      <a {...linkProps(to)} className="relative z-10 -ml-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-success-strong">
         <ChevronLeftIcon className="size-5" aria-hidden="true" />
         {label}
       </a>
-      {title && <div className="ml-auto text-[15px] font-semibold">{title}</div>}
+      {title && <div className="pointer-events-none absolute inset-x-24 truncate text-center text-[15px] font-semibold">{title}</div>}
     </header>
   )
 }

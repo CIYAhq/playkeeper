@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
+import { PlayerProfilePage } from './profile'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
 
@@ -42,7 +43,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
+export function ServerPage({ slug, tab, player }: { slug: string; tab: ServerTab; player?: string }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -65,7 +66,7 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       body = <ConsolePage server={server} />
       break
     case 'players':
-      body = <PlayersPage server={server} />
+      body = player ? <PlayerProfilePage server={server} name={player} /> : <PlayersPage server={server} />
       break
     case 'world':
       body = <WorldPage server={server} />
@@ -84,6 +85,8 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
       {phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
+        ) : player ? (
+          <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'players' }} label={t('tab.players')} title={player} />
         ) : (
           <PhoneServerHeader server={server} tab={tab} />
         )

@@ -17,6 +17,7 @@ export type Route =
   | { name: 'legacy'; tab: ServerTab }
   // Wave 5: invite links, player profiles, the team and Discord.
   | { name: 'join'; code: string }
+  | { name: 'player'; slug: string; player: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reCode = /^[A-Za-z0-9]{1,64}$/
@@ -24,7 +25,7 @@ export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 
 export function parse(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
-  const [first, second, third] = parts
+  const [first, second, third, fourth] = parts
   switch (first) {
     case undefined:
       return { name: 'home' }
@@ -49,6 +50,9 @@ export function parse(pathname: string): Route {
       if (second && reSlug.test(second)) {
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
+        if (third === 'players' && fourth && rePlayerName.test(fourth) && parts.length === 4) {
+          return { name: 'player', slug: second, player: fourth }
+        }
       }
       return { name: 'home' }
     case 'machines':
@@ -82,6 +86,8 @@ export function href(route: Route): string {
       return `/${route.tab}`
     case 'join':
       return route.code ? `/join/${route.code}` : '/join'
+    case 'player':
+      return `/servers/${route.slug}/players/${route.player}`
     default: {
       const unreachable: never = route
       return unreachable

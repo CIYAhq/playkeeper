@@ -3,16 +3,17 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, Candidate, JoinInfo, JoinPreview, MachineView, Me, Operation, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, Candidate, JoinInfo, JoinPreview, MachineView, Me, Operation, PlayerProfile, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
-import { formatDate } from '@/lib/format'
+import { formatDate, formatDuration } from '@/lib/format'
 import { HomePage } from './home'
 import { JoinPage } from './join'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { PlayerProfilePage } from './server/profile'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -172,6 +173,8 @@ const moderatorCan: Action[] = ['view', 'account.manage', 'servers.run', 'server
 function member(role: ProjectRole, can: Action[], over: Partial<Me['access']> = {}): Me {
   return { ...me, user: { username: 'mara', role: 'member' }, access: { projectId: 'p2345abcde', role, servers: { servers: ['abcdefghjk', 'bcdefghjkm'] }, twoFactor: false, can, ...over } }
 }
+
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
 
 let root: Root | undefined
 
@@ -486,5 +489,44 @@ describe('Invite page', () => {
     expect(text).toContain('Wait a few minutes, then try again.')
     await click(button('Try again'))
     expect(page()).toContain('You’re invited to Survival')
+  })
+})
+
+describe('Player profile', () => {
+  it('shows who a player is, how they got in and what a moderator can do', async () => {
+    const profile: PlayerProfile = {
+      name: 'mara_k',
+      uuid: '0f3a6c2e9b1d4e7fa2c5b8d1e4f7a0c3',
+      online: true,
+      onlineSince: hoursAgo(0.5),
+      allowlisted: true,
+      operator: false,
+      firstSeen: '2026-09-20T18:00:00Z',
+      sessions: 12,
+      playtimeSeconds: 14 * 3600 + 20 * 60,
+      longestSeconds: 3 * 3600 + 5 * 60,
+      tz: 'UTC',
+      days: [],
+      recent: [],
+      joined: { key: 'invite.origin.link', params: { link: 'Discord crew' }, text: 'Joined with the Discord crew link', at: '2026-09-20T18:00:00Z' },
+    }
+    answer({ '/players/profile': profile })
+    const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(client.get).toHaveBeenCalledWith(expect.stringContaining('/api/servers/abcdefghjk/players/profile?name=mara_k&tz='))
+    expect(text).toContain('On the allowlist')
+    expect(text).toContain(`Joined with the Discord crew link on ${formatDate('2026-09-20T18:00:00Z')}`)
+    expect(text).toContain(formatDuration(profile.playtimeSeconds))
+    expect(text).toContain('12')
+    expect(buttons('Send a message')).toHaveLength(1)
+    expect(buttons('Kick')).toHaveLength(1)
+    const viewer = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('viewer', ['view', 'account.manage']) }))
+    expect(viewer).toContain('On the allowlist')
+    expect(buttons('Send a message')).toHaveLength(0)
+    expect(buttons('Kick')).toHaveLength(0)
+  })
+
+  it('says when there is no such player', async () => {
+    answer({ '/players/profile': new client.ApiError(404, { error: 'No player called Nobody.', code: 'player_not_found' }) })
+    expect(await render(<PlayerProfilePage server={server()} name="Nobody" />)).toContain('No player called Nobody on Survival.')
   })
 })
