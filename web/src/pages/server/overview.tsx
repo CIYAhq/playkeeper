@@ -10,6 +10,7 @@ import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace } from '@/com
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { PlayersChart } from '@/components/app/players-chart'
+import { SignInNotice } from '@/components/app/sign-in-notice'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
@@ -37,6 +38,7 @@ function Running({ server: s }: { server: ServerStatus }) {
   const { servers } = useWorkspace()
   return (
     <>
+      {phone && <SignInNotice />}
       <ServerNotices server={s} />
       <FirstStepsCard server={s} phone={phone} onBackup={() => void serverAction(s, 'backups')} />
       <div className="grid gap-4 lg:grid-cols-3">

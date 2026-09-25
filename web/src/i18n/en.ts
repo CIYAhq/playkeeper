@@ -922,6 +922,13 @@ export const en = {
   'signin.blockedNoRecovery': 'No recovery codes are left. On the VPS run <code>{command}</code>.',
   'code.digit': 'Digit {n} of {total}',
 
+  // The one notice after signing in
+  'signinNotice.wrongCodes': { one: 'Someone entered a wrong code once since you last signed in', other: 'Someone entered a wrong code {count} times since you last signed in' },
+  'signinNotice.wrongCodesBody': { one: 'Your password was right, so change it if that wasn’t you.', other: 'Your password was right each time, so change it if that wasn’t you.' },
+  'signinNotice.itWasMe': 'It was me',
+  'signinNotice.codesLeft': { zero: 'No recovery codes left', one: '1 recovery code left', other: '{count} recovery codes left' },
+  'signinNotice.goToAccount': 'Go to Account',
+
   // Machine page
   'machine.lead': 'The computer Playkeeper runs on · {os} · {cpus} vCPU · {memory} memory · {disk} disk',
   'machine.resources': 'Resources',

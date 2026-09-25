@@ -3,8 +3,8 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
-import { WorkspaceContext, type Workspace } from '@/api/workspace'
+import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, SignInNotice } from '@/api/types'
+import { WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
@@ -93,6 +93,8 @@ function workspace(over: Partial<Workspace> = {}): Workspace {
     setLastSlug: () => {},
     signOut: async () => {},
     reloadMe: async () => {},
+    signInNotice: undefined,
+    dismissSignInNotice: () => {},
     ...over,
   }
 }
@@ -156,6 +158,82 @@ describe('Home', () => {
     expect(text).toContain('Survival')
     expect(text).toContain('No live status')
     expect(text).not.toContain('3 playing')
+  })
+})
+
+describe('The notice after signing in', () => {
+  const wrongCodes: SignInNotice = { kind: 'failed_attempts', count: 3, text: '' }
+  const codesLow: SignInNotice = { kind: 'recovery_codes_low', count: 2, text: '' }
+  const signedIn = (notices: SignInNotice[]) => (
+    <WorkspaceProvider me={{ ...me, notices }} onMe={() => {}} onSignedOut={() => {}}>
+      <HomePage />
+    </WorkspaceProvider>
+  )
+  const control = (name: string) => {
+    const found = [...document.querySelectorAll<HTMLElement>('button, a')].find((el) => el.getAttribute('aria-label') === name || el.textContent === name)
+    if (!found) throw new Error(`no control named ${name}`)
+    return found
+  }
+  const click = (el: HTMLElement) => act(async () => el.click())
+  const shown = () => document.body.textContent ?? ''
+
+  it('says wrong codes first, then the recovery codes left, one at a time', async () => {
+    await render(signedIn([{ kind: 'recovery_code_used', count: 2, text: '' }, codesLow, wrongCodes]))
+    expect(shown()).toContain('Someone entered a wrong code 3 times since you last signed in')
+    expect(shown()).toContain('Your password was right each time, so change it if that wasn’t you.')
+    expect(shown()).not.toContain('recovery codes left')
+    await click(control('It was me'))
+    expect(shown()).not.toContain('wrong code')
+    expect(shown()).toContain('2 recovery codes left')
+    expect(control('Go to Account').getAttribute('href')).toBe('/account')
+    await click(control('Dismiss'))
+    expect(shown()).not.toContain('recovery codes left')
+  })
+
+  it('opens the password dialog from Change password, which dismisses it', async () => {
+    await render(signedIn([wrongCodes]))
+    const link = control('Change password')
+    expect(link.getAttribute('href')).toBe('/account#password')
+    await click(link)
+    expect(window.location.pathname + window.location.hash).toBe('/account#password')
+    expect(shown()).not.toContain('wrong code')
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('reads naturally for one wrong code and for no codes left', async () => {
+    const one = await render(<HomePage />, workspace({ signInNotice: { kind: 'failed_attempts', count: 1, text: '' } }))
+    expect(one).toContain('Someone entered a wrong code once since you last signed in')
+    expect(one).toContain('Your password was right, so change it if that wasn’t you.')
+    expect(await render(<HomePage />, workspace({ signInNotice: { kind: 'no_recovery_codes', count: 0, text: '' } }))).toContain('No recovery codes left')
+  })
+
+  it('comes before low disk space but not before the agent not answering', async () => {
+    const diskWarning = { id: 'disk', label: 'Disk space', status: 'warn' as const, detail: 'Only 3 GB free.', fix: 'Free some disk space.' }
+    const low = await render(<HomePage />, workspace({ signInNotice: codesLow, machine: { ...machine, live: machine.live && { ...machine.live, diskWarning } } }))
+    expect(low).toContain('2 recovery codes left')
+    expect(low).not.toContain('Low disk space')
+    const down = await render(<HomePage />, workspace({ signInNotice: codesLow, agentDown: true, stale: true }))
+    expect(down).toContain('Playkeeper can’t see your servers right now')
+    expect(down).not.toContain('recovery codes left')
+  })
+
+  it('is a card above the join address on a phone’s Overview, and not on a computer’s', async () => {
+    expect(await render(<Overview server={server()} />, workspace({ signInNotice: wrongCodes }))).not.toContain('wrong code')
+    const real = window.matchMedia.bind(window)
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => {
+      const list = real(query)
+      if (query === '(max-width: 639px)') Object.defineProperty(list, 'matches', { value: true })
+      return list
+    })
+    try {
+      const text = await render(<Overview server={server()} />, workspace({ signInNotice: wrongCodes }))
+      expect(text.indexOf('Someone entered a wrong code 3 times')).toBeGreaterThanOrEqual(0)
+      expect(text.indexOf('Someone entered a wrong code 3 times')).toBeLessThan(text.indexOf('Join address'))
+      expect(control('It was me').tagName).toBe('BUTTON')
+      expect(control('Change password').getAttribute('href')).toBe('/account#password')
+    } finally {
+      phone.mockRestore()
+    }
   })
 })
 

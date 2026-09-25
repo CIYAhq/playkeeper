@@ -10,6 +10,7 @@ import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, Playe
 import { EmptySteps } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
+import { SignInNotice } from '@/components/app/sign-in-notice'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
@@ -64,7 +65,7 @@ export function HomePage() {
     <>
       <PageHeader title={t('home.title')} subtitle={subtitle} actions={newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
-        <MachineNotice />
+        <HomeNotice />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {(servers ?? []).map((s) => (
             <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
@@ -87,11 +88,12 @@ export function HomePage() {
   )
 }
 
-/** One line about the machine when something needs attention: the agent, or disk space. */
-function MachineNotice() {
+/** At most one notice: the agent not answering, what to know after signing in, or disk space. */
+function HomeNotice() {
   const ws = useWorkspace()
   const disk = ws.machine?.live?.diskWarning
   if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.note')}</Notice>
+  if (ws.signInNotice) return <SignInNotice />
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   return null
 }
