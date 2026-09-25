@@ -1169,6 +1169,7 @@ export const en = {
   'creating.packFiles': '{done} of {total} files · each one checked',
   // Wave 4: templates
   'template.menu': 'Share as a template',
+  'more.templateHint': 'A link or file to make the same server',
   'template.title': 'Share {server} as a template',
   'template.exportError': 'Couldn’t make the template',
   'template.included': 'What’s included',
