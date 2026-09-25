@@ -505,12 +505,12 @@ func newNotice(kind NoticeKind, count int) Notice {
 	case NoticeRecoveryCodeUsed:
 		n.Text = "You signed in with a recovery code. It will not work again."
 	case NoticeRecoveryCodesLow:
-		n.Text = fmt.Sprintf("Only %d recovery codes are left. Make new ones in Settings.", count)
+		n.Text = fmt.Sprintf("Only %d recovery codes are left. Make new ones on the Account page.", count)
 		if count == 1 {
-			n.Text = "Only 1 recovery code is left. Make new ones in Settings."
+			n.Text = "Only 1 recovery code is left. Make new ones on the Account page."
 		}
 	case NoticeNoRecoveryCodes:
-		n.Text = "No recovery codes are left. Make new ones in Settings, so you can still sign in if you lose your phone."
+		n.Text = "No recovery codes are left. Make new ones on the Account page, so you can still sign in if you lose your phone."
 	}
 	return n
 }

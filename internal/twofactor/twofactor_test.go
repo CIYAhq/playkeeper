@@ -385,8 +385,8 @@ func TestNoticesAsRecoveryCodesRunOut(t *testing.T) {
 		n    Notice
 		text string
 	}{
-		{newNotice(NoticeRecoveryCodesLow, 1), "Only 1 recovery code is left. Make new ones in Settings."},
-		{newNotice(NoticeRecoveryCodesLow, 3), "Only 3 recovery codes are left. Make new ones in Settings."},
+		{newNotice(NoticeRecoveryCodesLow, 1), "Only 1 recovery code is left. Make new ones on the Account page."},
+		{newNotice(NoticeRecoveryCodesLow, 3), "Only 3 recovery codes are left. Make new ones on the Account page."},
 		{newNotice(NoticeFailedAttempts, 1), "A wrong code was entered once since your last sign-in. If that was not you, change your password: someone knows it."},
 	} {
 		if tc.n.Text != tc.text {
