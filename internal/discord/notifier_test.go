@@ -632,6 +632,9 @@ func TestTokenNeverLeaksIntoErrorsOrLogs(t *testing.T) {
 		}
 		out = append(out, err.Error(), fmt.Sprintf("%+v %#v", e, e))
 	}
+	if strings.Contains(errs[0].Error(), "/api/") || !strings.HasPrefix(errs[0].Error(), "Playkeeper could not reach Discord (dial tcp ") {
+		t.Errorf("the message gives the network error without repeating the request URL: %v", errs[0])
+	}
 	if !strings.Contains(errs[1].Error(), testID+"/[redacted]") {
 		t.Errorf("the network error is kept, with the token redacted: %v", errs[1])
 	}
