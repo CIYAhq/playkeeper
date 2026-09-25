@@ -151,10 +151,6 @@ export function usePhoneServer(): ServerStatus | undefined {
 export const serverApi = (id: string, rest = '') => `/api/servers/${id}${rest}`
 export const machineApi = (id: string, rest = '') => `/api/machines/${id}${rest}`
 
-export function isApiError(e: unknown): e is ApiError {
-  return e instanceof ApiError
-}
-
 /** A readable message for any error an API call throws. */
 export function errorText(e: unknown): string {
   return e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)

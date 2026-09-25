@@ -96,10 +96,10 @@ export function opLabel(op: Operation, server: string): string {
   return t(opKeys[op.kind] ?? 'op.other', { server })
 }
 
-/** The steps shown while a server is created, and which one a phase is in. */
-export const createSteps = ['check', 'download', 'start', 'reachable'] as const
-export type CreateStep = (typeof createSteps)[number]
-
+/**
+ * Which of the setup steps (checked, downloaded, starting, reachable) a
+ * server's phase is in.
+ */
 export function createStepOf(phase: string): number {
   switch (phase) {
     case '':

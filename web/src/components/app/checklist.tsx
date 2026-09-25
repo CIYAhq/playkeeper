@@ -7,9 +7,9 @@ import { Progress, SectionLabel } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
 import { checklist, complete, progress, type Step, type StepId } from '@/lib/checklist'
-import { formatDay, relativeTime } from '@/lib/format'
+import { relativeTime } from '@/lib/format'
 import { isSettingUp } from '@/lib/phase'
-import { linkProps, navigate, type Route } from '@/lib/router'
+import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
 export function hiddenKey(server: ServerStatus | undefined): string {
@@ -332,15 +332,4 @@ function emptyHint(id: StepId): string {
       return unreachable
     }
   }
-}
-
-/** A friend's first join, for the Players page's empty steps. */
-export function joinedLine(server: ServerStatus): string | undefined {
-  const fs = server.firstSteps
-  return fs.friendJoined && fs.friendJoinedAt ? t('checklist.joinedDone', { name: fs.friendJoined, time: formatDay(fs.friendJoinedAt) }) : undefined
-}
-
-/** After a step's action, go where it is done. */
-export function goToStep(id: StepId, server: ServerStatus | undefined) {
-  navigate(stepRoute(id, server))
 }
