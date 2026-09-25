@@ -33,8 +33,8 @@ type Publish struct {
 	Protocol string `json:"protocol"`
 }
 
-// String is "24454/udp": Docker's name for the container port (the key in
-// ExposedPorts and PortBindings) and the ufw rule that allows it.
+// String is "24454/udp": Docker's name for the container port, the key in
+// ExposedPorts and PortBindings.
 func (p Publish) String() string { return strconv.Itoa(p.Port) + "/" + p.Protocol }
 
 // VoiceChat is Simple Voice Chat's setup on one server.
@@ -44,8 +44,9 @@ type VoiceChat struct {
 	// Config is the settings file written, inside the server's data
 	// directory.
 	Config string `json:"config"`
-	// Publish is the port the server's container must publish. When ufw is
-	// active, the caller also allows Publish.String() in it.
+	// Publish is the port the server's container must publish. That is all
+	// the machine needs: Docker's published ports bypass ufw. A firewall at
+	// the hosting provider is left to the owner (Steps).
 	Publish Publish `json:"publish"`
 	// Steps are left for the owner and the players.
 	Steps []addons.Notice `json:"steps"`
