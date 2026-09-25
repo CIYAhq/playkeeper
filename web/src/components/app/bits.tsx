@@ -5,6 +5,7 @@ import { Button, type ButtonProps } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { relativeTime } from '@/lib/format'
+import { awayShort } from '@/lib/machines'
 import { isSettingUp, opLabel, phaseLabel, phaseTone, type Tone } from '@/lib/phase'
 import { cn } from '@/lib/utils'
 
@@ -76,8 +77,27 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
   }
 }
 
-export function StatusPill({ server, agentDown = false, elapsed, showDetail = true, onChalk = false, className }: { server: ServerStatus | undefined; agentDown?: boolean; elapsed?: string; showDetail?: boolean; onChalk?: boolean; className?: string }) {
-  const s = serverState(server, agentDown)
+export function StatusPill({
+  server,
+  agentDown = false,
+  away,
+  elapsed,
+  showDetail = true,
+  onChalk = false,
+  className,
+}: {
+  server: ServerStatus | undefined
+  agentDown?: boolean
+  /** The machine the server runs on can't be reached: its name, and when it was last heard. */
+  away?: { name: string; since?: string }
+  elapsed?: string
+  showDetail?: boolean
+  onChalk?: boolean
+  className?: string
+}) {
+  const s = away
+    ? { tone: 'unknown' as const, label: t('machines.away.pill', { name: away.name }), detail: away.since ? awayShort(away.since, Date.now()) : undefined, labelClass: 'text-foreground' }
+    : serverState(server, agentDown)
   const labelClass = onChalk ? s.labelClass.replace('text-success-foreground', 'text-success-strong') : s.labelClass
   return (
     <span className={cn('inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full border border-border bg-white px-2.5 text-[13px] font-semibold', className)}>

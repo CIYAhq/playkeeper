@@ -381,7 +381,7 @@ function ConnectedCard({ id, fallbackName }: { id: string; fallbackName: string 
 
 /** "12 Sep at 16:40 by siya, from 203.0.113.24". */
 function addedText(m: MachineView): string {
-  if (!m.joinedAt) return '—'
+  if (!m.joinedAt) return t('common.none')
   const when = t('machines.fact.when', { date: formatDate(m.joinedAt), time: formatClock(m.joinedAt) })
   if (m.addedBy && m.joinedFrom) return t('machines.fact.addedFull', { when, actor: m.addedBy, address: m.joinedFrom })
   if (m.addedBy) return t('machines.fact.addedBy', { when, actor: m.addedBy })
@@ -492,13 +492,13 @@ export function MachineDetailsSection({ id }: { id: string }) {
       <Card aria-label={name} className="py-1">
         <dl className="flex flex-col">
           <Fact label={t('machines.fact.fingerprint')}>
-            <span className="font-semibold tracking-wide">{link?.fingerprint ? groupFingerprint(link.fingerprint) : '—'}</span>
+            <span className="font-semibold tracking-wide">{link?.fingerprint ? groupFingerprint(link.fingerprint) : t('common.none')}</span>
             <span className="block text-xs text-muted-foreground">{t('machines.fact.compare', { name })}</span>
           </Fact>
           <Fact label={t('machines.fact.added')}>{addedText(m)}</Fact>
-          <Fact label={t('machines.fact.version')}>{version ?? '—'}</Fact>
-          <Fact label={t('machines.fact.dials')}>{m.dials || '—'}</Fact>
-          <Fact label={t('machines.fact.system')}>{systemLine(m.live, servers.length ? t('machines.fact.runs', { servers: formatList(servers.map((s) => s.name)) }) : '') || '—'}</Fact>
+          <Fact label={t('machines.fact.version')}>{version ?? t('common.none')}</Fact>
+          <Fact label={t('machines.fact.dials')}>{m.dials || t('common.none')}</Fact>
+          <Fact label={t('machines.fact.system')}>{systemLine(m.live, servers.length ? t('machines.fact.runs', { servers: formatList(servers.map((s) => s.name)) }) : '') || t('common.none')}</Fact>
         </dl>
       </Card>
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
