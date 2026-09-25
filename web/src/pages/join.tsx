@@ -165,8 +165,8 @@ function JoinSkeleton() {
         </div>
       </div>
       <Skeleton className="mt-6 h-3.5 w-32" />
-      <Skeleton className="mt-2 h-9 w-full rounded-lg max-sm:h-11" />
-      <Skeleton className="mt-5 h-9 w-full rounded-lg max-sm:h-12" />
+      <Skeleton className="mt-2 h-11 w-full rounded-lg" />
+      <Skeleton className="mt-5 h-10 w-full rounded-lg max-sm:h-12" />
     </JoinCard>
   )
 }
@@ -260,7 +260,7 @@ function FriendJoin({ code, preview, onRefused }: { code: string; preview: Playe
           <label htmlFor="join-name" className="text-[13px] font-medium max-sm:text-[15px]">
             {t('join.nameLabel')}
           </label>
-          <InputGroup className="max-sm:h-11">
+          <InputGroup className="h-11">
             <InputGroupAddon>
               <UserRoundIcon aria-hidden="true" />
             </InputGroupAddon>
@@ -287,7 +287,7 @@ function FriendJoin({ code, preview, onRefused }: { code: string; preview: Playe
             <Problem error={problem} id="join-name-problem" />
           ) : lookup.status === 'found' ? (
             <div className="flex items-center gap-3 rounded-2xl bg-warm p-2.5 animate-in fade-in-0 slide-in-from-top-1 max-sm:p-3">
-              <Face candidate={lookup.candidate} size={phone ? 40 : 36} />
+              <Face candidate={lookup.candidate} size={40} />
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold max-sm:text-[15px]">{t('join.isThisYou')}</p>
                 <p className="truncate text-xs text-muted-foreground max-sm:text-[13px]">{lookup.candidate.name}</p>
@@ -296,7 +296,7 @@ function FriendJoin({ code, preview, onRefused }: { code: string; preview: Playe
           ) : lookup.status === 'checking' ? (
             <div className="flex items-center gap-3 rounded-2xl bg-warm p-2.5 max-sm:p-3" aria-busy="true">
               <span className="sr-only">{t('join.lookingUp', { name: lookup.name })}</span>
-              <Skeleton className="size-9 rounded-lg max-sm:size-10" />
+              <Skeleton className="size-10 rounded-lg" />
               <div className="flex-1">
                 <Skeleton className="h-3.5 w-24" />
                 <Skeleton className="mt-1.5 h-3 w-16" />
@@ -304,7 +304,7 @@ function FriendJoin({ code, preview, onRefused }: { code: string; preview: Playe
             </div>
           ) : null}
         </div>
-        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={lookup.status !== 'found'} className="w-full">
+        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={lookup.status !== 'found'} className="w-full sm:h-10">
           {preview.approval === 'after_yes' ? t('join.askToJoin', { server: preview.server }) : t('join.addMe', { server: preview.server })}
         </Button>
       </form>
@@ -414,7 +414,7 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
           <label htmlFor="join-username" className="text-[13px] font-medium max-sm:text-[15px]">
             {t('join.username')}
           </label>
-          <InputGroup className="max-sm:h-11">
+          <InputGroup className="h-11">
             <InputGroupAddon>
               <UserRoundIcon aria-hidden="true" />
             </InputGroupAddon>
@@ -437,7 +437,7 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
           </InputGroup>
           {nameProblem && <Problem error={nameProblem} id="join-username-problem" />}
         </div>
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 [&_[data-slot=input-group]]:h-11">
           <PasswordField
             id="join-password"
             label={t('join.password')}
@@ -454,7 +454,7 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
           <label htmlFor="join-again" className="text-[13px] font-medium max-sm:text-[15px]">
             {t('join.passwordAgain')}
           </label>
-          <InputGroup className="max-sm:h-11">
+          <InputGroup className="h-11">
             <InputGroupAddon>
               <KeyRoundIcon aria-hidden="true" />
             </InputGroupAddon>
@@ -477,7 +477,7 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
           )}
         </div>
         {otherProblem && <Problem error={otherProblem} />}
-        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={!ready} className="w-full">
+        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={!ready} className="w-full sm:h-10">
           {t('join.joinAs', { role })}
         </Button>
       </form>
