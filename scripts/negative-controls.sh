@@ -290,7 +290,7 @@ control "game files: opening a named pipe does not wait" internal/gamefiles/game
   ./internal/gamefiles '^TestFilesSwappedAfterTheCheckAreRefused$'
 control "game files: the opened file is the one checked" internal/gamefiles/gamefiles.go \
   'if err == nil && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
-  'if false {' \
+  'if false && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
   ./internal/gamefiles '^TestFilesSwappedAfterTheCheckAreRefused$'
 control "game files: reads are capped" internal/gamefiles/gamefiles.go \
   'if int64(len(b)) > limit {' \
@@ -314,7 +314,7 @@ control "game files: the temporary file is always a new one" internal/gamefiles/
   ./internal/gamefiles '^TestTheTemporaryFileIsAlwaysANewOne$'
 control "game files: a new folder is given to the game through its own handle" internal/gamefiles/gamefiles.go \
   'if err == nil && (!st.IsDir() || !os.SameFile(fi, st)) {' \
-  'if false {' \
+  'if false && (!st.IsDir() || !os.SameFile(fi, st)) {' \
   ./internal/gamefiles '^TestNewFoldersAreGivenToTheGameThroughTheirOwnHandle$'
 control "game files: folder listings are capped" internal/gamefiles/gamefiles.go \
   'if len(es) > limit {' \
