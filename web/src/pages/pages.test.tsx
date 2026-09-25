@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Crash, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
+import type { Backup, Crash, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -13,6 +13,7 @@ import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
+import { WorldPage } from './server/world'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -122,6 +123,16 @@ async function render(node: ReactNode, ws: Workspace = workspace()): Promise<str
   await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{node}</WorkspaceContext.Provider>))
   await act(async () => {})
   return document.body.textContent ?? ''
+}
+
+/** The POSTs made so far, as [path under the server, body]. */
+const posts = () => vi.mocked(client.post).mock.calls.map(([path, body]) => [path.replace(/^.*\/servers\/[^/]+/, ''), body])
+
+async function press(text: string) {
+  const b = [...document.querySelectorAll('button')].find((x) => x.textContent?.includes(text))
+  if (!b) throw new Error(`no button "${text}"`)
+  await act(async () => b.click())
+  await act(async () => {})
 }
 
 beforeAll(() => {
@@ -414,6 +425,92 @@ describe('Settings › Memory', () => {
   })
 })
 
+describe('Backups with players online', () => {
+  const backup = (over: Partial<Backup> = {}): Backup => ({
+    id: 'b1',
+    serverId: 'abcdefghjk',
+    kind: 'manual',
+    createdAt: new Date().toISOString(),
+    fileName: 'survival-2026-09-25-1847.tar.gz',
+    sizeBytes: 312 * 2 ** 20,
+    sha256: 'a'.repeat(64),
+    location: 'local',
+    verified: true,
+    downtimeMs: 0,
+    method: 'online_copy',
+    savingPausedMs: 1800,
+    durationMs: 17_400,
+    minecraftVersion: '26.1.2',
+    levelName: 'world',
+    fileCount: 2114,
+    createdBy: 'siya',
+    note: 'Before the nether trip',
+    ...over,
+  })
+  const older = backup({ id: 'b0', method: 'stopped', downtimeMs: 14_000, durationMs: 16_000, fileCount: 1902, note: undefined, createdAt: '2026-09-22T20:30:00Z' })
+  const since = new Date()
+  since.setHours(18, 47, 0, 0)
+
+  it('says players stay online and how long the last one took', async () => {
+    answer({ '/backups': [backup(), older] })
+    const text = await render(<WorldPage server={server()} />)
+    expect(text).toContain('Players stay online. It takes about 20 seconds.')
+    expect(text).toContain('Manual · no downtime · 2,114 files')
+    expect(text).toContain('Manual · 14 s offline · 1,902 files')
+    expect(text).toContain('Stored on this VPS. Download one to keep it safe.')
+    expect(text).toContain('Your current world is saved first, so you can undo.')
+    expect(text).not.toContain('World saving is paused')
+  })
+
+  it('makes the first backup without a warning in chat', async () => {
+    answer({ '/backups': [] })
+    const text = await render(<WorldPage server={server({ players: { online: 2, max: 10, names: ['mara_k', 'tobi2009'], source: 'rcon list', at: '' } })} />)
+    expect(text).toContain('About 15 seconds. Players stay online.')
+    expect(text).not.toContain('heads-up')
+    expect(await render(<Overview server={server()} />)).toContain('Make your first backupTakes about 15 s.')
+  })
+
+  it('says when world saving is paused, with the console and a way to turn it back on', async () => {
+    vi.mocked(client.post).mockClear()
+    answer({ '/backups': [backup()] })
+    const text = await render(<WorldPage server={server({ savingPausedSince: since.toISOString() })} />)
+    expect(text).toContain('World saving is paused')
+    expect(text).toContain('If Survival stops unexpectedly, progress since 18:47 could be lost.')
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent === 'Open console')
+    expect(link?.getAttribute('href')).toBe('/servers/survival/console')
+    await press('Turn saving back on')
+    expect(posts()).toEqual([['/saving/resume', undefined]])
+  })
+
+  it('offers a backup with the server stopped when the console couldn’t take one', async () => {
+    vi.mocked(client.post).mockClear()
+    answer({ '/backups': [backup()] })
+    const timeout: Operation = { ...failed('backup', 'saving', 'The server didn’t confirm the save within 1m0s.', { errorKind: 'save_timeout', timeoutMs: 60_000 }), hint: 'Try again, or back up with the server stopped.' }
+    const text = await render(<WorldPage server={server({ lastOperation: timeout })} />)
+    expect(text).toContain('Backing up Survival failed: The server didn’t confirm the save within 1m0s.')
+    await press('Stop and back up')
+    expect(posts()).toEqual([['/backups', { stopped: true }]])
+  })
+
+  it('leaves a backup refused for space to its own advice', async () => {
+    answer({ '/backups': [backup()] })
+    const space = failed('backup', '', 'Not enough disk space for a backup.', { errorKind: 'insufficient_space', neededBytes: 2 ** 30 })
+    const text = await render(<WorldPage server={server({ lastOperation: space, resources: { diskFreeBytes: 400 * 2 ** 20, at: new Date().toISOString() } })} />)
+    expect(text).toContain('Backing up Survival failed')
+    expect(text).not.toContain('Stop and back up')
+  })
+
+  it('puts world saving paused first on the Overview, and drops its failure once saving is back on', async () => {
+    const paused = failed('backup', '', 'World saving is still paused, and turning it back on failed. No backup was saved.', { errorKind: 'saving_paused', savingPaused: true })
+    const text = await render(<Overview server={server({ lastOperation: paused, savingPausedSince: since.toISOString() })} />)
+    expect(text).toContain('If Survival stops unexpectedly, progress since 18:47 could be lost.')
+    expect(text).not.toContain('Backing up Survival failed')
+    const after = await render(<Overview server={server({ lastOperation: paused })} />)
+    expect(after).not.toContain('World saving is')
+    expect(after).not.toContain('Backing up Survival failed')
+  })
+})
+
 describe('Crash helper', () => {
   const crash = (over: Partial<Crash>): Crash => ({
     at: new Date(Date.now() - 120_000).toISOString(),
@@ -442,14 +539,7 @@ describe('Crash helper', () => {
     ],
   })
 
-  const posts = () => vi.mocked(client.post).mock.calls.map(([path, body]) => [path.replace(/^.*\/servers\/[^/]+/, ''), body])
   const labelled = (text: string) => [...document.querySelectorAll('label')].find((l) => l.textContent?.includes(text))
-  async function press(text: string) {
-    const b = [...document.querySelectorAll('button')].find((x) => x.textContent?.includes(text))
-    if (!b) throw new Error(`no button "${text}"`)
-    await act(async () => b.click())
-    await act(async () => {})
-  }
 
   it('offers more memory after running out of it, and saves it before starting', async () => {
     vi.mocked(client.post).mockClear()

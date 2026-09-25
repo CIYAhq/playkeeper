@@ -8,6 +8,7 @@ import { Pip } from '@/components/app/art'
 import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
+import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
 import { PlayersChart } from '@/components/app/players-chart'
 import { RestoreDialog } from '@/components/app/restore'
 import { JobSteps, type StepState } from '@/components/app/update'
@@ -17,7 +18,7 @@ import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, phoneLines, preselect } from '@/lib/crash'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
-import { createStepOf, isSettingUp, opLabel, statusTone } from '@/lib/phase'
+import { createStepOf, failedJob, isSettingUp, statusTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { formatTPS } from '@/lib/running'
 import { typeName } from '@/lib/servers'
@@ -63,44 +64,20 @@ function Running({ server: s }: { server: ServerStatus }) {
   )
 }
 
-const recentMs = 15 * 60_000
-
-/** Whether what a failed job wanted has happened since, so its notice can go. */
-function recovered(s: ServerStatus): boolean {
-  const op = s.lastOperation
-  if (!op) return true
-  if (['create', 'start', 'restart', 'recover', 'auto-restart'].includes(op.kind)) return s.phase === 'online'
-  const needed = op.detail?.neededBytes
-  if (op.kind === 'backup' && typeof needed === 'number') return (s.resources?.diskFreeBytes ?? 0) >= needed
-  return false
-}
-
-/** One quiet line at a time: test mode, Docker, a failed job, or settings waiting for a restart. */
+/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, or settings waiting for a restart. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
   const { stale, machine } = useWorkspace()
   const [dismissed, setDismissed] = useState<string>()
   const [busy, setBusy] = useState(false)
   if (stale) return null
-  const last = s.lastOperation
   if (s.offlineModeTest) return <Notice tone="error" title={t('error.notice')}>{t('error.noticeBody')}</Notice>
   if (s.phase === 'docker_unavailable') return <Notice tone="warning" title={s.lastError ?? t('status.docker')}>{s.lastErrorHint}</Notice>
+  if (s.savingPausedSince) return <SavingPausedNotice server={s} />
   const disk = machine?.live?.diskWarning
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
-  if (last && last.status === 'failed' && last.finishedAt && Date.now() - new Date(last.finishedAt).getTime() < recentMs && dismissed !== last.id && !recovered(s)) {
-    return (
-      <Notice
-        tone="error"
-        title={`${t('op.failed', { what: opLabel(last, s.name) })}: ${last.error ?? ''}`}
-        action={
-          <Button variant="ghost" size="sm" onClick={() => setDismissed(last.id)}>
-            {t('common.dismiss')}
-          </Button>
-        }
-      >
-        {last.hint}
-      </Notice>
-    )
-  }
+  const failed = failedJob(s)
+  if (failed && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} />
+
   if (s.pendingRestart && s.phase === 'online') {
     return (
       <Notice

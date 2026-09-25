@@ -218,13 +218,13 @@ export function SectionLabel({ children, className }: { children: ReactNode; cla
 }
 
 /** A notice is inline text: a bold title, a muted line and maybe one action. Never a box. */
-export function Notice({ title, children, action, tone = 'default', className }: { title: ReactNode; children?: ReactNode; action?: ReactNode; tone?: 'default' | 'warning' | 'error'; className?: string }) {
+export function Notice({ title, children, action, tone = 'default', stacked, className }: { title: ReactNode; children?: ReactNode; action?: ReactNode; tone?: 'default' | 'warning' | 'error'; stacked?: boolean; className?: string }) {
   const titleColor = { default: 'text-foreground', warning: 'text-warning-foreground', error: 'text-destructive-foreground' }[tone]
   return (
     <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-2', className)} role={tone === 'error' ? 'alert' : 'status'}>
       <p className="min-w-0 flex-1 text-[13px] leading-5">
-        <strong className={cn('font-semibold', titleColor)}>{title}</strong>
-        {children && <span className="text-muted-foreground"> {children}</span>}
+        <strong className={cn('font-semibold', titleColor, stacked && 'block')}>{title}</strong>
+        {children && <span className={cn('text-muted-foreground', stacked && 'block text-xs leading-[18px]')}>{stacked ? children : <> {children}</>}</span>}
       </p>
       {action}
     </div>

@@ -109,6 +109,24 @@ export function opLabel(op: Operation, server: string): string {
   return t(opKeys[op.kind] ?? 'op.other', { server })
 }
 
+const recentMs = 15 * 60_000
+
+/** Whether what a failed job wanted has happened since, so its notice can go. */
+function recovered(s: ServerStatus, op: Operation): boolean {
+  if (['create', 'start', 'restart', 'recover', 'auto-restart'].includes(op.kind)) return s.phase === 'online'
+  if (op.kind !== 'backup') return false
+  const needed = op.detail?.neededBytes
+  if (typeof needed === 'number') return (s.resources?.diskFreeBytes ?? 0) >= needed
+  return op.detail?.errorKind === 'saving_paused' && !s.savingPausedSince
+}
+
+/** The last job, if it failed in the last 15 minutes and nothing has put it right since. */
+export function failedJob(s: ServerStatus, now = Date.now()): Operation | undefined {
+  const op = s.lastOperation
+  if (!op || op.status !== 'failed' || !op.finishedAt || now - new Date(op.finishedAt).getTime() >= recentMs) return undefined
+  return recovered(s, op) ? undefined : op
+}
+
 /**
  * Which of the setup steps (checked, downloaded, starting, reachable) a
  * server's phase is in.
