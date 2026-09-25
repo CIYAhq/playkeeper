@@ -17,6 +17,7 @@
 package invites
 
 import (
+	"cmp"
 	"crypto/rand"
 	"fmt"
 	"log/slog"
@@ -39,16 +40,58 @@ const (
 
 // Limits on what an invite's creator may choose.
 const (
-	DefaultPlayerTTL  = 7 * 24 * time.Hour
-	MaxPlayerTTL      = 30 * 24 * time.Hour
-	DefaultPlayerUses = 10
+	DefaultPlayerUses = 5
 	MaxPlayerUses     = 100
-	// A member invite hands out access to run servers, so it is short-lived
-	// and works once.
-	DefaultMemberTTL = 2 * 24 * time.Hour
-	MaxMemberTTL     = 7 * 24 * time.Hour
-	MinTTL           = 10 * time.Minute
-	MaxLabelRunes    = 64
+	// A member invite hands out access to run servers, so it works once and
+	// for a fixed time.
+	MemberLifetime = 7 * 24 * time.Hour
+	MaxLabelRunes  = 64
+)
+
+// Expiry is how long a friend invite works, as its creator chooses.
+type Expiry string
+
+const (
+	ExpiryOneDay     Expiry = "1d"
+	ExpirySevenDays  Expiry = "7d"
+	ExpiryThirtyDays Expiry = "30d"
+	// ExpiryUntilTurnedOff never expires. The invite still stops when it is
+	// turned off or used up.
+	ExpiryUntilTurnedOff Expiry = "until_turned_off"
+	DefaultExpiry               = ExpirySevenDays
+)
+
+// Expiries lists the choices in the order the create dialog shows them.
+func Expiries() []Expiry {
+	return []Expiry{ExpiryOneDay, ExpirySevenDays, ExpiryThirtyDays, ExpiryUntilTurnedOff}
+}
+
+// lifetime is how long an invite made with e works, 0 meaning until it is
+// turned off.
+func (e Expiry) lifetime() (time.Duration, bool) {
+	switch e {
+	case ExpiryOneDay:
+		return 24 * time.Hour, true
+	case ExpirySevenDays:
+		return 7 * 24 * time.Hour, true
+	case ExpiryThirtyDays:
+		return 30 * 24 * time.Hour, true
+	case ExpiryUntilTurnedOff:
+		return 0, true
+	}
+	return 0, false
+}
+
+// Approval is when a friend invite lets people in.
+type Approval string
+
+const (
+	// RightAway adds a friend to the whitelist as soon as their name checks
+	// out.
+	RightAway Approval = "right_away"
+	// AfterYes makes a join request instead, which someone who can let
+	// players in approves or declines.
+	AfterYes Approval = "after_yes"
 )
 
 // Invite is one invite as the panel stores it: one row of its invites
@@ -72,12 +115,16 @@ type Invite struct {
 	ServerID string `json:"serverId,omitempty"`
 	// Role is the project role a member invite gives.
 	Role string `json:"role,omitempty"`
+	// Approval is when a player invite lets people in.
+	Approval Approval `json:"approval,omitempty"`
 	// Label is the creator's note to tell links apart ("Discord crew").
 	// Public pages don't show it.
 	Label     string    `json:"label,omitempty"`
 	CreatedBy int64     `json:"createdBy"`
 	CreatedAt time.Time `json:"createdAt"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	// ExpiresAt is zero for a player invite that works until turned off.
+	ExpiresAt time.Time `json:"expiresAt,omitzero"`
+	// MaxUses is 0 for a player invite with no limit.
 	MaxUses   int       `json:"maxUses"`
 	Uses      int       `json:"uses"`
 	RevokedAt time.Time `json:"revokedAt,omitzero"`
@@ -109,16 +156,42 @@ func (inv Invite) StatusAt(now time.Time) Status {
 	switch {
 	case !inv.RevokedAt.IsZero():
 		return StatusRevoked
-	case inv.Uses >= inv.MaxUses:
+	case inv.usedUp():
 		return StatusUsedUp
-	case !now.Before(inv.ExpiresAt):
+	case inv.expired(now):
 		return StatusExpired
 	}
 	return StatusActive
 }
 
 // UsesLeft is how many more times inv can be used, ignoring expiry.
-func (inv Invite) UsesLeft() int { return max(0, inv.MaxUses-inv.Uses) }
+// limited is false for a player invite with no limit.
+func (inv Invite) UsesLeft() (left int, limited bool) {
+	if inv.unlimited() {
+		return 0, false
+	}
+	return max(0, inv.limit()-inv.Uses), true
+}
+
+// Only a player invite may go without a use limit or an expiry. Any other
+// row with zeros reads as used up or expired, never as unlimited.
+func (inv Invite) unlimited() bool { return inv.Kind == KindPlayer && inv.MaxUses == 0 }
+
+func (inv Invite) limit() int {
+	if inv.Kind == KindMember {
+		return 1
+	}
+	return inv.MaxUses
+}
+
+func (inv Invite) usedUp() bool { return !inv.unlimited() && inv.Uses >= inv.limit() }
+
+func (inv Invite) expired(now time.Time) bool {
+	if inv.ExpiresAt.IsZero() {
+		return inv.Kind != KindPlayer
+	}
+	return !now.Before(inv.ExpiresAt)
+}
 
 // Actor names the invite in audit trails, as "invite:<id>".
 func (inv Invite) Actor() string { return "invite:" + inv.ID }
@@ -136,14 +209,19 @@ func (inv Invite) Path() string {
 // signed-in management routes may send it, since Path holds the code.
 type Summary struct {
 	Invite
-	Status   Status `json:"status"`
-	UsesLeft int    `json:"usesLeft"`
+	Status Status `json:"status"`
+	// UsesLeft is nil for an invite with no limit.
+	UsesLeft *int   `json:"usesLeft,omitempty"`
 	Path     string `json:"path,omitempty"`
 }
 
 // Summarize returns inv with its status at now.
 func (inv Invite) Summarize(now time.Time) Summary {
-	return Summary{Invite: inv, Status: inv.StatusAt(now), UsesLeft: inv.UsesLeft(), Path: inv.Path()}
+	s := Summary{Invite: inv, Status: inv.StatusAt(now), Path: inv.Path()}
+	if left, limited := inv.UsesLeft(); limited {
+		s.UsesLeft = &left
+	}
+	return s
 }
 
 // Public is what a public page may show about an invite that works:
@@ -151,7 +229,7 @@ func (inv Invite) Summarize(now time.Time) Summary {
 type Public struct {
 	Kind      Kind      `json:"kind"`
 	Role      string    `json:"role,omitempty"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	ExpiresAt time.Time `json:"expiresAt,omitzero"`
 }
 
 func (inv Invite) public() Public {
@@ -218,23 +296,26 @@ func (c Created) LogValue() slog.Value {
 	return slog.GroupValue(slog.String("invite", c.Invite.ID))
 }
 
-// PlayerSpec is what the creator of a player invite chooses. A zero TTL or
-// MaxUses takes the default.
+// PlayerSpec is what the creator of a player invite chooses. Zero values
+// take the defaults: 7 days, DefaultPlayerUses friends, right away.
 type PlayerSpec struct {
 	ServerID  string
 	ProjectID string
 	Label     string
-	TTL       time.Duration
+	Expiry    Expiry
 	MaxUses   int
+	// Unlimited lets any number of friends use the invite. It has to be
+	// chosen: a zero MaxUses alone means the default.
+	Unlimited bool
+	Approval  Approval
 }
 
-// MemberSpec is what the creator of a member invite chooses. A zero TTL
-// takes the default; a member invite always works exactly once.
+// MemberSpec is what the creator of a member invite chooses. A member
+// invite always works once, for MemberLifetime.
 type MemberSpec struct {
 	ProjectID string
 	Role      string
 	Label     string
-	TTL       time.Duration
 }
 
 // NewPlayer creates an invite that lets friends add themselves to a
@@ -243,20 +324,40 @@ func NewPlayer(spec PlayerSpec, createdBy int64, now time.Time) (Created, error)
 	if !validRef(spec.ServerID) {
 		return Created{}, badOptions("server", "The invite needs a valid server.")
 	}
-	uses := spec.MaxUses
-	if uses == 0 {
-		uses = DefaultPlayerUses
+	expiry := cmp.Or(spec.Expiry, DefaultExpiry)
+	lifetime, ok := expiry.lifetime()
+	if !ok {
+		return Created{}, badOptions("expiry", "An invite link works for 1 day, 7 days, 30 days, or until you turn it off.")
 	}
-	if uses < 1 || uses > MaxPlayerUses {
-		return Created{}, badOptions("uses", fmt.Sprintf("A friend invite can work from 1 to %d times.", MaxPlayerUses), "max", strconv.Itoa(MaxPlayerUses))
+	uses, err := playerUses(spec)
+	if err != nil {
+		return Created{}, err
 	}
-	c, err := create(Invite{Kind: KindPlayer, ServerID: spec.ServerID, ProjectID: spec.ProjectID, MaxUses: uses},
-		spec.Label, spec.TTL, DefaultPlayerTTL, MaxPlayerTTL, createdBy, now)
+	approval := cmp.Or(spec.Approval, RightAway)
+	if approval != RightAway && approval != AfterYes {
+		return Created{}, badOptions("approval", "An invite link lets people in right away or after you say yes.")
+	}
+	c, err := create(Invite{Kind: KindPlayer, ServerID: spec.ServerID, ProjectID: spec.ProjectID, Approval: approval, MaxUses: uses},
+		spec.Label, lifetime, createdBy, now)
 	if err != nil {
 		return Created{}, err
 	}
 	c.Invite.Code, _ = CodeFromPath(c.Path)
 	return c, nil
+}
+
+func playerUses(spec PlayerSpec) (int, error) {
+	switch {
+	case spec.Unlimited && spec.MaxUses != 0:
+		return 0, badOptions("uses", "Choose a number of friends or no limit, not both.")
+	case spec.Unlimited:
+		return 0, nil
+	case spec.MaxUses == 0:
+		return DefaultPlayerUses, nil
+	case spec.MaxUses < 1 || spec.MaxUses > MaxPlayerUses:
+		return 0, badOptions("uses", fmt.Sprintf("An invite link can be for 1 to %d friends, or have no limit.", MaxPlayerUses), "max", strconv.Itoa(MaxPlayerUses))
+	}
+	return spec.MaxUses, nil
 }
 
 // NewMember creates an invite that lets one person create an account with
@@ -267,19 +368,13 @@ func NewMember(spec MemberSpec, inviter Inviter, now time.Time) (Created, error)
 		return Created{}, err
 	}
 	return create(Invite{Kind: KindMember, ProjectID: spec.ProjectID, Role: spec.Role, MaxUses: 1},
-		spec.Label, spec.TTL, DefaultMemberTTL, MaxMemberTTL, inviter.UserID, now)
+		spec.Label, MemberLifetime, inviter.UserID, now)
 }
 
-func create(inv Invite, label string, ttl, defaultTTL, maxTTL time.Duration, createdBy int64, now time.Time) (Created, error) {
+// create fills in inv. A zero lifetime means it works until turned off.
+func create(inv Invite, label string, lifetime time.Duration, createdBy int64, now time.Time) (Created, error) {
 	if !validRef(inv.ProjectID) {
 		return Created{}, badOptions("project", "The invite needs a valid project.")
-	}
-	if ttl == 0 {
-		ttl = defaultTTL
-	}
-	if ttl < MinTTL || ttl > maxTTL {
-		days := strconv.Itoa(int(maxTTL / (24 * time.Hour)))
-		return Created{}, badOptions("expiry", fmt.Sprintf("An invite can last from 10 minutes to %s days.", days), "maxDays", days)
 	}
 	label, err := cleanLabel(label)
 	if err != nil {
@@ -292,7 +387,9 @@ func create(inv Invite, label string, ttl, defaultTTL, maxTTL time.Duration, cre
 	inv.Label = label
 	inv.CreatedBy = createdBy
 	inv.CreatedAt = now
-	inv.ExpiresAt = now.Add(ttl)
+	if lifetime > 0 {
+		inv.ExpiresAt = now.Add(lifetime)
+	}
 	return Created{Invite: inv, Path: LinkPath(code)}, nil
 }
 
@@ -327,9 +424,9 @@ func usable(inv Invite, now time.Time) error {
 	switch {
 	case !inv.RevokedAt.IsZero():
 		return notWorking("the invite was revoked")
-	case !now.Before(inv.ExpiresAt):
+	case inv.expired(now):
 		return expired()
-	case inv.Uses >= inv.MaxUses:
+	case inv.usedUp():
 		return usedUp(inv.Kind)
 	}
 	return nil
@@ -340,10 +437,14 @@ func usable(inv Invite, now time.Time) error {
 // take the last one:
 //
 //	UPDATE invites SET uses = uses + 1
-//	WHERE id = ? AND revoked_at = 0 AND expires_at > ? AND uses < max_uses
+//	WHERE id = :id AND revoked_at = 0
+//	  AND (expires_at = 0 OR expires_at > :now)
+//	  AND (max_uses = 0 OR uses < max_uses)
 //
-// If no row changed, the invite ran out meanwhile: read it again and Check
-// it for the message to show.
+// The zeros ("until turned off", "no limit") are safe there only because
+// the table's CHECK keeps them off member invites. If no row changed, the
+// invite ran out meanwhile: read it again and Check it for the message to
+// show.
 func RecordUse(inv Invite, now time.Time) (Invite, error) {
 	if err := usable(inv, now); err != nil {
 		return inv, err

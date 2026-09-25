@@ -2,10 +2,12 @@ package invites
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -105,45 +107,63 @@ func TestNewPlayerDefaults(t *testing.T) {
 	}
 	inv := c.Invite
 	created := t0.Truncate(time.Millisecond)
-	want := Invite{ID: inv.ID, Kind: KindPlayer, CodeHash: inv.CodeHash, Code: codeOf(t, c), ProjectID: projectID, ServerID: serverID,
-		Label: "Discord crew", CreatedBy: 7, CreatedAt: created, ExpiresAt: created.Add(DefaultPlayerTTL), MaxUses: DefaultPlayerUses}
+	want := Invite{ID: inv.ID, Kind: KindPlayer, CodeHash: inv.CodeHash, Code: codeOf(t, c), ProjectID: projectID, ServerID: serverID, Approval: RightAway,
+		Label: "Discord crew", CreatedBy: 7, CreatedAt: created, ExpiresAt: created.Add(7 * 24 * time.Hour), MaxUses: 5}
 	if inv != want {
 		t.Fatalf("got  %#v\nwant %#v", inv.Summarize(t0), want.Summarize(t0))
 	}
 	if !ValidID(inv.ID) {
 		t.Errorf("id %q is not valid", inv.ID)
 	}
-	if inv.StatusAt(t0) != StatusActive || inv.UsesLeft() != DefaultPlayerUses || inv.Actor() != "invite:"+inv.ID {
-		t.Errorf("status %s, %d uses left, actor %s", inv.StatusAt(t0), inv.UsesLeft(), inv.Actor())
+	if left, limited := inv.UsesLeft(); inv.StatusAt(t0) != StatusActive || left != 5 || !limited || inv.Actor() != "invite:"+inv.ID {
+		t.Errorf("status %s, %d uses left (%v), actor %s", inv.StatusAt(t0), left, limited, inv.Actor())
+	}
+}
+
+func TestExpiries(t *testing.T) {
+	want := []Expiry{"1d", "7d", "30d", "until_turned_off"}
+	if got := Expiries(); !slices.Equal(got, want) || DefaultExpiry != "7d" {
+		t.Errorf("Expiries() = %v, default %s", got, DefaultExpiry)
 	}
 }
 
 func TestNewPlayerOptions(t *testing.T) {
+	day := 24 * time.Hour
 	for _, tc := range []struct {
-		name   string
-		change func(*PlayerSpec)
-		field  string
+		name     string
+		change   func(*PlayerSpec)
+		field    string
+		lifetime time.Duration
+		uses     int
 	}{
-		{"shortest expiry", func(s *PlayerSpec) { s.TTL = MinTTL }, ""},
-		{"longest expiry", func(s *PlayerSpec) { s.TTL = MaxPlayerTTL }, ""},
-		{"expiry too short", func(s *PlayerSpec) { s.TTL = MinTTL - time.Second }, "expiry"},
-		{"expiry too long", func(s *PlayerSpec) { s.TTL = MaxPlayerTTL + time.Second }, "expiry"},
-		{"negative expiry", func(s *PlayerSpec) { s.TTL = -time.Hour }, "expiry"},
-		{"one use", func(s *PlayerSpec) { s.MaxUses = 1 }, ""},
-		{"most uses", func(s *PlayerSpec) { s.MaxUses = MaxPlayerUses }, ""},
-		{"too many uses", func(s *PlayerSpec) { s.MaxUses = MaxPlayerUses + 1 }, "uses"},
-		{"negative uses", func(s *PlayerSpec) { s.MaxUses = -1 }, "uses"},
-		{"longest label", func(s *PlayerSpec) { s.Label = strings.Repeat("é", MaxLabelRunes) }, ""},
-		{"label too long", func(s *PlayerSpec) { s.Label = strings.Repeat("é", MaxLabelRunes+1) }, "label"},
-		{"label on two lines", func(s *PlayerSpec) { s.Label = "Discord\ncrew" }, "label"},
-		{"label with a control character", func(s *PlayerSpec) { s.Label = "Discord\x00" }, "label"},
-		{"label not UTF-8", func(s *PlayerSpec) { s.Label = "Discord \xff" }, "label"},
-		{"no server", func(s *PlayerSpec) { s.ServerID = "" }, "server"},
-		{"server id too short", func(s *PlayerSpec) { s.ServerID = "k3q9zt7mw" }, "server"},
-		{"server id upper case", func(s *PlayerSpec) { s.ServerID = "K3Q9ZT7MWA" }, "server"},
-		{"server id with a slash", func(s *PlayerSpec) { s.ServerID = "../../etc/" }, "server"},
-		{"no project", func(s *PlayerSpec) { s.ProjectID = "" }, "project"},
-		{"project id with a 1", func(s *PlayerSpec) { s.ProjectID = "p8vx2hc4n1" }, "project"},
+		{"1 day", func(s *PlayerSpec) { s.Expiry = ExpiryOneDay }, "", day, 5},
+		{"7 days", func(s *PlayerSpec) { s.Expiry = ExpirySevenDays }, "", 7 * day, 5},
+		{"30 days", func(s *PlayerSpec) { s.Expiry = ExpiryThirtyDays }, "", 30 * day, 5},
+		{"until turned off", func(s *PlayerSpec) { s.Expiry = ExpiryUntilTurnedOff }, "", 0, 5},
+		{"a number of days", func(s *PlayerSpec) { s.Expiry = "2d" }, "expiry", 0, 0},
+		{"expiry in capitals", func(s *PlayerSpec) { s.Expiry = "7D" }, "expiry", 0, 0},
+		{"expiry as hours", func(s *PlayerSpec) { s.Expiry = "168h" }, "expiry", 0, 0},
+		{"one friend", func(s *PlayerSpec) { s.MaxUses = 1 }, "", 7 * day, 1},
+		{"most friends", func(s *PlayerSpec) { s.MaxUses = MaxPlayerUses }, "", 7 * day, 100},
+		{"too many friends", func(s *PlayerSpec) { s.MaxUses = MaxPlayerUses + 1 }, "uses", 0, 0},
+		{"negative friends", func(s *PlayerSpec) { s.MaxUses = -1 }, "uses", 0, 0},
+		{"no limit, chosen", func(s *PlayerSpec) { s.Unlimited = true }, "", 7 * day, 0},
+		{"no limit and a number", func(s *PlayerSpec) { s.Unlimited = true; s.MaxUses = 3 }, "uses", 0, 0},
+		{"no limit until turned off", func(s *PlayerSpec) { s.Unlimited = true; s.Expiry = ExpiryUntilTurnedOff }, "", 0, 0},
+		{"after you say yes", func(s *PlayerSpec) { s.Approval = AfterYes }, "", 7 * day, 5},
+		{"right away, chosen", func(s *PlayerSpec) { s.Approval = RightAway }, "", 7 * day, 5},
+		{"made-up approval", func(s *PlayerSpec) { s.Approval = "maybe" }, "approval", 0, 0},
+		{"longest label", func(s *PlayerSpec) { s.Label = strings.Repeat("é", MaxLabelRunes) }, "", 7 * day, 5},
+		{"label too long", func(s *PlayerSpec) { s.Label = strings.Repeat("é", MaxLabelRunes+1) }, "label", 0, 0},
+		{"label on two lines", func(s *PlayerSpec) { s.Label = "Discord\ncrew" }, "label", 0, 0},
+		{"label with a control character", func(s *PlayerSpec) { s.Label = "Discord\x00" }, "label", 0, 0},
+		{"label not UTF-8", func(s *PlayerSpec) { s.Label = "Discord \xff" }, "label", 0, 0},
+		{"no server", func(s *PlayerSpec) { s.ServerID = "" }, "server", 0, 0},
+		{"server id too short", func(s *PlayerSpec) { s.ServerID = "k3q9zt7mw" }, "server", 0, 0},
+		{"server id upper case", func(s *PlayerSpec) { s.ServerID = "K3Q9ZT7MWA" }, "server", 0, 0},
+		{"server id with a slash", func(s *PlayerSpec) { s.ServerID = "../../etc/" }, "server", 0, 0},
+		{"no project", func(s *PlayerSpec) { s.ProjectID = "" }, "project", 0, 0},
+		{"project id with a 1", func(s *PlayerSpec) { s.ProjectID = "p8vx2hc4n1" }, "project", 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := PlayerSpec{ServerID: serverID, ProjectID: projectID}
@@ -153,8 +173,12 @@ func TestNewPlayerOptions(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if ttl := c.Invite.ExpiresAt.Sub(c.Invite.CreatedAt); spec.TTL != 0 && ttl != spec.TTL {
-					t.Errorf("lasts %v, want %v", ttl, spec.TTL)
+				inv := c.Invite
+				if lifetime := inv.ExpiresAt.Sub(inv.CreatedAt); tc.lifetime == 0 && !inv.ExpiresAt.IsZero() || tc.lifetime != 0 && lifetime != tc.lifetime {
+					t.Errorf("expires %v after it was made, want %v", lifetime, tc.lifetime)
+				}
+				if inv.MaxUses != tc.uses || inv.Approval != cmp.Or(spec.Approval, RightAway) {
+					t.Errorf("max uses %d, approval %q", inv.MaxUses, inv.Approval)
 				}
 				return
 			}
@@ -282,8 +306,8 @@ func TestRecordUse(t *testing.T) {
 	}
 	after, err := RecordUse(inv, t0)
 	wantCode(t, err, CodeUsedUp)
-	if after.Uses != 3 || inv.StatusAt(t0) != StatusUsedUp || inv.UsesLeft() != 0 {
-		t.Errorf("uses = %d, status %s, %d left", after.Uses, inv.StatusAt(t0), inv.UsesLeft())
+	if left, limited := inv.UsesLeft(); after.Uses != 3 || inv.StatusAt(t0) != StatusUsedUp || left != 0 || !limited {
+		t.Errorf("uses = %d, status %s, %d left", after.Uses, inv.StatusAt(t0), left)
 	}
 
 	fresh, _ := newPlayer(t, PlayerSpec{})
@@ -293,10 +317,54 @@ func TestRecordUse(t *testing.T) {
 	wantCode(t, err, CodeNotWorking)
 }
 
+func TestUntilTurnedOff(t *testing.T) {
+	inv, code := newPlayer(t, PlayerSpec{Expiry: ExpiryUntilTurnedOff, MaxUses: 2})
+	years := t0.AddDate(20, 0, 0)
+	if !inv.ExpiresAt.IsZero() || inv.StatusAt(years) != StatusActive || Check(inv, code, KindPlayer, years) != nil {
+		t.Fatalf("an invite without expiry stopped: expires %v, status %s", inv.ExpiresAt, inv.StatusAt(years))
+	}
+	b, _ := json.Marshal(inv.Summarize(years))
+	if strings.Contains(string(b), "expiresAt") || !strings.Contains(string(b), `"usesLeft":2`) {
+		t.Errorf("summary JSON %s", b)
+	}
+	var err error
+	for range 2 {
+		if inv, err = RecordUse(inv, years); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = RecordUse(inv, years)
+	wantCode(t, err, CodeUsedUp)
+	wantCode(t, Check(Revoke(inv, years), code, KindPlayer, years), CodeNotWorking)
+}
+
+func TestUnlimited(t *testing.T) {
+	inv, code := newPlayer(t, PlayerSpec{Unlimited: true})
+	var err error
+	for range 1000 {
+		if inv, err = RecordUse(inv, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if left, limited := inv.UsesLeft(); inv.Uses != 1000 || inv.StatusAt(t0) != StatusActive || limited || left != 0 {
+		t.Errorf("uses %d, status %s, %d left (%v)", inv.Uses, inv.StatusAt(t0), left, limited)
+	}
+	s := inv.Summarize(t0)
+	b, _ := json.Marshal(s)
+	if s.UsesLeft != nil || strings.Contains(string(b), "usesLeft") || !strings.Contains(string(b), `"maxUses":0`) {
+		t.Errorf("summary JSON %s", b)
+	}
+	wantCode(t, Check(inv, code, KindPlayer, inv.ExpiresAt), CodeExpired)
+	wantCode(t, Check(Revoke(inv, t0), code, KindPlayer, t0), CodeNotWorking)
+}
+
 func TestMemberInviteWorksOnce(t *testing.T) {
 	c, err := NewMember(MemberSpec{ProjectID: projectID, Role: RoleAdmin}, Inviter{UserID: 1, InstallRole: InstallOwner}, t0)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if c.Invite.MaxUses != 1 || c.Invite.ExpiresAt.Sub(c.Invite.CreatedAt) != 7*24*time.Hour || c.Invite.Approval != "" {
+		t.Errorf("invite %#v", c.Invite.Summarize(t0))
 	}
 	inv, err := RecordUse(c.Invite, t0)
 	if err != nil {
@@ -305,6 +373,32 @@ func TestMemberInviteWorksOnce(t *testing.T) {
 	_, err = RecordUse(inv, t0)
 	if e := wantCode(t, err, CodeUsedUp); e.Msg != "This invite has already been used." {
 		t.Errorf("message = %q", e.Msg)
+	}
+
+	// The zeros that mean "no limit" and "until turned off" on a friend
+	// invite must not open a member invite up.
+	for _, maxUses := range []int{0, 5, -1} {
+		row := c.Invite
+		row.MaxUses = maxUses
+		used, err := RecordUse(row, t0)
+		if err != nil {
+			t.Fatalf("max uses %d: %v", maxUses, err)
+		}
+		if _, err = RecordUse(used, t0); CodeOf(err) != CodeUsedUp {
+			t.Errorf("max uses %d: a second use gave %v", maxUses, err)
+		}
+		if left, limited := row.UsesLeft(); left != 1 || !limited {
+			t.Errorf("max uses %d: %d left (%v)", maxUses, left, limited)
+		}
+	}
+	row := c.Invite
+	row.ExpiresAt = time.Time{}
+	if _, err := RecordUse(row, t0); CodeOf(err) != CodeExpired || row.StatusAt(t0) != StatusExpired {
+		t.Errorf("a member invite without an expiry: %v, status %s", err, row.StatusAt(t0))
+	}
+	odd := Invite{Kind: "guest", MaxUses: 0, ExpiresAt: time.Time{}}
+	if odd.StatusAt(t0) != StatusUsedUp {
+		t.Errorf("a row of an unknown kind reads as %s", odd.StatusAt(t0))
 	}
 }
 
@@ -328,6 +422,8 @@ func TestStatusAt(t *testing.T) {
 	used := inv
 	used.Uses = 2
 	later := inv.ExpiresAt.Add(time.Minute)
+	forever, _ := newPlayer(t, PlayerSpec{Expiry: ExpiryUntilTurnedOff, Unlimited: true})
+	forever.Uses = 500
 	for _, tc := range []struct {
 		inv  Invite
 		now  time.Time
@@ -339,18 +435,22 @@ func TestStatusAt(t *testing.T) {
 		{used, later, StatusUsedUp},
 		{Revoke(inv, t0), t0, StatusRevoked},
 		{Revoke(used, t0), later, StatusRevoked},
+		{forever, later.AddDate(10, 0, 0), StatusActive},
+		{Revoke(forever, t0), t0, StatusRevoked},
 	} {
 		if got := tc.inv.StatusAt(tc.now); got != tc.want {
 			t.Errorf("status = %s, want %s", got, tc.want)
 		}
 	}
 	s := used.Summarize(t0)
-	if s.Status != StatusUsedUp || s.UsesLeft != 0 || s.ID != inv.ID {
+	if s.Status != StatusUsedUp || s.UsesLeft == nil || *s.UsesLeft != 0 || s.ID != inv.ID {
 		t.Errorf("summary %#v", s)
 	}
 	b, _ := json.Marshal(s)
-	if !strings.Contains(string(b), `"status":"used_up"`) || strings.Contains(string(b), "revokedAt") {
-		t.Errorf("summary JSON %s", b)
+	for _, want := range []string{`"status":"used_up"`, `"usesLeft":0`, `"approval":"right_away"`, `"expiresAt":"`} {
+		if !strings.Contains(string(b), want) || strings.Contains(string(b), "revokedAt") {
+			t.Errorf("summary JSON %s lacks %s", b, want)
+		}
 	}
 }
 
@@ -387,7 +487,7 @@ func TestErrors(t *testing.T) {
 	cause := errors.New("dial tcp: connection refused")
 	all := []*Error{
 		NotFound(), UsernameTaken(), expired(), usedUp(KindPlayer), usedUp(KindMember),
-		badOptions("uses", "A friend invite can work from 1 to 100 times."), roleUnknown(), roleNotAllowed(RoleAdmin), roleNotAllowed(InstallOwner),
+		badOptions("uses", "An invite link can be for 1 to 100 friends, or have no limit."), roleUnknown(), roleNotAllowed(RoleAdmin), roleNotAllowed(InstallOwner),
 		rateLimited("address", 1200*time.Millisecond), rateLimited("invite", time.Minute),
 		playerName(), playerNotFound("Nobody"), playerDemo("PipDemo42"), playerLegacy("OldTimer"),
 		mojangBusy(time.Minute, cause), mojangDown(cause),

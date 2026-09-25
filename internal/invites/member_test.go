@@ -85,7 +85,7 @@ func TestNewMember(t *testing.T) {
 	}
 	inv := c.Invite
 	if inv.Kind != KindMember || inv.Role != RoleModerator || inv.MaxUses != 1 || inv.CreatedBy != admin.UserID || inv.ServerID != "" ||
-		inv.ExpiresAt.Sub(inv.CreatedAt) != DefaultMemberTTL || c.Path != "/join/"+codeOf(t, c) || inv.CodeHash != HashCode(codeOf(t, c)) {
+		inv.ExpiresAt.Sub(inv.CreatedAt) != 7*24*time.Hour || c.Path != "/join/"+codeOf(t, c) || inv.CodeHash != HashCode(codeOf(t, c)) {
 		t.Errorf("invite %#v, path %q", inv.Summarize(t0), c.Path)
 	}
 	if inv.Code != "" || inv.Path() != "" || inv.Summarize(t0).Path != "" {
@@ -97,13 +97,6 @@ func TestNewMember(t *testing.T) {
 	wantCode(t, err, CodeRoleNotAllowed)
 	_, err = NewMember(MemberSpec{ProjectID: projectID, Role: InstallOwner}, owner, t0)
 	wantCode(t, err, CodeRoleNotAllowed)
-	_, err = NewMember(MemberSpec{ProjectID: projectID, Role: RoleViewer, TTL: MaxMemberTTL + time.Second}, owner, t0)
-	if e := wantCode(t, err, CodeBadOptions); e.Params["field"] != "expiry" || e.Params["maxDays"] != "7" {
-		t.Errorf("refusal %+v", e)
-	}
-	if _, err := NewMember(MemberSpec{ProjectID: projectID, Role: RoleViewer, TTL: MaxMemberTTL}, owner, t0); err != nil {
-		t.Error(err)
-	}
 	_, err = NewMember(MemberSpec{ProjectID: "nope", Role: RoleViewer}, owner, t0)
 	wantCode(t, err, CodeBadOptions)
 }
