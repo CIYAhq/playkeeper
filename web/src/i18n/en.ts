@@ -901,6 +901,27 @@ export const en = {
   'login.submitting': 'Signing in…',
   'login.forgot': 'Forgot your password? On the VPS run <code>{command}</code>.',
 
+  // The second sign-in step
+  'signin.codeTitle': 'Enter your code',
+  'signin.codeLead': 'From your authenticator app.',
+  'signin.codeLabel': 'Code from your authenticator app',
+  'signin.as': 'Signing in as {name}',
+  'signin.notYou': 'Not you?',
+  'signin.wrong': 'That code didn’t work. Try the one showing now.',
+  'signin.lockedTitle': 'Too many tries',
+  'signin.locked': 'Try again in {time}, or use a recovery code.',
+  'signin.lockedNoRecovery': 'Try again in {time}.',
+  'signin.useRecovery': 'Use a recovery code instead',
+  'signin.useApp': 'Use your authenticator app instead',
+  'signin.recoveryTitle': 'Use a recovery code',
+  'signin.recoveryLead': 'One of the codes you saved.',
+  'signin.recoveryLabel': 'Recovery code',
+  'signin.recoveryPlaceholder': 'abcd-efgh-jkmn-pqrs',
+  'signin.recoveryWrong': 'That recovery code didn’t work.',
+  'signin.blocked': 'App codes are blocked after 100 wrong tries.',
+  'signin.blockedNoRecovery': 'No recovery codes are left. On the VPS run <code>{command}</code>.',
+  'code.digit': 'Digit {n} of {total}',
+
   // Machine page
   'machine.lead': 'The computer Playkeeper runs on · {os} · {cpus} vCPU · {memory} memory · {disk} disk',
   'machine.resources': 'Resources',

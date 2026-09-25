@@ -62,6 +62,15 @@ export function relativeTime(iso: string | undefined, now: number = Date.now()):
   return t('time.daysAgo', { count: Math.floor(diff / 86400) })
 }
 
+/** A countdown: "0:48", "44:12" or "1:04:12". */
+export function formatCountdown(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`
+}
+
 export function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString(formatLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
 }

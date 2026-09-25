@@ -5,7 +5,7 @@ import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
-import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
+import { formatBytes, formatCountdown, formatDuration, formatList, formatMB, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
 import { memorySegments } from './memory'
 import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
 import { href, parse, type Route } from './router'
@@ -137,6 +137,14 @@ describe('formatting', () => {
     expect(relativeAge('2026-09-04T12:00:00Z', now)).toBe('3 weeks ago')
     expect(relativeAge('2026-05-25T12:00:00Z', now)).toBe('4 months ago')
     expect(relativeAge('2023-09-25T12:00:00Z', now)).toBe('3 years ago')
+  })
+
+  it('counts down whole seconds, rounding up so it never says 0:00 early', () => {
+    expect(formatCountdown(48)).toBe('0:48')
+    expect(formatCountdown(0.2)).toBe('0:01')
+    expect(formatCountdown(960)).toBe('16:00')
+    expect(formatCountdown(3725)).toBe('1:02:05')
+    expect(formatCountdown(-5)).toBe('0:00')
   })
 
   it('builds the join address players type', () => {
