@@ -156,6 +156,14 @@ CREATE TABLE agent_activity (
 );
 CREATE INDEX agent_activity_token ON agent_activity(token_id, id);
 `,
+	// What the dashboard remembers about itself, such as the version it last
+	// ran.
+	`
+CREATE TABLE panel_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`,
 }
 
 const (

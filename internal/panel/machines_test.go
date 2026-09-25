@@ -1009,6 +1009,31 @@ func TestMachineEventsAreCapped(t *testing.T) {
 	}
 }
 
+func TestTheDashboardsUpdatesAreInEveryMachinesEvents(t *testing.T) {
+	e := newEnv(t)
+	cookie, _ := e.setup(t)
+	alpha := e.addRemote(t, "alphaalpha", "alpha")
+	updates := func() int {
+		var n int
+		e.srv.db.QueryRow(`SELECT COUNT(*) FROM machine_events WHERE kind = 'machine.dashboard_updated'`).Scan(&n)
+		return n
+	}
+	e.srv.noteVersion(version.Version)
+	if n := updates(); n != 0 {
+		t.Fatalf("starting the same version again is not an update: %d events", n)
+	}
+	e.srv.noteVersion("0.4.1")
+	e.srv.noteVersion("0.4.1")
+	if list, _ := e.srv.machines(); len(list) != 2 || updates() != 2 {
+		t.Fatalf("an update is noted once on every machine: %d events on %d machines", updates(), len(list))
+	}
+	var events []map[string]any
+	e.get(t, "/api/machines/"+alpha.ID+"/events", cookie, &events)
+	if len(events) != 1 || events[0]["kind"] != "machine.dashboard_updated" || events[0]["code"] != "0.4.1" {
+		t.Fatalf("alpha's events: %v", events)
+	}
+}
+
 func TestFailuresOfJoinedMachines(t *testing.T) {
 	for _, tc := range []struct {
 		err    error

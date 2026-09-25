@@ -140,6 +140,35 @@ func (s *Server) machineEvent(machineID string, at time.Time, kind, actor, addr,
 		machineID, machineID, maxMachineEvents)
 }
 
+// noteVersion remembers the version the dashboard runs. When it differs from
+// the one it ran last, every machine's events say so, since the update
+// dropped every link for a moment.
+func (s *Server) noteVersion(v string) {
+	var last string
+	if err := s.db.QueryRow(`SELECT value FROM panel_meta WHERE key = 'version'`).Scan(&last); err != nil && !isNoRows(err) {
+		s.log.Error("read the dashboard's last version", "err", err)
+		return
+	}
+	if last == v {
+		return
+	}
+	if _, err := s.db.Exec(`INSERT INTO panel_meta(key, value) VALUES('version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, v); err != nil {
+		s.log.Error("remember the dashboard's version", "err", err)
+		return
+	}
+	if last == "" {
+		return
+	}
+	list, err := s.machines()
+	if err != nil {
+		s.log.Error("note the dashboard's update", "err", err)
+		return
+	}
+	for _, m := range list {
+		s.machineEvent(m.ID, s.now(), "machine.dashboard_updated", "", "", v)
+	}
+}
+
 type machineEventView struct {
 	At      time.Time `json:"at"`
 	Kind    string    `json:"kind"`
