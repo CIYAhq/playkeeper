@@ -44,19 +44,22 @@ type FileEntry struct {
 }
 
 type Manifest struct {
-	Format            int               `json:"format"`
-	CreatedAt         time.Time         `json:"createdAt"`
-	PlaykeeperVersion string            `json:"playkeeperVersion"`
-	SourceInstall     string            `json:"sourceInstall"`
-	VersionID         string            `json:"versionId"`
-	MinecraftVersion  string            `json:"minecraftVersion"`
-	PaperBuild        int               `json:"paperBuild"`
-	Image             string            `json:"image"`
-	LevelName         string            `json:"levelName"`
-	Settings          map[string]string `json:"settings"`
-	Consistency       string            `json:"consistency"`
-	Files             []FileEntry       `json:"files"`
-	TotalBytes        int64             `json:"totalBytes"`
+	Format            int       `json:"format"`
+	CreatedAt         time.Time `json:"createdAt"`
+	PlaykeeperVersion string    `json:"playkeeperVersion"`
+	SourceInstall     string    `json:"sourceInstall"`
+	// Type is the server software (empty means paper, for archives made
+	// before 0.3.0).
+	Type             string            `json:"type,omitempty"`
+	VersionID        string            `json:"versionId"`
+	MinecraftVersion string            `json:"minecraftVersion"`
+	PaperBuild       int               `json:"paperBuild"`
+	Image            string            `json:"image"`
+	LevelName        string            `json:"levelName"`
+	Settings         map[string]string `json:"settings"`
+	Consistency      string            `json:"consistency"`
+	Files            []FileEntry       `json:"files"`
+	TotalBytes       int64             `json:"totalBytes"`
 }
 
 // Limits bound what an (untrusted) archive may make the agent write. Create
@@ -131,7 +134,7 @@ func (t *fileTally) add(rel string, size int64) error {
 var topFiles = []string{
 	"server.properties", "whitelist.json", "ops.json", "banned-players.json", "banned-ips.json",
 	"usercache.json", "bukkit.yml", "spigot.yml", "commands.yml", "help.yml", "permissions.yml",
-	"version_history.json",
+	"version_history.json", "server-icon.png",
 }
 
 var topDirs = []string{"config", "plugins"}

@@ -21,10 +21,11 @@ function args () {
 const a = args()
 const log = (...m) => console.log(new Date().toISOString(), ...m)
 
-// Runs a console command through Playkeeper's authenticated, audited API.
+// Runs a console command through Playkeeper's authenticated, audited API, on
+// the server the test client's state file names.
 function panelCommand (command) {
   const state = JSON.parse(fs.readFileSync(a.state, 'utf8'))
-  const url = new URL('/api/server/command', a.panel)
+  const url = new URL(`/api/servers/${state.server}/command`, a.panel)
   const body = JSON.stringify({ command })
   return new Promise((resolve, reject) => {
     const req = https.request(url, {

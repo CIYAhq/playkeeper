@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import type { ApiErrorBody, Operation } from './types'
 
 export class ApiError extends Error {
@@ -30,7 +31,7 @@ export function onUnauthorized(fn: Listener) {
 }
 
 async function parseError(res: Response): Promise<ApiError> {
-  let body: ApiErrorBody = { error: `Request failed (HTTP ${res.status})`, code: 'internal' }
+  let body: ApiErrorBody = { error: t('error.http', { status: String(res.status) }), code: 'internal' }
   try {
     const parsed = (await res.json()) as ApiErrorBody
     if (parsed && typeof parsed.error === 'string') body = parsed
@@ -46,7 +47,7 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
   let payload: BodyInit | undefined
   if (raw) {
     payload = raw
-    headers['Content-Type'] = 'application/gzip'
+    headers['Content-Type'] = raw.type || 'application/gzip'
   } else if (body !== undefined) {
     payload = JSON.stringify(body)
     headers['Content-Type'] = 'application/json'
@@ -55,7 +56,7 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
   try {
     res = await fetch(path, { method, headers, body: payload, credentials: 'same-origin', cache: 'no-store' })
   } catch {
-    throw new ApiError(0, { error: 'Cannot reach the Playkeeper panel. Check your connection or whether the server is running.', code: 'network' })
+    throw new ApiError(0, { error: t('error.network'), code: 'network' })
   }
   if (res.status === 401 && !path.startsWith('/api/auth/login') && !path.startsWith('/api/setup')) {
     unauthorizedListeners.forEach((fn) => fn())

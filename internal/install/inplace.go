@@ -118,12 +118,36 @@ func upgradeChecks(sys System, o Options) error {
 }
 
 // busyWith names what the agent is doing, if it is reachable: an operation,
-// or an update it has handed to the updater.
+// or an update it has handed to the updater. Agents from 0.3.0 on run several
+// servers; earlier ones answer for their single server.
 func busyWith(ctx context.Context, sys System, cfg config.Config) string {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var st api.ServerStatus
-	if _, err := agentclient.New(sys.P(cfg.SocketPath)).Do(cctx, "GET", "/v1/server", nil, nil, &st); err != nil {
+	c := agentclient.New(sys.P(cfg.SocketPath))
+	var m api.Machine
+	if status, err := c.Do(cctx, "GET", "/v1/machine", nil, nil, &m); err == nil && status == 200 {
+		switch {
+		case m.UpdateInstalling != "":
+			return "installing Playkeeper " + m.UpdateInstalling
+		case m.Operation != nil:
+			return m.Operation.Kind
+		}
+		var servers []api.ServerStatus
+		if _, err := c.Do(cctx, "GET", "/v1/servers", nil, nil, &servers); err != nil {
+			return ""
+		}
+		for _, st := range servers {
+			if st.Operation != nil {
+				return st.Operation.Kind + " (" + st.Name + ")"
+			}
+		}
+		return ""
+	}
+	var st struct {
+		UpdateInstalling string         `json:"updateInstalling"`
+		Operation        *api.Operation `json:"operation"`
+	}
+	if _, err := c.Do(cctx, "GET", "/v1/server", nil, nil, &st); err != nil {
 		return ""
 	}
 	switch {

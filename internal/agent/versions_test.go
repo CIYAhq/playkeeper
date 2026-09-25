@@ -12,12 +12,12 @@ import (
 func (e *agentEnv) changeVersion(body map[string]any) (int, map[string]any) {
 	e.t.Helper()
 	body["actor"] = "admin"
-	return e.call("POST", "/v1/server/version", body)
+	return e.call("POST", e.sp("/version"), body)
 }
 
 func TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent(t *testing.T) {
 	e := newAgentEnv(t)
-	cat := e.a.catalogInfo(t.Context())
+	cat := e.a.catalogInfo(t.Context(), "")
 	if cat.VersionsError != "" || len(cat.Versions) != 3 {
 		t.Fatalf("catalog: %+v", cat)
 	}
@@ -28,28 +28,28 @@ func TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent(t *testing.T) {
 		t.Fatalf("26.2 is the latest stable version and must be recommended: %+v", v)
 	}
 	req := map[string]any{"acceptEula": true, "versionId": "paper-26.3", "memoryMB": 1536, "actor": "admin"}
-	if code, out := e.call("POST", "/v1/server", req); code != 400 || !strings.Contains(out["error"].(string), "experimental") {
+	if code, out := e.call("POST", "/v1/servers", req); code != 400 || !strings.Contains(out["error"].(string), "experimental") {
 		t.Fatalf("an experimental version must not be created without consent: %d %v", code, out)
 	}
-	if sc, _ := e.a.serverConfig(); sc != nil {
+	if n := len(e.a.serverList()); n != 0 {
 		t.Fatal("nothing may be created")
 	}
 	req["acceptExperimental"] = true
-	code, out := e.call("POST", "/v1/server", req)
+	code, out := e.startCreate(req)
 	if code != 202 {
 		t.Fatalf("with consent it is created: %d %v", code, out)
 	}
 	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
 		t.Fatalf("create: %+v", op)
 	}
-	sc, _ := e.a.serverConfig()
+	sc, _ := e.srv().serverConfig()
 	if sc.MinecraftVersion != "26.3" || sc.PaperBuild != 41 || len(sc.JarSHA256) != 64 {
 		t.Fatalf("the build and its checksum must be pinned: %+v", sc)
 	}
 
 	down := newAgentEnv(t)
 	down.fill.set("", []fillVersionSpec{})
-	if cat := down.a.catalogInfo(t.Context()); cat.VersionsError == "" || len(cat.Versions) != 0 {
+	if cat := down.a.catalogInfo(t.Context(), ""); cat.VersionsError == "" || len(cat.Versions) != 0 {
 		t.Fatalf("an empty list from PaperMC must be reported: %+v", cat)
 	}
 }
@@ -71,10 +71,10 @@ func TestVersionChangesNeverGoBack(t *testing.T) {
 			t.Errorf("%v: want %d %q, got %d %v", tc.body, tc.code, tc.want, code, out)
 		}
 	}
-	if sc, _ := e.a.serverConfig(); sc.MinecraftVersion != "26.1.2" {
+	if sc, _ := e.srv().serverConfig(); sc.MinecraftVersion != "26.1.2" {
 		t.Fatalf("a refused change must not touch the server: %+v", sc)
 	}
-	sc, _ := e.a.serverConfig()
+	sc, _ := e.srv().serverConfig()
 	for _, target := range []api.CatalogEntry{{MinecraftVersion: "1.21.11", PaperBuild: 132}, {MinecraftVersion: "26.1.2", PaperBuild: 70}} {
 		err := checkNewer(*sc, target)
 		if err == nil || (target.MinecraftVersion == "1.21.11" && !strings.Contains(err.Error(), "cannot go back from 26.1.2 to 1.21.11")) {
@@ -97,17 +97,17 @@ func TestVersionChangeBacksUpFirstAndStartsTheNewVersion(t *testing.T) {
 	if op.Status != api.OpSucceeded {
 		t.Fatalf("op: %+v", op)
 	}
-	backups, _ := e.a.listBackups(`WHERE kind = 'rollback'`)
+	backups, _ := e.srv().listBackups(`kind = 'rollback'`)
 	if len(backups) != 1 || backups[0].Verified == nil || !*backups[0].Verified || !strings.Contains(backups[0].Note, "before updating from Paper 26.1.2 to 26.2") || op.Detail["backupId"] != backups[0].ID {
 		t.Fatalf("a verified backup must be taken first: %+v", backups)
 	}
-	sc, _ := e.a.serverConfig()
+	sc, _ := e.srv().serverConfig()
 	if sc.MinecraftVersion != "26.2" || sc.PaperBuild != 129 || sc.JarSHA256 == "" || sc.JarVerifiedAt == nil {
 		t.Fatalf("config: %+v", sc)
 	}
 	e.waitFor("online on 26.2", func() bool { return e.status().Phase == api.PhaseOnline })
 	e.fd.mu.Lock()
-	jar := env(e.fd.byName[containerName].cfg, "CUSTOM_SERVER")
+	jar := env(e.fd.byName[e.cname()].cfg, "CUSTOM_SERVER")
 	e.fd.mu.Unlock()
 	if jar != "/data/paper-26.2-129.jar" {
 		t.Fatalf("the server must run the new jar: %s", jar)
@@ -120,7 +120,7 @@ func TestVersionChangeBacksUpFirstAndStartsTheNewVersion(t *testing.T) {
 func TestVersionThatDoesNotStartPutsTheWorldBack(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	level := filepath.Join(e.cfg.ServerDataDir(), "world", "level.dat")
+	level := filepath.Join(e.dataDir(), "world", "level.dat")
 	before, err := os.ReadFile(level)
 	if err != nil {
 		t.Fatal(err)
@@ -139,12 +139,12 @@ func TestVersionThatDoesNotStartPutsTheWorldBack(t *testing.T) {
 	if after, _ := os.ReadFile(level); string(after) != string(before) {
 		t.Fatalf("the world the failed start upgraded must be replaced by the backup: %q, want %q", after, before)
 	}
-	sc, _ := e.a.serverConfig()
+	sc, _ := e.srv().serverConfig()
 	if sc.MinecraftVersion != "26.1.2" || sc.PaperBuild != 74 {
 		t.Fatalf("the previous version must be configured again: %+v", sc)
 	}
 	e.waitFor("online on 26.1.2", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
-	matches, _ := filepath.Glob(e.cfg.ServerDataDir() + ".failed-update-*")
+	matches, _ := filepath.Glob(e.dataDir() + ".failed-update-*")
 	if len(matches) != 0 {
 		t.Fatalf("the upgraded copy must be removed once the backup is back: %v", matches)
 	}

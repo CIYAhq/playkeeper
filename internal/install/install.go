@@ -200,7 +200,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	}
 	if _, err := os.Stat(sys.P(ConfigDir + "/config.json")); err == nil {
 		add("installed", "Existing Playkeeper", "fail", "Playkeeper is already installed.", "To upgrade it, run the one-line installer (or install.sh from a newer release) again: it upgrades in place and keeps worlds, backups and settings.")
-	} else if _, err := os.Stat(sys.P(filepath.Join(config.DefaultDataDir, "server", "data"))); err == nil {
+	} else if len(worldDirs(sys, config.DefaultDataDir)) > 0 {
 		f.ReuseData = true
 		f.ExistingAdmin = hasAdmin(sys.P(filepath.Join(config.DefaultDataDir, "panel", "panel.db")))
 		add("reuse", "Previous Playkeeper data", "info", "Found worlds and backups from an earlier Playkeeper install in /var/lib/playkeeper; they will be reused, not changed.", "")
@@ -586,8 +586,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		{cfg.DataDir, 0o755, 0, 0},
 		{cfg.AgentDir(), 0o700, 0, 0},
 		{cfg.PanelDir(), 0o700, puid, pgid},
-		{filepath.Dir(cfg.ServerDataDir()), 0o755, 0, 0},
-		{cfg.ServerDataDir(), 0o750, guid, ggid},
+		{filepath.Join(cfg.DataDir, "servers"), 0o755, 0, 0},
 		{cfg.BackupsDir(), 0o700, 0, 0},
 		{cfg.StagingDir(), 0o700, 0, 0},
 	}
@@ -604,7 +603,16 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 				return err
 			}
 			if sys.IsRoot() {
-				if err := chownR(sys, p, d.uid, d.gid, d.path == cfg.PanelDir() || d.path == cfg.ServerDataDir()); err != nil {
+				if err := chownR(sys, p, d.uid, d.gid, d.path == cfg.PanelDir()); err != nil {
+					return err
+				}
+			}
+		}
+		// Worlds kept from an earlier install belong to the game user, whose
+		// user id may have changed since.
+		if sys.IsRoot() {
+			for _, w := range worldDirs(sys, cfg.DataDir) {
+				if err := chownR(sys, w, guid, ggid, true); err != nil {
 					return err
 				}
 			}
@@ -1036,4 +1044,21 @@ func panelHealth(ctx context.Context, certPath string, port int) error {
 		return fmt.Errorf("panel health returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// worldDirs are the server data directories under dataDir: the single
+// server of 0.1.0 and 0.2.0, and every server made since.
+func worldDirs(sys System, dataDir string) []string {
+	var out []string
+	if st, err := os.Stat(sys.P(filepath.Join(dataDir, "server", "data"))); err == nil && st.IsDir() {
+		out = append(out, sys.P(filepath.Join(dataDir, "server", "data")))
+	}
+	entries, _ := os.ReadDir(sys.P(filepath.Join(dataDir, "servers")))
+	for _, e := range entries {
+		d := sys.P(filepath.Join(dataDir, "servers", e.Name(), "data"))
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			out = append(out, d)
+		}
+	}
+	return out
 }

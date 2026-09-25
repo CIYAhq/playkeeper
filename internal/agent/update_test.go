@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -142,8 +143,8 @@ func TestUpdateChecksOnlyTrustSignedNewerReleases(t *testing.T) {
 	if !info.Supported || !info.Available || info.Latest != "0.2.1" || info.Notes != "- What changed in 0.2.1" || info.CheckError != "" {
 		t.Fatalf("a signed newer release must be offered with its notes: %+v", info)
 	}
-	if st := e.status(); st.UpdateAvailable != "0.2.1" {
-		t.Fatalf("the status must say an update is available: %q", st.UpdateAvailable)
+	if m := e.a.Machine(context.Background()); m.UpdateAvailable != "0.2.1" {
+		t.Fatalf("the machine must say an update is available: %q", m.UpdateAvailable)
 	}
 	_, other, _ := ed25519.GenerateKey(rand.Reader)
 	rel.publish(t, other, "0.2.2")
@@ -181,11 +182,11 @@ func TestUpdateIsVerifiedStagedAndHandedToTheUpdater(t *testing.T) {
 	if json.Unmarshal(b, &req) != nil || req.OpID != op.ID || req.Version != "0.2.1" || req.From != "0.2.0" || req.Actor != "admin" {
 		t.Fatalf("request: %s", b)
 	}
-	if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 409 || !strings.Contains(out["error"].(string), "installing update 0.2.1") {
+	if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 409 || !strings.Contains(out["error"].(string), "installing update 0.2.1") {
 		t.Fatalf("nothing else may run while the update is installed: %d %v", code, out)
 	}
-	if e.status().UpdateInstalling != "0.2.1" {
-		t.Fatal("the status must show the update being installed")
+	if e.a.Machine(context.Background()).UpdateInstalling != "0.2.1" {
+		t.Fatal("the machine must show the update being installed")
 	}
 
 	e.writeUpdateResult(update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeUpdated, Actor: "admin", FinishedAt: time.Now().UTC()})
@@ -223,7 +224,7 @@ func TestAnUpdateKeepsRunningAcrossAgentRestartsUntilTheUpdaterReports(t *testin
 	if o, _ := e.a.loadOperation(op.ID); o.Status != api.OpRunning {
 		t.Fatalf("an update the updater is still installing must not be marked interrupted: %+v", o)
 	}
-	if e.status().UpdateInstalling != "0.2.1" {
+	if e.a.Machine(context.Background()).UpdateInstalling != "0.2.1" {
 		t.Fatal("the restarted agent must know the update is still being installed")
 	}
 	// The updater reports while the agent is down; the agent records it as it starts.
@@ -336,7 +337,7 @@ func TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard(t *testing.T) {
 	}
 	os.Remove(applying)
 
-	if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 202 {
+	if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 202 {
 		t.Fatalf("operations must work again: %d %v", code, out)
 	}
 }
