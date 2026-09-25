@@ -411,6 +411,9 @@ type pendingView struct {
 	Hint        string            `json:"hint,omitempty"`
 	ErrorKind   string            `json:"errorKind,omitempty"`
 	Params      map[string]string `json:"params,omitempty"`
+	// BackupCreatedAt is when the backup being copied was made, for "Copying
+	// today's 18:47 backup".
+	BackupCreatedAt *time.Time `json:"backupCreatedAt,omitempty"`
 }
 
 type offsiteView struct {
@@ -547,8 +550,8 @@ func (s *server) pendingUpload() (*pendingView, int) {
 		return nil, queued
 	}
 	if b, err := s.getBackup(p.BackupID); err == nil {
-		p.FileName = b.FileName
-		p.Total = b.SizeBytes
+		created := b.CreatedAt.UTC()
+		p.FileName, p.Total, p.BackupCreatedAt = b.FileName, b.SizeBytes, &created
 	}
 	if params != "" {
 		_ = json.Unmarshal([]byte(params), &p.Params)

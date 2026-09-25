@@ -546,7 +546,7 @@ func TestCopiesSomewhereElseUploadRetryAndFollowTheRules(t *testing.T) {
 	})
 	_, out = e.call("GET", e.sp("/offsite"), nil)
 	pending, _ := out["pending"].(map[string]any)
-	if pending == nil || pending["backupId"] != second || pending["error"] != "Couldn't reach the storage." || pending["errorKind"] != "network" || pending["sent"] != float64(400) || pending["nextAttempt"] == nil {
+	if pending == nil || pending["backupId"] != second || pending["backupCreatedAt"] == nil || pending["error"] != "Couldn't reach the storage." || pending["errorKind"] != "network" || pending["sent"] != float64(400) || pending["nextAttempt"] == nil {
 		t.Fatalf("pending: %v", out["pending"])
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copy_failed' AND target = ?`, second); n != 1 {
