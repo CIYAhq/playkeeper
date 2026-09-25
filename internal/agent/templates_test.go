@@ -272,12 +272,14 @@ func TestTemplateRequestsAreChecked(t *testing.T) {
 		}
 	}
 	before := e.countRows(`SELECT COUNT(*) FROM servers`)
+	if code, out := e.createFromTemplate("0123456789abcdef", nil); code != http.StatusConflict || out["code"] != "plan_changed" {
+		t.Errorf("a template this machine never planned: %d %v", code, out)
+	}
 	for _, tc := range []struct {
 		name        string
 		fingerprint string
 		extra       map[string]any
 	}{
-		{"a template this machine never planned", "0123456789abcdef", nil},
 		{"a template with a type", plan.Fingerprint, map[string]any{"type": "fabric"}},
 		{"a template with settings", plan.Fingerprint, map[string]any{"motd": "Mine"}},
 		{"a template with a modpack", plan.Fingerprint, map[string]any{"modpack": map[string]any{"source": "modrinth", "projectId": "AABBCCDD", "versionId": "EEFFGGHH"}}},

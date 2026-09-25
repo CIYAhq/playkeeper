@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -310,7 +311,7 @@ type templateImport struct {
 func (a *Agent) confirmTemplate(ctx context.Context, fingerprint string) (*templateImport, error) {
 	t, ok := a.templatePlans.get(fingerprint, a.now())
 	if !ok {
-		return nil, errInvalid("Playkeeper no longer has that template. Choose it again.")
+		return nil, &apiError{Status: http.StatusConflict, Code: string(addons.KindPlanChanged), Msg: "Playkeeper no longer has that template.", Hint: "Choose it again."}
 	}
 	p, err := a.planTemplate(ctx, t)
 	if err != nil {
@@ -391,6 +392,13 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 					return packFailure(h, &addons.Error{Notice: *res.Reason})
 				}
 				n := apiNotice(*res.Reason)
+				if n.Params["name"] == "" {
+					n.Params = maps.Clone(n.Params)
+					if n.Params == nil {
+						n.Params = map[string]string{}
+					}
+					n.Params["name"] = pa.Name
+				}
 				skipped = append(skipped, n)
 				h.set("skipped", skipped)
 				s.audit(h.op.Actor, "addon.skipped", string(pa.Source)+":"+pa.Project, "skipped", pa.Name+": "+n.Message)

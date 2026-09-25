@@ -28,9 +28,9 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
-	"github.com/CIYAhq/playkeeper/internal/templates"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
+	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
 const (
