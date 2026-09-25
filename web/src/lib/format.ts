@@ -83,6 +83,11 @@ export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short' })
 }
 
+/** A date with its year, like "24 Dec 2026". */
+export function formatLongDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 export function formatDateTime(iso: string | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString(formatLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })

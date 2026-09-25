@@ -1,6 +1,9 @@
-import { ChevronRightIcon, PlugIcon, PlusIcon, SettingsIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronRightIcon, GlobeIcon, PlugIcon, PlusIcon, SettingsIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
-import { useWorkspace } from '@/api/workspace'
+import { get } from '@/api/client'
+import type { Address } from '@/api/types'
+import { machineApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, Dot, MeterRow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
@@ -10,6 +13,7 @@ import { formatBytes, formatMB, formatPercent } from '@/lib/format'
 import { phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 import { newerStable, softwareLabel } from '@/lib/servers'
+import { Group } from './more'
 
 export function MachinePage({ id }: { id: string }) {
   const ws = useWorkspace()
@@ -36,13 +40,14 @@ export function MachinePage({ id }: { id: string }) {
         title={name}
         subtitle={subtitle}
         actions={
-          <Button variant="outline" render={<a {...linkProps({ name: 'settings' })} />}>
+          <Button variant="outline" render={<a {...linkProps({ name: 'machine-settings', id: m.id })} />}>
             <SettingsIcon />
             {t('machine.settings')}
           </Button>
         }
       />
       <PageBody className="grid gap-4 lg:grid-cols-2">
+        {phone && <AddressRow id={m.id} />}
         <Card>
           <CardTitle>{t('machine.resources')}</CardTitle>
           <CardHint>{t('machine.resourcesHint')}</CardHint>
@@ -104,5 +109,34 @@ export function MachinePage({ id }: { id: string }) {
         </Card>
       </PageBody>
     </>
+  )
+}
+
+/** The phone's way to the machine's address, with the address it has. */
+function AddressRow({ id }: { id: string }) {
+  const [host, setHost] = useState<string | null>()
+  useEffect(() => {
+    let cancelled = false
+    get<Address>(machineApi(id, '/address')).then(
+      (a) => !cancelled && setHost(a.kind ? (a.host ?? null) : null),
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+  return (
+    <Group>
+      <li>
+        <a {...linkProps({ name: 'machine-settings', id })} className="flex min-h-14 w-full items-center gap-3.5 px-4 py-2 text-left">
+          <GlobeIcon className="size-[22px] shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-base">{t('address.title')}</span>
+            {host !== undefined && <span className="block truncate text-[13px] text-muted-foreground">{host ?? t('address.rowNone')}</span>}
+          </span>
+          <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+        </a>
+      </li>
+    </Group>
   )
 }

@@ -121,6 +121,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
     if (ws.machine) {
       const id = ws.machine.id
       go.push({ value: 'go:machine', label: t('cmd.pageMachine', { machine: ws.machineName }), icon: <ServerIcon />, run: () => navigate({ name: 'machine', id }) })
+      go.push({ value: 'go:machine-settings', label: t('machine.settings'), hint: t('address.title'), icon: <GlobeIcon />, run: () => navigate({ name: 'machine-settings', id }) })
     }
     go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate({ name: 'settings' }) })
     const help: PaletteItem[] = [

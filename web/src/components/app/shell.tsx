@@ -156,7 +156,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const live = ws.machine?.live
   const tab: ServerTab = route.name === 'server' ? route.tab : 'overview'
   const healthy = !!ws.updating || (!ws.agentDown && !!live && live.docker)
-  const onMachine = route.name === 'machine' && route.id === ws.machine?.id
+  const onMachine = (route.name === 'machine' || route.name === 'machine-settings') && route.id === ws.machine?.id
   return (
     <aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col px-3 pt-3 pb-2">
       <a {...linkProps({ name: 'home' })} className="flex h-9 items-center gap-2 rounded-lg px-1.5 text-[15px] font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -179,7 +179,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         {ws.machine && (
           <a
             {...linkProps({ name: 'machine', id: ws.machine.id })}
-            aria-current={onMachine ? 'page' : undefined}
+            aria-current={onMachine ? (route.name === 'machine' ? 'page' : 'true') : undefined}
             className={cn(
               'mt-3 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
               onMachine && 'border-border bg-white text-foreground shadow-outline',
@@ -265,7 +265,7 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'account'
+  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
   const inServer = route.name === 'server' || (underMore && !!phoneServer)
   const slug = route.name === 'server' ? route.slug : phoneServer?.slug
   const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : underMore ? 'more' : undefined

@@ -11,6 +11,7 @@ export type Route =
   | { name: 'new-server' }
   | { name: 'server'; slug: string; tab: ServerTab }
   | { name: 'machine'; id: string }
+  | { name: 'machine-settings'; id: string }
   | { name: 'settings' }
   | { name: 'account'; section?: 'two-factor' }
   | { name: 'more' }
@@ -49,7 +50,10 @@ export function parse(pathname: string): Route {
       }
       return { name: 'home' }
     case 'machines':
-      if (second && /^[a-z2-9]{10}$/.test(second) && !third) return { name: 'machine', id: second }
+      if (second && /^[a-z2-9]{10}$/.test(second)) {
+        if (!third) return { name: 'machine', id: second }
+        if (third === 'settings' && parts.length === 3) return { name: 'machine-settings', id: second }
+      }
       return { name: 'home' }
   }
   return { name: 'home' }
@@ -71,6 +75,8 @@ export function href(route: Route): string {
       return route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
     case 'machine':
       return `/machines/${route.id}`
+    case 'machine-settings':
+      return `/machines/${route.id}/settings`
     case 'settings':
       return '/settings'
     case 'account':

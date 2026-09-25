@@ -12,6 +12,7 @@ import { AccountPage } from '@/pages/account'
 import { HomePage } from '@/pages/home'
 import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
+import { MachineSettingsPage } from '@/pages/machine-settings'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
 import { AccountStep, Onboarding } from '@/pages/onboarding'
@@ -147,6 +148,8 @@ function page(route: Route) {
       return <ServerPage slug={route.slug} tab={route.tab} />
     case 'machine':
       return <MachinePage id={route.id} />
+    case 'machine-settings':
+      return <MachineSettingsPage id={route.id} />
     case 'settings':
       return <GlobalSettingsPage />
     case 'account':
