@@ -379,7 +379,7 @@ export function PhoneBackHeader({ to, label, title }: { to: Route; label: string
         <ChevronLeftIcon className="size-5" aria-hidden="true" />
         {label}
       </a>
-      {title && <div className="ml-auto text-[15px] font-semibold">{title}</div>}
+      {title && <h1 className="ml-auto text-[15px] font-semibold">{title}</h1>}
     </header>
   )
 }
