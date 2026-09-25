@@ -134,9 +134,10 @@ func (s *server) serverCPU(now time.Time) *float64 {
 }
 
 // countChunks adds up the chunks in the world's region files: every region
-// folder below its dimension folders, as Paper (world_nether/DIM-1/region)
-// and vanilla (world/DIM-1/region) lay them out. Entities and poi folders
-// hold other data in the same format.
+// folder below its dimension folders, as Paper 26.1
+// (world/dimensions/minecraft/the_nether/region), older Paper
+// (world_nether/DIM-1/region) and vanilla (world/DIM-1/region) lay them out.
+// Entities and poi folders hold other data in the same format.
 func (s *server) countChunks(level string) (int, bool) {
 	root, err := os.OpenRoot(s.dataDir())
 	if err != nil {

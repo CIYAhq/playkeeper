@@ -333,7 +333,10 @@ func TestNewChunksComeFromRegionFiles(t *testing.T) {
 	write("world/region/r.-1.0.mca", 60)
 	write("world_nether/DIM-1/region/r.0.0.mca", 7)
 	write("world_the_end/DIM1/region/r.0.0.mca", 3)
+	write("world/dimensions/minecraft/overworld/region/r.0.0.mca", 20)
+	write("world/dimensions/minecraft/the_nether/region/r.0.-1.mca", 5)
 	write("world/entities/r.0.0.mca", 500)
+	write("world/dimensions/minecraft/overworld/entities/r.0.0.mca", 500)
 	write("world/poi/r.0.0.mca", 500)
 	write("world/region/r.0.0.mca.bak", 500)
 	outside := filepath.Join(e.dir, "elsewhere.mca")
@@ -343,8 +346,8 @@ func TestNewChunksComeFromRegionFiles(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(e.dataDir(), "world", "region", "r.5.5.mca")); err != nil {
 		t.Fatal(err)
 	}
-	if n, ok := e.srv().countChunks("world"); !ok || n != 110 {
-		t.Fatalf("chunks in the world's region files: %d %v, want 110", n, ok)
+	if n, ok := e.srv().countChunks("world"); !ok || n != 135 {
+		t.Fatalf("chunks in the world's region files: %d %v, want 135", n, ok)
 	}
 
 	s := &server{}
