@@ -16,7 +16,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine, ranOutOfMemory } from '@/lib/console'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
-import { createStepOf, isSettingUp, opLabel } from '@/lib/phase'
+import { createStepOf, isSettingUp, opLabel, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -108,7 +108,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={busy}
-            disabled={!!s.operation}
+            disabledReason={whyNot(s, 'restart', stale)}
             onClick={async () => {
               setBusy(true)
               await serverAction(s, 'restart')
@@ -435,7 +435,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
         ) : (
           <p className="mt-1 text-[13px] text-muted-foreground">{t('crash.startHint', { server: s.name })}</p>
         )}
-        <Button className="mt-4 w-full" size="lg" loading={busy} onClick={fix} disabled={!!s.operation}>
+        <Button className="mt-4 w-full" size="lg" loading={busy} onClick={fix} disabledReason={whyNot(s, 'start', ws.stale)}>
           <PlayIcon />
           {withMore && choice === 'more' ? t('crash.save', { server: s.name }) : t('crash.startOnly', { server: s.name })}
         </Button>

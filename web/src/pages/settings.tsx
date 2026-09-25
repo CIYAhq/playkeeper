@@ -105,7 +105,7 @@ function AccountCard() {
           </p>
         )}
         <div className="sm:col-span-2">
-          <Button type="submit" variant="outline" loading={busy} disabled={!current || next.length < 10}>
+          <Button type="submit" variant="outline" loading={busy} disabledReason={!current || !next ? t('reason.fillIn') : next.length < 10 ? t('reason.passwordShort') : undefined}>
             {t('global.changePassword')}
           </Button>
         </div>
@@ -163,7 +163,7 @@ function PlaykeeperCard() {
         </p>
         {info?.supported && (
           <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={check} loading={checking} disabled={!!ws.updating}>
+            <Button variant="ghost" size="sm" onClick={check} loading={checking} disabledReason={ws.updating ? t('reason.busy', { what: t('op.update') }) : undefined}>
               <RefreshCwIcon />
               {t('update.check')}
             </Button>

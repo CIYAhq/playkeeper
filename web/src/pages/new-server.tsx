@@ -7,7 +7,7 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, Stepper, useIsPhone } from '@/components/app/controls'
-import { createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, type CreateChoices } from '@/components/app/create'
+import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
@@ -68,19 +68,19 @@ export function NewServerPage() {
   const version = catalog?.versions.find((v) => v.id === c?.versionId)
   const noMemory = !!catalog && options.length === 0
 
-  function canContinue(): boolean {
-    if (!c) return false
+  function blocked(): string | undefined {
+    if (!c) return t('common.loading')
     switch (step) {
       case 0:
-        return c.type === 'paper'
+        return c.type === 'paper' ? undefined : t('common.comingSoon')
       case 1:
-        return !!version && (!version.experimental || c.acceptExperimental)
+        return versionBlocked(c, version)
       case 2:
-        return true
+        return undefined
       case 3:
-        return !noMemory && c.memoryMB > 0
+        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: ws.machineName }) : undefined
       default:
-        return c.eula && c.name.trim().length > 0
+        return createBlocked(c, version)
     }
   }
 
@@ -362,7 +362,7 @@ export function NewServerPage() {
         {body}
         <div className="mt-6">{restoreLink}</div>
         <PhoneActions>
-          <Button size="touch" onClick={next} disabled={!canContinue()} loading={busy}>
+          <Button size="touch" onClick={next} disabledReason={blocked()} loading={busy}>
             {step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 ? t('new.continueVersion') : t('common.continue')}
             <ArrowRightIcon />
           </Button>
@@ -406,7 +406,7 @@ export function NewServerPage() {
                 </Button>
               )}
               <span className="ml-auto text-xs text-muted-foreground">{step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''}</span>
-              <Button onClick={next} disabled={!canContinue()} loading={busy}>
+              <Button onClick={next} disabledReason={blocked()} loading={busy}>
                 {step < 4 ? t(continueKeys[step] ?? 'new.continueName') : t('new.create', { name: c?.name.trim() || t('nav.newServer') })}
                 <ArrowRightIcon />
               </Button>

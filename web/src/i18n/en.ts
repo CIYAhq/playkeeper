@@ -87,6 +87,20 @@ export const en = {
   'status.playing': { one: '{count} playing', other: '{count} playing' },
   'status.nobodyYet': 'nobody yet',
 
+  // Why a control can't be used right now (its tooltip)
+  'reason.noAgent': 'Waiting for the Playkeeper agent to answer.',
+  'reason.notCreated': '{server} isn’t set up yet.',
+  'reason.busy': '{what}. Try again when it’s done.',
+  'reason.running': '{server} is already running.',
+  'reason.stopped': '{server} is already stopped.',
+  'reason.startFirst': 'Start {server} first.',
+  'reason.fillIn': 'Fill in the fields above first.',
+  'reason.passwordShort': 'Passwords need at least 10 characters.',
+  'reason.nameFirst': 'Give the server a name first.',
+  'reason.pickVersion': 'Pick a version first.',
+  'reason.experimental': 'Confirm you understand {version} is experimental first.',
+  'reason.eula': 'Accept the Minecraft EULA first.',
+
   // Operations (the job pill and busy lines)
   'op.create': 'Creating {server}',
   'op.start': 'Starting {server}',
@@ -234,6 +248,7 @@ export const en = {
   'server.goHome': 'Go to Home',
   'server.minecraft': 'Minecraft {version}',
   'server.deleteMenu': 'Delete server…',
+  'server.tabAfterSetup': 'Opens once {server} is set up.',
 
   // Play styles
   'style.friends': 'With friends',
@@ -414,9 +429,9 @@ export const en = {
   'console.input': 'Minecraft command',
   'console.placeholder': 'Minecraft command, e.g. list',
   'console.send': 'Send',
+  'console.typeFirst': 'Type a command first.',
+  'console.nothingYet': 'Nothing to download yet.',
   'console.help': 'Commands go to the Minecraft console only, never to your VPS. Each one is saved in the audit log. Use the Restart button instead of the stop command.',
-  'console.notOnline': '{server} isn’t online, so it can’t take commands. Start it first.',
-  'console.busy': 'Commands are paused while {what}.',
   'console.warnTitle': 'About the {time} warning',
   'console.warnBody': { one: 'The server fell {count} second behind once. That happens when lots of new land loads at once, like several people exploring. If it keeps happening, give {server} more memory.', other: 'The server fell {count} seconds behind once. That happens when lots of new land loads at once, like several people exploring. If it keeps happening, give {server} more memory.' },
   'console.warnTag': 'WARN',
@@ -586,6 +601,7 @@ export const en = {
   'restore.notIncluded': 'Not in the backup',
   'restore.typeToConfirm': 'This replaces {server}’s world “{level}” ({size}). A copy of it is saved first. Type <b>{phrase}</b> to confirm.',
   'restore.confirmLabel': 'Type the confirmation',
+  'restore.typeFirst': 'Type {phrase} above first.',
   'restore.replace': 'Replace the world and restore',
   'restore.restoreNew': 'Restore as a new server',
   'restore.nameLabel': 'Name for the new server',
@@ -672,6 +688,7 @@ export const en = {
   'settings.deleteDialog': 'Delete {server}?',
   'settings.deleteDialogBody': 'This can’t be undone. The world and backups on this VPS are deleted; copies you downloaded stay yours.',
   'settings.deleteType': 'Type <b>{server}</b> to confirm.',
+  'settings.deleteTypeFirst': 'Type {server} above first.',
   'settings.deleteConfirm': 'Delete {server}',
   'settings.deletedToast': '{server} was deleted',
   'settings.unsaved': { one: '{count} unsaved change', other: '{count} unsaved changes' },
@@ -707,6 +724,7 @@ export const en = {
   'mcupdate.experimental': 'I understand {version} is experimental and may crash or damage the world.',
   'mcupdate.footer': { zero: 'About 3 minutes', one: 'About 3 minutes · {count} person will be disconnected', other: 'About 3 minutes · {count} people will be disconnected' },
   'mcupdate.confirm': 'Back up and update',
+  'mcupdate.tickFirst': { one: 'Tick the box above first.', other: 'Tick both boxes above first.' },
   'mcupdate.started': 'Updating {server}. It’s backed up first.',
 
   // New server
@@ -761,7 +779,6 @@ export const en = {
   'new.older': 'Older versions',
   'new.olderSearch': { one: 'Search {count} older Paper version…', other: 'Search {count} older Paper versions…' },
   'new.olderShow': { one: 'Show {count} older version', other: 'Show {count} older versions' },
-  'new.stable': 'Stable',
   'new.noMatch': 'No version matches.',
   'new.forward': 'Versions only go forward',
   'new.forwardBody': 'You can update this server later in Settings. A world opened in a newer version can’t go back to an older one.',

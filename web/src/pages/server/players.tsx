@@ -36,6 +36,12 @@ function usePlayers(s: ServerStatus, days: Days) {
   return { whitelist: whitelist.data, operators: operators.data, summary: summary.data, sessions: sessions.data, activity: activity.data, refresh }
 }
 
+/** Why the allowlist and operators can't change right now: they go through the running server. */
+function listLocked(server: ServerStatus, stale: boolean): string | undefined {
+  if (stale) return t('reason.noAgent')
+  return server.phase === 'online' ? undefined : t('players.startToChange', { server: server.name })
+}
+
 /** The "add a player" field and button, used on the page, in the empty state and on phones. */
 function AddPlayer({ server, onAdded, big, placeholder, iconButton }: { server: ServerStatus; onAdded: () => void; big?: boolean; placeholder: string; iconButton?: boolean }) {
   const ws = useWorkspace()
@@ -43,7 +49,7 @@ function AddPlayer({ server, onAdded, big, placeholder, iconButton }: { server: 
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
-  const online = !ws.stale && server.phase === 'online'
+  const blocked = listLocked(server, ws.stale)
   const hash = window.location.hash
 
   useEffect(() => {
@@ -82,21 +88,21 @@ function AddPlayer({ server, onAdded, big, placeholder, iconButton }: { server: 
             ref={input}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={online ? placeholder : t('players.startToChange', { server: server.name })}
+            placeholder={blocked ?? placeholder}
             aria-label={t('players.nameLabel')}
             aria-invalid={error ? true : undefined}
-            disabled={!online}
+            disabled={!!blocked}
             autoComplete="off"
             spellCheck={false}
             maxLength={16}
           />
         </InputGroup>
         {iconButton ? (
-          <Button type="submit" size="icon-xl" aria-label={t('players.add')} loading={busy} disabled={!online}>
+          <Button type="submit" size="icon-xl" aria-label={t('players.add')} loading={busy} disabledReason={blocked}>
             <PlusIcon />
           </Button>
         ) : (
-          <Button type="submit" loading={busy} disabled={!online}>
+          <Button type="submit" loading={busy} disabledReason={blocked}>
             <PlusIcon />
             {t('players.add')}
           </Button>
@@ -124,10 +130,10 @@ async function playerAction(server: ServerStatus, method: 'POST' | 'DELETE', pat
 
 function PlayerMenu({ server, name, op, online, after, phone }: { server: ServerStatus; name: string; op: boolean; online: boolean; after: () => void; phone?: boolean }) {
   const ws = useWorkspace()
-  const up = !ws.stale && server.phase === 'online'
+  const blocked = listLocked(server, ws.stale)
   return (
     <Menu>
-      <MenuTrigger render={<Button variant="ghost" size={phone ? 'icon-lg' : 'icon-sm'} aria-label={t('players.menuFor', { name })} disabled={!up} />}>
+      <MenuTrigger disabled={!!blocked} render={<Button variant="ghost" size={phone ? 'icon-lg' : 'icon-sm'} aria-label={t('players.menuFor', { name })} disabledReason={blocked} />}>
         <EllipsisIcon />
       </MenuTrigger>
       <MenuPopup align="end" className="min-w-60">

@@ -203,7 +203,7 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           </DialogFooter>
         ) : phone ? (
           <div className="flex flex-col gap-1 px-5 pt-2">
-            <Button size="touch" onClick={apply} loading={busy} disabled={!info?.available}>
+            <Button size="touch" onClick={apply} loading={busy} disabledReason={info?.available ? undefined : info ? t('update.latest') : t('common.loading')}>
               <CircleArrowUpIcon />
               {t('update.updateNow')}
             </Button>
@@ -221,7 +221,7 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 {t('common.later')}
               </Button>
-              <Button onClick={apply} loading={busy} disabled={!info?.available}>
+              <Button onClick={apply} loading={busy} disabledReason={info?.available ? undefined : info ? t('update.latest') : t('common.loading')}>
                 <CircleArrowUpIcon />
                 {t('update.update')}
               </Button>

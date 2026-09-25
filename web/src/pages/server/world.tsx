@@ -15,6 +15,7 @@ import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
+import { whyNot } from '@/lib/phase'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
@@ -179,7 +180,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
-  const disabled = ws.stale || !s.exists || (!!s.operation && !running) || s.phase === 'docker_unavailable'
+  const blocked = whyNot(s, 'change', ws.stale)
 
   async function backup() {
     setBusy(true)
@@ -195,7 +196,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   }
 
   const button = (size: 'default' | 'touch') => (
-    <Button size={size} onClick={backup} loading={busy || running} disabled={disabled || running} className={size === 'touch' ? 'w-full' : undefined}>
+    <Button size={size} onClick={backup} loading={busy || running} disabledReason={blocked} className={size === 'touch' ? 'w-full' : undefined}>
       <ArchiveIcon />
       {running ? t('world.backingUp') : t('world.backUpNow')}
     </Button>
@@ -231,7 +232,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
           <InputGroupAddon>
             <PencilIcon aria-hidden="true" />
           </InputGroupAddon>
-          <InputGroupInput value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('world.notePlaceholder')} aria-label={t('world.noteLabel')} maxLength={120} disabled={disabled || running} />
+          <InputGroupInput value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('world.notePlaceholder')} aria-label={t('world.noteLabel')} maxLength={120} disabled={!!blocked} />
         </InputGroup>
         {button('default')}
       </div>
@@ -422,7 +423,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         size={phone ? 'touch' : 'lg'}
         className="mt-5 max-sm:w-full"
         loading={busy || running}
-        disabled={ws.stale || !s.exists || (!!s.operation && !running) || running}
+        disabledReason={whyNot(s, 'change', ws.stale)}
         onClick={async () => {
           setBusy(true)
           try {

@@ -54,6 +54,8 @@ export interface ButtonProps extends useRender.ComponentProps<"button"> {
   variant?: VariantProps<typeof buttonVariants>["variant"];
   size?: VariantProps<typeof buttonVariants>["size"];
   loading?: boolean;
+  /** Playkeeper: disables the button and says why, as its tooltip and description. */
+  disabledReason?: string;
 }
 
 export function Button({
@@ -64,9 +66,11 @@ export function Button({
   children,
   loading = false,
   disabled: disabledProp,
+  disabledReason,
   ...props
 }: ButtonProps): React.ReactElement {
-  const isDisabled: boolean = Boolean(loading || disabledProp);
+  const isDisabled: boolean = Boolean(loading || disabledProp || disabledReason);
+  const reason = isDisabled && !loading ? disabledReason : undefined;
   const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] =
     render ? undefined : "button";
 
@@ -82,7 +86,11 @@ export function Button({
         )}
       </>
     ),
-    className: cn(buttonVariants({ className, size, variant })),
+    className: cn(
+      buttonVariants({ className, size, variant }),
+      reason && "disabled:pointer-events-auto disabled:cursor-not-allowed",
+    ),
+    title: reason,
     "aria-disabled": loading || undefined,
     "data-loading": loading ? "" : undefined,
     "data-slot": "button",

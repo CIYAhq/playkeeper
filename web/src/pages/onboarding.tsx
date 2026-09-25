@@ -7,7 +7,7 @@ import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
+import { createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
@@ -158,7 +158,7 @@ export function AccountStep({ onDone }: { onDone: (m: Me) => void }) {
                 {error}
               </p>
             )}
-            <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={password.length < 10 || !username.trim() || !code.trim()}>
+            <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={!code.trim() || !username.trim() || !password ? t('reason.fillIn') : password.length < 10 ? t('reason.passwordShort') : undefined}>
               {busy ? t('onboarding.creating') : t('onboarding.create')}
               <ArrowRightIcon />
             </Button>
@@ -280,6 +280,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
     return out
   }, [pre, live, port])
   const ok = rows.filter((r) => r.status === 'pass').length
+  const checkBlocked = !pre ? t('onboarding.checking') : pre.ok ? undefined : t('onboarding.checkBlocked')
 
   return (
     <FrameCard wide className="max-w-[560px]">
@@ -318,7 +319,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
       {pre && !pre.ok && <p className="mt-3 text-[13px] text-destructive-foreground">{t('onboarding.checkBlocked')}</p>}
       {phone ? (
         <PhoneActions>
-          <Button size="touch" onClick={onNext} disabled={!pre?.ok}>
+          <Button size="touch" onClick={onNext} disabledReason={checkBlocked}>
             {t('onboarding.looksGood')}
             <ArrowRightIcon />
           </Button>
@@ -333,7 +334,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
             <RefreshCwIcon />
             {t('onboarding.checkAgain')}
           </Button>
-          <Button onClick={onNext} disabled={!pre?.ok}>
+          <Button onClick={onNext} disabledReason={checkBlocked}>
             {t('onboarding.looksGood')}
             <ArrowRightIcon />
           </Button>
@@ -456,7 +457,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
   const summary = phone
     ? t('onboarding.summaryPhone', { type: typeName(c.type), version: version?.minecraftVersion ?? '', world: t(`style.world.${c.levelType}`).toLowerCase(), memory: formatMB(c.memoryMB) })
     : t('style.summary', { type: typeName(c.type), version: version?.minecraftVersion ?? '', memory: formatMB(c.memoryMB), total: formatMB(catalog.hostMemoryMB), name: c.name })
-  const ready = c.eula && !!version && (!version.experimental || c.acceptExperimental) && c.name.trim().length > 0
+  const blocked = createBlocked(c, version)
   const { cards, older } = versionCards(catalog.versions, ws.servers)
   const versionChoices = [...cards.map((x) => x.entry), ...older].map((e) => ({ value: e.id, label: e.minecraftVersion, hint: e.experimental ? t('common.experimental') : e.recommended ? t('new.latestStable') : t('new.build', { build: e.paperBuild }) }))
 
@@ -531,7 +532,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           </button>
         </p>
         <PhoneActions>
-          <Button size="touch" onClick={create} loading={busy} disabled={!ready}>
+          <Button size="touch" onClick={create} loading={busy} disabledReason={blocked}>
             {t('onboarding.createMine')}
             <ArrowRightIcon />
           </Button>
@@ -552,7 +553,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
         <button type="button" className="shrink-0 text-xs font-semibold text-primary hover:underline" onClick={() => setChanging(true)}>
           {t('common.change')}
         </button>
-        <Button onClick={create} loading={busy} disabled={!ready}>
+        <Button onClick={create} loading={busy} disabledReason={blocked}>
           {t('onboarding.createMine')}
           <ArrowRightIcon />
         </Button>

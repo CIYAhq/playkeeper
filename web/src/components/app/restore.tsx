@@ -131,7 +131,7 @@ export function RestoreDialog({ preview, server, onClose }: { preview: RestorePr
     }
   }
 
-  const ready = preview?.compatible && (creating ? eula && name.trim().length > 0 : phrase.trim() === preview.confirmPhrase)
+  const blocked = !preview ? undefined : creating ? (!name.trim() ? t('reason.nameFirst') : eula ? undefined : t('reason.eula')) : phrase.trim() === preview.confirmPhrase ? undefined : t('restore.typeFirst', { phrase: preview.confirmPhrase })
   return (
     <Dialog open={!!preview} onOpenChange={(open) => !open && void discard()}>
       <DialogPopup className="sm:max-w-[580px]">
@@ -222,7 +222,7 @@ export function RestoreDialog({ preview, server, onClose }: { preview: RestorePr
                 {t('common.cancel')}
               </Button>
               {preview.compatible && (
-                <Button onClick={apply} loading={busy} disabled={!ready}>
+                <Button onClick={apply} loading={busy} disabledReason={blocked}>
                   {creating ? t('restore.restoreNew') : t('restore.replace')}
                 </Button>
               )}

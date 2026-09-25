@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/i18n'
 import { behindSeconds, parseLine, type LineKind } from '@/lib/console'
 import { formatClock, formatTime } from '@/lib/format'
-import { opLabel } from '@/lib/phase'
+import { whyNot } from '@/lib/phase'
 import { cn } from '@/lib/utils'
 
 type Filter = 'all' | 'chat' | 'players' | 'problems'
@@ -84,8 +84,6 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
   const [sending, setSending] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
-  const online = !ws.stale && s.phase === 'online'
-  const busy = s.operation
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = lines.map((l) => {
@@ -152,7 +150,8 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  const disabledReason = !online ? t('console.notOnline', { server: s.name }) : busy ? t('console.busy', { what: opLabel(busy, s.name) }) : undefined
+  const disabledReason = whyNot(s, 'command', ws.stale)
+  const sendBlocked = disabledReason ?? (command.trim() ? undefined : t('console.typeFirst'))
   const filters = [
     { value: 'all' as const, label: phone ? t('console.filter.allShort') : t('console.filter.all') },
     { value: 'chat' as const, label: t('console.filter.chat') },
@@ -216,11 +215,11 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
         />
       </InputGroup>
       {phone ? (
-        <Button type="submit" size="icon-xl" aria-label={t('console.send')} disabled={!!disabledReason || !command.trim()} loading={sending}>
+        <Button type="submit" size="icon-xl" aria-label={t('console.send')} disabledReason={sendBlocked} loading={sending}>
           <SendIcon />
         </Button>
       ) : (
-        <Button type="submit" disabled={!!disabledReason || !command.trim()} loading={sending}>
+        <Button type="submit" disabledReason={sendBlocked} loading={sending}>
           <SendIcon />
           {t('console.send')}
         </Button>
@@ -235,7 +234,7 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
         {log}
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
           {quick.map((q) => (
-            <button key={q.command} type="button" disabled={!!disabledReason} onClick={() => fill(q.command)} className="shrink-0 rounded-full border border-border bg-white px-3.5 py-2 text-sm font-medium disabled:opacity-60">
+            <button key={q.command} type="button" disabled={!!disabledReason} title={disabledReason} onClick={() => fill(q.command)} className="shrink-0 rounded-full border border-border bg-white px-3.5 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60">
               {q.fillOnly ? `${q.command.trim()} …` : q.command}
             </button>
           ))}
@@ -260,7 +259,7 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
             <Switch checked={follow} onCheckedChange={setFollow} />
             {t('console.follow')}
           </label>
-          <Button variant="outline" size="sm" onClick={download} disabled={!lines.length}>
+          <Button variant="outline" size="sm" onClick={download} disabledReason={lines.length ? undefined : t('console.nothingYet')}>
             <DownloadIcon />
             {t('console.downloadLog')}
           </Button>
@@ -278,8 +277,9 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
               <button
                 type="button"
                 disabled={!!disabledReason}
+                title={disabledReason}
                 onClick={() => fill(q.command)}
-                className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2 text-left outline-none hover:border-input hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+                className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2 text-left outline-none not-disabled:hover:border-input not-disabled:hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
               >
                 {q.icon}
                 <span className="min-w-0 flex-1">

@@ -19,6 +19,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatBytes, formatMB } from '@/lib/format'
+import { busyReason, whyNot } from '@/lib/phase'
 import { navigate } from '@/lib/router'
 import { iconURL, newerStable, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -214,7 +215,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       <Button variant="ghost" size="sm" onClick={() => setDraft({})}>
         {t('settings.discard')}
       </Button>
-      <Button size="sm" onClick={save} loading={saving} disabled={!v.name.trim() || !!s.operation}>
+      <Button size="sm" onClick={save} loading={saving} disabledReason={v.name.trim() ? busyReason(s) : t('reason.nameFirst')}>
         {restartNeeded && online ? <RotateCwIcon /> : <SaveIcon />}
         {restartNeeded && online ? t('settings.saveRestart') : t('common.save')}
       </Button>
@@ -357,7 +358,7 @@ function VersionRows({ server: s, versions }: { server: ServerStatus; versions: 
         hint={newest ? t('settings.updateBody', { version: newest.minecraftVersion }) : versions ? t('settings.upToDateBody') : undefined}
         control={
           newest && (
-            <Button variant="outline" size="sm" onClick={() => setOpen(newest)} disabled={!!s.operation}>
+            <Button variant="outline" size="sm" onClick={() => setOpen(newest)} disabledReason={busyReason(s)}>
               <CircleArrowUpIcon />
               {t('settings.updateTo', { version: newest.minecraftVersion })}
             </Button>
@@ -369,7 +370,7 @@ function VersionRows({ server: s, versions }: { server: ServerStatus; versions: 
           label={t('settings.otherVersions')}
           hint={t('settings.otherVersionsBody')}
           control={
-            <Button variant="outline" size="sm" onClick={() => setOpen('pick')} disabled={!!s.operation}>
+            <Button variant="outline" size="sm" onClick={() => setOpen('pick')} disabledReason={busyReason(s)}>
               {t('settings.chooseVersion')}
             </Button>
           }
@@ -484,7 +485,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
             <Button variant="ghost" onClick={close}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={go} loading={busy} disabled={!target || !consent || (target.experimental && !experimental) || !!s.operation}>
+            <Button onClick={go} loading={busy} disabledReason={busyReason(s) ?? (!target ? t('reason.pickVersion') : !consent || (target.experimental && !experimental) ? t('mcupdate.tickFirst', { count: target.experimental ? 2 : 1 }) : undefined)}>
               <ArchiveIcon />
               {t('mcupdate.confirm')}
             </Button>
@@ -501,7 +502,6 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const running = !ws.stale && ['online', 'starting', 'preparing_world', 'starting_container'].includes(s.phase)
   const list = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 30_000, s.id)
   const backups = list.data?.length ?? 0
   async function remove() {
@@ -526,7 +526,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={stopping}
-            disabled={!running || !!s.operation}
+            disabledReason={whyNot(s, 'stop', ws.stale)}
             onClick={async () => {
               setStopping(true)
               await serverAction(s, 'stop')
@@ -542,7 +542,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
         label={t('settings.deleteTitle', { server: s.name })}
         hint={t('settings.deleteHint', { count: backups })}
         control={
-          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabled={ws.stale || !!s.operation}>
+          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabledReason={ws.stale ? t('reason.noAgent') : busyReason(s)}>
             <Trash2Icon />
             {t('settings.deleteButton')}
           </Button>
@@ -567,7 +567,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
             <Button variant="ghost" onClick={() => setOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={remove} loading={busy} disabled={typed.trim() !== s.name}>
+            <Button variant="destructive" onClick={remove} loading={busy} disabledReason={typed.trim() === s.name ? undefined : t('settings.deleteTypeFirst', { server: s.name })}>
               <Trash2Icon />
               {t('settings.deleteConfirm', { server: s.name })}
             </Button>
