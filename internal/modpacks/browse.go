@@ -156,7 +156,7 @@ func (l *Library) searchModrinth(ctx context.Context, q Query) (*Results, error)
 	}
 	res, err := l.Modrinth.Search(ctx, modrinth.SearchQuery{Query: q.Text, Facets: facets, Index: index, Offset: q.Offset, Limit: q.Limit})
 	if err != nil {
-		return nil, upstream(addons.Modrinth, err)
+		return nil, Upstream(addons.Modrinth, err)
 	}
 	out := &Results{Cards: []Card{}, Total: res.TotalHits, Offset: q.Offset, Limit: q.Limit}
 	for _, h := range res.Hits {
@@ -194,7 +194,7 @@ func (l *Library) searchCurseForge(ctx context.Context, q Query) (*Results, erro
 		SortField: sort, Index: q.Offset, PageSize: q.Limit,
 	})
 	if err != nil {
-		return nil, upstream(CurseForge, err)
+		return nil, Upstream(CurseForge, err)
 	}
 	out := &Results{Cards: []Card{}, Total: int(min(res.Pagination.TotalCount, curseforge.MaxResults)), Offset: q.Offset, Limit: q.Limit}
 	for i := range res.Data {
@@ -365,7 +365,7 @@ func (l *Library) modrinthVersions(ctx context.Context, proj *modrinth.Project, 
 	}
 	vs, err := l.Modrinth.ProjectVersions(ctx, proj.ID, f)
 	if err != nil {
-		return nil, upstream(addons.Modrinth, err)
+		return nil, Upstream(addons.Modrinth, err)
 	}
 	name := printable(proj.Title)
 	out := []Version{}
@@ -395,7 +395,7 @@ func (l *Library) modrinthVersions(ctx context.Context, proj *modrinth.Project, 
 func (l *Library) curseForgeVersions(ctx context.Context, mod *curseforge.Mod, mc string) ([]Version, error) {
 	files, _, err := l.CurseForge.ModFiles(ctx, mod.ID, curseforge.FilesQuery{GameVersion: mc, PageSize: curseforge.MaxPageSize})
 	if err != nil {
-		return nil, upstream(CurseForge, err)
+		return nil, Upstream(CurseForge, err)
 	}
 	name := printable(mod.Name)
 	out := []Version{}

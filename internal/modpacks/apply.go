@@ -114,7 +114,7 @@ func (l *Library) apply(ctx context.Context, srv Server, pl *Plan) (*Result, err
 	}
 	tx.commit()
 
-	rec := Record{Pack: pl.Pack, Requirements: pl.Requirements, Files: []File{}, Excluded: pl.excluded}
+	rec := Record{Pack: pl.Pack, Requirements: pl.Requirements, Files: []File{}, Excluded: pl.excluded, Client: pl.pk.forPlayers()}
 	rec.Pack.InstalledAt = l.now()
 	res := &Result{Manual: pl.Manual, Properties: pl.Properties, Warnings: pl.Warnings, Kept: []string{}, RestartNeeded: true}
 	for _, o := range pl.ops {

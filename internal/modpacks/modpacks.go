@@ -119,6 +119,60 @@ type Record struct {
 	// Excluded are pack files left off the server: optional files the user
 	// turned off and pack files the user deleted. Updates leave them off.
 	Excluded []Excluded `json:"excluded,omitempty"`
+	// Client lists the mods, resource packs and shader packs the pack gives
+	// players, as its index or manifest describes them, for sharing the
+	// pack with friends. Nothing in it is read from the server's folder.
+	Client []ClientFile `json:"client,omitempty"`
+}
+
+// ClientFile is a mod, resource pack or shader pack for players' games
+// (see PlayerContent). For a Modrinth pack these are the files whose env
+// does not rule out the client; for a CurseForge pack, every one it lists,
+// since only CurseForge's tags say which side a file is for.
+type ClientFile struct {
+	// Path is relative to the game's folder, with forward slashes.
+	Path string `json:"path"`
+	// SHA1 and SHA512 are lower-case hex; either may be empty (CurseForge
+	// lists only SHA-1, and archive files too large to read have neither).
+	SHA1   string `json:"sha1,omitempty"`
+	SHA512 string `json:"sha512,omitempty"`
+	Size   int64  `json:"size"`
+	Origin Origin `json:"origin"`
+	// Env is what a Modrinth pack's index says about the file, with values
+	// outside the format as mrpack.Unknown; nil means both sides need it.
+	Env *mrpack.Env `json:"env,omitempty"`
+	// Downloads are the index's addresses on the hosts packs may use.
+	Downloads []string `json:"downloads,omitempty"`
+	// Project is the file's project on the pack's source, when known.
+	Project string `json:"project,omitempty"`
+
+	// The rest describes files of CurseForge packs: the file's id, the
+	// project's name, the file's display name, the page to download it by
+	// hand, whether the pack requires it, and the sides CurseForge tags it
+	// for ("client", "server").
+	FileID   string   `json:"fileId,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Version  string   `json:"version,omitempty"`
+	Page     string   `json:"page,omitempty"`
+	Required bool     `json:"required,omitempty"`
+	Sides    []string `json:"sides,omitempty"`
+}
+
+// PlayerContent reports whether a path is a mod, resource pack or shader
+// pack in a game's folder: a .jar directly in mods, or a .zip directly in
+// resourcepacks or shaderpacks. Only these are shared with friends.
+func PlayerContent(p string) bool {
+	dir, name, ok := strings.Cut(p, "/")
+	if !ok || name == "" || strings.Contains(name, "/") || name[0] == '.' || mrpack.CheckPath(p) != nil {
+		return false
+	}
+	switch dir {
+	case "mods":
+		return strings.HasSuffix(name, ".jar") && len(name) > len(".jar")
+	case "resourcepacks", "shaderpacks":
+		return strings.HasSuffix(name, ".zip") && len(name) > len(".zip")
+	}
+	return false
 }
 
 // File is one file the pack put on the server.

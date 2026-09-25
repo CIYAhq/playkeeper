@@ -38,6 +38,7 @@ type pack struct {
 	info       addons.Installed
 	reqs       Requirements
 	files      map[string]*packFile
+	client     map[string]*ClientFile
 	skipped    []Skipped
 	manual     []addons.ManualStep
 	blockers   []addons.Notice
@@ -46,6 +47,8 @@ type pack struct {
 	unknownEnv []string
 	arch       *archive
 	dir        string
+	// hashed counts the bytes read out of the archive to hash them.
+	hashed int64
 }
 
 // packFile is one file the pack would put on the server.
@@ -128,12 +131,12 @@ func (l *Library) resolveModrinth(ctx context.Context, ref Ref, allowPre bool, w
 			return nil, versionNotFound(printable(proj.Title), ref.Version)
 		}
 		if err != nil {
-			return nil, upstream(addons.Modrinth, err)
+			return nil, Upstream(addons.Modrinth, err)
 		}
 	} else {
 		vs, err := l.Modrinth.ProjectVersions(ctx, proj.ID, modrinth.VersionFilter{})
 		if err != nil {
-			return nil, upstream(addons.Modrinth, err)
+			return nil, Upstream(addons.Modrinth, err)
 		}
 		if v, err = l.pickModrinth(printable(proj.Title), vs, allowPre, "", ""); err != nil {
 			return nil, err
@@ -152,7 +155,7 @@ func (l *Library) modrinthPack(ctx context.Context, idOrSlug string) (*modrinth.
 		return nil, notFound(addons.Modrinth, idOrSlug)
 	}
 	if err != nil {
-		return nil, upstream(addons.Modrinth, err)
+		return nil, Upstream(addons.Modrinth, err)
 	}
 	if proj.ProjectType != "modpack" {
 		return nil, notModpack(printable(proj.Title), addons.Modrinth)
@@ -294,7 +297,7 @@ func (l *Library) readModrinth(ctx context.Context, proj *modrinth.Project, v *m
 			VersionID: v.ID, VersionNumber: printable(v.VersionNumber), Channel: channel(v.VersionType), Published: v.DatePublished,
 			FileName: printable(file.Filename), HashAlgo: "sha512", Hash: strings.ToLower(file.Hashes.SHA512), Size: file.Size,
 		},
-		files: map[string]*packFile{}, properties: map[string]string{},
+		files: map[string]*packFile{}, client: map[string]*ClientFile{}, properties: map[string]string{},
 	}
 	want := fetch.Want{Algo: "sha512", Hash: file.Hashes.SHA512, Size: file.Size, Max: lim.Pack}
 	if len(file.Hashes.SHA1) == 40 {
@@ -360,10 +363,25 @@ func (l *Library) readIndex(p *pack, world string, lim Limits) error {
 	if err := l.addOverrides(p, p.arch.layer(mrpack.Overrides, mrpack.ServerOverrides), world, lim); err != nil {
 		return err
 	}
+	if err := l.addClientOverrides(p, p.arch.layer(mrpack.Overrides, mrpack.ClientOverrides), lim); err != nil {
+		return err
+	}
 	return l.finishPack(p, lim)
 }
 
 func (l *Library) addIndexFile(p *pack, f *mrpack.File, world string, hosts fetch.Hosts) {
+	var urls []string
+	for _, raw := range f.Downloads {
+		if u, err := url.Parse(raw); err == nil && l.packHosts().Allows(u) {
+			urls = append(urls, raw)
+		}
+	}
+	if f.Client() != mrpack.Unsupported && PlayerContent(f.Path) {
+		p.client[f.Path] = &ClientFile{
+			Path: f.Path, SHA1: f.Hashes.SHA1, SHA512: f.Hashes.SHA512, Size: f.FileSize, Origin: Download,
+			Env: clientEnv(f.Env), Downloads: urls, Project: l.modrinthProject(urls),
+		}
+	}
 	env := f.Server()
 	switch env {
 	case mrpack.Unsupported:
@@ -381,12 +399,6 @@ func (l *Library) addIndexFile(p *pack, f *mrpack.File, world string, hosts fetc
 	case classProtected:
 		p.skip(f.Path, KindProtected)
 		return
-	}
-	var urls []string
-	for _, raw := range f.Downloads {
-		if u, err := url.Parse(raw); err == nil && l.packHosts().Allows(u) {
-			urls = append(urls, raw)
-		}
 	}
 	if len(urls) == 0 {
 		host := "an address Playkeeper cannot check"
@@ -446,9 +458,64 @@ func (l *Library) addOverrides(p *pack, entries map[string]*zip.File, world stri
 		if err != nil {
 			return badPack(p.info.Name, fmt.Sprintf("is damaged at %q (%v)", printable(rel), err))
 		}
+		if p.hashed += n; p.hashed > lim.Unpacked {
+			return unpackedTooLarge(p.info.Name, lim)
+		}
 		p.files[rel] = &packFile{path: rel, origin: Override, name: path.Base(rel), on: true, world: c == classWorld, size: n, sums: sums, entry: e}
 	}
 	return nil
+}
+
+// addClientOverrides records the mods, resource packs and shader packs in
+// the archive's folders for players; they replace files the index lists at
+// the same path. A file is recorded without hashes when reading it would
+// go past the limits, so a friend is sent to the pack for it.
+func (l *Library) addClientOverrides(p *pack, entries map[string]*zip.File, lim Limits) error {
+	for _, rel := range slices.Sorted(maps.Keys(entries)) {
+		if !PlayerContent(rel) {
+			continue
+		}
+		e := entries[rel]
+		cf := &ClientFile{Path: rel, Origin: Override, Size: int64(min(e.UncompressedSize64, uint64(lim.File)))}
+		switch pf := p.files[rel]; {
+		case pf != nil && pf.entry == e:
+			cf.SHA1, cf.SHA512, cf.Size = pf.sums["sha1"], pf.sums["sha512"], pf.size
+		case e.UncompressedSize64 <= uint64(lim.File) && p.hashed+int64(e.UncompressedSize64) <= lim.Unpacked:
+			sums, n, err := copyEntry(e, io.Discard, lim.File)
+			if err != nil {
+				return badPack(p.info.Name, fmt.Sprintf("is damaged at %q (%v)", printable(rel), err))
+			}
+			p.hashed += n
+			cf.SHA1, cf.SHA512, cf.Size = sums["sha1"], sums["sha512"], n
+		}
+		p.client[rel] = cf
+	}
+	return nil
+}
+
+// clientEnv copies a file's env for the record, with values outside the
+// format as mrpack.Unknown.
+func clientEnv(e *mrpack.Env) *mrpack.Env {
+	if e == nil {
+		return nil
+	}
+	c := *e
+	if !c.Client.Valid() {
+		c.Client = mrpack.Unknown
+	}
+	if !c.Server.Valid() {
+		c.Server = mrpack.Unknown
+	}
+	return &c
+}
+
+// forPlayers lists what the pack gives players, by path.
+func (p *pack) forPlayers() []ClientFile {
+	var out []ClientFile
+	for _, k := range slices.Sorted(maps.Keys(p.client)) {
+		out = append(out, *p.client[k])
+	}
+	return out
 }
 
 func (l *Library) readProperties(p *pack, e *zip.File) {
@@ -493,9 +560,7 @@ func (l *Library) finishPack(p *pack, lim Limits) error {
 		}
 	}
 	if unpacked > lim.Unpacked {
-		return fail(addons.KindTooLarge, kv("pack", p.info.Name, "limit", fetch.Size(lim.Unpacked)),
-			fmt.Sprintf("%s's archive unpacks to more than the %s Playkeeper accepts.", p.info.Name, fetch.Size(lim.Unpacked)),
-			"Choose another pack. Nothing was installed.")
+		return unpackedTooLarge(p.info.Name, lim)
 	}
 	if downloads > lim.Downloads {
 		p.block(notice(addons.KindTooLarge, kv("pack", p.info.Name, "limit", fetch.Size(lim.Downloads)),
@@ -533,12 +598,12 @@ func (l *Library) resolveCurseForge(ctx context.Context, ref Ref, allowPre bool,
 			return nil, versionNotFound(name, ref.Version)
 		}
 		if err != nil {
-			return nil, upstream(CurseForge, err)
+			return nil, Upstream(CurseForge, err)
 		}
 	} else {
 		files, _, err := l.CurseForge.ModFiles(ctx, mod.ID, curseforge.FilesQuery{PageSize: curseforge.MaxPageSize})
 		if err != nil {
-			return nil, upstream(CurseForge, err)
+			return nil, Upstream(CurseForge, err)
 		}
 		if f, err = l.pickCurseForge(name, files, allowPre, "", ""); err != nil {
 			return nil, err
@@ -562,7 +627,7 @@ func (l *Library) curseForgePack(ctx context.Context, project string) (*cursefor
 		return nil, notFound(CurseForge, project)
 	}
 	if err != nil {
-		return nil, upstream(CurseForge, err)
+		return nil, Upstream(CurseForge, err)
 	}
 	if mod.ClassID != curseforge.ClassModpacks || mod.GameID != curseforge.GameMinecraft {
 		return nil, notModpack(printable(mod.Name), CurseForge)
@@ -684,7 +749,7 @@ func (l *Library) readCurseForge(ctx context.Context, mod *curseforge.Mod, f *cu
 			VersionID: strconv.FormatInt(f.ID, 10), VersionNumber: printable(f.DisplayName), Channel: cfChannel(f.ReleaseType),
 			Published: f.FileDate, FileName: printable(f.FileName), HashAlgo: "sha1", Hash: f.SHA1(), Size: f.FileLength,
 		},
-		files: map[string]*packFile{}, properties: map[string]string{},
+		files: map[string]*packFile{}, client: map[string]*ClientFile{}, properties: map[string]string{},
 	}
 	want := fetch.Want{Algo: "sha1", Hash: f.SHA1(), Size: f.FileLength, Max: lim.Pack}
 	if err := l.fetchArchive(ctx, p, l.curseForgeFiles(), f.DownloadURL, want, lim); err != nil {
@@ -726,11 +791,11 @@ func (l *Library) readManifest(ctx context.Context, p *pack, world string, lim L
 	}
 	files, err := l.CurseForge.Files(ctx, fileIDs)
 	if err != nil {
-		return upstream(CurseForge, err)
+		return Upstream(CurseForge, err)
 	}
 	mods, err := l.CurseForge.Mods(ctx, projectIDs)
 	if err != nil {
-		return upstream(CurseForge, err)
+		return Upstream(CurseForge, err)
 	}
 	fileByID := map[int64]*curseforge.File{}
 	for i := range files {
@@ -744,6 +809,9 @@ func (l *Library) readManifest(ctx context.Context, p *pack, world string, lim L
 		l.addCurseForgeFile(p, mf, fileByID[mf.FileID], modByID[mf.ProjectID])
 	}
 	if err := l.addOverrides(p, p.arch.layer(m.Overrides), world, lim); err != nil {
+		return err
+	}
+	if err := l.addClientOverrides(p, p.arch.layer(m.Overrides), lim); err != nil {
 		return err
 	}
 	return l.finishPack(p, lim)
@@ -772,10 +840,13 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 	}
 	switch m.ClassID {
 	case curseforge.ClassMods:
+		p.clientCurseForge(mf, f, m, "mods")
 	case curseforge.ClassResourcePacks:
+		p.clientCurseForge(mf, f, m, "resourcepacks")
 		p.skip("resourcepacks/"+printable(f.FileName), KindClientContent)
 		return
 	case curseforge.ClassShaders:
+		p.clientCurseForge(mf, f, m, "shaderpacks")
 		p.skip("shaderpacks/"+printable(f.FileName), KindClientContent)
 		return
 	default:
@@ -829,10 +900,31 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 	}
 }
 
+// clientCurseForge records a file of a CurseForge pack for players' games,
+// in folder.
+func (p *pack) clientCurseForge(mf curseforge.ManifestFile, f *curseforge.File, m *curseforge.Mod, folder string) {
+	ext := ".zip"
+	if folder == "mods" {
+		ext = ".jar"
+	}
+	if !plainName(f.FileName, ext) {
+		return
+	}
+	rel := folder + "/" + f.FileName
+	p.client[rel] = &ClientFile{
+		Path: rel, SHA1: f.SHA1(), Size: f.FileLength, Origin: Download, Project: strconv.FormatInt(mf.ProjectID, 10),
+		FileID: strconv.FormatInt(f.ID, 10), Name: printable(m.Name), Version: printable(f.DisplayName), Page: m.FilePage(f.ID),
+		Required: mf.Required, Sides: f.Sides(),
+	}
+}
+
 // plainJar accepts a mod file name from CurseForge: a .jar without folders,
 // hidden names or odd characters.
-func plainJar(name string) bool {
-	if len(name) < len("x.jar") || len(name) > 128 || !strings.HasSuffix(name, ".jar") || name[0] == '.' || name[0] == '-' || name[0] == ' ' {
+func plainJar(name string) bool { return plainName(name, ".jar") }
+
+// plainName accepts a file name from CurseForge with the extension ext.
+func plainName(name, ext string) bool {
+	if len(name) <= len(ext) || len(name) > 128 || !strings.HasSuffix(name, ext) || name[0] == '.' || name[0] == '-' || name[0] == ' ' {
 		return false
 	}
 	if strings.ContainsAny(name, `/\:*?"<>|`) {
@@ -850,6 +942,12 @@ func indexError(name, file string, err error) error {
 		return badPack(name, fmt.Sprintf("has a %s larger than the %s Playkeeper reads", file, fetch.Size(tl.Limit)))
 	}
 	return err
+}
+
+func unpackedTooLarge(pack string, lim Limits) *addons.Error {
+	return fail(addons.KindTooLarge, kv("pack", pack, "limit", fetch.Size(lim.Unpacked)),
+		fmt.Sprintf("%s's archive unpacks to more than the %s Playkeeper accepts.", pack, fetch.Size(lim.Unpacked)),
+		"Choose another pack. Nothing was installed.")
 }
 
 func fileTooLarge(pack, file string, max int64) addons.Notice {
@@ -888,8 +986,9 @@ func tempError(err error) *addons.Error {
 		"Check that the machine has free disk space."), Err: err}
 }
 
-// upstream explains an error from Modrinth's or CurseForge's API.
-func upstream(src addons.Source, err error) error {
+// Upstream explains an error from Modrinth's or CurseForge's API to the
+// user. Add-on errors, cancellations and nil pass through unchanged.
+func Upstream(src addons.Source, err error) error {
 	var e *addons.Error
 	if err == nil || errors.As(err, &e) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err

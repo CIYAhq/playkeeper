@@ -105,6 +105,19 @@ func TestInstallModrinthPack(t *testing.T) {
 	if !res.Record.Owns("mods/krypton-0.3.1.jar") || res.Record.Owns("mods/sodium-fabric-0.9.2+mc26.2.jar") {
 		t.Error("Owns does not match the record")
 	}
+	// Players get every file but the two server-only mods.
+	if len(res.Record.Client) != 28 {
+		t.Errorf("record lists %d files for players, want 28", len(res.Record.Client))
+	}
+	for _, cf := range res.Record.Client {
+		dl := f.parse(cf.Downloads[0])
+		data := generated(dl.Path)
+		if strings.Contains(cf.Path, "krypton") || strings.Contains(cf.Path, "vmp") || cf.Origin != Download || len(cf.Downloads) != 1 ||
+			dl.Host != host(f.cdn) || cf.SHA1 != sha1hex(data) || cf.SHA512 != sha512hex(data) || cf.Size != int64(len(data)) ||
+			cf.Env == nil || cf.Env.Client != "required" || !strings.HasPrefix(dl.Path, "/data/"+cf.Project+"/versions/") {
+			t.Errorf("file for players %+v", cf)
+		}
+	}
 	for _, r := range f.served("cdn") {
 		if strings.Contains(r, "sodium") || strings.Contains(r, "modmenu") {
 			t.Errorf("downloaded client-only %s", r)

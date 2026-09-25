@@ -212,16 +212,19 @@ func (f *File) SHA1() string {
 // ClientOnly reports whether CurseForge tags the file for the game client
 // and not for servers.
 func (f *File) ClientOnly() bool {
-	client, server := false, false
-	for _, v := range f.GameVersions {
-		switch strings.ToLower(v) {
-		case "client":
-			client = true
-		case "server":
-			server = true
+	return slices.Equal(f.Sides(), []string{"client"})
+}
+
+// Sides lists the sides CurseForge tags the file for, "client" then
+// "server". Authors may leave both out.
+func (f *File) Sides() []string {
+	var out []string
+	for _, side := range []string{"client", "server"} {
+		if slices.ContainsFunc(f.GameVersions, func(v string) bool { return strings.EqualFold(v, side) }) {
+			out = append(out, side)
 		}
 	}
-	return client && !server
+	return out
 }
 
 // SearchQuery is a project search in one class.

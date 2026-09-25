@@ -82,6 +82,9 @@ const (
 	Required    Support = "required"
 	Optional    Support = "optional"
 	Unsupported Support = "unsupported"
+	// Unknown is not in the format, but published packs use it for files
+	// whose authors never said.
+	Unknown Support = "unknown"
 )
 
 // Valid reports whether s is one of the three values the format allows.
@@ -95,6 +98,14 @@ func (f *File) Server() Support {
 		return Required
 	}
 	return f.Env.Server
+}
+
+// Client is how the file relates to the game client, read like Server.
+func (f *File) Client() Support {
+	if f.Env == nil {
+		return Required
+	}
+	return f.Env.Client
 }
 
 // FormatError is an index that breaks the format.
@@ -197,17 +208,17 @@ func checkDependencies(deps map[string]string) error {
 		return &FormatError{Reason: "does not say which Minecraft version it is for"}
 	}
 	for id, v := range deps {
-		if !validToken(id) || !validToken(v) {
+		if !ValidToken(id) || !ValidToken(v) {
 			return &FormatError{Reason: fmt.Sprintf("has a malformed dependency %q: %q", printable(id), printable(v))}
 		}
 	}
 	return nil
 }
 
-// validToken accepts loader ids and version strings such as "fabric-loader",
+// ValidToken accepts loader ids and version strings such as "fabric-loader",
 // "0.20.0-beta.4" or "1.20.1-47.1.99". They end up in the server's settings,
 // so nothing else is let through.
-func validToken(s string) bool {
+func ValidToken(s string) bool {
 	if s == "" || len(s) > 64 {
 		return false
 	}
