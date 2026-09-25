@@ -161,7 +161,11 @@ func (a *Agent) checkUpdate(ctx context.Context) api.UpdateInfo {
 	saved, _ := json.Marshal(savedCheck{Latest: u.latest, CheckedAt: u.checkedAt, Error: u.checkErr})
 	u.mu.Unlock()
 	_ = a.kvSet(kvUpdateCheck, string(saved))
-	return a.updateInfo()
+	info := a.updateInfo()
+	if err == nil && info.Available {
+		a.alertUpdate(info.Latest)
+	}
+	return info
 }
 
 func (a *Agent) hUpdate(w http.ResponseWriter, r *http.Request) {

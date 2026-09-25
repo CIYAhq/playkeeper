@@ -408,11 +408,16 @@ type CommandResponse struct {
 type WhitelistEntry struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid,omitempty"`
+	// Joined says how the player got in, when an invite link let them in;
+	// the panel fills it in.
+	Joined *Note `json:"joined,omitempty"`
 }
 
 type WhitelistRequest struct {
 	Name  string `json:"name"`
 	Actor string `json:"actor"`
+	// UUID lets a stopped server's list be written directly (invite links).
+	UUID string `json:"uuid,omitempty"`
 }
 
 type MetricsBucket struct {
@@ -607,6 +612,8 @@ type Error struct {
 	Code      string     `json:"code"`
 	Hint      string     `json:"hint,omitempty"`
 	Operation *Operation `json:"operation,omitempty"`
+	// Params fill in a translated message for Code (names, counts, times).
+	Params map[string]string `json:"params,omitempty"`
 }
 
 const (
@@ -624,3 +631,108 @@ const (
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
 )
+
+// Wave 5: invite links, the team, Discord and player profiles.
+
+// Note is a sentence the UI translates by Key with Params; Text is the
+// English version.
+type Note struct {
+	Key    string            `json:"key"`
+	Params map[string]string `json:"params,omitempty"`
+	Text   string            `json:"text"`
+}
+
+// WhitelistChange answers adding a player to or removing one from the
+// allowlist.
+type WhitelistChange struct {
+	Message   string           `json:"message"`
+	Whitelist []WhitelistEntry `json:"whitelist"`
+	// Added is false when the player was on the list already (and always
+	// for a removal).
+	Added bool `json:"added"`
+}
+
+// PlayerMessageRequest sends one player a private message in the game.
+type PlayerMessageRequest struct {
+	Name    string `json:"name"`
+	Message string `json:"message"`
+	Actor   string `json:"actor"`
+}
+
+// PlayerProfile is one player's page under Players.
+type PlayerProfile struct {
+	Name        string     `json:"name"`
+	UUID        string     `json:"uuid,omitempty"`
+	Online      bool       `json:"online"`
+	OnlineSince *time.Time `json:"onlineSince,omitempty"`
+	Allowlisted bool       `json:"allowlisted"`
+	Operator    bool       `json:"operator"`
+	// FirstSeen is their first session Playkeeper still remembers.
+	FirstSeen         *time.Time `json:"firstSeen,omitempty"`
+	Sessions          int        `json:"sessions"`
+	PlaytimeSeconds   int64      `json:"playtimeSeconds"`
+	LongestSeconds    int64      `json:"longestSeconds"`
+	PlaytimeUncertain bool       `json:"playtimeUncertain,omitempty"`
+	TZ                string     `json:"tz"`
+	// Days are the last 14 days in TZ, oldest first.
+	Days []PlayerDay `json:"days"`
+	// Mostly is when in the day they play most in those days: morning,
+	// afternoon, evening or night; empty when they didn't play.
+	Mostly string `json:"mostly,omitempty"`
+	// Recent are their latest sessions, newest first.
+	Recent []Session `json:"recent"`
+	// Joined says how they got in (invite links; the panel fills it in).
+	Joined *Note `json:"joined,omitempty"`
+}
+
+type PlayerDay struct {
+	Date            string `json:"date"`
+	PlaytimeSeconds int64  `json:"playtimeSeconds"`
+}
+
+// DiscordSettings is the dashboard's Discord connection. The webhook URL is
+// a secret: it stays in the agent and is never sent to the panel or the
+// browser.
+type DiscordSettings struct {
+	Connected   bool            `json:"connected"`
+	WebhookName string          `json:"webhookName,omitempty"`
+	ConnectedAt *time.Time      `json:"connectedAt,omitempty"`
+	Alerts      []string        `json:"alerts"`
+	LiveStatus  bool            `json:"liveStatus"`
+	Delivery    DiscordDelivery `json:"delivery"`
+	// Kinds are the kinds of alert this Playkeeper knows, in order.
+	Kinds []string `json:"kinds"`
+}
+
+// DiscordDelivery is how sending to Discord is going.
+type DiscordDelivery struct {
+	Sent              *time.Time `json:"sent,omitempty"`
+	Failed            *time.Time `json:"failed,omitempty"`
+	Code              string     `json:"code,omitempty"`
+	Msg               string     `json:"msg,omitempty"`
+	Hint              string     `json:"hint,omitempty"`
+	RetryAfterSeconds int        `json:"retryAfterSeconds,omitempty"`
+	Stopped           bool       `json:"stopped,omitempty"`
+}
+
+type DiscordConnectRequest struct {
+	WebhookURL string `json:"webhookUrl"`
+	// Host is the dashboard's host name, for join addresses and links.
+	Host  string `json:"host,omitempty"`
+	Actor string `json:"actor"`
+}
+
+type DiscordSettingsRequest struct {
+	Alerts     []string `json:"alerts"`
+	LiveStatus bool     `json:"liveStatus"`
+	Host       string   `json:"host,omitempty"`
+	Actor      string   `json:"actor"`
+}
+
+// DiscordNotifyRequest is an alert the panel reports (a join request).
+type DiscordNotifyRequest struct {
+	Kind     string `json:"kind"`
+	ServerID string `json:"serverId"`
+	Player   string `json:"player"`
+	Actor    string `json:"actor"`
+}

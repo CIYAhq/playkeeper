@@ -126,4 +126,19 @@ INSERT INTO samples_v2(server_id, ts, state, players_online, players_max, cpu_pc
 DROP TABLE samples;
 ALTER TABLE samples_v2 RENAME TO samples;
 `,
+	// wave 5: Discord alerts and the live status message, one webhook for
+	// the whole machine. webhook_url is a secret: it never leaves the agent.
+	`
+CREATE TABLE discord (
+  id                INTEGER PRIMARY KEY CHECK (id = 1),
+  webhook_url       TEXT NOT NULL DEFAULT '',
+  webhook_name      TEXT NOT NULL DEFAULT '',
+  alerts            TEXT NOT NULL,
+  live_status       INTEGER NOT NULL DEFAULT 0,
+  status_message_id TEXT NOT NULL DEFAULT '',
+  public_host       TEXT NOT NULL DEFAULT '',
+  connected_at      INTEGER NOT NULL DEFAULT 0,
+  update_alerted    TEXT NOT NULL DEFAULT ''
+);
+`,
 }

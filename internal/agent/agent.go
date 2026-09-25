@@ -86,6 +86,9 @@ type Options struct {
 	HTTPClient *http.Client
 	// FillURL is PaperMC's Fill API (default https://fill.papermc.io).
 	FillURL string
+	// DiscordClient sends Discord requests (tests); nil means discord.com,
+	// or the test endpoint in DiscordURLEnv.
+	DiscordClient *http.Client
 }
 
 // Retention bounds stored analytics and audit data.
@@ -145,6 +148,7 @@ type Agent struct {
 
 	upd     updateState
 	catalog catalogCache
+	disc    discordState
 }
 
 func New(opts Options) (*Agent, error) {
@@ -256,6 +260,10 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := a.initDiscord(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
 	a.markInterruptedOperations()
@@ -272,6 +280,8 @@ func (a *Agent) Start() {
 	a.loop(a.pruneLoop)
 	a.loop(a.updateLoop)
 	a.loop(a.hostLoop)
+	a.loop(a.disc.n.Run)
+	a.loop(a.discordLoop)
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -533,6 +543,16 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+		// wave 5: player profiles, messages and bans; Discord.
+		{"GET", "/v1/servers/{id}/players/profile", srv((*server).hProfile)},
+		{"POST", "/v1/servers/{id}/players/message", srv((*server).hMessage)},
+		{"POST", "/v1/servers/{id}/ban", srv((*server).hBan)},
+		{"GET", "/v1/discord", a.hDiscord},
+		{"POST", "/v1/discord/connect", a.hDiscordConnect},
+		{"PUT", "/v1/discord", a.hDiscordSettings},
+		{"DELETE", "/v1/discord", a.hDiscordDisconnect},
+		{"POST", "/v1/discord/test", a.hDiscordTest},
+		{"POST", "/v1/discord/notify", a.hDiscordNotify},
 	}
 }
 

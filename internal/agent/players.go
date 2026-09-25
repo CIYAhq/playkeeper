@@ -58,10 +58,16 @@ func (s *server) whitelistChange(w http.ResponseWriter, r *http.Request, name, a
 	if !ok {
 		return
 	}
-	list, _ := s.whitelist()
-	writeJSON(w, http.StatusOK, map[string]any{"message": out, "whitelist": list})
+	list, err := s.whitelist()
+	if err != nil {
+		list = []api.WhitelistEntry{}
+	}
+	writeJSON(w, http.StatusOK, api.WhitelistChange{Message: out, Whitelist: list, Added: verb == "add" && strings.HasPrefix(out, "Added")})
 }
 
+// hWhitelistAdd adds a player with the whitelist command. With a UUID (an
+// invite link, whose name Mojang checked) a stopped server's list is written
+// directly instead.
 func (s *server) hWhitelistAdd(w http.ResponseWriter, r *http.Request) {
 	var req api.WhitelistRequest
 	if err := decode(r, &req); err != nil {
@@ -71,6 +77,15 @@ func (s *server) hWhitelistAdd(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(req.Actor)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if req.UUID != "" && minecraft.ValidPlayerName(req.Name) && !s.online(r.Context()) {
+		change, err := s.addToStoppedWhitelist(r, req.Name, req.UUID, actor)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, change)
 		return
 	}
 	s.whitelistChange(w, r, req.Name, actor, "add")
