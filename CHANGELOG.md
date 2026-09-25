@@ -1,6 +1,6 @@
 # Changelog
 
-Each release's section is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses a version without a section.
+Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
 ## 0.2.0
 

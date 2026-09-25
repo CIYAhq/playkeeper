@@ -72,6 +72,10 @@ jobs:
             exit 1
           fi
           version=${TAG#v}
+          if [[ $GITHUB_EVENT_NAME == push ]] && ! grep -q "^## ${version} *\$" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' section. Add what changed in $TAG: the dashboard shows it when it offers the update."
+            exit 1
+          fi
           title="Playkeeper $TAG"
           if [[ $version == 0.* ]]; then title+=" (early release)"; fi
           { echo "tag=$TAG"; echo "version=$version"; echo "title=$title"; } >>"$GITHUB_OUTPUT"
