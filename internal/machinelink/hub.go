@@ -83,6 +83,8 @@ type Hub struct {
 	stats     map[string]*machineStats
 	conns     map[net.Conn]struct{}
 	listeners map[net.Listener]struct{}
+	refused   int // joins refused since the last warning
+	warnedAt  time.Time
 	wg        sync.WaitGroup
 }
 
@@ -340,6 +342,22 @@ func (h *Hub) serveConn(tc *tls.Conn) {
 	}
 }
 
+// warnRefused logs a refused join at most once a minute, with how many were
+// refused since, so a flood of attempts can't fill the log. Every refusal is
+// still an event.
+func (h *Hub) warnRefused(remote string, e *Error) {
+	h.mu.Lock()
+	h.refused++
+	n := 0
+	if now := h.now(); now.Sub(h.warnedAt) >= time.Minute {
+		n, h.refused, h.warnedAt = h.refused, 0, now
+	}
+	h.mu.Unlock()
+	if n > 0 {
+		h.log.Warn("machine join refused", "addr", remoteIP(remote), "code", e.Code, "err", e.Err, "refused", n)
+	}
+}
+
 func (h *Hub) refuse(c net.Conn, e *Error) {
 	writeFrame(c, welcome{V: protocolVersion, Error: e.wire()})
 }
@@ -351,7 +369,7 @@ func (h *Hub) welcomeFor(m Machine) welcome {
 func (h *Hub) join(ctx context.Context, tc *tls.Conn, key ed25519.PublicKey, hel hello, remote string) {
 	m, ev, e := h.pair(ctx, key, hel, remote)
 	if e != nil {
-		h.log.Warn("machine join refused", "addr", remoteIP(remote), "code", e.Code, "err", e.Err)
+		h.warnRefused(remote, e)
 		h.emit(Event{Kind: EventJoinRefused, At: h.now(), Address: remoteIP(remote), Code: e.Code})
 		h.refuse(tc, e)
 		return

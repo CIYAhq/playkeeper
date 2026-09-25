@@ -140,6 +140,25 @@ func TestJoinAttemptLimits(t *testing.T) {
 	}
 }
 
+func TestRefusedJoinsAreLoggedOnceAMinute(t *testing.T) {
+	th := startHub(t, nil)
+	code := th.code(t)
+	for range 3 {
+		_, err := th.try(mustIdentity(t), otherCode(code))
+		wantCode(t, err, CodeJoinCodeWrong)
+	}
+	th.clock.Add(time.Minute)
+	_, err := th.try(mustIdentity(t), otherCode(code))
+	wantCode(t, err, CodeJoinCodeWrong)
+	logs := th.logs.String()
+	if n := strings.Count(logs, "machine join refused"); n != 2 || !strings.Contains(logs, "refused=3") {
+		t.Fatalf("refused joins logged %d times: %s", n, logs)
+	}
+	if n := th.events.count(EventJoinRefused); n != 4 {
+		t.Fatalf("%d refused events, want 4", n)
+	}
+}
+
 func TestJoinTotalLimit(t *testing.T) {
 	th := startHub(t, func(o *HubOptions) {
 		o.Limits = Limits{AddressFailures: 100, TotalFailures: 3, Window: time.Minute}
