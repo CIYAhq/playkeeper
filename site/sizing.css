@@ -64,10 +64,10 @@ legend { margin-bottom: 8px; padding: 0; font-size: 16px; line-height: 22px; fon
 .segments input:checked + label { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(29, 33, 28, .1), 0 0 0 1px rgba(29, 33, 28, .04); }
 .segments input:focus-visible + label, .run-options input:focus-visible + label { outline: 2px solid var(--primary); outline-offset: 1px; }
 .run { margin: 20px 0; }
-.run-options label { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 11px; margin-top: 8px; padding: 11px 13px; background: var(--card); border: 1px solid var(--input); border-radius: 12px; cursor: pointer; }
+.run-options label { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 11px; margin-top: 8px; padding: 11px 13px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
 .run-options label:first-of-type { margin-top: 0; }
 .run-options label:hover { border-color: #c4c6ba; }
-.run-options label::before { content: ""; grid-row: 1 / span 2; width: 18px; height: 18px; margin-top: 1px; border: 1.5px solid var(--input); border-radius: 50%; background: var(--card); }
+.run-options label::before { content: ""; box-sizing: border-box; grid-row: 1 / span 2; width: 18px; height: 18px; border: 1.5px solid var(--input); border-radius: 50%; background: var(--card); }
 .run-options input:checked + label { background: var(--selected); border-color: var(--selected-border); box-shadow: var(--shadow-selected); }
 .run-options input:checked + label::before { border: 0; box-shadow: inset 0 0 0 6px var(--primary); }
 .name { grid-column: 2; font-weight: 600; }
@@ -156,7 +156,7 @@ footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 40px; color: var(--m
   .sheet-title { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; }
   .sheet-close { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; color: var(--muted); background: none; border: 0; border-radius: 10px; cursor: pointer; }
   .run-list { margin: 0 20px; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
-  .run-options label { grid-template-columns: minmax(0, 1fr) 20px; column-gap: 8px; align-content: center; min-height: 64px; margin: 0; padding: 8px 16px; background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+  .run-options label { grid-template-columns: minmax(0, 1fr) 20px; gap: 0 8px; align-content: center; min-height: 64px; margin: 0; padding: 8px 16px; background: none; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
   .run-options label:first-of-type { border-radius: 15px 15px 0 0; }
   .run-options label:last-of-type { border-bottom: 0; border-radius: 0 0 15px 15px; }
   .run-options label::before { display: none; }
