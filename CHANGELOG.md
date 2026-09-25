@@ -4,7 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## Unreleased
 
-- If a restore is interrupted, for example by a power cut, Playkeeper puts the previous world and its settings back when it starts again, and never starts the server on an empty world in the meantime.
+- If a restore is interrupted, for example by a power cut or a restart of Playkeeper, Playkeeper finishes it when it starts again: it keeps the restored world if it starts, and otherwise puts the previous world and its settings back. It never starts the server on an empty world in the meantime. This also covers a restore Playkeeper 0.3.0 was in the middle of when you upgraded.
 - The **World** tab shows a world a restore left behind, such as a restored world that did not start, with a button to discard it and free the space.
 - A backup, restore or Minecraft update that has to refuse the world, for example because a file's name is too long for a restore, now says so before stopping the server, so nobody is disconnected for nothing.
 - `playkeeper uninstall` names the Docker folders it removes, and no longer shows an empty services line when it's run a second time.
