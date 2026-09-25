@@ -396,6 +396,11 @@ function sentence(s: string): string {
   return s.charAt(0).toLocaleUpperCase() + s.slice(1)
 }
 
+function packLabel(id: string): string {
+  const words = packName(id).replace(/[-_\s]+/g, ' ').trim()
+  return words ? sentence(words) : packName(id)
+}
+
 /** What the check screen lists: the world, data packs, plugins, the version it was made in, then warnings and problems. */
 export function checkRows(check: WorldImportPreview, upload?: WorldImport): CheckRow[] {
   const p = check.preview
@@ -416,7 +421,7 @@ export function checkRows(check: WorldImportPreview, upload?: WorldImport): Chec
       detail: spawn ? t('import.worldDetail', { size, x: coord(spawn.x), z: coord(spawn.z) }) : t('import.worldDetailNoSpawn', { size }),
     },
   ]
-  const packs = (p.dataPacks ?? []).filter((id) => id.startsWith('file/')).map(packName)
+  const packs = (p.dataPacks ?? []).filter((id) => id.startsWith('file/')).map(packLabel)
   if (packs.length > 0) rows.push({ tone: 'ok', title: t('import.packs', { count: packs.length }), detail: t('import.packsDetail', { names: formatList(packs) }) })
   const addons = p.leftOut?.some((l) => l.kind === 'addons')
   rows.push({ tone: 'note', title: addons ? t('import.pluginsLeft') : t('import.noPlugins'), detail: t('import.pluginsHint') })

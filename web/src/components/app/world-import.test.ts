@@ -76,6 +76,8 @@ describe('world import', () => {
       ['note', 'No plugins inside', 'Add plugins again after it starts.'],
       ['note', 'Made in Minecraft 1.21.4', undefined],
     ])
+    const folders = checkRows(check({ dataPacks: ['file/multiplayer-sleep', 'file/graves_v2.zip', 'paper'] }))
+    expect(folders[1]?.detail).toBe('Multiplayer sleep and Graves v2. They stay on.')
   })
 
   it('shows warnings once, skips the ones said elsewhere, and marks problems', () => {
