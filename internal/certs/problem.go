@@ -160,7 +160,7 @@ var catalog = map[string]text{
 	CodeInvalidPlan + ".too_many":       {msg: "There are too many servers for one address plan.", action: true},
 	CodeInvalidPlan + ".bad_address":    {msg: "The address for the A or AAAA record is not a valid IPv4 or IPv6 address.", action: true},
 	CodeConfig:                          {msg: "Playkeeper's certificate settings are incomplete.", hint: "Report this, with the details.", action: true},
-	CodeConfig + ".directory_url":       {msg: "The certificate authority address {url} is not an https:// URL.", hint: "Remove the setting to use Let's Encrypt, or enter its https:// directory URL.", action: true},
+	CodeConfig + ".directory_url":       {msg: "The certificate authority address is not a valid https:// URL.", hint: "Remove the setting to use Let's Encrypt, or enter its https:// directory URL.", action: true},
 	CodeConfig + ".no_account_key":      {msg: "No file for the Let's Encrypt account key is set.", hint: "Report this, with the details.", action: true},
 	CodeConfig + ".no_challenge":        {msg: "No way to prove control of the name (HTTP-01 or DNS-01) is set up.", hint: "Report this, with the details.", action: true},
 	CodeConfig + ".no_dir":              {msg: "No folder to save the certificate in is set.", hint: "Report this, with the details.", action: true},

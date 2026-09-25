@@ -197,7 +197,11 @@ func (is *Issuer) client(withKey bool) (*acme.Client, situation, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
-		return nil, situation{}, newProblem(nil, CodeConfig, map[string]string{"kind": "directory_url", "url": displayName(raw)})
+		shown := ""
+		if err == nil {
+			shown = displayName(u.Redacted())
+		}
+		return nil, situation{}, newProblem(nil, CodeConfig, map[string]string{"kind": "directory_url", "url": shown})
 	}
 	s := situation{host: u.Hostname()}
 	c := &acme.Client{

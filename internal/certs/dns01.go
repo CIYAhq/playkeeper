@@ -35,7 +35,8 @@ type DNS01 struct {
 }
 
 // blindWait is how long lookups may fail outright (rather than find no
-// record) before the certificate authority is asked to look anyway.
+// record) before the certificate authority is asked to look anyway; outgoing
+// DNS may be blocked here while the record is fine.
 const blindWait = 30 * time.Second
 
 // present publishes value for name and waits until it can be seen. The
@@ -87,7 +88,7 @@ func (d *DNS01) wait(ctx context.Context, fqdn, value string, params map[string]
 			seen = vals
 		}
 		elapsed := time.Since(start)
-		if !answered && elapsed >= min(blindWait, timeout) {
+		if !answered && (elapsed >= blindWait || elapsed+interval > timeout) {
 			return nil
 		}
 		if elapsed+interval > timeout {
