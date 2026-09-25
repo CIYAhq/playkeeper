@@ -34,6 +34,7 @@ export interface ServerConfig {
   versionId: string
   minecraftVersion: string
   paperBuild: number
+  jarSha256?: string
   memoryMB: number
   heapMB: number
   levelName: string
@@ -104,6 +105,30 @@ export interface ServerStatus {
   pendingRestart: boolean
   agentVersion: string
   collectingSince?: string
+  updateAvailable?: string
+  updateInstalling?: string
+}
+
+export interface UpdateResult {
+  from: string
+  to: string
+  outcome: 'updated' | 'rolled_back' | 'refused' | 'failed'
+  error?: string
+  finishedAt: string
+}
+
+export interface UpdateInfo {
+  current: string
+  supported: boolean
+  reason?: string
+  latest?: string
+  available: boolean
+  notes?: string
+  releaseDate?: string
+  checkedAt?: string
+  checkError?: string
+  installing?: string
+  lastResult?: UpdateResult
 }
 
 export interface CatalogEntry {
@@ -115,10 +140,14 @@ export interface CatalogEntry {
   java: number
   recommended: boolean
   notes: string
+  channel: string
+  experimental: boolean
+  supported: boolean
 }
 
 export interface Catalog {
   versions: CatalogEntry[]
+  versionsError?: string
   memoryOptionsMB: number[]
   recommendedMemoryMB: number
   hostMemoryMB: number

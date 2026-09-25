@@ -137,7 +137,7 @@ function EulaStep({ accepted, setAccepted, onNext, onBack }: { accepted: boolean
   )
 }
 
-function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void; onBack: () => void }) {
+export function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void; onBack: () => void }) {
   const [mode, setMode] = useState<'new' | 'restore'>('new')
   const [catalog, setCatalog] = useState<Catalog>()
   const [version, setVersion] = useState('')
@@ -146,12 +146,14 @@ function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void;
   const [error, setError] = useState<ApiError>()
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<RestorePreview>()
+  const [acceptExperimental, setAcceptExperimental] = useState(false)
+  const selected = catalog?.versions.find((v) => v.id === version)
 
   useEffect(() => {
     get<Catalog>('/api/catalog')
       .then((c) => {
         setCatalog(c)
-        setVersion(c.versions.find((v) => v.recommended)?.id ?? c.versions[0]?.id ?? '')
+        setVersion(c.versions.find((v) => v.recommended)?.id ?? c.versions.find((v) => !v.experimental)?.id ?? '')
         setMemory(c.recommendedMemoryMB)
       })
       .catch((e: ApiError) => setError(e))
@@ -162,7 +164,8 @@ function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void;
     setBusy(true)
     setError(undefined)
     try {
-      onStarted(await post<Operation>('/api/server', { acceptEula: true, versionId: version, memoryMB: memory, motd: motd.trim() }))
+      const body = { acceptEula: true, versionId: version, memoryMB: memory, motd: motd.trim(), ...(selected?.experimental ? { acceptExperimental } : {}) }
+      onStarted(await post<Operation>('/api/server', body))
     } catch (err) {
       setError(err as ApiError)
     } finally {
@@ -196,10 +199,11 @@ function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void;
         </label>
       </fieldset>
       {error && <Banner tone="bad" title={error.message}>{error.hint}</Banner>}
+      {mode === 'new' && catalog?.versionsError && <Banner tone="bad" title={catalog.versionsError} />}
       {mode === 'new' && catalog && (
         <form className="form" onSubmit={create}>
           <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-            <legend className="label">Server version</legend>
+            <legend className="label">Server version (from PaperMC)</legend>
             <div className="option-grid">
               {catalog.versions.map((v) => (
                 <label className="option" key={v.id}>
@@ -207,6 +211,7 @@ function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void;
                   <span>
                     <span className="title">
                       {v.label} {v.recommended && <span className="badge good">Recommended</span>}
+                      {v.experimental && <span className="badge warn">Experimental</span>}
                     </span>
                     <br />
                     <span className="desc">{v.notes}</span>
@@ -215,6 +220,13 @@ function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void;
               ))}
             </div>
           </fieldset>
+          {selected?.experimental && (
+            <Banner tone="warn" title={`${selected.label} is experimental`}>
+              <label className="check">
+                <input type="checkbox" checked={acceptExperimental} onChange={(e) => setAcceptExperimental(e.target.checked)} /> I understand that it may crash or damage my world, and that the world cannot go back to an older version.
+              </label>
+            </Banner>
+          )}
           <div className="field">
             <label htmlFor="memory">Memory for Minecraft</label>
             <select id="memory" value={memory} onChange={(e) => setMemory(Number(e.target.value))}>
@@ -232,7 +244,7 @@ function ServerStep({ onStarted, onBack }: { onStarted: (op: Operation) => void;
             <input id="motd" type="text" maxLength={59} value={motd} onChange={(e) => setMotd(e.target.value)} placeholder="A Playkeeper server" />
           </div>
           <div className="actions">
-            <button className="btn primary" type="submit" disabled={busy || !version || !memory}>
+            <button className="btn primary" type="submit" disabled={busy || !version || !memory || (!!selected?.experimental && !acceptExperimental)}>
               {busy ? 'Creating…' : 'Create and start server'}
             </button>
             <button type="button" className="btn" onClick={onBack}>

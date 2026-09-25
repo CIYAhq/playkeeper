@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError, get, onUnauthorized, post, setCsrfToken } from './api/client'
 import type { Me, Operation, ServerStatus } from './api/types'
 import { Banner, Icon, Logo, Spinner, StatusPill } from './components/ui'
@@ -132,11 +132,23 @@ function NavLink({ to, children, current }: { to: Route; children: ReactNode; cu
 function Shell({ me, route, onSignedOut }: { me: Me; route: Route; onSignedOut: () => void }) {
   const poll = usePoll(() => get<ServerStatus>('/api/server'), 3000)
   const status = poll.data
-  const agentDown = poll.error?.code === 'agent_unavailable'
+  // While Playkeeper installs an update, the agent and panel restart; the
+  // failed polls in between are expected, not an outage.
+  const installing = useRef<string | undefined>(undefined)
+  if (status?.updateInstalling) installing.current = status.updateInstalling
+  else if (status && !poll.error) installing.current = undefined
+  const updating = poll.error ? installing.current : status?.updateInstalling
+  const agentDown = poll.error?.code === 'agent_unavailable' && !updating
 
   useEffect(() => {
     if (route === '/login' || route === '/setup') navigate('/', true)
   }, [route])
+
+  // After an update the page still runs the previous version's code; load
+  // the new one once the new version answers.
+  useEffect(() => {
+    if (status && !poll.error && !status.updateInstalling && status.agentVersion && me.version && status.agentVersion !== me.version) window.location.reload()
+  }, [status, poll.error, me.version])
 
   useEffect(() => {
     if (status && !status.exists && route !== '/welcome' && route !== '/settings' && !status.operation) navigate('/welcome', true)
@@ -155,7 +167,7 @@ function Shell({ me, route, onSignedOut }: { me: Me; route: Route; onSignedOut: 
   if (route === '/welcome') {
     return (
       <>
-        <GlobalBanners status={status} agentDown={agentDown} />
+        <GlobalBanners status={status} agentDown={agentDown} updating={updating} />
         <Onboarding {...props} />
       </>
     )
@@ -211,7 +223,7 @@ function Shell({ me, route, onSignedOut }: { me: Me; route: Route; onSignedOut: 
       </aside>
       <div className="main">
         <main id="main" className="content" tabIndex={-1}>
-          <GlobalBanners status={status} agentDown={agentDown} />
+          <GlobalBanners status={status} agentDown={agentDown} updating={updating} />
           {page}
         </main>
         <Footer version={me.version} />
@@ -239,8 +251,17 @@ function recovered(op: Operation, status: ServerStatus): boolean {
   return false
 }
 
-export function GlobalBanners({ status, agentDown }: { status: ServerStatus | undefined; agentDown: boolean }) {
+const failedLabel: Record<string, string> = { update: 'Playkeeper update', 'update-version': 'Minecraft update' }
+
+export function GlobalBanners({ status, agentDown, updating }: { status: ServerStatus | undefined; agentDown: boolean; updating?: string }) {
   const [dismissed, setDismissed] = useState<string>()
+  if (updating) {
+    return (
+      <Banner tone="busy" title={`Installing Playkeeper ${updating}`}>
+        The dashboard restarts and reconnects by itself; your Minecraft server keeps running. If the new version does not come up healthy, the previous one is put back.
+      </Banner>
+    )
+  }
   if (agentDown) {
     return (
       <Banner tone="bad" title="The Playkeeper agent is not running">
@@ -264,10 +285,21 @@ export function GlobalBanners({ status, agentDown }: { status: ServerStatus | un
           {status.lastErrorHint}
         </Banner>
       )}
+      {status.updateAvailable && (
+        <Banner
+          tone="info"
+          title={`Playkeeper ${status.updateAvailable} is available`}
+          action={
+            <a className="btn small" href="/settings#updates" onClick={(e) => { e.preventDefault(); navigate('/settings') }}>
+              See what changed
+            </a>
+          }
+        />
+      )}
       {recentFailure && (
         <Banner
           tone="bad"
-          title={`${last.kind[0]?.toUpperCase()}${last.kind.slice(1)} failed: ${last.error ?? ''}`}
+          title={`${failedLabel[last.kind] ?? `${last.kind[0]?.toUpperCase()}${last.kind.slice(1)}`} failed: ${last.error ?? ''}`}
           action={
             <button type="button" className="btn small ghost" onClick={() => setDismissed(last.id)}>
               Dismiss

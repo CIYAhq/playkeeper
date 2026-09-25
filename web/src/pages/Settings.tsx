@@ -1,11 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, get, post } from '../api/client'
-import type { AuditEntry, Catalog } from '../api/types'
+import type { AuditEntry, Catalog, UpdateInfo, UpdateResult } from '../api/types'
 import type { PageProps } from '../App'
 import { Banner, Card, Empty, Spinner } from '../components/ui'
-import { formatDateTime, formatMB } from '../lib/format'
+import { formatDateTime, formatMB, relativeTime } from '../lib/format'
 import { navigate } from '../lib/router'
 import { usePoll } from '../lib/usePoll'
+import { upgradeTargets } from '../lib/versions'
+
+type Msg = { tone: 'good' | 'bad'; text: string; hint?: string }
 
 export function SettingsPage({ status, refresh, me, onSignedOut }: PageProps & { onSignedOut: () => void }) {
   return (
@@ -17,6 +20,8 @@ export function SettingsPage({ status, refresh, me, onSignedOut }: PageProps & {
         </div>
       </div>
       {status?.config ? <ServerSettings key={status.config.createdAt} status={status} refresh={refresh} /> : <Card title="Server settings"><Empty title="No server yet">Create a server first.</Empty></Card>}
+      {status?.config && <MinecraftVersion key={`${status.config.versionId}-${status.config.paperBuild}`} status={status} refresh={refresh} />}
+      <Updates status={status} refresh={refresh} version={me.version} />
       <Account username={me.user.username} onSignedOut={onSignedOut} />
       <Audit />
       <Card title="About">
@@ -102,6 +107,170 @@ function ServerSettings({ status, refresh }: Pick<PageProps, 'refresh'> & { stat
           )}
         </div>
       </form>
+    </Card>
+  )
+}
+
+function MinecraftVersion({ status, refresh }: Pick<PageProps, 'refresh'> & { status: NonNullable<PageProps['status']> }) {
+  const cfg = status.config!
+  const [catalog, setCatalog] = useState<Catalog>()
+  const [target, setTarget] = useState('')
+  const [accept, setAccept] = useState(false)
+  const [msg, setMsg] = useState<Msg>()
+  useEffect(() => {
+    get<Catalog>('/api/catalog')
+      .then((c) => {
+        setCatalog(c)
+        setTarget(upgradeTargets(cfg, c.versions).find((v) => !v.experimental)?.id ?? '')
+      })
+      .catch((e: ApiError) => setMsg({ tone: 'bad', text: e.message, hint: e.hint }))
+  }, [cfg])
+  const targets = catalog ? upgradeTargets(cfg, catalog.versions) : []
+  const chosen = targets.find((v) => v.id === target)
+
+  async function change(e: FormEvent) {
+    e.preventDefault()
+    setMsg(undefined)
+    try {
+      await post('/api/server/version', { versionId: target, acceptExperimental: !!chosen?.experimental && accept })
+      await refresh()
+    } catch (err) {
+      setMsg({ tone: 'bad', text: (err as ApiError).message, hint: (err as ApiError).hint })
+    }
+  }
+
+  return (
+    <Card title="Minecraft version" hint={`Paper ${cfg.minecraftVersion} build ${cfg.paperBuild}`}>
+      {catalog?.versionsError && <Banner tone="bad" title={catalog.versionsError} />}
+      {!catalog && !msg && <Spinner label="Loading versions from PaperMC…" />}
+      {catalog && targets.length === 0 && !catalog.versionsError && <p className="muted">This is the newest version PaperMC offers.</p>}
+      {targets.length > 0 && (
+        <form className="form" onSubmit={change}>
+          <div className="field" style={{ maxWidth: 360 }}>
+            <label htmlFor="mc-version">Update to</label>
+            <select
+              id="mc-version"
+              value={target}
+              onChange={(e) => {
+                setTarget(e.target.value)
+                setAccept(false)
+              }}
+            >
+              {!target && <option value="">Choose a version</option>}
+              {targets.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label} build {v.paperBuild}
+                  {v.recommended ? ' (recommended)' : v.experimental ? ' (experimental)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {chosen?.experimental && (
+            <Banner tone="warn" title={`${chosen.label} is experimental`}>
+              <label className="check">
+                <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} /> I understand that it may crash or damage my world.
+              </label>
+            </Banner>
+          )}
+          <p className="muted small">
+            Playkeeper takes a backup first, then downloads the new version and checks it against the checksum PaperMC publishes. If the server does not start on it, the backup is put back and it runs {cfg.minecraftVersion} again. After an update the world cannot go back to an older version.
+          </p>
+          {msg && <Banner tone={msg.tone} title={msg.text}>{msg.hint}</Banner>}
+          <div className="actions">
+            <button className="btn primary" type="submit" disabled={!target || !!status.operation || (!!chosen?.experimental && !accept)}>
+              Back up and update
+            </button>
+          </div>
+        </form>
+      )}
+      {targets.length === 0 && msg && <Banner tone={msg.tone} title={msg.text}>{msg.hint}</Banner>}
+    </Card>
+  )
+}
+
+/** Release notes: lines starting with "- " are list items. */
+function Notes({ text }: { text?: string }) {
+  const lines = (text ?? '').split('\n').filter((l) => l.trim())
+  const items = lines.filter((l) => l.trim().startsWith('- '))
+  return (
+    <>
+      {lines.filter((l) => !l.trim().startsWith('- ')).map((l) => (
+        <p key={l}>{l.replace(/^#+\s*/, '')}</p>
+      ))}
+      {items.length > 0 && (
+        <ul>
+          {items.map((l) => (
+            <li key={l}>{l.trim().slice(2)}</li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
+function lastResultText(r: UpdateResult): string {
+  return r.outcome === 'updated' ? `Updated from ${r.from} to ${r.to} on ${formatDateTime(r.finishedAt)}.` : (r.error ?? `The update to ${r.to} did not complete.`)
+}
+
+function Updates({ status, refresh, version }: Pick<PageProps, 'status' | 'refresh'> & { version: string }) {
+  const [info, setInfo] = useState<UpdateInfo>()
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<Msg>()
+  useEffect(() => {
+    get<UpdateInfo>('/api/update')
+      .then(setInfo)
+      .catch(() => undefined)
+  }, [status?.updateAvailable, status?.updateInstalling, status?.lastOperation?.id])
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true)
+    setMsg(undefined)
+    try {
+      await fn()
+    } catch (err) {
+      setMsg({ tone: 'bad', text: (err as ApiError).message, hint: (err as ApiError).hint })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title="Playkeeper updates" hint={`This server runs Playkeeper ${info?.current ?? version}`}>
+      <div id="updates" className="form">
+        {!info ? (
+          <Spinner />
+        ) : !info.supported ? (
+          <p className="muted">{info.reason}</p>
+        ) : info.installing ? (
+          <Banner tone="busy" title={`Installing Playkeeper ${info.installing}`} />
+        ) : info.available ? (
+          <>
+            <Banner tone="info" title={`Playkeeper ${info.latest} is available`}>
+              <Notes text={info.notes} />
+            </Banner>
+            <p className="muted small">
+              Playkeeper checks the download&apos;s signature before installing it. The dashboard restarts for a moment and your Minecraft server keeps running; if the new version does not come up healthy, the previous one is put back automatically.
+            </p>
+          </>
+        ) : (
+          <p>You have the latest version{info.checkedAt ? ` (checked ${relativeTime(info.checkedAt)})` : ''}.</p>
+        )}
+        {info?.checkError && <Banner tone="warn" title={info.checkError} />}
+        {info?.lastResult && !info.installing && <Banner tone={info.lastResult.outcome === 'updated' ? 'good' : 'bad'} title={lastResultText(info.lastResult)} />}
+        {msg && <Banner tone={msg.tone} title={msg.text}>{msg.hint}</Banner>}
+        {info?.supported && !info.installing && (
+          <div className="actions">
+            {info.available && info.latest && (
+              <button type="button" className="btn primary" disabled={busy || !!status?.operation} onClick={() => run(async () => { await post('/api/update/apply', { version: info.latest }); await refresh() })}>
+                Update to {info.latest}
+              </button>
+            )}
+            <button type="button" className="btn" disabled={busy} onClick={() => run(async () => setInfo(await post<UpdateInfo>('/api/update/check')))}>
+              Check for updates
+            </button>
+          </div>
+        )}
+      </div>
     </Card>
   )
 }
