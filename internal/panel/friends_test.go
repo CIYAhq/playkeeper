@@ -47,17 +47,23 @@ type joinEnv struct {
 	*env
 	log     *logBuffer
 	lookups *atomic.Int32
+	// together, when set, holds each name lookup until that many have
+	// arrived, so requests racing for an invite have all read it by then.
+	together *atomic.Int32
 }
 
 func newJoinEnv(t *testing.T) joinEnv {
 	t.Helper()
-	lookups := &atomic.Int32{}
+	lookups, together := &atomic.Int32{}, &atomic.Int32{}
 	skins := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write(skin(t, 64))
 	}))
 	t.Cleanup(skins.Close)
 	profiles := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lookups.Add(1)
+		for deadline := time.Now().Add(5 * time.Second); lookups.Load() < together.Load() && time.Now().Before(deadline); {
+			time.Sleep(time.Millisecond)
+		}
 		name, _ := strings.CutPrefix(r.URL.Path, "/minecraft/profile/lookup/name/")
 		if p, ok := sampleProfiles[strings.ToLower(name)]; ok {
 			io.WriteString(w, p)
@@ -89,7 +95,7 @@ func newJoinEnv(t *testing.T) joinEnv {
 		"config":{"minecraftVersion":"1.21.8"},"players":{"online":2,"names":["Steve","Alex"],"at":"2026-09-24T11:59:30Z"}}`)
 	e.reply("GET", "/v1/servers/"+sampleServer+"/whitelist", `[]`)
 	e.reply("POST", "/v1/servers/"+sampleServer+"/whitelist", `{"message":"Added.","whitelist":[],"added":true}`)
-	return joinEnv{env: e, log: log, lookups: lookups}
+	return joinEnv{env: e, log: log, lookups: lookups, together: together}
 }
 
 // public calls a public invite route as the join page does.
@@ -222,6 +228,52 @@ func TestFriendInviteLetsFriendsIn(t *testing.T) {
 	}
 	if strings.Contains(e.log.String(), code) || strings.Contains(e.log.String(), code2) {
 		t.Fatal("an invite code is in the log")
+	}
+}
+
+// Friends who open a link for one at the same moment can't all take its
+// last use: one gets in, and the others read that it's used up.
+func TestTheLastUseGoesToOneFriend(t *testing.T) {
+	e := newJoinEnv(t)
+	own := owner(t, e.env)
+	id, code := friendInvite(t, e.env, own, `{"label":"","expiry":"1d","maxUses":1,"approval":"right_away"}`)
+	names := []string{"PixelPia", "mara_k", "tobi_k"}
+	e.together.Store(int32(len(names)))
+	statuses := make([]int, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Go(func() {
+			req, _ := http.NewRequest("POST", e.ts.URL+"/api/public/join/redeem", strings.NewReader(codeBody(code, "name", name)))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", e.ts.URL)
+			req.Header.Set("X-Requested-With", "playkeeper")
+			res, err := e.ts.Client().Do(req)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			res.Body.Close()
+			statuses[i] = res.StatusCode
+		})
+	}
+	wg.Wait()
+	in, gone := 0, 0
+	for _, st := range statuses {
+		switch st {
+		case http.StatusOK:
+			in++
+		case http.StatusGone:
+			gone++
+		}
+	}
+	if in != 1 || gone != len(names)-1 {
+		t.Fatalf("three friends racing for one use: %v", statuses)
+	}
+	if n := e.hitCount("POST /v1/servers/" + sampleServer + "/whitelist"); n != 1 {
+		t.Fatalf("the agent added %d friends with a link for one", n)
+	}
+	if inv, _ := e.srv.inviteByID(id); inv.Uses != 1 {
+		t.Fatalf("the link counts %d uses", inv.Uses)
 	}
 }
 
