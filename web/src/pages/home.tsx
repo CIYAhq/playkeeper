@@ -154,6 +154,8 @@ function StartButton({ server, label }: { server: ServerStatus; label: string })
 
 function CardDetail({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
+  const away = awayOf(reachOf(s, ws))
+  if (away) return <span className="text-[13px] text-muted-foreground">{t('machines.away.pill', { name: away.name })}</span>
   if (isStale(s, ws.stale) || reachOf(s, ws).state !== 'live') return <span className="text-[13px] text-muted-foreground">{t('status.noLive')}</span>
   if (isSettingUp(s) && s.operation) {
     return (
@@ -239,7 +241,7 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
             )}
           </p>
         </div>
-        <StatusPill server={s} agentDown={stale} away={awayOf(reach)} showDetail={false} />
+        <StatusPill server={s} agentDown={stale} showDetail={false} />
       </div>
       <div className="flex h-11 items-center gap-3">
         <CardDetail server={s} />
