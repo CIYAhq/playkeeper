@@ -81,7 +81,7 @@ func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*
 	h := sha256.New()
 	meta := backup.Manifest{
 		CreatedAt: now, PlaykeeperVersion: version.Version, SourceInstall: shortID(s.cfg.InstallID),
-		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Image: minecraft.Image,
+		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Build: configBuild(sc), Image: minecraft.Image,
 		Settings: map[string]string{
 			"motd": sc.MOTD, "maxPlayers": strconv.Itoa(sc.MaxPlayers), "memoryMB": strconv.Itoa(sc.MemoryMB), "whitelist": "true",
 			"name": s.name(),
@@ -442,16 +442,29 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 			"The RCON password (this host generates its own)",
 		},
 	}
-	entry, err := a.restoreBuild(a.ctx, m.MinecraftVersion, m.PaperBuild)
+	rt, err := a.restoreTargetFor(a.ctx, m)
+	entry := rt.entry
+	if m.Type != "" && m.Type != api.TypePaper {
+		p.Manifest.Type, p.Manifest.Build = m.Type, m.Build
+		p.NotRestored[2] = "Server jar and libraries (downloaded again and checked against their published checksums)"
+	}
 	switch {
 	case err != nil:
 		p.Compatible = false
 		p.Problems = append(p.Problems, fmt.Sprintf("This backup is from Minecraft %s, which cannot be restored here: %v.", m.MinecraftVersion, err))
+	case rt.typ != api.TypePaper:
+		if rt.warning != "" {
+			p.Warnings = append(p.Warnings, rt.warning)
+		}
 	case entry.PaperBuild != m.PaperBuild:
 		p.Warnings = append(p.Warnings, fmt.Sprintf("The backup used Paper build %d; this host will run build %d of the same Minecraft version, the latest stable one.", m.PaperBuild, entry.PaperBuild))
 	}
-	if entry.Experimental {
+	switch {
+	case !entry.Experimental:
+	case rt.typ == api.TypePaper:
 		p.Warnings = append(p.Warnings, fmt.Sprintf("Paper %s build %d is experimental (%s), like the build the backup was made with.", entry.MinecraftVersion, entry.PaperBuild, strings.ToLower(entry.Channel)))
+	default:
+		p.Warnings = append(p.Warnings, fmt.Sprintf("%s %s is experimental (%s), like the build the backup was made with.", typeName(rt.typ), entry.Build, entry.Channel))
 	}
 	if m.SourceInstall != "" && m.SourceInstall == shortID(a.cfg.InstallID) {
 		p.Source += " (made on this host)"
@@ -542,7 +555,7 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 // the backup's settings, and starts the restore that puts its world in place.
 func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name, actor string, restore func(s *server) func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
 	m := st.manifest
-	entry, err := a.restoreBuild(a.ctx, m.MinecraftVersion, m.PaperBuild)
+	rt, err := a.restoreTargetFor(a.ctx, m)
 	if err != nil {
 		return nil, errInvalid("This backup cannot be restored: %v.", err)
 	}
@@ -560,11 +573,11 @@ func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name,
 		maxPlayers = 10
 	}
 	now := a.now().UTC()
-	sc := withBuild(api.ServerConfig{
-		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
+	sc := rt.config(api.ServerConfig{
+		MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
 		MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
-	}, entry)
-	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
+	})
+	_, op, err := a.addServer(newServerSpec{name: name, typ: rt.typ, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
 	return op, err
 }
 
@@ -600,7 +613,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	}()
 	m := st.manifest
 	h.set("stage", st.preview.ID)
-	entry, err := s.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+	rt, err := s.restoreTargetFor(ctx, m)
 	if err != nil {
 		return errInvalid("This backup cannot be restored: %v.", err)
 	}
@@ -682,10 +695,10 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	}
 	// The restored server.properties carries the backup's game settings, so
 	// none chosen since override them.
-	sc := withBuild(api.ServerConfig{
-		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
+	sc := rt.config(api.ServerConfig{
+		MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
 		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: s.now().UTC(),
-	}, entry)
+	})
 	if prev != nil {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
 	} else {

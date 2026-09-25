@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
@@ -252,6 +253,68 @@ func (a *Agent) pinFor(ctx context.Context, e api.CatalogEntry, build string) (s
 		return software.Pin{}, "", softwareError(err)
 	}
 	return bs[i].Pin, bs[i].Channel, nil
+}
+
+// configBuild is the build a config of a type other than Paper pins.
+func configBuild(sc api.ServerConfig) string {
+	if sc.Software == nil {
+		return ""
+	}
+	return pinBuild(software.Pin(*sc.Software))
+}
+
+// restoreTarget is the software a restored backup runs: the Paper build
+// restoreBuild picks, or the backup's build of another type, or that
+// type's recommended build for the backup's Minecraft version when the
+// backup's is no longer offered (warning says so).
+type restoreTarget struct {
+	typ     string
+	entry   api.CatalogEntry
+	pin     software.Pin
+	warning string
+}
+
+func (a *Agent) restoreTargetFor(ctx context.Context, m backup.Manifest) (restoreTarget, error) {
+	typ := m.Type
+	if typ == "" || typ == api.TypePaper {
+		e, err := a.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+		return restoreTarget{typ: api.TypePaper, entry: e}, err
+	}
+	if !typeAvailable(typ) {
+		return restoreTarget{}, fmt.Errorf("Playkeeper can't run %s servers", typeName(typ))
+	}
+	rt := restoreTarget{typ: typ, pin: software.Pin{Type: typ, MinecraftVersion: m.MinecraftVersion}}
+	channel := software.Stable
+	if typ != software.Vanilla {
+		bs, _, err := a.typeBuilds(ctx, typ, m.MinecraftVersion)
+		if err != nil {
+			return restoreTarget{}, softwareError(err)
+		}
+		i := slices.IndexFunc(bs, func(b software.Build) bool { return b.Version == m.Build })
+		if i < 0 {
+			if i = slices.IndexFunc(bs, func(b software.Build) bool { return b.Recommended }); i < 0 {
+				return restoreTarget{}, fmt.Errorf("%s has no stable build for Minecraft %s", typeName(typ), m.MinecraftVersion)
+			}
+			rt.warning = fmt.Sprintf("The backup used %s %s; this machine will run %s, the newest stable one for Minecraft %s.", typeName(typ), m.Build, bs[i].Version, m.MinecraftVersion)
+		}
+		rt.pin, channel = bs[i].Pin, bs[i].Channel
+	}
+	if err := rt.pin.Validate(); err != nil {
+		return restoreTarget{}, softwareError(err)
+	}
+	p := api.SoftwarePin(rt.pin)
+	rt.entry = api.CatalogEntry{ID: typ + "-" + m.MinecraftVersion, Label: typeName(typ) + " " + m.MinecraftVersion, MinecraftVersion: m.MinecraftVersion,
+		Channel: string(channel), Experimental: channel != software.Stable, Supported: true, Software: &p, Build: pinBuild(rt.pin)}
+	return rt, nil
+}
+
+// config returns sc running the restore target's software.
+func (rt restoreTarget) config(sc api.ServerConfig) api.ServerConfig {
+	sc.Type = rt.typ
+	if rt.typ == api.TypePaper {
+		return withBuild(sc, rt.entry)
+	}
+	return withPin(sc, rt.entry, rt.pin)
 }
 
 // withPin returns sc running the pinned software of a type other than Paper.

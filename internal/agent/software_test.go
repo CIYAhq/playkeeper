@@ -273,3 +273,21 @@ func TestVanillaVersionChange(t *testing.T) {
 		t.Fatalf("another type's version: %d", code)
 	}
 }
+
+func TestRestoringABackupKeepsTheServerType(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(vanilla262)
+	id, phrase := e.backupAndStage()
+	code, preview := e.call("GET", "/v1/restore/"+id, nil)
+	m, _ := preview["manifest"].(map[string]any)
+	if code != 200 || preview["compatible"] != true || m["type"] != "vanilla" {
+		t.Fatalf("preview: %d %v", code, preview)
+	}
+	if op := e.applyRestore(id, phrase); op.Status != api.OpSucceeded {
+		t.Fatalf("restore: %+v", op)
+	}
+	sc, _ := e.srv().serverConfig()
+	if sc.Type != "vanilla" || sc.Software == nil || sc.Software.Type != "vanilla" || sc.Software.MinecraftVersion != "26.2" || sc.PaperBuild != 0 {
+		t.Fatalf("a restored Vanilla server stays Vanilla: %+v", sc)
+	}
+}
