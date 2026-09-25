@@ -303,6 +303,7 @@ describe('How it’s running', () => {
   }
   const live = { tps: 17.1, mspt: 58.2, lag: 'a_bit_behind' as const, memBytes: 3.8 * 2 ** 30, cpuPercent: 61, at }
   const link = (text: string) => [...document.querySelectorAll('a')].find((a) => a.textContent === text)?.getAttribute('href')
+  const value = (text: string) => [...document.querySelectorAll('span')].find((e) => e.textContent === text)
 
   it('says how far behind it is and ranks the causes, each with one action', async () => {
     answer({ '/running': behind, '/metrics': metrics })
@@ -316,6 +317,7 @@ describe('How it’s running', () => {
     expect(text).toContain('50 ms budget')
     expect(text).toContain('4 GB limit')
     expect(document.querySelectorAll('svg path[stroke="#D97706"]').length).toBeGreaterThan(0)
+    expect(value('3.8')?.className).toContain('text-warning-foreground')
 
     const rows = [...document.querySelectorAll('ol > li')].map((li) => li.textContent)
     expect(rows).toHaveLength(3)
@@ -340,6 +342,7 @@ describe('How it’s running', () => {
     expect(text).toContain('3 players are on and Survival has room to spare.')
     expect(text).toContain('Nothing is slowing it down')
     expect(document.querySelectorAll('ol > li')).toHaveLength(0)
+    expect(value('3.8')?.className).not.toContain('text-warning-foreground')
   })
 
   it('shows what it measured before while the server is stopped', async () => {

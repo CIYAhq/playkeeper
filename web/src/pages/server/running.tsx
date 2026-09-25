@@ -84,7 +84,9 @@ export function RunningPage({ server: s }: { server: ServerStatus }) {
   const mspt = live?.mspt ?? num(r?.params, 'mspt')
   const tpsBad = (v: number) => v < 0.95 * target
   const msptBad = (v: number) => v > budgetMS
-  const memBad = (v: number) => limit > 0 && v >= 0.9 * limit
+  // Java normally fills most of its container, so memory only turns amber when it's what slows the server down.
+  const memPressure = causes.some((c) => c.kind === 'memory_pressure')
+  const memBad = (v: number) => memPressure && limit > 0 && v >= 0.9 * limit
   const mspts = bucketValues(buckets, (b) => b.msptAvg)
   const cpus = bucketValues(buckets, (b) => b.cpuAvg)
   const memNow = live?.memBytes !== undefined ? live.memBytes / perUnit : undefined
