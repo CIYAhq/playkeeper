@@ -456,7 +456,7 @@ function Ways({ report, names, phone, busy, onOpen }: { report: DiskReport; name
         {ways.length ? (
           <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
             {ways.map((w) => (
-              <li key={w.id} className="border-b border-border transition-opacity last:border-b-0 starting:opacity-0">
+              <li key={w.id} className="border-b border-border last:border-b-0">
                 <button type="button" disabled={!!busy} onClick={() => onOpen(w)} className="flex min-h-14 w-full items-center gap-3 py-3 pr-3 pl-4 text-left outline-none active:bg-accent/60 focus-visible:bg-accent/60 disabled:opacity-60">
                   <span className="min-w-0 flex-1 text-base leading-[22px]">{wayTitle(w)}</span>
                   <span className="text-[15px] text-muted-foreground tabular-nums">{sizeText(w.bytes)}</span>
@@ -480,7 +480,7 @@ function Ways({ report, names, phone, busy, onOpen }: { report: DiskReport; name
       {ways.length > 0 && (
         <ul className="mt-3 overflow-hidden rounded-2xl border border-border bg-white">
           {ways.map((w) => (
-            <li key={w.id} className="flex min-h-[62px] items-center gap-3 border-b border-border px-4 py-2.5 transition-opacity last:border-b-0 starting:opacity-0">
+            <li key={w.id} className="flex min-h-[62px] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
               <span className="min-w-0 flex-1">
                 <span className="block text-sm leading-5 font-semibold">{wayTitle(w)}</span>
                 <span className="block truncate text-xs text-muted-foreground">{wayText(w, names)}</span>
