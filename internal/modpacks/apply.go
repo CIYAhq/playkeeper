@@ -47,7 +47,7 @@ func (l *Library) Install(ctx context.Context, srv Server, current *Record, req 
 	if req.Fingerprint != "" && req.Fingerprint != pl.Fingerprint {
 		return nil, planChanged()
 	}
-	return l.apply(ctx, srv, pl)
+	return l.apply(ctx, srv, pl, req.OnProgress)
 }
 
 // Update moves the pack on the server to another version like Install,
@@ -62,14 +62,14 @@ func (l *Library) Update(ctx context.Context, srv Server, rec Record, req Update
 	if req.Fingerprint != "" && req.Fingerprint != pl.Fingerprint {
 		return nil, planChanged()
 	}
-	return l.apply(ctx, srv, pl)
+	return l.apply(ctx, srv, pl, req.OnProgress)
 }
 
 func planChanged() *addons.Error {
 	return fail(addons.KindPlanChanged, nil, "What this would do has changed since you confirmed it.", "Review the new plan and confirm again.")
 }
 
-func (l *Library) apply(ctx context.Context, srv Server, pl *Plan) (*Result, error) {
+func (l *Library) apply(ctx context.Context, srv Server, pl *Plan, progress func(Progress)) (*Result, error) {
 	if len(pl.Blockers) > 0 {
 		return nil, &addons.Error{Notice: pl.Blockers[0]}
 	}
@@ -87,15 +87,25 @@ func (l *Library) apply(ctx context.Context, srv Server, pl *Plan) (*Result, err
 	if pl.Pack.Source == CurseForge {
 		listedBy = "CurseForge"
 	}
+	var downloads []op
 	for _, o := range pl.ops {
-		if o.file == nil || o.file.origin != Download || o.action != ActionAdd && o.action != ActionReplace {
-			continue
+		if o.file != nil && o.file.origin == Download && (o.action == ActionAdd || o.action == ActionReplace) {
+			downloads = append(downloads, o)
 		}
+	}
+	tell := func(done int) {
+		if progress != nil {
+			progress(Progress{Done: done, Total: len(downloads)})
+		}
+	}
+	tell(0)
+	for i, o := range downloads {
 		file, n, err := l.download(ctx, pl.Pack.Name, listedBy, o.file, stage, lim, total)
 		if err != nil {
 			return nil, err
 		}
 		staged[o.path], total = file, total+n
+		tell(i + 1)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

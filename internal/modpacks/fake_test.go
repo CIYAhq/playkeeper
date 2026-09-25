@@ -373,6 +373,13 @@ func (f *fakes) hook(p string, h http.HandlerFunc) {
 func (f *fakes) serveModrinth(w http.ResponseWriter, r *http.Request) {
 	f.log("modrinth", r)
 	f.mu.Lock()
+	hook := f.hooks["modrinth "+r.URL.Path]
+	f.mu.Unlock()
+	if hook != nil {
+		hook(w, r)
+		return
+	}
+	f.mu.Lock()
 	defer f.mu.Unlock()
 	p := strings.TrimPrefix(r.URL.Path, "/v2")
 	parts := strings.Split(strings.Trim(p, "/"), "/")
@@ -382,6 +389,18 @@ func (f *fakes) serveModrinth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	case p == "/search":
 		serveFile(w, "testdata/modrinth/search-modpacks.json")
+	case p == "/versions" || p == "/projects":
+		have := f.versions
+		if p == "/projects" {
+			have = f.projects
+		}
+		out := []obj{}
+		for _, id := range jsonStrings(q.Get("ids")) {
+			if v := have[id]; v != nil {
+				out = append(out, v)
+			}
+		}
+		writeJSON(w, out)
 	case len(parts) == 2 && parts[0] == "version" && f.versions[parts[1]] != nil:
 		writeJSON(w, f.versions[parts[1]])
 	case len(parts) == 2 && parts[0] == "project" && f.projects[parts[1]] != nil:
@@ -665,6 +684,18 @@ func (f *fakes) lastQuery(service string) url.Values {
 	defer f.mu.Unlock()
 	for _, r := range slices.Backward(f.requests) {
 		if r.service == service {
+			return r.query
+		}
+	}
+	return nil
+}
+
+// lastQueryAt is the query of the last request a service got at path.
+func (f *fakes) lastQueryAt(service, path string) url.Values {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range slices.Backward(f.requests) {
+		if r.service == service && r.path == path {
 			return r.query
 		}
 	}

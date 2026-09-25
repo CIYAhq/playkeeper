@@ -119,6 +119,9 @@ type InstallRequest struct {
 	// Fingerprint is the Plan.Fingerprint the user confirmed. Install
 	// refuses when the plan has changed since; empty skips the check.
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// OnProgress, when set, hears how many files there are to download
+	// before the first one, then again after each one is checked.
+	OnProgress func(Progress) `json:"-"`
 }
 
 // UpdateRequest asks to move an installed pack to another version.
@@ -130,6 +133,16 @@ type UpdateRequest struct {
 	Keep            []string        `json:"keep,omitempty"`
 	AllowPrerelease bool            `json:"allowPrerelease,omitempty"`
 	Fingerprint     string          `json:"fingerprint,omitempty"`
+	OnProgress      func(Progress)  `json:"-"`
+}
+
+// Progress is how far an install or update has come: Done of the Total
+// files it downloads are in and match the hashes the pack lists. Files
+// copied out of the pack's archive are not counted, as the archive was
+// checked before planning.
+type Progress struct {
+	Done  int `json:"done"`
+	Total int `json:"total"`
 }
 
 // PlanInstall works out what installing a pack on the server would do: the

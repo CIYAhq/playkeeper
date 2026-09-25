@@ -3,11 +3,14 @@ package modpacks
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
@@ -36,6 +39,9 @@ type Card struct {
 	// versions for, as far as its source says.
 	Types             []string `json:"types"`
 	MinecraftVersions []string `json:"minecraftVersions"`
+	// Mods counts the projects the pack's newest version bundles, mostly
+	// mods, when its source says (Modrinth lists them); zero otherwise.
+	Mods int `json:"mods,omitempty"`
 	// Unavailable says why Playkeeper cannot install the pack at all.
 	Unavailable *addons.Notice `json:"unavailable,omitempty"`
 }
@@ -61,8 +67,12 @@ type Version struct {
 	// empty when it does not say; the pack itself has the final say.
 	Type             string `json:"type,omitempty"`
 	MinecraftVersion string `json:"minecraftVersion,omitempty"`
+	// Mods counts the projects the version bundles, as for Card.Mods.
+	Mods int `json:"mods,omitempty"`
 	// Unsupported says why Playkeeper cannot install this version.
 	Unsupported *addons.Notice `json:"unsupported,omitempty"`
+
+	bundled []string // Modrinth project ids
 }
 
 // Detail is a pack's page: its card, links and versions.
@@ -72,6 +82,10 @@ type Detail struct {
 	IssuesURL string    `json:"issuesUrl,omitempty"`
 	WikiURL   string    `json:"wikiUrl,omitempty"`
 	Versions  []Version `json:"versions"`
+	// Headline is the mod the pack is built around, named in the pack's
+	// title ("Cobblemon" in "Cobblemon Modpack"), when its newest version
+	// bundles one.
+	Headline string `json:"headline,omitempty"`
 }
 
 // maxVersions bounds the versions listed for one pack; the newest come
@@ -159,6 +173,7 @@ func (l *Library) searchModrinth(ctx context.Context, q Query) (*Results, error)
 		return nil, Upstream(addons.Modrinth, err)
 	}
 	out := &Results{Cards: []Card{}, Total: res.TotalHits, Offset: q.Offset, Limit: q.Limit}
+	latest := map[string]int{} // version id → card
 	for _, h := range res.Hits {
 		c := Card{
 			Card: addons.Card{
@@ -171,9 +186,74 @@ func (l *Library) searchModrinth(ctx context.Context, q Query) (*Results, error)
 		if h.ProjectType != "modpack" || !h.RunsOnServer() || !c.fits(q) {
 			continue
 		}
+		if validID(h.LatestVersion) {
+			latest[h.LatestVersion] = len(out.Cards)
+		}
 		out.Cards = append(out.Cards, c)
 	}
+	// The mod counts are extra: without them the page still lists the packs.
+	if len(latest) > 0 {
+		if vs, err := l.Modrinth.Versions(ctx, slices.Sorted(maps.Keys(latest))); err == nil {
+			for i := range vs {
+				if n, ok := latest[vs[i].ID]; ok && vs[i].ProjectID == out.Cards[n].ProjectID {
+					out.Cards[n].Mods = len(bundled(&vs[i]))
+				}
+			}
+		}
+	}
 	return out, nil
+}
+
+// bundled are the Modrinth projects a pack version includes, which Modrinth
+// lists as its embedded dependencies.
+func bundled(v *modrinth.Version) []string {
+	var out []string
+	for _, d := range v.Dependencies {
+		if d.DependencyType == modrinth.Embedded && validID(d.ProjectID) && !slices.Contains(out, d.ProjectID) {
+			out = append(out, d.ProjectID)
+		}
+	}
+	return out
+}
+
+// headline finds, among the projects a pack bundles, the mod its title
+// names: the longest title of at least four letters that the pack's title
+// contains as a word.
+func (l *Library) headline(ctx context.Context, pack string, ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	projects, err := l.Modrinth.Projects(ctx, ids[:min(len(ids), 200)])
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, p := range projects {
+		name := printable(p.Title)
+		if len([]rune(name)) >= 4 && len(name) > len(best) && containsWord(pack, name) {
+			best = name
+		}
+	}
+	return best
+}
+
+// containsWord reports whether s contains word, ignoring case, with no
+// letter or digit right before or after it.
+func containsWord(s, word string) bool {
+	s, word = strings.ToLower(s), strings.ToLower(word)
+	for i := 0; ; {
+		j := strings.Index(s[i:], word)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(word)
+		before, _ := utf8.DecodeLastRuneInString(s[:start])
+		after, _ := utf8.DecodeRuneInString(s[end:])
+		if (start == 0 || !unicode.IsLetter(before) && !unicode.IsDigit(before)) && (end == len(s) || !unicode.IsLetter(after) && !unicode.IsDigit(after)) {
+			return true
+		}
+		i = start + 1
+	}
 }
 
 // fits reports whether a card has something Playkeeper can run that the
@@ -384,9 +464,11 @@ func (l *Library) modrinthVersions(ctx context.Context, proj *modrinth.Project, 
 		if m == "" && len(v.GameVersions) > 0 {
 			m = v.GameVersions[0]
 		}
+		ids := bundled(v)
 		out = append(out, Version{
 			ID: v.ID, Number: printable(v.VersionNumber), Name: printable(v.Name), Channel: channel(v.VersionType),
-			Published: v.DatePublished, Size: file.Size, Type: typ, MinecraftVersion: printable(m), Unsupported: why,
+			Published: v.DatePublished, Size: file.Size, Type: typ, MinecraftVersion: printable(m), Mods: len(ids), Unsupported: why,
+			bundled: ids,
 		})
 	}
 	return newestFirst(out), nil
@@ -418,6 +500,23 @@ func (l *Library) curseForgeVersions(ctx context.Context, mod *curseforge.Mod, m
 	return newestFirst(out), nil
 }
 
+// Newest is the version a pack installs when none is asked for: the newest
+// release Playkeeper can install, else the newest beta or alpha it can; nil
+// when it can install none. vs is newest first.
+func Newest(vs []Version) *Version {
+	var pre *Version
+	for i := range vs {
+		switch {
+		case vs[i].Unsupported != nil:
+		case vs[i].Channel == "release":
+			return &vs[i]
+		case pre == nil:
+			pre = &vs[i]
+		}
+	}
+	return pre
+}
+
 func newestFirst(vs []Version) []Version {
 	slices.SortStableFunc(vs, func(a, b Version) int { return b.Published.Compare(a.Published) })
 	return vs[:min(len(vs), maxVersions)]
@@ -445,6 +544,10 @@ func (l *Library) Detail(ctx context.Context, source addons.Source, project stri
 				Types: l.loaderTypes(proj.Loaders), MinecraftVersions: l.releases(proj.GameVersions),
 			},
 			SourceURL: link(proj.SourceURL), IssuesURL: link(proj.IssuesURL), WikiURL: link(proj.WikiURL), Versions: vs,
+		}
+		if v := Newest(vs); v != nil {
+			d.Mods = v.Mods
+			d.Headline = l.headline(ctx, d.Name, v.bundled)
 		}
 		if !proj.RunsOnServer() {
 			n := notice(addons.KindClientOnly, kv("pack", d.Name), fmt.Sprintf("%s is for the game client only, not for servers.", d.Name), "Choose another pack.")

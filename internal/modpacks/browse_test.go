@@ -50,7 +50,7 @@ func TestSearchModrinth(t *testing.T) {
 	if res.Total != 10091 || res.Offset != 0 || res.Limit != 20 {
 		t.Errorf("page: %d from %d of %d", res.Limit, res.Offset, res.Total)
 	}
-	q := f.lastQuery("modrinth")
+	q := f.lastQueryAt("modrinth", "/v2/search")
 	if q.Get("facets") != `[["project_type:modpack"],["categories:fabric","categories:quilt","categories:neoforge","categories:minecraft"],["server_side:required","server_side:optional"]]` ||
 		q.Get("index") != "relevance" || q.Get("limit") != "20" || q.Has("query") {
 		t.Errorf("query %v", q)
@@ -77,13 +77,13 @@ func TestSearchModrinth(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantList(t, "results for 26.2", cardSlugs(res.Cards), "vanilla-perfected", "rso")
-	q = f.lastQuery("modrinth")
+	q = f.lastQueryAt("modrinth", "/v2/search")
 	if !strings.HasSuffix(q.Get("facets"), `,["versions:26.2"]]`) || q.Get("query") != "vanilla" || q.Get("index") != "downloads" ||
 		q.Get("offset") != "20" || q.Get("limit") != "5" {
 		t.Errorf("query %v", q)
 	}
 	res, err = l.Search(ctx, Query{Source: addons.Modrinth, Type: "quilt"})
-	if err != nil || len(res.Cards) != 0 || !strings.Contains(f.lastQuery("modrinth").Get("facets"), `["categories:quilt"]`) {
+	if err != nil || len(res.Cards) != 0 || !strings.Contains(f.lastQueryAt("modrinth", "/v2/search").Get("facets"), `["categories:quilt"]`) {
 		t.Errorf("quilt: %v, %v", res, err)
 	}
 
