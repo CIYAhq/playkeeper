@@ -6,6 +6,7 @@ import * as client from '@/api/client'
 import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
+import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
@@ -281,5 +282,24 @@ describe('Onboarding', () => {
     expect(text).toContain('Port 25565 is free')
     expect(text).toContain('Your provider’s firewall')
     expect(text).toContain('6 of 7 look good')
+  })
+})
+
+describe('Command palette', () => {
+  it('keeps Tab and Shift+Tab inside the palette', async () => {
+    await render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />)
+    const palette = document.querySelector<HTMLElement>('[role="dialog"]')
+    const search = palette?.querySelector<HTMLInputElement>('input[role="combobox"]')
+    const shortcuts = [...(palette?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.includes('all shortcuts'))
+    if (!search || !shortcuts) throw new Error('the palette has no search box or shortcuts button')
+    const tab = async (from: HTMLElement, shiftKey: boolean) => {
+      from.focus()
+      await act(async () => {
+        from.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true }))
+      })
+      return document.activeElement
+    }
+    expect(await tab(shortcuts, false)).toBe(search)
+    expect(await tab(search, true)).toBe(shortcuts)
   })
 })

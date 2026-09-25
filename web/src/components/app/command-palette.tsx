@@ -1,4 +1,4 @@
-import { Fragment, useMemo, type ReactNode } from 'react'
+import { Fragment, useMemo, type KeyboardEvent, type ReactNode } from 'react'
 import { ArchiveIcon, ArrowDownIcon, ArrowUpIcon, BookOpenIcon, CopyIcon, CornerDownLeftIcon, ExternalLinkIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, RotateCwIcon, ServerIcon, SettingsIcon, SlidersHorizontalIcon, SquareTerminalIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
@@ -84,6 +84,22 @@ function actionsFor(s: ServerStatus): PaletteItem[] {
   return items
 }
 
+/**
+ * Wraps Tab and Shift+Tab around the palette's own stops. Base UI's focus
+ * guards let focus out of a dialog that holds an inline list.
+ */
+function keepTabInside(e: KeyboardEvent<HTMLElement>) {
+  if (e.key !== 'Tab') return
+  const stops = [...e.currentTarget.querySelectorAll<HTMLElement>('input, button, a[href]')].filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && el.checkVisibility())
+  const first = stops[0]
+  const last = stops.at(-1)
+  if (!first || !last) return
+  if (document.activeElement === (e.shiftKey ? first : last)) {
+    e.preventDefault()
+    ;(e.shiftKey ? last : first).focus()
+  }
+}
+
 export function CommandPalette({ open, onOpenChange, route, serversOnly, onShortcuts }: { open: boolean; onOpenChange: (open: boolean) => void; route: Route; serversOnly?: boolean; onShortcuts: () => void }) {
   const ws = useWorkspace()
   const servers = useMemo(() => ws.servers ?? [], [ws.servers])
@@ -121,7 +137,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandDialogPopup aria-label={t('cmd.title')}>
+      <CommandDialogPopup aria-label={t('cmd.title')} onKeyDownCapture={keepTabInside}>
         <Command items={groups} itemToStringValue={(item: unknown) => `${(item as PaletteItem).label} ${(item as PaletteItem).hint ?? ''}`}>
           <div className="relative">
             <CommandInput placeholder={t('cmd.placeholder')} aria-label={t('cmd.title')} />
