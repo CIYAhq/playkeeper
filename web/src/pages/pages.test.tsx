@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, Candidate, JoinInfo, JoinPreview, MachineView, Me, Operation, PlayerProfile, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, Candidate, InvitesResponse, JoinInfo, JoinPreview, JoinRequestView, MachineView, Me, Operation, PlayerProfile, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -175,6 +175,7 @@ function member(role: ProjectRole, can: Action[], over: Partial<Me['access']> = 
 }
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
+const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString()
 
 let root: Root | undefined
 
@@ -289,6 +290,9 @@ describe('Overview', () => {
 })
 
 describe('Players', () => {
+  const noInvites: InvitesResponse = { invites: [], expiries: ['1d', '7d', '30d', 'until_turned_off'], link: { base: 'https://203.0.113.10:8443', friendly: false } }
+  const nobody: PlayersSummary = { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }
+
   // Like item 70: a session that ended in a crash has no exact length, so
   // its playtime is an estimate and says so.
   it('marks playtime that includes a crash-ended session as an estimate', async () => {
@@ -303,7 +307,7 @@ describe('Players', () => {
       uncertainSessions: 1,
       retentionDays: 180,
     }
-    answer({ '/whitelist': [{ name: 'Lenn0x' }, { name: 'mara_k' }], '/operators': [], '/players/summary': summary, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    answer({ '/whitelist': [{ name: 'Lenn0x' }, { name: 'mara_k' }], '/operators': [], '/players/summary': summary, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': noInvites, '/join-requests': [] })
     const text = await render(<PlayersPage server={server()} />)
     expect(text).toContain('≈ 6 h 10 m')
     expect(text).toContain('1 hour')
@@ -312,10 +316,48 @@ describe('Players', () => {
   })
 
   it('explains how to invite someone when nobody has joined', async () => {
-    answer({ '/whitelist': [], '/operators': [], '/players/summary': { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    answer({ '/whitelist': [], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': noInvites, '/join-requests': [] })
     const text = await render(<PlayersPage server={server()} />)
     expect(text).toContain('Nobody’s joined yet')
     expect(text).toContain('You add their name')
+    expect(text).toContain('New invite link')
+  })
+
+  it('lists invite links, says how people got in, and puts a join request on top', async () => {
+    const invites: InvitesResponse = {
+      ...noInvites,
+      invites: [
+        { id: 'inv1', kind: 'player', projectId: 'p2345abcde', serverId: 'abcdefghjk', approval: 'right_away', label: 'Discord crew', createdBy: 1, createdAt: hoursAgo(26), expiresAt: inHours(6 * 24 + 1), maxUses: 5, uses: 2, usesLeft: 3, status: 'active', path: '/join/Qm7xK2pLw9RtVb4n' },
+        { id: 'inv2', kind: 'player', projectId: 'p2345abcde', serverId: 'abcdefghjk', approval: 'after_yes', label: 'School friends', createdBy: 1, createdAt: hoursAgo(72), maxUses: 0, uses: 1, status: 'active', path: '/join/Zx8vB3nMq4LsWd6k' },
+        { id: 'inv3', kind: 'player', projectId: 'p2345abcde', serverId: 'abcdefghjk', approval: 'right_away', createdBy: 1, createdAt: hoursAgo(200), expiresAt: hoursAgo(24), maxUses: 3, uses: 1, status: 'expired' },
+      ],
+    }
+    const request: JoinRequestView = {
+      request: { id: 'r1', inviteId: 'inv2', serverId: 'abcdefghjk', playerName: 'PixelPia', playerUuid: '6b7f0c8e2d9a4f1b8c3e5a7d9f1b3c5e', state: 'pending', createdAt: hoursAgo(0.05) },
+      notice: { title: { key: 'invite.request.title', params: { player: 'PixelPia' }, text: 'PixelPia wants to join' }, detail: { key: 'invite.request.askedWith', params: { link: 'School friends' }, text: 'Asked with the School friends link' } },
+    }
+    const joined = { key: 'invite.origin.link', params: { link: 'Discord crew' }, text: 'Joined with the Discord crew link', at: hoursAgo(20) }
+    answer({ '/whitelist': [{ name: 'Lenn0x' }, { name: 'mara_k', joined }], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': invites, '/join-requests': [request] })
+    const text = await render(<PlayersPage server={server()} />)
+    expect(text).toContain('PixelPia wants to join')
+    expect(text).toContain('Asked with the School friends link')
+    expect(text).toContain('Joined with the Discord crew link')
+    expect(text).toContain('203.0.113.10:8443/join/Qm7xK2…')
+    expect(text).not.toContain('Qm7xK2pLw9RtVb4n')
+    for (const cell of ['Discord crew', '2 of 5', 'in 6 days', 'Right away', 'School friends', '1 · no limit', 'When you turn it off', 'After you say yes', 'Ran out']) expect(text).toContain(cell)
+    expect(text).toContain('Set up an address')
+    expect(buttons('New invite link').length).toBeGreaterThan(0)
+    await click(button('Let in'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/join-requests/r1/approve')
+  })
+
+  it('shows a viewer the list without adding players or invite links', async () => {
+    answer({ '/whitelist': [{ name: 'mara_k' }], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    const text = await render(<PlayersPage server={server()} />, workspace({ me: member('viewer', ['view', 'account.manage']) }))
+    expect(text).toContain('mara_k')
+    for (const hidden of ['Add player', 'Invite links', 'New invite link']) expect(text).not.toContain(hidden)
+    expect(client.get).not.toHaveBeenCalledWith(expect.stringContaining('/invites'))
+    expect(client.get).not.toHaveBeenCalledWith(expect.stringContaining('/join-requests'))
   })
 })
 
