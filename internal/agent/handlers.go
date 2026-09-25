@@ -326,6 +326,18 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, api.CodeEULARequired, "You must accept the Minecraft EULA before Playkeeper downloads or starts a server.", "Read https://www.minecraft.net/en-us/eula and tick the box to accept it.")
 		return
 	}
+	var tpl *templateImport
+	if req.Template != nil {
+		if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {
+			writeError(w, errInvalid("A server made from a template takes its type, version and settings from the template."))
+			return
+		}
+		if tpl, err = a.confirmTemplate(r.Context(), req.Template.Fingerprint); err != nil {
+			writeError(w, err)
+			return
+		}
+		tpl.fill(&req)
+	}
 	typ := req.Type
 	if typ == "" {
 		typ = api.TypePaper
@@ -417,9 +429,18 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	if pack != nil {
 		sc.Modpack, label = pack, pack.Name+" "+pack.VersionNumber
 	}
+	if tpl != nil {
+		sc.Template = &api.ServerTemplate{Name: tpl.p.Name, Pending: len(tpl.p.Addons) > 0}
+	}
 	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
+			if tpl != nil && len(tpl.p.Addons) > 0 {
+				if err := s.saveTemplateInstall(tpl.p.Addons); err != nil {
+					s.startFailed(ctx)
+					return err
+				}
+			}
 			s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
 			if err := s.startServer(ctx, h, sc); err != nil {
 				s.startFailed(ctx)

@@ -545,7 +545,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
 		`DELETE FROM addons WHERE server_id = ?`, `DELETE FROM pregen WHERE server_id = ?`,
-		`DELETE FROM modpacks WHERE server_id = ?`,
+		`DELETE FROM modpacks WHERE server_id = ?`, `DELETE FROM template_installs WHERE server_id = ?`,
 		`DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {

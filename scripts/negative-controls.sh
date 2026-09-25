@@ -285,6 +285,18 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if sum != want {' \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
+control "creating from a template checks the plan the user confirmed" internal/agent/templates.go \
+  'if err := p.Confirm(fingerprint); err != nil {' \
+  'if err := p.Confirm(p.Fingerprint); err != nil {' \
+  ./internal/agent '^TestCreateFromTemplateRefusesAChangedPlan$'
+control "a source that does not answer stops a template's first start" internal/agent/templates.go \
+  'if sourceDown(res.Reason.Kind) {' \
+  'if false && sourceDown(res.Reason.Kind) {' \
+  ./internal/agent '^TestCreateFromTemplateTriesAgainOnTheNextStart$'
+control "a template decides the type, version and settings" internal/agent/handlers.go \
+  'if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateRequestsAreChecked$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

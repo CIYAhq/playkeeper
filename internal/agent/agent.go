@@ -28,6 +28,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
+	"github.com/CIYAhq/playkeeper/internal/templates"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 )
@@ -186,6 +187,10 @@ type Agent struct {
 	packDetails      *ttlCache[*api.ModpackDetail]
 	packPreviews     *ttlCache[*api.ModpackPreview]
 	packPreviewSlots chan struct{}
+
+	// Wave 4: templates planned on this machine, by their plan's
+	// fingerprint, until a server is created from one.
+	templatePlans *ttlCache[*templates.Template]
 }
 
 func New(opts Options) (*Agent, error) {
@@ -294,6 +299,7 @@ func New(opts Options) (*Agent, error) {
 		packDetails:      newTTLCache[*api.ModpackDetail](10*time.Minute, 64),
 		packPreviews:     newTTLCache[*api.ModpackPreview](30*time.Minute, 32),
 		packPreviewSlots: make(chan struct{}, 2),
+		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
 	}
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
@@ -633,6 +639,9 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/modpacks", a.hModpackSearch},
 		{"GET", "/v1/modpacks/{source}/{project}", a.hModpackDetail},
 		{"GET", "/v1/modpacks/{source}/{project}/versions/{version}/preview", a.hModpackPreview},
+		// Wave 4: templates.
+		{"GET", "/v1/servers/{id}/template", srv((*server).hTemplate)},
+		{"POST", "/v1/templates/plan", a.hTemplatePlan},
 	}
 }
 

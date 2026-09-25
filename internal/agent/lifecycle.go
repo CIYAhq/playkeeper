@@ -537,6 +537,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureSoftware(ctx, h, &sc); err != nil {
 		return err
 	}
+	if sc.Template != nil && sc.Template.Pending {
+		if err := s.installPendingTemplate(ctx, h, &sc); err != nil {
+			return err
+		}
+	}
 	if takesPlugins(sc) {
 		if err := s.ensureTelemetryOff(); err != nil {
 			return err

@@ -189,4 +189,15 @@ CREATE TABLE modpacks (
 );
 ALTER TABLE servers ADD COLUMN packs_public INTEGER NOT NULL DEFAULT 0;
 `,
+	// Wave 4: the add-ons of the template a server was created from, as
+	// JSON lists of templates.PlannedAddon: all of them, and those its
+	// first start has yet to install.
+	`
+CREATE TABLE template_installs (
+  server_id  TEXT PRIMARY KEY,
+  planned    TEXT NOT NULL,
+  remaining  TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`,
 }

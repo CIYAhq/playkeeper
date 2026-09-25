@@ -237,6 +237,8 @@ type ServerConfig struct {
 	Software *SoftwarePin `json:"software,omitempty"`
 	// Modpack is the pack the server was created from (wave 4).
 	Modpack *ServerModpack `json:"modpack,omitempty"`
+	// Template is the template the server was created from (wave 4).
+	Template *ServerTemplate `json:"template,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -260,6 +262,11 @@ type CreateServerRequest struct {
 	// Modpack creates the server from a pack (wave 4), which decides the
 	// type, versions and build: Type, VersionID and Build stay empty.
 	Modpack *ModpackRef `json:"modpack,omitempty"`
+	// Template creates the server from a template planned on this machine
+	// (wave 4), which decides the type, version, build and settings: Type,
+	// VersionID, Build, Modpack, PlayStyle, Gameplay, MOTD and MaxPlayers
+	// stay empty.
+	Template *TemplateRef `json:"template,omitempty"`
 }
 
 type SettingsRequest struct {
@@ -1203,4 +1210,95 @@ type ServerModpack struct {
 	// Pending is set until the pack's files are in place; the next start
 	// puts them there.
 	Pending bool `json:"pending,omitempty"`
+}
+
+// Wave 4: templates.
+
+// TemplateRef names a template planned on this machine by the fingerprint
+// of the plan the user confirmed (TemplatePlan.Fingerprint).
+type TemplateRef struct {
+	Fingerprint string `json:"fingerprint"`
+}
+
+// ServerTemplate is the template a server was created from.
+type ServerTemplate struct {
+	Name string `json:"name"`
+	// Pending is set until the template's add-ons are on the server; the
+	// next start installs the rest.
+	Pending bool `json:"pending,omitempty"`
+}
+
+// TemplateSettings are the settings a template carries.
+type TemplateSettings struct {
+	Difficulty   string `json:"difficulty,omitempty"`
+	PVP          *bool  `json:"pvp,omitempty"`
+	GameMode     string `json:"gameMode,omitempty"`
+	Hardcore     *bool  `json:"hardcore,omitempty"`
+	ViewDistance int    `json:"viewDistance,omitempty"`
+	LevelType    string `json:"levelType,omitempty"`
+	MaxPlayers   int    `json:"maxPlayers,omitempty"`
+	MOTD         string `json:"motd,omitempty"`
+	PlayStyle    string `json:"playStyle,omitempty"`
+	MemoryMB     int    `json:"memoryMB,omitempty"`
+}
+
+// TemplateAddon is a plugin, mod or modpack a template names.
+type TemplateAddon struct {
+	Source string `json:"source"`
+	Name   string `json:"name"`
+	// VersionNumber is the pinned version; empty means the newest that fits.
+	VersionNumber string `json:"versionNumber,omitempty"`
+}
+
+// TemplateContents is what a template carries.
+type TemplateContents struct {
+	Name             string           `json:"name"`
+	Type             string           `json:"type"`
+	MinecraftVersion string           `json:"minecraftVersion"`
+	Build            string           `json:"build,omitempty"`
+	Settings         TemplateSettings `json:"settings"`
+	Addons           []TemplateAddon  `json:"addons"`
+	Modpack          *TemplateAddon   `json:"modpack,omitempty"`
+	ResourcePacks    int              `json:"resourcePacks"`
+	DataPacks        int              `json:"dataPacks"`
+	// Packs names the packs, the resource pack first.
+	Packs []string `json:"packs"`
+}
+
+// TemplateExport is a server's setup as a template, with the export
+// dialog's choices applied.
+type TemplateExport struct {
+	FileName string `json:"fileName"`
+	// File is the template file's text.
+	File string `json:"file"`
+	// Link is empty when the template is too large for one; LinkLong is set
+	// when it's long enough for some chats to cut it.
+	Link     string           `json:"link"`
+	LinkLong bool             `json:"linkLong,omitempty"`
+	Contents TemplateContents `json:"contents"`
+	// Available is what the template carries with every part included, so
+	// the dialog's rows keep their details while a part is left out.
+	Available TemplateContents `json:"available"`
+	// PacksHere counts the server's packs, with those that can't travel.
+	PacksHere int           `json:"packsHere"`
+	LeftOut   []AddonNotice `json:"leftOut"`
+	Notes     []AddonNotice `json:"notes"`
+}
+
+// TemplatePlan is what a template would create on this machine.
+type TemplatePlan struct {
+	Contents TemplateContents `json:"contents"`
+	// Type, VersionID, MinecraftVersion and Build are what the new server
+	// runs, which can differ from what the template names.
+	Type             string        `json:"type"`
+	VersionID        string        `json:"versionId,omitempty"`
+	MinecraftVersion string        `json:"minecraftVersion,omitempty"`
+	Build            string        `json:"build,omitempty"`
+	Experimental     bool          `json:"experimental,omitempty"`
+	MemoryMB         int           `json:"memoryMB"`
+	Skipped          []AddonNotice `json:"skipped"`
+	Warnings         []AddonNotice `json:"warnings"`
+	Blockers         []AddonNotice `json:"blockers"`
+	Ready            bool          `json:"ready"`
+	Fingerprint      string        `json:"fingerprint"`
 }
