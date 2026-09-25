@@ -501,6 +501,33 @@ type fakeRCON struct {
 	mu       sync.Mutex
 	commands []string
 	online   []string
+	// hangUp holds commands the fake takes and then hangs up on without
+	// answering, like a server stopping mid-command.
+	hangUp map[string]bool
+	conns  map[net.Conn]bool
+	// answer, when set, replies to commands it knows before the defaults.
+	answer func(cmd string) (string, bool)
+}
+
+// dropAll hangs up every open connection, like a server restarting.
+func (fr *fakeRCON) dropAll() {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	for c := range fr.conns {
+		c.Close()
+	}
+}
+
+func (fr *fakeRCON) count(cmd string) int {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	n := 0
+	for _, c := range fr.commands {
+		if c == cmd {
+			n++
+		}
+	}
+	return n
 }
 
 func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
@@ -509,7 +536,7 @@ func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fr := &fakeRCON{addr: ln.Addr().String(), accept: accept}
+	fr := &fakeRCON{addr: ln.Addr().String(), accept: accept, hangUp: map[string]bool{}, conns: map[net.Conn]bool{}}
 	t.Cleanup(func() { ln.Close() })
 	go func() {
 		for {
@@ -530,7 +557,15 @@ func (fr *fakeRCON) setOnline(names ...string) {
 }
 
 func (fr *fakeRCON) handle(c net.Conn) {
-	defer c.Close()
+	fr.mu.Lock()
+	fr.conns[c] = true
+	fr.mu.Unlock()
+	defer func() {
+		fr.mu.Lock()
+		delete(fr.conns, c)
+		fr.mu.Unlock()
+		c.Close()
+	}()
 	authed := false
 	for {
 		var hdr [4]byte
@@ -565,7 +600,17 @@ func (fr *fakeRCON) handle(c net.Conn) {
 			fr.mu.Lock()
 			fr.commands = append(fr.commands, body)
 			online := append([]string(nil), fr.online...)
+			hangUp, answer := fr.hangUp[body], fr.answer
 			fr.mu.Unlock()
+			if hangUp {
+				return
+			}
+			if answer != nil {
+				if out, ok := answer(body); ok {
+					reply(id, 0, out)
+					continue
+				}
+			}
 			switch {
 			case body == "list":
 				reply(id, 0, fmt.Sprintf("There are %d of a max of 10 players online: %s", len(online), strings.Join(online, ", ")))

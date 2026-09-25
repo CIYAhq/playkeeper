@@ -88,6 +88,8 @@ type server struct {
 	rcon   *minecraft.RCON
 	rconIP string
 
+	checks addonChecks
+
 	// softwareChanged is set, under mu, when a start found the server's
 	// software changed since Playkeeper installed it; a reinstall clears it.
 	// manifest caches the record of the installed software (types other
@@ -540,6 +542,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	for _, q := range []string{
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
+		`DELETE FROM addons WHERE server_id = ?`,
 		`DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {

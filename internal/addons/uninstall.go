@@ -16,6 +16,68 @@ type UninstallOptions struct {
 	RemoveConfig bool `json:"removeConfig,omitempty"`
 	// Force removes the add-on even when installed add-ons need it.
 	Force bool `json:"force,omitempty"`
+	// Changed deletes the file even though it changed since it was
+	// installed, once the user agreed to lose those changes.
+	Changed bool `json:"changed,omitempty"`
+}
+
+// RemovalPreview is what removing an add-on would involve, for the user to
+// decide before Uninstall.
+type RemovalPreview struct {
+	Record Installed `json:"record"`
+	// NeededBy names the installed add-ons that need it; Uninstall then
+	// needs Force.
+	NeededBy []string `json:"neededBy"`
+	// Orphans are dependencies nothing else would need any more.
+	Orphans []Installed `json:"orphans"`
+	// ConfigFolder is the plugin's settings folder inside plugins/, when it
+	// has one.
+	ConfigFolder string `json:"configFolder,omitempty"`
+	// Changed is set when the file changed since it was installed;
+	// Uninstall then needs Changed.
+	Changed bool `json:"changed"`
+	// Missing is set when the file is already gone.
+	Missing bool `json:"missing"`
+}
+
+// PreviewUninstall says what Uninstall would do, without touching anything.
+func (l *Library) PreviewUninstall(srv Server, installed []Installed, key Key) (*RemovalPreview, error) {
+	t, err := TargetFor(srv.Type)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(installed, func(rec Installed) bool { return rec.Key() == key })
+	if i < 0 {
+		return nil, notManaged(key)
+	}
+	rec := installed[i]
+	out := &RemovalPreview{Record: rec, NeededBy: neededBy(installed, rec), Orphans: orphans(installed, rec)}
+	if out.NeededBy == nil {
+		out.NeededBy = []string{}
+	}
+	root, err := openFolder(srv, t, false)
+	if err != nil {
+		return nil, err
+	}
+	if root == nil || !validFileName(rec.FileName) {
+		out.Missing = root == nil
+		return out, nil
+	}
+	defer root.Close()
+	sums, size, err := sumFile(root, rec.FileName, rec.HashAlgo)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		out.Missing = true
+		return out, nil
+	case err != nil || sums[rec.HashAlgo] != strings.ToLower(rec.Hash) || rec.Size > 0 && size != rec.Size:
+		out.Changed = true
+	}
+	if meta := metaIn(root, rec.FileName); t.Kind == "plugin" && validFolderName(meta.ID) {
+		if fi, err := root.Lstat(meta.ID); err == nil && fi.IsDir() {
+			out.ConfigFolder = meta.ID
+		}
+	}
+	return out, nil
 }
 
 // Removal is what Uninstall did.
@@ -79,8 +141,9 @@ func (l *Library) Uninstall(srv Server, installed []Installed, key Key, opts Uni
 	case errors.Is(err, fs.ErrNotExist):
 		out.Warnings = append(out.Warnings, gone)
 		return out, nil
-	case !validHash(rec.HashAlgo, rec.Hash) || errors.Is(err, errNotRegular):
+	case errors.Is(err, errNotRegular) || !validHash(rec.HashAlgo, rec.Hash) && !opts.Changed:
 		return nil, &Error{Notice: modified(rec, "delete"), Err: err}
+	case opts.Changed:
 	case err != nil:
 		return nil, folderError(t, err)
 	case sums[rec.HashAlgo] != strings.ToLower(rec.Hash) || rec.Size > 0 && size != rec.Size:

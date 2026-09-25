@@ -23,6 +23,20 @@ type Want struct {
 	Also []Sum
 	Size int64 // 0 when unknown
 	Max  int64
+	// Progress, when set, is told how many bytes have arrived each time
+	// more do.
+	Progress func(received int64)
+}
+
+type progressWriter struct {
+	n  int64
+	fn func(int64)
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	p.n += int64(len(b))
+	p.fn(p.n)
+	return len(b), nil
 }
 
 // Sum is one hash a publisher lists for a file.
@@ -103,6 +117,9 @@ func Download(ctx context.Context, c *http.Client, hosts Hosts, userAgent, rawUR
 	ws := []io.Writer{f}
 	for _, h := range hs {
 		ws = append(ws, h)
+	}
+	if want.Progress != nil {
+		ws = append(ws, &progressWriter{fn: want.Progress})
 	}
 	n, err := io.Copy(io.MultiWriter(ws...), io.LimitReader(resp.Body, limit+1))
 	if err != nil {

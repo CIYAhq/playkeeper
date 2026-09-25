@@ -102,7 +102,7 @@ func TestPlanPaperTemplate(t *testing.T) {
 			t.Errorf("add-on %d: got %+v", i, a)
 		}
 	}
-	if !slices.Equal(got, want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got requests %+v, want %+v", got, want)
 	}
 	if p.Addons[0].PageURL != "https://modrinth.com/project/fALzjamp" || p.Addons[1].PageURL != "" {
@@ -180,7 +180,7 @@ func TestPlanVersions(t *testing.T) {
 				if !unpinned {
 					want.VersionID = a.Pin.VersionID
 				}
-				if a.Unpinned != unpinned || a.Request != want {
+				if a.Unpinned != unpinned || !reflect.DeepEqual(a.Request, want) {
 					t.Errorf("%s: got unpinned %v and %+v, want %+v", a.Name, a.Unpinned, a.Request, want)
 				}
 			}
@@ -344,7 +344,7 @@ func TestPlanModpack(t *testing.T) {
 	if !reflect.DeepEqual(p.Modpack, tp.Modpack) || p.MemoryMB != 6144 {
 		t.Errorf("got %+v and %d MB", p.Modpack, p.MemoryMB)
 	}
-	if a := p.Addons[0]; a.Request != (addons.InstallRequest{Source: addons.Modrinth, Project: "fALzjamp"}) || !a.Latest || a.Unpinned {
+	if a := p.Addons[0]; !reflect.DeepEqual(a.Request, addons.InstallRequest{Source: addons.Modrinth, Project: "fALzjamp"}) || !a.Latest || a.Unpinned {
 		t.Errorf("got %+v", a)
 	}
 }

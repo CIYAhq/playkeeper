@@ -50,6 +50,7 @@ func TestPlanInstallModrinthWithRequiredDependencies(t *testing.T) {
 	jar := f.mfile("EPLCoxMK")
 	sameJSON(t, "ViaRewind's step", p.Steps[0], Step{
 		Action: ActionInstall, Source: Modrinth, ProjectID: "TbHIxhx5", Slug: "viarewind", Name: "ViaRewind",
+		Summary:   "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
 		IconURL:   "https://cdn.modrinth.com/data/TbHIxhx5/f59ffe031387b06a9b1efa736dbbb4db44284574_96.webp",
 		VersionID: "EPLCoxMK", VersionNumber: "4.2.0", Channel: "release", Published: time.Date(2026, 9, 18, 15, 8, 24, 612555000, time.UTC),
 		FileName: "ViaRewind-4.2.0.jar", Size: int64(len(jar.data)), HashAlgo: "sha512", Hash: sha512hex(jar.data),
@@ -77,6 +78,12 @@ func TestPlanInstallModrinthWithRequiredDependencies(t *testing.T) {
 	if again := mustPlan(t, l, srv, nil, InstallRequest{Source: Modrinth, Project: "viarewind"}); again.Fingerprint != p.Fingerprint || p.Fingerprint == "" {
 		t.Errorf("fingerprints %q and %q", p.Fingerprint, again.Fingerprint)
 	}
+	reworded := *p
+	reworded.Steps = slices.Clone(p.Steps)
+	reworded.Steps[0].Summary = "Lets old clients join."
+	if reworded.fingerprint() != p.Fingerprint {
+		t.Error("a reworded description changed the fingerprint")
+	}
 }
 
 func TestPlanInstallHangarWithRequiredDependencies(t *testing.T) {
@@ -90,6 +97,7 @@ func TestPlanInstallHangarWithRequiredDependencies(t *testing.T) {
 	jar := f.hfile("30418")
 	sameJSON(t, "ViaRewind's step", p.Steps[0], Step{
 		Action: ActionInstall, Source: Hangar, ProjectID: "112", Slug: "ViaRewind", Name: "ViaRewind",
+		Summary:   "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
 		IconURL:   "https://hangarcdn.papermc.io/avatars/project/112.webp?v=1",
 		VersionID: "30418", VersionNumber: "4.2.0", Channel: "release", Published: time.Date(2026, 9, 18, 15, 8, 16, 539019000, time.UTC),
 		FileName: "ViaRewind-4.2.0.jar", Size: int64(len(jar.data)), HashAlgo: "sha256", Hash: sha256hex(jar.data),

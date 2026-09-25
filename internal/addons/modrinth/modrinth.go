@@ -146,6 +146,8 @@ type Version struct {
 	Downloads     int64        `json:"downloads"`
 	Files         []File       `json:"files"`
 	Dependencies  []Dependency `json:"dependencies"`
+	// Changelog is the author's Markdown notes for the version.
+	Changelog string `json:"changelog"`
 }
 
 // RunsOnServer reports whether this version can run on a dedicated server.

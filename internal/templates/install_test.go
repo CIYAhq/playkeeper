@@ -253,11 +253,11 @@ func TestInstallAddon(t *testing.T) {
 				if len(f.requests) != 2 {
 					t.Fatalf("got requests %+v", f.requests)
 				}
-				if f.requests[0] != want || f.requests[1].Fingerprint == "" {
+				if !reflect.DeepEqual(f.requests[0], want) || f.requests[1].Fingerprint == "" {
 					t.Errorf("got requests %+v", f.requests)
 				}
 				want.Fingerprint = f.requests[1].Fingerprint
-				if f.requests[1] != want {
+				if !reflect.DeepEqual(f.requests[1], want) {
 					t.Errorf("got %+v, want the confirmed plan's fingerprint with the same request", f.requests[1])
 				}
 			}},
@@ -430,7 +430,7 @@ func TestInstallAddonUnpinned(t *testing.T) {
 		installed = append(installed, res.Records...)
 	}
 	want := []addons.InstallRequest{{Source: addons.Modrinth, Project: "fALzjamp"}, {Source: addons.Hangar, Project: "31", AllowPrerelease: true}}
-	if lib.requests[0] != want[0] || lib.requests[2] != want[1] {
+	if !reflect.DeepEqual(lib.requests[0], want[0]) || !reflect.DeepEqual(lib.requests[2], want[1]) {
 		t.Errorf("got requests %+v, want %+v", lib.requests, want)
 	}
 	if installed[0].VersionNumber != "1.4.40" || installed[1].VersionNumber != "5.4.2" || srv.MinecraftVersion != "1.21.11" {
@@ -443,7 +443,7 @@ func TestInstallAddonUnpinned(t *testing.T) {
 	lib = newFakeLibrary(t)
 	answer(chunkyKey, "RDDLpNhp", "1.4.16")
 	res, err := InstallAddon(context.Background(), lib, newServer(t, fp), nil, fp.Addons[0])
-	if err != nil || res.Status != AddonInstalled || lib.requests[0] != (addons.InstallRequest{Source: addons.Modrinth, Project: "fALzjamp"}) {
+	if err != nil || res.Status != AddonInstalled || !reflect.DeepEqual(lib.requests[0], addons.InstallRequest{Source: addons.Modrinth, Project: "fALzjamp"}) {
 		t.Errorf("got %+v, %v and %+v", res, err, lib.requests)
 	}
 }

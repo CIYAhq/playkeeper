@@ -24,6 +24,19 @@ type Result struct {
 	RestartNeeded bool `json:"restartNeeded"`
 }
 
+// Progress is how an install or update is going, for showing it.
+type Progress struct {
+	// Plan is the plan being carried out.
+	Plan *Plan
+	// Step indexes Plan.Steps: the file being downloaded, or -1 before
+	// the first download starts.
+	Step int
+	// Received counts the bytes of that file downloaded so far.
+	Received int64
+	// Verified is set once the file matched its published size and hash.
+	Verified bool
+}
+
 // Install carries out PlanInstall's plan. Every file is downloaded from the
 // source's own hosts into TempDir and checked against the published size and
 // hash before anything is written to the server's folder; then the files are
@@ -37,14 +50,17 @@ func (l *Library) Install(ctx context.Context, srv Server, installed []Installed
 	if req.Fingerprint != "" && req.Fingerprint != p.Fingerprint {
 		return nil, planChanged()
 	}
-	return l.apply(ctx, srv, p)
+	return l.apply(ctx, srv, p, req.OnProgress)
 }
 
 func planChanged() *Error {
 	return fail(KindPlanChanged, nil, "What this would do has changed since you confirmed it.", "Review the new plan and confirm again.")
 }
 
-func (l *Library) apply(ctx context.Context, srv Server, p *Plan) (*Result, error) {
+func (l *Library) apply(ctx context.Context, srv Server, p *Plan, progress func(Progress)) (*Result, error) {
+	if progress == nil {
+		progress = func(Progress) {}
+	}
 	if len(p.Blockers) > 0 {
 		return nil, &Error{Notice: p.Blockers[0]}
 	}
@@ -75,13 +91,20 @@ func (l *Library) apply(ctx context.Context, srv Server, p *Plan) (*Result, erro
 	}
 	defer os.RemoveAll(stage)
 	staged := make([]string, len(p.Steps))
+	progress(Progress{Plan: p, Step: -1})
 	for i, s := range p.Steps {
+		var received int64
+		progress(Progress{Plan: p, Step: i})
 		path, err := fetch.Download(ctx, l.HTTP, l.fileHosts(s.Source), l.userAgent(), s.url, stage,
-			fetch.Want{Algo: s.HashAlgo, Hash: s.Hash, Size: s.Size, Max: max})
+			fetch.Want{Algo: s.HashAlgo, Hash: s.Hash, Size: s.Size, Max: max, Progress: func(n int64) {
+				received = n
+				progress(Progress{Plan: p, Step: i, Received: n})
+			}})
 		if err != nil {
 			return nil, downloadError(s, err, max)
 		}
 		staged[i] = path
+		progress(Progress{Plan: p, Step: i, Received: received, Verified: true})
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -127,16 +150,10 @@ func (tx *txn) run(steps []Step, staged []string) error {
 		if old == nil || !validFileName(old.FileName) {
 			continue
 		}
-		sums, size, err := sumFile(tx.root, old.FileName, old.HashAlgo)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
+		if err := tx.check(*old, s.replaceChanged); errors.Is(err, fs.ErrNotExist) {
 			continue
-		case !validHash(old.HashAlgo, old.Hash) || errors.Is(err, errNotRegular):
-			return &Error{Notice: modified(*old, "replace"), Err: err}
-		case err != nil:
-			return folderError(tx.t, err)
-		case sums[old.HashAlgo] != strings.ToLower(old.Hash) || old.Size > 0 && size != old.Size:
-			return &Error{Notice: modified(*old, "replace")}
+		} else if err != nil {
+			return err
 		}
 		hidden := "." + old.FileName + ".playkeeper-old-" + randomHex()
 		if err := tx.root.Rename(old.FileName, hidden); err != nil {
@@ -152,6 +169,36 @@ func (tx *txn) run(steps []Step, staged []string) error {
 			return folderError(tx.t, err)
 		}
 		tx.placed = append(tx.placed, s.FileName)
+	}
+	return nil
+}
+
+// check refuses to replace old's file when it changed since the install,
+// unless the user agreed to replace a changed file; a folder or link in its
+// place is refused either way.
+func (tx *txn) check(old Installed, changed bool) error {
+	if changed {
+		fi, err := tx.root.Lstat(old.FileName)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return err
+		case err != nil:
+			return folderError(tx.t, err)
+		case !fi.Mode().IsRegular():
+			return &Error{Notice: modified(old, "replace"), Err: errNotRegular}
+		}
+		return nil
+	}
+	sums, size, err := sumFile(tx.root, old.FileName, old.HashAlgo)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return err
+	case !validHash(old.HashAlgo, old.Hash) || errors.Is(err, errNotRegular):
+		return &Error{Notice: modified(old, "replace"), Err: err}
+	case err != nil:
+		return folderError(tx.t, err)
+	case sums[old.HashAlgo] != strings.ToLower(old.Hash) || old.Size > 0 && size != old.Size:
+		return &Error{Notice: modified(old, "replace")}
 	}
 	return nil
 }

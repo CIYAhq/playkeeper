@@ -60,6 +60,7 @@ func TestScanSortsTheFolder(t *testing.T) {
 			{FileName: "MyPlugin.jar", Size: int64(len(mine)), Status: FileUnknown, Meta: JarMeta{ID: "MyPlugin", Version: "0.1", Kind: "plugin"}},
 			{FileName: "ViaBackwards.jar", Size: int64(len(backwards)), Status: FileIdentified, Identified: &Installed{
 				Source: Modrinth, ProjectID: "NpvuJQoq", Slug: "viabackwards", Name: "ViaBackwards",
+				Summary:   "Allow older Java Edition clients to connect to newer servers.",
 				IconURL:   "https://cdn.modrinth.com/data/NpvuJQoq/c9fd86f343657c62206d5b82fee1d2b24f0b278d_96.webp",
 				VersionID: "SxGhdsPK", VersionNumber: "5.12.0", Channel: "release", Published: time.Date(2026, 9, 18, 15, 4, 50, 516162000, time.UTC),
 				FileName: "ViaBackwards.jar", HashAlgo: "sha512", Hash: sha512hex(backwards), Size: int64(len(backwards)),
@@ -69,6 +70,7 @@ func TestScanSortsTheFolder(t *testing.T) {
 				Meta: JarMeta{ID: "ViaVersion", Version: "5.12.0", Kind: "plugin"}},
 			{FileName: "ViaVersion-old.jar", Size: int64(len(oldVia)), Status: FileIdentified, Identified: &Installed{
 				Source: Modrinth, ProjectID: "P1OZGk5p", Slug: "viaversion", Name: "ViaVersion",
+				Summary:   "Allow newer Java Edition clients to connect to older servers.",
 				IconURL:   "https://cdn.modrinth.com/data/P1OZGk5p/ad14260a7308dc9e4c3385f3f6b5bdabfe17f295_96.webp",
 				VersionID: "ZH8459B6", VersionNumber: "5.11.0", Channel: "release", Published: time.Date(2026, 7, 12, 16, 45, 13, 784294000, time.UTC),
 				FileName: "ViaVersion-old.jar", HashAlgo: "sha512", Hash: sha512hex(oldVia), Size: int64(len(oldVia)), InstalledAt: testNow,

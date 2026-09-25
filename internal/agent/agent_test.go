@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 )
@@ -51,6 +52,8 @@ type agentEnv struct {
 	// stagedVersion is what a downloaded binary reports.
 	updateKeys    []ed25519.PublicKey
 	stagedVersion string
+	// addons, when set, is the add-on library the agent uses.
+	addons *addons.Library
 	// sid is the server most helpers act on: the one create made last.
 	sid string
 	// live is the running agent, for the fake RCON's password check.
@@ -134,6 +137,7 @@ func (e *agentEnv) start() {
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
+		Addons:         e.addons,
 		UpstreamClient: e.up.client(),
 	})
 	if err != nil {

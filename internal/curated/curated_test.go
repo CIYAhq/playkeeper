@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -177,7 +178,7 @@ func TestFor(t *testing.T) {
 		t.Fatal("no rollback entry")
 	}
 	p, err := rollback.For("quilt")
-	if err != nil || p.Title != "Ledger" || p.Request() != (addons.InstallRequest{Source: addons.Modrinth, Project: "LVN9ygNV"}) {
+	if err != nil || p.Title != "Ledger" || !reflect.DeepEqual(p.Request(), addons.InstallRequest{Source: addons.Modrinth, Project: "LVN9ygNV"}) {
 		t.Errorf("For(quilt) = %+v, %v", p, err)
 	}
 	if p, err := rollback.For("purpur"); err != nil || p.Title != "CoreProtect" {

@@ -28,6 +28,8 @@ type InstallRequest struct {
 	// Fingerprint is the Plan.Fingerprint the user confirmed. Install
 	// refuses when the plan has changed since; empty skips the check.
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// OnProgress, when set, follows Install as it downloads.
+	OnProgress func(Progress) `json:"-"`
 }
 
 // Action is what a step does to the server's folder.
@@ -45,6 +47,7 @@ type Step struct {
 	ProjectID     string    `json:"projectId"`
 	Slug          string    `json:"slug"`
 	Name          string    `json:"name"`
+	Summary       string    `json:"summary,omitempty"`
 	IconURL       string    `json:"iconUrl,omitempty"`
 	VersionID     string    `json:"versionId"`
 	VersionNumber string    `json:"versionNumber"`
@@ -64,13 +67,16 @@ type Step struct {
 	// url is unexported so that a plan which went through JSON cannot be
 	// carried out: Install and Update always plan again.
 	url string
+	// replaceChanged lets the step replace a file that changed since it
+	// was installed, because the user said so.
+	replaceChanged bool
 }
 
 func (s Step) key() Key { return Key{s.Source, s.ProjectID} }
 
 func (s Step) record(now time.Time) Installed {
 	return Installed{
-		Source: s.Source, ProjectID: s.ProjectID, Slug: s.Slug, Name: s.Name, IconURL: s.IconURL,
+		Source: s.Source, ProjectID: s.ProjectID, Slug: s.Slug, Name: s.Name, Summary: s.Summary, IconURL: s.IconURL,
 		VersionID: s.VersionID, VersionNumber: s.VersionNumber, Channel: s.Channel, Published: s.Published,
 		FileName: s.FileName, HashAlgo: s.HashAlgo, Hash: strings.ToLower(s.Hash), Size: s.Size,
 		DependencyOf: s.DependencyOf, Requires: s.Requires, InstalledAt: now,
@@ -121,12 +127,17 @@ type Plan struct {
 }
 
 func (p *Plan) fingerprint() string {
+	// An author rewording a description does not change what the plan does.
+	steps := slices.Clone(p.Steps)
+	for i := range steps {
+		steps[i].Summary = ""
+	}
 	b, _ := json.Marshal(struct {
 		Steps     []Step
 		Satisfied []Satisfied
 		Manual    []ManualStep
 		Blockers  []Notice
-	}{p.Steps, p.Satisfied, p.Manual, p.Blockers})
+	}{steps, p.Satisfied, p.Manual, p.Blockers})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:16])
 }
@@ -180,7 +191,10 @@ type resolver struct {
 	t        Target
 	inv      *inventory
 	allowPre bool
-	plan     *Plan
+	// replaceChanged lets updates replace files that changed since they
+	// were installed.
+	replaceChanged bool
+	plan           *Plan
 
 	planned   map[Key]int // index into plan.Steps
 	deps      [][]dep     // per step
@@ -242,7 +256,7 @@ func (r *resolver) add(c candidate, a Action, parent *Step, replaces *Installed)
 			fmt.Sprintf("%s %s is a %s version and may be unstable.", c.Name, c.Number, c.Channel), ""))
 	}
 	s := Step{
-		Action: a, Source: c.Source, ProjectID: c.ProjectID(), Slug: c.Slug, Name: c.Name, IconURL: c.IconURL,
+		Action: a, Source: c.Source, ProjectID: c.ProjectID(), Slug: c.Slug, Name: c.Name, Summary: c.Summary, IconURL: c.IconURL,
 		VersionID: c.VersionID, VersionNumber: c.Number, Channel: c.Channel, Published: c.Published,
 		FileName: c.FileName, Size: c.Size, HashAlgo: c.HashAlgo, Hash: c.Hash, Replaces: replaces, url: c.URL,
 	}
@@ -584,7 +598,7 @@ func (r *resolver) finish() *Plan {
 		}
 	}
 	seen := map[string]bool{}
-	for _, s := range p.Steps {
+	for i, s := range p.Steps {
 		switch {
 		case !validFileName(s.FileName):
 			r.block(badFileName(s).Notice)
@@ -609,6 +623,10 @@ func (r *resolver) finish() *Plan {
 			case lf == nil:
 				r.warn(notice(KindNotFound, kv("name", old.Name, "file", old.FileName),
 					fmt.Sprintf("%s is missing from the %s folder, so this installs it again.", old.FileName, r.t.Folder), ""))
+			case lf.modified && r.replaceChanged:
+				p.Steps[i].replaceChanged = true
+				r.warn(notice(KindModified, kv("name", old.Name, "file", old.FileName),
+					fmt.Sprintf("%s has changed since Playkeeper installed it; this replaces it as you asked.", old.FileName), ""))
 			case lf.modified:
 				r.block(modified(*old, "replace"))
 			}
