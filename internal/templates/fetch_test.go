@@ -186,8 +186,8 @@ func TestFetchPack(t *testing.T) {
 	}
 
 	for name, p := range map[string]Pack{
-		"SHA-256":                   pack,
-		"SHA-1":                     with(func(p *Pack) { p.SHA256, p.SHA1 = "", strings.ToUpper(hex.EncodeToString(s1[:])) }),
+		"SHA-256":                     pack,
+		"SHA-1":                       with(func(p *Pack) { p.SHA256, p.SHA1 = "", strings.ToUpper(hex.EncodeToString(s1[:])) }),
 		"a redirect to a signed link": with(func(p *Pack) { p.URL = "https://example.com/to-signed.zip" }),
 	} {
 		if got, err := fetch(p, packs.Limits{}); err != nil || string(got) != string(body) {
