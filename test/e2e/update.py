@@ -3,8 +3,9 @@
 
 prepare  on the release installed from GitHub: first-run setup, a server with
          non-default settings, a world marker (a scoreboard value set on the
-         console) and a backup. Records them in OUT/before.json. The release
-         may be older than 0.3, so this step speaks its single-server API.
+         console) and a backup. Records them in OUT/before.json. It speaks
+         whichever API the installed release has: 0.2's single-server API or
+         0.3's servers and machines.
 verify   after an upgrade or update: Playkeeper runs VERSION, the admin's
          session and password still work, the Minecraft server kept running
          (same container start) with the same settings and world marker,
@@ -87,12 +88,17 @@ def prepare(a):
     c = client(a, legacy=True)
     step("First-run setup of the release installed from GitHub")
     c.setup(a.code, "admin", PASSWORD)
-    cat = c.ok("GET", "/api/catalog")
+    status, _ = c.request("GET", "/api/machines")
+    c.legacy = status == 404
+    cat = c.ok("GET", "/api/catalog" if c.legacy else c.mp("/catalog"))
     version = next(v for v in cat["versions"] if v.get("recommended"))
     step(f"Create a server ({version['label']}) with settings to keep: name {MOTD!r}, at most {MAX_PLAYERS} players")
-    op = c.ok("POST", "/api/server", {"acceptEula": True, "versionId": version["id"], "memoryMB": cat["recommendedMemoryMB"],
-                                      "motd": MOTD, "maxPlayers": MAX_PLAYERS})
-    op = c.wait_op(op["id"], timeout=1200)
+    if c.legacy:
+        op = c.ok("POST", "/api/server", {"acceptEula": True, "versionId": version["id"], "memoryMB": cat["recommendedMemoryMB"],
+                                          "motd": MOTD, "maxPlayers": MAX_PLAYERS})
+        op = c.wait_op(op["id"], timeout=1200)
+    else:
+        op = c.create(version["id"], cat["recommendedMemoryMB"], MOTD, max_players=MAX_PLAYERS)
     check(op["status"] == "succeeded", f"server created ({op.get('error', '')})")
     c.wait_online(timeout=600)
     step("Set a world marker on the console, then take a backup")
@@ -101,7 +107,7 @@ def prepare(a):
     out = console(c, f"scoreboard players set marker {OBJECTIVE} {nonce}")
     check(str(nonce) in out, f"marker set: {out.strip()}")
     console(c, "save-all flush")
-    op = c.ok("POST", "/api/backups", {"note": "before the update"})
+    op = c.ok("POST", "/api/backups" if c.legacy else c.sp("/backups"), {"note": "before the update"})
     op = c.wait_op(op["id"], timeout=900)
     check(op["status"] == "succeeded", f"backup taken ({op.get('error', '')})")
     c.wait_online(timeout=600)
