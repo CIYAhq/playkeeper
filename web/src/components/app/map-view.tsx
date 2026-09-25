@@ -557,7 +557,7 @@ export function MapView({ world, tileSize, tileURL, players, faceURL, focus, coo
   )
 }
 
-const toggleItem = 'h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline'
+const toggleItem = 'h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline sm:h-7 sm:text-[13px]'
 
 /**
  * Which world the map shows. Up to three worlds use a toggle; more use a
@@ -570,7 +570,7 @@ export function WorldSwitch({ worlds, value, onChange, serverName, serverType, l
     return (
       <ToggleGroup value={[value]} onValueChange={(v) => v[0] && onChange(v[0])} aria-label={t('map.worlds')} className={cn('gap-0.5 rounded-[9px] bg-muted p-0.5', large && 'w-full rounded-xl p-1')}>
         {worlds.map((w) => (
-          <ToggleGroupItem key={w.name} value={w.name} className={cn(toggleItem, large && 'h-11 flex-1 rounded-[10px] text-[15px]')}>
+          <ToggleGroupItem key={w.name} value={w.name} className={cn(toggleItem, large && 'h-11 flex-1 rounded-[10px] text-[15px] sm:h-11 sm:text-[15px]')}>
             {worldLabel(w, levelName, large ? 'short' : 'toggle')}
           </ToggleGroupItem>
         ))}

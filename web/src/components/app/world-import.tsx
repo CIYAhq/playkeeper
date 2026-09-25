@@ -214,7 +214,7 @@ export function WorldSourceStep({ source, onSource, upload, phone, error }: { so
               <ToggleGroupItem
                 key={s}
                 value={s}
-                className="h-11 rounded-xl border border-border bg-card px-2 text-[13px] font-medium text-foreground hover:border-input hover:bg-card data-pressed:border-primary/55 data-pressed:bg-selected data-pressed:font-semibold data-pressed:shadow-selected"
+                className="h-11 rounded-xl border border-border bg-card px-2 text-[13px] font-medium text-foreground hover:border-input hover:bg-card data-pressed:border-primary/55 data-pressed:bg-selected data-pressed:font-semibold data-pressed:shadow-selected sm:h-11 sm:text-[13px]"
               >
                 {t(sourceTexts[s].name)}
               </ToggleGroupItem>
