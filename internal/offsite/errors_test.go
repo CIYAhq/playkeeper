@@ -24,47 +24,47 @@ func TestConfigValidate(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name  string
-		mod   func(*Config)
+		mod   func(*S3Config)
 		field string // "" if valid
 	}{
-		{"no endpoint", func(c *Config) { c.Endpoint = "" }, "endpoint"},
-		{"http", func(c *Config) { c.Endpoint = "http://s3.test" }, "endpoint"},
-		{"no scheme", func(c *Config) { c.Endpoint = "s3.test" }, "endpoint"},
-		{"path", func(c *Config) { c.Endpoint = "https://s3.test/backups" }, "endpoint"},
-		{"trailing slash", func(c *Config) { c.Endpoint = "https://s3.test/" }, ""},
-		{"user", func(c *Config) { c.Endpoint = "https://me@s3.test" }, "endpoint"},
-		{"query", func(c *Config) { c.Endpoint = "https://s3.test?a=b" }, "endpoint"},
-		{"port", func(c *Config) { c.Endpoint = "https://s3.test:9000" }, ""},
-		{"port zero", func(c *Config) { c.Endpoint = "https://s3.test:0" }, "endpoint"},
-		{"port too large", func(c *Config) { c.Endpoint = "https://s3.test:70000" }, "endpoint"},
-		{"underscore in host", func(c *Config) { c.Endpoint = "https://s3_test.example" }, "endpoint"},
-		{"metadata address", func(c *Config) { c.Endpoint = "https://169.254.169.254" }, "endpoint"},
-		{"IPv6 metadata address", func(c *Config) { c.Endpoint = "https://[fd00:ec2::254]" }, "endpoint"},
-		{"multicast", func(c *Config) { c.Endpoint = "https://[ff02::1]" }, "endpoint"},
-		{"unspecified", func(c *Config) { c.Endpoint = "https://0.0.0.0" }, "endpoint"},
-		{"IP, path-style", func(c *Config) { c.Endpoint = "https://192.0.2.10:9000" }, ""},
-		{"IP, virtual-hosted", func(c *Config) { c.Endpoint, c.PathStyle = "https://192.0.2.10", false }, "pathStyle"},
-		{"no region", func(c *Config) { c.Region = "" }, "region"},
-		{"upper-case region", func(c *Config) { c.Region = "EU-West-1" }, "region"},
-		{"auto region", func(c *Config) { c.Region = "auto" }, ""},
-		{"short bucket", func(c *Config) { c.Bucket = "ab" }, "bucket"},
-		{"upper-case bucket", func(c *Config) { c.Bucket = "Backups" }, "bucket"},
-		{"bucket starting with a hyphen", func(c *Config) { c.Bucket = "-backups" }, "bucket"},
-		{"bucket with two dots", func(c *Config) { c.Bucket = "my..backups" }, "bucket"},
-		{"bucket like an IP", func(c *Config) { c.Bucket = "192.168.1.1" }, "bucket"},
-		{"dotted bucket, path-style", func(c *Config) { c.Bucket = "my.backups" }, ""},
-		{"dotted bucket, virtual-hosted", func(c *Config) { c.Bucket, c.PathStyle = "my.backups", false }, "pathStyle"},
-		{"no prefix", func(c *Config) { c.Prefix = "" }, ""},
-		{"prefix without slash", func(c *Config) { c.Prefix = "playkeeper/survival" }, ""},
-		{"absolute prefix", func(c *Config) { c.Prefix = "/playkeeper/" }, "prefix"},
-		{"prefix with two slashes", func(c *Config) { c.Prefix = "playkeeper//survival/" }, "prefix"},
-		{"prefix with ..", func(c *Config) { c.Prefix = "playkeeper/../other/" }, "prefix"},
-		{"prefix with a space", func(c *Config) { c.Prefix = "my backups/" }, "prefix"},
-		{"long prefix", func(c *Config) { c.Prefix = strings.Repeat("a", 201) }, "prefix"},
-		{"no access key", func(c *Config) { c.AccessKeyID = "" }, "accessKeyId"},
-		{"access key with a space", func(c *Config) { c.AccessKeyID = "AKID TEST" }, "accessKeyId"},
-		{"no secret", func(c *Config) { c.SecretKey = Secret{} }, "secretKey"},
-		{"secret with a line break", func(c *Config) { c.SecretKey = NewSecret(testSecret + "\n") }, "secretKey"},
+		{"no endpoint", func(c *S3Config) { c.Endpoint = "" }, "endpoint"},
+		{"http", func(c *S3Config) { c.Endpoint = "http://s3.test" }, "endpoint"},
+		{"no scheme", func(c *S3Config) { c.Endpoint = "s3.test" }, "endpoint"},
+		{"path", func(c *S3Config) { c.Endpoint = "https://s3.test/backups" }, "endpoint"},
+		{"trailing slash", func(c *S3Config) { c.Endpoint = "https://s3.test/" }, ""},
+		{"user", func(c *S3Config) { c.Endpoint = "https://me@s3.test" }, "endpoint"},
+		{"query", func(c *S3Config) { c.Endpoint = "https://s3.test?a=b" }, "endpoint"},
+		{"port", func(c *S3Config) { c.Endpoint = "https://s3.test:9000" }, ""},
+		{"port zero", func(c *S3Config) { c.Endpoint = "https://s3.test:0" }, "endpoint"},
+		{"port too large", func(c *S3Config) { c.Endpoint = "https://s3.test:70000" }, "endpoint"},
+		{"underscore in host", func(c *S3Config) { c.Endpoint = "https://s3_test.example" }, "endpoint"},
+		{"metadata address", func(c *S3Config) { c.Endpoint = "https://169.254.169.254" }, "endpoint"},
+		{"IPv6 metadata address", func(c *S3Config) { c.Endpoint = "https://[fd00:ec2::254]" }, "endpoint"},
+		{"multicast", func(c *S3Config) { c.Endpoint = "https://[ff02::1]" }, "endpoint"},
+		{"unspecified", func(c *S3Config) { c.Endpoint = "https://0.0.0.0" }, "endpoint"},
+		{"IP, path-style", func(c *S3Config) { c.Endpoint = "https://192.0.2.10:9000" }, ""},
+		{"IP, virtual-hosted", func(c *S3Config) { c.Endpoint, c.PathStyle = "https://192.0.2.10", false }, "pathStyle"},
+		{"no region", func(c *S3Config) { c.Region = "" }, "region"},
+		{"upper-case region", func(c *S3Config) { c.Region = "EU-West-1" }, "region"},
+		{"auto region", func(c *S3Config) { c.Region = "auto" }, ""},
+		{"short bucket", func(c *S3Config) { c.Bucket = "ab" }, "bucket"},
+		{"upper-case bucket", func(c *S3Config) { c.Bucket = "Backups" }, "bucket"},
+		{"bucket starting with a hyphen", func(c *S3Config) { c.Bucket = "-backups" }, "bucket"},
+		{"bucket with two dots", func(c *S3Config) { c.Bucket = "my..backups" }, "bucket"},
+		{"bucket like an IP", func(c *S3Config) { c.Bucket = "192.168.1.1" }, "bucket"},
+		{"dotted bucket, path-style", func(c *S3Config) { c.Bucket = "my.backups" }, ""},
+		{"dotted bucket, virtual-hosted", func(c *S3Config) { c.Bucket, c.PathStyle = "my.backups", false }, "pathStyle"},
+		{"no prefix", func(c *S3Config) { c.Prefix = "" }, ""},
+		{"prefix without slash", func(c *S3Config) { c.Prefix = "playkeeper/survival" }, ""},
+		{"absolute prefix", func(c *S3Config) { c.Prefix = "/playkeeper/" }, "prefix"},
+		{"prefix with two slashes", func(c *S3Config) { c.Prefix = "playkeeper//survival/" }, "prefix"},
+		{"prefix with ..", func(c *S3Config) { c.Prefix = "playkeeper/../other/" }, "prefix"},
+		{"prefix with a space", func(c *S3Config) { c.Prefix = "my backups/" }, "prefix"},
+		{"long prefix", func(c *S3Config) { c.Prefix = strings.Repeat("a", 201) }, "prefix"},
+		{"no access key", func(c *S3Config) { c.AccessKeyID = "" }, "accessKeyId"},
+		{"access key with a space", func(c *S3Config) { c.AccessKeyID = "AKID TEST" }, "accessKeyId"},
+		{"no secret", func(c *S3Config) { c.SecretKey = Secret{} }, "secretKey"},
+		{"secret with a line break", func(c *S3Config) { c.SecretKey = NewSecret(testSecret + "\n") }, "secretKey"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testConfig()
@@ -80,17 +80,17 @@ func TestConfigValidate(t *testing.T) {
 			if e.Field != tc.field || e.Op != "setup" || !strings.HasSuffix(e.Msg, ".") {
 				t.Errorf("error %+v, want field %s", e, tc.field)
 			}
-			if _, err := New(cfg, nil, nil); err == nil {
-				t.Error("New accepted the settings")
+			if _, err := newS3(cfg, nil, nil); err == nil {
+				t.Error("newS3 accepted the settings")
 			}
 		})
 	}
 }
 
-func TestNewAddsPrefixSlash(t *testing.T) {
+func TestNewS3AddsPrefixSlash(t *testing.T) {
 	cfg := testConfig()
 	cfg.Prefix = "playkeeper/survival"
-	c, err := New(cfg, nil, nil)
+	c, err := newS3(cfg, nil, nil)
 	if err != nil || c.prefix != "playkeeper/survival/" {
 		t.Fatalf("prefix %q, %v", c.prefix, err)
 	}
@@ -151,23 +151,23 @@ func answer(op string, failure fakeFailure) func(string, *http.Request) *fakeFai
 }
 
 func TestResponseErrors(t *testing.T) {
-	list := func(ctx context.Context, c *Client) error {
-		_, err := c.List(ctx)
+	list := func(ctx context.Context, c *s3Client) error {
+		_, err := c.list(ctx)
 		return err
 	}
-	upload := func(ctx context.Context, c *Client) error {
-		_, err := c.Upload(ctx, newTestFile(1<<10, 50).upload(testName))
+	upload := func(ctx context.Context, c *s3Client) error {
+		_, err := c.put(ctx, newTestFile(1<<10, 50).object(testCopy))
 		return err
 	}
-	verify := func(ctx context.Context, c *Client) error {
-		_, err := c.Verify(ctx, Copy{Name: testName, Size: 1})
+	verify := func(ctx context.Context, c *s3Client) error {
+		_, err := c.verify(ctx, Copy{Name: testCopy, Size: 1})
 		return err
 	}
 	full := "The storage account is full: its quota or storage cap is reached."
 	for _, tc := range []struct {
 		name   string
-		setup  func(f *fakeS3, cfg *Config)
-		run    func(context.Context, *Client) error // List if nil
+		setup  func(f *fakeS3, cfg *S3Config)
+		run    func(context.Context, *s3Client) error // list if nil
 		kind   Kind
 		field  string
 		msg    string
@@ -175,71 +175,71 @@ func TestResponseErrors(t *testing.T) {
 		waits  []time.Duration
 		params map[string]string
 	}{
-		{name: "wrong secret", setup: func(f *fakeS3, cfg *Config) { cfg.SecretKey = NewSecret("not" + testSecret) },
+		{name: "wrong secret", setup: func(f *fakeS3, cfg *S3Config) { cfg.SecretKey = NewSecret("not" + testSecret) },
 			kind: KindWrongKeys, field: "secretKey", msg: "The secret access key doesn't match the access key ID."},
-		{name: "wrong secret on a HEAD", setup: func(f *fakeS3, cfg *Config) { cfg.SecretKey = NewSecret("not" + testSecret) }, run: upload,
+		{name: "wrong secret on a HEAD", setup: func(f *fakeS3, cfg *S3Config) { cfg.SecretKey = NewSecret("not" + testSecret) }, run: upload,
 			kind: KindWrongKeys, field: "secretKey", msg: "The secret access key doesn't match the access key ID."},
-		{name: "unknown access key", setup: func(f *fakeS3, cfg *Config) { cfg.AccessKeyID = "AKIDUNKNOWN" },
+		{name: "unknown access key", setup: func(f *fakeS3, cfg *S3Config) { cfg.AccessKeyID = "AKIDUNKNOWN" },
 			kind: KindWrongKeys, field: "accessKeyId", msg: "The storage service doesn't recognise the access key ID."},
-		{name: "no such bucket", setup: func(f *fakeS3, cfg *Config) { cfg.Bucket = "missing" },
+		{name: "no such bucket", setup: func(f *fakeS3, cfg *S3Config) { cfg.Bucket = "missing" },
 			kind: KindNoSuchBucket, field: "bucket", msg: "There is no bucket named missing at this storage service."},
-		{name: "clock behind", setup: func(f *fakeS3, cfg *Config) { f.now = func() time.Time { return time.Now().Add(20 * time.Minute) } },
+		{name: "clock behind", setup: func(f *fakeS3, cfg *S3Config) { f.now = func() time.Time { return time.Now().Add(20 * time.Minute) } },
 			kind: KindClockSkew, msg: "This machine's clock is 20 minutes behind the storage service's, so the service refused the request.",
 			params: map[string]string{"skew": "20 minutes", "direction": "behind", "code": "RequestTimeTooSkewed", "status": "403"}},
-		{name: "clock ahead", setup: func(f *fakeS3, cfg *Config) { f.now = func() time.Time { return time.Now().Add(-20 * time.Minute) } },
+		{name: "clock ahead", setup: func(f *fakeS3, cfg *S3Config) { f.now = func() time.Time { return time.Now().Add(-20 * time.Minute) } },
 			kind: KindClockSkew, msg: "This machine's clock is 20 minutes ahead of the storage service's, so the service refused the request.",
 			params: map[string]string{"skew": "20 minutes", "direction": "ahead"}},
-		{name: "wrong region", setup: func(f *fakeS3, cfg *Config) { cfg.Region = "eu-west-1" },
+		{name: "wrong region", setup: func(f *fakeS3, cfg *S3Config) { cfg.Region = "eu-west-1" },
 			kind: KindWrongRegion, field: "region", msg: "The bucket is in region us-east-1, not eu-west-1.", params: map[string]string{"region": "us-east-1"}},
 		{name: "moved to the bucket's region",
-			setup: func(f *fakeS3, cfg *Config) {
+			setup: func(f *fakeS3, cfg *S3Config) {
 				f.fail = answer("", fakeFailure{status: http.StatusMovedPermanently, code: "PermanentRedirect", header: http.Header{"X-Amz-Bucket-Region": {"eu-central-1"}}})
 			},
 			kind: KindWrongRegion, field: "region", msg: "The bucket is in region eu-central-1, not us-east-1."},
-		{name: "list refused", setup: func(f *fakeS3, cfg *Config) { f.deny["ListObjectsV2"] = true },
+		{name: "list refused", setup: func(f *fakeS3, cfg *S3Config) { f.deny["ListObjectsV2"] = true },
 			kind: KindPermission, msg: "The access key isn't allowed to list the files in this bucket."},
-		{name: "write refused", setup: func(f *fakeS3, cfg *Config) { f.deny["PutObject"] = true }, run: upload,
-			kind: KindPermission, msg: "The access key isn't allowed to write files to this bucket.", params: map[string]string{"op": "upload", "name": testName}},
-		{name: "read refused", setup: func(f *fakeS3, cfg *Config) {
-			f.put(testPrefix+testName, []byte("x"))
+		{name: "write refused", setup: func(f *fakeS3, cfg *S3Config) { f.deny["PutObject"] = true }, run: upload,
+			kind: KindPermission, msg: "The access key isn't allowed to write files to this bucket.", params: map[string]string{"op": "upload", "name": testCopy}},
+		{name: "read refused", setup: func(f *fakeS3, cfg *S3Config) {
+			f.put(testPrefix+testCopy, []byte("x"))
 			f.deny["HeadObject"], f.deny["GetObject"] = true, true
 		}, run: verify, kind: KindPermission, msg: "The access key isn't allowed to read files in this bucket."},
-		{name: "HEAD refused without a reason", setup: func(f *fakeS3, cfg *Config) {
-			f.put(testPrefix+testName, []byte("x"))
+		{name: "HEAD refused without a reason", setup: func(f *fakeS3, cfg *S3Config) {
+			f.put(testPrefix+testCopy, []byte("x"))
 			f.deny["HeadObject"] = true
 		}, run: verify,
 			kind: KindPermission, msg: "The storage service refused access: the keys are wrong, or the access key isn't allowed to read files in this bucket."},
-		{name: "account disabled", setup: func(f *fakeS3, cfg *Config) {
+		{name: "account disabled", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("", fakeFailure{status: http.StatusForbidden, code: "AllAccessDisabled", message: "All access to this object has been disabled"})
 		}, kind: KindPermission, msg: "The storage service has disabled access to this account or bucket."},
-		{name: "storage cap", setup: func(f *fakeS3, cfg *Config) {
+		{name: "storage cap", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("PutObject", fakeFailure{status: http.StatusForbidden, code: "AccessDenied", message: "Cannot upload files, storage cap exceeded."})
 		}, run: upload, kind: KindStorageFull, msg: full},
-		{name: "quota", setup: func(f *fakeS3, cfg *Config) {
+		{name: "quota", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("PutObject", fakeFailure{status: http.StatusForbidden, code: "QuotaExceeded", message: "Bucket quota exceeded"})
 		}, run: upload, kind: KindStorageFull, msg: full},
-		{name: "disk full", setup: func(f *fakeS3, cfg *Config) {
+		{name: "disk full", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("PutObject", fakeFailure{status: http.StatusInsufficientStorage, code: "XMinioStorageFull", message: "Storage backend has reached its minimum free drive threshold."})
 		}, run: upload, kind: KindStorageFull, msg: full},
-		{name: "too large", setup: func(f *fakeS3, cfg *Config) {
+		{name: "too large", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("PutObject", fakeFailure{status: http.StatusBadRequest, code: "EntityTooLarge", message: "Your proposed upload exceeds the maximum allowed size"})
 		}, run: upload, kind: KindTooLarge, msg: "The storage service refused the upload because it is too large."},
-		{name: "service error", setup: func(f *fakeS3, cfg *Config) {
+		{name: "service error", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("", fakeFailure{status: http.StatusInternalServerError, code: "InternalError", message: "We encountered an internal error."})
 		}, kind: KindServiceError, retry: true, msg: "The storage service had a problem (HTTP 500).", waits: []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}},
-		{name: "slow down", setup: func(f *fakeS3, cfg *Config) {
+		{name: "slow down", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("", fakeFailure{status: http.StatusServiceUnavailable, code: "SlowDown", message: "Please reduce your request rate.", header: http.Header{"Retry-After": {"7"}}})
 		}, kind: KindRateLimited, retry: true, msg: "The storage service asked Playkeeper to slow down.", waits: []time.Duration{7 * time.Second, 7 * time.Second, 7 * time.Second}},
-		{name: "long Retry-After", setup: func(f *fakeS3, cfg *Config) {
+		{name: "long Retry-After", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("", fakeFailure{status: http.StatusTooManyRequests, header: http.Header{"Retry-After": {"3600"}}})
 		}, kind: KindRateLimited, retry: true, msg: "The storage service asked Playkeeper to slow down.", waits: []time.Duration{time.Minute, time.Minute, time.Minute}},
-		{name: "unknown error echoing the secret", setup: func(f *fakeS3, cfg *Config) {
+		{name: "unknown error echoing the secret", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("", fakeFailure{status: http.StatusBadRequest, code: "OddThing", message: "Key " + testSecret + "\n\tis odd."})
 		}, kind: KindUnexpected, msg: "The storage service refused the request with HTTP 400: OddThing: Key [hidden] is odd."},
-		{name: "unknown error with a long message", setup: func(f *fakeS3, cfg *Config) {
+		{name: "unknown error with a long message", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("", fakeFailure{status: http.StatusConflict, code: "OddThing", message: strings.Repeat("x", 300)})
 		}, kind: KindUnexpected, msg: "The storage service refused the request with HTTP 409: OddThing: " + strings.Repeat("x", 190) + "…."},
-		{name: "redirect", setup: func(f *fakeS3, cfg *Config) {
+		{name: "redirect", setup: func(f *fakeS3, cfg *S3Config) {
 			f.fail = answer("", fakeFailure{status: http.StatusTemporaryRedirect, code: "TemporaryRedirect", header: http.Header{"Location": {"https://elsewhere.test/"}}})
 		}, kind: KindRedirect, field: "endpoint", msg: "The storage service tried to send the request to another address, which Playkeeper doesn't follow."},
 	} {
@@ -254,7 +254,7 @@ func TestResponseErrors(t *testing.T) {
 					return hook(op, r)
 				}
 			}
-			c, err := New(cfg, f.httpClient(), nil)
+			c, err := newS3(cfg, f.httpClient(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -320,7 +320,7 @@ func TestTransportErrors(t *testing.T) {
 	_, roots := testTLS()
 	for _, tc := range []struct {
 		name     string
-		mod      func(*Config)
+		mod      func(*S3Config)
 		dial     func(context.Context, string, string) (net.Conn, error)
 		noRoots  bool
 		kind     Kind
@@ -332,7 +332,7 @@ func TestTransportErrors(t *testing.T) {
 	}{
 		{name: "connection refused", dial: to(refusedAddr), kind: KindNetwork, field: "endpoint",
 			msg: "Nothing accepted the connection at the endpoint (connection refused)."},
-		{name: "host not found, virtual-hosted", mod: func(c *Config) { c.PathStyle = false }, dial: dnsFails(true), kind: KindNetwork, field: "endpoint",
+		{name: "host not found, virtual-hosted", mod: func(c *S3Config) { c.PathStyle = false }, dial: dnsFails(true), kind: KindNetwork, field: "endpoint",
 			msg: "The host name backups.s3.test could not be found.", hint: "turn on path-style addressing"},
 		{name: "host not found, path-style", dial: dnsFails(true), kind: KindNetwork, field: "endpoint",
 			msg: "The host name s3.test could not be found.", hint: "Check the endpoint address."},
@@ -340,7 +340,7 @@ func TestTransportErrors(t *testing.T) {
 			msg: "This machine couldn't look up the storage service's address (DNS)."},
 		{name: "unknown certificate authority", dial: to(f.srv.Listener.Addr().String()), noRoots: true, kind: KindTLS, field: "endpoint",
 			msg: "The storage service's certificate could not be verified, so nothing was sent."},
-		{name: "certificate for another host", mod: func(c *Config) { c.Endpoint = "https://storage.example" }, dial: to(f.srv.Listener.Addr().String()),
+		{name: "certificate for another host", mod: func(c *S3Config) { c.Endpoint = "https://storage.example" }, dial: to(f.srv.Listener.Addr().String()),
 			kind: KindTLS, field: "endpoint", msg: "The storage service's certificate could not be verified, so nothing was sent."},
 		{name: "plain HTTP", dial: to(plain.Listener.Addr().String()), kind: KindTLS, field: "endpoint",
 			msg: "The endpoint didn't answer with HTTPS."},
@@ -356,7 +356,7 @@ func TestTransportErrors(t *testing.T) {
 			if tc.noRoots {
 				tr.TLSClientConfig = nil
 			}
-			c, err := New(cfg, &http.Client{Transport: tr}, nil)
+			c, err := newS3(cfg, &http.Client{Transport: tr}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -367,7 +367,7 @@ func TestTransportErrors(t *testing.T) {
 				ctx, cancel = context.WithTimeout(ctx, 100*time.Millisecond)
 				defer cancel()
 			}
-			_, err = c.List(ctx)
+			_, err = c.list(ctx)
 			e := wantKind(t, err, tc.kind)
 			if e.Msg != tc.msg || e.Retry != tc.retry || e.Field != tc.field || !strings.Contains(e.Hint, tc.hint) || e.Status != 0 {
 				t.Errorf("error %q (retry %v, field %q, hint %q)", e.Msg, e.Retry, e.Field, e.Hint)
@@ -381,7 +381,7 @@ func TestCancelled(t *testing.T) {
 	c, _ := f.client(nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := c.List(ctx)
+	_, err := c.list(ctx)
 	if e := wantKind(t, err, KindCanceled); e.Msg != "Listing the copies was cancelled before it finished." || e.Retry {
 		t.Errorf("error %q", e.Msg)
 	}
@@ -439,12 +439,12 @@ func TestNewHTTPClient(t *testing.T) {
 	tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return inner(ctx, network, "224.0.0.251:443")
 	}
-	c, err := New(cfg, &http.Client{Transport: tr}, nil)
+	c, err := newS3(cfg, &http.Client{Transport: tr}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c.sleep = func(context.Context, time.Duration) error { t.Error("retried"); return nil }
-	_, err = c.List(context.Background())
+	_, err = c.list(context.Background())
 	e := wantKind(t, err, KindInvalidConfig)
 	if e.Field != "endpoint" || e.Msg != "The endpoint's host name points to 224.0.0.251, a link-local, multicast or cloud metadata address Playkeeper never connects to." {
 		t.Errorf("error %+v", e)
@@ -464,14 +464,14 @@ func TestSecretNeverShown(t *testing.T) {
 	}
 	slog.New(slog.NewJSONHandler(&out, nil)).Info("settings", "cfg", cfg, "secret", cfg.SecretKey)
 	slog.New(slog.NewTextHandler(&out, nil)).Info("settings", "cfg", cfg, "secret", cfg.SecretKey)
-	c, err := New(cfg, nil, nil)
+	c, err := newS3(cfg, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fmt.Fprintf(&out, "%v %+v %#v\n", c, c, c)
 	bad := cfg
 	bad.SecretKey = NewSecret(testSecret + "\x00")
-	_, err = New(bad, nil, nil)
+	_, err = newS3(bad, nil, nil)
 	fmt.Fprintf(&out, "%v %+v\n", err, err)
 
 	if s := out.String(); strings.Contains(s, testSecret) || !strings.Contains(s, "[hidden]") {

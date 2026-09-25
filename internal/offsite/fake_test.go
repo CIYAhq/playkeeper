@@ -164,23 +164,29 @@ func (f *fakeS3) httpClient() *http.Client {
 	}}
 }
 
-func testConfig() Config {
-	return Config{Provider: "minio", Endpoint: "https://s3.test", Region: "us-east-1", Bucket: testBucket, Prefix: testPrefix,
+func testConfig() S3Config {
+	return S3Config{Provider: "minio", Endpoint: "https://s3.test", Region: "us-east-1", Bucket: testBucket, Prefix: testPrefix,
 		AccessKeyID: testAccess, SecretKey: NewSecret(testSecret), PathStyle: true}
 }
 
 // client returns a client for the fake with small parts and no waiting
 // between attempts; waits collects the waits it would have made.
-func (f *fakeS3) client(mod func(*Config)) (*Client, *[]time.Duration) {
+func (f *fakeS3) client(mod func(*S3Config)) (*s3Client, *[]time.Duration) {
 	f.t.Helper()
 	cfg := testConfig()
 	if mod != nil {
 		mod(&cfg)
 	}
-	c, err := New(cfg, f.httpClient(), nil)
+	c, err := newS3(cfg, f.httpClient(), nil)
 	if err != nil {
-		f.t.Fatalf("New: %v", err)
+		f.t.Fatalf("newS3: %v", err)
 	}
+	return c, quick(c)
+}
+
+// quick gives c small parts and no waiting between attempts, and returns
+// the waits it would have made.
+func quick(c *s3Client) *[]time.Duration {
 	c.partSize, c.minPart = 64<<10, 1
 	var mu sync.Mutex
 	waits := &[]time.Duration{}
@@ -190,7 +196,7 @@ func (f *fakeS3) client(mod func(*Config)) (*Client, *[]time.Duration) {
 		mu.Unlock()
 		return ctx.Err()
 	}
-	return c, waits
+	return waits
 }
 
 func (f *fakeS3) ops() []string {
@@ -877,4 +883,9 @@ func (f *testFile) sha() string {
 
 func (f *testFile) upload(name string) Upload {
 	return Upload{Name: name, File: f, Size: int64(len(f.data)), SHA256: f.sha()}
+}
+
+// object hands f to a backend as if it were an encrypted copy.
+func (f *testFile) object(name string) object {
+	return object{Name: name, File: f, Size: int64(len(f.data)), SHA256: f.sha()}
 }
