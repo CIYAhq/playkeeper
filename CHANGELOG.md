@@ -2,6 +2,13 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## Unreleased
+
+- Backups no longer disconnect anyone: Playkeeper saves the world and pauses saving only while it copies the files, so players stay online. If saving can't be turned back on, the World tab and Overview say so, with a button that turns it back on, and Playkeeper keeps trying. Changing the Minecraft version, restoring a backup and **Stop and back up** still stop the server, and only those warn players in chat first.
+- **How it's running**, under a server's Overview: charts of the tick rate, tick time, memory and processor use, and what slows the server down, ranked, each with one thing to do.
+- When a server crashes or doesn't start, its Overview explains why from the server's own log and crash report, with the fix one click away: more memory, removing the plugin or mod that failed, restoring a backup, or starting again.
+- Settings › Memory suggests a size from how much memory the server needed over the last 14 days. Servers created before this version start measuring at their next restart.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
