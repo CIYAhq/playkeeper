@@ -3,17 +3,20 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Catalog, MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { TemplateDialog } from '@/components/app/templates'
 import { HomePage } from './home'
+import { NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
+  api: vi.fn(() => new Promise(() => {})),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
 }))
@@ -131,7 +134,26 @@ afterEach(async () => {
   document.body.innerHTML = ''
   vi.mocked(client.get).mockReset()
   vi.mocked(client.get).mockImplementation(() => new Promise(() => {}))
+  vi.mocked(client.api).mockReset()
+  vi.mocked(client.api).mockImplementation(() => new Promise(() => {}))
+  window.history.replaceState(null, '', '/')
 })
+
+/** Ticks or unticks the checkbox whose label starts with the text. */
+async function toggle(label: string) {
+  const input = [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith(label))?.querySelector('input[type="checkbox"]')
+  if (!(input instanceof HTMLInputElement)) throw new Error(`no checkbox “${label}”`)
+  await act(async () => input.click())
+  await act(async () => {})
+}
+
+/** Clicks the button whose text is exactly the label. */
+async function click(label: string) {
+  const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+  if (!button) throw new Error(`no button “${label}”`)
+  await act(async () => button.click())
+  await act(async () => {})
+}
 
 describe('Home', () => {
   it('starts empty with the five first steps', async () => {
@@ -230,12 +252,112 @@ describe('Overview', () => {
     expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('63')
   })
 
+  it('counts a template’s plugins and names the ones it skipped', async () => {
+    const at = new Date().toISOString()
+    const skipped = [{ kind: 'addon_unsupported', params: { name: 'Simple Voice Chat' }, message: 'Simple Voice Chat has no version for Paper 26.1.2.' }]
+    const s = server({
+      phase: 'downloading_server',
+      startedAt: undefined,
+      config: { ...config, template: { name: 'Survival with friends', pending: true } },
+      operation: { id: 'create-1', kind: 'create', status: 'running', phase: 'installing_addons', actor: 'siya', startedAt: at, detail: { addons: 2, addonsTotal: 5, skipped } },
+    })
+    await render(<Overview server={s} />)
+    const steps = [...document.querySelectorAll('ol > li')].map((li) => li.textContent ?? '')
+    expect(steps).toHaveLength(5)
+    expect(steps[1]).toContain('Downloaded Paper 26.1.2 and checked it')
+    expect(steps[2]).toContain('Downloading the template’s plugins')
+    expect(steps[2]).toContain('2 of 5 files · each one checked · 1 skipped: Simple Voice Chat')
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40')
+  })
+
   it('offers more memory after running out of it', async () => {
     answer({ '/logs': { epoch: 'e', lines: [{ seq: 1, ts: '2026-09-25T18:52:57Z', text: '[18:52:57 ERROR]: java.lang.OutOfMemoryError: Java heap space' }], next: 1, truncated: false }, '/catalog': { memoryOptionsMB: [2048, 3072, 4096, 6144, 8192], maxMemoryMB: 8192, versions: [], types: [], servers: [] } })
     const text = await render(<Overview server={server({ phase: 'crashed', crashCount: 2, exitCode: 1 })} />)
     expect(text).toContain('It ran out of memory. Survival has 4 GB')
     expect(text).toContain('Give Survival 6 GB')
     expect(text).toContain('Playkeeper restarted it and it stopped each time')
+  })
+})
+
+describe('Templates', () => {
+  const contents: TemplateContents = {
+    name: 'Survival with friends',
+    type: 'paper',
+    minecraftVersion: '26.1.2',
+    settings: { difficulty: 'normal', pvp: false, viewDistance: 10, maxPlayers: 10, memoryMB: 3072 },
+    addons: [
+      { source: 'modrinth', name: 'Chunky', versionNumber: '1.4.40' },
+      { source: 'hangar', name: 'LuckPerms', versionNumber: 'v5.5.0' },
+    ],
+    resourcePacks: 0,
+    dataPacks: 0,
+    packs: [],
+  }
+  const plan: TemplatePlan = { contents, type: 'paper', versionId: 'paper-26.1.2', minecraftVersion: '26.1.2', memoryMB: 3072, skipped: [], warnings: [], blockers: [], ready: true, fingerprint: 'fp-1' }
+  const catalog: Catalog = { type: 'paper', types: [], versions: [], memoryOptionsMB: [2048, 3072, 4096], recommendedMemoryMB: 2048, hostMemoryMB: 16384, maxMemoryMB: 4096, systemReserveMB: 1536, memoryFreeMB: 10752, servers: [], image: '' }
+
+  it('starts a server from a shared link, sending only the plan the user saw', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValue(plan)
+    vi.mocked(client.post).mockClear()
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    const [method, path, , body] = vi.mocked(client.api).mock.calls[0] ?? []
+    expect([method, path]).toEqual(['POST', '/api/machines/m2345abcde/templates/plan'])
+    expect(await (body as Blob).text()).toBe('eyJ2IjoxfQ')
+    expect(window.location.hash).toBe('')
+    const text = document.body.textContent ?? ''
+    for (const line of ['Survival with friends', 'From a link', 'Paper 26.1.2', '2, with the same versions', 'Chunky, LuckPerms', 'Normal difficulty · friends can’t hurt each other · view distance 10 · up to 10 players', 'The new server starts with fresh land', 'Paper, from the template', 'Type, version and plugins come from the template']) expect(text).toContain(line)
+
+    await click('Continue to memory')
+    expect(document.body.textContent).toContain('The template suggests 3 GB.')
+    await click('Continue to name')
+    await toggle('I accept the Minecraft End User License Agreement')
+    await click('Create and start Survival with friends')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
+  })
+
+  it('shows the new plan when the machine no longer has the one the user saw', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValueOnce(plan).mockResolvedValueOnce({ ...plan, fingerprint: 'fp-2' })
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(409, { code: 'plan_changed', error: 'Playkeeper no longer has that template.', hint: 'Choose it again.' }))
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    await click('Continue to memory')
+    await click('Continue to name')
+    await toggle('I accept the Minecraft End User License Agreement')
+    await click('Create and start Survival with friends')
+    expect(vi.mocked(client.api)).toHaveBeenCalledTimes(2)
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Playkeeper no longer has that template.')
+    expect(text).toContain('Check it again, then continue.')
+    expect(text).toContain('Chunky, LuckPerms')
+  })
+
+  it('says what a template carries and offers the file when the link is too long', async () => {
+    const link = `https://playkeeper.io/t#${'a'.repeat(2376)}`
+    const exported: TemplateExport = {
+      fileName: 'survival.playkeeper-template',
+      file: 'x'.repeat(6000),
+      link,
+      linkLong: true,
+      contents,
+      available: { ...contents, settings: { difficulty: 'normal', pvp: false, viewDistance: 10, motd: 'Hi', maxPlayers: 10 } },
+      packsHere: 1,
+      leftOut: [{ kind: 'left_out_addon_upload', params: { name: 'MyPlugin' }, message: 'MyPlugin was uploaded, so it stays here.' }],
+      notes: [],
+    }
+    answer({ '/template': exported })
+    await render(<TemplateDialog server={server()} open onOpenChange={() => {}} />)
+    const text = document.body.textContent ?? ''
+    for (const line of ['Share Survival as a template', 'Paper 26.1.2 · always included', '2 plugins', 'Left out: MyPlugin', 'Difficulty, PvP, view distance, server list message and 1 more', 'Uploaded packs stay on this server', 'Pin exact versions', 'The same versions Survival runs', 'This link is 2,400 characters, too long for some chats', 'Send the file instead.', 'Download file · 6 KB']) expect(text).toContain(line)
+    expect(vi.mocked(client.get)).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/template')
+
+    await toggle('Plugins')
+    expect(vi.mocked(client.get)).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/template?addons=off')
+    expect(document.body.textContent).not.toContain('Pin exact versions')
   })
 })
 
