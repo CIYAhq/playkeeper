@@ -141,4 +141,11 @@ CREATE TABLE maps (
   restart_when_empty TEXT NOT NULL DEFAULT ''
 );
 `,
+	// Wave 6: the shared map's link token, new each time sharing is switched
+	// on. Maps shared before tokens existed have none, so they stop being
+	// shared until someone switches sharing on again.
+	`
+ALTER TABLE maps ADD COLUMN share_token TEXT NOT NULL DEFAULT '';
+UPDATE maps SET public = 0;
+`,
 }

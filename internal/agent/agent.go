@@ -568,8 +568,8 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/map/disable", srv((*server).hMapDisable)},
 		{"POST", "/v1/servers/{id}/map/share", srv((*server).hMapShare)},
 		{"POST", "/v1/servers/{id}/map/restart-later", srv((*server).hMapRestartLater)},
-		{"GET", "/v1/public-maps/{slug}", a.hPublicMap},
-		{"GET", "/v1/public-maps/{slug}/{rest...}", a.hPublicMapProxy},
+		{"GET", "/v1/public-maps/{token}", a.hPublicMap},
+		{"GET", "/v1/public-maps/{token}/{rest...}", a.hPublicMapProxy},
 		// Wave 6: worlds people upload, for a new server or to replace one's world.
 		{"POST", "/v1/servers/{id}/world-imports", srv((*server).hWorldImportNew)},
 		{"POST", "/v1/world-imports", a.hWorldImportNewServer},

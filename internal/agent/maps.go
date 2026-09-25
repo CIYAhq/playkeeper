@@ -27,10 +27,7 @@ import (
 // every start, asks it once to draw the land explored so far, and is the
 // only hop between the panel and squaremap's web server in the container.
 
-var (
-	reMapSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
-	reDomain  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
-)
+var reDomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 func init() {
 	opLabels["map_enable"] = "turning on the map"
@@ -74,30 +71,32 @@ type progressMark struct {
 }
 
 // mapRecord is a server's row in the maps table, which exists while the map
-// is on.
+// is on. shareToken is the shared map's link token, from the last time
+// sharing was switched on; it opens the map only while public is set.
 type mapRecord struct {
 	addons           []addons.Installed
 	installedAt      time.Time
 	public           bool
 	publicPlayers    bool
+	shareToken       string
 	firstRenderAt    *time.Time
 	restartWhenEmpty string
 }
 
 func (s *server) loadMap() (*mapRecord, error) {
-	var raw, restart string
+	var raw, restart, token string
 	var installed int64
 	var public, players int
 	var first sql.NullInt64
-	err := s.db.QueryRow(`SELECT addons, installed_at, public, public_players, first_render_at, restart_when_empty FROM maps WHERE server_id = ?`, s.id).
-		Scan(&raw, &installed, &public, &players, &first, &restart)
+	err := s.db.QueryRow(`SELECT addons, installed_at, public, public_players, share_token, first_render_at, restart_when_empty FROM maps WHERE server_id = ?`, s.id).
+		Scan(&raw, &installed, &public, &players, &token, &first, &restart)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	m := &mapRecord{installedAt: time.UnixMilli(installed).UTC(), public: public != 0, publicPlayers: players != 0, restartWhenEmpty: restart}
+	m := &mapRecord{installedAt: time.UnixMilli(installed).UTC(), public: public != 0, publicPlayers: players != 0, shareToken: token, restartWhenEmpty: restart}
 	if err := json.Unmarshal([]byte(raw), &m.addons); err != nil {
 		return nil, fmt.Errorf("the map's add-on records cannot be read: %w", err)
 	}
@@ -117,9 +116,18 @@ func (s *server) saveMap(m *mapRecord) error {
 	if m.firstRenderAt != nil {
 		first = m.firstRenderAt.UnixMilli()
 	}
-	_, err = s.db.Exec(`INSERT OR REPLACE INTO maps(server_id, addons, installed_at, public, public_players, first_render_at, restart_when_empty) VALUES(?,?,?,?,?,?,?)`,
-		s.id, string(raw), m.installedAt.UnixMilli(), m.public, m.publicPlayers, first, m.restartWhenEmpty)
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO maps(server_id, addons, installed_at, public, public_players, share_token, first_render_at, restart_when_empty) VALUES(?,?,?,?,?,?,?,?)`,
+		s.id, string(raw), m.installedAt.UnixMilli(), m.public, m.publicPlayers, m.shareToken, first, m.restartWhenEmpty)
 	return err
+}
+
+// sharePath is the shared map's path on any of the panel's addresses, or ""
+// while it isn't shared.
+func (m *mapRecord) sharePath() string {
+	if m == nil || !m.public || !webmap.ValidShareToken(m.shareToken) {
+		return ""
+	}
+	return "/map/" + m.shareToken
 }
 
 // serverType is the server software, with the pre-0.3.0 default.
@@ -204,28 +212,23 @@ func (s *server) mapNeedsRestart(c docker.ContainerJSON) bool {
 }
 
 // mapLink is the shared map's address on the machine's friendly address,
-// with the panel's port, or "" while the machine has none.
-func (s *server) mapLink() string {
+// with the panel's port, or "" while the map isn't shared or the machine
+// has no friendly address.
+func (s *server) mapLink(rec *mapRecord) string {
+	p := rec.sharePath()
 	host := strings.ToLower(strings.TrimSpace(s.cfg.Domain))
-	if host == "" || !reDomain.MatchString(host) {
-		return ""
-	}
-	r, err := s.row()
-	if err != nil || !reMapSlug.MatchString(r.Slug) {
+	if p == "" || host == "" || !reDomain.MatchString(host) {
 		return ""
 	}
 	if s.cfg.PanelPort != 443 {
 		host = net.JoinHostPort(host, strconv.Itoa(s.cfg.PanelPort))
 	}
-	return "https://" + host + "/map/" + r.Slug
+	return "https://" + host + p
 }
 
 func (s *server) mapInfo(ctx context.Context) (api.MapInfo, error) {
 	typ := s.serverType()
 	info := api.MapInfo{Plugin: webmap.PluginName, EstimatedMinutes: webmap.EstimatedMinutes, EstimatedMegabytes: webmap.EstimatedMegabytes}
-	if r, err := s.row(); err == nil {
-		info.Path = "/map/" + r.Slug
-	}
 	_, lerr := webmap.LayoutFor(typ)
 	info.Supported = lerr == nil
 	rec, err := s.loadMap()
@@ -244,7 +247,7 @@ func (s *server) mapInfo(ctx context.Context) (api.MapInfo, error) {
 	} else {
 		s.secondsLeft(nil)
 	}
-	info.Link = s.mapLink()
+	info.Path, info.Link = rec.sharePath(), s.mapLink(rec)
 	if rec != nil {
 		info.Enabled = true
 		info.Public, info.PublicPlayers = rec.public, rec.publicPlayers
@@ -316,10 +319,7 @@ func (s *server) writeMapConfig() error {
 	if err != nil || rec == nil {
 		return err
 	}
-	set := webmap.Settings{}
-	if rec.public {
-		set.Link = s.mapLink()
-	}
+	set := webmap.Settings{Link: s.mapLink(rec)}
 	if _, err := webmap.Config(set); err != nil {
 		set.Link = ""
 	}
@@ -671,7 +671,14 @@ func (s *server) hMapShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Say which switch to change."))
 		return
 	}
-	res, err := s.db.Exec(`UPDATE maps SET public = COALESCE(?, public), public_players = COALESCE(?, public_players) WHERE server_id = ?`, req.Public, req.Players, s.id)
+	// Switching sharing on makes a new link token, so a link from an earlier
+	// time it was on stops working; a map that is already shared keeps its
+	// link.
+	res, err := s.db.Exec(`UPDATE maps SET
+  share_token = CASE WHEN ?1 = 1 AND (public = 0 OR share_token = '') THEN ?2 ELSE share_token END,
+  public = COALESCE(?1, public),
+  public_players = COALESCE(?3, public_players)
+WHERE server_id = ?4`, req.Public, webmap.NewShareToken(), req.Players, s.id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -722,28 +729,42 @@ func (s *server) hMapRestartLater(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
-// The shared map. A map that is turned off or not shared, a server that is
-// stopped or has not loaded the map, and a slug nobody has all get the same
-// answer, which never names a server.
+// The shared map, under its link token. A map that is turned off or not
+// shared, a server that is stopped or has not loaded the map, and a token
+// that is old, unknown or malformed all get the same answer, which never
+// names a server.
 
 func writeMapUnavailable(w http.ResponseWriter) {
 	writeErr(w, http.StatusNotFound, api.CodeNotFound, "This map isn't available.", "Ask whoever shared it for a new link.")
 }
 
-func (a *Agent) serverBySlug(slug string) *server {
+// serverByMapToken is the server whose map has the link token token, shared
+// or not. Every map's token is compared, each in constant time.
+func (a *Agent) serverByMapToken(token string) *server {
+	rows, err := a.db.Query(`SELECT server_id, share_token FROM maps`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
 	var id string
-	if err := a.db.QueryRow(`SELECT id FROM servers WHERE slug = ?`, slug).Scan(&id); err != nil {
+	for rows.Next() {
+		var sid, stored string
+		if rows.Scan(&sid, &stored) == nil && webmap.ShareTokenMatches(stored, token) {
+			id = sid
+		}
+	}
+	if rows.Err() != nil || id == "" {
 		return nil
 	}
 	return a.serverByID(id)
 }
 
-// sharedMap is the server whose map anyone may open under slug right now.
-func (a *Agent) sharedMap(ctx context.Context, slug string) (*server, *mapRecord, mapLive, bool) {
-	if !reMapSlug.MatchString(slug) {
+// sharedMap is the server whose map anyone may open with token right now.
+func (a *Agent) sharedMap(ctx context.Context, token string) (*server, *mapRecord, mapLive, bool) {
+	if !webmap.ValidShareToken(token) {
 		return nil, nil, mapLive{}, false
 	}
-	s := a.serverBySlug(slug)
+	s := a.serverByMapToken(token)
 	if s == nil {
 		return nil, nil, mapLive{}, false
 	}
@@ -759,7 +780,7 @@ func (a *Agent) sharedMap(ctx context.Context, slug string) (*server, *mapRecord
 }
 
 func (a *Agent) hPublicMap(w http.ResponseWriter, r *http.Request) {
-	s, rec, _, ok := a.sharedMap(r.Context(), r.PathValue("slug"))
+	s, rec, _, ok := a.sharedMap(r.Context(), r.PathValue("token"))
 	if !ok {
 		writeMapUnavailable(w)
 		return
@@ -768,15 +789,20 @@ func (a *Agent) hPublicMap(w http.ResponseWriter, r *http.Request) {
 }
 
 // hPublicMapProxy serves the shared map's worlds, tiles and the server's
-// icon, and its players only while the second switch is on.
+// icon, and its players only while the second switch is on. While it is
+// off, players is an empty list, so a page that loaded before it was
+// switched off keeps working, and squaremap is not asked.
 func (a *Agent) hPublicMapProxy(w http.ResponseWriter, r *http.Request) {
-	slug := r.PathValue("slug")
-	s, rec, l, ok := a.sharedMap(r.Context(), slug)
-	if !ok || !publicMapPath(r.PathValue("rest"), rec.publicPlayers) {
+	token, rest := r.PathValue("token"), r.PathValue("rest")
+	s, rec, l, ok := a.sharedMap(r.Context(), token)
+	if !ok || !publicMapPath(rest) {
 		writeMapUnavailable(w)
 		return
 	}
-	if r.PathValue("rest") == "icon" {
+	switch {
+	case rest == "players" && !rec.publicPlayers:
+		writeJSON(w, http.StatusOK, webmap.Players{Players: []webmap.Player{}, UpdatedAt: s.now().UTC()})
+	case rest == "icon":
 		b, err := os.ReadFile(s.iconPath())
 		if err != nil {
 			writeMapUnavailable(w)
@@ -785,17 +811,15 @@ func (a *Agent) hPublicMapProxy(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write(b)
-		return
+	default:
+		http.StripPrefix("/v1/public-maps/"+token, s.webMap(s.serverType(), l.addr)).ServeHTTP(w, r)
 	}
-	http.StripPrefix("/v1/public-maps/"+slug, s.webMap(s.serverType(), l.addr)).ServeHTTP(w, r)
 }
 
-func publicMapPath(rest string, players bool) bool {
-	switch {
-	case rest == "worlds", rest == "icon":
+func publicMapPath(rest string) bool {
+	switch rest {
+	case "worlds", "icon", "players":
 		return true
-	case rest == "players":
-		return players
 	}
 	return strings.HasPrefix(rest, "tiles/")
 }

@@ -222,7 +222,7 @@ func TestMapTurnsOnDrawsOnceAndTurnsOff(t *testing.T) {
 	e.create()
 
 	m := e.mapInfo()
-	if !m.Supported || m.Enabled || m.State != string(webmap.StateNotInstalled) || m.Path != "/map/"+e.slug() || m.EstimatedMinutes == 0 {
+	if !m.Supported || m.Enabled || m.State != string(webmap.StateNotInstalled) || m.Path != "" || m.EstimatedMinutes == 0 {
 		t.Fatalf("before: %+v", m)
 	}
 	if code, out := e.call("GET", e.sp("/map/worlds"), nil); code != 404 || out["error"] != "The map is not turned on." {
@@ -361,41 +361,76 @@ func TestMapWaitsForPlayersBeforeRestarting(t *testing.T) {
 	e.waitFor("the first render", func() bool { return e.rcon.count("squaremap fullrender minecraft:overworld") == 1 })
 }
 
+func (f *fakeSquaremapWeb) asked(path string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, p := range f.paths {
+		if p == path {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
-	e, _, _ := newMapEnv(t)
+	e, _, sq := newMapEnv(t)
 	e.a.cfg.Domain = "play.example.com"
 	e.createWith(map[string]any{"name": "Survival"})
-	slug := e.slug()
-	pub := "/v1/public-maps/" + slug
+	bySlug := "/v1/public-maps/" + e.slug()
+	unknown := "/v1/public-maps/" + webmap.NewShareToken()
 
-	code, _, unavailable := e.get(pub)
+	code, _, unavailable := e.get(bySlug)
 	if code != 404 || !bytes.Contains(unavailable, []byte("This map isn't available.")) || bytes.Contains(unavailable, []byte(e.srv().name())) {
 		t.Fatalf("map off: %d %s", code, unavailable)
 	}
-	same := func(what, path string) {
+	same := func(what string, paths ...string) {
 		t.Helper()
-		code, h, body := e.get(path)
-		if code != 404 || !bytes.Equal(body, unavailable) || h.Get("Cache-Control") != "no-store" {
-			t.Fatalf("%s: %d %v %s", what, code, h, body)
+		for _, p := range paths {
+			code, h, body := e.get(p)
+			if code != 404 || !bytes.Equal(body, unavailable) || h.Get("Cache-Control") != "no-store" {
+				t.Fatalf("%s, %s: %d %v %s", what, p, code, h, body)
+			}
 		}
+	}
+	share := func(body map[string]any) (string, map[string]any) {
+		t.Helper()
+		body["actor"] = "admin"
+		code, out := e.call("POST", e.sp("/map/share"), body)
+		if code != 200 {
+			t.Fatalf("share %v: %d %v", body, code, out)
+		}
+		path, _ := out["path"].(string)
+		return strings.TrimPrefix(path, "/map/"), out
+	}
+	players := func(p string) []webmap.Player {
+		t.Helper()
+		code, h, body := e.get(p)
+		var got webmap.Players
+		if code != 200 || h.Get("Cache-Control") != "no-store" || json.Unmarshal(body, &got) != nil || got.Players == nil {
+			t.Fatalf("players %s: %d %v %s", p, code, h, body)
+		}
+		return got.Players
 	}
 
 	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
 		t.Fatalf("enable: %+v", op)
 	}
 	e.waitFor("online", e.onlineIdle)
-	same("not shared", pub)
-	same("not shared tiles", pub+"/tiles/minecraft_overworld/3/0_0.png")
-
-	code, out := e.call("POST", e.sp("/map/share"), map[string]any{"public": true, "actor": "admin"})
-	if code != 200 || out["public"] != true || out["publicPlayers"] != false || out["link"] != "https://play.example.com:8443/map/"+slug {
-		t.Fatalf("share: %d %v", code, out)
+	if m := e.mapInfo(); m.Public || m.Path != "" || m.Link != "" {
+		t.Fatalf("before sharing: %+v", m)
 	}
+	same("not shared", bySlug, unknown, unknown+"/tiles/minecraft_overworld/3/0_0.png")
+
+	first, out := share(map[string]any{"public": true})
+	if !webmap.ValidShareToken(first) || out["public"] != true || out["publicPlayers"] != false || out["link"] != "https://play.example.com:8443/map/"+first {
+		t.Fatalf("share: %v", out)
+	}
+	pub := "/v1/public-maps/" + first
 	code, _, body := e.get(pub)
 	if code != 200 || string(bytes.TrimSpace(body)) != `{"name":"Survival","players":false}` {
 		t.Fatalf("shared: %d %s", code, body)
 	}
-	if code, _, body := e.get(pub + "/worlds"); code != 200 || !bytes.Contains(body, []byte("minecraft_overworld")) {
+	if code, _, body := e.get(pub + "/worlds"); code != 200 || !bytes.Contains(body, []byte("minecraft_overworld")) || bytes.Contains(body, []byte("Alex")) {
 		t.Fatalf("shared worlds: %d %s", code, body)
 	}
 	if code, h, _ := e.get(pub + "/tiles/minecraft_overworld/3/0_0.png"); code != 200 || h.Get("Content-Type") != "image/png" {
@@ -409,17 +444,25 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 	if code, h, body := e.get(pub + "/icon"); code != 200 || h.Get("Content-Type") != "image/png" || h.Get("Cache-Control") != "no-store" || !bytes.Equal(body, icon) {
 		t.Fatalf("shared icon: %d %v %q", code, h, body)
 	}
-	same("players hidden", pub+"/players")
-	same("other paths", pub+"/settings")
-	same("wrong link", "/v1/public-maps/not-"+slug)
-	same("invalid link", "/v1/public-maps/Bad_Slug")
-
-	code, out = e.call("POST", e.sp("/map/share"), map[string]any{"players": true, "actor": "admin"})
-	if code != 200 || out["public"] != true || out["publicPlayers"] != true {
-		t.Fatalf("share players: %d %v", code, out)
+	if got := players(pub + "/players"); len(got) != 0 {
+		t.Fatalf("players while they are hidden: %+v", got)
 	}
-	if code, _, body := e.get(pub + "/players"); code != 200 || !bytes.Contains(body, []byte(`"Alex"`)) {
-		t.Fatalf("shared players: %d %s", code, body)
+	if sq.asked("/tiles/players.json") {
+		t.Fatal("squaremap was asked who is online while players are hidden")
+	}
+	same("other paths", pub+"/settings")
+	same("the server's slug", bySlug, bySlug+"/worlds", bySlug+"/players", bySlug+"/tiles/minecraft_overworld/3/0_0.png")
+	same("an unknown token", unknown, unknown+"/worlds", unknown+"/players")
+	same("malformed tokens", pub[:len(pub)-1], pub[:len(pub)-1]+"/worlds", pub+"x", "/v1/public-maps/Bad_Slug")
+
+	if tok, out := share(map[string]any{"players": true}); tok != first || out["publicPlayers"] != true {
+		t.Fatalf("share players: %v", out)
+	}
+	if got := players(pub + "/players"); len(got) != 1 || got[0].Name != "Alex" {
+		t.Fatalf("players while they are shown: %+v", got)
+	}
+	if tok, _ := share(map[string]any{"public": true}); tok != first {
+		t.Fatalf("sharing a shared map again changed its link to %s", tok)
 	}
 
 	// squaremap reads its link at startup.
@@ -428,8 +471,25 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 		t.Fatalf("restart: %d %v", code, out)
 	}
 	cfg, _ := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "squaremap", "config.yml"))
-	if !bytes.Contains(cfg, []byte("web-address: 'https://play.example.com:8443/map/"+slug+"'")) {
+	if !bytes.Contains(cfg, []byte("web-address: 'https://play.example.com:8443/map/"+first+"'")) {
 		t.Fatalf("config:\n%s", cfg)
+	}
+	e.waitFor("online", e.onlineIdle)
+	e.srv().forgetMapLive()
+
+	if tok, out := share(map[string]any{"public": false}); tok != "" || out["link"] != nil {
+		t.Fatalf("unshare: %v", out)
+	}
+	same("turned off", pub, pub+"/worlds", pub+"/players", pub+"/tiles/minecraft_overworld/3/0_0.png", pub+"/icon")
+
+	second, out := share(map[string]any{"public": true})
+	if !webmap.ValidShareToken(second) || second == first || out["link"] != "https://play.example.com:8443/map/"+second {
+		t.Fatalf("shared again: %v", out)
+	}
+	same("the old link", pub, pub+"/worlds", pub+"/players", pub+"/tiles/minecraft_overworld/3/0_0.png")
+	next := "/v1/public-maps/" + second
+	if code, _, body := e.get(next); code != 200 || string(bytes.TrimSpace(body)) != `{"name":"Survival","players":true}` {
+		t.Fatalf("the new link: %d %s", code, body)
 	}
 
 	code, out = e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
@@ -437,15 +497,13 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 		t.Fatalf("stop: %d %v", code, out)
 	}
 	e.srv().forgetMapLive()
-	same("stopped", pub)
-	same("stopped tiles", pub+"/tiles/minecraft_overworld/3/0_0.png")
-	same("stopped icon", pub+"/icon")
+	same("stopped", next, next+"/tiles/minecraft_overworld/3/0_0.png", next+"/icon", next+"/players")
 
-	if code, _ := e.call("POST", e.sp("/map/share"), map[string]any{"public": false, "actor": "admin"}); code != 200 {
-		t.Fatalf("unshare: %d", code)
-	}
-	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'map.share'`); n != 3 {
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'map.share'`); n != 5 {
 		t.Fatalf("share audits = %d", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE instr(detail, ?) > 0 OR instr(detail, ?) > 0`, first, second); n != 0 {
+		t.Fatalf("%d audit rows hold a link token", n)
 	}
 	if code, _ := e.call("POST", e.sp("/map/share"), map[string]any{"actor": "admin"}); code != 400 {
 		t.Fatalf("share without a switch: %d", code)
