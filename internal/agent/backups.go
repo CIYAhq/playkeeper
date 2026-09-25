@@ -686,11 +686,14 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
 		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: s.now().UTC(),
 	}, entry)
+	var prevPack *api.ResourcePackOffer
 	if prev != nil {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
+		prevPack = prev.ResourcePack
 	} else {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy = s.now().UTC(), actor
 	}
+	sc.ResourcePack = restoredPackOffer(prevPack, live)
 	if err := s.saveServerConfig(sc); err != nil {
 		cause := fmt.Errorf("could not record the restored server's settings: %w", err)
 		if rerr := renameDir(live, failedAt); rerr != nil {

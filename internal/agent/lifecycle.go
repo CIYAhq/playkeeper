@@ -241,6 +241,7 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Cont
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
+	env = append(env, resourcePackEnv(sc.ResourcePack)...)
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())

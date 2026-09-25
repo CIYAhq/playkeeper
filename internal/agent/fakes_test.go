@@ -306,7 +306,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		jsonOut(w, 200, map[string]any{
 			"Id": c.id, "Name": "/" + c.name, "Image": "sha256:img",
 			"State":           map[string]any{"Status": map[bool]string{true: "running", false: "exited"}[c.running], "Running": c.running, "ExitCode": c.exitCode, "OOMKilled": c.oom, "StartedAt": st, "FinishedAt": fin},
-			"Config":          map[string]any{"Image": c.cfg.Image, "Labels": c.cfg.Labels},
+			"Config":          map[string]any{"Image": c.cfg.Image, "Env": c.cfg.Env, "Labels": c.cfg.Labels},
 			"NetworkSettings": map[string]any{"Networks": map[string]any{networkName: map[string]string{"IPAddress": "127.0.0.1"}}},
 		})
 	case r.Method == "POST" && action == "start":

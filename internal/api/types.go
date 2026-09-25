@@ -933,14 +933,16 @@ type PregenStartRequest struct {
 // ResourcePackOffer is the resource pack a server offers players when they
 // join, from the panel's public /resource-packs/ route.
 type ResourcePackOffer struct {
-	SHA1        string    `json:"sha1"`
-	FileName    string    `json:"fileName"`
-	Size        int64     `json:"size"`
-	Description string    `json:"description,omitempty"`
-	AddedAt     time.Time `json:"addedAt"`
-	URL         string    `json:"url"`
-	Required    bool      `json:"required"`
-	Prompt      string    `json:"prompt,omitempty"`
+	SHA1        string `json:"sha1"`
+	FileName    string `json:"fileName"`
+	Size        int64  `json:"size"`
+	Description string `json:"description,omitempty"`
+	// Icon is set when the pack has a pack.png to show.
+	Icon     bool      `json:"icon,omitempty"`
+	AddedAt  time.Time `json:"addedAt"`
+	URL      string    `json:"url"`
+	Required bool      `json:"required"`
+	Prompt   string    `json:"prompt,omitempty"`
 }
 
 // ResourcePack is a server's resource pack.
@@ -967,7 +969,9 @@ type ActiveResourcePacks struct {
 type DataPack struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	Size        int64  `json:"size"`
+	// Icon is set when the pack has a pack.png to show.
+	Icon bool  `json:"icon,omitempty"`
+	Size int64 `json:"size"`
 	// Enabled is known only while the server is online.
 	Enabled *bool `json:"enabled,omitempty"`
 	// Folder packs are listed but left alone.
@@ -980,9 +984,12 @@ type DataPacks struct {
 	Packs []DataPack `json:"packs"`
 	// Live is set while the server is online and can switch packs.
 	Live bool `json:"live"`
-	// NotEnabled names a pack that was just added but could not be
-	// switched on.
-	NotEnabled string `json:"notEnabled,omitempty"`
+	// Added names the pack an upload added or replaced.
+	Added string `json:"added,omitempty"`
+	// NotEnabled is set when that pack could not be switched on, and
+	// Problem says why.
+	NotEnabled bool   `json:"notEnabled,omitempty"`
+	Problem    string `json:"problem,omitempty"`
 }
 
 // Error is the body of every non-2xx response from the agent and panel.

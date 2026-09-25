@@ -620,6 +620,7 @@ func (a *Agent) pruneLoop(ctx context.Context) {
 	defer t.Stop()
 	for {
 		a.prune()
+		a.prunePacks(ctx)
 		select {
 		case <-ctx.Done():
 			return
