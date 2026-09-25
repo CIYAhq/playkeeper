@@ -1,15 +1,19 @@
 package panel
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/machinelink"
 )
 
 // Roles. The owner of the install may do everything; project roles decide
@@ -49,13 +53,21 @@ func permit(sess *session, a action) bool {
 	return false
 }
 
-// machine is a computer running a Playkeeper agent, and how to reach it.
+// machine is a computer running a Playkeeper agent, and how to reach it: the
+// local one over the agent socket, joined ones over their machine links.
 type machine struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"projectId"`
 	Name      string `json:"name"`
 	Kind      string `json:"kind"`
 	agent     *agentclient.Client
+	// dials, joinedAt, joinedFrom and addedBy are about joined machines:
+	// the address their command dialed, and when, from where and by whose
+	// code they joined.
+	dials      string
+	joinedAt   time.Time
+	joinedFrom string
+	addedBy    string
 }
 
 var reMachineID = regexp.MustCompile(`^[a-z2-9]{10}$`)
@@ -104,10 +116,11 @@ func (s *Server) ensureMember(userID int64) {
 	}
 }
 
-// machines lists the machines the panel manages. The local machine is
-// reached over the agent socket; remote machines come later.
+// machines lists the machines the panel manages, the local one first and
+// removed ones left out.
 func (s *Server) machines() ([]machine, error) {
-	rows, err := s.db.Query(`SELECT id, project_id, name, kind FROM machines ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, project_id, name, kind, endpoint, created_at, joined_from, created_by FROM machines
+		WHERE revoked_at = 0 ORDER BY kind != ?, created_at, id`, localKind)
 	if err != nil {
 		return nil, err
 	}
@@ -115,13 +128,20 @@ func (s *Server) machines() ([]machine, error) {
 	var out []machine
 	for rows.Next() {
 		var m machine
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind); err != nil {
+		var created int64
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind, &m.dials, &created, &m.joinedFrom, &m.addedBy); err != nil {
 			return nil, err
 		}
-		if m.Kind == localKind {
+		switch m.Kind {
+		case localKind:
 			m.agent = s.agent
-			out = append(out, m)
+		case remoteKind:
+			m.agent = agentclient.Via(s.machineTransport(m.ID))
+			m.joinedAt = fromMillis(created)
+		default:
+			continue
 		}
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }
@@ -141,19 +161,24 @@ func (s *Server) machineByID(id string) (machine, error) {
 
 var errNotFound = errors.New("not found")
 
-// machineForServer finds the machine that runs a server. With one machine
-// that is always the local one; with more, the panel asks each.
-func (s *Server) machineForServer(r *http.Request, serverID string) (machine, error) {
+// machineForServer finds the machine that runs a server from the index the
+// server lists keep (see claimServers): a joined machine that claimed it, or
+// else the local machine. It never asks the machines.
+func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
 	if err != nil || len(list) == 0 {
 		return machine{}, errNotFound
 	}
-	if len(list) == 1 {
-		return list[0], nil
+	var owner string
+	if err := s.db.QueryRow(`SELECT machine_id FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner); err == nil {
+		for _, m := range list {
+			if m.ID == owner {
+				return m, nil
+			}
+		}
 	}
 	for _, m := range list {
-		var st api.ServerStatus
-		if _, err := m.agent.Do(r.Context(), "GET", "/v1/servers/"+serverID, nil, nil, &st); err == nil {
+		if m.Kind == localKind {
 			return m, nil
 		}
 	}
@@ -183,16 +208,32 @@ func (s *Server) hProjects(w http.ResponseWriter, r *http.Request, sess *session
 }
 
 // machineView is a machine with what its agent reports now, or why it can't.
+// A joined machine also has its link's status and how it joined.
 type machineView struct {
 	machine
-	Live  *api.Machine `json:"live,omitempty"`
-	Error *api.Error   `json:"error,omitempty"`
+	Live       *api.Machine        `json:"live,omitempty"`
+	Error      *api.Error          `json:"error,omitempty"`
+	Link       *machinelink.Status `json:"link,omitempty"`
+	Dials      string              `json:"dials,omitempty"`
+	JoinedAt   *time.Time          `json:"joinedAt,omitempty"`
+	JoinedFrom string              `json:"joinedFrom,omitempty"`
+	AddedBy    string              `json:"addedBy,omitempty"`
 }
 
-func (s *Server) machineView(r *http.Request, m machine) machineView {
-	v := machineView{machine: m}
+// machineTimeout bounds how long one machine may take to answer a list, so
+// a slow link can't hold up the others.
+const machineTimeout = 8 * time.Second
+
+func (s *Server) machineView(ctx context.Context, m machine, link *machinelink.Status) machineView {
+	v := machineView{machine: m, Link: link}
+	if m.Kind == remoteKind {
+		v.Dials, v.JoinedFrom, v.AddedBy = m.dials, m.joinedFrom, m.addedBy
+		v.JoinedAt = &m.joinedAt
+	}
+	ctx, cancel := context.WithTimeout(ctx, machineTimeout)
+	defer cancel()
 	var live api.Machine
-	if _, err := m.agent.Do(r.Context(), "GET", "/v1/machine", nil, nil, &live); err != nil {
+	if _, err := m.agent.Do(ctx, "GET", "/v1/machine", nil, nil, &live); err != nil {
 		v.Error = agentErrorBody(err)
 	} else {
 		v.Live = &live
@@ -203,16 +244,36 @@ func (s *Server) machineView(r *http.Request, m machine) machineView {
 	return v
 }
 
+// linkStatuses are the joined machines' link statuses by machine id.
+func (s *Server) linkStatuses(ctx context.Context) map[string]*machinelink.Status {
+	out := map[string]*machinelink.Status{}
+	if s.hub == nil {
+		return out
+	}
+	list, err := s.hub.Status(ctx)
+	if err != nil {
+		s.log.Error("machine link status", "err", err)
+		return out
+	}
+	for i := range list {
+		out[list[i].MachineID] = &list[i]
+	}
+	return out
+}
+
 func (s *Server) hMachines(w http.ResponseWriter, r *http.Request, sess *session) {
 	list, err := s.machines()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	out := []machineView{}
-	for _, m := range list {
-		out = append(out, s.machineView(r, m))
+	links := s.linkStatuses(r.Context())
+	out := make([]machineView, len(list))
+	var wg sync.WaitGroup
+	for i, m := range list {
+		wg.Go(func() { out[i] = s.machineView(r.Context(), m, links[m.ID]) })
 	}
+	wg.Wait()
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -221,7 +282,7 @@ func (s *Server) hMachine(w http.ResponseWriter, r *http.Request, sess *session)
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, s.machineView(r, m))
+	writeJSON(w, http.StatusOK, s.machineView(r.Context(), m, s.linkStatuses(r.Context())[m.ID]))
 }
 
 func (s *Server) machineFromPath(w http.ResponseWriter, r *http.Request) (machine, bool) {
@@ -239,21 +300,54 @@ func (s *Server) machineFromPath(w http.ResponseWriter, r *http.Request) (machin
 }
 
 // hServers lists every server on every machine, each with its machine's id.
+// A joined machine that can't be reached shows its servers as it last listed
+// them, with lastKnownAt.
 func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session) {
 	list, err := s.machines()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	out := []map[string]any{}
-	for _, m := range list {
-		var servers []map[string]any
-		if _, err := m.agent.Do(r.Context(), "GET", "/v1/servers", nil, nil, &servers); err != nil {
-			if len(list) == 1 {
-				s.agentFailure(w, err)
-				return
+	type listing struct {
+		servers []map[string]any
+		err     error
+	}
+	got := make([]listing, len(list))
+	var wg sync.WaitGroup
+	for i, m := range list {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
+			defer cancel()
+			_, got[i].err = m.agent.Do(ctx, "GET", "/v1/servers", nil, nil, &got[i].servers)
+		})
+	}
+	wg.Wait()
+	if len(list) == 1 && got[0].err != nil {
+		s.agentFailure(w, got[0].err)
+		return
+	}
+	local := map[string]bool{}
+	for i, m := range list {
+		if m.Kind == localKind && got[i].err == nil {
+			for _, sv := range got[i].servers {
+				if id, ok := sv["id"].(string); ok {
+					local[id] = true
+				}
 			}
-			continue
+		}
+	}
+	if len(list) > 1 {
+		s.releaseLocal(local)
+	}
+	out := []map[string]any{}
+	for i, m := range list {
+		servers := got[i].servers
+		switch {
+		case m.Kind == localKind:
+		case got[i].err != nil:
+			servers = s.lastKnownServers(m)
+		default:
+			servers = s.claimServers(m, servers, local)
 		}
 		for _, sv := range servers {
 			sv["machineId"] = m.ID
@@ -324,12 +418,8 @@ func (s *Server) hPrefsSet(w http.ResponseWriter, r *http.Request, sess *session
 }
 
 func agentErrorBody(err error) *api.Error {
-	var ae *agentclient.Error
-	if errors.As(err, &ae) {
-		b := ae.Body
-		return &b
-	}
-	return &api.Error{Error: "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.", Code: api.CodeAgentUnavailable, Hint: "On the server, check: sudo systemctl status playkeeper-agent"}
+	_, body := failureOf(err)
+	return &body
 }
 
 // hLegacyStatus answers GET /api/server in the single-server shape of 0.1.0

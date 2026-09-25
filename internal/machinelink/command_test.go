@@ -85,18 +85,39 @@ func TestCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := c.Install(), "curl -fsSL https://playkeeper.io/install | sudo sh -s -- --join panel.example.com --code 7KQ2-M9XD --fingerprint "+fp; got != want {
+	if got, want := c.Install(), "curl -fsSL https://playkeeper.io/install | sudo sh -s -- --join panel.example.com:8443 --code 7KQ2-M9XD --fingerprint "+fp; got != want {
 		t.Errorf("Install() =\n%s\nwant\n%s", got, want)
 	}
-	if got, want := c.Join(), "sudo playkeeper join panel.example.com --code 7KQ2-M9XD --fingerprint "+fp; got != want {
+	if got, want := c.Join(), "sudo playkeeper join panel.example.com:8443 --code 7KQ2-M9XD --fingerprint "+fp; got != want {
 		t.Errorf("Join() =\n%s\nwant\n%s", got, want)
 	}
 	c.Name = "Bob's  server; rm -rf /"
-	if got, want := c.JoinArgs(), []string{"panel.example.com", "--code", "7KQ2-M9XD", "--fingerprint", fp, "--name", "Bobs server rm -rf"}; !slices.Equal(got, want) {
+	if got, want := c.JoinArgs(), []string{"panel.example.com:8443", "--code", "7KQ2-M9XD", "--fingerprint", fp, "--name", "Bobs server rm -rf"}; !slices.Equal(got, want) {
 		t.Errorf("JoinArgs() = %q, want %q", got, want)
 	}
 	if got := c.Join(); !strings.HasSuffix(got, " --name 'Bobs server rm -rf'") {
 		t.Errorf("Join() with a name = %s", got)
+	}
+	wantLines := []string{
+		`curl -fsSL https://playkeeper.io/install | sudo sh -s -- \`,
+		`  --join panel.example.com:8443 \`,
+		`  --code 7KQ2-M9XD \`,
+		`  --fingerprint ` + fp + ` \`,
+		`  --name 'Bobs server rm -rf'`,
+	}
+	if got := c.InstallLines(); !slices.Equal(got, wantLines) {
+		t.Errorf("InstallLines() =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(wantLines, "\n"))
+	}
+	for _, form := range []struct {
+		lines []string
+		one   string
+	}{{c.InstallLines(), c.Install()}, {c.JoinLines(), c.Join()}} {
+		if pasted := strings.ReplaceAll(strings.Join(form.lines, "\n"), " \\\n  ", " "); pasted != form.one {
+			t.Errorf("the lines paste as\n%s\nnot\n%s", pasted, form.one)
+		}
+	}
+	if got := c.JoinLines()[0]; got != `sudo playkeeper join panel.example.com:8443 \` {
+		t.Errorf("JoinLines()[0] = %s", got)
 	}
 
 	v6, err := NewCommand("[2001:db8::1]:9000", "7KQ2-M9XD", fp)

@@ -132,7 +132,7 @@ func runPanel(args []string) error {
 	if os.Geteuid() == 0 && !cfg.Dev {
 		return errors.New("the panel must not run as root; it runs as the 'playkeeper' user via systemd")
 	}
-	s, err := panel.New(panel.Options{Config: cfg, Logger: logger(), Static: web.Dist()})
+	s, err := panel.New(panel.Options{Config: cfg, Logger: logger(), Static: web.Dist(), LinkRoutes: agent.LinkRoutes()})
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func runDev(args []string) error {
 	}
 	defer a.Close()
 	a.Start()
-	s, err := panel.New(panel.Options{Config: cfg, Logger: log, Static: web.Dist()})
+	s, err := panel.New(panel.Options{Config: cfg, Logger: log, Static: web.Dist(), LinkRoutes: agent.LinkRoutes()})
 	if err != nil {
 		return err
 	}

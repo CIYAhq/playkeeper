@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -23,11 +24,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
+	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -43,6 +46,14 @@ type Options struct {
 	Agent  *agentclient.Client
 	// Heads are where player faces come from (default: Mojang).
 	Heads *HeadSources
+	// LinkRoutes are the agent routes joined machines may be sent (the
+	// agent's route table). Without them the panel accepts no machines:
+	// the root recovery commands leave them out, so they never create the
+	// link key as root.
+	LinkRoutes []machinelink.Route
+	// LookupIP resolves names for the proxy check (default: the system
+	// resolver).
+	LookupIP func(ctx context.Context, host string) ([]netip.Addr, error)
 }
 
 type Server struct {
@@ -57,6 +68,8 @@ type Server struct {
 	control *limiter
 	locks   *lockout
 	heads   *headFetcher
+	hub     *machinelink.Hub
+	proxies proxyCache
 }
 
 func New(opts Options) (*Server, error) {
@@ -74,6 +87,11 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Agent == nil {
 		opts.Agent = agentclient.New(opts.Config.SocketPath)
+	}
+	if opts.LookupIP == nil {
+		opts.LookupIP = func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		}
 	}
 	if err := os.MkdirAll(opts.Config.PanelDir(), 0o700); err != nil {
 		return nil, err
@@ -97,10 +115,21 @@ func New(opts Options) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
+	if len(opts.LinkRoutes) > 0 {
+		if err := s.startHub(opts.LinkRoutes); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	return s, nil
 }
 
-func (s *Server) Close() error { return s.db.Close() }
+func (s *Server) Close() error {
+	if s.hub != nil {
+		s.hub.Close()
+	}
+	return s.db.Close()
+}
 
 type authLevel int
 
@@ -160,17 +189,22 @@ func (s *Server) Routes() []Route {
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
 		view("/api/projects", s.hProjects),
 		view("/api/machines", s.hMachines),
+		view("/api/machines/link", s.hMachineLink),
+		{"POST", "/api/machines/join-codes", needSessionCSRF, actManageMachine, s.hJoinCodeCreate},
+		{"DELETE", "/api/machines/join-codes/{cid}", needSessionCSRF, actManageMachine, s.hJoinCodeCancel},
 		view("/api/machines/{mid}", s.hMachine),
+		{"DELETE", "/api/machines/{mid}", needSessionCSRF, actManageMachine, s.hMachineRemove},
+		view("/api/machines/{mid}/events", s.hMachineEvents),
 		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
 		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
 		mg("/api/machines/{mid}/activity", "/v1/activity"),
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
-		mm("POST", "/api/machines/{mid}/update/apply", "/v1/update/apply", actManageMachine),
-		mm("POST", "/api/machines/{mid}/servers", "/v1/servers", actManageServers),
+		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
+		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		mg("/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}"),
-		mm("POST", "/api/machines/{mid}/restore/{rid}/apply", "/v1/restore/{rid}/apply", actManageServers),
+		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/restore/{rid}/apply", s.claimCreatedBy)},
 		mm("DELETE", "/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}", actManageServers),
 		mg("/api/machines/{mid}/operations/{op}", "/v1/operations/{op}"),
 		view("/api/servers", s.hServers),
@@ -598,7 +632,8 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 	defer rows.Close()
 	type entry struct {
 		api.AuditEntry
-		Source string `json:"source"`
+		Source    string `json:"source"`
+		MachineID string `json:"machineId,omitempty"`
 	}
 	out := []entry{}
 	for rows.Next() {
@@ -610,10 +645,24 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 			out = append(out, e)
 		}
 	}
-	var agentAudit []api.AuditEntry
-	if _, err := s.agent.Do(r.Context(), "GET", "/v1/audit", url.Values{"limit": {"200"}}, nil, &agentAudit); err == nil {
-		for _, a := range agentAudit {
-			out = append(out, entry{AuditEntry: a, Source: "agent"})
+	rows.Close()
+	machines, _ := s.machines()
+	if len(machines) == 0 {
+		machines = []machine{{Kind: localKind, agent: s.agent}}
+	}
+	audits := make([][]api.AuditEntry, len(machines))
+	var wg sync.WaitGroup
+	for i, m := range machines {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
+			defer cancel()
+			m.agent.Do(ctx, "GET", "/v1/audit", url.Values{"limit": {"200"}}, nil, &audits[i])
+		})
+	}
+	wg.Wait()
+	for i, m := range machines {
+		for _, a := range audits[i] {
+			out = append(out, entry{AuditEntry: a, Source: "agent", MachineID: m.ID})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].TS.After(out[j].TS) })
@@ -636,12 +685,8 @@ func agentPath(pattern string, r *http.Request) string {
 }
 
 func (s *Server) agentFailure(w http.ResponseWriter, err error) {
-	var ae *agentclient.Error
-	if errors.As(err, &ae) {
-		writeJSON(w, ae.Status, ae.Body)
-		return
-	}
-	writeErr(w, http.StatusServiceUnavailable, api.CodeAgentUnavailable, "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.", "On the server, check: sudo systemctl status playkeeper-agent")
+	status, body := failureOf(err)
+	writeJSON(w, status, body)
 }
 
 // target is the machine a request goes to: the one named by {mid}, or the
@@ -655,7 +700,7 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (machine, bool) 
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid server id.", "")
 		return machine{}, false
 	}
-	m, err := s.machineForServer(r, id)
+	m, err := s.machineForServer(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Server not found.", "")
 		return machine{}, false
@@ -664,31 +709,45 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (machine, bool) 
 }
 
 func (s *Server) serverProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forward(method, pattern)
+	return s.forwardThen(method, pattern, nil)
 }
 
 func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forward(method, pattern)
+	return s.forwardThen(method, pattern, nil)
 }
 
-// forward sends the request to its machine's agent. GETs pass the query on;
+// claimCreatedBy records the server a machine route just created on a
+// joined machine.
+func (s *Server) claimCreatedBy(m machine, _ *session, raw json.RawMessage) { s.claimCreated(m, raw) }
+
+// recordUpdate puts a dashboard-started update in a joined machine's events.
+func (s *Server) recordUpdate(m machine, sess *session, _ json.RawMessage) {
+	if m.Kind == remoteKind {
+		s.machineEvent(m.ID, s.now(), "machine.update", sess.User.Username, "", "")
+	}
+}
+
+// forwardThen sends the request to its machine's agent, then calls then (if
+// set) with the answer of a request that succeeded. GETs pass the query on;
 // JSON bodies get the signed-in account stamped as actor (the agent checks
 // every field and rejects unknown ones); DELETEs pass the actor in the query.
-func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+// Machine links read the actor from the request's context.
+func (s *Server) forwardThen(method, pattern string, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {
 			return
 		}
+		ctx := machinelink.WithActor(r.Context(), sess.User.Username)
 		path := agentPath(pattern, r)
 		var raw json.RawMessage
 		var status int
 		var err error
 		switch method {
 		case "GET":
-			status, err = m.agent.Do(r.Context(), "GET", path, r.URL.Query(), nil, &raw)
+			status, err = m.agent.Do(ctx, "GET", path, r.URL.Query(), nil, &raw)
 		case "DELETE":
-			status, err = m.agent.Do(r.Context(), "DELETE", path, url.Values{"actor": {sess.User.Username}}, nil, &raw)
+			status, err = m.agent.Do(ctx, "DELETE", path, url.Values{"actor": {sess.User.Username}}, nil, &raw)
 		default:
 			body := map[string]any{}
 			b, rerr := io.ReadAll(io.LimitReader(r.Body, 64<<10))
@@ -703,11 +762,14 @@ func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http
 				}
 			}
 			body["actor"] = sess.User.Username
-			status, err = m.agent.Do(r.Context(), method, path, nil, body, &raw)
+			status, err = m.agent.Do(ctx, method, path, nil, body, &raw)
 		}
 		if err != nil {
 			s.agentFailure(w, err)
 			return
+		}
+		if then != nil {
+			then(m, sess, raw)
 		}
 		if status == http.StatusNoContent || len(raw) == 0 {
 			w.WriteHeader(status)
@@ -859,14 +921,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 		return err
 	}
 	addr := net.JoinHostPort(s.cfg.PanelBind, strconv.Itoa(s.cfg.PanelPort))
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           s.Handler(),
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}},
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
-	}
+	srv := s.httpServer(addr, cert)
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -879,4 +934,28 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 		return nil
 	}
 	return err
+}
+
+// httpServer is the panel's HTTPS server. With machine links on, machines
+// share its port: TLS hands connections that offer the link's ALPN to the
+// hub, and browsers keep HTTP/2.
+func (s *Server) httpServer(addr string, cert tls.Certificate) *http.Server {
+	conf := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s.Handler(),
+		TLSConfig:         conf,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
+	}
+	if s.hub != nil {
+		srv.TLSConfig = s.hub.ShareTLS(conf)
+		srv.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){machinelink.ALPN: s.hub.HandleTLSNextProto}
+		srv.Protocols = new(http.Protocols)
+		srv.Protocols.SetHTTP1(true)
+		srv.Protocols.SetHTTP2(true)
+		srv.RegisterOnShutdown(func() { s.hub.Close() })
+	}
+	return srv
 }

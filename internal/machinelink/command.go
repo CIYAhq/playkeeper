@@ -157,15 +157,16 @@ func NewCommand(address, code, fingerprint string) (Command, error) {
 }
 
 // InstallArgs are the installer's arguments: --join ADDRESS --code CODE
-// --fingerprint FINGERPRINT, then --name NAME when a name is set.
+// --fingerprint FINGERPRINT, then --name NAME when a name is set. The
+// address always has its port, like every address the dashboard shows.
 func (c Command) InstallArgs() []string {
-	return append([]string{"--join", c.Address.String()}, c.flags()...)
+	return append([]string{"--join", c.Address.HostPort()}, c.flags()...)
 }
 
 // JoinArgs are the arguments of playkeeper join: ADDRESS --code CODE
 // --fingerprint FINGERPRINT, then --name NAME when a name is set.
 func (c Command) JoinArgs() []string {
-	return append([]string{c.Address.String()}, c.flags()...)
+	return append([]string{c.Address.HostPort()}, c.flags()...)
 }
 
 func (c Command) flags() []string {
@@ -184,6 +185,29 @@ func (c Command) Install() string {
 
 // Join is the command for a machine that already runs Playkeeper.
 func (c Command) Join() string { return "sudo playkeeper join " + shellJoin(c.JoinArgs()) }
+
+// InstallLines and JoinLines are the two forms split for reading: each flag
+// and its value on a line of its own, the lines ending in backslashes, so
+// pasted together they are the same command.
+func (c Command) InstallLines() []string {
+	return continued("curl -fsSL "+InstallURL+" | sudo sh -s --", c.InstallArgs())
+}
+
+func (c Command) JoinLines() []string {
+	args := c.JoinArgs()
+	return continued("sudo playkeeper join "+shellJoin(args[:1]), args[1:])
+}
+
+func continued(head string, pairs []string) []string {
+	lines := []string{head}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		lines = append(lines, "  "+shellJoin(pairs[i:i+2]))
+	}
+	for i := range lines[:len(lines)-1] {
+		lines[i] += ` \`
+	}
+	return lines
+}
 
 var reShellSafe = regexp.MustCompile(`^[A-Za-z0-9._:/@%+=,-]+$`)
 

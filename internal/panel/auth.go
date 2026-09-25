@@ -83,6 +83,47 @@ CREATE TABLE player_heads (
   fetched_at INTEGER NOT NULL
 );
 `,
+	// Machines that joined over a machine link (kind 'remote'), their join
+	// codes (a keyed hash only, never the code), what happened to each, and
+	// which machine runs each server with its last known status.
+	`
+ALTER TABLE machines ADD COLUMN public_key BLOB;
+ALTER TABLE machines ADD COLUMN joined_from TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN version TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE machines ADD COLUMN last_addr TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN revoked_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE machines ADD COLUMN revoked_by TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX machines_public_key ON machines(public_key) WHERE public_key IS NOT NULL;
+CREATE TABLE machine_join_codes (
+  id         TEXT PRIMARY KEY,
+  hash       BLOB NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  used_at    INTEGER NOT NULL DEFAULT 0,
+  machine_id TEXT NOT NULL DEFAULT '',
+  name       TEXT NOT NULL DEFAULT '',
+  dials      TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE machine_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  machine_id TEXT NOT NULL,
+  ts         INTEGER NOT NULL,
+  kind       TEXT NOT NULL,
+  actor      TEXT NOT NULL DEFAULT '',
+  address    TEXT NOT NULL DEFAULT '',
+  code       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX machine_events_machine ON machine_events(machine_id, id);
+CREATE TABLE server_machines (
+  server_id  TEXT PRIMARY KEY,
+  machine_id TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT '',
+  seen_at    INTEGER NOT NULL DEFAULT 0
+);
+`,
 }
 
 const (

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/agent"
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/config"
 )
@@ -70,6 +72,48 @@ type env struct {
 	clock *clock
 	agent *fakeAgent
 	cfg   config.Config
+	names *fakeResolver
+	logs  *syncBuffer
+}
+
+// fakeResolver answers name lookups from a map; unknown names don't exist.
+type fakeResolver struct {
+	mu    sync.Mutex
+	addrs map[string][]netip.Addr
+}
+
+func (f *fakeResolver) set(host string, addrs ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, a := range addrs {
+		f.addrs[host] = append(f.addrs[host], netip.MustParseAddr(a))
+	}
+}
+
+func (f *fakeResolver) lookup(_ context.Context, host string) ([]netip.Addr, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if a, ok := f.addrs[host]; ok {
+		return a, nil
+	}
+	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func newEnv(t *testing.T) *env {
@@ -79,20 +123,31 @@ func newEnv(t *testing.T) *env {
 
 func newEnvWith(t *testing.T, heads *HeadSources) *env {
 	t.Helper()
+	return newEnvConfig(t, heads, nil)
+}
+
+func newEnvConfig(t *testing.T, heads *HeadSources, mod func(*config.Config)) *env {
+	t.Helper()
 	dir := t.TempDir()
 	sock, fa := startFakeAgent(t, dir)
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = sock
+	if mod != nil {
+		mod(&cfg)
+	}
 	clk := &clock{t: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
-	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour, Heads: heads})
+	names := &fakeResolver{addrs: map[string][]netip.Addr{}}
+	logs := &syncBuffer{}
+	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(logs, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour, Heads: heads,
+		LinkRoutes: agent.LinkRoutes(), LookupIP: names.lookup})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
 	ts := httptest.NewTLSServer(s.Handler())
 	t.Cleanup(ts.Close)
-	return &env{srv: s, ts: ts, clock: clk, agent: fa, cfg: cfg}
+	return &env{srv: s, ts: ts, clock: clk, agent: fa, cfg: cfg, names: names, logs: logs}
 }
 
 type resp struct {
@@ -158,7 +213,7 @@ const sampleServer = "abcdefghjk"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend").Replace(p)
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn").Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {

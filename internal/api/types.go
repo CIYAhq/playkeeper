@@ -603,10 +603,12 @@ type Health struct {
 
 // Error is the body of every non-2xx response from the agent and panel.
 type Error struct {
-	Error     string     `json:"error"`
-	Code      string     `json:"code"`
-	Hint      string     `json:"hint,omitempty"`
-	Operation *Operation `json:"operation,omitempty"`
+	Error string `json:"error"`
+	Code  string `json:"code"`
+	Hint  string `json:"hint,omitempty"`
+	// Params are the values in the message, for translations.
+	Params    map[string]string `json:"params,omitempty"`
+	Operation *Operation        `json:"operation,omitempty"`
 }
 
 const (
