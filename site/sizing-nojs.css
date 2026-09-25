@@ -1,0 +1,10 @@
+/* playkeeper.io/sizing without JavaScript: the questions can't answer, so the page shows the table of every size and the site links. */
+.guide, .menu-button, .lead .wide-only { display: none; }
+.nojs-note { display: block; margin: 0 0 8px; text-align: center; }
+@media (max-width: 640px) {
+  .top { flex-wrap: wrap; }
+  .site-nav { position: static; display: flex; flex-direction: row; flex-wrap: wrap; width: 100%; padding: 0; background: none; border: 0; box-shadow: none; }
+  .site-nav a { padding: 0 8px; }
+  .site-nav a.button { margin: 0 0 0 auto; }
+  .nojs-note { text-align: left; }
+}

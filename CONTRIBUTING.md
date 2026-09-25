@@ -29,8 +29,9 @@ CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `ma
 - `make package` — release tarball in `dist/` (static binary with the embedded UI, installer, notes), plus the other assets a release would carry: `get.sh`, the tarball under its stable name, and the release manifest `playkeeper-release.json`, which the release workflow signs.
 - `make e2e-vm` — full rehearsal in fresh KVM guests (needs `/dev/kvm`, qemu, cloud-image-utils, sudo; see `scripts/e2e/vm-e2e.sh`).
 - `./scripts/negative-controls.sh` — removes each safety guard in turn in a throwaway worktree and checks that the test covering it fails.
-- `scripts/site-check.sh` — builds the playkeeper.io container from `site/` and checks `/`, `/healthz` and the `/install` redirect (needs Docker; CI runs it too). Hosting it is described in [site/README.md](site/README.md).
+- `scripts/site-check.sh` — builds the playkeeper.io container from `site/` and checks `/`, the `/sizing` guide, `/healthz` and the `/install` redirect (needs Docker; CI runs it too). Hosting it is described in [site/README.md](site/README.md).
 - `make notices` — regenerates `THIRD_PARTY_NOTICES`, the licence texts of the third-party code in the binary. Run it after changing Go or npm dependencies and commit the result; `make check` fails while it is out of date.
+- `make sizing` — regenerates the sizing guide on playkeeper.io (`site/sizing.html` and `site/sizing-data.js`) from `internal/sizing` and `site/sizing.html.tmpl`. Run it after changing either and commit the result; `make check` fails while they are out of date.
 
 Protocol-bot tests need offline mode, which only the test harness enables (`PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1` on the agent). Never set it on a real server.
 
@@ -57,6 +58,7 @@ git add internal/update/release.pub && git commit -m "Add the release signing ke
 | `internal/install` | preflight, installer with rollback, in-place upgrade, the updater, uninstall |
 | `internal/update`, `cmd/release-sign` | signed release manifests (the release key is in `internal/update/release.pub`), version order, update downloads; the maintainer tool that makes and signs them |
 | `internal/backup`, `internal/minecraft`, `internal/docker` | archive format, Minecraft protocols, log parsing and PaperMC's version list, Docker client |
+| `internal/sizing`, `cmd/sizing-guide` | how big a VPS to rent for how many players and what they run, with the sources for each number; the tool that writes the sizing guide into `site/` |
 | `web/` | React + TypeScript UI (embedded at build time) |
 | `packaging/` | `install.sh`, the one-line installer `get.sh`, their tests, install notes |
 | `scripts/` | toolchain setup, packaging, release checks, site check, KVM rehearsal harness, negative controls |

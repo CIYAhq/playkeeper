@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-web test-sh web build package notices dev e2e-vm clean
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-web test-sh web build package notices sizing dev e2e-vm clean
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -59,6 +59,9 @@ package: ## Build dist/playkeeper-<version>-linux-amd64.tar.gz and the one-line 
 
 notices: ## Regenerate THIRD_PARTY_NOTICES after changing Go or npm dependencies
 	./scripts/third-party-notices.sh
+
+sizing: ## Regenerate the sizing guide in site/ after changing internal/sizing or site/sizing.html.tmpl
+	go run ./cmd/sizing-guide
 
 dev: web ## Run agent + panel locally (state in .dev/, uses your Docker)
 	go run ./cmd/playkeeper dev --dir .dev
