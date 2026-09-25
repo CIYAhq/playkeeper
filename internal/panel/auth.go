@@ -334,8 +334,12 @@ func (s *Server) deleteUserSessions(userID int64) {
 const pruneAuditEvery = 1000
 
 func (s *Server) audit(actor, action, target, result, detail string) {
+	s.writeAudit(auditRow{at: s.now(), actor: actor, action: action, target: target, result: result, detail: detail})
+}
+
+func (s *Server) writeAudit(r auditRow) {
 	if _, err := s.db.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail) VALUES(?,?,?,?,?,?)`,
-		s.now().UnixMilli(), actor, action, target, result, detail); err != nil {
+		r.at.UnixMilli(), r.actor, r.action, r.target, r.result, r.detail); err != nil {
 		s.log.Error("audit write failed", "err", err)
 		return
 	}

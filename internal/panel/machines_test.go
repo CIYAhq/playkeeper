@@ -746,12 +746,55 @@ func TestTooManyWrongCodesPauseJoining(t *testing.T) {
 		!strings.Contains(string(body), "Try again in 15 minutes.") {
 		t.Fatalf("a code while paused: %d %s", resp.StatusCode, body)
 	}
-	if !e.auditHas(t, "(unknown machine)", "machine.join", "", "refused", "join_code_wrong from 127.0.0.4") ||
-		e.auditHas(t, "(unknown machine)", "machine.join", "", "refused", "join_rate_limited") {
-		t.Fatal("wrong codes are audited, refusals while paused are not")
+	// Each kind of refusal from one address gets a row, and its repeats one
+	// more that counts them, written when the log is read. Refusals while
+	// joining is paused are counted together, from every address.
+	for range 3 {
+		guess("127.0.0.5")
+	}
+	if got := e.auditDetails(t, "machine.join"); len(got) != 5 {
+		t.Fatalf("before the log is read: %q", got)
+	}
+	var entries []map[string]any
+	e.get(t, "/api/audit", cookie, &entries)
+	want := []string{
+		"join_code_wrong from 127.0.0.1",
+		"join_rate_limited from 127.0.0.1",
+		"join_code_wrong from 127.0.0.2",
+		"join_code_wrong from 127.0.0.3",
+		"join_code_wrong from 127.0.0.4",
+		"join_code_wrong from 127.0.0.1 · 4 more at 12:00 UTC",
+		"join_code_wrong from 127.0.0.2 · 4 more at 12:00 UTC",
+		"join_code_wrong from 127.0.0.3 · 4 more at 12:00 UTC",
+		"join_code_wrong from 127.0.0.4 · 4 more at 12:00 UTC",
+		"join_rate_limited · 3 more at 12:00 UTC",
+	}
+	if got := e.auditDetails(t, "machine.join"); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("refused joins in the audit log:\n%s", strings.Join(got, "\n"))
+	}
+	if !e.auditHas(t, "(unknown machine)", "machine.join", "", "refused", "join_rate_limited · 3 more") {
+		t.Fatal("the count has the first refusal's actor and result")
 	}
 	e.clock.add(15 * time.Minute)
 	e.joinCode(t, cookie, csrf, `{}`)
+}
+
+// auditDetails are the details of the panel's audit rows for an action,
+// oldest first.
+func (e *env) auditDetails(t *testing.T, action string) []string {
+	t.Helper()
+	rows, err := e.srv.db.Query(`SELECT detail FROM audit WHERE action = ? ORDER BY id`, action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var d string
+		rows.Scan(&d)
+		out = append(out, d)
+	}
+	return out
 }
 
 func TestDialAddresses(t *testing.T) {

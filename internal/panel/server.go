@@ -73,6 +73,8 @@ type Server struct {
 	heads   *headFetcher
 	hub     *machinelink.Hub
 	proxies proxyCache
+	// refusals counts refusals for the audit log (see refusals.go).
+	refusals refusalSink
 	// audits counts audit rows written, to prune the log every so often;
 	// auditMaxAge and maxAudit are how much of it is kept.
 	audits      atomic.Int64
@@ -139,6 +141,7 @@ func (s *Server) Close() error {
 	if s.hub != nil {
 		s.hub.Close()
 	}
+	s.flushRefusals(true)
 	return s.db.Close()
 }
 
@@ -635,6 +638,7 @@ func (s *Server) Usernames() ([]string, error) {
 }
 
 func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
+	s.flushRefusals(false)
 	rows, err := s.db.Query(`SELECT id, ts, actor, action, target, result, detail FROM audit ORDER BY id DESC LIMIT 200`)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")

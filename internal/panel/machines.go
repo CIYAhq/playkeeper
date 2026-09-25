@@ -97,9 +97,9 @@ func failureOf(err error) (int, api.Error) {
 }
 
 // onMachineEvent records what happened to a joined machine: every event in
-// its recent events, and joins, refusals and removals in the audit log.
-// Refusals only because joining is paused are left out, so a flood of
-// attempts can't fill the log.
+// its recent events (a bounded number per machine), and joins, refusals and
+// removals in the audit log. Refusals go through the refusal sink, so a
+// flood of attempts can't fill the log.
 func (s *Server) onMachineEvent(e machinelink.Event) {
 	if e.MachineID != "" {
 		s.machineEvent(e.MachineID, e.At, string(e.Kind), e.Actor, e.Address, e.Code)
@@ -108,9 +108,7 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 	case machinelink.EventJoined:
 		s.audit(orUnknown(e.Actor), string(e.Kind), e.Name, "succeeded", "from "+e.Address)
 	case machinelink.EventJoinRefused:
-		if e.Code != machinelink.CodeJoinRateLimited {
-			s.audit("(unknown machine)", "machine.join", "", "refused", e.Code+" from "+e.Address)
-		}
+		s.joinRefused(e)
 	case machinelink.EventRemoved, machinelink.EventLeft:
 		s.audit(orUnknown(e.Actor), string(e.Kind), e.Name, "succeeded", "")
 		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE machine_id = ?`, e.MachineID); err != nil {
