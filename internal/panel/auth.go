@@ -83,6 +83,26 @@ CREATE TABLE player_heads (
   fetched_at INTEGER NOT NULL
 );
 `,
+	// Two-factor sign-in: each user's authenticator app, and sessions that
+	// passed the password but not yet the second step.
+	`
+CREATE TABLE user_factors (
+  user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind                TEXT NOT NULL DEFAULT 'totp',
+  secret              TEXT NOT NULL,
+  created_at          INTEGER NOT NULL,
+  confirmed_at        INTEGER,
+  last_step           INTEGER NOT NULL DEFAULT 0,
+  last_used_at        INTEGER,
+  recovery_hashes     TEXT NOT NULL DEFAULT '[]',
+  recovery_created_at INTEGER,
+  failures            INTEGER NOT NULL DEFAULT 0,
+  locked_until        INTEGER,
+  revision            INTEGER NOT NULL,
+  PRIMARY KEY (user_id, kind)
+);
+ALTER TABLE sessions ADD COLUMN stage TEXT NOT NULL DEFAULT 'full';
+`,
 }
 
 const (
@@ -260,7 +280,7 @@ func (s *Server) lookupSession(token string) (session, error) {
 	var sess session
 	var created, lastSeen, expires int64
 	err := s.db.QueryRow(`SELECT s.id_hash, s.csrf, s.created_at, s.last_seen, s.expires_at, u.id, u.username, u.role
-		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ?`, tokenHash(token)).
+		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ? AND s.stage = 'full'`, tokenHash(token)).
 		Scan(&sess.IDHash, &sess.CSRF, &created, &lastSeen, &expires, &sess.User.ID, &sess.User.Username, &sess.User.Role)
 	if err != nil {
 		return session{}, errNoSession

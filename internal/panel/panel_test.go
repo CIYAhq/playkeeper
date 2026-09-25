@@ -99,6 +99,11 @@ type resp struct {
 	status int
 	body   map[string]any
 	cookie string
+	// pending is the second sign-in step's cookie, and cleared whether it
+	// was deleted.
+	pending        string
+	pendingCleared bool
+	header         http.Header
 }
 
 func (e *env) do(t *testing.T, method, path, body string, hdr map[string]string) resp {
@@ -118,15 +123,20 @@ func (e *env) do(t *testing.T, method, path, body string, hdr map[string]string)
 		t.Fatal(err)
 	}
 	defer r.Body.Close()
-	out := resp{status: r.StatusCode, body: map[string]any{}}
+	out := resp{status: r.StatusCode, body: map[string]any{}, header: r.Header}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &out.body)
 	for _, c := range r.Cookies() {
-		if c.Name == cookieName {
+		switch c.Name {
+		case cookieName:
 			out.cookie = c.Value
-			if !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
-				t.Fatalf("session cookie is missing Secure/HttpOnly/SameSite=Strict: %+v", c)
-			}
+		case pendingCookieName:
+			out.pending, out.pendingCleared = c.Value, c.MaxAge < 0
+		default:
+			continue
+		}
+		if !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
+			t.Fatalf("cookie %s is missing Secure/HttpOnly/SameSite=Strict/Path=/: %+v", c.Name, c)
 		}
 	}
 	return out
@@ -184,6 +194,24 @@ func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {
 			h := auth(cookie, csrf)
 			h["Origin"] = "https://evil.example"
 			if r := e.do(t, rt.Method, path, `{}`, h); r.status != http.StatusForbidden {
+				t.Errorf("%s %s from another origin: got %d, want 403", rt.Method, rt.Pattern, r.status)
+			}
+		}
+		if rt.Level == pendingSession {
+			xrw := map[string]string{"X-Requested-With": "playkeeper"}
+			if r := e.do(t, rt.Method, path, `{}`, xrw); r.status != http.StatusUnauthorized {
+				t.Errorf("%s %s without a second-step cookie: got %d, want 401", rt.Method, rt.Pattern, r.status)
+			}
+			full := auth(cookie, csrf)
+			full["X-Requested-With"] = "playkeeper"
+			full["Cookie"] += "; " + pendingCookieName + "=" + cookie
+			if r := e.do(t, rt.Method, path, `{}`, full); r.status != http.StatusUnauthorized {
+				t.Errorf("%s %s with a full session's token as the second-step cookie: got %d, want 401", rt.Method, rt.Pattern, r.status)
+			}
+			if r := e.do(t, rt.Method, path, `{}`, nil); r.status != http.StatusForbidden {
+				t.Errorf("%s %s without X-Requested-With: got %d, want 403", rt.Method, rt.Pattern, r.status)
+			}
+			if r := e.do(t, rt.Method, path, `{}`, map[string]string{"X-Requested-With": "playkeeper", "Origin": "https://evil.example"}); r.status != http.StatusForbidden {
 				t.Errorf("%s %s from another origin: got %d, want 403", rt.Method, rt.Pattern, r.status)
 			}
 		}

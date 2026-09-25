@@ -109,6 +109,9 @@ const (
 	publicMutation           // login/setup: same-origin + X-Requested-With, no session yet
 	needSession
 	needSessionCSRF
+	// pendingSession is the second sign-in step: publicMutation's checks
+	// plus a password-checked second-step cookie, which is not a session.
+	pendingSession
 )
 
 // Route is one panel API route; tests iterate Routes() to check that every
@@ -123,7 +126,9 @@ type Route struct {
 }
 
 // Mutating reports whether the route changes state (and so needs CSRF).
-func (rt Route) Mutating() bool { return rt.Level == needSessionCSRF || rt.Level == publicMutation }
+func (rt Route) Mutating() bool {
+	return rt.Level == needSessionCSRF || rt.Level == publicMutation || rt.Level == pendingSession
+}
 
 // NeedsSession reports whether the route requires a signed-in admin.
 func (rt Route) NeedsSession() bool { return rt.Level == needSession || rt.Level == needSessionCSRF }
@@ -151,10 +156,19 @@ func (s *Server) Routes() []Route {
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
 		{"POST", "/api/setup", publicMutation, "", s.hSetup},
 		{"POST", "/api/auth/login", publicMutation, "", s.hLogin},
+		{"POST", "/api/auth/second-factor", pendingSession, "", s.hSecondFactor},
+		{"POST", "/api/auth/second-factor/cancel", pendingSession, "", s.hSecondFactorCancel},
 		view("/api/auth/me", s.hMe),
 		{"POST", "/api/auth/logout", needSessionCSRF, actView, s.hLogout},
 		{"POST", "/api/auth/logout-all", needSessionCSRF, actManageAccount, s.hLogoutAll},
 		{"POST", "/api/auth/password", needSessionCSRF, actManageAccount, s.hPassword},
+		view("/api/auth/2fa", s.h2FAStatus),
+		{"POST", "/api/auth/2fa/setup", needSessionCSRF, actManageAccount, s.h2FASetupStart},
+		view("/api/auth/2fa/setup", s.h2FASetupShow),
+		{"DELETE", "/api/auth/2fa/setup", needSessionCSRF, actManageAccount, s.h2FASetupCancel},
+		{"POST", "/api/auth/2fa/confirm", needSessionCSRF, actManageAccount, s.h2FAConfirm},
+		{"POST", "/api/auth/2fa/disable", needSessionCSRF, actManageAccount, s.h2FADisable},
+		{"POST", "/api/auth/2fa/recovery-codes", needSessionCSRF, actManageAccount, s.h2FARecoveryCodes},
 		view("/api/me/prefs", s.hPrefs),
 		{"POST", "/api/me/prefs", needSessionCSRF, actView, s.hPrefsSet},
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
@@ -239,6 +253,18 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				return
 			}
 			rt.handler(w, r, nil)
+		case pendingSession:
+			if !s.sameOrigin(r) || r.Header.Get("X-Requested-With") != "playkeeper" {
+				writeErr(w, http.StatusForbidden, api.CodeForbidden, "Cross-site request refused.", "")
+				return
+			}
+			p, err := s.pendingFrom(r)
+			if err != nil {
+				clearPendingCookie(w)
+				writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Please sign in again.", "")
+				return
+			}
+			rt.handler(w, r, &p)
 		case needSession, needSessionCSRF:
 			sess, err := s.sessionFrom(r)
 			if err != nil {
@@ -475,6 +501,12 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request, _ *session) {
 		return
 	}
 	s.locks.succeed(key)
+	if started, err := s.secondFactorNeeded(w, u); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start the second sign-in step.", "")
+		return
+	} else if started {
+		return
+	}
 	token, sess, err := s.newSession(u)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start a session.", "")
@@ -492,13 +524,18 @@ func (s *Server) userByName(name string) (user, error) {
 }
 
 func (s *Server) meBody(sess session) map[string]any {
-	return map[string]any{
+	body := map[string]any{
 		"user":               map[string]string{"username": sess.User.Username, "role": sess.User.Role},
 		"csrfToken":          sess.CSRF,
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
 		"version":            version.Version,
 	}
+	var changed int64
+	if s.db.QueryRow(`SELECT password_changed_at FROM users WHERE id = ?`, sess.User.ID).Scan(&changed) == nil {
+		body["passwordChangedAt"] = msTime(changed)
+	}
+	return body
 }
 
 func (s *Server) hMe(w http.ResponseWriter, r *http.Request, sess *session) {
