@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, formatPercent, formatSpan, joinAddress } from '@/lib/format'
-import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
+import { isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -135,7 +135,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
       </span>
     )
   }
-  const tone = phaseTone(s.phase)
+  const tone = statusTone(s)
   switch (tone) {
     case 'online': {
       const names = s.players?.names ?? []
@@ -156,7 +156,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
         <>
           <span className="flex items-center gap-2 text-[13px] text-destructive-foreground">
             <CircleAlertIcon className="size-4" aria-hidden="true" />
-            {t('card.crashed')}
+            {s.crash?.start ? t('status.couldntStart') : t('card.crashed')}
           </span>
           {!s.operation && <StartButton server={s} label={t('server.startAgain')} />}
         </>

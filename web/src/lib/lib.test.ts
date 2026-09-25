@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
+import type { CatalogEntry, Crash, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
-import { behindSeconds, parseLine, ranOutOfMemory } from './console'
+import { behindSeconds, parseLine } from './console'
+import { crashFixes, crashSummary, phoneLines, preselect } from './crash'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memorySegments } from './memory'
-import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
+import { controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone } from './phase'
 import { href, parse, type Route } from './router'
 import { newerStable, softwareLabel } from './servers'
 import { memoryForStyle } from './styles'
@@ -139,7 +140,7 @@ describe('formatting', () => {
 })
 
 describe('players chart', () => {
-  const b = (state: MetricsBucket['state'], players: number | null = null): MetricsBucket => ({ start: '2026-09-25T00:00:00Z', playersMax: players, cpuAvg: null, memAvg: null, coverage: 1, state })
+  const b = (state: MetricsBucket['state'], players: number | null = null): MetricsBucket => ({ start: '2026-09-25T00:00:00Z', playersMax: players, cpuAvg: null, memAvg: null, tpsAvg: null, msptAvg: null, coverage: 1, state })
 
   it('shows the most players in each bar, and a stop only when the server never ran', () => {
     const bars = regroup([b('online', 2), b('online', 5), b('offline'), b('offline'), b('offline'), b('no_data')], 3)
@@ -150,7 +151,7 @@ describe('players chart', () => {
   })
 
   it('lines bars up with the clock', () => {
-    const at = (minute: number, players: number): MetricsBucket => ({ start: new Date(Date.UTC(2026, 8, 25, 12, minute)).toISOString(), playersMax: players, cpuAvg: null, memAvg: null, coverage: 1, state: 'online' })
+    const at = (minute: number, players: number): MetricsBucket => ({ start: new Date(Date.UTC(2026, 8, 25, 12, minute)).toISOString(), playersMax: players, cpuAvg: null, memAvg: null, tpsAvg: null, msptAvg: null, coverage: 1, state: 'online' })
     const bars = regroup([at(30, 1), at(40, 2), at(50, 3), at(60, 4), at(70, 5)], 6, 600)
     expect(bars.map((x) => [x.start.slice(11, 16), x.players])).toEqual([
       ['12:30', 3],
@@ -200,11 +201,71 @@ describe('console', () => {
     expect(parseLine('plain output').kind).toBe('info')
   })
 
-  it('explains lag and out-of-memory crashes', () => {
+  it('reads how far behind a lagging server is', () => {
     expect(behindSeconds('Running 2143ms or 42 ticks behind')).toBeCloseTo(2.143)
-    expect(ranOutOfMemory(137, [])).toBe(true)
-    expect(ranOutOfMemory(1, ['java.lang.OutOfMemoryError: Java heap space'])).toBe(true)
-    expect(ranOutOfMemory(1, ['Stopping server'])).toBe(false)
+  })
+})
+
+describe('crash helper', () => {
+  const crash = (over: Partial<Crash>): Crash => ({ at: '2026-09-25T18:53:00Z', start: false, kind: 'unknown', certain: true, title: '', explanation: 'The agent’s words.', evidence: [], fixes: [], lines: [], roomMB: 3584, ...over })
+  const titles = (c: Crash, phone = false) => crashFixes(c, 'Survival', 'my-vps', phone).map((o) => [o.title, o.plan?.kind ?? o.reason])
+
+  it('calls a stopped server whose start failed one that couldn’t start', () => {
+    expect(statusTone(server({ phase: 'stopped', crash: crash({ start: true }) }))).toBe('crashed')
+    expect(statusLabel(server({ phase: 'stopped', crash: crash({ start: true }) }))).toBe('Couldn’t start')
+    expect(statusLabel(server({ phase: 'crashed' }))).toBe('Crashed')
+    expect(statusLabel(server({ phase: 'stopped' }))).toBe('Stopped')
+  })
+
+  it('tells a port taken on the machine from one taken inside the server', () => {
+    const port = crash({ kind: 'port_in_use', params: { port: 25565 }, fixes: [{ kind: 'change_port', params: { port: 25565 }, title: 'Change the port', recommended: true }, { kind: 'restart', title: 'Start again' }] })
+    expect(crashSummary(port, 'Survival', 'my-vps')).toBe('Another program on my-vps is using port 25565.')
+    expect(titles(port)).toEqual([
+      ['Move Survival to another port', 'Coming later'],
+      ['Start again on 25565', 'start'],
+    ])
+    expect(preselect(crashFixes(port, 'Survival', 'my-vps', false))?.title).toBe('Start again on 25565')
+    expect(crashSummary(crash({ kind: 'port_in_use', params: { port: 25565, reason: 'in_use' } }), 'Survival', 'my-vps')).toBe('Something inside Survival was already using its port.')
+    expect(crashSummary(crash({ kind: 'port_in_use' }), 'Survival', 'my-vps')).toBe('The agent’s words.')
+  })
+
+  it('names the missing add-ons and removes the one that needs them', () => {
+    const dep = crash({
+      kind: 'missing_dependency',
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.0.2.jar', dependencies: ['Multiverse-Core', 'Vault'] },
+      fixes: [
+        { kind: 'install_addon', params: { name: 'Multiverse-Core' }, title: 'Install Multiverse-Core', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Remove it' },
+      ],
+    })
+    expect(crashSummary(dep, 'Survival', 'my-vps')).toBe('Multiverse-Portals needs Multiverse-Core and Vault, which aren’t installed.')
+    expect(titles(dep)).toEqual([
+      ['Install Multiverse-Core', 'Coming later'],
+      ['Remove Multiverse-Portals', 'remove-addon'],
+    ])
+  })
+
+  it('says where the memory would come from on a phone', () => {
+    const oom = crash({ kind: 'heap_out_of_memory', params: { budget_mb: 4096 }, fixes: [{ kind: 'raise_memory', params: { from_mb: 4096, to_mb: 6144 }, title: 'More memory', recommended: true }] })
+    const [more] = crashFixes(oom, 'Survival', 'my-vps', true)
+    expect(more).toMatchObject({ title: 'Give Survival 6 GB', hint: 'my-vps has 3.5 GB free', plan: { kind: 'settings', body: { memoryMB: 6144 } } })
+    expect(crashFixes({ ...oom, roomMB: 0 }, 'Survival', 'my-vps', false)[0]?.hint).toBeUndefined()
+  })
+
+  it('always leaves a way to start again', () => {
+    const eula = crash({ kind: 'eula', fixes: [{ kind: 'accept_eula', title: 'Accept', recommended: true }] })
+    expect(titles(eula)).toEqual([
+      ['Accept the Minecraft EULA', 'Coming later'],
+      ['Start Survival again', 'start'],
+    ])
+    expect(titles(crash({}))).toEqual([['Start Survival again', 'start']])
+    expect(crashFixes(crash({}), 'Survival', 'my-vps', false)[0]?.recommended).toBe(true)
+  })
+
+  it('shows two short lines on a phone', () => {
+    const lines = [{ text: 'Done (4.2s)!' }, { text: 'Stopping server' }, { text: 'java.lang.OutOfMemoryError: Java heap space' }]
+    expect(phoneLines(lines).map((l) => l.text)).toEqual(['Stopping server', 'OutOfMemoryError: Java heap space'])
+    expect(phoneLines([{ text: 'at net.minecraft.server.Main.main(Main.java:1)' }])[0]?.text).toBe('at net.minecraft.server.Main.main(Main.java:1)')
   })
 })
 

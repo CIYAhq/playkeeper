@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
-import { controls, isSettingUp, phaseTone } from '@/lib/phase'
+import { controls, isSettingUp, phaseTone, statusLabel, statusTone } from '@/lib/phase'
 import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -149,7 +149,7 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
       </Button>
     )
   }
-  const tone = phaseTone(server.phase)
+  const tone = statusTone(server)
   if (tone === 'crashed' || (tone === 'stopped' && server.exists)) {
     return (
       <Button onClick={() => run('start')} loading={busy} disabled={!c.canStart}>
@@ -226,7 +226,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
             <MenuPopup align="start" className="min-w-56">
               {(ws.servers ?? []).map((o) => (
                 <MenuItem key={o.id} onClick={() => navigate({ name: 'server', slug: o.slug, tab })}>
-                  <Dot tone={ws.stale ? 'unknown' : phaseTone(o.phase)} className="mx-1" />
+                  <Dot tone={ws.stale ? 'unknown' : statusTone(o)} className="mx-1" />
                   <span className="flex-1">{o.name}</span>
                   {o.id === s.id && <CheckIcon className="text-primary" />}
                 </MenuItem>
@@ -334,8 +334,19 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
     navigate(to)
   }
   const line = (s: ServerStatus) => {
-    const tone = ws.stale ? 'unknown' : phaseTone(s.phase)
-    const state = tone === 'online' ? (s.players?.online ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players.online })}` : t('status.online')) : tone === 'stopped' && s.stoppedAt ? t('switcher.stoppedAgo', { time: relativeTime(s.stoppedAt) }) : ws.stale ? t('status.unknown') : undefined
+    const tone = ws.stale ? 'unknown' : statusTone(s)
+    const state =
+      tone === 'online'
+        ? s.players?.online
+          ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players.online })}`
+          : t('status.online')
+        : tone === 'crashed'
+          ? statusLabel(s)
+          : tone === 'stopped' && s.stoppedAt
+            ? t('switcher.stoppedAgo', { time: relativeTime(s.stoppedAt) })
+            : ws.stale
+              ? t('status.unknown')
+              : undefined
     return [state, softwareLabel(s)].filter(Boolean).join(t('common.dot'))
   }
   return (

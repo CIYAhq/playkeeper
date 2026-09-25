@@ -5,7 +5,7 @@ import { Button, type ButtonProps } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { relativeTime } from '@/lib/format'
-import { isSettingUp, opLabel, phaseLabel, phaseTone, type Tone } from '@/lib/phase'
+import { isSettingUp, opLabel, phaseLabel, statusLabel, statusTone, type Tone } from '@/lib/phase'
 import { cn } from '@/lib/utils'
 
 export function useNow(intervalMs = 1000): number {
@@ -53,7 +53,7 @@ export function Dot({ tone, className }: { tone: Tone; className?: string }) {
 export function serverState(st: ServerStatus | undefined, agentDown: boolean): { tone: Tone; label: string; detail?: string; labelClass: string } {
   if (agentDown || !st) return { tone: 'unknown', label: t('status.noLive'), labelClass: 'text-foreground' }
   if (isSettingUp(st) && st.operation) return { tone: 'busy', label: t('status.settingUp'), labelClass: 'text-info-foreground' }
-  const tone = phaseTone(st.phase)
+  const tone = statusTone(st)
   switch (tone) {
     case 'online':
       return {
@@ -62,8 +62,10 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
         detail: st.players ? (st.players.online > 0 ? t('status.playing', { count: st.players.online }) : t('status.nobodyYet')) : undefined,
         labelClass: 'text-success-foreground',
       }
-    case 'crashed':
-      return { tone, label: t('status.crashed'), detail: st.stoppedAt ? relativeTime(st.stoppedAt) : undefined, labelClass: 'text-destructive-foreground' }
+    case 'crashed': {
+      const at = st.crash?.at ?? st.stoppedAt
+      return { tone, label: statusLabel(st), detail: at ? relativeTime(at) : undefined, labelClass: 'text-destructive-foreground' }
+    }
     case 'busy':
       return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }
     case 'stopped':

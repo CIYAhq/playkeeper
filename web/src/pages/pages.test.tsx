@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Crash, MachineView, Me, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -16,6 +16,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  del: vi.fn(() => Promise.resolve({})),
 }))
 
 const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
@@ -210,12 +211,154 @@ describe('Overview', () => {
     expect(steps[2]?.querySelector('.text-destructive-foreground')).toBeNull()
   })
 
-  it('offers more memory after running out of it', async () => {
-    answer({ '/logs': { epoch: 'e', lines: [{ seq: 1, ts: '2026-09-25T18:52:57Z', text: '[18:52:57 ERROR]: java.lang.OutOfMemoryError: Java heap space' }], next: 1, truncated: false }, '/catalog': { memoryOptionsMB: [2048, 3072, 4096, 6144, 8192], maxMemoryMB: 8192, versions: [], types: [], servers: [] } })
-    const text = await render(<Overview server={server({ phase: 'crashed', crashCount: 2, exitCode: 1 })} />)
-    expect(text).toContain('It ran out of memory. Survival has 4 GB')
-    expect(text).toContain('Give Survival 6 GB')
-    expect(text).toContain('Playkeeper restarted it and it stopped each time')
+})
+
+describe('Crash helper', () => {
+  const crash = (over: Partial<Crash>): Crash => ({
+    at: new Date(Date.now() - 120_000).toISOString(),
+    start: false,
+    kind: 'unknown',
+    certain: true,
+    title: '',
+    explanation: '',
+    evidence: [],
+    fixes: [],
+    lines: [],
+    roomMB: 3584,
+    ...over,
+  })
+  const oom = crash({
+    kind: 'heap_out_of_memory',
+    params: { budget_mb: 4096, heap_mb: 3072 },
+    fixes: [
+      { kind: 'raise_memory', params: { from_mb: 4096, to_mb: 6144 }, title: 'Give it 6 GB instead of 4 GB', recommended: true },
+      { kind: 'restart', title: 'Start the server again' },
+    ],
+    lines: [
+      { time: '18:52:40', level: 'WARN', text: 'Can’t keep up! Is the server overloaded? Running 5210ms or 104 ticks behind' },
+      { time: '18:52:57', level: 'ERROR', text: 'java.lang.OutOfMemoryError: Java heap space' },
+      { time: '18:52:58', text: 'Stopping server' },
+    ],
+  })
+
+  const posts = () => vi.mocked(client.post).mock.calls.map(([path, body]) => [path.replace(/^.*\/servers\/[^/]+/, ''), body])
+  const labelled = (text: string) => [...document.querySelectorAll('label')].find((l) => l.textContent?.includes(text))
+  async function press(text: string) {
+    const b = [...document.querySelectorAll('button')].find((x) => x.textContent?.includes(text))
+    if (!b) throw new Error(`no button "${text}"`)
+    await act(async () => b.click())
+    await act(async () => {})
+  }
+
+  it('offers more memory after running out of it, and saves it before starting', async () => {
+    vi.mocked(client.post).mockClear()
+    const text = await render(<Overview server={server({ phase: 'crashed', crash: oom })} />)
+    expect(text).toContain('It ran out of its 4 GB of memory.')
+    expect(text).toContain('Give Survival 6 GBRecommended')
+    expect(text).toContain('Fits in the 3.5 GB free')
+    expect(text).toContain('Keep 4 GB and start again')
+    expect(text).toContain('java.lang.OutOfMemoryError: Java heap space')
+    expect(text).toContain('Stopping server')
+    await press('Save and start Survival')
+    expect(posts()).toEqual([
+      ['/settings', { memoryMB: 6144 }],
+      ['/start', undefined],
+    ])
+  })
+
+  it('explains a start that failed and removes the add-on it names', async () => {
+    vi.mocked(client.post).mockClear()
+    const plugin = crash({
+      start: true,
+      kind: 'addon_failed',
+      certain: false,
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.0.2.jar' },
+      fixes: [
+        { kind: 'update_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Update Multiverse-Portals-5.0.2.jar', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Remove Multiverse-Portals-5.0.2.jar' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: plugin })} />)
+    expect(text).toContain('Multiverse-Portals hit an error while starting.')
+    expect(text).toContain('Update Multiverse-PortalsComing later')
+    expect(text).not.toContain('Recommended')
+    expect(labelled('Update Multiverse-Portals')?.querySelector('[data-disabled]')).not.toBeNull()
+    expect(labelled('Remove Multiverse-Portals')?.querySelector('[data-checked]')).not.toBeNull()
+    await press('Remove and start Survival')
+    expect(posts()).toEqual([['/addons/remove', { jar: 'Multiverse-Portals-5.0.2.jar', start: true }]])
+  })
+
+  it('puts the damaged area back as the agent recommends, or restores the backup it names', async () => {
+    vi.mocked(client.post).mockClear()
+    const made = new Date()
+    made.setHours(0, 5, 0, 0)
+    const world = crash({
+      kind: 'corrupt_world',
+      certain: false,
+      params: { chunk_x: 64, chunk_z: -32 },
+      fixes: [
+        { kind: 'restart', title: 'Start the server again', recommended: true },
+        { kind: 'restore_backup', params: { backup_id: 'b20260925', made_at: made.toISOString() }, title: 'Restore the latest backup of the world' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'crashed', crash: world })} />)
+    expect(text).toContain('Part of the world is damaged, around x 1,024, z -512.')
+    expect(text).toContain('Rebuild just the damaged areaRecommended')
+    expect(text).toContain('Restore today’s 00:05 backup')
+    expect(text).toContain('Anything built after 00:05 is lost')
+    expect(text).not.toContain('Your current world is saved first')
+    await act(async () => labelled('Restore today’s')?.click())
+    expect(document.body.textContent).toContain('Your current world is saved first, so you can undo.')
+    vi.mocked(client.post).mockResolvedValueOnce({
+      id: 'r1',
+      serverId: 'abcdefghjk',
+      source: 'backup',
+      receivedAt: made.toISOString(),
+      sizeBytes: 2 ** 30,
+      sha256: 'a'.repeat(64),
+      compatible: true,
+      problems: [],
+      warnings: [],
+      currentWorld: { exists: true, levelName: 'world', sizeBytes: 2 ** 30 },
+      willCreateRollback: true,
+      needsEula: false,
+      memoryMB: 4096,
+      confirmPhrase: 'Survival',
+      steps: [],
+      notRestored: [],
+    } satisfies RestorePreview)
+    await press('Restore and start Survival')
+    expect(posts()).toEqual([['/backups/b20260925/restore', undefined]])
+    expect(document.body.textContent).toContain('Restore this backup?')
+  })
+
+  it('deletes the oldest backups it planned, then starts', async () => {
+    vi.mocked(client.post).mockClear()
+    vi.mocked(client.del).mockClear()
+    const disk = crash({
+      kind: 'disk_full',
+      params: { free_mb: 180, backups_mb: 18636, disk_mb: 81920 },
+      fixes: [{ kind: 'free_disk', params: { free_mb: 180, backup_ids: ['b1', 'b2'], backups: 2, frees_mb: 5530, keep: 3 }, title: 'Free up disk space', recommended: true }],
+    })
+    const text = await render(<Overview server={server({ phase: 'crashed', crash: disk })} />)
+    expect(text).toContain('my-vps ran out of disk space, so Survival stopped to keep the world safe.')
+    expect(text).toContain('Backups use 18.2 GB of the 80 GB disk.')
+    expect(text).toContain('Delete the 2 oldest backups')
+    expect(text).toContain('Frees 5.4 GB. The 3 newest stay.')
+    expect(text).toContain('I’ll make room myself')
+    await press('Delete 2 backups and start Survival')
+    expect(vi.mocked(client.del).mock.calls.map(([path]) => path.replace(/^.*\/servers\/[^/]+/, ''))).toEqual(['/backups/b1', '/backups/b2'])
+    expect(posts()).toEqual([['/start', undefined]])
+  })
+
+  it('falls back to the agent’s error when there is no diagnosis', async () => {
+    answer({ '/logs': { epoch: 'e', lines: [{ seq: 1, ts: '2026-09-25T18:52:57Z', text: '[18:52:57 ERROR]: Something broke' }], next: 1 } })
+    const text = await render(<Overview server={server({ phase: 'crashed', lastError: 'Pulling the server image failed.', lastErrorHint: 'Check the internet connection.' })} />)
+    expect(text).toContain('Pulling the server image failed.')
+    expect(text).toContain('Check the internet connection.')
+    expect(text).toContain('Something broke')
+    expect(text).toContain('Start Survival again')
+    expect(text).toContain('Start Survival')
   })
 })
 

@@ -57,6 +57,18 @@ export function phaseLabel(p: Phase): string {
   }
 }
 
+/** A server that is stopped with a crash to explain (its start failed) looks crashed. */
+export function statusTone(st: ServerStatus): Tone {
+  const tone = phaseTone(st.phase)
+  return tone === 'stopped' && st.crash ? 'crashed' : tone
+}
+
+/** "Crashed", "Couldn't start" when it never came up, or the phase. */
+export function statusLabel(st: ServerStatus): string {
+  if (statusTone(st) !== 'crashed') return phaseLabel(st.phase)
+  return st.crash?.start ? t('status.couldntStart') : t('status.crashed')
+}
+
 /** Is the server being set up for the first time (its create is running or failed)? */
 export function isSettingUp(st: ServerStatus): boolean {
   const op = st.operation ?? st.lastOperation
@@ -89,6 +101,7 @@ const opKeys: Record<string, MessageKey> = {
   'update-version': 'op.update-version',
   delete: 'op.delete',
   update: 'op.update',
+  'remove-addon': 'op.remove-addon',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */
