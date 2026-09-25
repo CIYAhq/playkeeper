@@ -3,9 +3,12 @@ package diagnose
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
 var memNow = time.Date(2026, 9, 25, 20, 0, 0, 0, time.UTC)
@@ -65,14 +68,14 @@ func TestAdviseMemory(t *testing.T) {
 		},
 		{
 			name: "two days are not enough to suggest less", in: memIn(8192, gcWindows(2, 0, 6144, 900, 1500)),
-			verdict: MemoryNotEnoughData, params: map[string]any{"days": 2, "min_days": 3, "min_span_days": 7, "peak_mb": 1500},
+			verdict: MemoryNotEnoughData, params: map[string]any{"days": 2, "min_days": 3, "min_span_days": 7, "peak_mb": 1500, "span_days": 2},
 			explanation: []string{"So far it has measurements from 2 days: it needed up to 1.5 GB, and it has 6 GB for the game."},
 			evidence:    []string{"Garbage collection was measured on 2 days of the last 2 days."},
 		},
 		{
 			name:    "a long history with only two days the server ran",
 			in:      memIn(8192, append(gcWindows(1, 0, 6144, 900, 1500), gcWindows(10, 9, 6144, 900, 1500)...)),
-			verdict: MemoryNotEnoughData, params: map[string]any{"days": 2},
+			verdict: MemoryNotEnoughData, params: map[string]any{"days": 2, "span_days": 10},
 			evidence: []string{"measured on 2 days of the last 10 days"},
 		},
 		{
@@ -194,6 +197,66 @@ func TestAdviseMemory(t *testing.T) {
 				t.Error(err)
 			}
 		})
+	}
+}
+
+// Settings › Memory puts a fit next to every budget it offers, under the
+// advice; the two must never disagree.
+func TestFitBudgets(t *testing.T) {
+	ladder := []int{1536, 2048, 3072, 4096, 6144, 8192, 12288, 16384}
+	fits := func(in MemoryInput) string {
+		var out []string
+		for i, f := range FitBudgets(in, ladder) {
+			out = append(out, fmt.Sprintf("%d:%s", ladder[i]/1024, f))
+		}
+		return strings.Join(out, " ")
+	}
+	evacuation := func(w *GCWindow) { w.EvacuationFailures = 1 }
+	fullGC := func(w *GCWindow) { w.FullGCs, w.MinAfterMB, w.MaxAfterMB = 1, 2700, 2950 }
+	tests := []struct {
+		name string
+		in   MemoryInput
+		want string
+	}{
+		{"nothing measured", memIn(4096, nil), "1: 2: 3: 4: 6: 8: 12: 16:"},
+		{"keeps 4 GB with room to spare", memIn(4096, gcWindows(14, 0, 3072, 900, 1740)),
+			"1:too_tight 2:too_tight 3:little_room 4:room_to_grow 6:more_than_needed 8:more_than_needed 12:more_than_needed 16:more_than_needed"},
+		{"lowers 8 GB to 6 GB", memIn(8192, gcWindows(14, 0, 6144, 1400, 2560)),
+			"1:too_tight 2:too_tight 3:too_tight 4:too_tight 6:room_to_grow 8:more_than_needed 12:more_than_needed 16:more_than_needed"},
+		{"raises 4 GB after a full collection", memIn(4096, changed(gcWindows(1, 0, 3072, 2100, 2800), 1, fullGC)),
+			"1:too_tight 2:too_tight 3:too_tight 4:too_tight 6:room_to_grow 8:more_than_needed 12:more_than_needed 16:more_than_needed"},
+		{"keeps a tight 4 GB", memIn(4096, gcWindows(14, 0, 3072, 1800, 2400)),
+			"1:too_tight 2:too_tight 3:too_tight 4:little_room 6:room_to_grow 8:more_than_needed 12:more_than_needed 16:more_than_needed"},
+		{"ran short once at 8 GB", memIn(8192, changed(gcWindows(14, 0, 6144, 1000, 1600), 10, evacuation)),
+			"1:too_tight 2:too_tight 3:too_tight 4:too_tight 6:too_tight 8:little_room 12:room_to_grow 16:more_than_needed"},
+	}
+	for _, tt := range tests {
+		if got := fits(tt.in); got != tt.want {
+			t.Errorf("%s (%s):\n got %s\nwant %s", tt.name, AdviseMemory(tt.in).Verdict, got, tt.want)
+		}
+	}
+
+	for _, budget := range ladder[:6] {
+		for peak := 200; peak <= 6000; peak += 100 {
+			for _, ws := range [][]GCWindow{
+				gcWindows(14, 0, minecraft.HeapMB(budget), peak/2, peak),
+				changed(gcWindows(14, 0, minecraft.HeapMB(budget), peak/2, peak), 3, fullGC),
+			} {
+				in := memIn(budget, ws)
+				a, got := AdviseMemory(in), FitBudgets(in, ladder)
+				fit := func(mb int) MemoryFit { return got[slices.Index(ladder, mb)] }
+				switch {
+				case a.Verdict == MemoryLower && fit(a.Params["to_mb"].(int)) != FitRoomToGrow:
+					t.Errorf("%d MB, peak %d: lowers to %v, which fits %s", budget, peak, a.Params["to_mb"], fit(a.Params["to_mb"].(int)))
+				case a.Verdict == MemoryKeep && (a.Params["reason"] == KeepFits || a.Params["reason"] == KeepSmallest) && fit(budget) != FitRoomToGrow:
+					t.Errorf("%d MB, peak %d: keeps it with room to spare, but it fits %s", budget, peak, fit(budget))
+				case a.Verdict == MemoryKeep && fit(budget) == FitTooTight:
+					t.Errorf("%d MB, peak %d: keeps a budget that is too tight", budget, peak)
+				case a.Verdict == MemoryRaise && fit(budget) != FitTooTight:
+					t.Errorf("%d MB, peak %d: raises a budget that fits %s", budget, peak, fit(budget))
+				}
+			}
+		}
 	}
 }
 

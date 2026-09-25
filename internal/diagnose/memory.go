@@ -205,6 +205,50 @@ func nextSmaller(budgetMB int) (int, bool) {
 	return 0, false
 }
 
+// MemoryFit is how a budget would suit a server's recent history.
+type MemoryFit string
+
+const (
+	FitTooTight       MemoryFit = "too_tight"        // it ran short with this much, or its busiest moment would fill the heap
+	FitLittleRoom     MemoryFit = "little_room"      // its busiest moment would take most of the heap
+	FitRoomToGrow     MemoryFit = "room_to_grow"     // the smallest budget with room to spare
+	FitMoreThanNeeded MemoryFit = "more_than_needed" // larger than that
+)
+
+// FitBudgets says how each of budgets, in ascending order, would suit the
+// history AdviseMemory reads, in agreement with it: the budget it lowers to,
+// or keeps with room to spare, is the one with room to grow, and the budget
+// it raises, with every smaller one, is too tight. Without measurements every
+// fit is "".
+func FitBudgets(in MemoryInput, budgets []int) []MemoryFit {
+	out := make([]MemoryFit, len(budgets))
+	if in.BudgetMB <= 0 {
+		return out
+	}
+	h := readMemoryHistory(in, minecraft.HeapMB(in.BudgetMB))
+	if h.windows == 0 {
+		return out
+	}
+	peak, roomy := float64(h.peakMB), false
+	for i, b := range budgets {
+		heap := minecraft.HeapMB(b)
+		switch {
+		case heap <= h.tooSmallMB,
+			b <= in.BudgetMB && (h.fullGCs > 0 || h.short >= 2),
+			b < in.BudgetMB && h.short > 0,
+			b != in.BudgetMB && peak > pressureShare*float64(heap):
+			out[i] = FitTooTight
+		case peak > comfortableShare*float64(heap), b == in.BudgetMB && h.short > 0:
+			out[i] = FitLittleRoom
+		case !roomy:
+			out[i], roomy = FitRoomToGrow, true
+		default:
+			out[i] = FitMoreThanNeeded
+		}
+	}
+	return out
+}
+
 func notEnoughMemoryData(h memoryHistory, heap int) MemoryAdvice {
 	a := MemoryAdvice{
 		Verdict: MemoryNotEnoughData, Title: "Not enough data yet",
@@ -214,7 +258,7 @@ func notEnoughMemoryData(h memoryHistory, heap int) MemoryAdvice {
 		a.Explanation = "Playkeeper hasn't measured how much memory the server needs yet."
 		return a
 	}
-	a.Params["peak_mb"], a.Params["heap_mb"] = h.peakMB, heap
+	a.Params["peak_mb"], a.Params["heap_mb"], a.Params["span_days"] = h.peakMB, heap, h.periodDays()
 	a.Explanation = fmt.Sprintf("Playkeeper suggests a different budget once it has a week of measurements that include at least %d days the server ran. "+
 		"So far it has measurements from %d %s: it needed up to %s, and it has %s for the game.",
 		memoryMinDays, h.days, plural(h.days, "day", "days"), sizeText(h.peakMB), sizeText(heap))

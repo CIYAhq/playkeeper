@@ -520,6 +520,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/kick", srv((*server).hKick)},
 		{"GET", "/v1/servers/{id}/metrics", srv((*server).hMetrics)},
 		{"GET", "/v1/servers/{id}/running", srv((*server).hRunning)},
+		{"GET", "/v1/servers/{id}/memory", srv((*server).hMemory)},
 		{"GET", "/v1/servers/{id}/players/sessions", srv((*server).hSessions)},
 		{"GET", "/v1/servers/{id}/players/summary", srv((*server).hSummary)},
 		{"GET", "/v1/servers/{id}/events", srv((*server).hEvents)},

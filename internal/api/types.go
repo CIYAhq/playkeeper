@@ -483,6 +483,43 @@ type Running struct {
 	Players     *int       `json:"players,omitempty"`
 }
 
+// MemoryAdvice is whether a server's memory budget fits the heap it had in
+// use after garbage collection in the last 14 days.
+type MemoryAdvice struct {
+	Verdict     string              `json:"verdict"` // lower | raise | keep | not_enough_data
+	Params      map[string]any      `json:"params,omitempty"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Actions     []DiagnosisAction   `json:"actions"`
+	BudgetMB    int                 `json:"budgetMB"`
+	HeapMB      int                 `json:"heapMB"`
+	// RecommendedMB is the budget to keep, lower or raise to; 0 without one.
+	RecommendedMB int `json:"recommendedMB,omitempty"`
+	// FromNextStart: the server runs in a container made before memory was
+	// measured, so measuring starts at its next start.
+	FromNextStart bool `json:"fromNextStart,omitempty"`
+	// Days are the last 14 days in the time zone asked for, oldest first.
+	Days    []MemoryDay    `json:"days"`
+	Options []MemoryOption `json:"options"`
+}
+
+type MemoryDay struct {
+	Date string `json:"date"` // YYYY-MM-DD
+	// PeakMB is the most heap in use after a collection that day; 0 unmeasured.
+	PeakMB int `json:"peakMB"`
+}
+
+// MemoryOption is a budget the server could have.
+type MemoryOption struct {
+	MemoryMB int  `json:"memoryMB"`
+	HeapMB   int  `json:"heapMB"`
+	Fits     bool `json:"fits"` // the machine has room for it
+	// Fit is too_tight, little_room, room_to_grow or more_than_needed, and
+	// empty until there is enough history to judge.
+	Fit string `json:"fit,omitempty"`
+}
+
 type Gap struct {
 	From time.Time `json:"from"`
 	To   time.Time `json:"to"`
