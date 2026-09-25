@@ -3,11 +3,14 @@ package packs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // changingReaderAt reads b, whose middle byte changes at read number
@@ -215,6 +218,31 @@ func TestList(t *testing.T) {
 	wantCode(t, func() error { _, err := (DataPacks{DataDir: d.DataDir, Level: "../x"}).List(); return err }(), CodeInvalidLevel)
 	_, err = DataPacks{DataDir: filepath.Join(d.DataDir, "missing"), Level: "world"}.List()
 	wantCode(t, err, CodeFileFailed)
+}
+
+// The game can replace the datapacks folder with a named pipe, which would
+// hold List in open(2) until something writes to it.
+func TestListDoesNotWaitOnAPipe(t *testing.T) {
+	d := DataPacks{DataDir: t.TempDir(), Level: "world"}
+	pipe := filepath.Join(d.DataDir, "world", "datapacks")
+	if err := errors.Join(os.Mkdir(filepath.Dir(pipe), 0o755), syscall.Mkfifo(pipe, 0o644)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.List()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		wantCode(t, err, CodeFileFailed)
+	case <-time.After(5 * time.Second):
+		if fd, err := syscall.Open(pipe, syscall.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			syscall.Close(fd)
+		}
+		<-done
+		t.Fatal("List waited on the pipe")
+	}
 }
 
 func TestRemove(t *testing.T) {

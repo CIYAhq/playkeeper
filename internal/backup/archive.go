@@ -151,7 +151,7 @@ var secretProperties = []string{"rcon.password=", "management-server-secret="}
 
 // LevelName reads level-name from server.properties (default "world").
 func LevelName(dataDir string) string {
-	b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))
+	b, err := readProperties(dataDir)
 	if err != nil {
 		return "world"
 	}

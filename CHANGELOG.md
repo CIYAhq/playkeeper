@@ -4,9 +4,14 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.0
 
+- A Plugins tab, called Mods on Fabric, Quilt and NeoForge servers: search Modrinth and Hangar in one list that only shows what works on your server, install with the dependencies it needs, update one or all, and remove with or without its settings. Every download is checked against the checksum its library publishes before it goes in the folder. Plugins you added by hand are listed too, and Playkeeper can take over the ones the library recognises.
 - More server types: Vanilla, Fabric, Quilt, NeoForge and Purpur alongside Paper, each downloaded from its project and checked against the checksum it publishes.
 - Modpacks from Modrinth, and from CurseForge with your own free key: browse them, see what's inside, and create a server from one, with each file checked as it downloads.
 - Share a server as a template, a file or a link with its type, version, settings and add-ons (names and versions only, never files or code), and create a server from one someone shared. The template's data packs download only over HTTPS from public websites and must match their checksums.
+
+## 0.3.1
+
+- Security fix: Playkeeper no longer follows links that a plugin or mod puts in a server's files, which could make it overwrite or read other files on the machine, including its own. If one is in the way, Playkeeper stops and says which file to remove.
 
 ## 0.3.0
 

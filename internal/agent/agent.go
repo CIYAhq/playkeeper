@@ -606,6 +606,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/servers/{id}/addons/project/{source}/{project}", srv((*server).hAddonDetails)},
 		{"GET", "/v1/servers/{id}/addons/project/{source}/{project}/removal", srv((*server).hAddonRemovePreview)},
 		{"POST", "/v1/servers/{id}/addons/install", srv((*server).hAddonInstall)},
+		{"POST", "/v1/servers/{id}/addons/update/plan", srv((*server).hAddonUpdatePlan)},
 		{"POST", "/v1/servers/{id}/addons/update", srv((*server).hAddonUpdate)},
 		{"POST", "/v1/servers/{id}/addons/remove", srv((*server).hAddonRemove)},
 		{"POST", "/v1/servers/{id}/addons/adopt", srv((*server).hAddonAdopt)},

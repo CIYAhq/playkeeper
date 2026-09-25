@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
 )
@@ -115,8 +114,8 @@ func (l *Library) apply(ctx context.Context, srv Server, p *Plan, progress func(
 		return nil, err
 	}
 	defer root.Close()
-	tx := &txn{root: root, t: p.Target, owner: srv.Owner}
-	if err := tx.run(p.Steps, staged); err != nil {
+	tx := &txn{root: root, t: p.Target, owner: srv.Owner, max: max}
+	if err := tx.run(ctx, p.Steps, staged); err != nil {
 		tx.rollback()
 		return nil, err
 	}
@@ -140,17 +139,18 @@ type txn struct {
 	root   *os.Root
 	t      Target
 	owner  *Owner
+	max    int64 // the largest file hashed for a record without a size
 	placed []string
 	moved  [][2]string // original name, hidden name
 }
 
-func (tx *txn) run(steps []Step, staged []string) error {
+func (tx *txn) run(ctx context.Context, steps []Step, staged []string) error {
 	for _, s := range steps {
 		old := s.Replaces
 		if old == nil || !validFileName(old.FileName) {
 			continue
 		}
-		if err := tx.check(*old, s.replaceChanged); errors.Is(err, fs.ErrNotExist) {
+		if err := tx.check(ctx, *old, s.replaceChanged); errors.Is(err, fs.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return err
@@ -176,28 +176,27 @@ func (tx *txn) run(steps []Step, staged []string) error {
 // check refuses to replace old's file when it changed since the install,
 // unless the user agreed to replace a changed file; a folder or link in its
 // place is refused either way.
-func (tx *txn) check(old Installed, changed bool) error {
-	if changed {
-		fi, err := tx.root.Lstat(old.FileName)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			return err
-		case err != nil:
-			return folderError(tx.t, err)
-		case !fi.Mode().IsRegular():
-			return &Error{Notice: modified(old, "replace"), Err: errNotRegular}
-		}
-		return nil
-	}
-	sums, size, err := sumFile(tx.root, old.FileName, old.HashAlgo)
+func (tx *txn) check(ctx context.Context, old Installed, changed bool) error {
+	f, st, err := openFile(tx.root, old.FileName)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return err
-	case !validHash(old.HashAlgo, old.Hash) || errors.Is(err, errNotRegular):
+	case errors.Is(err, errNotRegular):
 		return &Error{Notice: modified(old, "replace"), Err: err}
 	case err != nil:
 		return folderError(tx.t, err)
-	case sums[old.HashAlgo] != strings.ToLower(old.Hash) || old.Size > 0 && size != old.Size:
+	}
+	defer f.Close()
+	if changed {
+		return nil
+	}
+	same, err := unchanged(ctx, f, st.Size(), old, tx.max)
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case err != nil:
+		return folderError(tx.t, err)
+	case !same:
 		return &Error{Notice: modified(old, "replace")}
 	}
 	return nil

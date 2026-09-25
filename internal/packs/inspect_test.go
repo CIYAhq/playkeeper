@@ -24,6 +24,19 @@ import (
 	"testing/iotest"
 )
 
+// The sizes and signatures of a zip's end records, for tests that damage
+// them.
+const (
+	directoryEndLen         = 22
+	directory64LocLen       = 20
+	directory64EndLen       = 56
+	directory64LocSignature = 0x07064b50
+	directory64EndSignature = 0x06064b50
+)
+
+func le16(b []byte) uint16 { return binary.LittleEndian.Uint16(b) }
+func le32(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
+
 func withMode(mode fs.FileMode) func(*zip.FileHeader) {
 	return func(fh *zip.FileHeader) { fh.SetMode(mode) }
 }

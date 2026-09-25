@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 )
 
@@ -154,8 +157,11 @@ func TestResourcePacksAreServedWithoutSignIn(t *testing.T) {
 	if r.StatusCode != 200 || body != "pack A" {
 		t.Fatalf("an offered pack: %d %q", r.StatusCode, body)
 	}
-	if r.Header.Get("Content-Type") != "application/zip" || r.Header.Get("Cache-Control") != "no-store" {
+	if r.Header.Get("Content-Type") != "application/zip" || r.Header.Get("Cache-Control") != packCache {
 		t.Errorf("an offered pack's headers: %v", r.Header)
+	}
+	if r, _ := get(t, c, "GET", e.ts.URL+"/resource-packs/"+sumA+".zip", map[string]string{"If-None-Match": `"` + sumA + `"`}); r.StatusCode != http.StatusNotModified || r.Header.Get("Cache-Control") != packCache {
+		t.Errorf("a cache asking again: %d %v", r.StatusCode, r.Header)
 	}
 	if r, body := get(t, c, "HEAD", e.ts.URL+"/resource-packs/"+sumA+".zip", nil); r.StatusCode != 200 || body != "" || r.ContentLength != 6 {
 		t.Errorf("HEAD: %d %q length %d", r.StatusCode, body, r.ContentLength)
@@ -268,7 +274,7 @@ func guarded(limits publicLimits, hold chan struct{}) (*publicGroup, *clock) {
 		}
 		io.WriteString(w, "ok")
 	})
-	return newPublicGroup([]publicRoute{{"/t/", limits, h}}, clk.now), clk
+	return newPublicGroup([]publicRoute{{prefix: "/t/", limits: limits, handler: h}}, clk.now), clk
 }
 
 func hit(g *publicGroup, remote, target string, hdr map[string]string) *httptest.ResponseRecorder {
@@ -357,7 +363,7 @@ func TestPublicDownloadsDropClientsThatStopReading(t *testing.T) {
 			}
 		}
 	})
-	g := newPublicGroup([]publicRoute{{"/t/", publicLimits{perMinute: 10, open: 2, download: true, read: time.Second, write: time.Minute, stall: 100 * time.Millisecond}, h}}, time.Now)
+	g := newPublicGroup([]publicRoute{{prefix: "/t/", limits: publicLimits{perMinute: 10, open: 2, download: true, read: time.Second, write: time.Minute, stall: 100 * time.Millisecond}, handler: h}}, time.Now)
 	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil)), public: g}
 	ts := httptest.NewServer(s.logRequests(g.handler("/t/")))
 	defer ts.Close()
@@ -381,6 +387,104 @@ func TestPublicDownloadsDropClientsThatStopReading(t *testing.T) {
 			t.Fatal("the stalled download's slot was never freed")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// What is unknown, switched off or on a stopped server must look alike to
+// someone without a sign-in: the same 404, headers and body, and no sooner
+// than an answer the agent was asked for.
+func TestPublicRoutesAnswerOneNotFound(t *testing.T) {
+	answered := make(chan struct{}, 1)
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Route", "set by the route")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		switch r.URL.Path {
+		case "/t/unknown":
+			http.NotFound(w, r)
+		case "/t/off":
+			time.Sleep(20 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusGone)
+			io.WriteString(w, `{"error":"The map is switched off."}`)
+		case "/t/private":
+			http.Error(w, "Forbidden", http.StatusForbidden)
+		case "/t/stopped":
+			w.Header().Set("Retry-After", "5")
+			writeErr(w, http.StatusServiceUnavailable, api.CodeAgentUnavailable, "The server is stopped.", "")
+		case "/t/slot":
+			answered <- struct{}{}
+			http.NotFound(w, r)
+		default:
+			io.WriteString(w, "ok")
+		}
+	})
+	g := newPublicGroup([]publicRoute{{prefix: "/t/", limits: publicLimits{perMinute: 100, open: 8, download: true, read: time.Second, write: time.Second}, handler: h}}, time.Now)
+	var first *httptest.ResponseRecorder
+	for _, p := range []string{"/t/unknown", "/t/off", "/t/private", "/t/stopped"} {
+		start := time.Now()
+		rec := hit(g, "192.0.2.10:1000", p, nil)
+		if took := time.Since(start); rec.Code != http.StatusNotFound || took < publicNotFoundAfter {
+			t.Errorf("%s: %d after %v, want 404 after at least %v", p, rec.Code, took, publicNotFoundAfter)
+		}
+		if first == nil {
+			first = rec
+		} else if rec.Body.String() != first.Body.String() || !reflect.DeepEqual(rec.Header(), first.Header()) {
+			t.Errorf("%s answered %v %q, not the same 404 as %v %q", p, rec.Header(), rec.Body, first.Header(), first.Body)
+		}
+	}
+	if first.Header().Get("Cache-Control") != "no-store" || first.Header().Get("X-Route") != "" {
+		t.Errorf("the 404's headers: %v", first.Header())
+	}
+	if rec := hit(g, "192.0.2.10:1000", "/t/file", nil); rec.Code != 200 || rec.Body.String() != "ok" || rec.Header().Get("X-Route") == "" {
+		t.Errorf("an answer the route gives: %d %v %q", rec.Code, rec.Header(), rec.Body)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hit(g, "192.0.2.11:1000", "/t/slot", nil)
+	}()
+	<-answered
+	for deadline := time.Now().Add(publicNotFoundAfter / 2); len(g.downloads) != 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("a 404 holds its download slot while it waits")
+		}
+	}
+	<-done
+}
+
+// Only a route's successful answers may be cached, and only when the route
+// says so, whatever its handler sets.
+func TestPublicRoutesCacheOnlyWhatTheyMay(t *testing.T) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=86400")
+		switch path.Base(r.URL.Path) {
+		case "partial":
+			w.WriteHeader(http.StatusPartialContent)
+		case "same":
+			w.WriteHeader(http.StatusNotModified)
+		case "moved":
+			http.Redirect(w, r, "/", http.StatusFound)
+		case "range":
+			http.Error(w, "Requested Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
+		default:
+			io.WriteString(w, "ok")
+		}
+	})
+	limits := publicLimits{perMinute: 100, open: 8, read: time.Second, write: time.Second}
+	g := newPublicGroup([]publicRoute{
+		{prefix: "/t/", limits: limits, handler: h},
+		{prefix: "/c/", limits: limits, cache: packCache, handler: h},
+	}, time.Now)
+	for p, want := range map[string]string{
+		"/c/file": packCache, "/c/partial": packCache, "/c/same": packCache, "/c/moved": "no-store", "/c/range": "no-store",
+		"/t/file": "no-store", "/t/partial": "no-store", "/t/moved": "no-store",
+	} {
+		rec := httptest.NewRecorder()
+		g.handler(p[:3]).ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
+		if got := rec.Header().Get("Cache-Control"); got != want {
+			t.Errorf("%s: Cache-Control %q, want %q", p, got, want)
+		}
 	}
 }
 
