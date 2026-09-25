@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ExternalLinkIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Operation, RestorePreview, ServerStatus } from '@/api/types'
+import type { Operation, RestorePreview, ServerStatus, WorldImport, WorldImportPreview } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
@@ -11,6 +11,7 @@ import { createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySli
 import { PhoneActions } from '@/components/app/frame'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
+import { checkError, defaultWorld, sourceFrom, StartFromControl, suggestedName, uploadName, useWorldUpload, versionChange, WorldCheck, WorldSourceStep, type CheckError, type StartFrom, type WorldSource, type WorldUploadState } from '@/components/app/world-import'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,11 @@ const stepKeys: MessageKey[] = ['new.step.type', 'new.step.version', 'new.step.s
 const nextKeys: MessageKey[] = ['new.nextVersion', 'new.nextStyle', 'new.nextMemory', 'new.nextName']
 const continueKeys: MessageKey[] = ['new.continueVersion', 'new.continueStyle', 'new.continueMemory', 'new.continueName']
 const noteKeys: MessageKey[] = ['new.note.type', 'new.note.version', 'new.note.version', 'new.note.memory', 'new.note.name']
+// Starting from a world, step 2 checks the upload and play style is skipped: the world keeps its own game rules.
+const worldStepKeys: Partial<Record<number, { next: MessageKey; button: MessageKey; note: MessageKey }>> = {
+  0: { next: 'import.nextCheck', button: 'import.check', note: 'import.footnote' },
+  1: { next: 'import.nextMemory', button: 'import.continueMemory', note: 'import.footnoteCheck' },
+}
 
 /** Waits for a new server to show up in the list, then opens it. */
 async function openCreated(op: Operation, refresh: () => Promise<void>) {
@@ -43,6 +49,13 @@ async function openCreated(op: Operation, refresh: () => Promise<void>) {
   navigate({ name: 'home' })
 }
 
+/** What the check found in an upload, for the world picked in it. */
+interface Checked {
+  upload: WorldImport
+  preview: WorldImportPreview
+  world?: string
+}
+
 export function NewServerPage() {
   const ws = useWorkspace()
   const phone = useIsPhone()
@@ -54,6 +67,17 @@ export function NewServerPage() {
   const [createError, setCreateError] = useState<string>()
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [preview, setPreview] = useState<RestorePreview>()
+  const [from, setFrom] = useState<StartFrom>(() => (window.location.hash === '#world' ? 'world' : 'type'))
+  const [source, setSource] = useState<WorldSource>('singleplayer')
+  const upload = useWorldUpload(ws.machine?.id)
+  const [check, setCheck] = useState<Checked>()
+  const [checkBusy, setCheckBusy] = useState(false)
+  const [checkErr, setCheckErr] = useState<CheckError>()
+  const checkSeq = useRef(0)
+  const world = from === 'world'
+  const uploaded = upload.state.phase === 'done' ? upload.state : undefined
+  // A check belongs to one upload: choosing another file starts over.
+  const inspected = check && uploaded && check.upload.id === uploaded.upload.id ? check : undefined
 
   useEffect(() => {
     if (!catalog || c) return
@@ -70,6 +94,18 @@ export function NewServerPage() {
 
   function canContinue(): boolean {
     if (!c) return false
+    if (world) {
+      switch (step) {
+        case 0:
+          return !!uploaded && !checkBusy
+        case 1:
+          return !!inspected && !checkBusy && !inspected.preview.preview.problems?.length
+        case 3:
+          return !noMemory && c.memoryMB > 0
+        default:
+          return c.eula && c.name.trim().length > 0
+      }
+    }
     switch (step) {
       case 0:
         return c.type === 'paper'
@@ -85,11 +121,23 @@ export function NewServerPage() {
   }
 
   async function create() {
-    if (!c || !ws.machine) return
+    if (!c || !ws.machine || (world && !inspected)) return
     setBusy(true)
     setCreateError(undefined)
     try {
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), createRequest(c))
+      let op: Operation
+      if (world && inspected) {
+        op = await post<Operation>(machineApi(ws.machine.id, `/world-imports/${inspected.upload.id}/create`), {
+          options: { world: inspected.world ?? '', keepAddons: false, keepPlayerLists: false, keepOperators: false },
+          versionId: inspected.preview.versionId,
+          name: c.name.trim(),
+          memoryMB: c.memoryMB,
+          acceptEula: c.eula,
+        })
+        upload.keep()
+      } else {
+        op = await post<Operation>(machineApi(ws.machine.id, '/servers'), createRequest(c))
+      }
       await openCreated(op, ws.refresh)
     } catch (e) {
       setCreateError(errorText(e))
@@ -99,8 +147,70 @@ export function NewServerPage() {
     }
   }
 
-  const next = () => (step === 4 ? void create() : setStep((s) => s + 1))
-  const back = () => setStep((s) => Math.max(0, s - 1))
+  /** Looks inside the upload, then previews its main world on the recommended version. */
+  async function checkWorld() {
+    if (!ws.machine || !uploaded || !catalog) return
+    const mid = ws.machine.id
+    const seq = ++checkSeq.current
+    setCheckBusy(true)
+    setCheckErr(undefined)
+    try {
+      const imp = await post<WorldImport>(machineApi(mid, `/world-imports/${uploaded.upload.id}/inspect`))
+      const id = defaultWorld(imp)
+      const p = await post<WorldImportPreview>(machineApi(mid, `/world-imports/${imp.id}/preview`), { options: { world: id ?? '' } })
+      if (seq !== checkSeq.current) return
+      setCheck({ upload: imp, preview: p, world: id })
+      const name = suggestedName(imp, id, uploaded.files)
+      setC((prev) => prev && { ...prev, memoryMB: worldMemory(p), ...(nameEdited || !name ? {} : { name: freeName(name, ws.servers) }) })
+      setStep(1)
+    } catch (e) {
+      if (seq === checkSeq.current) setCheckErr(checkError(e))
+    } finally {
+      if (seq === checkSeq.current) setCheckBusy(false)
+    }
+  }
+
+  /** Previews another world in the upload, or another version. */
+  async function repreview(id: string, versionId?: string) {
+    if (!ws.machine || !inspected || !uploaded) return
+    const imp = inspected.upload
+    const seq = ++checkSeq.current
+    setCheckBusy(true)
+    setCheckErr(undefined)
+    try {
+      const p = await post<WorldImportPreview>(machineApi(ws.machine.id, `/world-imports/${imp.id}/preview`), { options: { world: id }, ...(versionId ? { versionId } : {}) })
+      if (seq !== checkSeq.current) return
+      setCheck({ upload: imp, preview: p, world: id })
+      const name = suggestedName(imp, id, uploaded.files)
+      if (!versionId && !nameEdited && name) update({ name: freeName(name, ws.servers) })
+    } catch (e) {
+      if (seq === checkSeq.current) setCheckErr(checkError(e))
+    } finally {
+      if (seq === checkSeq.current) setCheckBusy(false)
+    }
+  }
+
+  /** The memory the agent suggests for the world, when this machine offers it. */
+  function worldMemory(p: WorldImportPreview | undefined): number {
+    return p?.memoryMB && options.includes(p.memoryMB) ? p.memoryMB : styleMemory(catalog, c?.style ?? 'friends')
+  }
+
+  function pickFrom(v: StartFrom) {
+    checkSeq.current++
+    setCheckBusy(false)
+    setFrom(v)
+    window.history.replaceState(null, '', v === 'world' ? '#world' : window.location.pathname)
+  }
+
+  function next() {
+    if (world && step === 0) {
+      if (inspected) setStep(1)
+      else void checkWorld()
+    } else if (world && step === 1) setStep(3)
+    else if (step === 4) void create()
+    else setStep((s) => s + 1)
+  }
+  const back = () => setStep((s) => (world && s === 3 ? 1 : Math.max(0, s - 1)))
   const stepTitles = stepKeys.map((k) => t(k))
 
   let body: ReactNode
@@ -123,57 +233,81 @@ export function NewServerPage() {
     body = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
   } else {
     switch (step) {
-      case 0:
+      case 0: {
+        const typeCards = <TypeCards catalog={catalog} value={c.type} onChange={(type) => update({ type })} phone={phone} />
+        const worldStep = <WorldSourceStep source={source} onSource={setSource} upload={upload} phone={phone} error={checkErr} />
         body = (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-6 max-sm:gap-3.5">
             {phone ? (
               <>
                 <div>
-                  <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.typeQuestion')}</h1>
-                  <p className="mt-1 text-[15px] text-muted-foreground">{t('new.typeLeadPhone')}</p>
+                  <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{world ? t('import.titlePhone') : t('new.typeQuestion')}</h1>
+                  <p className="mt-1 text-[15px] text-muted-foreground">{world ? t('import.checkedPhone') : t('new.typeHint')}</p>
                 </div>
                 <GameCard phone />
+                <StartFromControl value={from} onChange={pickFrom} phone />
+                {world ? (
+                  worldStep
+                ) : (
+                  <section>
+                    <div className="mb-3 flex justify-end">
+                      <a href={t('new.differenceUrl')} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
+                        {t('new.difference')}
+                        <ChevronRightIcon className="size-4" aria-hidden="true" />
+                      </a>
+                    </div>
+                    {typeCards}
+                  </section>
+                )}
               </>
             ) : (
-              <section>
-                <h2 className="text-[15px] font-semibold">
-                  {t('new.game')} <span className="ml-1 text-[13px] font-normal text-muted-foreground">{t('new.gameHint')}</span>
-                </h2>
-                <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-                  <GameCard />
-                  <div className="flex items-center gap-3 rounded-2xl border border-dashed border-input bg-warm px-4 py-3 text-muted-foreground">
-                    <Gamepad2Icon className="size-5" aria-hidden="true" />
-                    <span>
-                      <span className="block text-sm font-semibold text-foreground/80">{t('new.moreGames')}</span>
-                      <span className="block text-xs">{t('new.moreGamesHint')}</span>
-                    </span>
+              <>
+                <section>
+                  <h2 className="text-[15px] font-semibold">{t('new.game')}</h2>
+                  <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                    <GameCard />
+                    <div className="flex items-center gap-3 rounded-2xl border border-dashed border-input bg-warm px-4 py-3 text-muted-foreground">
+                      <Gamepad2Icon className="size-5" aria-hidden="true" />
+                      <span className="text-sm font-semibold text-foreground/80">{t('new.moreGames')}</span>
+                    </div>
                   </div>
-                </div>
-              </section>
+                </section>
+                <section>
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-[15px] font-semibold">{t('new.startFrom')}</h2>
+                    <StartFromControl value={from} onChange={pickFrom} />
+                  </div>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    {world ? (
+                      t('import.checked')
+                    ) : (
+                      <>
+                        {t('new.typeHint')}{' '}
+                        <a href={t('new.differenceUrl')} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+                          {t('new.difference')}
+                        </a>
+                      </>
+                    )}
+                  </p>
+                  <div key={from} className="mt-4 animate-in duration-200 fade-in-0">
+                    {world ? worldStep : typeCards}
+                  </div>
+                </section>
+              </>
             )}
-            <section>
-              {phone ? (
-                <div className="section-label mb-2">{t('new.typeTitle')}</div>
-              ) : (
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <h2 className="text-[15px] font-semibold">{t('new.typeTitle')}</h2>
-                    <p className="mt-0.5 text-[13px] text-muted-foreground">{t('new.typeHint')}</p>
-                  </div>
-                  <a href={t('new.differenceUrl')} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
-                    {t('new.difference')}
-                    <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-                  </a>
-                </div>
-              )}
-              <div className={phone ? '' : 'mt-3'}>
-                <TypeCards catalog={catalog} value={c.type} onChange={(type) => update({ type })} phone={phone} />
-              </div>
-            </section>
           </div>
         )
         break
+      }
       case 1:
+        if (world) {
+          body = inspected ? (
+            <WorldCheck check={inspected.preview} upload={inspected.upload} world={inspected.world} onWorld={(id) => void repreview(id)} onVersion={(id) => void repreview(inspected.world ?? '', id)} busy={checkBusy} phone={phone} error={checkErr} />
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          )
+          break
+        }
         body = (
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -228,13 +362,15 @@ export function NewServerPage() {
         )
         break
       case 3: {
-        const suggested = styleMemory(catalog, c.style)
+        const suggested = world ? worldMemory(inspected?.preview) : styleMemory(catalog, c.style)
         const others = catalog.servers.filter((x) => !x.running)
         body = (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
+                {world ? t('import.memoryLead', { memory: formatMB(suggested) }) : t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}
+              </p>
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
@@ -253,7 +389,7 @@ export function NewServerPage() {
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
                     </div>
                   </div>
                   {c.memoryMB === options[options.length - 1] && <p className="mt-4 text-xs text-muted-foreground">{t('new.maxNote')}</p>}
@@ -284,10 +420,12 @@ export function NewServerPage() {
                 className="max-w-[360px] max-sm:max-w-none"
               />
             </label>
-            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
-              {t('new.motdLabel')}
-              <Input value={c.motd} onChange={(e) => update({ motd: e.target.value })} maxLength={59} placeholder={c.name || t('new.motdPlaceholder')} autoComplete="off" className="max-w-[360px] max-sm:max-w-none" />
-            </label>
+            {!world && (
+              <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+                {t('new.motdLabel')}
+                <Input value={c.motd} onChange={(e) => update({ motd: e.target.value })} maxLength={59} placeholder={c.name || t('new.motdPlaceholder')} autoComplete="off" className="max-w-[360px] max-sm:max-w-none" />
+              </label>
+            )}
             <EulaCheck checked={c.eula} onChange={(eula) => update({ eula })} className="mt-2 rounded-2xl border border-border p-3.5 max-sm:bg-white" />
             {createError && (
               <p className="text-[13px] text-destructive-foreground" role="alert">
@@ -299,7 +437,9 @@ export function NewServerPage() {
     }
   }
 
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} />
+  const worldSummary = world ? { from: sourceFrom(source), name: upload.state.phase === 'idle' ? '' : uploadName(upload.state.files), upload: upload.state, version: inspected ? versionChange(inspected.preview) : '' } : undefined
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} world={worldSummary} />
+  const worldKeys = world ? worldStepKeys[step] : undefined
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
@@ -360,10 +500,10 @@ export function NewServerPage() {
           ))}
         </div>
         {body}
-        <div className="mt-6">{restoreLink}</div>
+        {!world && <div className="mt-6">{restoreLink}</div>}
         <PhoneActions>
-          <Button size="touch" onClick={next} disabled={!canContinue()} loading={busy}>
-            {step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 ? t('new.continueVersion') : t('common.continue')}
+          <Button size="touch" onClick={next} disabled={!canContinue()} loading={busy || checkBusy}>
+            {step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : world && step === 0 ? t('import.check') : step === 0 ? t('new.continueVersion') : t('common.continue')}
             <ArrowRightIcon />
           </Button>
         </PhoneActions>
@@ -394,7 +534,7 @@ export function NewServerPage() {
         }
       />
       <PageBody className="flex flex-col gap-5">
-        <Stepper steps={stepTitles} current={step} label={t('new.steps')} />
+        <Stepper steps={stepTitles} current={step} label={t('new.steps')} skip={world ? 2 : undefined} />
         <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
           <div className="flex min-w-0 flex-col">
             {body}
@@ -405,17 +545,17 @@ export function NewServerPage() {
                   {t('common.back')}
                 </Button>
               )}
-              <span className="ml-auto text-xs text-muted-foreground">{step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''}</span>
-              <Button onClick={next} disabled={!canContinue()} loading={busy}>
-                {step < 4 ? t(continueKeys[step] ?? 'new.continueName') : t('new.create', { name: c?.name.trim() || t('nav.newServer') })}
+              <span className="ml-auto text-xs text-muted-foreground">{step < 4 ? t(worldKeys?.next ?? nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''}</span>
+              <Button onClick={next} disabled={!canContinue()} loading={busy || checkBusy}>
+                {step < 4 ? t(worldKeys?.button ?? continueKeys[step] ?? 'new.continueName') : t('new.create', { name: c?.name.trim() || t('nav.newServer') })}
                 <ArrowRightIcon />
               </Button>
             </div>
-            <div className="mt-4">{restoreLink}</div>
+            {!world && <div className="mt-4">{restoreLink}</div>}
           </div>
           <aside className="self-start">
             {summary}
-            <p className="mt-3 px-1 text-xs text-muted-foreground">{t(noteKeys[step] ?? 'new.note.name')}</p>
+            <p className="mt-3 px-1 text-xs text-muted-foreground">{t(worldKeys?.note ?? noteKeys[step] ?? 'new.note.name')}</p>
           </aside>
         </div>
       </PageBody>
@@ -440,7 +580,17 @@ function GameCard({ phone }: { phone?: boolean }) {
   )
 }
 
-function Summary({ choices: c, step, port, version }: { choices: CreateChoices; step: number; port?: number; version: string }) {
+interface WorldSummary {
+  /** Where the world came from: "Aternos". */
+  from: string
+  /** The uploaded file's name without its extension. */
+  name: string
+  upload: WorldUploadState
+  /** The version it runs, or "1.21.4 → 26.1.2", once checked. */
+  version: string
+}
+
+function Summary({ choices: c, step, port, version, world }: { choices: CreateChoices; step: number; port?: number; version: string; world?: WorldSummary }) {
   const ws = useWorkspace()
   const p = preset(c.style)
   const v = (done: boolean, value: string) =>
@@ -454,14 +604,33 @@ function Summary({ choices: c, step, port, version }: { choices: CreateChoices; 
     ) : (
       <span className="text-muted-foreground">{t('common.notPicked')}</span>
     )
-  const rows: { label: string; value: ReactNode }[] = [
-    { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
-    { label: t('new.row.type'), value: v(step > 0, typeName(c.type)) },
-    { label: t('new.row.version'), value: step >= 1 ? v(step > 1, version) : v(false, '') },
-    { label: t('new.row.style'), value: step >= 2 ? v(step > 2, p ? t(p.title) : '') : v(false, '') },
-    { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : v(false, '') },
-    { label: t('new.row.name'), value: step >= 4 ? v(false, c.name) : v(false, '') },
-  ]
+  const muted = (text: string) => <span className="text-muted-foreground tabular-nums">{text}</span>
+  const rows: { label: string; value: ReactNode }[] = world
+    ? [
+        { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
+        { label: t('new.row.startFrom'), value: v(true, t('new.fromWorld')) },
+        { label: t('new.row.from'), value: v(step > 0, world.from) },
+        {
+          label: t('new.row.world'),
+          value:
+            step > 0 || world.upload.phase === 'done'
+              ? v(step > 0, world.name)
+              : world.upload.phase === 'uploading'
+                ? muted(t('import.uploadingPct', { percent: world.upload.total > 0 ? Math.floor((world.upload.sent / world.upload.total) * 100) : 0 }))
+                : muted(t('import.notUploaded')),
+        },
+        step === 0 ? { label: t('new.row.type'), value: muted(t('import.typeSuggested')) } : { label: t('new.row.version'), value: v(step > 1, world.version) },
+        { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : v(false, '') },
+        ...(step >= 3 ? [{ label: t('new.row.name'), value: v(false, step >= 4 ? c.name : '') }] : []),
+      ]
+    : [
+        { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
+        { label: t('new.row.type'), value: v(step > 0, typeName(c.type)) },
+        { label: t('new.row.version'), value: step >= 1 ? v(step > 1, version) : v(false, '') },
+        { label: t('new.row.style'), value: step >= 2 ? v(step > 2, p ? t(p.title) : '') : v(false, '') },
+        { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : v(false, '') },
+        { label: t('new.row.name'), value: step >= 4 ? v(false, c.name) : v(false, '') },
+      ]
   if (step >= 3 && port) rows.push({ label: t('new.row.port'), value: <span className="text-muted-foreground">{t('new.portPicked', { port })}</span> })
   return (
     <Card className="p-4">

@@ -176,11 +176,11 @@ export function SettingRow({ label, hint, changed, control, htmlFor, wide, class
 }
 
 /** Numbered steps joined by lines: done steps are green, the current one is ringed. */
-export function Stepper({ steps, current, label, className }: { steps: string[]; current: number; label: string; className?: string }) {
+export function Stepper({ steps, current, label, className, skip }: { steps: string[]; current: number; label: string; className?: string; skip?: number }) {
   return (
     <ol className={cn('flex items-center gap-2', className)} aria-label={label}>
       {steps.map((s, i) => {
-        const state = i < current ? 'done' : i === current ? 'current' : 'todo'
+        const state = i === skip ? 'todo' : i < current ? 'done' : i === current ? 'current' : 'todo'
         return (
           <li key={s} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none" aria-current={state === 'current' ? 'step' : undefined}>
             <span
