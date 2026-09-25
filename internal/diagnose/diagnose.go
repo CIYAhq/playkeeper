@@ -40,7 +40,7 @@ const (
 	EvidenceServerCPU          EvidenceKind = "server_cpu"          // percent (100 = one core), limit_cores
 	EvidenceHostCPU            EvidenceKind = "host_cpu"            // busy_percent, others_percent
 	EvidenceIOWait             EvidenceKind = "io_wait"             // percent
-	EvidenceHeapAfterGC        EvidenceKind = "heap_after_gc"       // used_mb, heap_mb, percent
+	EvidenceHeapAfterGC        EvidenceKind = "heap_after_gc"       // used_mb, heap_mb, percent; windows from AdviseMemory
 	EvidenceFullGC             EvidenceKind = "full_gc"             // count, minutes
 	EvidenceEvacuationFailure  EvidenceKind = "evacuation_failure"  // count
 	EvidenceGCPauses           EvidenceKind = "gc_pauses"           // percent, longest_ms
@@ -57,7 +57,7 @@ const (
 	EvidenceAddonFile          EvidenceKind = "addon_file"          // addon, jar
 	EvidenceDockerError        EvidenceKind = "docker_error"        // message
 	EvidenceHeapNeeded         EvidenceKind = "heap_needed"         // peak_mb, heap_mb, days
-	EvidenceGCSamples          EvidenceKind = "gc_samples"          // windows, days
+	EvidenceGCSamples          EvidenceKind = "gc_samples"          // windows, days (with measurements), span_days
 )
 
 // Action is something the user can do about a finding. Params name the

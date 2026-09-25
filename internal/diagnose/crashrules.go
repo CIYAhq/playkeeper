@@ -129,14 +129,20 @@ func (c *crashCtx) memoryFixes(heap bool) []Action {
 }
 
 func (c *crashCtx) roomEvidence() []Evidence {
-	if c.in.HostMB <= 0 {
+	return roomEvidence(c.in.BudgetMB, c.in.HostMB, c.in.RoomMB)
+}
+
+// roomEvidence says how much more memory the machine could give the server;
+// nothing when the machine's memory is unknown.
+func roomEvidence(budgetMB, hostMB, roomMB int) []Evidence {
+	if hostMB <= 0 {
 		return nil
 	}
-	p := map[string]any{"budget_mb": c.in.BudgetMB, "room_mb": max(c.in.RoomMB, 0)}
-	if c.in.RoomMB <= 0 {
+	p := map[string]any{"budget_mb": budgetMB, "room_mb": max(roomMB, 0)}
+	if roomMB <= 0 {
 		return []Evidence{{Kind: EvidenceMemoryRoom, Params: p, Text: "This machine has no memory to spare for a bigger budget."}}
 	}
-	return []Evidence{{Kind: EvidenceMemoryRoom, Params: p, Text: fmt.Sprintf("This machine could give the server up to %s more.", sizeText(c.in.RoomMB))}}
+	return []Evidence{{Kind: EvidenceMemoryRoom, Params: p, Text: fmt.Sprintf("This machine could give the server up to %s more.", sizeText(roomMB))}}
 }
 
 // diskFull needs the server to have said so; lowDisk covers a nearly full
