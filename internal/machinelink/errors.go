@@ -14,7 +14,6 @@ const (
 	CodeAddressInvalid     = "link_address_invalid"
 	CodeFingerprintInvalid = "link_fingerprint_invalid"
 	CodeKeyFile            = "link_key_file"
-	CodeNameInvalid        = "machine_name_invalid"
 
 	CodeJoinCodeMalformed = "join_code_malformed"
 	CodeJoinCodeWrong     = "join_code_wrong"
