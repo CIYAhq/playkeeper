@@ -67,7 +67,7 @@ func keygen(args []string) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(*keyFile, os.O_WRONLY|os.O_APPEND, 0)
+	f, err := os.OpenFile(*keyFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return err
 	}

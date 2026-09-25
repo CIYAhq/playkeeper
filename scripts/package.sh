@@ -3,7 +3,9 @@
 # UI, the installer wrapper, install notes, the licence and the third-party
 # notices. Output goes to dist/, with the one-line installer assets a release
 # carries: get.sh and a copy of the tarball under the stable name it
-# downloads (playkeeper-linux-amd64.tar.gz).
+# downloads (playkeeper-linux-amd64.tar.gz), and the release manifest
+# (playkeeper-release.json) that the release workflow signs and installed
+# versions check before updating.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -11,7 +13,7 @@ cd "$root"
 export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH"
 
 commit=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
-version=${VERSION:-0.1.0-dev+$commit}
+version=${VERSION:-0.2.0-dev+$commit}
 epoch=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}
 date=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)
 name="playkeeper-$version-linux-amd64"
@@ -19,7 +21,8 @@ out="$root/dist"
 stage="$out/$name"
 
 stable=playkeeper-linux-amd64.tar.gz
-rm -rf "$stage" "${out:?}/$name.tar.gz" "$out/$name.tar.gz.sha256" "$out/${stable:?}" "$out/$stable.sha256" "$out/get.sh"
+manifest=playkeeper-release.json
+rm -rf "$stage" "${out:?}/$name.tar.gz" "$out/$name.tar.gz.sha256" "$out/${stable:?}" "$out/$stable.sha256" "$out/get.sh" "$out/${manifest:?}" "$out/$manifest.sig"
 mkdir -p "$stage"
 
 (cd web && npm ci --no-audit --no-fund --silent && npm run build --silent)
@@ -47,5 +50,13 @@ cp "$out/$name.tar.gz" "$out/$stable"
 install -m 0755 packaging/get.sh "$out/get.sh"
 (cd "$out" && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256" && sha256sum "$stable" > "$stable.sha256")
 
-echo "Built $out/$name.tar.gz (one-line installer assets: $out/get.sh, $out/$stable)"
+# A release's notes are its CHANGELOG.md section; other builds say what they are.
+if grep -q "^## ${version} *\$" CHANGELOG.md; then
+  notes=(--changelog CHANGELOG.md)
+else
+  notes=(--notes "Playkeeper $version, a build that is not a published release.")
+fi
+go run ./cmd/release-sign manifest --version "$version" --date "$date" --tarball "$out/$stable" "${notes[@]}" >"$out/$manifest"
+
+echo "Built $out/$name.tar.gz (one-line installer assets: $out/get.sh, $out/$stable; release manifest: $out/$manifest, unsigned)"
 cat "$out/$name.tar.gz.sha256"
