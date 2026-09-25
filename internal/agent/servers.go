@@ -86,6 +86,8 @@ type server struct {
 	rconMu sync.Mutex
 	rcon   *minecraft.RCON
 	rconIP string
+
+	checks addonChecks
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -532,6 +534,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	for _, q := range []string{
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
+		`DELETE FROM addons WHERE server_id = ?`,
 		`DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {
