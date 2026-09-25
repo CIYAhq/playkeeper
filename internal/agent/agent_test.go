@@ -141,7 +141,7 @@ func (e *agentEnv) start() {
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 		Addons: e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
-		UpstreamClient: e.up.client(),
+		UpstreamClient: e.up.client(), PackClient: e.up.client(),
 	})
 	if err != nil {
 		e.t.Fatal(err)

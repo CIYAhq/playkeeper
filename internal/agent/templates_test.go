@@ -198,6 +198,76 @@ func TestCreateFromTemplateRefusesAChangedPlan(t *testing.T) {
 	}
 }
 
+func noticeKinds(ns []api.AddonNotice) []string {
+	out := []string{}
+	for _, n := range ns {
+		out = append(out, n.Kind)
+	}
+	return out
+}
+
+func TestCreateFromTemplateDownloadsItsDataPacks(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"memoryMB": 1536})
+	var exp api.TemplateExport
+	e.decode("GET", e.sp("/template"), &exp)
+	tf, err := templates.ParseFile([]byte(exp.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tweaks, terrain := dataPackZip(t, "Tweaks", false), dataPackZip(t, "Terrain", false)
+	e.up.serve("https://packs.example.com/tweaks.zip", tweaks)
+	e.up.serve("https://packs.example.com/terrain.zip", terrain)
+	tf.Packs = []templates.Pack{
+		{Kind: templates.DataPack, Name: "Tweaks", URL: "https://packs.example.com/tweaks.zip", SHA1: sha1Hex(tweaks)},
+		// The host now serves another file than the one the template names.
+		{Kind: templates.DataPack, Name: "Terrain", URL: "https://packs.example.com/terrain.zip", SHA1: sha1Hex([]byte("the terrain the template was made with"))},
+		{Kind: templates.ResourcePack, Name: "Textures", URL: "https://packs.example.com/textures.zip", SHA1: sha1Hex([]byte("textures"))},
+	}
+	file, err := templates.MarshalFile(tf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, plan, raw := e.planTemplate(string(file))
+	if code != 200 || !plan.Ready || !slices.Contains(noticeKinds(plan.Warnings), string(templates.KindDataPacks)) ||
+		!slices.Equal(noticeKinds(plan.Skipped), []string{string(kindTemplatePacks)}) {
+		t.Fatalf("plan: %d %+v %v", code, plan, raw)
+	}
+
+	code, out := e.createFromTemplate(plan.Fingerprint, nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("create from the template: %+v", op)
+	}
+	dir := filepath.Join(e.dataDir(), "world", "datapacks")
+	if b, err := os.ReadFile(filepath.Join(dir, "Tweaks.zip")); err != nil || !bytes.Equal(b, tweaks) {
+		t.Fatalf("the template's data pack: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Terrain.zip")); !os.IsNotExist(err) {
+		t.Fatalf("a data pack that doesn't match its checksum is installed: %v", err)
+	}
+	var skipped []api.AddonNotice
+	b, _ := json.Marshal(op.Detail["skipped"])
+	json.Unmarshal(b, &skipped)
+	if len(skipped) != 1 || skipped[0].Kind != string(templates.KindPackHash) || skipped[0].Params["name"] != "Terrain" ||
+		op.Detail["packs"] != float64(2) || op.Detail["packsTotal"] != float64(2) {
+		t.Fatalf("the skipped data pack and progress: %v", op.Detail)
+	}
+	if n := e.up.hitCount("https://packs.example.com/textures.zip"); n != 0 {
+		t.Fatalf("the resource pack was downloaded %d times", n)
+	}
+	sc, _ := e.srv().serverConfig()
+	if sc.Template == nil || sc.Template.Pending || e.countRows(`SELECT COUNT(*) FROM template_installs`) != 0 {
+		t.Fatalf("the import is finished: %+v", sc.Template)
+	}
+	if e.audits("datapack.added") != 1 || e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'datapack.skipped' AND server_id = ?`, e.sid) != 1 {
+		t.Fatal("both data packs are audited")
+	}
+}
+
 // flakyTransport fails every request while down is set.
 type flakyTransport struct {
 	base http.RoundTripper

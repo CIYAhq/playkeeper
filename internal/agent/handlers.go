@@ -430,13 +430,13 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		sc.Modpack, label = pack, pack.Name+" "+pack.VersionNumber
 	}
 	if tpl != nil {
-		sc.Template = &api.ServerTemplate{Name: tpl.p.Name, Pending: len(tpl.p.Addons) > 0}
+		sc.Template = &api.ServerTemplate{Name: tpl.p.Name, Pending: len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0}
 	}
 	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-			if tpl != nil && len(tpl.p.Addons) > 0 {
-				if err := s.saveTemplateInstall(tpl.p.Addons); err != nil {
+			if tpl != nil && (len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0) {
+				if err := s.saveTemplateInstall(tpl.p.Addons, templateDataPacks(tpl.p)); err != nil {
 					s.startFailed(ctx)
 					return err
 				}
