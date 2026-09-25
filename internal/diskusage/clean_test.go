@@ -240,13 +240,18 @@ func TestClean(t *testing.T) {
 		"backups/.offsite-1234.partial",
 		"staging/def456/archive.tar.gz",
 		"staging/ghi789/archive.tar.gz",
+		"downloads/fresh.jar",
+		"servers/a/spool/.offsite-0123456789abcdef.age",
+		"servers/a/spool/.offsite-00112233445566ff.partial",
+		"servers/a/spool/notes.txt",
 	} {
 		if !m.exists(rel) {
 			t.Errorf("%s was deleted", rel)
 		}
 	}
-	if again := scanOK(t, m.l, m.options()); len(again.Candidates) != 0 {
-		t.Errorf("after cleaning, still offered: %+v", again.Candidates)
+	again := scanOK(t, m.l, m.options())
+	if len(again.Candidates) != 0 || len(again.Ways) != 0 || again.Freeable != 0 {
+		t.Errorf("after cleaning, still offered: %+v in ways %+v (%d bytes)", again.Candidates, again.Ways, again.Freeable)
 	}
 }
 
