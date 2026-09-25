@@ -225,7 +225,7 @@ func TestOnePasswordBuysTenCodes(t *testing.T) {
 	}
 	r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending))
 	if r.status != http.StatusUnauthorized || r.body["code"] != "unauthorized" || r.cookie != "" || !r.pendingCleared {
-		t.Fatalf("a right code after %d tries: %d %v", pendingAttempts, r.status, r.body)
+		t.Fatalf("a right code after %d tries: %d, code %v, signed in %v", pendingAttempts, r.status, r.body["code"], r.cookie != "")
 	}
 	if n := e.count(t, `SELECT COUNT(*) FROM audit WHERE action = 'login.second_factor' AND result = 'refused'`); n != 1 {
 		t.Fatalf("running out of tries audited %d times", n)
@@ -281,7 +281,7 @@ func TestAnUnfinishedSetupBelongsToTheSessionThatStartedIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if r := e.do(t, "GET", "/api/auth/2fa/setup", "", auth(other.cookie, "")); r.status != http.StatusConflict || r.body["code"] != "setup_missing" || r.body["manualKey"] != nil {
-		t.Fatalf("another session reads the setup: %d %v", r.status, r.body)
+		t.Fatalf("another session reads the setup: %d, code %v, key shown %v", r.status, r.body["code"], r.body["manualKey"] != nil)
 	}
 	if r := e.do(t, "GET", "/api/auth/2fa", "", auth(other.cookie, "")); r.body["state"] != "off" {
 		t.Fatalf("status for another session: %v", r.body)
