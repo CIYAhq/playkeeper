@@ -30,11 +30,11 @@ function DesktopLink({ server, sub, icon, title, line, lineKey, busy }: LinkProp
     <li>
       <a
         {...linkProps({ name: 'server', slug: server.slug, tab: 'world', sub })}
-        className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+        className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
       >
         {icon}
         <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-medium">{title}</span>
+          <span className="block text-[13px] font-semibold">{title}</span>
           {line === undefined ? (
             <Skeleton className="mt-1 h-3 w-40" />
           ) : (

@@ -264,13 +264,13 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
           <dd className="mt-0.5 text-lg font-bold tabular-nums">{backups.length}</dd>
         </div>
       </dl>
-      <ul className="mt-1 flex flex-col">
+      <ul className="mt-3 flex flex-col">
         <WorldLinks server={s} />
         {later.map((l) => (
-          <li key={l.title} className="flex items-center gap-3 py-2.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
+          <li key={l.title} className="flex items-center gap-3 py-1 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
             {l.icon}
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium">{l.title}</span>
+              <span className="block text-[13px] font-semibold">{l.title}</span>
               <span className="block text-xs text-muted-foreground">{l.hint}</span>
             </span>
             <span className="text-xs text-muted-foreground">{t('common.later')}</span>
