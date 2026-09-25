@@ -15,7 +15,7 @@ import (
 // Settings are Playkeeper's choices in squaremap's config for one server.
 type Settings struct {
 	// Link is the map's public address while friends may open it
-	// (https://<panel address>/map/<server slug>), otherwise empty.
+	// (https://<panel address>/map/<share token>), otherwise empty.
 	// squaremap shows it to operators who type /squaremap link and to
 	// players with its client mod; it reads it once at startup.
 	Link string
