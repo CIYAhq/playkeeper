@@ -50,12 +50,20 @@ type Factor struct {
 	LastStep   int64
 	LastUsedAt time.Time
 	Recovery   RecoverySet
-	// Failures counts wrong codes since the last correct one.
+	// Failures counts wrong app codes since the last correct code; they
+	// lock and then block app codes.
 	Failures    int
 	LockedUntil time.Time
-	// Revision goes up by one with every change. Store a returned Factor
-	// when its Revision differs, only if the stored Revision is still the
-	// one that was loaded, so two requests cannot both use one code.
+	// RecoveryFailures counts wrong recovery codes since the last correct
+	// code. They lock nothing: guessing 80 random bits is hopeless, and
+	// counting them with app codes would let anyone who has the password
+	// block the owner's app codes.
+	RecoveryFailures int
+	// Revision goes up by one with every change. Load, step and store as
+	// one unit, so two requests cannot both use one code and every wrong
+	// code counts: either in one write transaction, or by storing only if
+	// the stored Revision is still the loaded one and, when it is not,
+	// loading again and re-running the step, whatever its outcome.
 	Revision int64
 }
 
@@ -183,7 +191,7 @@ func SignIn(f Factor, code string, now time.Time) (Factor, Result, error) {
 	if !f.On() {
 		return f, Result{}, &Error{Kind: KindOff}
 	}
-	failures := f.Failures
+	failures := f.Failures + f.RecoveryFailures
 	f, method, err := f.check(code, now)
 	if err != nil {
 		return f, Result{}, err
@@ -243,14 +251,17 @@ func RenewRecoveryCodes(f Factor, passwordOK bool, code string, now time.Time, r
 	return next, codes, nil
 }
 
-// check accepts an app code or a recovery code and counts wrong ones.
-// Malformed input, reused app codes and app codes refused unchecked while
-// locked or blocked are not guesses, so they are not counted.
+// check accepts an app code or a recovery code and counts wrong ones, each
+// kind on its own. Malformed input, reused app codes and app codes refused
+// unchecked while locked or blocked are not guesses, so they are not
+// counted.
 func (f Factor) check(code string, now time.Time) (Factor, Method, error) {
 	if norm, ok := normalizeRecovery(code); ok {
 		set, ok := f.Recovery.use(norm)
 		if !ok {
-			return f.failed(now, KindRecoveryCodeWrong)
+			f.RecoveryFailures++
+			f.Revision++
+			return f, "", &Error{Kind: KindRecoveryCodeWrong}
 		}
 		f.Recovery = set
 		return f.passed(now), MethodRecoveryCode, nil
@@ -276,7 +287,7 @@ func (f Factor) check(code string, now time.Time) (Factor, Method, error) {
 }
 
 func (f Factor) passed(now time.Time) Factor {
-	f.Failures, f.LockedUntil, f.LastUsedAt = 0, time.Time{}, now
+	f.Failures, f.RecoveryFailures, f.LockedUntil, f.LastUsedAt = 0, 0, time.Time{}, now
 	f.Revision++
 	return f
 }
@@ -287,16 +298,10 @@ func (f Factor) failed(now time.Time, kind Kind) (Factor, Method, error) {
 	switch {
 	case f.Failures >= BlockAfter:
 		f.LockedUntil = time.Time{}
+		kind = KindAppCodesBlocked
 	case f.Failures >= LockAfter:
 		f.LockedUntil = now.Add(time.Minute << min(f.Failures-LockAfter, 4))
-	}
-	if kind == KindCodeWrong {
-		switch {
-		case f.Failures >= BlockAfter:
-			kind = KindAppCodesBlocked
-		case f.Failures >= LockAfter:
-			return f, "", &Error{Kind: KindAppCodesLocked, RetryAfter: f.LockedUntil.Sub(now)}
-		}
+		return f, "", &Error{Kind: KindAppCodesLocked, RetryAfter: f.LockedUntil.Sub(now)}
 	}
 	return f, "", &Error{Kind: kind}
 }

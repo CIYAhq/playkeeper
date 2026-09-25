@@ -332,18 +332,43 @@ func TestRecoveryCodesSignInOnceEvenWhileLocked(t *testing.T) {
 		t.Error("a recovery code must not move the app code step")
 	}
 	again, _, err := signIn(t, next, codes[3], at)
-	if KindOf(err) != KindRecoveryCodeWrong || again.Failures != 1 {
-		t.Errorf("a used recovery code is refused and counted: %v, %d failures", err, again.Failures)
+	if KindOf(err) != KindRecoveryCodeWrong || again.RecoveryFailures != 1 || again.Failures != 0 {
+		t.Errorf("a used recovery code is refused and counted on its own: %v, %d recovery failures, %d failures", err, again.RecoveryFailures, again.Failures)
 	}
 	madeUp, _, err := signIn(t, next, "abcd-efgh-ijkm-npqr", at)
-	if KindOf(err) != KindRecoveryCodeWrong || madeUp.Failures != 1 {
+	if KindOf(err) != KindRecoveryCodeWrong || madeUp.RecoveryFailures != 1 {
 		t.Errorf("a made-up recovery code is refused and counted: %v", err)
 	}
-	for range LockAfter - 1 {
-		madeUp, _, err = signIn(t, madeUp, "abcd-efgh-ijkm-npqr", at)
+}
+
+// Wrong recovery codes are counted, but on their own: someone who has the
+// password must not be able to lock or block the owner's app codes with them.
+func TestWrongRecoveryCodesNeverLockAppCodes(t *testing.T) {
+	f, _ := enrolled(t)
+	at := t0.Add(time.Hour)
+	var err error
+	for range BlockAfter + 5 {
+		f, _, err = signIn(t, f, "abcd-efgh-ijkm-npqr", at)
+		if KindOf(err) != KindRecoveryCodeWrong {
+			t.Fatalf("a wrong recovery code: %v", err)
+		}
 	}
-	if KindOf(err) != KindRecoveryCodeWrong || !at.Before(madeUp.LockedUntil) {
-		t.Errorf("wrong recovery codes count towards locking app codes but still say what was wrong: %v, locked until %v", err, madeUp.LockedUntil)
+	if f.RecoveryFailures != BlockAfter+5 || f.Failures != 0 || !f.LockedUntil.IsZero() {
+		t.Fatalf("after %d wrong recovery codes: %d recovery failures, %d failures, locked until %v", BlockAfter+5, f.RecoveryFailures, f.Failures, f.LockedUntil)
+	}
+	if c := f.Challenge(at); !reflect.DeepEqual(c.Methods, []Method{MethodAppCode, MethodRecoveryCode}) || c.AppCodesBlocked {
+		t.Fatalf("challenge after wrong recovery codes = %+v", c)
+	}
+	f, _, _ = signIn(t, f, wrongCode(t, f, at), at)
+	next, res, err := signIn(t, f, totp.Code(f.Secret, at), at)
+	if err != nil {
+		t.Fatalf("the owner's app code after wrong recovery codes: %v", err)
+	}
+	if len(res.Notices) != 1 || res.Notices[0].Kind != NoticeFailedAttempts || res.Notices[0].Count != BlockAfter+6 {
+		t.Errorf("the notice must count wrong codes of both kinds: %+v", res.Notices)
+	}
+	if next.Failures != 0 || next.RecoveryFailures != 0 {
+		t.Errorf("a correct code resets both counts: %d, %d", next.Failures, next.RecoveryFailures)
 	}
 }
 
