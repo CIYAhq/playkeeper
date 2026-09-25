@@ -12,6 +12,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Adding or removing a player, making someone an operator and hiding the first steps show at once, and are put back with a short message if Minecraft or Playkeeper says no.
 - Less text on every screen: one short line where there was a paragraph.
 - Home no longer shows an old player count while the agent isn't answering.
+- A server icon over 64 KB is turned down next to the upload button before anything is sent, and the agent refuses one that isn't a 64 × 64 PNG before saving it.
 
 ## 0.3.0
 

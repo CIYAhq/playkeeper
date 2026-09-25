@@ -638,4 +638,5 @@ const (
 	CodeInternal          = "internal"
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
+	CodeIconInvalid       = "icon_invalid"
 )

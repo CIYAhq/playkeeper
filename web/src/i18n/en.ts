@@ -641,6 +641,7 @@ export const en = {
   'settings.iconUpload': 'Upload picture',
   'settings.iconUploaded': 'New icon saved. Friends see it after {server} restarts.',
   'settings.iconBad': 'That picture couldn’t be used. Pick a PNG or JPEG image.',
+  'settings.iconRefused': 'Icons need to be 64 × 64 and under 64 KB.',
   'settings.memoryRow': 'Memory',
   'settings.memoryRowHint': 'Uses about {used}, so {suggested} has room to grow.',
   'settings.memoryRowHintIdle': 'The server gets a hard limit of this much; part of it is used by Java itself.',

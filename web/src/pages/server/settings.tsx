@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
-import { api, get, post } from '@/api/client'
+import { api, ApiError, get, post } from '@/api/client'
 import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
@@ -66,6 +66,16 @@ export function difficultyChoices(): Choice<Difficulty>[] {
 
 export function modeChoices(): Choice<GameMode>[] {
   return (['survival', 'creative', 'adventure', 'spectator'] as const).map((m) => ({ value: m, label: t(`settings.mode.${m}`), hint: t(`settings.mode.${m}.hint`) }))
+}
+
+const maxIconBytes = 64 * 1024
+const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+/** Whether a PNG's header says 64 × 64 and it fits in 64 KB, which is all the agent keeps. */
+async function isIcon(b: Blob): Promise<boolean> {
+  if (b.size > maxIconBytes) return false
+  const head = new DataView(await b.slice(0, 24).arrayBuffer())
+  return head.byteLength === 24 && pngSignature.every((v, i) => head.getUint8(i) === v) && head.getUint32(12) === 0x49484452 && head.getUint32(16) === 64 && head.getUint32(20) === 64
 }
 
 /** Draws a picture onto a 64 × 64 PNG, cropped to a square from the middle. */
@@ -307,28 +317,51 @@ function IconRow({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const input = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string>()
+  const [problem, setProblem] = useState<string>()
   const [busy, setBusy] = useState(false)
   async function take(file: File | undefined) {
+    if (input.current) input.current.value = ''
     if (!file) return
+    setProblem(undefined)
+    if (file.size > maxIconBytes) {
+      setProblem(t('settings.iconRefused'))
+      return
+    }
     setBusy(true)
     try {
-      const { blob, url } = await iconPNG(file)
-      setPreview(url)
-      await api('POST', serverApi(s.id, '/icon'), undefined, blob)
+      const icon = await iconPNG(file).catch(() => undefined)
+      if (!icon) {
+        setProblem(t('settings.iconBad'))
+        return
+      }
+      if (!(await isIcon(icon.blob))) {
+        setProblem(t('settings.iconRefused'))
+        return
+      }
+      setPreview(icon.url)
+      await api('POST', serverApi(s.id, '/icon'), undefined, icon.blob)
       toastManager.add({ title: t('settings.iconUploaded', { server: s.name }), type: 'success' })
       await ws.refresh()
     } catch (e) {
       setPreview(undefined)
-      toastManager.add({ title: e instanceof DOMException ? t('settings.iconBad') : errorText(e), type: 'error' })
+      if (e instanceof ApiError && e.code === 'icon_invalid') setProblem(t('settings.iconRefused'))
+      else toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
       setBusy(false)
-      if (input.current) input.current.value = ''
     }
   }
   return (
     <SettingRow
       label={t('settings.icon')}
-      hint={t('settings.iconHint')}
+      hint={
+        problem ? (
+          <span role="alert" className="text-destructive-foreground">
+            {problem}
+          </span>
+        ) : (
+          t('settings.iconHint')
+        )
+      }
       control={
         <div className="flex items-center gap-3">
           <Emblem size={36} icon={preview ?? iconURL(s)} name={s.name} />

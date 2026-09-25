@@ -11,12 +11,14 @@ import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { ServerSettingsPage } from './server/settings'
 import { WorldPage } from './server/world'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  api: vi.fn(() => Promise.resolve({})),
 }))
 
 const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
@@ -229,6 +231,18 @@ describe('Overview', () => {
     expect(text).not.toContain('Last lines before it stopped')
     const pipe = { ...refusal, code: 'special_file' as const, params: { path: 'plugins/bStats/config.yml', type: 'named_pipe' } }
     expect(await render(<Overview server={server({ phase: 'stopped', refusal: pipe })} />)).toContain('while plugins/bStats/config.yml isn’t a normal file. Delete it.')
+  })
+})
+
+describe('Server settings', () => {
+  it('turns down an icon over 64 KB next to the upload, without sending it', async () => {
+    await render(<ServerSettingsPage server={server()} />)
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no icon upload')
+    Object.defineProperty(input, 'files', { value: [new File([new Uint8Array(64 * 1024 + 1)], 'logo.png', { type: 'image/png' })] })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    expect(document.querySelector('[role=alert]')?.textContent).toBe('Icons need to be 64 × 64 and under 64 KB.')
+    expect(client.api).not.toHaveBeenCalled()
   })
 })
 
