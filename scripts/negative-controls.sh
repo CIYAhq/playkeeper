@@ -383,7 +383,7 @@ control "a world a restore would refuse is refused before the server stops" inte
   'err := backup.Check(s.dataDir(), archiveLimits())
 	if !errors.As(err, &refused) {' \
   'err := backup.Check(s.dataDir(), archiveLimits())
-	if true {' \
+	if !errors.As(err, &refused) || true {' \
   ./internal/agent '^(TestBackupRefusesAWorldARestoreWouldRefuse|TestBackupRefusesAWholeWorldOverALimitBeforeStopping|TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping)$'
 control "an update refuses such a world before the server stops" internal/agent/versions.go \
   'if err := s.archiveRefusal("Nothing was changed."); err != nil {' \
