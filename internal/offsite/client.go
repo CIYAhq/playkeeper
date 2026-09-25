@@ -80,7 +80,7 @@ func New(cfg Config, hc *http.Client, now func() time.Time) (*Client, error) {
 // NewHTTPClient returns the HTTP client New uses by default: TLS 1.2 or
 // later, no proxy, bounded waits for connecting, the handshake and the
 // response headers, and no connections to link-local, multicast or
-// unspecified addresses (such as a cloud's metadata service at
+// unspecified addresses, or to a cloud's metadata service (such as
 // 169.254.169.254), whatever the host name resolves to.
 func NewHTTPClient() *http.Client {
 	d := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second, Control: refuseAddr}
@@ -106,8 +106,17 @@ func refuseAddr(_, address string, _ syscall.RawConn) error {
 }
 
 func refusedIP(ip net.IP) bool {
-	return ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast()
+	if ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return true
+	}
+	// Metadata services outside those ranges: AWS's over IPv6, and Alibaba Cloud's.
+	for _, m := range []string{"fd00:ec2::254", "100.100.100.200"} {
+		if ip.Equal(net.ParseIP(m)) {
+			return true
+		}
+	}
+	return false
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

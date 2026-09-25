@@ -136,7 +136,7 @@ func (c Config) Validate() error {
 	ip := net.ParseIP(u.Hostname())
 	switch {
 	case ip != nil && refusedIP(ip):
-		return invalid("endpoint", "The endpoint is a link-local, multicast or unspecified address, which is never a storage service.", "Use the storage service's host name.")
+		return invalid("endpoint", "The endpoint is a link-local, multicast, unspecified or cloud metadata address, which is never a storage service.", "Use the storage service's host name.")
 	case ip == nil && !validHost(u.Hostname()):
 		return invalid("endpoint", "The endpoint's host name may only contain letters, digits, dots and hyphens.", "")
 	case ip != nil && !c.PathStyle:
