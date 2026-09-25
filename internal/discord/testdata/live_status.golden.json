@@ -1,0 +1,42 @@
+{
+  "embeds": [
+    {
+      "title": "Online",
+      "description": "Online since \u003ct:1790337600:R\u003e.\n\n\u003e A friendly server\n\n[Open the dashboard](https://panel.example.com/servers/k3j9x2)",
+      "timestamp": "2026-09-25T14:00:00Z",
+      "color": 1409085,
+      "author": {
+        "name": "Survival",
+        "url": "https://panel.example.com/servers/k3j9x2"
+      },
+      "fields": [
+        {
+          "name": "Players",
+          "value": "2 of 20",
+          "inline": true
+        },
+        {
+          "name": "Address",
+          "value": "`play.example.com`",
+          "inline": true
+        },
+        {
+          "name": "Version",
+          "value": "1.21.8",
+          "inline": true
+        },
+        {
+          "name": "Online now",
+          "value": "alex, Steve\\_1"
+        }
+      ],
+      "footer": {
+        "text": "Live status from Playkeeper"
+      }
+    }
+  ],
+  "allowed_mentions": {
+    "parse": []
+  },
+  "flags": 4096
+}
