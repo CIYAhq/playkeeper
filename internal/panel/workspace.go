@@ -304,13 +304,26 @@ func (s *Server) machineFromPath(w http.ResponseWriter, r *http.Request) (machin
 }
 
 // hServers lists every server on every machine, each with its machine's id.
-// A joined machine that can't be reached shows its servers as it last listed
-// them, with lastKnownAt.
 func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session) {
+	out, _, err := s.allServers(r.Context())
+	switch {
+	case errors.Is(err, errDB):
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+	case err != nil:
+		s.agentFailure(w, err)
+	default:
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// allServers lists every server on every machine, each with its machine's
+// id, and the machines. A joined machine that can't be reached shows its
+// servers as it last listed them, with lastKnownAt. When the dashboard's
+// own machine is the only one, its error is the list's.
+func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, error) {
 	list, err := s.machines()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
-		return
+		return nil, nil, errDB
 	}
 	type listing struct {
 		servers []map[string]any
@@ -320,15 +333,14 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 	var wg sync.WaitGroup
 	for i, m := range list {
 		wg.Go(func() {
-			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
+			ctx, cancel := context.WithTimeout(ctx, machineTimeout)
 			defer cancel()
 			_, got[i].err = m.agent.Do(ctx, "GET", "/v1/servers", nil, nil, &got[i].servers)
 		})
 	}
 	wg.Wait()
 	if len(list) == 1 && got[0].err != nil {
-		s.agentFailure(w, got[0].err)
-		return
+		return nil, nil, got[0].err
 	}
 	for i, m := range list {
 		if m.Kind == localKind && got[i].err == nil {
@@ -350,7 +362,7 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 			out = append(out, sv)
 		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out, list, nil
 }
 
 // Preferences are small per-account settings, such as a dismissed checklist.

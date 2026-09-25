@@ -41,6 +41,11 @@ type fakeAgent struct {
 	hits []string
 	// replies are canned bodies by "METHOD /path"; others get {"ok":true}.
 	replies map[string]string
+	// bodies are the last request body by "METHOD /path".
+	bodies map[string]string
+	// gates hold requests to "METHOD /path" until closed, or until the
+	// request is cancelled.
+	gates map[string]chan struct{}
 }
 
 func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
@@ -50,12 +55,23 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}}
+	fa := &fakeAgent{replies: map[string]string{}, bodies: map[string]string{}, gates: map[string]chan struct{}{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.Method + " " + r.URL.Path
+		body, _ := io.ReadAll(r.Body)
 		fa.mu.Lock()
-		fa.hits = append(fa.hits, r.Method+" "+r.URL.Path)
-		reply, ok := fa.replies[r.Method+" "+r.URL.Path]
+		fa.hits = append(fa.hits, key)
+		fa.bodies[key] = string(body)
+		reply, ok := fa.replies[key]
+		gate := fa.gates[key]
 		fa.mu.Unlock()
+		if gate != nil {
+			select {
+			case <-gate:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if !ok {
 			reply = `{"ok":true}`
@@ -214,7 +230,7 @@ const sampleServer = "abcdefghjk"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn").Replace(p)
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc").Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {

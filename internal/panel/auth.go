@@ -126,6 +126,36 @@ CREATE TABLE server_machines (
   disputed_by TEXT NOT NULL DEFAULT ''
 );
 `,
+	// API tokens for AI agents (a hash only, never the token), with the
+	// role and servers each was made for ('*' is every server), and what
+	// agents did with them. Revoked tokens stay, so their names still show
+	// in the activity log.
+	`
+CREATE TABLE api_tokens (
+  id           TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  role         TEXT NOT NULL,
+  servers      TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL DEFAULT 0,
+  revoked_at   INTEGER NOT NULL DEFAULT 0,
+  revoked_by   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX api_tokens_user ON api_tokens(user_id);
+CREATE TABLE agent_activity (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_id    TEXT NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
+  ts          INTEGER NOT NULL,
+  tool        TEXT NOT NULL,
+  server_id   TEXT NOT NULL DEFAULT '',
+  server_name TEXT NOT NULL DEFAULT '',
+  count       INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX agent_activity_token ON agent_activity(token_id, id);
+`,
 }
 
 const (
@@ -349,13 +379,18 @@ func (s *Server) writeAudit(r auditRow) {
 }
 
 // pruneAudit drops audit rows older than auditMaxAge and all but the newest
-// maxAudit.
+// maxAudit, and API tokens that stopped working longer ago than that, whose
+// names the log no longer needs.
 func (s *Server) pruneAudit() {
-	if _, err := s.db.Exec(`DELETE FROM audit WHERE ts < ?`, s.now().Add(-s.auditMaxAge).UnixMilli()); err != nil {
+	cutoff := s.now().Add(-s.auditMaxAge).UnixMilli()
+	if _, err := s.db.Exec(`DELETE FROM audit WHERE ts < ?`, cutoff); err != nil {
 		s.log.Error("audit prune failed", "err", err)
 	}
 	if _, err := s.db.Exec(`DELETE FROM audit WHERE id <= (SELECT id FROM audit ORDER BY id DESC LIMIT 1 OFFSET ?)`, s.maxAudit); err != nil {
 		s.log.Error("audit prune failed", "err", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM api_tokens WHERE (revoked_at != 0 AND revoked_at < ?) OR expires_at < ?`, cutoff, cutoff); err != nil {
+		s.log.Error("prune API tokens", "err", err)
 	}
 }
 

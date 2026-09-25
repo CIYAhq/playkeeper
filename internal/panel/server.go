@@ -34,6 +34,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
+	"github.com/CIYAhq/playkeeper/internal/mcp"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -73,6 +74,8 @@ type Server struct {
 	heads   *headFetcher
 	hub     *machinelink.Hub
 	proxies proxyCache
+	// mcpHTTP serves the MCP tools at /mcp to API tokens.
+	mcpHTTP *mcp.HTTPHandler
 	// refusals counts refusals for the audit log (see refusals.go).
 	refusals refusalSink
 	// audits counts audit rows written, to prune the log every so often;
@@ -128,6 +131,11 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	s.pruneAudit()
+	if err := s.startMCP(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	s.sweepTokens()
 	if len(opts.LinkRoutes) > 0 {
 		if err := s.startHub(opts.LinkRoutes); err != nil {
 			db.Close()
@@ -138,6 +146,7 @@ func New(opts Options) (*Server, error) {
 }
 
 func (s *Server) Close() error {
+	s.mcpHTTP.Close()
 	if s.hub != nil {
 		s.hub.Close()
 	}
@@ -200,6 +209,10 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/auth/password", needSessionCSRF, actManageAccount, s.hPassword},
 		view("/api/me/prefs", s.hPrefs),
 		{"POST", "/api/me/prefs", needSessionCSRF, actView, s.hPrefsSet},
+		view("/api/tokens", s.hTokens),
+		{"POST", "/api/tokens", needSessionCSRF, actManageAccount, s.hTokenCreate},
+		view("/api/tokens/activity", s.hTokenActivity),
+		{"DELETE", "/api/tokens/{tid}", needSessionCSRF, actManageAccount, s.hTokenRevoke},
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
 		view("/api/projects", s.hProjects),
 		view("/api/machines", s.hMachines),
@@ -211,7 +224,7 @@ func (s *Server) Routes() []Route {
 		view("/api/machines/{mid}/events", s.hMachineEvents),
 		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
 		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
-		mg("/api/machines/{mid}/activity", "/v1/activity"),
+		view("/api/machines/{mid}/activity", s.hMachineActivity),
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
@@ -266,6 +279,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Unknown API route.", "")
 	})
+	mux.Handle("/mcp", s.mcpHTTP)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		io.WriteString(w, "ok\n")
@@ -617,6 +631,9 @@ func (s *Server) ResetAdmin(username, password string) error {
 	}
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE username = ?)`, username)
 	s.audit("root@host", "password.reset", username, "succeeded", "reset from the server command line")
+	if u, err := s.userByName(username); err == nil {
+		s.revokeAccountTokens(u.ID, "root@host", "its account's password was reset from the server command line")
+	}
 	return nil
 }
 
@@ -649,6 +666,9 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 		api.AuditEntry
 		Source    string `json:"source"`
 		MachineID string `json:"machineId,omitempty"`
+		// ActorKind and ActorName say who a token or command-line actor is.
+		ActorKind string `json:"actorKind,omitempty"`
+		ActorName string `json:"actorName,omitempty"`
 	}
 	out := []entry{}
 	for rows.Next() {
@@ -683,6 +703,10 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 	sort.SliceStable(out, func(i, j int) bool { return out[i].TS.After(out[j].TS) })
 	if len(out) > 300 {
 		out = out[:300]
+	}
+	names := s.actorNames()
+	for i := range out {
+		out[i].ActorKind, out[i].ActorName = actorInfo(out[i].Actor, names)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -808,13 +832,38 @@ func (s *Server) hServerActivity(w http.ResponseWriter, r *http.Request, _ *sess
 	if l := r.URL.Query().Get("limit"); l != "" {
 		q.Set("limit", l)
 	}
-	var raw json.RawMessage
-	status, err := m.agent.Do(r.Context(), "GET", "/v1/activity", q, nil, &raw)
+	s.activity(w, r, m, q)
+}
+
+// hMachineActivity is what happened on a machine's servers lately.
+func (s *Server) hMachineActivity(w http.ResponseWriter, r *http.Request, _ *session) {
+	m, ok := s.machineFromPath(w, r)
+	if !ok {
+		return
+	}
+	s.activity(w, r, m, r.URL.Query())
+}
+
+// activity relays a machine's activity feed, with the names of the tokens
+// and command-line accounts that acted.
+func (s *Server) activity(w http.ResponseWriter, r *http.Request, m machine, q url.Values) {
+	var list []map[string]any
+	status, err := m.agent.Do(r.Context(), "GET", "/v1/activity", q, nil, &list)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
 	}
-	writeJSON(w, status, raw)
+	names := s.actorNames()
+	for _, e := range list {
+		actor, _ := e["actor"].(string)
+		if kind, name := actorInfo(actor, names); kind != "" {
+			e["actorKind"], e["actorName"] = kind, name
+		}
+	}
+	if list == nil {
+		list = []map[string]any{}
+	}
+	writeJSON(w, status, list)
 }
 
 var (
