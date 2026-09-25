@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, LogsResponse, ServerStatus, SessionsResponse } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import type { Activity, LogsResponse, MachineView, ServerStatus, SessionsResponse } from '@/api/types'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
-import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace } from '@/components/app/bits'
+import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, useNow } from '@/components/app/bits'
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { PlayersChart } from '@/components/app/players-chart'
@@ -15,8 +15,9 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine, ranOutOfMemory } from '@/lib/console'
-import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
-import { createStepOf, isSettingUp, opLabel } from '@/lib/phase'
+import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime, sameDay } from '@/lib/format'
+import { awayLong, joinHost, machineLabel, machineRoute } from '@/lib/machines'
+import { createStepOf, isSettingUp, opLabel, phaseLabel } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -24,10 +25,11 @@ import { cn } from '@/lib/utils'
 import { serverAction } from '.'
 
 export function Overview({ server }: { server: ServerStatus }) {
-  const ws = useWorkspace()
-  if (ws.agentDown) return <AgentDownView />
-  if (!ws.stale && isSettingUp(server)) return <SettingUpView server={server} />
-  if (!ws.stale && server.phase === 'crashed' && !server.operation) return <CrashedView server={server} />
+  const { reach, stale } = useServerMachine(server)
+  if (reach.state === 'away') return <MachineAwayView server={server} machine={reach.machine} since={reach.since} />
+  if (reach.state === 'agentDown') return <AgentDownView machine={reach.machine} since={reach.since} />
+  if (!stale && isSettingUp(server)) return <SettingUpView server={server} />
+  if (!stale && server.phase === 'crashed' && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }
 
@@ -128,9 +130,9 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
 }
 
 function JoinCard({ server: s }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale, host } = useServerMachine(s)
   const phone = useIsPhone()
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = joinAddress(host, s.gamePort)
   const online = !stale && s.phase === 'online'
   return (
     <Card>
@@ -160,7 +162,7 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
 }
 
 function PlayingCard({ server: s }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale } = useServerMachine(s)
   const phone = useIsPhone()
   const online = !stale && s.phase === 'online'
   const names = online ? (s.players?.names ?? []) : []
@@ -222,18 +224,24 @@ function PlayingCard({ server: s }: { server: ServerStatus }) {
 }
 
 function RunningCard({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const place = useServerMachine(s)
   const phone = useIsPhone()
-  const r = !ws.stale && s.phase === 'online' ? s.resources : undefined
+  const r = !place.stale && s.phase === 'online' ? s.resources : undefined
+  const uptime = (
+    <div>
+      <dt className="text-muted-foreground">{t('overview.uptime')}</dt>
+      <dd className="mt-0.5 text-[13px] font-semibold">{s.startedAt ? formatSpan((Date.now() - new Date(s.startedAt).getTime()) / 1000) : t('common.none')}</dd>
+    </div>
+  )
   const limitBytes = (s.config?.memoryMB ?? 0) * 1024 * 1024
   const tps = r?.tps
   return (
     <Card>
       <div className="flex items-center justify-between gap-3">
         <CardTitle className="max-sm:text-[17px]">{t('overview.running')}</CardTitle>
-        {ws.machine && (
-          <a {...linkProps({ name: 'machine', id: ws.machine.id })} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline max-sm:text-[15px]">
-            {ws.machineName}
+        {place.route && (
+          <a {...linkProps(place.route)} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline max-sm:text-[15px]">
+            {place.name}
             {!phone && <ArrowRightIcon className="size-3.5" aria-hidden="true" />}
           </a>
         )}
@@ -246,12 +254,19 @@ function RunningCard({ server: s }: { server: ServerStatus }) {
             <MeterRow label={t('overview.memory')} value={t('home.ofTotal', { used: formatBytes(r.memBytes), total: formatMB(s.config?.memoryMB ?? 0) })} percent={limitBytes && r.memBytes ? (r.memBytes / limitBytes) * 100 : 0} />
             <MeterRow label={t('overview.cpu')} value={formatPercent(r.cpuPercent)} percent={r.cpuPercent} />
           </div>
-          {!phone && (
-            <dl className="mt-auto grid grid-cols-3 gap-3 pt-4 text-xs">
+          {!phone && place.shared && (
+            <dl className="mt-auto grid grid-cols-2 gap-3 pt-4 text-xs">
+              <div className="col-span-2 -mb-1 border-t border-border" aria-hidden="true" />
+              {uptime}
               <div>
-                <dt className="text-muted-foreground">{t('overview.uptime')}</dt>
-                <dd className="mt-0.5 text-[13px] font-semibold">{s.startedAt ? formatSpan((Date.now() - new Date(s.startedAt).getTime()) / 1000) : '—'}</dd>
+                <dt className="text-muted-foreground">{t('machines.runsOn')}</dt>
+                <dd className="mt-0.5 truncate text-[13px] font-semibold">{place.name}</dd>
               </div>
+            </dl>
+          )}
+          {!phone && !place.shared && (
+            <dl className="mt-auto grid grid-cols-3 gap-3 pt-4 text-xs">
+              {uptime}
               <div>
                 <dt className="text-muted-foreground">{t('overview.tickRate')}</dt>
                 <dd className="mt-0.5 text-[13px] font-semibold tabular-nums">
@@ -445,16 +460,18 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   )
 }
 
-function AgentDownView() {
+/** A machine's agent doesn't answer: the dashboard's own, or a joined machine's while its link is up. since is when it was last heard. */
+function AgentDownView({ machine, since }: { machine?: MachineView; since?: string }) {
   const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   const command = t('agentDown.command')
+  const name = machineLabel(machine) || ws.machineName
   return (
     <div className="flex flex-1 flex-col items-center py-8 text-center max-sm:py-2">
       <Pip pose="search" size={96} />
       <h2 className="mt-4 text-xl font-bold max-sm:text-lg">{t('agentDown.title')}</h2>
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground">
-        {ws.lastSeenAt ? t('agentDown.bodySince', { machine: ws.machineName, time: relativeTime(new Date(ws.lastSeenAt).toISOString()) }) : t('agentDown.body', { machine: ws.machineName })}
+        {since ? t('agentDown.bodySince', { machine: name, time: relativeTime(since) }) : t('agentDown.body', { machine: name })}
       </p>
       <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
         <Button
@@ -474,8 +491,8 @@ function AgentDownView() {
         </a>
       </div>
       <Card className="mt-8 w-full max-w-[460px] text-left">
-        <CardTitle>{t('agentDown.fix')}</CardTitle>
-        <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody', { machine: ws.machineName })}</p>
+        <CardTitle>{machine?.kind === 'remote' ? t('machines.agentDown.fixOn', { name }) : t('agentDown.fix')}</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody')}</p>
         <div className="mt-3 flex items-center gap-2">
           <code className="min-w-0 flex-1 truncate rounded-lg bg-console px-3 py-2 text-xs text-[#e8e8e0]">{command}</code>
           <CopyButton text={command} />
@@ -486,3 +503,65 @@ function AgentDownView() {
   )
 }
 
+/** A joined machine hasn't called in: the server may still run there, but the dashboard can't see or control it. */
+function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatus; machine: MachineView; since?: string }) {
+  const phone = useIsPhone()
+  const now = useNow(30_000)
+  const name = machineLabel(m)
+  const address = joinAddress(joinHost(m, window.location.hostname), s.gamePort)
+  const joined = m.joinedAt
+  let title: string
+  if (since) title = t('machines.problem.offline', { name, duration: awayLong(since, now) })
+  else if (joined) title = t('machines.problem.neverConnected', { name, duration: awayLong(joined, now) })
+  else title = t('machines.away.pill', { name })
+  return (
+    <>
+      <Card className="flex-row items-center gap-7 px-8 py-6 max-sm:flex-col max-sm:items-start max-sm:gap-3 max-sm:p-5" role="status">
+        <Pip pose="sleep" size={phone ? 64 : 84} />
+        <div className="min-w-0">
+          <h2 className="text-[17px] leading-6 font-bold">{title}</h2>
+          <p className="mt-1 text-sm">{t('machines.away.body', { server: s.name, name })}</p>
+          <p className="mt-2.5 text-xs text-muted-foreground">{since ? t('machines.problem.offlineHint', { name }) : t('machines.problem.neverConnectedHint', { name })}</p>
+          <Button variant="outline" size="sm" className="mt-2" render={<a {...linkProps(machineRoute(m))} />}>
+            {t('machines.details')}
+          </Button>
+        </div>
+      </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="max-sm:text-[17px]">{t('overview.join')}</CardTitle>
+            <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />
+          </div>
+          <p className="mt-2 text-xl leading-7 font-extrabold tracking-[-0.01em] break-all">{address}</p>
+          <p className="mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground">
+            <span className="size-2 rounded-full border-[1.5px] border-muted-foreground/60" aria-hidden="true" />
+            {t('machines.away.join', { name })}
+          </p>
+        </Card>
+        <LastKnownCard server={s} at={s.lastKnownAt ?? since} />
+      </div>
+    </>
+  )
+}
+
+/** What the dashboard last heard about a server it can't see now: players, or its state, and when. */
+function LastKnownCard({ server: s, at }: { server: ServerStatus; at?: string }) {
+  const online = s.phase === 'online'
+  const names = online ? (s.players?.names ?? []) : []
+  const count = online ? (s.players?.online ?? 0) : 0
+  let line = t('common.none')
+  if (at) {
+    const time = sameDay(new Date(at), new Date()) ? formatClock(at) : `${formatDate(at)} ${formatClock(at)}`
+    if (!online) line = t('machines.lastKnownState', { state: phaseLabel(s.phase), time })
+    else if (count) line = t('machines.lastKnownPlaying', { count, time })
+    else line = t('machines.lastKnownNobody', { time })
+  }
+  return (
+    <Card>
+      <CardTitle className="max-sm:text-[17px]">{t('machines.lastKnown')}</CardTitle>
+      <p className="mt-2 text-[15px] font-semibold">{line}</p>
+      {names.length > 0 && <p className="mt-0.5 text-xs text-muted-foreground">{formatList(names.slice(0, 4))}</p>}
+    </Card>
+  )
+}

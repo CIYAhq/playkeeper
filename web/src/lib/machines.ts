@@ -1,10 +1,16 @@
 import type { LinkProblem, Machine, MachineEvent, MachineView, ServerStatus } from '@/api/types'
 import { t } from '@/i18n'
 import { formatMB, formatSpan } from './format'
+import type { Route } from './router'
 
 /** A machine's name: the one it joined with, else its host name. */
 export function machineLabel(m: MachineView | undefined): string {
   return m?.name || m?.link?.name || m?.live?.hostname || ''
+}
+
+/** A machine's page: the dashboard's own machine has its own page; a joined one lives in Settings › Machines. */
+export function machineRoute(m: MachineView): Route {
+  return m.kind === 'local' ? { name: 'machine', id: m.id } : { name: 'machine-settings', id: m.id }
 }
 
 /** The machine a server runs on: the one the dashboard has for it, else the dashboard's own. */
@@ -71,10 +77,15 @@ export function reachOf(s: ServerStatus, ws: { machines: MachineView[]; agentDow
   const m = machineOf(s, ws.machines)
   if (m && isAway(m)) return { state: 'away', machine: m, since: m.link?.lastSeen ?? s.lastKnownAt }
   if (agentDownOn(m, ws.agentDown)) {
-    const since = m?.kind === 'remote' ? s.lastKnownAt : ws.lastSeenAt ? new Date(ws.lastSeenAt).toISOString() : undefined
+    const since = s.lastKnownAt ?? (m?.kind !== 'remote' && ws.lastSeenAt ? new Date(ws.lastSeenAt).toISOString() : undefined)
     return { state: 'agentDown', machine: m, since }
   }
   return { state: 'live' }
+}
+
+/** The machine a status pill says it can't reach, if the server's machine is away. */
+export function awayOf(reach: Reach): { name: string; since?: string } | undefined {
+  return reach.state === 'away' ? { name: machineLabel(reach.machine), since: reach.since } : undefined
 }
 
 /** Whether what the dashboard shows about a server is the last it heard rather than live. */

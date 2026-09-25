@@ -3,7 +3,7 @@ import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Tra
 import { useCatalog } from '@/api/catalog'
 import { api, get, post } from '@/api/client'
 import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
@@ -85,6 +85,7 @@ async function iconPNG(file: File): Promise<{ blob: Blob; url: string }> {
 
 export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const phone = useIsPhone()
   const base = useMemo(() => baseOf(s), [s])
   const [draft, setDraft] = useState<Partial<Draft>>({})
@@ -94,7 +95,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
   const changed = (k: keyof Draft) => k in draft && draft[k] !== base[k]
   const keys = (Object.keys(draft) as (keyof Draft)[]).filter(changed)
   const restartNeeded = keys.some((k) => k !== 'name')
-  const online = !ws.stale && s.phase === 'online'
+  const online = !stale && s.phase === 'online'
   const set = <K extends keyof Draft>(k: K, value: Draft[K]) => setDraft((d) => ({ ...d, [k]: value }))
 
   async function save() {
@@ -496,12 +497,12 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
 }
 
 function DangerRows({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const [open, setOpen] = useState(false)
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const running = !ws.stale && ['online', 'starting', 'preparing_world', 'starting_container'].includes(s.phase)
+  const running = !stale && ['online', 'starting', 'preparing_world', 'starting_container'].includes(s.phase)
   const list = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 30_000, s.id)
   const backups = list.data?.length ?? 0
   async function remove() {
@@ -542,7 +543,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
         label={t('settings.deleteTitle', { server: s.name })}
         hint={t('settings.deleteHint', { count: backups })}
         control={
-          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabled={ws.stale || !!s.operation}>
+          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabled={stale || !!s.operation}>
             <Trash2Icon />
             {t('settings.deleteButton')}
           </Button>

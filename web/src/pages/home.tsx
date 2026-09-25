@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, joinAddress, sameDay } from '@/lib/format'
-import { awayLong, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, reachOf } from '@/lib/machines'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, reachOf } from '@/lib/machines'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
@@ -227,7 +227,7 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
             )}
           </p>
         </div>
-        <StatusPill server={s} agentDown={stale} away={reach.state === 'away' ? { name: machineLabel(reach.machine), since: reach.since } : undefined} showDetail={false} />
+        <StatusPill server={s} agentDown={stale} away={awayOf(reach)} showDetail={false} />
       </div>
       <div className="flex h-11 items-center gap-3">
         <CardDetail server={s} />
