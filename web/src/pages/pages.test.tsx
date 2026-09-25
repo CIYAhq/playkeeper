@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, OffsiteTestResult, OffsiteView, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Backup, MachineView, Me, OffsiteCopy, OffsiteTestResult, OffsiteView, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -12,6 +12,7 @@ import { Onboarding } from './onboarding'
 import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { WorldPage } from './server/world'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -380,5 +381,68 @@ describe('Copies somewhere else', () => {
     expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(true)
     const download = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Download')
     expect(download?.disabled).toBe(true)
+  })
+})
+
+describe('World backups with copies', () => {
+  const b2: OffsiteView = {
+    enabled: true,
+    configured: true,
+    type: 's3',
+    place: 'Backblaze B2',
+    copies: 2,
+    copiesBytes: 0,
+    queued: 0,
+    providers: [],
+    pending: { backupId: 'b3', fileName: 'survival-3.tar.zst', uploading: true, sent: 62, total: 100, attempts: 1 },
+  }
+  const backup = (id: string, createdAt: string): Backup => ({ id, serverId: 'abcdefghjk', kind: 'scheduled', createdAt, fileName: `survival-${id}.tar.zst`, sizeBytes: 311e6, sha256: 'a'.repeat(64), location: '', verified: true, downtimeMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 2110, createdBy: 'playkeeper' })
+  const copy = (backupId: string, createdAt: string, onHost: boolean): OffsiteCopy => ({ backupId, kind: 'scheduled', createdAt, fileName: `survival-${backupId}.tar.zst`, name: `survival-${backupId}.tar.zst.age`, sizeBytes: 305e6, copySizeBytes: 318e6, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: createdAt, checked: 'sha256', onHost })
+  const started: Operation = { id: 'op-copy', kind: 'offsite-restore', status: 'running', phase: 'downloading', actor: 'siya', startedAt: '2026-09-25T18:50:00Z', detail: { name: 'survival-b1.tar.zst.age' } }
+  const rerender = async (s: ServerStatus) => {
+    await act(async () => root?.render(<WorkspaceContext.Provider value={workspace()}>{<WorldPage server={s} />}</WorkspaceContext.Provider>))
+    await act(async () => {})
+  }
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+
+  async function restoreOldCopy() {
+    answer({ '/offsite/copies': { copies: [copy('b2', '2026-09-25T12:47:00Z', true), copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z'), backup('b2', '2026-09-25T12:47:00Z')] })
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/restore') ? started : {})) as typeof client.post)
+    await render(<WorldPage server={server()} />)
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore…')
+    if (!button) throw new Error('no Restore… button')
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+
+  it('says where each backup is and fetches one that is only in the copies', async () => {
+    await restoreOldCopy()
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Stored here and on Backblaze B2.')
+    expect(text).toContain('Backup rules')
+    expect(text).toContain('Here · copying')
+    expect(text).toContain('62% to Backblaze B2')
+    expect(text).toContain('Here and on Backblaze B2')
+    expect(text).toContain('Only on Backblaze B2')
+    expect(text).toContain('Removed here by your rules')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/restore', { name: 'survival-b1.tar.zst.age' })
+    expect(text).toContain('The encrypted copy from Backblaze B2')
+    expect(text).toContain('You can close this. Progress stays in the top bar.')
+
+    await rerender(server({ lastOperation: { ...started, status: 'succeeded', phase: 'checking', detail: { name: 'survival-b1.tar.zst.age', restoreId: 'r1' } } }))
+    expect(document.body.textContent).toContain('Decrypted and checked')
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/machines/m2345abcde/restore/r1')
+  })
+
+  it('says why a copy could not be fetched', async () => {
+    await restoreOldCopy()
+    await rerender(server({ lastOperation: { ...started, status: 'failed', error: 'That copy is no longer there.', hint: 'Restore another copy.' } }))
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('The copy couldn’t be restored')
+    expect(text).toContain('That copy is no longer there.')
+    expect(text).toContain('Restore another copy.')
   })
 })

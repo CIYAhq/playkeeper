@@ -1422,4 +1422,6 @@ export const en = {
   'offsiteRestore.insideHint': 'Before anything changes',
   'offsiteRestore.background': 'You can close this. Progress stays in the top bar.',
   'offsiteRestore.failed': 'The copy couldn’t be restored',
+  'offsiteRestore.titleAny': 'Getting a backup back',
+  'offsiteRestore.ready': 'The copy is downloaded and checked',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>
