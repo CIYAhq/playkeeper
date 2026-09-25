@@ -50,8 +50,9 @@ type mcmeta struct {
 // to reading the description alone and loads the pack anyway.
 func parseMcmeta(b []byte, use Kind) (mcmeta, error) {
 	var m mcmeta
+	b = bytes.TrimPrefix(b, []byte("\uFEFF"))
 	// The game reads the first JSON value and ignores anything after it.
-	dec := json.NewDecoder(bytes.NewReader(bytes.TrimPrefix(b, []byte("\uFEFF"))))
+	dec := json.NewDecoder(bytes.NewReader(b))
 	var root json.RawMessage
 	if err := dec.Decode(&root); err != nil {
 		return m, badMcmeta("json", jsonDetail(b, err))
