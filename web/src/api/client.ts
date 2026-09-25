@@ -69,3 +69,22 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
 export const get = <T>(path: string) => api<T>('GET', path)
 export const post = <T>(path: string, body: unknown = {}) => api<T>('POST', path, body)
 export const del = <T>(path: string) => api<T>('DELETE', path)
+
+// Wave 6: world uploads send their bytes with XMLHttpRequest, which reports progress.
+
+/** The headers a write needs when it doesn't go through api(). */
+export function writeHeaders(): Record<string, string> {
+  return { 'X-Requested-With': 'playkeeper', 'X-CSRF-Token': csrfToken }
+}
+
+/** The error for a response api() didn't make: its JSON body, or a generic one. */
+export function responseError(status: number, text: string): ApiError {
+  if (status === 0) return new ApiError(0, { error: t('error.network'), code: 'network' })
+  try {
+    const parsed = JSON.parse(text) as ApiErrorBody
+    if (parsed && typeof parsed.error === 'string') return new ApiError(status, parsed)
+  } catch {
+    // Non-JSON error bodies keep the generic message.
+  }
+  return new ApiError(status, { error: t('error.http', { status: String(status) }), code: 'internal' })
+}
