@@ -573,13 +573,13 @@ function RefusalLayout({ pose, title, sub, body, action, phone }: { pose: PipPos
         </div>
       ) : (
         <>
-          <Pip pose={pose} size={52} />
-          <h1 className="mt-4 text-lg leading-6 font-bold tracking-[-0.01em]">{title}</h1>
+          <Pip pose={pose} size={64} />
+          <h1 className="mt-5 text-xl leading-7 font-bold tracking-[-0.01em]">{title}</h1>
           {sub && <p className="mt-1.5 text-[13px] text-muted-foreground">{sub}</p>}
         </>
       )}
-      {body && <p className={cn('mt-2 text-[13px] text-muted-foreground', phone && 'mt-4 text-[15px] text-foreground')}>{body}</p>}
-      {action && <div className="mt-5 max-sm:mt-4">{action}</div>}
+      {body && <p className={cn('mt-2.5 text-sm text-muted-foreground', phone && 'mt-4 text-[15px]', phone && sub && 'text-foreground')}>{body}</p>}
+      {action && <div className="mt-8 max-sm:mt-4">{action}</div>}
     </JoinCard>
   )
 }
