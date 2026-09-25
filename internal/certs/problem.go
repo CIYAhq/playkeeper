@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -357,7 +358,8 @@ func explain(err error, s situation, now time.Time) *Problem {
 	var dnsErr *net.DNSError
 	var opErr *net.OpError
 	var netErr net.Error
-	if errors.As(err, &dnsErr) || errors.As(err, &opErr) || (errors.As(err, &netErr) && netErr.Timeout()) {
+	if errors.As(err, &dnsErr) || errors.As(err, &opErr) || (errors.As(err, &netErr) && netErr.Timeout()) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return newProblem(err, CodeCAUnreachable, map[string]string{"server": s.host})
 	}
 	return newProblem(err, CodeFailed, nil)

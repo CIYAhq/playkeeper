@@ -26,8 +26,8 @@ import (
 // maxACMEResponse bounds every response from the certificate authority.
 const maxACMEResponse = 1 << 20
 
-// validationWait bounds the wait for one check of a name, and for the order
-// to become ready afterwards.
+// validationWait bounds each wait for the certificate authority: for one
+// check of a name, and for the order to become ready or valid.
 const validationWait = 2 * time.Minute
 
 // Issuer gets certificates from an ACME certificate authority, Let's Encrypt
@@ -146,7 +146,7 @@ func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) 
 		}
 	}
 	wctx, cancel := context.WithTimeout(ctx, validationWait)
-	order, err = c.WaitOrder(wctx, order.URI)
+	ready, err := c.WaitOrder(wctx, order.URI)
 	cancel()
 	if err != nil {
 		return nil, explain(err, s, is.now())
@@ -164,9 +164,11 @@ func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) 
 	if err != nil {
 		return nil, newProblem(err, CodeFailed, nil)
 	}
-	der, _, err := c.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
+	der, _, err := c.CreateOrderCert(ctx, ready.FinalizeURL, csr, true)
 	if err != nil {
-		return nil, explain(err, s, is.now())
+		if der, err = fetchIssued(ctx, c, order.URI, err); err != nil {
+			return nil, explain(err, s, is.now())
+		}
 	}
 	leaf, err := checkChain(der, key, names, is.now())
 	if err != nil {
@@ -304,6 +306,30 @@ func (is *Issuer) authorize(ctx context.Context, c *acme.Client, authzURL string
 		return explain(err, s, is.now())
 	}
 	return nil
+}
+
+// fetchIssued gets the certificate of an order whose finalize request failed
+// without a problem from the certificate authority: the answer may have been
+// lost after the order went through, or lacked the order's URL (Pebble's
+// does), which the ACME client needs to wait for issuance to finish.
+// Fetching it spares a new order and a duplicate certificate. Otherwise the
+// order's problem, or finalizeErr, is returned.
+func fetchIssued(ctx context.Context, c *acme.Client, orderURL string, finalizeErr error) ([][]byte, error) {
+	var ae *acme.Error
+	var oe *acme.OrderError
+	if errors.As(finalizeErr, &ae) || errors.As(finalizeErr, &oe) || ctx.Err() != nil {
+		return nil, finalizeErr
+	}
+	wctx, cancel := context.WithTimeout(ctx, validationWait)
+	o, err := c.WaitOrder(wctx, orderURL)
+	cancel()
+	switch {
+	case errors.As(err, &oe) && oe.Problem != nil:
+		return nil, err
+	case err != nil || o.Status != acme.StatusValid || o.CertURL == "":
+		return nil, finalizeErr
+	}
+	return c.FetchCert(ctx, o.CertURL, true)
 }
 
 func offered(z *acme.Authorization, typ string) *acme.Challenge {

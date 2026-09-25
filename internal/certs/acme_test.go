@@ -54,6 +54,10 @@ type fakeCA struct {
 	fail         map[string]caFailure // by step
 	directory    func(w http.ResponseWriter) bool
 	rejectNonces int
+	// finalizeAnswer is how finalize requests are answered: "processing"
+	// like Pebble (issuance still running, no Location header); "lost" and
+	// "lost-early" hang up after or before issuing.
+	finalizeAnswer string
 
 	mu       sync.Mutex
 	nonces   map[string]bool
@@ -499,6 +503,10 @@ func (f *fakeCA) finalize(w http.ResponseWriter, a *caAccount, id string, payloa
 		f.t.Errorf("fake CA: %v", err)
 		return
 	}
+	if f.finalizeAnswer == "lost-early" {
+		hangUp(w)
+		return
+	}
 	var chain [][]byte
 	if f.chain != nil {
 		chain = f.chain(csr)
@@ -511,8 +519,23 @@ func (f *fakeCA) finalize(w http.ResponseWriter, a *caAccount, id string, payloa
 		pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: c})
 	}
 	o.cert, o.valid = buf.Bytes(), true
+	switch f.finalizeAnswer {
+	case "processing":
+		writeJSON(w, http.StatusOK, map[string]any{"status": "processing", "finalize": f.url("/finalize/" + o.id)})
+		return
+	case "lost":
+		hangUp(w)
+		return
+	}
 	w.Header().Set("Location", f.url("/order/"+o.id))
 	f.writeOrder(w, http.StatusOK, o)
+}
+
+// hangUp closes the connection without answering.
+func hangUp(w http.ResponseWriter) {
+	if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+		conn.Close()
+	}
 }
 
 // failed answers with the failure set for step, if there is one.
@@ -728,6 +751,42 @@ func TestIssueBadNonce(t *testing.T) {
 	base := t.TempDir()
 	if _, err := f.issuer(base).Issue(t.Context(), Request{Names: []string{"mc.example.com"}, HTTP01: f.responder(t), Dir: filepath.Join(base, "certs")}); err != nil {
 		t.Fatalf("Issue after two rejected nonces = %v", err)
+	}
+}
+
+func TestIssueFinalizeAnswers(t *testing.T) {
+	cases := []struct {
+		answer string
+		issued bool
+	}{
+		{"processing", true},
+		{"lost", true},
+		{"lost-early", false},
+	}
+	for _, c := range cases {
+		t.Run(c.answer, func(t *testing.T) {
+			f := newFakeCA(t)
+			f.finalizeAnswer = c.answer
+			base := t.TempDir()
+			dir := filepath.Join(base, "certs")
+			got, err := f.issuer(base).Issue(t.Context(), Request{Names: []string{"mc.example.com"}, HTTP01: f.responder(t), Dir: dir})
+			if c.issued {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if read, err := ReadCertificate(got.File); err != nil || read.Serial != got.Serial {
+					t.Errorf("the certificate was not saved: %v", err)
+				}
+			} else {
+				wantProblem(t, err, CodeCAUnreachable, "")
+				if names := dirNames(t, dir); len(names) != 0 {
+					t.Errorf("files saved: %q", names)
+				}
+			}
+			if f.count("finalize") != 1 || f.count("order") != 2 || (f.count("cert") == 1) != c.issued {
+				t.Errorf("steps = %q", f.steps)
+			}
+		})
 	}
 }
 
