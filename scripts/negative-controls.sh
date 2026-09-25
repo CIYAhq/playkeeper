@@ -153,9 +153,9 @@ control "a stopped server gets the GC log at its next start" internal/agent/life
   ./internal/agent '^TestGCLogFlagAppliesFromTheNextStart$'
 control "a GC log line still being written is not read" internal/agent/running.go \
   "end := bytes.LastIndexByte(buf, '\n')" \
-  'end := len(buf) - 1' \
+  "end := max(bytes.LastIndexByte(buf, '\n'), len(buf))" \
   ./internal/agent '^TestGCLogIsReadOnce$'
-control "the GC log cursor survives an agent restart" internal/agent/running.go \
+control "the GC log cursor is stored with the pauses it read" internal/agent/running.go \
   'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), s.id)' \
   'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), "")' \
   ./internal/agent '^TestGCLogIsReadOnce$'

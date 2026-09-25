@@ -216,10 +216,12 @@ func TestGCLogIsReadOnce(t *testing.T) {
 	if err := syscall.Mkfifo(logPath, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A reader stuck opening the pipe would keep the agent from stopping; a
-	// writer lets it go.
+	// A reader stuck opening the pipe would keep the agent from stopping:
+	// opening it for writing lets that reader go, and removing it stops the
+	// next sample from getting stuck again.
 	t.Cleanup(func() {
-		if f, err := os.OpenFile(logPath, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+		if f, err := os.OpenFile(logPath, os.O_RDWR|syscall.O_NONBLOCK, 0); err == nil {
+			os.Remove(logPath)
 			f.Close()
 		}
 	})
