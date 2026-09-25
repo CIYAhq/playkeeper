@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
+import { DiskPage } from '@/pages/disk'
 import { HomePage } from '@/pages/home'
 import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
@@ -145,7 +146,7 @@ function page(route: Route) {
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} />
     case 'machine':
-      return <MachinePage id={route.id} />
+      return route.sub === 'disk' ? <DiskPage id={route.id} /> : <MachinePage id={route.id} />
     case 'settings':
       return <GlobalSettingsPage />
     case 'more':
