@@ -99,10 +99,17 @@ func (f *fakeDiscord) serve(w http.ResponseWriter, r *http.Request) {
 		f.t.Errorf("reading the request: %v", err)
 	}
 	req := fakeRequest{Method: r.Method, Host: r.Host, Path: r.URL.Path, Query: r.URL.Query(), Header: r.Header.Clone(), Raw: string(raw)}
-	if err := json.Unmarshal(raw, &req.Msg); err != nil {
-		f.t.Errorf("%s %s: the body is not JSON: %v", r.Method, r.URL.Path, err)
+	if r.Method == http.MethodGet {
+		if len(raw) != 0 {
+			f.t.Errorf("GET %s with a body", r.URL.Path)
+		}
+		f.checkRead(req)
+	} else {
+		if err := json.Unmarshal(raw, &req.Msg); err != nil {
+			f.t.Errorf("%s %s: the body is not JSON: %v", r.Method, r.URL.Path, err)
+		}
+		f.check(req)
 	}
-	f.check(req)
 	f.mu.Lock()
 	f.requests = append(f.requests, req)
 	var reply fakeReply
@@ -168,6 +175,18 @@ func (f *fakeDiscord) check(r fakeRequest) {
 	}
 }
 
+// checkRead checks Get Webhook with Token: only the webhook's own path and
+// the User-Agent Discord asks for.
+func (f *fakeDiscord) checkRead(r fakeRequest) {
+	t := f.t
+	if r.Host != "discord.com" || !strings.HasPrefix(r.Path, "/api/v10/webhooks/") || strings.Count(strings.TrimPrefix(r.Path, "/api/v10/webhooks/"), "/") != 1 {
+		t.Errorf("read of %s%s", r.Host, r.Path)
+	}
+	if ua := r.Header.Get("User-Agent"); ua != "DiscordBot (https://github.com/CIYAhq/playkeeper, dev)" {
+		t.Errorf("User-Agent %q", ua)
+	}
+}
+
 // answer is what Discord says when nothing was scripted.
 func (f *fakeDiscord) answer(r fakeRequest) (int, string) {
 	parts := strings.Split(strings.TrimPrefix(r.Path, "/api/v10/webhooks/"), "/")
@@ -179,6 +198,8 @@ func (f *fakeDiscord) answer(r fakeRequest) (int, string) {
 		return http.StatusNotFound, fixture(f.t, "unknown_webhook.json")
 	case parts[1] != token:
 		return http.StatusUnauthorized, fixture(f.t, "invalid_webhook_token.json")
+	case len(parts) == 2 && r.Method == http.MethodGet:
+		return http.StatusOK, fmt.Sprintf(`{"application_id": null, "avatar": null, "channel_id": "1289345111111111111", "guild_id": "1289345000000000000", "id": %q, "name": "Playkeeper", "type": 1, "token": %q}`, parts[0], token)
 	case len(parts) == 2 && r.Method == http.MethodPost:
 		if r.Query.Get("wait") != "true" {
 			return http.StatusNoContent, ""

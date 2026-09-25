@@ -403,7 +403,7 @@ func TestPayloadsMatchGolden(t *testing.T) {
 }
 
 func TestAlertsSet(t *testing.T) {
-	if got := DefaultAlerts().String(); got != "crash,recovered,low_disk,backup_failed" {
+	if got := DefaultAlerts().String(); got != "crash,recovered,low_disk,backup_failed,update_available,join_requested" {
 		t.Errorf("default alerts: %s", got)
 	}
 	for _, k := range Kinds() {

@@ -22,6 +22,7 @@ const (
 	KindUpdateAvailable Kind = "update_available"
 	KindPlayerJoined    Kind = "player_joined"
 	KindPlayerLeft      Kind = "player_left"
+	KindJoinRequested   Kind = "join_requested"
 )
 
 // kindInfo is what Playkeeper knows about each kind, in the order the
@@ -39,9 +40,10 @@ var kindInfo = []struct {
 	{KindBackupSucceeded, false, 5 * time.Minute},
 	{KindStarted, false, 5 * time.Minute},
 	{KindStopped, false, 5 * time.Minute},
-	{KindUpdateAvailable, false, 24 * time.Hour},
+	{KindUpdateAvailable, true, 24 * time.Hour},
 	{KindPlayerJoined, false, 5 * time.Minute},
 	{KindPlayerLeft, false, 5 * time.Minute},
+	{KindJoinRequested, true, 5 * time.Minute},
 }
 
 // Kinds lists every kind of alert, in the order to show them.
@@ -140,11 +142,18 @@ type Event struct {
 	// Bytes is the free disk space (low disk) or the backup's size (backup
 	// succeeded); 0 if unknown.
 	Bytes int64
-	// Player is the player who joined or left.
+	// Player is the player who joined, left or asks to join.
 	Player string
 	// Version is the Playkeeper version that is available.
 	Version string
+	// Server is the server the event is about, for a Notifier that posts
+	// about several; zero means the Notifier's own server.
+	Server ServerInfo
 }
+
+// JoinRequested is a player asking to join through an invite link that needs
+// the admin's yes. It never names the link: its name is private.
+func JoinRequested(player string) Event { return Event{Kind: KindJoinRequested, Player: player} }
 
 // Crashed is a crash of the server. explanation is the crash helper's short,
 // plain-English account of what went wrong ("" if there is none); restarting
@@ -189,8 +198,16 @@ func PlayerLeft(name string) Event { return Event{Kind: KindPlayerLeft, Player: 
 // the player or version it is about. A crash after which Playkeeper gives up
 // has its own subject, so it is never swallowed by earlier crash alerts.
 func (e Event) subject() string {
+	s := e.subjectInServer()
+	if id := oneLine(e.Server.ID); id != "" {
+		s = id + "/" + s
+	}
+	return s
+}
+
+func (e Event) subjectInServer() string {
 	switch e.Kind {
-	case KindPlayerJoined, KindPlayerLeft:
+	case KindPlayerJoined, KindPlayerLeft, KindJoinRequested:
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))
 	case KindUpdateAvailable:
 		return string(e.Kind) + ":" + oneLine(e.Version)
@@ -249,6 +266,8 @@ func (e Event) embed(info ServerInfo) embed {
 		title, text = "Player joined", player(e.Player)+" joined "+name+"."
 	case KindPlayerLeft:
 		title, text = "Player left", player(e.Player)+" left "+name+"."
+	case KindJoinRequested:
+		title, text = "Join request", player(e.Player)+" wants to join "+name+". Let them in or say no on the Players tab."
 	default:
 		title, text = "Server alert", name+"."
 	}
@@ -257,6 +276,9 @@ func (e Event) embed(info ServerInfo) embed {
 
 // testEmbed is the message the settings screen's test button sends.
 func testEmbed(info ServerInfo) embed {
+	if userText(info.Name, 100) == "" {
+		return info.card("Test message", "Discord is connected. Playkeeper will post alerts about your servers in this channel.", colorGreen, time.Time{})
+	}
 	return info.card("Test message", "Discord is connected. Playkeeper will post alerts for "+info.boldName()+" in this channel.", colorGreen, time.Time{})
 }
 

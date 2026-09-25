@@ -103,6 +103,7 @@ type Notifier struct {
 	alertRetry time.Time
 
 	status     Status
+	board      *Board
 	haveStatus bool
 	// shown identifies what the live status message shows (embed.key).
 	shown       string
@@ -376,7 +377,15 @@ func (n *Notifier) alertJob(w Webhook) *job {
 	var embeds []embed
 	total := 0
 	for _, e := range n.queue {
-		em := e.embed(n.server)
+		info := n.server
+		if e.Server != (ServerInfo{}) {
+			info = e.Server
+			info.DashboardURL = n.server.DashboardURL
+			if e.Server.DashboardURL != "" {
+				info.DashboardURL = e.Server.DashboardURL
+			}
+		}
+		em := e.embed(info)
 		if len(embeds) == maxEmbeds || (len(embeds) > 0 && total+em.size() > maxEmbedsTotal) {
 			break
 		}
@@ -393,6 +402,9 @@ func (n *Notifier) statusJob(w Webhook, now time.Time) (*job, time.Time) {
 		return nil, time.Time{}
 	}
 	e := n.status.embed(n.server)
+	if n.board != nil {
+		e = n.board.embed(n.server)
+	}
 	key := e.key()
 	if key == n.shown {
 		return nil, time.Time{}

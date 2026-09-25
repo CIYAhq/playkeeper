@@ -3,10 +3,12 @@
 // the webhook in Discord and pastes its URL into Playkeeper; there is no bot
 // account and no OAuth.
 //
-// Everything is per server. The caller makes one Notifier per server from
-// the server's Settings, runs it, feeds it events (Notify) and status
-// snapshots (UpdateStatus), and stores what it reports back: the id of the
-// live status message, and how delivery is going. Requests follow Discord's
+// The caller makes a Notifier from saved Settings, runs it, feeds it events
+// (Notify) and status snapshots, and stores what it reports back: the id of
+// the live status message, and how delivery is going. A Notifier serves one
+// server (UpdateStatus) or a whole dashboard: then each Event names its
+// server and the live status message lists every server (UpdateBoard).
+// Requests follow Discord's
 // API v10 docs (https://discord.com/developers/docs/resources/webhook):
 // Execute Webhook with wait=true, Edit Webhook Message, the embed limits,
 // allowed_mentions and the rate limit headers.

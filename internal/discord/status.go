@@ -10,6 +10,9 @@ import (
 
 // ServerInfo describes the server in every message.
 type ServerInfo struct {
+	// ID tells servers apart when one Notifier posts about several; it is
+	// never shown.
+	ID string
 	// Name is the server's name in Playkeeper.
 	Name string
 	// DashboardURL links to the server's page in the dashboard (https only);

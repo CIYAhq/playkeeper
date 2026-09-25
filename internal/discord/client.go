@@ -258,7 +258,7 @@ func unprepared() *Error {
 }
 
 func errNotConnected() *Error {
-	return &Error{Code: CodeNotConnected, Msg: "Discord is not connected for this server.", Hint: "Paste a Discord webhook URL first."}
+	return &Error{Code: CodeNotConnected, Msg: "Discord is not connected.", Hint: "Paste a Discord webhook URL first."}
 }
 
 // discordSaid is Discord's own explanation as " (…)", or "".
