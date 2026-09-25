@@ -6,6 +6,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
 // Releases the fakes can add: one that needs a newer Java than the image
@@ -414,6 +417,37 @@ func TestNeoForgeMinecraft(t *testing.T) {
 		mc, beta, ok := neoforgeMinecraft(tt.v)
 		if mc != tt.mc || beta != tt.beta || ok != tt.ok {
 			t.Errorf("neoforgeMinecraft(%q) = %q, %v, %v; want %q, %v, %v", tt.v, mc, beta, ok, tt.mc, tt.beta, tt.ok)
+		}
+	}
+}
+
+func TestReleaseDates(t *testing.T) {
+	f := newFakeNet(t)
+	serveMojang(t, f, nil)
+	dates, err := f.sources().ReleaseDates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dates["26.3"]; !got.Equal(time.Date(2026, 9, 15, 11, 23, 2, 0, time.UTC)) || got.Location() != time.UTC {
+		t.Errorf("26.3 released %v", got)
+	}
+	if _, ok := dates["26.4-snapshot-1"]; ok {
+		t.Error("a snapshot has a release date")
+	}
+	if got := dates["1.21.1"]; got.Format(time.DateOnly) != "2024-08-08" {
+		t.Errorf("1.21.1 released %v", got)
+	}
+}
+
+func TestRegistryMatchesSupportedTypes(t *testing.T) {
+	for _, ty := range minecraft.Types {
+		if ty.ID != "paper" && ty.Available != Supported(ty.ID) {
+			t.Errorf("%s: the registry says available %v, this package installs it: %v", ty.ID, ty.Available, Supported(ty.ID))
+		}
+	}
+	for _, id := range allTypes {
+		if ty, ok := minecraft.TypeByID(id); !ok || !ty.Available {
+			t.Errorf("%s is installed here but not offered in minecraft.Types", id)
 		}
 	}
 }

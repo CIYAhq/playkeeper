@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
@@ -17,10 +18,11 @@ const mojangManifestURL = "https://piston-meta.mojang.com/mc/game/version_manife
 // mojangEntry is one version in Mojang's version manifest. SHA1 pins the
 // version's own file, which holds the server jar's SHA-1.
 type mojangEntry struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-	URL  string `json:"url"`
-	SHA1 string `json:"sha1"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	URL         string `json:"url"`
+	SHA1        string `json:"sha1"`
+	ReleaseTime string `json:"releaseTime"`
 }
 
 type mojangVersion struct {
@@ -47,6 +49,23 @@ func mojangManifest(ctx context.Context, hc *http.Client) (map[string]mojangEntr
 	}
 	if len(out) == 0 {
 		return nil, u.malformed(what, errors.New("it lists no versions"))
+	}
+	return out, nil
+}
+
+// ReleaseDates reads when Mojang released each Minecraft release, from its
+// version manifest. The dates are the same whatever software a server runs,
+// Paper's included.
+func (s Sources) ReleaseDates(ctx context.Context) (map[string]time.Time, error) {
+	man, err := mojangManifest(ctx, s.Client)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]time.Time, len(man))
+	for id, e := range man {
+		if t, err := time.Parse(time.RFC3339, e.ReleaseTime); err == nil && e.Type == "release" {
+			out[id] = t.UTC()
+		}
 	}
 	return out, nil
 }
