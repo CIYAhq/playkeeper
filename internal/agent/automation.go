@@ -173,6 +173,8 @@ func (a *Agent) automationRoutes() []Route {
 		{"POST", "/v1/servers/{id}/offsite/new-key", srv((*server).hOffsiteNewKey)},
 		{"GET", "/v1/servers/{id}/offsite/copies", srv((*server).hOffsiteCopies)},
 		{"POST", "/v1/servers/{id}/offsite/restore", srv((*server).hOffsiteRestore)},
+		{"POST", "/v1/offsite/recover", a.hRecoverList},
+		{"POST", "/v1/offsite/recover/restore", a.hRecoverRestore},
 		{"GET", "/v1/disk", a.hDisk},
 		{"POST", "/v1/disk/clean", a.hDiskClean},
 	}

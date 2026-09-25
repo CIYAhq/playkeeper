@@ -321,3 +321,38 @@ func TestParseRecoveryFileRefusals(t *testing.T) {
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("disk error") }
+
+func TestRecoveryFileSaysWhoseKeysAndWhereTheCopiesAre(t *testing.T) {
+	keys, _, err := newKeys(t).Rotate(keyTime.Add(24 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := time.Date(2026, 9, 24, 18, 47, 0, 0, time.UTC)
+	rf, err := keys.RecoveryFileFor("Survival", "playkeeper/survival/", made)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := ReadRecoveryFile(strings.NewReader(rf.Content.Reveal()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Server != "Survival" || rec.Folder != "playkeeper/survival/" || !rec.Made.Equal(made) || len(rec.Keys.Old) != 1 || rec.Keys.Current.Recipient != keys.Current.Recipient {
+		t.Fatalf("read back %q %q %v, %d old keys", rec.Server, rec.Folder, rec.Made, len(rec.Keys.Old))
+	}
+
+	for _, folder := range []string{"", "backups/\nsurvival", strings.Repeat("a", 257)} {
+		rf, err := keys.RecoveryFileFor("Survival", folder, made)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(rf.Content.Reveal(), "# folder:") {
+			t.Errorf("folder %q was written", folder)
+		}
+	}
+
+	// A folder line below the keys isn't the file's own.
+	text := rf.Content.Reveal() + "\n# folder: elsewhere/\n"
+	if rec, err := ReadRecoveryFile(strings.NewReader(text)); err != nil || rec.Folder != "playkeeper/survival/" {
+		t.Fatalf("folder after the keys: %q %v", rec.Folder, err)
+	}
+}

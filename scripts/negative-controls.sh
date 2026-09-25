@@ -286,6 +286,10 @@ control "the recovery key is a backup key action" internal/panel/server.go \
   '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actRecoveryKey,' \
   '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actManageServers,' \
   ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "restoring from a recovery key is a backup key action" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoveryKey),' \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actManageMachine),' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
 control "refused recovery key requests are audited" internal/panel/server.go \
   'if rt.Act == actRecoveryKey {' \
   'if false && rt.Act == actRecoveryKey {' \

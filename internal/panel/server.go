@@ -227,6 +227,8 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/offsite/new-key", needSessionCSRF, actRecoveryKey, s.serverProxy("POST", "/v1/servers/{id}/offsite/new-key")},
 		sg("/api/servers/{id}/offsite/copies", "/v1/servers/{id}/offsite/copies"),
 		sm("POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
+		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoveryKey),
+		mm("POST", "/api/machines/{mid}/offsite/recover/restore", "/v1/offsite/recover/restore", actRecoveryKey),
 		mg("/api/machines/{mid}/disk", "/v1/disk"),
 		mm("POST", "/api/machines/{mid}/disk/clean", "/v1/disk/clean", actManageMachine),
 	}

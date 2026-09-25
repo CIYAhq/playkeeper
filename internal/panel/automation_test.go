@@ -24,6 +24,8 @@ func TestWaveSevenRoutesReachTheAgent(t *testing.T) {
 		{"POST", srv + "/sleep", "POST /v1/servers/" + sampleServer + "/sleep"},
 		{"POST", srv + "/backup-rules/estimate", "POST /v1/servers/" + sampleServer + "/backup-rules/estimate"},
 		{"POST", srv + "/offsite/new-key", "POST /v1/servers/" + sampleServer + "/offsite/new-key"},
+		{"POST", "/api/machines/" + ms[0].ID + "/offsite/recover", "POST /v1/offsite/recover"},
+		{"POST", "/api/machines/" + ms[0].ID + "/offsite/recover/restore", "POST /v1/offsite/recover/restore"},
 		{"GET", "/api/machines/" + ms[0].ID + "/disk?tz=Europe%2FBerlin", "GET /v1/disk"},
 		{"POST", "/api/machines/" + ms[0].ID + "/disk/clean", "POST /v1/disk/clean"},
 	} {
@@ -93,6 +95,7 @@ func TestMembersCannotTouchBackupCopiesOrTheRecoveryKey(t *testing.T) {
 		{"POST", srv + "/backup-rules/estimate"}, {"POST", srv + "/offsite"}, {"POST", srv + "/offsite/test"}, {"POST", srv + "/offsite/ssh-key"}, {"POST", srv + "/offsite/retry"},
 		{"GET", srv + "/offsite/recovery-key"}, {"POST", srv + "/offsite/new-key"}, {"POST", srv + "/offsite/restore"},
 		{"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/disk/clean"},
+		{"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/offsite/recover"}, {"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/offsite/recover/restore"},
 	}
 	for _, c := range refused {
 		if r := e.do(t, c.method, c.path, `{}`, auth(cookie, csrf)); r.status != http.StatusForbidden {
@@ -106,8 +109,8 @@ func TestMembersCannotTouchBackupCopiesOrTheRecoveryKey(t *testing.T) {
 		t.Fatalf("refused requests reached the agent: %v", hits)
 	}
 	var refusedKeys int
-	if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE actor = 'friend' AND action = 'offsite.recovery_key' AND result = 'refused'`).Scan(&refusedKeys); err != nil || refusedKeys != 2 {
-		t.Fatalf("audited %d refused recovery key requests, want 2 (%v)", refusedKeys, err)
+	if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE actor = 'friend' AND action = 'offsite.recovery_key' AND result = 'refused'`).Scan(&refusedKeys); err != nil || refusedKeys != 4 {
+		t.Fatalf("audited %d refused recovery key requests, want 4 (%v)", refusedKeys, err)
 	}
 	req, _ := http.NewRequest("GET", e.ts.URL+srv+"/offsite/recovery-key", nil)
 	req.Header.Set("Cookie", cookieName+"="+cookie)
@@ -128,11 +131,13 @@ func TestMembersCannotTouchBackupCopiesOrTheRecoveryKey(t *testing.T) {
 func TestOneCheckDecidesWhoHoldsBackupKeys(t *testing.T) {
 	e := newEnv(t)
 	want := map[string]action{
-		"POST /api/servers/{id}/offsite":             actManageBackupCopies,
-		"POST /api/servers/{id}/offsite/test":        actManageBackupCopies,
-		"POST /api/servers/{id}/offsite/ssh-key":     actManageBackupCopies,
-		"GET /api/servers/{id}/offsite/recovery-key": actRecoveryKey,
-		"POST /api/servers/{id}/offsite/new-key":     actRecoveryKey,
+		"POST /api/servers/{id}/offsite":                   actManageBackupCopies,
+		"POST /api/servers/{id}/offsite/test":              actManageBackupCopies,
+		"POST /api/servers/{id}/offsite/ssh-key":           actManageBackupCopies,
+		"GET /api/servers/{id}/offsite/recovery-key":       actRecoveryKey,
+		"POST /api/servers/{id}/offsite/new-key":           actRecoveryKey,
+		"POST /api/machines/{mid}/offsite/recover":         actRecoveryKey,
+		"POST /api/machines/{mid}/offsite/recover/restore": actRecoveryKey,
 	}
 	for _, rt := range e.srv.Routes() {
 		key := rt.Method + " " + rt.Pattern

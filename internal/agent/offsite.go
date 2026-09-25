@@ -865,7 +865,11 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("There is no recovery key yet.", "Turn on copies somewhere else first; the key is made then."))
 		return
 	}
-	f, err := row.keys.RecoveryFile(s.name(), s.now())
+	folder := row.cfg.S3.Prefix
+	if row.cfg.Type == offsite.TypeSFTP {
+		folder = row.cfg.SFTP.Folder
+	}
+	f, err := row.keys.RecoveryFileFor(s.name(), folder, s.now())
 	if err != nil {
 		writeError(w, automationError(err))
 		return
