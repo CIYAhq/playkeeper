@@ -286,7 +286,7 @@ func (w *wireError) err() *Error {
 		}
 	}
 	if w.RetryAfterMs > 0 {
-		e.RetryAfter = min(time.Duration(w.RetryAfterMs)*time.Millisecond, 24*time.Hour)
+		e.RetryAfter = time.Duration(min(w.RetryAfterMs, (24*time.Hour).Milliseconds())) * time.Millisecond
 	}
 	return e
 }
