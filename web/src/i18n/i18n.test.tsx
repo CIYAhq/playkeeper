@@ -23,8 +23,8 @@ describe('t', () => {
   it('picks plural forms, and the zero form for exactly none', () => {
     expect(t('unit.players', { count: 1 })).toBe('1 player')
     expect(t('unit.players', { count: 3 })).toBe('3 players')
-    expect(t('home.playing', { count: 0 })).toBe('nobody playing right now')
-    expect(t('home.playing', { count: 1 })).toBe('1 person playing right now')
+    expect(t('home.playing', { count: 0 })).toBe('nobody playing')
+    expect(t('home.playing', { count: 1 })).toBe('1 playing')
     // A message without a zero form uses the language's rule for 0.
     expect(t('unit.players', { count: 0 })).toBe('0 players')
   })
@@ -72,7 +72,7 @@ describe('the English catalog', () => {
     const code = Object.values(import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.*', '!./en.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>).join('\n')
     const used = new Set([...code.matchAll(/['"]([a-zA-Z]+\.[\w.-]+)['"]/g)].map((m) => m[1]))
     // Keys built from a value, like `settings.difficulty.${d}`.
-    const families = ['settings.difficulty.', 'settings.mode.', 'style.world.', 'onboarding.strength.', 'overview.chartTitle.', 'overview.chartHint.']
+    const families = ['settings.difficulty.', 'settings.mode.', 'style.world.', 'onboarding.strength.', 'overview.chartTitle.']
     const unused = entries.map(([k]) => k).filter((k) => !used.has(k) && !families.some((f) => k.startsWith(f)))
     expect(unused).toEqual([])
   })
