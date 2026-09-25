@@ -260,6 +260,7 @@ func New(opts Options) (*Agent, error) {
 	a.collectUpdateResult()
 	a.markInterruptedOperations(a.findInterruptedRestores()...)
 	a.pruneStages()
+	a.pruneArchiveLeftovers()
 	return a, nil
 }
 
