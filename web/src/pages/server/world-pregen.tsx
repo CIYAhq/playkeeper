@@ -128,11 +128,16 @@ export function pregenLine(pg: Pregen | undefined, server: string): string {
   }
 }
 
-/** The preset chosen first: Medium, or the biggest smaller one that fits on the disk. */
+/**
+ * The preset chosen first: after a finished task the next bigger one, even
+ * when it doesn't fit so the page says why; otherwise Medium, or the biggest
+ * smaller one that fits on the disk.
+ */
 export function firstPreset(presets: PregenPreset[], after?: number): PregenPresetId {
   if (after !== undefined) {
-    const bigger = presets.find((p) => p.radius > after && p.fits)
-    if (bigger) return bigger.id
+    const bigger = presets.filter((p) => p.radius > after)
+    const next = bigger.find((p) => p.fits) ?? bigger[0]
+    if (next) return next.id
   }
   const medium = presets.find((p) => p.id === 'medium')
   if (!medium || medium.fits) return 'medium'
@@ -174,7 +179,7 @@ export function PregenPage({ server: s }: { server: ServerStatus }) {
           />
         )}
         {view === 'progress' && pg && <Running server={s} pregen={pg} onChanged={refresh} />}
-        {view === 'finished' && pg && <Finished pregen={pg} onFurther={() => setFurther(true)} />}
+        {view === 'finished' && pg && <Finished pregen={pg} onFurther={pg.presets.some((p) => p.radius > (pg.radius ?? 0)) ? () => setFurther(true) : undefined} />}
       </div>
     </>
   )
@@ -436,11 +441,11 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
   )
 }
 
-function Finished({ pregen: pg, onFurther }: { pregen: Pregen; onFurther: () => void }) {
+function Finished({ pregen: pg, onFurther }: { pregen: Pregen; onFurther?: () => void }) {
   const phone = useIsPhone()
   const chunks = t('unit.chunks', { count: pg.chunks || pg.total })
   const line = [pg.elapsedSeconds ? t('pregen.done', { chunks, time: longTime(pg.elapsedSeconds) }) : chunks, pg.diskBytes !== undefined ? formatBytes(pg.diskBytes) : undefined].filter(Boolean).join(t('common.dot'))
-  const further = (
+  const further = onFurther && (
     <Button variant="outline" size={phone ? 'touch' : 'default'} className={phone ? 'mt-4 w-full' : undefined} onClick={onFurther}>
       <MapIcon />
       {t('pregen.goFurther')}
