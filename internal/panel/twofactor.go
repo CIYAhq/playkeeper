@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"cmp"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -24,12 +26,19 @@ const (
 	pendingCookieName = "__Host-playkeeper-2fa"
 	// pendingTTL is how long the second step waits after a correct password.
 	pendingTTL = 5 * time.Minute
-	// stageSecondFactor marks a sessions row that passed the password only;
-	// lookupSession accepts only stage 'full'.
-	stageSecondFactor = "second_factor"
+	// pendingAttempts is how many codes one correct password may try; then
+	// the password is needed again.
+	pendingAttempts = 10
 )
 
 var errFactorRace = errors.New("two-factor sign-in changed during this request")
+
+// querier is what loadFactor and storeFactor need: the database, or the one
+// connection that holds changeFactor's write transaction.
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
 
 func msTime(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
 
@@ -47,94 +56,138 @@ func nullMS(t time.Time) any {
 	return t.UnixMilli()
 }
 
-// loadFactor reads the user's authenticator app; ok is false when there is
-// no row, which means two-factor sign-in is off.
-func (s *Server) loadFactor(userID int64) (f twofactor.Factor, ok bool, err error) {
+// loadFactor reads the user's authenticator app, and the id hash of the
+// session that started its setup while that is not confirmed; ok is false
+// when there is no row, which means two-factor sign-in is off.
+func loadFactor(ctx context.Context, q querier, userID int64) (f twofactor.Factor, setupSession string, ok bool, err error) {
 	var secret, hashes string
 	var created int64
 	var confirmed, lastUsed, recoveryCreated, lockedUntil sql.NullInt64
-	err = s.db.QueryRow(`SELECT secret, created_at, confirmed_at, last_step, last_used_at, recovery_hashes, recovery_created_at, failures, locked_until, revision
+	err = q.QueryRowContext(ctx, `SELECT secret, created_at, setup_session, confirmed_at, last_step, last_used_at, recovery_hashes, recovery_created_at,
+		failures, recovery_failures, locked_until, revision
 		FROM user_factors WHERE user_id = ? AND kind = 'totp'`, userID).
-		Scan(&secret, &created, &confirmed, &f.LastStep, &lastUsed, &hashes, &recoveryCreated, &f.Failures, &lockedUntil, &f.Revision)
+		Scan(&secret, &created, &setupSession, &confirmed, &f.LastStep, &lastUsed, &hashes, &recoveryCreated,
+			&f.Failures, &f.RecoveryFailures, &lockedUntil, &f.Revision)
 	if isNoRows(err) {
-		return twofactor.Factor{}, false, nil
+		return twofactor.Factor{}, "", false, nil
 	}
 	if err != nil {
-		return twofactor.Factor{}, false, err
+		return twofactor.Factor{}, "", false, err
 	}
 	if f.Secret, err = totp.ParseSecret(secret); err != nil {
-		return twofactor.Factor{}, false, fmt.Errorf("stored two-factor secret: %w", err)
+		return twofactor.Factor{}, "", false, fmt.Errorf("stored two-factor secret: %w", err)
 	}
 	if err := json.Unmarshal([]byte(hashes), &f.Recovery.Hashes); err != nil {
-		return twofactor.Factor{}, false, fmt.Errorf("stored recovery codes: %w", err)
+		return twofactor.Factor{}, "", false, fmt.Errorf("stored recovery codes: %w", err)
 	}
 	f.CreatedAt, f.ConfirmedAt, f.LastUsedAt = msTime(created), nullTime(confirmed), nullTime(lastUsed)
 	f.Recovery.CreatedAt, f.LockedUntil = nullTime(recoveryCreated), nullTime(lockedUntil)
-	return f, true, nil
+	return f, setupSession, true, nil
 }
 
-// storeFactor saves next in place of old only if the stored revision is
-// still old's, so two requests cannot both use one code; stored is false
-// when another request changed it first. A next with no secret is what
-// Disable returns and deletes the row.
-func (s *Server) storeFactor(userID int64, old twofactor.Factor, exists bool, next twofactor.Factor) (stored bool, err error) {
+// storeFactor saves next over the row loaded at revision old and returns
+// errFactorRace if the row is no longer at old. A next with no secret is
+// what Disable returns and deletes the row. A setup not yet confirmed is
+// stored as setupSession's, the session that started it.
+func storeFactor(ctx context.Context, q querier, userID, old int64, exists bool, next twofactor.Factor, setupSession string) error {
 	var res sql.Result
+	var err error
 	switch {
 	case next.Secret.IsZero():
-		res, err = s.db.Exec(`DELETE FROM user_factors WHERE user_id = ? AND kind = 'totp' AND revision = ?`, userID, old.Revision)
+		res, err = q.ExecContext(ctx, `DELETE FROM user_factors WHERE user_id = ? AND kind = 'totp' AND revision = ?`, userID, old)
 	default:
+		if next.On() {
+			setupSession = ""
+		}
 		hashes := next.Recovery.Hashes
 		if hashes == nil {
 			hashes = []string{}
 		}
 		b, jerr := json.Marshal(hashes)
 		if jerr != nil {
-			return false, jerr
+			return jerr
 		}
-		args := []any{next.Secret.Base32(), next.CreatedAt.UnixMilli(), nullMS(next.ConfirmedAt), next.LastStep, nullMS(next.LastUsedAt),
-			string(b), nullMS(next.Recovery.CreatedAt), next.Failures, nullMS(next.LockedUntil), next.Revision}
+		args := []any{next.Secret.Base32(), next.CreatedAt.UnixMilli(), setupSession, nullMS(next.ConfirmedAt), next.LastStep, nullMS(next.LastUsedAt),
+			string(b), nullMS(next.Recovery.CreatedAt), next.Failures, next.RecoveryFailures, nullMS(next.LockedUntil), next.Revision}
 		if exists {
-			res, err = s.db.Exec(`UPDATE user_factors SET secret = ?, created_at = ?, confirmed_at = ?, last_step = ?, last_used_at = ?,
-				recovery_hashes = ?, recovery_created_at = ?, failures = ?, locked_until = ?, revision = ?
-				WHERE user_id = ? AND kind = 'totp' AND revision = ?`, append(args, userID, old.Revision)...)
+			res, err = q.ExecContext(ctx, `UPDATE user_factors SET secret = ?, created_at = ?, setup_session = ?, confirmed_at = ?, last_step = ?, last_used_at = ?,
+				recovery_hashes = ?, recovery_created_at = ?, failures = ?, recovery_failures = ?, locked_until = ?, revision = ?
+				WHERE user_id = ? AND kind = 'totp' AND revision = ?`, append(args, userID, old)...)
 		} else {
-			res, err = s.db.Exec(`INSERT INTO user_factors(secret, created_at, confirmed_at, last_step, last_used_at,
-				recovery_hashes, recovery_created_at, failures, locked_until, revision, user_id, kind)
-				VALUES(?,?,?,?,?,?,?,?,?,?,?,'totp') ON CONFLICT DO NOTHING`, append(args, userID)...)
+			res, err = q.ExecContext(ctx, `INSERT INTO user_factors(secret, created_at, setup_session, confirmed_at, last_step, last_used_at,
+				recovery_hashes, recovery_created_at, failures, recovery_failures, locked_until, revision, user_id, kind)
+				VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'totp') ON CONFLICT DO NOTHING`, append(args, userID)...)
 		}
 	}
 	if err != nil {
-		return false, err
+		return err
 	}
-	n, err := res.RowsAffected()
-	return n == 1, err
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return cmp.Or(err, errFactorRace)
+	}
+	return nil
 }
 
-// changeFactor runs step on the stored factor and stores what it returns
-// when that changed. If another request changed the factor meanwhile, it
-// reloads and runs step once more. step's own error comes back after the
-// store, since a wrong code is counted even though the step failed.
-func (s *Server) changeFactor(userID int64, step func(f twofactor.Factor, exists bool) (twofactor.Factor, error)) (twofactor.Factor, error) {
-	for try := 0; ; try++ {
-		f, exists, err := s.loadFactor(userID)
-		if err != nil {
+// visibleTo is f as the session with id hash idHash may see it. Until a
+// setup is confirmed nothing but the session protects its secret, so only
+// the session that started it can show or confirm it; to others two-factor
+// sign-in is off, and starting again, which needs the password, replaces it.
+func visibleTo(f twofactor.Factor, setupSession, idHash string) twofactor.Factor {
+	if f.On() || setupSession == idHash {
+		return f
+	}
+	return twofactor.Factor{Revision: f.Revision}
+}
+
+// factorFor reads the user's factor as the session idHash may see it.
+func (s *Server) factorFor(userID int64, idHash string) (twofactor.Factor, error) {
+	f, setupSession, _, err := loadFactor(context.Background(), s.db, userID)
+	if err != nil {
+		return twofactor.Factor{}, err
+	}
+	return visibleTo(f, setupSession, idHash), nil
+}
+
+// changeFactor runs step on the user's factor as the session idHash may see
+// it, and stores what step returns when that changed, in one write
+// transaction on its own connection: concurrent requests take turns, each
+// seeing what the one before stored, so a code works once and every code
+// checked is counted. step's own error comes back after the store, since a
+// wrong code counts even though the step failed.
+func (s *Server) changeFactor(userID int64, idHash string, step func(f twofactor.Factor, exists bool) (twofactor.Factor, error)) (twofactor.Factor, error) {
+	// Not the request's context: a client that goes away must not cut the
+	// transaction short and hand the connection back inside it.
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return twofactor.Factor{}, err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return twofactor.Factor{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+		}
+	}()
+	stored, setupSession, exists, err := loadFactor(ctx, conn, userID)
+	if err != nil {
+		return twofactor.Factor{}, err
+	}
+	f := visibleTo(stored, setupSession, idHash)
+	next, stepErr := step(f, exists)
+	if next.Revision != f.Revision || (exists && next.Secret.IsZero() && !f.Secret.IsZero()) {
+		if err := storeFactor(ctx, conn, userID, stored.Revision, exists, next, idHash); err != nil {
 			return f, err
 		}
-		next, stepErr := step(f, exists)
-		if next.Revision != f.Revision || (exists && next.Secret.IsZero()) {
-			stored, err := s.storeFactor(userID, f, exists, next)
-			if err != nil {
-				return f, err
-			}
-			if !stored {
-				if try == 0 {
-					continue
-				}
-				return f, errFactorRace
-			}
-		}
-		return next, stepErr
 	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return f, err
+	}
+	committed = true
+	return next, stepErr
 }
 
 // accountName is how the authenticator app lists this dashboard:
@@ -192,21 +245,27 @@ func failureDetail(err error, before, after twofactor.Factor) string {
 	if d == "" {
 		d = "error"
 	}
-	if after.Failures > before.Failures {
+	switch {
+	case after.Failures > before.Failures:
 		d += fmt.Sprintf(", %d in a row", after.Failures)
+	case after.RecoveryFailures > before.RecoveryFailures:
+		d += fmt.Sprintf(", %d in a row", after.RecoveryFailures)
 	}
 	return d
 }
 
 // --- pending second step ---
 
-func (s *Server) newPendingSession(u user) (token string, expires time.Time, err error) {
+// newPendingLogin records a sign-in that passed the password. It has its own
+// table, which only the second-step routes read, so its token is not a
+// session in any cookie.
+func (s *Server) newPendingLogin(u user) (token string, expires time.Time, err error) {
 	token = randomToken(32)
 	now := s.now()
 	expires = now.Add(pendingTTL)
-	_, _ = s.db.Exec(`DELETE FROM sessions WHERE stage = ? AND expires_at <= ?`, stageSecondFactor, now.UnixMilli())
-	_, err = s.db.Exec(`INSERT INTO sessions(id_hash, user_id, csrf, created_at, last_seen, expires_at, stage) VALUES(?,?,'',?,?,?,?)`,
-		tokenHash(token), u.ID, now.UnixMilli(), now.UnixMilli(), expires.UnixMilli(), stageSecondFactor)
+	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE expires_at <= ?`, now.UnixMilli())
+	_, err = s.db.Exec(`INSERT INTO pending_logins(id_hash, user_id, created_at, expires_at) VALUES(?,?,?,?)`,
+		tokenHash(token), u.ID, now.UnixMilli(), expires.UnixMilli())
 	return token, expires, err
 }
 
@@ -220,18 +279,40 @@ func (s *Server) pendingFrom(r *http.Request) (session, error) {
 	}
 	var sess session
 	var expires int64
-	err = s.db.QueryRow(`SELECT s.id_hash, s.expires_at, u.id, u.username, u.role
-		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ? AND s.stage = ?`, tokenHash(c.Value), stageSecondFactor).
+	err = s.db.QueryRow(`SELECT p.id_hash, p.expires_at, u.id, u.username, u.role
+		FROM pending_logins p JOIN users u ON u.id = p.user_id WHERE p.id_hash = ?`, tokenHash(c.Value)).
 		Scan(&sess.IDHash, &expires, &sess.User.ID, &sess.User.Username, &sess.User.Role)
 	if err != nil {
 		return session{}, errNoSession
 	}
 	sess.ExpiresAt = time.UnixMilli(expires)
 	if !s.now().Before(sess.ExpiresAt) {
-		s.deleteSession(sess.IDHash)
+		s.endPendingLogin(sess.IDHash)
 		return session{}, errNoSession
 	}
 	return sess, nil
+}
+
+// usePendingAttempt spends one of the codes the pending sign-in may try;
+// false means none are left.
+func (s *Server) usePendingAttempt(idHash string) bool {
+	res, err := s.db.Exec(`UPDATE pending_logins SET attempts = attempts + 1 WHERE id_hash = ? AND attempts < ?`, idHash, pendingAttempts)
+	if err != nil {
+		return false
+	}
+	n, err := res.RowsAffected()
+	return err == nil && n == 1
+}
+
+// endPendingLogin deletes the pending sign-in; false means it was gone
+// already, so another request passed or ended it first.
+func (s *Server) endPendingLogin(idHash string) bool {
+	res, err := s.db.Exec(`DELETE FROM pending_logins WHERE id_hash = ?`, idHash)
+	if err != nil {
+		return false
+	}
+	n, err := res.RowsAffected()
+	return err == nil && n == 1
 }
 
 func setPendingCookie(w http.ResponseWriter, token string) {
@@ -245,11 +326,11 @@ func clearPendingCookie(w http.ResponseWriter) {
 // secondFactorNeeded starts the second step after a correct password, or
 // reports false when the user has two-factor sign-in off.
 func (s *Server) secondFactorNeeded(w http.ResponseWriter, u user) (bool, error) {
-	f, ok, err := s.loadFactor(u.ID)
+	f, _, ok, err := loadFactor(context.Background(), s.db, u.ID)
 	if err != nil || !ok || !f.On() {
 		return false, err
 	}
-	token, expires, err := s.newPendingSession(u)
+	token, expires, err := s.newPendingLogin(u)
 	if err != nil {
 		return false, err
 	}
@@ -274,10 +355,17 @@ func (s *Server) hSecondFactor(w http.ResponseWriter, r *http.Request, p *sessio
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
 		return
 	}
+	if !s.usePendingAttempt(p.IDHash) {
+		s.endPendingLogin(p.IDHash)
+		s.audit(p.User.Username, "login.second_factor", "panel", "refused", fmt.Sprintf("%d codes tried, password needed again", pendingAttempts))
+		clearPendingCookie(w)
+		writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Too many codes for one sign-in. Enter your password again.", "")
+		return
+	}
 	var before twofactor.Factor
 	var res twofactor.Result
 	now := s.now()
-	after, err := s.changeFactor(p.User.ID, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
+	after, err := s.changeFactor(p.User.ID, p.IDHash, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
 		before = f
 		next, result, err := twofactor.SignIn(f, req.Code, now)
 		res = result
@@ -285,7 +373,7 @@ func (s *Server) hSecondFactor(w http.ResponseWriter, r *http.Request, p *sessio
 	})
 	switch {
 	case twofactor.KindOf(err) == twofactor.KindOff:
-		s.deleteSession(p.IDHash)
+		s.endPendingLogin(p.IDHash)
 		clearPendingCookie(w)
 		writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Please sign in again.", "")
 		return
@@ -296,7 +384,11 @@ func (s *Server) hSecondFactor(w http.ResponseWriter, r *http.Request, p *sessio
 		factorError(w, err, true)
 		return
 	}
-	s.deleteSession(p.IDHash)
+	if !s.endPendingLogin(p.IDHash) {
+		clearPendingCookie(w)
+		writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Please sign in again.", "")
+		return
+	}
 	token, sess, err := s.newSession(p.User)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start a session.", "")
@@ -315,7 +407,7 @@ func (s *Server) hSecondFactor(w http.ResponseWriter, r *http.Request, p *sessio
 }
 
 func (s *Server) hSecondFactorCancel(w http.ResponseWriter, r *http.Request, p *session) {
-	s.deleteSession(p.IDHash)
+	s.endPendingLogin(p.IDHash)
 	clearPendingCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -323,7 +415,7 @@ func (s *Server) hSecondFactorCancel(w http.ResponseWriter, r *http.Request, p *
 // --- signed-in routes ---
 
 func (s *Server) h2FAStatus(w http.ResponseWriter, r *http.Request, sess *session) {
-	f, _, err := s.loadFactor(sess.User.ID)
+	f, err := s.factorFor(sess.User.ID, sess.IDHash)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -342,7 +434,7 @@ func (s *Server) h2FASetupStart(w http.ResponseWriter, r *http.Request, sess *se
 	_, passwordOK := s.authenticate(sess.User.Username, req.Password)
 	account := accountName(sess.User.Username, r.Host)
 	var setup twofactor.Setup
-	_, err := s.changeFactor(sess.User.ID, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
+	_, err := s.changeFactor(sess.User.ID, sess.IDHash, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
 		next, st, err := twofactor.Begin(f, passwordOK, account, s.now(), rand.Reader)
 		setup = st
 		return next, err
@@ -359,7 +451,7 @@ func (s *Server) h2FASetupStart(w http.ResponseWriter, r *http.Request, sess *se
 }
 
 func (s *Server) h2FASetupShow(w http.ResponseWriter, r *http.Request, sess *session) {
-	f, _, err := s.loadFactor(sess.User.ID)
+	f, err := s.factorFor(sess.User.ID, sess.IDHash)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -373,7 +465,7 @@ func (s *Server) h2FASetupShow(w http.ResponseWriter, r *http.Request, sess *ses
 }
 
 func (s *Server) h2FASetupCancel(w http.ResponseWriter, r *http.Request, sess *session) {
-	res, err := s.db.Exec(`DELETE FROM user_factors WHERE user_id = ? AND kind = 'totp' AND confirmed_at IS NULL`, sess.User.ID)
+	res, err := s.db.Exec(`DELETE FROM user_factors WHERE user_id = ? AND kind = 'totp' AND confirmed_at IS NULL AND setup_session = ?`, sess.User.ID, sess.IDHash)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -393,7 +485,7 @@ func (s *Server) h2FAConfirm(w http.ResponseWriter, r *http.Request, sess *sessi
 		return
 	}
 	var codes []string
-	after, err := s.changeFactor(sess.User.ID, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
+	after, err := s.changeFactor(sess.User.ID, sess.IDHash, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
 		next, c, err := twofactor.Confirm(f, req.Code, s.now(), rand.Reader)
 		codes = c
 		return next, err
@@ -420,7 +512,7 @@ func (s *Server) h2FADisable(w http.ResponseWriter, r *http.Request, sess *sessi
 	}
 	_, passwordOK := s.authenticate(sess.User.Username, req.Password)
 	var before twofactor.Factor
-	after, err := s.changeFactor(sess.User.ID, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
+	after, err := s.changeFactor(sess.User.ID, sess.IDHash, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
 		before = f
 		return twofactor.Disable(f, passwordOK, req.Code, s.now())
 	})
@@ -444,7 +536,7 @@ func (s *Server) h2FARecoveryCodes(w http.ResponseWriter, r *http.Request, sess 
 	_, passwordOK := s.authenticate(sess.User.Username, req.Password)
 	var before twofactor.Factor
 	var codes []string
-	after, err := s.changeFactor(sess.User.ID, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
+	after, err := s.changeFactor(sess.User.ID, sess.IDHash, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
 		before = f
 		next, c, err := twofactor.RenewRecoveryCodes(f, passwordOK, req.Code, s.now(), rand.Reader)
 		codes = c

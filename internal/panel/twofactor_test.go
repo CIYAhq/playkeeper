@@ -1,8 +1,14 @@
 package panel
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -145,6 +151,161 @@ func TestSecondStepExpiresAndCanBeCancelled(t *testing.T) {
 	if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending)); r.status != http.StatusUnauthorized {
 		t.Fatalf("second step after cancel: %d", r.status)
 	}
+
+	login = e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	if r := e.do(t, "POST", "/api/auth/password", `{"currentPassword":"correct horse battery","newPassword":"another good password"}`, auth(cookie, csrf)); r.status != http.StatusNoContent {
+		t.Fatalf("change password: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending)); r.status != http.StatusUnauthorized {
+		t.Fatalf("a sign-in with the old password passes its second step after the password changed: %d", r.status)
+	}
+	login = e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"another good password"}`, xrw)
+	if r := e.do(t, "POST", "/api/auth/logout-all", "", auth(cookie, csrf)); r.status != http.StatusNoContent {
+		t.Fatalf("sign out everywhere: %d", r.status)
+	}
+	if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending)); r.status != http.StatusUnauthorized {
+		t.Fatalf("a sign-in passes its second step after signing out everywhere: %d", r.status)
+	}
+}
+
+func (e *env) count(t *testing.T, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := e.srv.db.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// A sign-in that passed only the password is kept apart from sessions: its
+// token is no session in either cookie, and it starts none.
+func TestPendingSignInIsNeverASession(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	secret, _ := turnOn(t, e, cookie, csrf)
+	sessions := e.count(t, `SELECT COUNT(*) FROM sessions`)
+	login := e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	if login.status != 200 || login.pending == "" {
+		t.Fatalf("login: %d %v", login.status, login.body)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM sessions`); n != sessions {
+		t.Fatalf("a correct password alone started a session: %d sessions, want %d", n, sessions)
+	}
+	for _, path := range []string{"/api/auth/me", "/api/auth/2fa", "/api/servers"} {
+		if r := e.do(t, "GET", path, "", map[string]string{"Cookie": cookieName + "=" + login.pending}); r.status != http.StatusUnauthorized {
+			t.Fatalf("the second-step token works as a session cookie for %s: %d", path, r.status)
+		}
+	}
+	if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(cookie)); r.status != http.StatusUnauthorized {
+		t.Fatalf("a session token works as a second-step cookie: %d", r.status)
+	}
+	if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending)); r.status != 200 || r.cookie == "" {
+		t.Fatalf("second step: %d %v", r.status, r.body)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM sessions`); n != sessions+1 {
+		t.Fatalf("the second step started %d sessions", n-sessions)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM pending_logins`); n != 0 {
+		t.Fatalf("%d pending sign-ins left after the second step", n)
+	}
+}
+
+// One correct password lets the second step try a limited number of codes,
+// even from addresses the per-address limit does not stop.
+func TestOnePasswordBuysTenCodes(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	secret, _ := turnOn(t, e, cookie, csrf)
+	e.srv.loginIP = newLimiter(1000, time.Minute, e.clock.now)
+	login := e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	for i := range pendingAttempts {
+		if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"abcd-efgh-jkmn-pqrs"}`, pendingHeaders(login.pending)); r.status != http.StatusUnauthorized || r.body["code"] != "recovery_code_wrong" {
+			t.Fatalf("wrong code %d: %d %v", i+1, r.status, r.body)
+		}
+	}
+	r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending))
+	if r.status != http.StatusUnauthorized || r.body["code"] != "unauthorized" || r.cookie != "" || !r.pendingCleared {
+		t.Fatalf("a right code after %d tries: %d %v", pendingAttempts, r.status, r.body)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM audit WHERE action = 'login.second_factor' AND result = 'refused'`); n != 1 {
+		t.Fatalf("running out of tries audited %d times", n)
+	}
+	login = e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending)); r.status != 200 {
+		t.Fatalf("the password again, then the right code: %d %v", r.status, r.body)
+	}
+}
+
+// Wrong recovery codes are stored and reported, but on their own count, so
+// they cannot lock the owner's app codes.
+func TestWrongRecoveryCodesAreCountedWithoutLockingAppCodes(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	secret, _ := turnOn(t, e, cookie, csrf)
+	login := e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	const wrong = twofactor.LockAfter + 1
+	for i := range wrong {
+		if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"abcd-efgh-jkmn-pqrs"}`, pendingHeaders(login.pending)); r.status != http.StatusUnauthorized || r.body["code"] != "recovery_code_wrong" {
+			t.Fatalf("wrong recovery code %d: %d %v", i+1, r.status, r.body)
+		}
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM audit WHERE detail = ?`, fmt.Sprintf("recovery_code_wrong, %d in a row", wrong)); n != 1 {
+		t.Fatalf("the audit does not count wrong recovery codes in a row")
+	}
+	login = e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	if ch := login.body["secondFactor"].(map[string]any); len(ch["methods"].([]any)) != 2 || ch["appCodesLockedUntil"] != nil {
+		t.Fatalf("challenge after wrong recovery codes: %v", ch)
+	}
+	r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, pendingHeaders(login.pending))
+	if r.status != 200 {
+		t.Fatalf("the owner's app code after %d wrong recovery codes: %d %v", wrong, r.status, r.body)
+	}
+	if n := r.body["notices"].([]any); len(n) != 1 || n[0].(map[string]any)["kind"] != "failed_attempts" || n[0].(map[string]any)["count"] != float64(wrong) {
+		t.Fatalf("notices: %v", n)
+	}
+}
+
+// A setup not yet confirmed can be shown, confirmed or cancelled only by the
+// session that started it, so a stolen session cannot read its secret.
+func TestAnUnfinishedSetupBelongsToTheSessionThatStartedIt(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	other := e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	otherCSRF := other.body["csrfToken"].(string)
+	started := e.do(t, "POST", "/api/auth/2fa/setup", `{"password":"correct horse battery"}`, auth(cookie, csrf))
+	if started.status != 200 {
+		t.Fatalf("setup: %d %v", started.status, started.body)
+	}
+	secret, err := totp.ParseSecret(started.body["manualKey"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "GET", "/api/auth/2fa/setup", "", auth(other.cookie, "")); r.status != http.StatusConflict || r.body["code"] != "setup_missing" || r.body["manualKey"] != nil {
+		t.Fatalf("another session reads the setup: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "GET", "/api/auth/2fa", "", auth(other.cookie, "")); r.body["state"] != "off" {
+		t.Fatalf("status for another session: %v", r.body)
+	}
+	if r := e.do(t, "POST", "/api/auth/2fa/confirm", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, auth(other.cookie, otherCSRF)); r.status != http.StatusConflict || r.body["code"] != "setup_missing" {
+		t.Fatalf("another session confirms the setup: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "DELETE", "/api/auth/2fa/setup", "", auth(other.cookie, otherCSRF)); r.status != http.StatusNoContent {
+		t.Fatalf("cancel from another session: %d", r.status)
+	}
+	if r := e.do(t, "GET", "/api/auth/2fa/setup", "", auth(cookie, "")); r.status != 200 || r.body["manualKey"] != started.body["manualKey"] {
+		t.Fatalf("another session cancelled the setup: %d %v", r.status, r.body)
+	}
+
+	replaced := e.do(t, "POST", "/api/auth/2fa/setup", `{"password":"correct horse battery"}`, auth(other.cookie, otherCSRF))
+	if replaced.status != 200 || replaced.body["manualKey"] == started.body["manualKey"] {
+		t.Fatalf("starting again with the password from another session: %d %v", replaced.status, replaced.body)
+	}
+	if r := e.do(t, "POST", "/api/auth/2fa/confirm", `{"code":"`+totp.Code(secret, e.clock.now())+`"}`, auth(cookie, csrf)); r.status != http.StatusConflict || r.body["code"] != "setup_missing" {
+		t.Fatalf("the replaced setup still confirms: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "GET", "/api/auth/2fa", "", auth(other.cookie, "")); r.body["state"] != "pending" {
+		t.Fatalf("status for the session that started again: %v", r.body)
+	}
 }
 
 // Five wrong codes pause app codes for a minute, doubling up to 16; recovery
@@ -258,13 +419,14 @@ func TestSetupCanBeShownAgainAndCancelled(t *testing.T) {
 	}
 }
 
-// Two requests that load the same factor cannot both store it, so a code
-// cannot be used twice by racing.
+// A factor is stored only over the revision it was loaded at, so a code
+// cannot be used twice even by a write outside changeFactor's transaction.
 func TestAFactorChangeIsStoredOnlyOnce(t *testing.T) {
 	e := newEnv(t)
 	cookie, csrf := e.setup(t)
 	_, codes := turnOn(t, e, cookie, csrf)
-	f, ok, err := e.srv.loadFactor(1)
+	ctx := context.Background()
+	f, _, ok, err := loadFactor(ctx, e.srv.db, 1)
 	if err != nil || !ok {
 		t.Fatal(ok, err)
 	}
@@ -273,15 +435,144 @@ func TestAFactorChangeIsStoredOnlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	second, _, _ := twofactor.SignIn(f, codes[0], e.clock.now())
-	if stored, err := e.srv.storeFactor(1, f, true, first); !stored || err != nil {
-		t.Fatalf("first store: %v %v", stored, err)
+	if err := storeFactor(ctx, e.srv.db, 1, f.Revision, true, first, ""); err != nil {
+		t.Fatalf("first store: %v", err)
 	}
-	if stored, err := e.srv.storeFactor(1, f, true, second); stored || err != nil {
-		t.Fatalf("second store from the same revision: %v %v", stored, err)
+	if err := storeFactor(ctx, e.srv.db, 1, f.Revision, true, second, ""); !errors.Is(err, errFactorRace) {
+		t.Fatalf("second store from the same revision: %v", err)
 	}
-	back, _, _ := e.srv.loadFactor(1)
+	back, _, _, _ := loadFactor(ctx, e.srv.db, 1)
 	if back.Recovery.Remaining() != 9 || back.Revision != first.Revision || !back.ConfirmedAt.Equal(f.ConfirmedAt) || back.Secret.Base32() != f.Secret.Base32() {
 		t.Fatalf("stored factor: %+v", back)
+	}
+}
+
+// barrier holds each caller until n have arrived or wait has passed, so
+// steps that can run side by side do.
+type barrier struct {
+	n       int32
+	arrived atomic.Int32
+	all     chan struct{}
+	wait    time.Duration
+}
+
+func newBarrier(n int, wait time.Duration) *barrier {
+	return &barrier{n: int32(n), all: make(chan struct{}), wait: wait}
+}
+
+func (b *barrier) arrive() {
+	if b.arrived.Add(1) == b.n {
+		close(b.all)
+	}
+	select {
+	case <-b.all:
+	case <-time.After(b.wait):
+	}
+}
+
+// Concurrent second steps take turns on the factor, so every wrong code is
+// counted, whether or not the requests could run side by side.
+func TestConcurrentWrongCodesAreAllCounted(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	secret, _ := turnOn(t, e, cookie, csrf)
+	now := e.clock.now()
+	send := func(n int, code string) []error {
+		b := newBarrier(n, 50*time.Millisecond)
+		errs := make([]error, n)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, errs[i] = e.srv.changeFactor(1, "", func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
+					b.arrive()
+					next, _, err := twofactor.SignIn(f, code, now)
+					return next, err
+				})
+			}()
+		}
+		wg.Wait()
+		return errs
+	}
+	for _, err := range send(twofactor.LockAfter, wrongCode(secret, now)) {
+		if k := twofactor.KindOf(err); k != twofactor.KindCodeWrong && k != twofactor.KindAppCodesLocked {
+			t.Fatalf("a concurrent wrong app code: %v", err)
+		}
+	}
+	const recoveryTries = 12
+	for _, err := range send(recoveryTries, "abcd-efgh-jkmn-pqrs") {
+		if twofactor.KindOf(err) != twofactor.KindRecoveryCodeWrong {
+			t.Fatalf("a concurrent wrong recovery code: %v", err)
+		}
+	}
+	f, _, _, err := loadFactor(context.Background(), e.srv.db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Failures != twofactor.LockAfter || f.RecoveryFailures != recoveryTries || !now.Before(f.LockedUntil) {
+		t.Fatalf("after %d concurrent wrong app codes and %d wrong recovery codes: %d and %d counted, locked until %v",
+			twofactor.LockAfter, recoveryTries, f.Failures, f.RecoveryFailures, f.LockedUntil)
+	}
+
+	login := e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	const n = 4
+	statuses := make([]int, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			statuses[i] = e.do(t, "POST", "/api/auth/second-factor", `{"code":"abcd-efgh-jkmn-pqrs"}`, pendingHeaders(login.pending)).status
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i, st := range statuses {
+		if st != http.StatusUnauthorized {
+			t.Fatalf("concurrent wrong recovery code %d: %d", i, st)
+		}
+	}
+	if f, _, _, _ := loadFactor(context.Background(), e.srv.db, 1); f.RecoveryFailures != recoveryTries+n {
+		t.Fatalf("%d concurrent wrong recovery codes through the dashboard: %d counted in all, want %d", n, f.RecoveryFailures, recoveryTries+n)
+	}
+}
+
+// Every address in an IPv6 /64 shares one sign-in budget; IPv4 addresses,
+// also written as IPv4-mapped IPv6, have their own.
+func TestSignInLimiterCountsIPv6By64(t *testing.T) {
+	for addr, want := range map[string]string{
+		"2001:db8:1:2::1":        "net:2001:db8:1:2::/64",
+		"2001:db8:1:2:ffff::abc": "net:2001:db8:1:2::/64",
+		"fe80::1%eth0":           "net:fe80::/64",
+		"198.51.100.7":           "ip:198.51.100.7",
+		"::ffff:198.51.100.7":    "ip:198.51.100.7",
+		"not an address":         "ip:not an address",
+	} {
+		if got := limitKey(addr); got != want {
+			t.Errorf("limitKey(%q) = %q, want %q", addr, got, want)
+		}
+	}
+	e := newEnv(t)
+	allowed := func(remote string) bool {
+		r := httptest.NewRequest("POST", "/api/auth/login", nil)
+		r.RemoteAddr = remote
+		return e.srv.rateLimitIP(httptest.NewRecorder(), r)
+	}
+	limited := false
+	for i := range 15 {
+		if !allowed(fmt.Sprintf("[2001:db8:1:2::%x]:40000", i+1)) {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("sign-ins from new addresses in one /64 were never rate limited")
+	}
+	if !allowed("[2001:db8:1:3::1]:40000") || !allowed("198.51.100.7:40000") {
+		t.Fatal("another /64 or an IPv4 address shares the limited budget")
 	}
 }
 

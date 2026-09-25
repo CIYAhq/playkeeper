@@ -427,6 +427,22 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// limitKey is the sign-in limiter's key for a client address: an IPv6
+// client counts by its /64, since one host can send from every address in
+// it.
+func limitKey(host string) string {
+	a, err := netip.ParseAddr(host)
+	if err != nil {
+		return "ip:" + host
+	}
+	if a = a.Unmap(); a.Is6() {
+		if p, err := a.Prefix(64); err == nil {
+			return "net:" + p.String()
+		}
+	}
+	return "ip:" + a.String()
+}
+
 // --- public routes ---
 
 func (s *Server) hHealth(w http.ResponseWriter, r *http.Request, _ *session) {
@@ -449,7 +465,7 @@ type credentials struct {
 }
 
 func (s *Server) rateLimitIP(w http.ResponseWriter, r *http.Request) bool {
-	if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); !ok {
+	if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		writeErr(w, http.StatusTooManyRequests, api.CodeRateLimited, "Too many attempts. Try again in a few minutes.", "")
 		return false
@@ -616,6 +632,7 @@ func (s *Server) hPassword(w http.ResponseWriter, r *http.Request, sess *session
 		return
 	}
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND id_hash != ?`, sess.User.ID, sess.IDHash)
+	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE user_id = ?`, sess.User.ID)
 	s.audit(sess.User.Username, "password.change", "panel", "succeeded", "other sessions signed out")
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -637,6 +654,7 @@ func (s *Server) ResetAdmin(username, password string) error {
 		return errors.New("no such user: " + username)
 	}
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE username = ?)`, username)
+	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE user_id = (SELECT id FROM users WHERE username = ?)`, username)
 	s.audit("root@host", "password.reset", username, "succeeded", "reset from the server command line")
 	return nil
 }
