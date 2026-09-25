@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
@@ -15,6 +15,7 @@ import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
+import { linkPath } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
@@ -240,10 +241,10 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
 }
 
 function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] }) {
-  const later = [
+  const later: { icon: ReactNode; title: string; hint: string; to?: string }[] = [
     { icon: <MapIcon />, title: t('world.pregen'), hint: t('world.pregenHint') },
     { icon: <PackageIcon />, title: t('world.packs'), hint: t('world.packsHint') },
-    { icon: <UploadIcon />, title: t('world.ownWorld'), hint: t('world.ownWorldHint') },
+    { icon: <UploadIcon />, title: t('world.ownWorld'), hint: t('world.ownWorldHint'), to: '/servers/new#world' },
   ]
   return (
     <Card>
@@ -264,16 +265,30 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
         </div>
       </dl>
       <ul className="mt-1 flex flex-col">
-        {later.map((l) => (
-          <li key={l.title} className="flex items-center gap-3 py-2.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
-            {l.icon}
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium">{l.title}</span>
-              <span className="block text-xs text-muted-foreground">{l.hint}</span>
-            </span>
-            <span className="text-xs text-muted-foreground">{t('common.later')}</span>
-          </li>
-        ))}
+        {later.map((l) => {
+          const row = (
+            <>
+              {l.icon}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium">{l.title}</span>
+                <span className="block text-xs text-muted-foreground">{l.hint}</span>
+              </span>
+              {l.to ? <ChevronRightIcon /> : <span className="text-xs text-muted-foreground">{t('common.later')}</span>}
+            </>
+          )
+          const rowClass = 'flex items-center gap-3 py-2.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground'
+          return (
+            <li key={l.title}>
+              {l.to ? (
+                <a {...linkPath(l.to)} className={cn(rowClass, '-mx-2 rounded-lg px-2 transition-colors hover:bg-muted/60')}>
+                  {row}
+                </a>
+              ) : (
+                <div className={rowClass}>{row}</div>
+              )}
+            </li>
+          )
+        })}
       </ul>
     </Card>
   )
