@@ -260,3 +260,17 @@ func TestPing(t *testing.T) {
 		t.Fatalf("got %+v", st)
 	}
 }
+
+func TestParseTPS(t *testing.T) {
+	for in, want := range map[string]float64{
+		"§6TPS from last 1m, 5m, 15m: §a*20.0, §a20.0, §a20.0": 20,
+		"TPS from last 1m, 5m, 15m: 17.42, 18.1, 19.9":         17.42,
+	} {
+		if got, ok := ParseTPS(in); !ok || got != want {
+			t.Errorf("ParseTPS(%q) = %v %v, want %v", in, got, ok, want)
+		}
+	}
+	if _, ok := ParseTPS("Unknown command. Type \"/help\" for help."); ok {
+		t.Error("a server without the tps command has no tick rate")
+	}
+}

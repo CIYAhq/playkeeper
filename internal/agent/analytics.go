@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -27,9 +28,9 @@ type sample struct {
 	mem    sql.NullInt64
 }
 
-func (a *Agent) samplesBetween(from, to time.Time) ([]sample, error) {
-	rows, err := a.db.Query(`SELECT ts, state, players_online, cpu_pct, mem_bytes FROM samples WHERE ts >= ? AND ts < ? ORDER BY ts`,
-		from.UnixMilli(), to.UnixMilli())
+func (s *server) samplesBetween(from, to time.Time) ([]sample, error) {
+	rows, err := s.db.Query(`SELECT ts, state, players_online, cpu_pct, mem_bytes FROM samples WHERE server_id = ? AND ts >= ? AND ts < ? ORDER BY ts`,
+		s.id, from.UnixMilli(), to.UnixMilli())
 	if err != nil {
 		return nil, err
 	}
@@ -50,25 +51,25 @@ func (a *Agent) samplesBetween(from, to time.Time) ([]sample, error) {
 // Metrics buckets samples over a range. Buckets without samples are no_data
 // (the collector was not running), buckets where the server was not running
 // are offline; neither reports a player count of zero.
-func (a *Agent) Metrics(rangeKey string, now time.Time) (api.MetricsResponse, error) {
+func (s *server) Metrics(rangeKey string, now time.Time) (api.MetricsResponse, error) {
 	rg, ok := metricRanges[rangeKey]
 	if !ok {
 		return api.MetricsResponse{}, errInvalid("range must be one of 1h, 24h, 7d, 30d")
 	}
 	to := now.UTC().Truncate(rg.bucket).Add(rg.bucket)
 	from := to.Add(-rg.span)
-	since := a.collectingSince()
-	samples, err := a.samplesBetween(from, to)
+	since := s.collectingSince()
+	samples, err := s.samplesBetween(from, to)
 	if err != nil {
 		return api.MetricsResponse{}, err
 	}
 	resp := api.MetricsResponse{
-		From: from, To: to, BucketSeconds: int(rg.bucket.Seconds()), SampleIntervalSeconds: int(a.opts.SampleInterval.Seconds()),
+		From: from, To: to, BucketSeconds: int(rg.bucket.Seconds()), SampleIntervalSeconds: int(s.opts.SampleInterval.Seconds()),
 		CollectingSince: since, Source: "Playkeeper agent samples: Docker stats, Server List Ping and RCON list",
 		Buckets: []api.MetricsBucket{}, Gaps: []api.Gap{},
 	}
-	resp.Buckets = bucketize(samples, from, to, rg.bucket, a.opts.SampleInterval, since, now)
-	resp.Gaps = findGaps(samples, from, now, a.opts.SampleInterval, since)
+	resp.Buckets = bucketize(samples, from, to, rg.bucket, s.opts.SampleInterval, since, now)
+	resp.Gaps = findGaps(samples, from, now, s.opts.SampleInterval, since)
 	return resp, nil
 }
 
@@ -179,10 +180,10 @@ func findGaps(samples []sample, from, now time.Time, interval time.Duration, sin
 	return gaps
 }
 
-func (a *Agent) Sessions(from, to, now time.Time, limit int) ([]api.Session, error) {
-	rows, err := a.db.Query(`SELECT id, player, COALESCE(uuid, ''), start_ts, end_ts, end_reason, start_uncertain, end_uncertain, source
-		FROM sessions WHERE start_ts < ? AND (end_ts IS NULL OR end_ts >= ?) ORDER BY start_ts DESC LIMIT ?`,
-		to.UnixMilli(), from.UnixMilli(), limit)
+func (s *server) Sessions(from, to, now time.Time, limit int) ([]api.Session, error) {
+	rows, err := s.db.Query(`SELECT id, player, COALESCE(uuid, ''), start_ts, end_ts, end_reason, start_uncertain, end_uncertain, source
+		FROM sessions WHERE server_id = ? AND start_ts < ? AND (end_ts IS NULL OR end_ts >= ?) ORDER BY start_ts DESC LIMIT ?`,
+		s.id, to.UnixMilli(), from.UnixMilli(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +213,7 @@ func (a *Agent) Sessions(from, to, now time.Time, limit int) ([]api.Session, err
 
 // Summary aggregates observed sessions per local day. Playtime counts only
 // observed time; days with collection gaps report their coverage.
-func (a *Agent) Summary(days int, tzName string, now time.Time) (api.PlayersSummary, error) {
+func (s *server) Summary(days int, tzName string, now time.Time) (api.PlayersSummary, error) {
 	loc, err := time.LoadLocation(tzName)
 	if err != nil || tzName == "" {
 		return api.PlayersSummary{}, errInvalid("tz must be an IANA time zone name")
@@ -223,16 +224,16 @@ func (a *Agent) Summary(days int, tzName string, now time.Time) (api.PlayersSumm
 	localNow := now.In(loc)
 	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, loc)
 	from := today.AddDate(0, 0, -(days - 1))
-	sessions, err := a.Sessions(from, now, now, 100000)
+	sessions, err := s.Sessions(from, now, now, 100000)
 	if err != nil {
 		return api.PlayersSummary{}, err
 	}
-	samples, err := a.samplesBetween(from, now)
+	samples, err := s.samplesBetween(from, now)
 	if err != nil {
 		return api.PlayersSummary{}, err
 	}
-	since := a.collectingSince()
-	out := api.PlayersSummary{TZ: tzName, CollectingSince: since, RetentionDays: int(a.opts.Retention.Events.Hours() / 24), Days: []api.DailyActivity{}, Players: []api.PlayerStat{}}
+	since := s.collectingSince()
+	out := api.PlayersSummary{TZ: tzName, CollectingSince: since, RetentionDays: int(s.opts.Retention.Events.Hours() / 24), Days: []api.DailyActivity{}, Players: []api.PlayerStat{}}
 	stats := map[string]*api.PlayerStat{}
 	online := map[string]bool{}
 	for _, s := range sessions {
@@ -250,6 +251,9 @@ func (a *Agent) Summary(days int, tzName string, now time.Time) (api.PlayersSumm
 		}
 		ps.Sessions++
 		ps.PlaytimeSeconds += s.DurationSeconds
+		if s.StartUncertain || s.EndUncertain {
+			ps.PlaytimeUncertain = true
+		}
 		last := now
 		if s.End != nil {
 			last = *s.End
@@ -284,7 +288,7 @@ func (a *Agent) Summary(days int, tzName string, now time.Time) (api.PlayersSumm
 			}
 		}
 		act.UniquePlayers = len(players)
-		act.Coverage = coverage(samples, d, minTime(dayEnd, now), a.opts.SampleInterval, since)
+		act.Coverage = coverage(samples, d, minTime(dayEnd, now), s.opts.SampleInterval, since)
 		out.Days = append(out.Days, act)
 	}
 	for name, ps := range stats {
@@ -352,8 +356,8 @@ func minTime(a, b time.Time) time.Time {
 	return b
 }
 
-func (a *Agent) Events(limit int) ([]api.Event, error) {
-	rows, err := a.db.Query(`SELECT id, ts, kind, COALESCE(player, ''), source, detail FROM events ORDER BY ts DESC, id DESC LIMIT ?`, limit)
+func (s *server) Events(limit int) ([]api.Event, error) {
+	rows, err := s.db.Query(`SELECT id, ts, kind, COALESCE(player, ''), source, detail FROM events WHERE server_id = ? ORDER BY ts DESC, id DESC LIMIT ?`, s.id, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -369,4 +373,76 @@ func (a *Agent) Events(limit int) ([]api.Event, error) {
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// activityEvents and activityAudit are the event and audit kinds worth a line
+// in the recent activity, and what the line is called.
+var (
+	activityEvents = map[string]string{
+		"join": "joined", "server_crashed": "crashed", "server_created": "created", "world_restored": "restored",
+		"server_version_changed": "version", "server_stopped_externally": "stopped_outside",
+	}
+	activityAudit = map[string]string{
+		"whitelist.add": "allowlisted", "whitelist.remove": "unlisted", "operator.add": "operator", "operator.remove": "deoperator",
+		"player.kicked": "kicked", "backup.created": "backup", "backup.downloaded": "downloaded", "start": "started", "stop": "stopped",
+		"restart": "restarted", "settings.changed": "settings",
+	}
+)
+
+// Activity is the recent activity of one server, or of every server when
+// serverID is empty: joins, crashes and restores from the event log, and what
+// people did from the audit log, newest first.
+func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
+	evKinds, auKinds := keys(activityEvents), keys(activityAudit)
+	q := `SELECT ts, server_id, kind, COALESCE(player, ''), '', detail, 'event' FROM events
+		WHERE server_id != '' AND kind IN (` + placeholders(len(evKinds)) + `) AND (? = '' OR server_id = ?)
+		UNION ALL
+		SELECT ts, server_id, action, CASE WHEN action IN ('whitelist.add', 'whitelist.remove', 'operator.add', 'operator.remove', 'player.kicked') THEN target ELSE '' END,
+			actor, detail, 'audit' FROM audit
+		WHERE server_id != '' AND result = 'succeeded' AND action IN (` + placeholders(len(auKinds)) + `) AND (? = '' OR server_id = ?)
+		ORDER BY 1 DESC LIMIT ?`
+	var args []any
+	for _, k := range evKinds {
+		args = append(args, k)
+	}
+	args = append(args, serverID, serverID)
+	for _, k := range auKinds {
+		args = append(args, k)
+	}
+	args = append(args, serverID, serverID, limit)
+	rows, err := a.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []api.Activity{}
+	for rows.Next() {
+		var e api.Activity
+		var ts int64
+		var kind, source string
+		if err := rows.Scan(&ts, &e.ServerID, &kind, &e.Player, &e.Actor, &e.Detail, &source); err != nil {
+			return nil, err
+		}
+		e.TS = time.UnixMilli(ts).UTC()
+		if source == "event" {
+			e.Kind = activityEvents[kind]
+		} else {
+			e.Kind = activityAudit[kind]
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func keys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }

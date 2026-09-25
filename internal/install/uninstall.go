@@ -55,7 +55,7 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	rd := bufio.NewReader(o.In)
 	fmt.Fprintln(out, "Playkeeper uninstall will remove:")
 	fmt.Fprintln(out, "  • services: "+strings.Join(m.Units, ", "))
-	fmt.Fprintln(out, "  • the Minecraft container 'playkeeper-minecraft', the 'playkeeper' Docker network and the pinned server image")
+	fmt.Fprintln(out, "  • Playkeeper's Minecraft containers, the 'playkeeper' Docker network and the pinned server image")
 	for _, f := range m.FilesCreated {
 		fmt.Fprintln(out, "  • "+f)
 	}
@@ -179,7 +179,7 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 		note(os.RemoveAll(sys.P(config.DefaultDataDir)))
 		fmt.Fprintln(out, "Deleted /var/lib/playkeeper.")
 	} else {
-		fmt.Fprintln(out, "Kept /var/lib/playkeeper (worlds in server/data, backups in backups/).")
+		fmt.Fprintln(out, "Kept /var/lib/playkeeper (worlds in servers/, and server/data from before 0.3.0; backups in backups/).")
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("uninstall finished with problems:\n  - %s", strings.Join(problems, "\n  - "))

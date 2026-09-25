@@ -41,6 +41,8 @@ type Options struct {
 	// Static is the built UI (web/dist); nil serves a "UI not built" page.
 	Static fs.FS
 	Agent  *agentclient.Client
+	// Heads are where player faces come from (default: Mojang).
+	Heads *HeadSources
 }
 
 type Server struct {
@@ -54,6 +56,7 @@ type Server struct {
 	loginIP *limiter
 	control *limiter
 	locks   *lockout
+	heads   *headFetcher
 }
 
 func New(opts Options) (*Server, error) {
@@ -79,12 +82,22 @@ func New(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{
+	src := defaultHeadSources()
+	if opts.Heads != nil {
+		src = *opts.Heads
+	}
+	s := &Server{
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
 		loginIP: newLimiter(10, 15*time.Minute, opts.Now),
 		control: newLimiter(30, time.Minute, opts.Now),
 		locks:   newLockout(opts.Now),
-	}, nil
+		heads:   newHeadFetcher(src),
+	}
+	if err := s.ensureWorkspace(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Server) Close() error { return s.db.Close() }
@@ -99,11 +112,13 @@ const (
 )
 
 // Route is one panel API route; tests iterate Routes() to check that every
-// route enforces its authentication and CSRF level.
+// route enforces its authentication and CSRF level. Act is what the signed-in
+// account must be permitted to do.
 type Route struct {
 	Method  string
 	Pattern string
 	Level   authLevel
+	Act     action
 	handler func(w http.ResponseWriter, r *http.Request, sess *session)
 }
 
@@ -114,52 +129,83 @@ func (rt Route) Mutating() bool { return rt.Level == needSessionCSRF || rt.Level
 func (rt Route) NeedsSession() bool { return rt.Level == needSession || rt.Level == needSessionCSRF }
 
 func (s *Server) Routes() []Route {
-	g := func(p, agentPath string) Route { return Route{"GET", p, needSession, s.proxyGet(agentPath)} }
-	m := func(method, p, agentPath string) Route {
-		return Route{method, p, needSessionCSRF, s.proxyJSON(method, agentPath)}
+	view := func(p string, h func(http.ResponseWriter, *http.Request, *session)) Route {
+		return Route{"GET", p, needSession, actView, h}
+	}
+	// Server routes are forwarded to the machine that runs the server.
+	sg := func(p, agentPath string) Route {
+		return Route{"GET", p, needSession, actView, s.serverProxy("GET", agentPath)}
+	}
+	sm := func(method, p, agentPath string) Route {
+		return Route{method, p, needSessionCSRF, actManageServers, s.serverProxy(method, agentPath)}
+	}
+	// Machine routes are forwarded to the machine named in the path.
+	mg := func(p, agentPath string) Route {
+		return Route{"GET", p, needSession, actView, s.machineProxy("GET", agentPath)}
+	}
+	mm := func(method, p, agentPath string, act action) Route {
+		return Route{method, p, needSessionCSRF, act, s.machineProxy(method, agentPath)}
 	}
 	return []Route{
-		{"GET", "/api/health", public, s.hHealth},
-		{"GET", "/api/setup/status", public, s.hSetupStatus},
-		{"POST", "/api/setup", publicMutation, s.hSetup},
-		{"POST", "/api/auth/login", publicMutation, s.hLogin},
-		{"GET", "/api/auth/me", needSession, s.hMe},
-		{"POST", "/api/auth/logout", needSessionCSRF, s.hLogout},
-		{"POST", "/api/auth/logout-all", needSessionCSRF, s.hLogoutAll},
-		{"POST", "/api/auth/password", needSessionCSRF, s.hPassword},
-		{"GET", "/api/audit", needSession, s.hAudit},
-		g("/api/preflight", "/v1/preflight"),
-		g("/api/catalog", "/v1/catalog"),
-		g("/api/server", "/v1/server"),
-		m("POST", "/api/server", "/v1/server"),
-		m("POST", "/api/server/start", "/v1/server/start"),
-		m("POST", "/api/server/stop", "/v1/server/stop"),
-		m("POST", "/api/server/restart", "/v1/server/restart"),
-		m("POST", "/api/server/settings", "/v1/server/settings"),
-		m("POST", "/api/server/version", "/v1/server/version"),
-		g("/api/update", "/v1/update"),
-		m("POST", "/api/update/check", "/v1/update/check"),
-		m("POST", "/api/update/apply", "/v1/update/apply"),
-		g("/api/server/logs", "/v1/server/logs"),
-		m("POST", "/api/server/command", "/v1/server/command"),
-		g("/api/server/whitelist", "/v1/server/whitelist"),
-		m("POST", "/api/server/whitelist", "/v1/server/whitelist"),
-		{"DELETE", "/api/server/whitelist/{name}", needSessionCSRF, s.proxyDelete("/v1/server/whitelist/{name}")},
-		g("/api/operations/{id}", "/v1/operations/{id}"),
-		g("/api/metrics", "/v1/metrics"),
-		g("/api/players/sessions", "/v1/players/sessions"),
-		g("/api/players/summary", "/v1/players/summary"),
-		g("/api/events", "/v1/events"),
-		g("/api/backups", "/v1/backups"),
-		m("POST", "/api/backups", "/v1/backups"),
-		m("POST", "/api/backups/{id}/verify", "/v1/backups/{id}/verify"),
-		{"GET", "/api/backups/{id}/download", needSession, s.hDownload},
-		{"DELETE", "/api/backups/{id}", needSessionCSRF, s.proxyDelete("/v1/backups/{id}")},
-		{"POST", "/api/restore/upload", needSessionCSRF, s.hUpload},
-		m("POST", "/api/backups/{id}/restore", "/v1/backups/{id}/restore"),
-		g("/api/restore/{id}", "/v1/restore/{id}"),
-		m("POST", "/api/restore/{id}/apply", "/v1/restore/{id}/apply"),
-		{"DELETE", "/api/restore/{id}", needSessionCSRF, s.proxyDelete("/v1/restore/{id}")},
+		{"GET", "/api/health", public, "", s.hHealth},
+		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
+		{"POST", "/api/setup", publicMutation, "", s.hSetup},
+		{"POST", "/api/auth/login", publicMutation, "", s.hLogin},
+		view("/api/auth/me", s.hMe),
+		{"POST", "/api/auth/logout", needSessionCSRF, actView, s.hLogout},
+		{"POST", "/api/auth/logout-all", needSessionCSRF, actManageAccount, s.hLogoutAll},
+		{"POST", "/api/auth/password", needSessionCSRF, actManageAccount, s.hPassword},
+		view("/api/me/prefs", s.hPrefs),
+		{"POST", "/api/me/prefs", needSessionCSRF, actView, s.hPrefsSet},
+		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
+		view("/api/projects", s.hProjects),
+		view("/api/machines", s.hMachines),
+		view("/api/machines/{mid}", s.hMachine),
+		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
+		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
+		mg("/api/machines/{mid}/activity", "/v1/activity"),
+		mg("/api/machines/{mid}/update", "/v1/update"),
+		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
+		mm("POST", "/api/machines/{mid}/update/apply", "/v1/update/apply", actManageMachine),
+		mm("POST", "/api/machines/{mid}/servers", "/v1/servers", actManageServers),
+		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
+		mg("/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}"),
+		mm("POST", "/api/machines/{mid}/restore/{rid}/apply", "/v1/restore/{rid}/apply", actManageServers),
+		mm("DELETE", "/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}", actManageServers),
+		mg("/api/machines/{mid}/operations/{op}", "/v1/operations/{op}"),
+		view("/api/servers", s.hServers),
+		sg("/api/servers/{id}", "/v1/servers/{id}"),
+		sm("POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
+		sm("POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
+		sm("POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
+		sm("POST", "/api/servers/{id}/settings", "/v1/servers/{id}/settings"),
+		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
+		sm("POST", "/api/servers/{id}/delete", "/v1/servers/{id}/delete"),
+		view("/api/servers/{id}/icon", s.rawGet("/v1/servers/{id}/icon", "image/png")),
+		{"POST", "/api/servers/{id}/icon", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/icon", "image/png")},
+		sg("/api/servers/{id}/logs", "/v1/servers/{id}/logs"),
+		sm("POST", "/api/servers/{id}/command", "/v1/servers/{id}/command"),
+		sg("/api/servers/{id}/whitelist", "/v1/servers/{id}/whitelist"),
+		sm("POST", "/api/servers/{id}/whitelist", "/v1/servers/{id}/whitelist"),
+		sm("DELETE", "/api/servers/{id}/whitelist/{name}", "/v1/servers/{id}/whitelist/{name}"),
+		sg("/api/servers/{id}/operators", "/v1/servers/{id}/operators"),
+		sm("POST", "/api/servers/{id}/operators", "/v1/servers/{id}/operators"),
+		sm("DELETE", "/api/servers/{id}/operators/{name}", "/v1/servers/{id}/operators/{name}"),
+		sm("POST", "/api/servers/{id}/kick", "/v1/servers/{id}/kick"),
+		sg("/api/servers/{id}/metrics", "/v1/servers/{id}/metrics"),
+		sg("/api/servers/{id}/players/sessions", "/v1/servers/{id}/players/sessions"),
+		sg("/api/servers/{id}/players/summary", "/v1/servers/{id}/players/summary"),
+		sg("/api/servers/{id}/events", "/v1/servers/{id}/events"),
+		view("/api/servers/{id}/activity", s.hServerActivity),
+		sg("/api/servers/{id}/backups", "/v1/servers/{id}/backups"),
+		sm("POST", "/api/servers/{id}/backups", "/v1/servers/{id}/backups"),
+		sm("POST", "/api/servers/{id}/backups/{bid}/verify", "/v1/servers/{id}/backups/{bid}/verify"),
+		{"GET", "/api/servers/{id}/backups/{bid}/download", needSession, actView, s.hDownload},
+		sm("DELETE", "/api/servers/{id}/backups/{bid}", "/v1/servers/{id}/backups/{bid}"),
+		sm("POST", "/api/servers/{id}/backups/{bid}/restore", "/v1/servers/{id}/backups/{bid}/restore"),
+		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
+		view("/api/players/{name}/head", s.hHead),
+		view("/api/server", s.hLegacyStatus),
 	}
 }
 
@@ -210,6 +256,10 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 					writeErr(w, http.StatusTooManyRequests, api.CodeRateLimited, "Too many actions in a short time. Wait a moment.", "")
 					return
 				}
+			}
+			if !permit(&sess, rt.Act) {
+				writeErr(w, http.StatusForbidden, api.CodeForbidden, "Your account is not allowed to do this.", "")
+				return
 			}
 			rt.handler(w, r, &sess)
 		default:
@@ -443,7 +493,7 @@ func (s *Server) userByName(name string) (user, error) {
 
 func (s *Server) meBody(sess session) map[string]any {
 	return map[string]any{
-		"user":               map[string]string{"username": sess.User.Username},
+		"user":               map[string]string{"username": sess.User.Username, "role": sess.User.Role},
 		"csrfToken":          sess.CSRF,
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
@@ -575,9 +625,11 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 
 // --- agent proxy ---
 
+var pathKeys = []string{"id", "name", "bid", "rid", "op"}
+
 func agentPath(pattern string, r *http.Request) string {
 	out := pattern
-	for _, key := range []string{"id", "name"} {
+	for _, key := range pathKeys {
 		out = strings.ReplaceAll(out, "{"+key+"}", url.PathEscape(r.PathValue(key)))
 	}
 	return out
@@ -592,53 +644,67 @@ func (s *Server) agentFailure(w http.ResponseWriter, err error) {
 	writeErr(w, http.StatusServiceUnavailable, api.CodeAgentUnavailable, "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.", "On the server, check: sudo systemctl status playkeeper-agent")
 }
 
-func (s *Server) proxyGet(pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return func(w http.ResponseWriter, r *http.Request, _ *session) {
-		var raw json.RawMessage
-		status, err := s.agent.Do(r.Context(), "GET", agentPath(pattern, r), r.URL.Query(), nil, &raw)
-		if err != nil {
-			s.agentFailure(w, err)
-			return
-		}
-		writeJSON(w, status, raw)
+// target is the machine a request goes to: the one named by {mid}, or the
+// one that runs the server named by {id}.
+func (s *Server) target(w http.ResponseWriter, r *http.Request) (machine, bool) {
+	if r.PathValue("mid") != "" {
+		return s.machineFromPath(w, r)
 	}
+	id := r.PathValue("id")
+	if !reMachineID.MatchString(id) {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid server id.", "")
+		return machine{}, false
+	}
+	m, err := s.machineForServer(r, id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Server not found.", "")
+		return machine{}, false
+	}
+	return m, true
 }
 
-// proxyJSON forwards a JSON object, stamping the signed-in admin as actor.
-// The agent re-validates every field and rejects unknown ones.
-func (s *Server) proxyJSON(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+func (s *Server) serverProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forward(method, pattern)
+}
+
+func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forward(method, pattern)
+}
+
+// forward sends the request to its machine's agent. GETs pass the query on;
+// JSON bodies get the signed-in account stamped as actor (the agent checks
+// every field and rejects unknown ones); DELETEs pass the actor in the query.
+func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
-		body := map[string]any{}
-		b, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request body.", "")
+		m, ok := s.target(w, r)
+		if !ok {
 			return
 		}
-		if len(bytes.TrimSpace(b)) > 0 {
-			if err := json.Unmarshal(b, &body); err != nil {
-				writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
+		path := agentPath(pattern, r)
+		var raw json.RawMessage
+		var status int
+		var err error
+		switch method {
+		case "GET":
+			status, err = m.agent.Do(r.Context(), "GET", path, r.URL.Query(), nil, &raw)
+		case "DELETE":
+			status, err = m.agent.Do(r.Context(), "DELETE", path, url.Values{"actor": {sess.User.Username}}, nil, &raw)
+		default:
+			body := map[string]any{}
+			b, rerr := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+			if rerr != nil {
+				writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request body.", "")
 				return
 			}
+			if len(bytes.TrimSpace(b)) > 0 {
+				if err := json.Unmarshal(b, &body); err != nil {
+					writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
+					return
+				}
+			}
+			body["actor"] = sess.User.Username
+			status, err = m.agent.Do(r.Context(), method, path, nil, body, &raw)
 		}
-		body["actor"] = sess.User.Username
-		var raw json.RawMessage
-		status, err := s.agent.Do(r.Context(), method, agentPath(pattern, r), nil, body, &raw)
-		if err != nil {
-			s.agentFailure(w, err)
-			return
-		}
-		if status == http.StatusNoContent {
-			w.WriteHeader(status)
-			return
-		}
-		writeJSON(w, status, raw)
-	}
-}
-
-func (s *Server) proxyDelete(pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return func(w http.ResponseWriter, r *http.Request, sess *session) {
-		var raw json.RawMessage
-		status, err := s.agent.Do(r.Context(), "DELETE", agentPath(pattern, r), url.Values{"actor": {sess.User.Username}}, nil, &raw)
 		if err != nil {
 			s.agentFailure(w, err)
 			return
@@ -651,8 +717,30 @@ func (s *Server) proxyDelete(pattern string) func(http.ResponseWriter, *http.Req
 	}
 }
 
+func (s *Server) hServerActivity(w http.ResponseWriter, r *http.Request, _ *session) {
+	m, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	q := url.Values{"server": {r.PathValue("id")}}
+	if l := r.URL.Query().Get("limit"); l != "" {
+		q.Set("limit", l)
+	}
+	var raw json.RawMessage
+	status, err := m.agent.Do(r.Context(), "GET", "/v1/activity", q, nil, &raw)
+	if err != nil {
+		s.agentFailure(w, err)
+		return
+	}
+	writeJSON(w, status, raw)
+}
+
 func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session) {
-	resp, err := s.agent.Raw(r.Context(), "GET", agentPath("/v1/backups/{id}/download", r), nil, nil, map[string]string{"X-Playkeeper-Actor": sess.User.Username}, true)
+	m, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	resp, err := m.agent.Raw(r.Context(), "GET", agentPath("/v1/servers/{id}/backups/{bid}/download", r), nil, nil, map[string]string{"X-Playkeeper-Actor": sess.User.Username}, true)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
@@ -674,18 +762,51 @@ func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session
 	io.Copy(w, resp.Body)
 }
 
-func (s *Server) hUpload(w http.ResponseWriter, r *http.Request, sess *session) {
-	resp, err := s.agent.Raw(r.Context(), "POST", "/v1/restore/upload", nil, r.Body,
-		map[string]string{"X-Playkeeper-Actor": sess.User.Username, "Content-Type": "application/gzip"}, true)
-	if err != nil {
-		s.agentFailure(w, err)
-		return
+// rawGet streams a non-JSON agent response of the given type (an image).
+func (s *Server) rawGet(pattern, contentType string) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, _ *session) {
+		m, ok := s.target(w, r)
+		if !ok {
+			return
+		}
+		resp, err := m.agent.Raw(r.Context(), "GET", agentPath(pattern, r), nil, nil, nil, false)
+		if err != nil {
+			s.agentFailure(w, err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "no-store")
+		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
 	}
-	defer resp.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+}
+
+// rawUpload streams an uploaded file (a backup archive, a server icon) to
+// the agent, which checks it.
+func (s *Server) rawUpload(pattern, contentType string) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		m, ok := s.target(w, r)
+		if !ok {
+			return
+		}
+		resp, err := m.agent.Raw(r.Context(), "POST", agentPath(pattern, r), nil, r.Body,
+			map[string]string{"X-Playkeeper-Actor": sess.User.Username, "Content-Type": contentType}, true)
+		if err != nil {
+			s.agentFailure(w, err)
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+	}
 }
 
 // --- UI ---

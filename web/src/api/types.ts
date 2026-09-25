@@ -1,4 +1,4 @@
-// Mirrors internal/api/types.go. Keep both files in sync.
+// Mirrors internal/api/types.go and the panel's own responses. Keep both in sync.
 
 export type Phase =
   | 'not_created'
@@ -23,6 +23,8 @@ export interface PlayerSnapshot {
 
 export interface Resources {
   cpuPercent?: number
+  /** Ticks per second over the last minute; 20 is full speed. */
+  tps?: number
   memBytes?: number
   memLimitBytes?: number
   diskFreeBytes?: number
@@ -30,7 +32,22 @@ export interface Resources {
   at: string
 }
 
+export type Difficulty = 'peaceful' | 'easy' | 'normal' | 'hard'
+export type GameMode = 'survival' | 'creative' | 'adventure' | 'spectator'
+export type LevelType = 'normal' | 'flat' | 'amplified' | 'large_biomes'
+export type PlayStyle = 'friends' | 'creative' | 'hardcore' | 'solo'
+
+export interface Gameplay {
+  difficulty?: Difficulty
+  pvp?: boolean
+  gameMode?: GameMode
+  hardcore?: boolean
+  viewDistance?: number
+  levelType?: LevelType
+}
+
 export interface ServerConfig {
+  type?: string
   versionId: string
   minecraftVersion: string
   paperBuild: number
@@ -46,10 +63,14 @@ export interface ServerConfig {
   eulaAcceptedBy: string
   createdAt: string
   image: string
+  playStyle?: PlayStyle | ''
+  gameplay?: Gameplay
+  iconUpdatedAt?: string
 }
 
 export interface Operation {
   id: string
+  serverId?: string
   kind: string
   status: 'running' | 'succeeded' | 'failed'
   phase: string
@@ -63,6 +84,7 @@ export interface Operation {
 
 export interface Backup {
   id: string
+  serverId: string
   kind: 'manual' | 'rollback'
   createdAt: string
   fileName: string
@@ -81,7 +103,22 @@ export interface Backup {
   note?: string
 }
 
+export interface FirstSteps {
+  invited?: string
+  friendJoined?: string
+  friendJoinedAt?: string
+  backedUp: boolean
+  downloaded: boolean
+}
+
 export interface ServerStatus {
+  id: string
+  name: string
+  slug: string
+  game: string
+  type: string
+  createdAt: string
+  machineId?: string
   exists: boolean
   desired: 'running' | 'stopped'
   phase: Phase
@@ -89,24 +126,85 @@ export interface ServerStatus {
   reachable: boolean
   reachableAt?: string
   startedAt?: string
+  stoppedAt?: string
   exitCode?: number
   players?: PlayerSnapshot
   config?: ServerConfig
+  gameplay: Gameplay
   gamePort: number
   lastError?: string
   lastErrorHint?: string
-  diskWarning?: PreflightCheck
   offlineModeTest: boolean
   operation?: Operation
   lastOperation?: Operation
   crashCount: number
   resources?: Resources
   lastBackup?: Backup
+  /** The world's size on disk, measured every few minutes. */
+  worldBytes?: number
   pendingRestart: boolean
-  agentVersion: string
   collectingSince?: string
+  firstSteps: FirstSteps
+}
+
+export interface PreflightCheck {
+  id: string
+  label: string
+  status: 'pass' | 'warn' | 'fail' | 'info'
+  detail: string
+  fix?: string
+}
+
+export interface Preflight {
+  ok: boolean
+  checks: PreflightCheck[]
+}
+
+export interface Machine {
+  hostname: string
+  os: string
+  arch: string
+  cpus: number
+  cpuPercent?: number
+  memoryTotalMB: number
+  systemReserveMB: number
+  serversMemoryMB: number
+  memoryFreeMB: number
+  diskFreeBytes?: number
+  diskTotalBytes?: number
+  diskWarning?: PreflightCheck
+  docker: boolean
+  dockerVersion?: string
+  agentVersion: string
+  defaultGamePort: number
+  offlineModeTest: boolean
+  operation?: Operation
   updateAvailable?: string
   updateInstalling?: string
+  servers: number
+}
+
+export interface ApiErrorBody {
+  error: string
+  code: string
+  hint?: string
+  operation?: Operation
+}
+
+/** A machine the panel manages, with what its agent reports now. */
+export interface MachineView {
+  id: string
+  projectId: string
+  name: string
+  kind: 'local' | 'remote'
+  live?: Machine
+  error?: ApiErrorBody
+}
+
+export interface Project {
+  id: string
+  name: string
+  role: string
 }
 
 export interface UpdateResult {
@@ -145,27 +243,34 @@ export interface CatalogEntry {
   supported: boolean
 }
 
+export interface ServerType {
+  id: string
+  name: string
+  available: boolean
+}
+
+export interface ServerMemory {
+  id: string
+  name: string
+  memoryMB: number
+  running: boolean
+}
+
 export interface Catalog {
+  type: string
+  types: ServerType[]
   versions: CatalogEntry[]
   versionsError?: string
+  versionsCheckedAt?: string
   memoryOptionsMB: number[]
   recommendedMemoryMB: number
   hostMemoryMB: number
   maxMemoryMB: number
+  systemReserveMB: number
+  memoryFreeMB: number
+  servers: ServerMemory[]
+  suggestedPort?: number
   image: string
-}
-
-export interface PreflightCheck {
-  id: string
-  label: string
-  status: 'pass' | 'warn' | 'fail'
-  detail: string
-  fix?: string
-}
-
-export interface Preflight {
-  ok: boolean
-  checks: PreflightCheck[]
 }
 
 export interface LogLine {
@@ -184,6 +289,12 @@ export interface LogsResponse {
 export interface WhitelistEntry {
   name: string
   uuid?: string
+}
+
+export interface OperatorEntry {
+  name: string
+  uuid?: string
+  level: number
 }
 
 export type BucketState = 'online' | 'offline' | 'no_data' | 'not_collected'
@@ -250,6 +361,8 @@ export interface PlayerStat {
   online: boolean
   sessions: number
   playtimeSeconds: number
+  /** A session's start or end wasn't seen, so the playtime is an estimate. */
+  playtimeUncertain?: boolean
 }
 
 export interface PlayersSummary {
@@ -260,6 +373,34 @@ export interface PlayersSummary {
   uncertainSessions: number
   collectingSince?: string
   retentionDays: number
+}
+
+export type ActivityKind =
+  | 'joined'
+  | 'crashed'
+  | 'created'
+  | 'restored'
+  | 'version'
+  | 'stopped_outside'
+  | 'allowlisted'
+  | 'unlisted'
+  | 'operator'
+  | 'deoperator'
+  | 'kicked'
+  | 'backup'
+  | 'downloaded'
+  | 'started'
+  | 'stopped'
+  | 'restarted'
+  | 'settings'
+
+export interface Activity {
+  ts: string
+  serverId?: string
+  kind: ActivityKind
+  player?: string
+  actor?: string
+  detail?: string
 }
 
 export interface ManifestSummary {
@@ -277,6 +418,7 @@ export interface ManifestSummary {
 
 export interface RestorePreview {
   id: string
+  serverId?: string
   source: string
   receivedAt: string
   sizeBytes: number
@@ -296,6 +438,7 @@ export interface RestorePreview {
 
 export interface AuditEntry {
   id: number
+  serverId?: string
   ts: string
   actor: string
   action: string
@@ -306,16 +449,9 @@ export interface AuditEntry {
 }
 
 export interface Me {
-  user: { username: string }
+  user: { username: string; role: string }
   csrfToken: string
   expiresAt: string
   idleTimeoutSeconds: number
   version: string
-}
-
-export interface ApiErrorBody {
-  error: string
-  code: string
-  hint?: string
-  operation?: Operation
 }

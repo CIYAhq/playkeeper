@@ -22,8 +22,9 @@ import (
 
 // opHandle lets a running operation publish its phase.
 type opHandle struct {
-	a  *Agent
-	op *api.Operation
+	save func(op *api.Operation)
+	mu   func() func()
+	op   *api.Operation
 	// continues is set by an operation that goes on outside the agent (an
 	// update handed to the updater): it stays running until its result is
 	// recorded.
@@ -31,147 +32,181 @@ type opHandle struct {
 }
 
 func (h *opHandle) phase(p string) {
-	h.a.opMu.Lock()
+	unlock := h.mu()
 	h.op.Phase = p
-	snap := *h.op
-	h.a.opMu.Unlock()
-	h.a.saveOperation(&snap)
+	snap := copyOp(h.op)
+	unlock()
+	h.save(snap)
 }
 
 func (h *opHandle) set(key string, v any) {
-	h.a.opMu.Lock()
+	unlock := h.mu()
 	h.op.Detail[key] = v
-	snap := *h.op
-	h.a.opMu.Unlock()
-	h.a.saveOperation(&snap)
+	snap := copyOp(h.op)
+	unlock()
+	h.save(snap)
 }
 
-func (a *Agent) currentOp() *api.Operation {
-	a.opMu.Lock()
-	defer a.opMu.Unlock()
-	if a.op == nil {
+// copyOp copies an operation with its own Detail map, so the copy can be read
+// and encoded while the operation goes on.
+func copyOp(op *api.Operation) *api.Operation {
+	if op == nil {
 		return nil
 	}
-	c := *a.op
+	c := *op
 	c.Detail = map[string]any{}
-	for k, v := range a.op.Detail {
+	for k, v := range op.Detail {
 		c.Detail[k] = v
 	}
 	return &c
 }
 
-// busy is true while an operation runs or an update is being installed.
-func (a *Agent) busy() bool { return a.currentOp() != nil || a.installingUpdate() != "" }
-
-var opLabels = map[string]string{
-	"create": "creating the server", "start": "starting the server", "stop": "stopping the server",
-	"restart": "restarting the server", "backup": "a backup", "restore": "a restore", "recover": "an automatic restart",
-	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
-	"update": "a Playkeeper update", "update-version": "updating Minecraft",
+func (s *server) currentOp() *api.Operation {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	return copyOp(s.op)
 }
 
-func (a *Agent) busyError() error {
-	cur := a.currentOp()
+// busy is true while this server runs an operation, or the machine runs one
+// (a Playkeeper update being staged or installed).
+func (s *server) busy() bool {
+	return s.currentOp() != nil || s.installingUpdate() != "" || s.machineOp() != nil
+}
+
+var opLabels = map[string]string{
+	"create": "being created", "start": "starting", "stop": "stopping",
+	"restart": "restarting", "backup": "a backup", "restore": "a restore", "recover": "an automatic restart",
+	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
+	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
+}
+
+// machineBusy is the error for a request that has to wait for a machine-wide
+// operation (a Playkeeper update being staged or installed), or nil.
+func (a *Agent) machineBusy() error {
+	if v := a.installingUpdate(); v != "" {
+		return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
+	}
+	if op := a.machineOp(); op != nil {
+		return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + opLabels[op.Kind] + ".", Hint: "Wait for it to finish, then try again.", Op: op}
+	}
+	return nil
+}
+
+func (s *server) busyError() error {
+	if err := s.machineBusy(); err != nil {
+		return err
+	}
+	cur := s.currentOp()
 	what := "another operation"
 	if cur != nil {
 		what = opLabels[cur.Kind]
 	}
-	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
 }
 
-// holdOpLock takes the operation lock for a short decision, such as a start
-// or stop that turns out to be a no-op, so it cannot interleave with an
-// operation that changes the desired state.
-func (a *Agent) holdOpLock() (release func(), ok bool) {
+// holdOpLock takes the server's operation lock for a short decision, such as
+// a start or stop that turns out to be a no-op, so it cannot interleave with
+// an operation that changes the desired state.
+func (s *server) holdOpLock() (release func(), ok bool) {
 	select {
-	case a.opLock <- struct{}{}:
-		return func() { <-a.opLock }, true
+	case s.opLock <- struct{}{}:
+		return func() { <-s.opLock }, true
 	default:
 		return nil, false
 	}
 }
 
-// beginOp runs fn as the single exclusive operation. Concurrent requests get
-// 409 with the operation that is in progress.
-func (a *Agent) beginOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+// beginOp runs fn as the server's single exclusive operation. Concurrent
+// requests for the same server get 409 with the operation in progress; other
+// servers are not affected.
+func (s *server) beginOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
 	select {
-	case a.opLock <- struct{}{}:
+	case s.opLock <- struct{}{}:
 	default:
-		return nil, a.busyError()
+		return nil, s.busyError()
 	}
-	if v := a.installingUpdate(); v != "" {
-		<-a.opLock
-		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
+	if err := s.machineBusy(); err != nil {
+		<-s.opLock
+		return nil, err
 	}
-	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}
-	a.opMu.Lock()
-	a.op = op
-	snap := *op
-	a.opMu.Unlock()
-	a.saveOperation(&snap)
-	a.wg.Add(1)
+	return s.startOp(kind, actor, fn), nil
+}
+
+// startOp starts fn as the server's operation. The caller holds the
+// operation lock, which the operation releases when fn returns.
+func (s *server) startOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
+	op := &api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}
+	s.opMu.Lock()
+	s.op = op
+	snap := copyOp(op)
+	s.opMu.Unlock()
+	s.saveOperation(snap)
+	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }}
+	s.wg.Add(1)
 	go func() {
-		defer a.wg.Done()
-		defer func() { <-a.opLock }()
-		ctx, cancel := context.WithTimeout(a.ctx, 45*time.Minute)
+		defer s.wg.Done()
+		defer func() { <-s.opLock }()
+		ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
 		defer cancel()
-		h := &opHandle{a: a, op: op}
-		err := func() (err error) {
-			defer func() {
-				if v := recover(); v != nil {
-					err = fmt.Errorf("internal error: %v", v)
-				}
-			}()
-			return fn(ctx, h)
-		}()
-		a.opMu.Lock()
-		fin := a.now().UTC()
-		switch {
-		case err != nil:
-			op.FinishedAt = &fin
-			op.Status = api.OpFailed
-			op.Error = err.Error()
-			var ae *apiError
-			if errors.As(err, &ae) {
-				op.Hint = ae.Hint
-			}
-		case h.continues:
-		default:
-			op.FinishedAt = &fin
-			op.Status = api.OpSucceeded
-		}
-		done := *op
-		a.op = nil
-		a.opMu.Unlock()
-		a.saveOperation(&done)
+		err := runOp(ctx, h, fn)
+		s.opMu.Lock()
+		done := finishOp(op, h, err, s.now().UTC())
+		s.op = nil
+		s.opMu.Unlock()
+		s.saveOperation(&done)
 		if done.Status != api.OpRunning {
-			a.audit(actor, kind, "server", done.Status, done.Error)
+			s.audit(actor, kind, "server", done.Status, done.Error)
 		}
 		if err != nil {
-			a.log.Warn("operation failed", "kind", kind, "err", err)
+			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
 		}
 	}()
-	c := snap
-	return &c, nil
+	return snap
+}
+
+func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opHandle) error) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = fmt.Errorf("internal error: %v", v)
+		}
+	}()
+	return fn(ctx, h)
+}
+
+// finishOp records how an operation ended; the caller holds its mutex.
+func finishOp(op *api.Operation, h *opHandle, err error, fin time.Time) api.Operation {
+	switch {
+	case err != nil:
+		op.FinishedAt = &fin
+		op.Status = api.OpFailed
+		op.Error = err.Error()
+		var ae *apiError
+		if errors.As(err, &ae) {
+			op.Hint = ae.Hint
+		}
+	case h.continues:
+	default:
+		op.FinishedAt = &fin
+		op.Status = api.OpSucceeded
+	}
+	return *copyOp(op)
 }
 
 func (a *Agent) offline() bool { return a.opts.OfflineModeTest }
 
-func (a *Agent) serverDir() string       { return filepath.Dir(a.cfg.ServerDataDir()) }
-func (a *Agent) containerSecret() string { return filepath.Join(a.serverDir(), "rcon_password") }
-
-func (a *Agent) levelName(sc api.ServerConfig) string {
+func (s *server) levelName(sc api.ServerConfig) string {
 	if sc.LevelName == "" {
 		return "world"
 	}
 	return sc.LevelName
 }
 
-// containerSpec is the complete, hardened definition of the one Minecraft
-// container. Its hash is stored as a label so any drift forces a recreate.
-func (a *Agent) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.ContainerConfig, string) {
+// containerSpec is the complete, hardened definition of the server's
+// container. Its hash is stored as a label so any drift forces a recreate. A
+// v1 server's definition is exactly 0.2.0's while its settings are unchanged.
+func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.ContainerConfig, string) {
 	online := "TRUE"
-	if a.offline() {
+	if s.offline() {
 		online = "FALSE"
 	}
 	// Only the setup-only container downloads Paper. The server container runs
@@ -182,7 +217,7 @@ func (a *Agent) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Conta
 	if setupOnly {
 		env = append(env, "TYPE=PAPER", "PAPER_BUILD="+strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE")
 	} else {
-		env = append(env, "TYPE=CUSTOM", "CUSTOM_SERVER=/data/"+filepath.Base(a.jarPath(sc)))
+		env = append(env, "TYPE=CUSTOM", "CUSTOM_SERVER=/data/"+filepath.Base(s.jarPath(sc)))
 	}
 	env = append(env,
 		"SKIP_DOWNLOAD_DEFAULTS=TRUE",
@@ -199,23 +234,24 @@ func (a *Agent) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Conta
 		"LOG_IPS=FALSE",
 		"ENABLE_QUERY=FALSE",
 		"ENABLE_AUTOPAUSE=FALSE",
-		"LEVEL="+a.levelName(sc),
+		"LEVEL="+s.levelName(sc),
 		"SERVER_PORT=25565",
 		"TZ=UTC",
 		"USE_AIKAR_FLAGS=TRUE",
 	)
+	env = append(env, gameplayEnv(sc.Gameplay)...)
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
-	stop := int(a.opts.StopTimeout.Seconds())
+	stop := int(s.opts.StopTimeout.Seconds())
 	cfg := docker.ContainerConfig{
 		Image:       minecraft.Image,
 		Env:         env,
-		User:        fmt.Sprintf("%d:%d", a.cfg.GameUID, a.cfg.GameGID),
+		User:        fmt.Sprintf("%d:%d", s.cfg.GameUID, s.cfg.GameGID),
 		StopSignal:  "SIGTERM",
 		StopTimeout: &stop,
-		Labels:      map[string]string{labelManaged: "true", labelInstall: a.cfg.InstallID},
+		Labels:      s.labels(),
 		HostConfig: docker.HostConfig{
-			Binds:         []string{a.cfg.ServerDataDir() + ":/data", a.containerSecret() + ":/run/secrets/rcon_password:ro"},
+			Binds:         []string{s.dataDir() + ":/data", s.containerSecret() + ":/run/secrets/rcon_password:ro"},
 			RestartPolicy: docker.RestartPolicy{Name: "no"},
 			Memory:        limit,
 			MemorySwap:    limit,
@@ -228,7 +264,7 @@ func (a *Agent) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Conta
 	}
 	if !setupOnly {
 		cfg.ExposedPorts = map[string]struct{}{"25565/tcp": {}}
-		cfg.HostConfig.PortBindings = map[string][]docker.PortBinding{"25565/tcp": {{HostPort: strconv.Itoa(a.cfg.GamePort)}}}
+		cfg.HostConfig.PortBindings = map[string][]docker.PortBinding{"25565/tcp": {{HostPort: strconv.Itoa(s.gamePort)}}}
 	}
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)
@@ -270,26 +306,31 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) ensureDirs() error {
-	data := a.cfg.ServerDataDir()
+func (s *server) ensureDirs() error {
+	data := s.dataDir()
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
 	}
-	if err := os.Chmod(filepath.Dir(data), 0o755); err != nil {
-		return err
-	}
-	if os.Geteuid() == 0 {
-		if err := os.Chown(data, a.cfg.GameUID, a.cfg.GameGID); err != nil {
+	for _, d := range []string{filepath.Dir(s.dir()), s.dir()} {
+		if err := os.Chmod(d, 0o755); err != nil {
 			return err
 		}
 	}
-	return a.ensureRCONSecret()
+	if os.Geteuid() == 0 {
+		if err := os.Chown(data, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+			return err
+		}
+	}
+	return s.ensureRCONSecret()
 }
 
 // ensureRCONSecret creates the host-generated RCON password: a root-only copy
 // for the agent and a read-only copy the game user mounts into the container.
-func (a *Agent) ensureRCONSecret() error {
-	path := a.cfg.RCONSecretPath()
+func (s *server) ensureRCONSecret() error {
+	path := s.agentSecret()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		b = []byte(randomSecret(24))
@@ -299,7 +340,10 @@ func (a *Agent) ensureRCONSecret() error {
 	} else if err != nil {
 		return err
 	}
-	cpath := a.containerSecret()
+	if err := os.MkdirAll(s.dir(), 0o755); err != nil {
+		return err
+	}
+	cpath := s.containerSecret()
 	if cur, err := os.ReadFile(cpath); err != nil || string(cur) != string(b) {
 		os.Remove(cpath)
 		if err := os.WriteFile(cpath, b, 0o400); err != nil {
@@ -307,7 +351,7 @@ func (a *Agent) ensureRCONSecret() error {
 		}
 	}
 	if os.Geteuid() == 0 {
-		if err := os.Chown(cpath, a.cfg.GameUID, a.cfg.GameGID); err != nil {
+		if err := os.Chown(cpath, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 			return err
 		}
 	}
@@ -320,8 +364,8 @@ const bStatsConfig = "# Written by Playkeeper: Paper's bStats usage statistics a
 
 // ensureTelemetryOff runs before every start because restored archives carry
 // the plugins directory, including whatever bStats setting they were made with.
-func (a *Agent) ensureTelemetryOff() error {
-	dir := filepath.Join(a.cfg.ServerDataDir(), "plugins", "bStats")
+func (s *server) ensureTelemetryOff() error {
+	dir := filepath.Join(s.dataDir(), "plugins", "bStats")
 	path := filepath.Join(dir, "config.yml")
 	if b, err := os.ReadFile(path); err == nil && bStatsOff(b) {
 		return nil
@@ -331,7 +375,7 @@ func (a *Agent) ensureTelemetryOff() error {
 			return err
 		}
 		if os.Geteuid() == 0 {
-			if err := os.Chown(d, a.cfg.GameUID, a.cfg.GameGID); err != nil {
+			if err := os.Chown(d, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 				return err
 			}
 		}
@@ -340,7 +384,7 @@ func (a *Agent) ensureTelemetryOff() error {
 		return err
 	}
 	if os.Geteuid() == 0 {
-		return os.Chown(path, a.cfg.GameUID, a.cfg.GameGID)
+		return os.Chown(path, s.cfg.GameUID, s.cfg.GameGID)
 	}
 	return nil
 }
@@ -354,8 +398,8 @@ func bStatsOff(b []byte) bool {
 	return false
 }
 
-func (a *Agent) rconPassword() (string, error) {
-	b, err := os.ReadFile(a.cfg.RCONSecretPath())
+func (s *server) rconPassword() (string, error) {
+	b, err := os.ReadFile(s.agentSecret())
 	return strings.TrimSpace(string(b)), err
 }
 
@@ -363,8 +407,8 @@ func (a *Agent) dockerErr(err error) error {
 	return &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeDockerUnavailable, Msg: "Docker is not responding: " + err.Error(), Hint: "Check that the Docker service is running (sudo systemctl status docker)."}
 }
 
-func (a *Agent) jarPath(sc api.ServerConfig) string {
-	return filepath.Join(a.cfg.ServerDataDir(), fmt.Sprintf("paper-%s-%d.jar", sc.MinecraftVersion, sc.PaperBuild))
+func (s *server) jarPath(sc api.ServerConfig) string {
+	return filepath.Join(s.dataDir(), fmt.Sprintf("paper-%s-%d.jar", sc.MinecraftVersion, sc.PaperBuild))
 }
 
 func fileSHA256(path string) (string, error) {
@@ -384,30 +428,30 @@ func fileSHA256(path string) (string, error) {
 // server does not run) and verifies the jar against the checksum PaperMC's
 // Fill v3 API published for the build, before the server is ever started
 // with it.
-func (a *Agent) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.ServerConfig) error {
+func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.ServerConfig) error {
 	want, err := jarChecksum(*sc)
 	if err != nil {
 		return &apiError{Msg: "The server's software cannot be verified: " + err.Error() + ".", Hint: "Choose a version under Settings, or restore a backup."}
 	}
-	jar := a.jarPath(*sc)
+	jar := s.jarPath(*sc)
 	if sum, err := fileSHA256(jar); err == nil && sum == want {
 		return nil
 	}
 	h.phase(string(api.PhaseDownloading))
-	a.setRunPhase(api.PhaseDownloading, "")
-	setupName := containerName + "-setup"
-	_ = a.docker.ContainerRemove(ctx, setupName, true)
-	spec, _ := a.containerSpec(*sc, true)
-	id, err := a.docker.ContainerCreate(ctx, setupName, spec)
+	s.setRunPhase(api.PhaseDownloading, "")
+	setupName := s.containerName() + "-setup"
+	_ = s.docker.ContainerRemove(ctx, setupName, true)
+	spec, _ := s.containerSpec(*sc, true)
+	id, err := s.docker.ContainerCreate(ctx, setupName, spec)
 	if err != nil {
-		return a.dockerErr(err)
+		return s.dockerErr(err)
 	}
-	defer a.docker.ContainerRemove(context.Background(), id, true)
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
-		return a.dockerErr(err)
+	defer s.docker.ContainerRemove(context.Background(), id, true)
+	if err := s.docker.ContainerStart(ctx, id); err != nil {
+		return s.dockerErr(err)
 	}
 	var tail []string
-	logs, err := a.docker.ContainerLogs(ctx, id, docker.LogsOptions{Follow: true})
+	logs, err := s.docker.ContainerLogs(ctx, id, docker.LogsOptions{Follow: true})
 	if err == nil {
 		for {
 			l, err := logs.Next()
@@ -415,7 +459,7 @@ func (a *Agent) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.S
 				break
 			}
 			text := minecraft.CleanLine(l.Text)
-			a.console.append(l.TS, text)
+			s.console.append(l.TS, text)
 			tail = append(tail, text)
 			if len(tail) > 8 {
 				tail = tail[1:]
@@ -425,14 +469,14 @@ func (a *Agent) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.S
 	}
 	var c docker.ContainerJSON
 	for i := 0; i < 60; i++ {
-		c, err = a.docker.ContainerInspect(ctx, id)
+		c, err = s.docker.ContainerInspect(ctx, id)
 		if err != nil || !c.State.Running {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
-		return a.dockerErr(err)
+		return s.dockerErr(err)
 	}
 	if c.State.ExitCode != 0 {
 		return &apiError{Msg: "Downloading the Minecraft server software failed (exit code " + strconv.Itoa(c.State.ExitCode) + "): " + lastNonEmpty(tail),
@@ -448,13 +492,13 @@ func (a *Agent) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.S
 		return &apiError{Msg: fmt.Sprintf("The downloaded %s does not match the pinned checksum (got %s, want %s). It was deleted and not run.", filepath.Base(jar), sum[:16], want[:16]),
 			Hint: "This can mean a corrupted download or a tampered mirror. Press Start to download again."}
 	}
-	now := a.now().UTC()
+	now := s.now().UTC()
 	sc.JarVerifiedAt = &now
-	if err := a.saveServerConfig(*sc); err != nil {
+	if err := s.saveServerConfig(*sc); err != nil {
 		return err
 	}
-	a.recordEvent(now, "server_software_verified", "", "playkeeper", filepath.Base(jar)+" sha256 "+sum)
-	a.log.Info("server software verified", "jar", filepath.Base(jar), "sha256", sum)
+	s.recordEvent(now, "server_software_verified", "", "playkeeper", filepath.Base(jar)+" sha256 "+sum)
+	s.log.Info("server software verified", "server", s.id, "jar", filepath.Base(jar), "sha256", sum)
 	return nil
 }
 
@@ -469,62 +513,63 @@ func lastNonEmpty(lines []string) string {
 
 // startServer brings the server to "online". It is idempotent: a container
 // already running with the desired spec is left alone.
-func (a *Agent) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) error {
-	if err := a.ensureDirs(); err != nil {
+func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) error {
+	if err := s.ensureDirs(); err != nil {
 		return err
 	}
-	if err := a.ensureImage(ctx, h); err != nil {
+	if err := s.ensureImage(ctx, h); err != nil {
 		return err
 	}
-	if err := a.ensureNetwork(ctx); err != nil {
+	if err := s.ensureNetwork(ctx); err != nil {
 		return err
 	}
-	if err := a.ensureServerSoftware(ctx, h, &sc); err != nil {
+	if err := s.ensureServerSoftware(ctx, h, &sc); err != nil {
 		return err
 	}
-	if err := a.ensureTelemetryOff(); err != nil {
+	if err := s.ensureTelemetryOff(); err != nil {
 		return err
 	}
-	spec, hash := a.containerSpec(sc, false)
-	c, err := a.docker.ContainerInspect(ctx, containerName)
+	name := s.containerName()
+	spec, hash := s.containerSpec(sc, false)
+	c, err := s.docker.ContainerInspect(ctx, name)
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
-		return &apiError{Msg: "A container named " + containerName + " exists but was not created by Playkeeper.", Hint: "Playkeeper will not touch it. Rename or remove that container, then press Start."}
+		return &apiError{Msg: "A container named " + name + " exists but was not created by Playkeeper.", Hint: "Playkeeper will not touch it. Rename or remove that container, then press Start."}
 	case err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash:
 		return nil
 	case err == nil && c.State.Running:
-		if err := a.stopContainer(ctx, h, c.ID); err != nil {
+		if err := s.stopContainer(ctx, h, c.ID); err != nil {
 			return err
 		}
 		fallthrough
 	case err == nil && c.Config.Labels[labelSpec] != hash:
-		if err := a.docker.ContainerRemove(ctx, c.ID, true); err != nil && !docker.IsNotFound(err) {
-			return a.dockerErr(err)
+		if err := s.docker.ContainerRemove(ctx, c.ID, true); err != nil && !docker.IsNotFound(err) {
+			return s.dockerErr(err)
 		}
 		c.ID = ""
 	case err != nil && !docker.IsNotFound(err):
-		return a.dockerErr(err)
+		return s.dockerErr(err)
 	}
 	id := c.ID
 	if id == "" || docker.IsNotFound(err) {
-		id, err = a.docker.ContainerCreate(ctx, containerName, spec)
+		id, err = s.docker.ContainerCreate(ctx, name, spec)
 		if err != nil {
-			return a.dockerErr(err)
+			return s.dockerErr(err)
 		}
 	}
 	h.phase(string(api.PhaseStartingContainer))
-	a.resetRun(api.PhaseStartingContainer)
-	a.resetRCON()
-	if err := a.docker.ContainerStart(ctx, id); err != nil {
+	s.resetRun(api.PhaseStartingContainer)
+	s.resetRCON()
+	if err := s.docker.ContainerStart(ctx, id); err != nil {
 		// A container whose start failed (for example on a busy port) can keep
 		// broken network state; discard it so the next start creates it fresh.
-		_ = a.docker.ContainerRemove(context.Background(), id, true)
-		return classifyStartError(err, a.cfg.GamePort)
+		_ = s.docker.ContainerRemove(context.Background(), id, true)
+		return classifyStartError(err, s.gamePort)
 	}
-	a.mu.Lock()
-	delete(a.intentional, id)
-	a.mu.Unlock()
-	return a.waitReady(ctx, h, id)
+	s.mu.Lock()
+	delete(s.intentional, id)
+	s.mu.Unlock()
+	return s.waitReady(ctx, h, id)
 }
 
 func classifyStartError(err error, port int) error {
@@ -536,15 +581,15 @@ func classifyStartError(err error, port int) error {
 	return &apiError{Msg: "Docker could not start the server: " + msg, Hint: "Check the Console and `sudo journalctl -u playkeeper-agent` for details."}
 }
 
-func (a *Agent) waitReady(ctx context.Context, h *opHandle, id string) error {
-	deadline := a.now().Add(a.opts.ReadyTimeout)
+func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
+	deadline := s.now().Add(s.opts.ReadyTimeout)
 	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
 	reported := ""
 	for {
-		a.mu.Lock()
-		phase, lastErr, hint := a.runPhase, a.lastError, a.lastErrorHint
-		a.mu.Unlock()
+		s.mu.Lock()
+		phase, lastErr, hint := s.runPhase, s.lastError, s.lastErrorHint
+		s.mu.Unlock()
 		if phase == api.PhaseOnline {
 			h.phase(string(api.PhaseOnline))
 			return nil
@@ -553,12 +598,12 @@ func (a *Agent) waitReady(ctx context.Context, h *opHandle, id string) error {
 			reported = string(phase)
 			h.phase(reported)
 		}
-		c, err := a.docker.ContainerInspect(ctx, id)
+		c, err := s.docker.ContainerInspect(ctx, id)
 		if err == nil && !c.State.Running {
 			// This start reports the exit; the reconcile loop must not count
 			// it a second time as a crash.
 			if fin, ok := c.State.Finished(); ok {
-				a.markExitHandled(id, fin)
+				s.markExitHandled(id, fin)
 			}
 			msg := fmt.Sprintf("The server stopped while starting (exit code %d).", c.State.ExitCode)
 			if lastErr != "" {
@@ -573,8 +618,8 @@ func (a *Agent) waitReady(ctx context.Context, h *opHandle, id string) error {
 			}
 			return &apiError{Msg: msg, Hint: hint}
 		}
-		if a.now().After(deadline) {
-			return &apiError{Msg: fmt.Sprintf("The server did not finish starting within %s.", a.opts.ReadyTimeout), Hint: "Open the Console to see what it is doing; it may still finish."}
+		if s.now().After(deadline) {
+			return &apiError{Msg: fmt.Sprintf("The server did not finish starting within %s.", s.opts.ReadyTimeout), Hint: "Open the Console to see what it is doing; it may still finish."}
 		}
 		select {
 		case <-ctx.Done():
@@ -585,73 +630,73 @@ func (a *Agent) waitReady(ctx context.Context, h *opHandle, id string) error {
 }
 
 // stopContainer saves the world and stops the container gracefully.
-func (a *Agent) stopContainer(ctx context.Context, h *opHandle, id string) error {
+func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) error {
 	h.phase(string(api.PhaseStopping))
-	a.mu.Lock()
-	a.intentional[id] = true
-	a.runPhase = api.PhaseStopping
-	a.mu.Unlock()
-	if out, err := a.rconCommand("save-all flush"); err != nil {
-		a.log.Warn("save-all before stop failed", "err", err)
+	s.mu.Lock()
+	s.intentional[id] = true
+	s.runPhase = api.PhaseStopping
+	s.mu.Unlock()
+	if out, err := s.rconCommand("save-all flush"); err != nil {
+		s.log.Warn("save-all before stop failed", "server", s.id, "err", err)
 	} else {
-		a.log.Info("world saved before stop", "reply", out)
+		s.log.Info("world saved before stop", "server", s.id, "reply", out)
 	}
-	if err := a.docker.ContainerStop(ctx, id, a.opts.StopTimeout); err != nil && !docker.IsNotFound(err) {
-		return a.dockerErr(err)
+	if err := s.docker.ContainerStop(ctx, id, s.opts.StopTimeout); err != nil && !docker.IsNotFound(err) {
+		return s.dockerErr(err)
 	}
-	a.resetRCON()
+	s.resetRCON()
 	return nil
 }
 
 // stopServer is idempotent: a missing or stopped container is a no-op.
-func (a *Agent) stopServer(ctx context.Context, h *opHandle) error {
-	c, err := a.docker.ContainerInspect(ctx, containerName)
+func (s *server) stopServer(ctx context.Context, h *opHandle) error {
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if docker.IsNotFound(err) {
 		return nil
 	}
 	if err != nil {
-		return a.dockerErr(err)
+		return s.dockerErr(err)
 	}
 	if !c.State.Running {
 		return nil
 	}
-	return a.stopContainer(ctx, h, c.ID)
+	return s.stopContainer(ctx, h, c.ID)
 }
 
-func (a *Agent) containerRunning(ctx context.Context) (docker.ContainerJSON, bool, error) {
-	c, err := a.docker.ContainerInspect(ctx, containerName)
+func (s *server) containerRunning(ctx context.Context) (docker.ContainerJSON, bool, error) {
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if docker.IsNotFound(err) {
 		return c, false, nil
 	}
 	if err != nil {
-		return c, false, a.dockerErr(err)
+		return c, false, s.dockerErr(err)
 	}
 	return c, c.State.Running, nil
 }
 
-func (a *Agent) setRunPhase(p api.Phase, detail string) {
-	a.mu.Lock()
-	a.runPhase, a.runPhaseDetail = p, detail
-	a.mu.Unlock()
+func (s *server) setRunPhase(p api.Phase, detail string) {
+	s.mu.Lock()
+	s.runPhase, s.runPhaseDetail = p, detail
+	s.mu.Unlock()
 }
 
-func (a *Agent) resetRun(p api.Phase) {
-	a.mu.Lock()
-	a.runPhase = p
-	a.runPhaseDetail = ""
-	a.sawStopping = false
-	a.lastError, a.lastErrorHint = "", ""
-	a.mu.Unlock()
+func (s *server) resetRun(p api.Phase) {
+	s.mu.Lock()
+	s.runPhase = p
+	s.runPhaseDetail = ""
+	s.sawStopping = false
+	s.lastError, s.lastErrorHint = "", ""
+	s.mu.Unlock()
 }
 
 // reconcileLoop converges observed state toward the desired state: it
 // restarts the server after a host reboot or Docker restart, and applies the
 // crash policy after unexpected exits.
-func (a *Agent) reconcileLoop(ctx context.Context) {
-	t := time.NewTicker(a.opts.ReconcileInterval)
+func (s *server) reconcileLoop(ctx context.Context) {
+	t := time.NewTicker(s.opts.ReconcileInterval)
 	defer t.Stop()
 	for {
-		a.reconcile(ctx)
+		s.reconcile(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -666,22 +711,22 @@ const (
 	followerGrace = 20 * time.Second
 )
 
-func (a *Agent) reconcile(ctx context.Context) {
-	if a.busy() {
+func (s *server) reconcile(ctx context.Context) {
+	if s.busy() {
 		return
 	}
-	sc, err := a.serverConfig()
+	sc, err := s.serverConfig()
 	if err != nil || sc == nil {
 		return
 	}
-	desired := a.desired()
-	c, err := a.docker.ContainerInspect(ctx, containerName)
+	desired := s.desired()
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if err != nil {
-		a.mu.Lock()
-		due := len(a.crashes) < maxCrashes && a.now().After(a.nextAutoRestart)
-		a.mu.Unlock()
+		s.mu.Lock()
+		due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
+		s.mu.Unlock()
 		if docker.IsNotFound(err) && desired == api.DesiredRunning && due {
-			a.autoStart("recover")
+			s.autoStart("recover")
 		}
 		return
 	}
@@ -690,20 +735,20 @@ func (a *Agent) reconcile(ctx context.Context) {
 	}
 	// A container that never started has the zero finish time.
 	fin, _ := c.State.Finished()
-	a.mu.Lock()
-	last, ok := a.handledExit[c.ID]
+	s.mu.Lock()
+	last, ok := s.handledExit[c.ID]
 	handled := ok && last.Equal(fin)
-	ended := a.followEnded[c.ID]
-	intentional := a.intentional[c.ID]
-	graceful := a.sawStopping
-	a.mu.Unlock()
+	ended := s.followEnded[c.ID]
+	intentional := s.intentional[c.ID]
+	graceful := s.sawStopping
+	s.mu.Unlock()
 	if handled {
-		a.mu.Lock()
-		gaveUp := len(a.crashes) >= maxCrashes
-		due := a.crashed && !gaveUp && a.now().After(a.nextAutoRestart)
-		a.mu.Unlock()
+		s.mu.Lock()
+		gaveUp := len(s.crashes) >= maxCrashes
+		due := s.crashed && !gaveUp && s.now().After(s.nextAutoRestart)
+		s.mu.Unlock()
 		if due && desired == api.DesiredRunning {
-			a.autoStart("auto-restart")
+			s.autoStart("auto-restart")
 		}
 		return
 	}
@@ -712,20 +757,20 @@ func (a *Agent) reconcile(ctx context.Context) {
 	// before open sessions are closed. If the log cannot be read, decide
 	// anyway followerGrace after first seeing the exit.
 	if ended.Before(fin) {
-		a.mu.Lock()
-		seen := a.exitSeen[c.ID]
+		s.mu.Lock()
+		seen := s.exitSeen[c.ID]
 		if !seen.fin.Equal(fin) {
-			seen = seenExit{fin: fin, at: a.now()}
-			a.exitSeen[c.ID] = seen
+			seen = seenExit{fin: fin, at: s.now()}
+			s.exitSeen[c.ID] = seen
 		}
-		a.mu.Unlock()
-		if a.now().Sub(seen.at) < followerGrace {
+		s.mu.Unlock()
+		if s.now().Sub(seen.at) < followerGrace {
 			return
 		}
 	}
-	a.markExitHandled(c.ID, fin)
+	s.markExitHandled(c.ID, fin)
 	switch {
-	case fin.Before(a.started):
+	case fin.Before(s.started):
 		// The server stopped while the agent was not running (a host reboot or
 		// an agent restart), or its container never started. How it stopped is
 		// unknown, so it is not counted as a crash: sessions still open end at
@@ -735,32 +780,32 @@ func (a *Agent) reconcile(ctx context.Context) {
 		// tried again.
 		end := fin
 		if end.IsZero() {
-			end = a.now()
+			end = s.now()
 		}
-		a.closeOpenSessions(end, "server_stopped", true)
-		a.mu.Lock()
-		due := len(a.crashes) < maxCrashes && a.now().After(a.nextAutoRestart)
-		a.mu.Unlock()
+		s.closeOpenSessions(end, "server_stopped", true)
+		s.mu.Lock()
+		due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
+		s.mu.Unlock()
 		if desired == api.DesiredRunning && due {
-			a.autoStart("recover")
+			s.autoStart("recover")
 		}
 	case intentional:
-		a.closeOpenSessions(fin, "server_stopped", false)
+		s.closeOpenSessions(fin, "server_stopped", false)
 	case graceful:
-		a.closeOpenSessions(fin, "server_stopped", false)
-		a.recordEvent(fin, "server_stopped_externally", "", "docker", fmt.Sprintf("exit code %d", c.State.ExitCode))
+		s.closeOpenSessions(fin, "server_stopped", false)
+		s.recordEvent(fin, "server_stopped_externally", "", "docker", fmt.Sprintf("exit code %d", c.State.ExitCode))
 		if desired == api.DesiredRunning {
-			a.autoStart("recover")
+			s.autoStart("recover")
 		}
 	default:
-		a.closeOpenSessions(fin, "server_crashed", true)
-		a.recordCrash(fin, c.State)
+		s.closeOpenSessions(fin, "server_crashed", true)
+		s.recordCrash(fin, c.State)
 		if desired == api.DesiredRunning {
-			a.mu.Lock()
-			due := len(a.crashes) < maxCrashes && a.now().After(a.nextAutoRestart)
-			a.mu.Unlock()
+			s.mu.Lock()
+			due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
+			s.mu.Unlock()
 			if due {
-				a.autoStart("auto-restart")
+				s.autoStart("auto-restart")
 			}
 		}
 	}
@@ -770,92 +815,97 @@ type seenExit struct{ fin, at time.Time }
 
 // markExitHandled records that a container exit has been dealt with, so the
 // reconcile loop does not count it again.
-func (a *Agent) markExitHandled(id string, fin time.Time) {
-	a.mu.Lock()
-	a.handledExit[id] = fin
-	a.mu.Unlock()
+func (s *server) markExitHandled(id string, fin time.Time) {
+	s.mu.Lock()
+	s.handledExit[id] = fin
+	s.mu.Unlock()
 }
 
-func (a *Agent) recordCrash(fin time.Time, st docker.ContainerState) {
-	a.mu.Lock()
+func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
+	s.mu.Lock()
 	var recent []time.Time
-	for _, t := range a.crashes {
+	for _, t := range s.crashes {
 		if fin.Sub(t) < crashWindow {
 			recent = append(recent, t)
 		}
 	}
-	a.crashes = append(recent, fin)
-	n := len(a.crashes)
-	a.crashed = true
-	a.runPhase = api.PhaseCrashed
+	s.crashes = append(recent, fin)
+	n := len(s.crashes)
+	s.crashed = true
+	s.runPhase = api.PhaseCrashed
 	if st.OOMKilled {
-		a.lastError = "The server ran out of memory and was killed."
-		a.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
+		s.lastError = "The server ran out of memory and was killed."
+		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
 	} else {
-		a.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
-		a.lastErrorHint = "Check the Console for the last lines before the crash."
+		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
+		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
 	if n >= maxCrashes {
-		a.lastError += fmt.Sprintf(" Playkeeper stopped restarting it after %d crashes in %d minutes.", n, int(crashWindow.Minutes()))
-		a.lastErrorHint += " Fix the cause, then press Start."
+		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it after %d crashes in %d minutes.", n, int(crashWindow.Minutes()))
+		s.lastErrorHint += " Fix the cause, then press Start."
 	} else {
-		a.nextAutoRestart = a.now().Add(a.opts.CrashBackoff[min(n-1, len(a.opts.CrashBackoff)-1)])
+		s.nextAutoRestart = s.now().Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
 	}
-	detail := a.lastError
-	a.mu.Unlock()
-	a.recordEvent(fin, "server_crashed", "", "docker", detail)
-	a.log.Warn("server crashed", "exit", st.ExitCode, "oom", st.OOMKilled, "crashes", n)
+	detail := s.lastError
+	oom := st.OOMKilled
+	s.mu.Unlock()
+	kind := "exit"
+	if oom {
+		kind = "oom"
+	}
+	s.recordEvent(fin, "server_crashed", "", "docker", detail)
+	s.log.Warn("server crashed", "server", s.id, "exit", st.ExitCode, "cause", kind, "crashes", n)
 }
 
-func (a *Agent) autoStart(kind string) {
-	_, err := a.beginOp(kind, "playkeeper", func(ctx context.Context, h *opHandle) error {
-		sc, err := a.serverConfig()
+func (s *server) autoStart(kind string) {
+	_, err := s.beginOp(kind, "playkeeper", func(ctx context.Context, h *opHandle) error {
+		sc, err := s.serverConfig()
 		if err != nil || sc == nil {
 			return errNotCreated()
 		}
-		if err := a.startServer(ctx, h, *sc); err != nil {
-			a.autoStartFailed(err)
+		if err := s.startServer(ctx, h, *sc); err != nil {
+			s.autoStartFailed(err)
 			return err
 		}
 		return nil
 	})
 	if err == nil {
-		a.log.Info("automatic start", "kind", kind)
+		s.log.Info("automatic start", "server", s.id, "kind", kind)
 	}
 }
 
 // autoStartFailed counts a failed automatic start like a crash, so a lasting
 // problem (a busy port, an unreachable registry) gets the same backoff and is
 // given up after maxCrashes attempts instead of being retried every tick.
-func (a *Agent) autoStartFailed(err error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	now := a.now()
+func (s *server) autoStartFailed(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
 	var recent []time.Time
-	for _, t := range a.crashes {
+	for _, t := range s.crashes {
 		if now.Sub(t) < crashWindow {
 			recent = append(recent, t)
 		}
 	}
-	a.crashes = append(recent, now)
+	s.crashes = append(recent, now)
 	// The reconcile loop retries after the backoff whether the failed
 	// container was removed or is still there with its exit already counted.
-	a.crashed = true
-	n := len(a.crashes)
+	s.crashed = true
+	n := len(s.crashes)
 	if n >= maxCrashes {
-		a.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())
-		a.lastErrorHint = "Fix the cause, then press Start."
+		s.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())
+		s.lastErrorHint = "Fix the cause, then press Start."
 		return
 	}
-	a.nextAutoRestart = now.Add(a.opts.CrashBackoff[min(n-1, len(a.opts.CrashBackoff)-1)])
+	s.nextAutoRestart = now.Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
 }
 
 // startFailed is called when a start the user asked for did not bring the
 // server up. The error's hint tells them to fix the cause and press Start, so
 // nothing retries in the background; a container that is still running (a
 // slow start that timed out) keeps the desired state running.
-func (a *Agent) startFailed(ctx context.Context) {
-	if _, running, err := a.containerRunning(ctx); err == nil && !running {
-		_ = a.setDesired(api.DesiredStopped)
+func (s *server) startFailed(ctx context.Context) {
+	if _, running, err := s.containerRunning(ctx); err == nil && !running {
+		_ = s.setDesired(api.DesiredStopped)
 	}
 }

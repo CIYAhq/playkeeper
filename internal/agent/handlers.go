@@ -33,54 +33,119 @@ func (a *Agent) hPreflight(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.Preflight(r.Context()))
 }
 
-func (a *Agent) catalogInfo(ctx context.Context) api.Catalog {
+// Machine reports the machine and what its servers take of it.
+func (a *Agent) Machine(ctx context.Context) api.Machine {
+	host, _ := os.Hostname()
+	m := api.Machine{
+		Hostname: host, OS: osName(), Arch: archName(), CPUs: numCPU(),
+		MemoryTotalMB: a.opts.HostMemoryMB(), SystemReserveMB: minecraft.HostReserveMB,
+		ServersMemoryMB: a.reservedMemoryMB(""), AgentVersion: version.Version,
+		DefaultGamePort: a.cfg.GamePort, OfflineModeTest: a.offline(), Operation: a.machineOp(),
+		UpdateInstalling: a.installingUpdate(), Servers: len(a.serverList()),
+	}
+	m.MemoryFreeMB = max(0, m.MemoryTotalMB-m.SystemReserveMB-m.ServersMemoryMB)
+	if info := a.updateInfo(); info.Available {
+		m.UpdateAvailable = info.Latest
+	}
+	if free, total, err := a.opts.DiskUsage(a.cfg.DataDir); err == nil {
+		m.DiskFreeBytes, m.DiskTotalBytes = &free, &total
+		if dc := diskCheck(free); dc.Status != "pass" {
+			m.DiskWarning = &dc
+		}
+	}
+	a.mu.Lock()
+	m.Docker, m.DockerVersion = a.dockerOK, a.dockerVersion
+	if a.hostCPU != nil {
+		v := *a.hostCPU
+		m.CPUPercent = &v
+	}
+	a.mu.Unlock()
+	return m
+}
+
+func (a *Agent) hMachine(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, a.Machine(r.Context()))
+}
+
+// catalogInfo is what a server can choose: for a new server when forServer
+// is empty, or for an existing one's settings.
+func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
 	host := a.opts.HostMemoryMB()
-	opts, rec, max := minecraft.MemoryOptions(host)
+	opts, rec, max := a.memoryFor(forServer)
 	if opts == nil {
 		opts = []int{}
 	}
-	c := api.Catalog{Versions: []api.CatalogEntry{}, MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max, Image: minecraft.ImageTag}
-	if v, err := a.versionCatalog(ctx); err != nil {
+	c := api.Catalog{
+		Type: api.TypePaper, Types: serverTypes(), Versions: []api.CatalogEntry{},
+		MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max,
+		SystemReserveMB: minecraft.HostReserveMB, MemoryFreeMB: max, Servers: []api.ServerMemory{}, Image: minecraft.ImageTag,
+	}
+	for _, s := range a.serverList() {
+		sc, _ := s.serverConfig()
+		if sc == nil || s.id == forServer {
+			continue
+		}
+		_, running, _ := s.containerRunning(ctx)
+		c.Servers = append(c.Servers, api.ServerMemory{ID: s.id, Name: s.name(), MemoryMB: sc.MemoryMB, Running: running})
+	}
+	if forServer == "" {
+		if p, err := a.nextGamePort(); err == nil {
+			c.SuggestedPort = p
+		}
+	}
+	if v, at, err := a.versionCatalog(ctx); err != nil {
 		c.VersionsError = "Could not load the Minecraft versions from PaperMC: " + err.Error() + ". Check that this server can reach fill.papermc.io."
 	} else {
 		c.Versions = v
+		c.VersionsCheckedAt = &at
 	}
 	return c
 }
 
 func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.catalogInfo(r.Context()))
+	forServer := r.URL.Query().Get("server")
+	if forServer != "" && a.serverByID(forServer) == nil {
+		writeError(w, errNotFound("Server"))
+		return
+	}
+	if t := r.URL.Query().Get("type"); t != "" && t != api.TypePaper {
+		writeError(w, errInvalid("Only Paper servers can be created for now."))
+		return
+	}
+	writeJSON(w, http.StatusOK, a.catalogInfo(r.Context(), forServer))
 }
 
-// Status assembles desired and observed state. Nothing here is cached from
-// earlier runs: player and resource snapshots are dropped once stale.
-func (a *Agent) Status(ctx context.Context) api.ServerStatus {
-	st := api.ServerStatus{GamePort: a.cfg.GamePort, OfflineModeTest: a.offline(), AgentVersion: version.Version, CollectingSince: a.collectingSince()}
-	sc, _ := a.serverConfig()
+// Status assembles the server's desired and observed state. Nothing here is
+// cached from earlier runs: player and resource snapshots are dropped once
+// stale.
+func (s *server) Status(ctx context.Context) api.ServerStatus {
+	st := api.ServerStatus{ID: s.id, GamePort: s.gamePort, OfflineModeTest: s.offline(), CollectingSince: s.collectingSince()}
+	if row, err := s.row(); err == nil {
+		st.Name, st.Slug, st.Game, st.Type, st.CreatedAt = row.Name, row.Slug, row.Game, row.Type, row.CreatedAt
+	}
+	sc, _ := s.serverConfig()
 	st.Config = sc
 	st.Exists = sc != nil
-	st.Desired = a.desired()
-	st.Operation = a.currentOp()
-	st.LastOperation = a.lastFinishedOperation()
-	if info := a.updateInfo(); info.Available {
-		st.UpdateAvailable = info.Latest
+	st.Desired = s.desired()
+	st.Operation = s.currentOp()
+	if st.Operation == nil {
+		st.Operation = s.machineOp()
 	}
-	st.UpdateInstalling = a.installingUpdate()
-	if free, _, err := a.opts.DiskUsage(a.cfg.DataDir); err == nil {
-		if dc := diskCheck(free); dc.Status != "pass" {
-			st.DiskWarning = &dc
-		}
+	st.LastOperation = s.lastFinishedOperation()
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
+	s.mu.Lock()
+	runPhase, detail := s.runPhase, s.runPhaseDetail
+	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
+	crashed := s.crashed
+	st.CrashCount = len(s.crashes)
+	players, res := s.players, s.resources
+	reachable, reachableAt := s.reachable, s.reachableAt
+	if !s.worldAt.IsZero() {
+		world := s.worldBytes
+		st.WorldBytes = &world
 	}
-	c, err := a.docker.ContainerInspect(ctx, containerName)
-	a.mu.Lock()
-	runPhase, detail := a.runPhase, a.runPhaseDetail
-	st.LastError, st.LastErrorHint = a.lastError, a.lastErrorHint
-	crashed := a.crashed
-	st.CrashCount = len(a.crashes)
-	players, res := a.players, a.resources
-	reachable, reachableAt := a.reachable, a.reachableAt
-	a.mu.Unlock()
-	fresh := func(t time.Time) bool { return a.now().Sub(t) < 3*a.opts.SampleInterval+5*time.Second }
+	s.mu.Unlock()
+	fresh := func(t time.Time) bool { return s.now().Sub(t) < 3*s.opts.SampleInterval+5*time.Second }
 	running := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
@@ -101,7 +166,7 @@ func (a *Agent) Status(ctx context.Context) api.ServerStatus {
 		if t, ok := c.State.Started(); ok {
 			st.StartedAt = &t
 		}
-		_, hash := a.containerSpec(*sc, false)
+		_, hash := s.containerSpec(*sc, false)
 		st.PendingRestart = c.Config.Labels[labelSpec] != hash
 	default:
 		st.Phase = api.PhaseStopped
@@ -110,6 +175,12 @@ func (a *Agent) Status(ctx context.Context) api.ServerStatus {
 		}
 		code := c.State.ExitCode
 		st.ExitCode = &code
+		if t, ok := c.State.Finished(); ok {
+			st.StoppedAt = &t
+		}
+	}
+	if sc != nil && running && iconNewer(sc, st.StartedAt) {
+		st.PendingRestart = true
 	}
 	if st.Operation != nil {
 		switch api.Phase(st.Operation.Phase) {
@@ -134,16 +205,46 @@ func (a *Agent) Status(ctx context.Context) api.ServerStatus {
 		t := reachableAt
 		st.ReachableAt = &t
 	}
-	if list, err := a.listBackups(`WHERE verified = 1 AND kind = 'manual'`); err == nil && len(list) > 0 {
+	if list, err := s.listBackups(`verified = 1 AND kind = 'manual'`); err == nil && len(list) > 0 {
 		st.LastBackup = &list[0]
-	} else if list, err := a.listBackups(`WHERE verified = 1`); err == nil && len(list) > 0 {
+	} else if list, err := s.listBackups(`verified = 1`); err == nil && len(list) > 0 {
 		st.LastBackup = &list[0]
 	}
+	if sc != nil {
+		st.Gameplay = effectiveGameplay(sc.Gameplay, readProperties(s.dataDir()))
+	}
+	st.FirstSteps = s.firstSteps()
 	return st
 }
 
-func (a *Agent) hStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.Status(r.Context()))
+// firstSteps ticks off the "Get started" checklist from what has happened.
+func (s *server) firstSteps() api.FirstSteps {
+	var fs api.FirstSteps
+	if list, err := s.whitelist(); err == nil && len(list) > 0 {
+		fs.Invited = list[0].Name
+	}
+	var player string
+	var ts int64
+	if s.db.QueryRow(`SELECT player, start_ts FROM sessions WHERE server_id = ? ORDER BY start_ts LIMIT 1`, s.id).Scan(&player, &ts) == nil {
+		t := time.UnixMilli(ts).UTC()
+		fs.FriendJoined, fs.FriendJoinedAt = player, &t
+	}
+	var n, dl int
+	_ = s.db.QueryRow(`SELECT COUNT(*), COUNT(downloaded_at) FROM backups WHERE server_id = ? AND kind = 'manual' AND verified = 1`, s.id).Scan(&n, &dl)
+	fs.BackedUp, fs.Downloaded = n > 0, dl > 0
+	return fs
+}
+
+func (s *server) hStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.Status(r.Context()))
+}
+
+func (a *Agent) hServers(w http.ResponseWriter, r *http.Request) {
+	out := []api.ServerStatus{}
+	for _, s := range a.serverList() {
+		out = append(out, s.Status(r.Context()))
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func validMOTD(s string) (string, error) {
@@ -172,14 +273,7 @@ func validMaxPlayers(n int) (int, error) {
 	return n, nil
 }
 
-func (a *Agent) validMemory(mb int) error {
-	host := a.opts.HostMemoryMB()
-	if !minecraft.ValidBudget(mb, host) {
-		opts, _, _ := minecraft.MemoryOptions(host)
-		return errInvalid("Memory budget must be one of %v MB on this host (it has %d MB).", opts, host)
-	}
-	return nil
-}
+var playStyles = map[string]bool{"": true, "friends": true, "creative": true, "hardcore": true, "solo": true}
 
 func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	var req api.CreateServerRequest
@@ -197,8 +291,23 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, api.CodeEULARequired, "You must accept the Minecraft EULA before Playkeeper downloads or starts a server.", "Read https://www.minecraft.net/en-us/eula and tick the box to accept it.")
 		return
 	}
-	if sc, _ := a.serverConfig(); sc != nil {
-		writeError(w, errConflict("A server already exists. Playkeeper runs one Minecraft server per host.", "Use Start on the Overview, or restore a backup from the World page."))
+	typ := req.Type
+	if typ == "" {
+		typ = api.TypePaper
+	}
+	if !typeAvailable(typ) {
+		writeError(w, errInvalid("%s servers can't be created yet. Choose Paper.", typeName(typ)))
+		return
+	}
+	name := ""
+	if strings.TrimSpace(req.Name) != "" {
+		if name, err = validName(req.Name); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if !playStyles[req.PlayStyle] {
+		writeError(w, errInvalid("Unknown play style."))
 		return
 	}
 	entry, err := a.catalogEntry(r.Context(), req.VersionID)
@@ -208,10 +317,6 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if entry.Experimental && !req.AcceptExperimental {
 		writeError(w, errInvalid("%s is experimental. Confirm that you accept the risk to your world to use it.", entry.Label))
-		return
-	}
-	if err := a.validMemory(req.MemoryMB); err != nil {
-		writeError(w, err)
 		return
 	}
 	motd, err := validMOTD(req.MOTD)
@@ -224,27 +329,29 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	var gp api.Gameplay
+	if req.Gameplay != nil {
+		if gp, err = validGameplay(*req.Gameplay, true); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	now := a.now().UTC()
 	sc := withBuild(api.ServerConfig{
-		MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
+		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
+		PlayStyle: req.PlayStyle, Gameplay: gp,
 	}, entry)
-	op, err := a.beginOp("create", actor, func(ctx context.Context, h *opHandle) error {
-		if cur, _ := a.serverConfig(); cur != nil {
-			return errConflict("A server already exists.", "")
+	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
+		return func(ctx context.Context, h *opHandle) error {
+			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
+			s.recordEvent(s.now(), "server_created", "", "playkeeper", entry.Label)
+			if err := s.startServer(ctx, h, sc); err != nil {
+				s.startFailed(ctx)
+				return err
+			}
+			return nil
 		}
-		if err := a.saveServerConfig(sc); err != nil {
-			return err
-		}
-		a.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-		if err := a.setDesired(api.DesiredRunning); err != nil {
-			return err
-		}
-		if err := a.startServer(ctx, h, sc); err != nil {
-			a.startFailed(ctx)
-			return err
-		}
-		return nil
 	})
 	if err != nil {
 		writeError(w, err)
@@ -253,7 +360,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
-func (a *Agent) actionActor(r *http.Request) (string, error) {
+func actionActor(r *http.Request) (string, error) {
 	var req api.ActionRequest
 	if err := decode(r, &req); err != nil {
 		return "", err
@@ -261,25 +368,20 @@ func (a *Agent) actionActor(r *http.Request) (string, error) {
 	return validActor(req.Actor)
 }
 
-func (a *Agent) hStart(w http.ResponseWriter, r *http.Request) {
-	actor, err := a.actionActor(r)
+func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	sc, _ := a.serverConfig()
-	if sc == nil {
-		writeError(w, errNotCreated())
-		return
-	}
-	release, ok := a.holdOpLock()
+	release, ok := s.holdOpLock()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && running {
-		_ = a.setDesired(api.DesiredRunning)
+		_ = s.setDesired(api.DesiredRunning)
 	}
 	release()
 	if err != nil {
@@ -287,20 +389,23 @@ func (a *Agent) hStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if running {
-		a.audit(actor, "start", "server", "no-op", "already running")
+		s.audit(actor, "start", "server", "no-op", "already running")
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already running."})
 		return
 	}
-	a.mu.Lock()
-	a.crashes, a.crashed, a.nextAutoRestart = nil, false, time.Time{}
-	a.mu.Unlock()
-	op, err := a.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
-		if err := a.setDesired(api.DesiredRunning); err != nil {
+	s.mu.Lock()
+	s.crashes, s.crashed, s.nextAutoRestart = nil, false, time.Time{}
+	s.mu.Unlock()
+	op, err := s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
+		if err := s.setDesired(api.DesiredRunning); err != nil {
 			return err
 		}
-		cur, _ := a.serverConfig()
-		if err := a.startServer(ctx, h, *cur); err != nil {
-			a.startFailed(ctx)
+		cur, _ := s.serverConfig()
+		if cur == nil {
+			return errNotCreated()
+		}
+		if err := s.startServer(ctx, h, *cur); err != nil {
+			s.startFailed(ctx)
 			return err
 		}
 		return nil
@@ -312,27 +417,23 @@ func (a *Agent) hStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
-func (a *Agent) hStop(w http.ResponseWriter, r *http.Request) {
-	actor, err := a.actionActor(r)
+func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if sc, _ := a.serverConfig(); sc == nil {
-		writeError(w, errNotCreated())
-		return
-	}
-	release, ok := a.holdOpLock()
+	release, ok := s.holdOpLock()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {
-		_ = a.setDesired(api.DesiredStopped)
-		a.mu.Lock()
-		a.crashed = false
-		a.mu.Unlock()
+		_ = s.setDesired(api.DesiredStopped)
+		s.mu.Lock()
+		s.crashed = false
+		s.mu.Unlock()
 	}
 	release()
 	if err != nil {
@@ -340,15 +441,15 @@ func (a *Agent) hStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !running {
-		a.audit(actor, "stop", "server", "no-op", "already stopped")
+		s.audit(actor, "stop", "server", "no-op", "already stopped")
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already stopped."})
 		return
 	}
-	op, err := a.beginOp("stop", actor, func(ctx context.Context, h *opHandle) error {
-		if err := a.setDesired(api.DesiredStopped); err != nil {
+	op, err := s.beginOp("stop", actor, func(ctx context.Context, h *opHandle) error {
+		if err := s.setDesired(api.DesiredStopped); err != nil {
 			return err
 		}
-		return a.stopServer(ctx, h)
+		return s.stopServer(ctx, h)
 	})
 	if err != nil {
 		writeError(w, err)
@@ -357,38 +458,42 @@ func (a *Agent) hStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
-func (a *Agent) hRestart(w http.ResponseWriter, r *http.Request) {
-	actor, err := a.actionActor(r)
+// restart stops and starts a running server, with its current settings.
+func (s *server) restart(actor string) (*api.Operation, error) {
+	return s.beginOp("restart", actor, func(ctx context.Context, h *opHandle) error {
+		if err := s.stopServer(ctx, h); err != nil {
+			return err
+		}
+		cur, _ := s.serverConfig()
+		if cur == nil {
+			return errNotCreated()
+		}
+		if err := s.startServer(ctx, h, *cur); err != nil {
+			s.startFailed(ctx)
+			return err
+		}
+		return nil
+	})
+}
+
+func (s *server) hRestart(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if sc, _ := a.serverConfig(); sc == nil {
-		writeError(w, errNotCreated())
+	if s.busy() {
+		writeError(w, s.busyError())
 		return
 	}
-	if a.busy() {
-		writeError(w, a.busyError())
-		return
-	}
-	if _, running, err := a.containerRunning(r.Context()); err != nil {
+	if _, running, err := s.containerRunning(r.Context()); err != nil {
 		writeError(w, err)
 		return
 	} else if !running {
 		writeError(w, errConflict("The server is not running, so it cannot be restarted.", "Use Start instead."))
 		return
 	}
-	op, err := a.beginOp("restart", actor, func(ctx context.Context, h *opHandle) error {
-		if err := a.stopServer(ctx, h); err != nil {
-			return err
-		}
-		cur, _ := a.serverConfig()
-		if err := a.startServer(ctx, h, *cur); err != nil {
-			a.startFailed(ctx)
-			return err
-		}
-		return nil
-	})
+	op, err := s.restart(actor)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -396,7 +501,7 @@ func (a *Agent) hRestart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
-func (a *Agent) hSettings(w http.ResponseWriter, r *http.Request) {
+func (s *server) hSettings(w http.ResponseWriter, r *http.Request) {
 	var req api.SettingsRequest
 	if err := decode(r, &req); err != nil {
 		writeError(w, err)
@@ -407,20 +512,68 @@ func (a *Agent) hSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	sc, _ := a.serverConfig()
-	if sc == nil {
-		writeError(w, errNotCreated())
+	if err := s.applySettings(req, actor); err != nil {
+		writeError(w, err)
 		return
 	}
-	if a.busy() {
-		writeError(w, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy; try again when the current task finishes.", Op: a.currentOp()})
-		return
+	resp := api.SettingsResponse{}
+	if req.Restart {
+		if _, running, _ := s.containerRunning(r.Context()); running {
+			op, err := s.restart(actor)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			resp.Operation = op
+		}
+	}
+	resp.Server = s.Status(r.Context())
+	status := http.StatusOK
+	if resp.Operation != nil {
+		status = http.StatusAccepted
+	}
+	writeJSON(w, status, resp)
+}
+
+// applySettings checks a settings change in full, then saves it. It holds the
+// server's operation lock, so no operation rewrites the settings meanwhile,
+// and createMu, so a name or memory share is checked against the other
+// servers' current ones.
+func (s *server) applySettings(req api.SettingsRequest, actor string) error {
+	release, ok := s.holdOpLock()
+	if !ok {
+		return s.busyError()
+	}
+	defer release()
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	if s.busy() {
+		return s.busyError()
+	}
+	sc, err := s.serverConfig()
+	if err != nil {
+		return err
+	}
+	if sc == nil {
+		return errNotCreated()
 	}
 	var changed []string
+	old := s.name()
+	name := old
+	if req.Name != nil {
+		if name, err = validName(*req.Name); err != nil {
+			return err
+		}
+		if s.nameTaken(name, s.id) {
+			return errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+		}
+		if name != old {
+			changed = append(changed, fmt.Sprintf("name %q→%q", old, name))
+		}
+	}
 	if req.MemoryMB != nil {
-		if err := a.validMemory(*req.MemoryMB); err != nil {
-			writeError(w, err)
-			return
+		if err := s.validMemory(*req.MemoryMB, s.id); err != nil {
+			return err
 		}
 		if sc.MemoryMB != *req.MemoryMB {
 			changed = append(changed, fmt.Sprintf("memoryMB %d→%d", sc.MemoryMB, *req.MemoryMB))
@@ -430,8 +583,7 @@ func (a *Agent) hSettings(w http.ResponseWriter, r *http.Request) {
 	if req.MOTD != nil {
 		m, err := validMOTD(*req.MOTD)
 		if err != nil {
-			writeError(w, err)
-			return
+			return err
 		}
 		if m != sc.MOTD {
 			changed = append(changed, "motd")
@@ -441,30 +593,72 @@ func (a *Agent) hSettings(w http.ResponseWriter, r *http.Request) {
 	if req.MaxPlayers != nil {
 		n, err := validMaxPlayers(*req.MaxPlayers)
 		if err != nil || *req.MaxPlayers == 0 {
-			writeError(w, errInvalid("Max players must be between 1 and 100."))
-			return
+			return errInvalid("Max players must be between 1 and 100.")
 		}
 		if n != sc.MaxPlayers {
 			changed = append(changed, fmt.Sprintf("maxPlayers %d→%d", sc.MaxPlayers, n))
 		}
 		sc.MaxPlayers = n
 	}
-	if err := a.saveServerConfig(*sc); err != nil {
+	if req.Gameplay != nil {
+		gp, err := validGameplay(*req.Gameplay, false)
+		if err != nil {
+			return err
+		}
+		next := mergeGameplay(sc.Gameplay, gp)
+		changed = append(changed, gameplayChanges(effectiveGameplay(sc.Gameplay, readProperties(s.dataDir())), effectiveGameplay(next, nil), gp)...)
+		sc.Gameplay = next
+	}
+	if name != old {
+		if _, err := s.db.Exec(`UPDATE servers SET name = ? WHERE id = ?`, name, s.id); err != nil {
+			return err
+		}
+	}
+	if err := s.saveServerConfig(*sc); err != nil {
+		return err
+	}
+	s.audit(actor, "settings.changed", "server", "succeeded", strings.Join(changed, ", "))
+	return nil
+}
+
+func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
+	var req api.DeleteServerRequest
+	if err := decode(r, &req); err != nil {
 		writeError(w, err)
 		return
 	}
-	a.audit(actor, "settings.changed", "server", "succeeded", strings.Join(changed, ", "))
-	writeJSON(w, http.StatusOK, a.Status(r.Context()))
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	name := s.name()
+	if strings.TrimSpace(req.Confirm) != name {
+		s.audit(actor, "server.deleted", s.id, "refused", "confirmation did not match the name")
+		writeError(w, errInvalid("Type the server's name, %q, to delete it.", name))
+		return
+	}
+	op, err := s.beginOp("delete", actor, func(ctx context.Context, h *opHandle) error {
+		if err := s.setDesired(api.DesiredStopped); err != nil {
+			return err
+		}
+		return s.deleteServer(ctx, h, actor)
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, op)
 }
 
-func (a *Agent) hLogs(w http.ResponseWriter, r *http.Request) {
+func (s *server) hLogs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	after, _ := strconv.ParseInt(q.Get("after"), 10, 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	if limit <= 0 || limit > consoleCapacity {
 		limit = 500
 	}
-	writeJSON(w, http.StatusOK, a.console.since(q.Get("epoch"), after, limit))
+	writeJSON(w, http.StatusOK, s.console.since(q.Get("epoch"), after, limit))
 }
 
 // validateCommand accepts one Minecraft console command. Commands go to the
@@ -490,7 +684,16 @@ func validateCommand(c string) (string, error) {
 	return c, nil
 }
 
-func (a *Agent) hCommand(w http.ResponseWriter, r *http.Request) {
+// online reports whether the server can take console commands.
+func (s *server) online(ctx context.Context) bool {
+	s.mu.Lock()
+	online := s.runPhase == api.PhaseOnline
+	s.mu.Unlock()
+	_, running, _ := s.containerRunning(ctx)
+	return running && online
+}
+
+func (s *server) hCommand(w http.ResponseWriter, r *http.Request) {
 	var req api.CommandRequest
 	if err := decode(r, &req); err != nil {
 		writeError(w, err)
@@ -506,104 +709,19 @@ func (a *Agent) hCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	a.mu.Lock()
-	online := a.runPhase == api.PhaseOnline
-	a.mu.Unlock()
-	if _, running, _ := a.containerRunning(r.Context()); !running || !online {
-		a.audit(actor, "console.command", "server", "refused", minecraft.RedactIPs(cmd))
+	if !s.online(r.Context()) {
+		s.audit(actor, "console.command", "server", "refused", minecraft.RedactIPs(cmd))
 		writeError(w, errConflict("The server is not online, so it cannot run commands.", "Start the server first."))
 		return
 	}
-	out, err := a.rconCommand(cmd)
+	out, err := s.rconCommand(cmd)
 	if err != nil {
-		a.audit(actor, "console.command", "server", "failed", minecraft.RedactIPs(cmd))
+		s.audit(actor, "console.command", "server", "failed", minecraft.RedactIPs(cmd))
 		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not accept the command: " + err.Error(), Hint: "Wait until the server is online and try again."})
 		return
 	}
-	a.audit(actor, "console.command", "server", "succeeded", minecraft.RedactIPs(cmd))
+	s.audit(actor, "console.command", "server", "succeeded", minecraft.RedactIPs(cmd))
 	writeJSON(w, http.StatusOK, api.CommandResponse{Output: minecraft.CleanLine(out)})
-}
-
-func (a *Agent) whitelist() ([]api.WhitelistEntry, error) {
-	b, err := os.ReadFile(filepath.Join(a.cfg.ServerDataDir(), "whitelist.json"))
-	if os.IsNotExist(err) {
-		return []api.WhitelistEntry{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var entries []api.WhitelistEntry
-	if err := json.Unmarshal(b, &entries); err != nil {
-		return nil, err
-	}
-	if entries == nil {
-		entries = []api.WhitelistEntry{}
-	}
-	return entries, nil
-}
-
-func (a *Agent) hWhitelist(w http.ResponseWriter, r *http.Request) {
-	list, err := a.whitelist()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, list)
-}
-
-func (a *Agent) whitelistChange(w http.ResponseWriter, r *http.Request, name, actor, verb string) {
-	if !minecraft.ValidPlayerName(name) {
-		writeError(w, errInvalid("Minecraft usernames are 3–16 letters, numbers or underscores."))
-		return
-	}
-	a.mu.Lock()
-	online := a.runPhase == api.PhaseOnline
-	a.mu.Unlock()
-	if _, running, _ := a.containerRunning(r.Context()); !running || !online {
-		writeError(w, errConflict("Start the server to change who can join.", ""))
-		return
-	}
-	out, err := a.rconCommand("whitelist " + verb + " " + name)
-	if err != nil {
-		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not respond: " + err.Error()})
-		return
-	}
-	out = minecraft.StripANSI(out)
-	result := "succeeded"
-	status := http.StatusOK
-	if strings.Contains(out, "does not exist") || strings.Contains(out, "Unknown") {
-		result, status = "failed", http.StatusUnprocessableEntity
-	}
-	a.audit(actor, "whitelist."+verb, name, result, out)
-	if status != http.StatusOK {
-		writeErr(w, status, api.CodeInvalid, out, "Check the spelling of the Java Edition username.")
-		return
-	}
-	list, _ := a.whitelist()
-	writeJSON(w, http.StatusOK, map[string]any{"message": out, "whitelist": list})
-}
-
-func (a *Agent) hWhitelistAdd(w http.ResponseWriter, r *http.Request) {
-	var req api.WhitelistRequest
-	if err := decode(r, &req); err != nil {
-		writeError(w, err)
-		return
-	}
-	actor, err := validActor(req.Actor)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	a.whitelistChange(w, r, req.Name, actor, "add")
-}
-
-func (a *Agent) hWhitelistRemove(w http.ResponseWriter, r *http.Request) {
-	actor, err := validActor(r.URL.Query().Get("actor"))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	a.whitelistChange(w, r, r.PathValue("name"), actor, "remove")
 }
 
 func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
@@ -612,9 +730,15 @@ func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("invalid operation id"))
 		return
 	}
-	if cur := a.currentOp(); cur != nil && cur.ID == id {
+	if cur := a.machineOp(); cur != nil && cur.ID == id {
 		writeJSON(w, http.StatusOK, cur)
 		return
+	}
+	for _, s := range a.serverList() {
+		if cur := s.currentOp(); cur != nil && cur.ID == id {
+			writeJSON(w, http.StatusOK, cur)
+			return
+		}
 	}
 	op, err := a.loadOperation(id)
 	if err != nil {
@@ -624,12 +748,12 @@ func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, op)
 }
 
-func (a *Agent) hMetrics(w http.ResponseWriter, r *http.Request) {
+func (s *server) hMetrics(w http.ResponseWriter, r *http.Request) {
 	rg := r.URL.Query().Get("range")
 	if rg == "" {
 		rg = "24h"
 	}
-	m, err := a.Metrics(rg, a.now())
+	m, err := s.Metrics(rg, s.now())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -637,7 +761,7 @@ func (a *Agent) hMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-func (a *Agent) hSessions(w http.ResponseWriter, r *http.Request) {
+func (s *server) hSessions(w http.ResponseWriter, r *http.Request) {
 	rg := r.URL.Query().Get("range")
 	if rg == "" {
 		rg = "7d"
@@ -647,8 +771,8 @@ func (a *Agent) hSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("range must be one of 1h, 24h, 7d, 30d"))
 		return
 	}
-	now := a.now()
-	list, err := a.Sessions(now.Add(-spec.span), now, now, 500)
+	now := s.now()
+	list, err := s.Sessions(now.Add(-spec.span), now, now, 500)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -656,25 +780,25 @@ func (a *Agent) hSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.SessionsResponse{From: now.Add(-spec.span).UTC(), To: now.UTC(), Sessions: list})
 }
 
-func (a *Agent) hSummary(w http.ResponseWriter, r *http.Request) {
+func (s *server) hSummary(w http.ResponseWriter, r *http.Request) {
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	if days == 0 {
 		days = 14
 	}
-	s, err := a.Summary(days, r.URL.Query().Get("tz"), a.now())
+	sum, err := s.Summary(days, r.URL.Query().Get("tz"), s.now())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s)
+	writeJSON(w, http.StatusOK, sum)
 }
 
-func (a *Agent) hEvents(w http.ResponseWriter, r *http.Request) {
+func (s *server) hEvents(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	ev, err := a.Events(limit)
+	ev, err := s.Events(limit)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -682,8 +806,17 @@ func (a *Agent) hEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ev)
 }
 
-func (a *Agent) hBackups(w http.ResponseWriter, r *http.Request) {
-	list, err := a.listBackups("")
+func (a *Agent) hActivity(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	id := r.URL.Query().Get("server")
+	if id != "" && a.serverByID(id) == nil {
+		writeError(w, errNotFound("Server"))
+		return
+	}
+	list, err := a.Activity(id, limit)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -691,7 +824,16 @@ func (a *Agent) hBackups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-func (a *Agent) hBackupCreate(w http.ResponseWriter, r *http.Request) {
+func (s *server) hBackups(w http.ResponseWriter, r *http.Request) {
+	list, err := s.listBackups("")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *server) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 	var req api.BackupRequest
 	if err := decode(r, &req); err != nil {
 		writeError(w, err)
@@ -706,12 +848,8 @@ func (a *Agent) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Notes can be at most 200 characters."))
 		return
 	}
-	if sc, _ := a.serverConfig(); sc == nil {
-		writeError(w, errNotCreated())
-		return
-	}
-	op, err := a.beginOp("backup", actor, func(ctx context.Context, h *opHandle) error {
-		return a.backupOp(ctx, h, actor, strings.TrimSpace(req.Note))
+	op, err := s.beginOp("backup", actor, func(ctx context.Context, h *opHandle) error {
+		return s.backupOp(ctx, h, actor, strings.TrimSpace(req.Note))
 	})
 	if err != nil {
 		writeError(w, err)
@@ -720,13 +858,13 @@ func (a *Agent) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
-func (a *Agent) hBackupVerify(w http.ResponseWriter, r *http.Request) {
-	actor, err := a.actionActor(r)
+func (s *server) hBackupVerify(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	b, err := a.verifyBackup(r.PathValue("id"))
+	b, err := s.verifyBackup(r.PathValue("bid"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -735,17 +873,17 @@ func (a *Agent) hBackupVerify(w http.ResponseWriter, r *http.Request) {
 	if b.Verified != nil && *b.Verified {
 		result = "succeeded"
 	}
-	a.audit(actor, "backup.verified", b.ID, result, b.VerifyError)
+	s.audit(actor, "backup.verified", b.ID, result, b.VerifyError)
 	writeJSON(w, http.StatusOK, b)
 }
 
-func (a *Agent) hBackupDownload(w http.ResponseWriter, r *http.Request) {
-	b, err := a.getBackup(r.PathValue("id"))
+func (s *server) hBackupDownload(w http.ResponseWriter, r *http.Request) {
+	b, err := s.getBackup(r.PathValue("bid"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := os.Open(a.backupPath(b.FileName))
+	f, err := os.Open(s.backupPath(b.FileName))
 	if err != nil {
 		writeError(w, errNotFound("Backup file"))
 		return
@@ -757,8 +895,8 @@ func (a *Agent) hBackupDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Playkeeper-SHA256", b.SHA256)
 	n, err := io.Copy(w, f)
 	if err == nil && n == b.SizeBytes {
-		_, _ = a.db.Exec(`UPDATE backups SET downloaded_at = ? WHERE id = ?`, a.now().UnixMilli(), b.ID)
-		a.audit(actorFromHeader(r), "backup.downloaded", b.ID, "succeeded", b.FileName)
+		_, _ = s.db.Exec(`UPDATE backups SET downloaded_at = ? WHERE id = ?`, s.now().UnixMilli(), b.ID)
+		s.audit(actorFromHeader(r), "backup.downloaded", b.ID, "succeeded", b.FileName)
 	}
 }
 
@@ -770,28 +908,28 @@ func actorFromHeader(r *http.Request) string {
 	return a
 }
 
-func (a *Agent) hBackupDelete(w http.ResponseWriter, r *http.Request) {
+func (s *server) hBackupDelete(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.URL.Query().Get("actor"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	b, err := a.getBackup(r.PathValue("id"))
+	b, err := s.getBackup(r.PathValue("bid"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if a.busy() {
-		writeError(w, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy; try again when the current task finishes.", Op: a.currentOp()})
+	if s.busy() {
+		writeError(w, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy; try again when the current task finishes.", Op: s.currentOp()})
 		return
 	}
-	os.Remove(a.backupPath(b.FileName))
-	os.Remove(a.backupPath(b.FileName) + ".sha256")
-	if _, err := a.db.Exec(`DELETE FROM backups WHERE id = ?`, b.ID); err != nil {
+	os.Remove(s.backupPath(b.FileName))
+	os.Remove(s.backupPath(b.FileName) + ".sha256")
+	if _, err := s.db.Exec(`DELETE FROM backups WHERE id = ?`, b.ID); err != nil {
 		writeError(w, err)
 		return
 	}
-	a.audit(actor, "backup.deleted", b.ID, "succeeded", b.FileName)
+	s.audit(actor, "backup.deleted", b.ID, "succeeded", b.FileName)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -809,51 +947,68 @@ func (a *Agent) uploadLimit() int64 {
 	return limit
 }
 
-func (a *Agent) hRestoreUpload(w http.ResponseWriter, r *http.Request) {
+// hRestoreUpload stages an uploaded archive to replace this server's world.
+func (s *server) hRestoreUpload(w http.ResponseWriter, r *http.Request) {
+	s.restoreUpload(w, r, s)
+}
+
+// hRestoreUploadNew stages an uploaded archive for a new server.
+func (a *Agent) hRestoreUploadNew(w http.ResponseWriter, r *http.Request) {
+	a.restoreUpload(w, r, nil)
+}
+
+func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *server) {
 	actor := actorFromHeader(r)
 	if actor == "unknown" {
 		writeError(w, errInvalid("X-Playkeeper-Actor header is required"))
 		return
 	}
-	p, err := a.stageArchive(r.Body, "upload", a.uploadLimit())
+	p, err := a.stageArchive(r.Body, "upload", a.uploadLimit(), target)
 	if err != nil {
-		a.audit(actor, "restore.uploaded", "", "refused", err.Error())
+		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
 		writeError(w, err)
 		return
 	}
-	a.audit(actor, "restore.uploaded", p.ID, "validated", "sha256 "+p.SHA256)
+	a.auditFor(serverIDOf(target), actor, "restore.uploaded", p.ID, "validated", "sha256 "+p.SHA256)
 	writeJSON(w, http.StatusOK, p)
 }
 
-func (a *Agent) hRestoreFromBackup(w http.ResponseWriter, r *http.Request) {
-	actor, err := a.actionActor(r)
+func serverIDOf(s *server) string {
+	if s == nil {
+		return ""
+	}
+	return s.id
+}
+
+func (s *server) hRestoreFromBackup(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	b, err := a.getBackup(r.PathValue("id"))
+	b, err := s.getBackup(r.PathValue("bid"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := os.Open(a.backupPath(b.FileName))
+	f, err := os.Open(s.backupPath(b.FileName))
 	if err != nil {
 		writeError(w, errNotFound("Backup file"))
 		return
 	}
 	defer f.Close()
-	p, err := a.stageArchive(f, "backup "+b.ID, a.uploadLimit())
+	p, err := s.stageArchive(f, "backup "+b.ID, s.uploadLimit(), s)
 	if err != nil {
-		a.audit(actor, "restore.staged", b.ID, "refused", err.Error())
+		s.audit(actor, "restore.staged", b.ID, "refused", err.Error())
 		writeError(w, err)
 		return
 	}
 	if p.SHA256 != b.SHA256 {
-		os.RemoveAll(a.stageDir(p.ID))
+		os.RemoveAll(s.stageDir(p.ID))
 		writeError(w, &apiError{Status: http.StatusUnprocessableEntity, Code: api.CodeInvalid, Msg: "The backup file no longer matches its recorded checksum.", Hint: "Nothing was changed. Use another backup."})
 		return
 	}
-	a.audit(actor, "restore.staged", b.ID, "validated", "sha256 "+p.SHA256)
+	s.audit(actor, "restore.staged", b.ID, "validated", "sha256 "+p.SHA256)
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -888,7 +1043,7 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(req.Confirm) != p.ConfirmPhrase {
-		a.audit(actor, "restore.applied", r.PathValue("id"), "refused", "confirmation phrase mismatch")
+		a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", "confirmation phrase mismatch")
 		writeError(w, errInvalid("Type \"%s\" to confirm the restore.", p.ConfirmPhrase))
 		return
 	}
@@ -896,18 +1051,38 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, api.CodeEULARequired, "You must accept the Minecraft EULA before Playkeeper downloads or starts a server.", "")
 		return
 	}
-	if req.MemoryMB != 0 {
-		if err := a.validMemory(req.MemoryMB); err != nil {
+	name := ""
+	if strings.TrimSpace(req.Name) != "" {
+		if name, err = validName(req.Name); err != nil {
 			writeError(w, err)
 			return
 		}
 	}
-	op, err := a.beginOp("restore", actor, func(ctx context.Context, h *opHandle) error {
-		if p.NeedsEULA {
-			a.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
+	target := a.serverByID(p.ServerID)
+	if p.ServerID != "" && target == nil {
+		writeError(w, errNotFound("Server"))
+		return
+	}
+	if req.MemoryMB != 0 {
+		if err := a.validMemory(req.MemoryMB, p.ServerID); err != nil {
+			writeError(w, err)
+			return
 		}
-		return a.restoreOp(ctx, h, st, req, actor)
-	})
+	}
+	restore := func(s *server) func(ctx context.Context, h *opHandle) error {
+		return func(ctx context.Context, h *opHandle) error {
+			if p.NeedsEULA {
+				s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
+			}
+			return s.restoreOp(ctx, h, st, req, actor)
+		}
+	}
+	var op *api.Operation
+	if target == nil {
+		op, err = a.restoreAsNewServer(st, req, name, actor, restore)
+	} else {
+		op, err = target.beginOp("restore", actor, restore(target))
+	}
 	if err != nil {
 		writeError(w, err)
 		return
@@ -921,8 +1096,8 @@ func (a *Agent) hRestoreDiscard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("invalid restore id"))
 		return
 	}
-	if a.busy() {
-		if op := a.currentOp(); op != nil && op.Kind == "restore" {
+	for _, s := range a.serverList() {
+		if op := s.currentOp(); op != nil && op.Kind == "restore" && op.Detail["stage"] == id {
 			writeError(w, errConflict("A restore is in progress.", ""))
 			return
 		}
@@ -942,4 +1117,23 @@ func (a *Agent) hAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// whitelist reads the server's allowlist file.
+func (s *server) whitelist() ([]api.WhitelistEntry, error) {
+	b, err := os.ReadFile(filepath.Join(s.dataDir(), "whitelist.json"))
+	if os.IsNotExist(err) {
+		return []api.WhitelistEntry{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var entries []api.WhitelistEntry
+	if err := json.Unmarshal(b, &entries); err != nil {
+		return nil, err
+	}
+	if entries == nil {
+		entries = []api.WhitelistEntry{}
+	}
+	return entries, nil
 }

@@ -163,14 +163,18 @@ jobs:
           test "$(sudo ls -l /proc/$panel/fd | grep -c docker.sock)" = 0
           if sudo -u playkeeper curl -sS --unix-socket /var/run/docker.sock http://d/version; then echo "panel user can reach Docker"; exit 1; fi
           test "$(sudo -u playkeeper curl -sS -o /dev/null -w '%{http_code}' -X POST --unix-socket /run/playkeeper/agent.sock http://a/v1/rm)" = 404
-          sudo docker inspect playkeeper-minecraft --format 'Privileged={{.HostConfig.Privileged}} CapAdd={{.HostConfig.CapAdd}} CapDrop={{.HostConfig.CapDrop}} Memory={{.HostConfig.Memory}} User={{.Config.User}} Ports={{json .HostConfig.PortBindings}}'
-          sudo grep -E '^(online-mode|white-list|enforce-whitelist|log-ips)=' /var/lib/playkeeper/server/data/server.properties
+          container=$(sudo docker ps -a --filter label=io.playkeeper.managed=true --filter label=io.playkeeper.server --format '{{.Names}}')
+          test "$(echo "$container" | wc -w)" = 1
+          sudo docker inspect "$container" --format 'Privileged={{.HostConfig.Privileged}} CapAdd={{.HostConfig.CapAdd}} CapDrop={{.HostConfig.CapDrop}} Memory={{.HostConfig.Memory}} User={{.Config.User}} Ports={{json .HostConfig.PortBindings}}'
+          sudo sh -c "grep -E '^(online-mode|white-list|enforce-whitelist|log-ips)=' /var/lib/playkeeper/servers/*/data/server.properties"
           curl -sS -i http://127.0.0.1:8443/ | head -1
       - name: Uninstall keeps the world and backups
         run: |
-          sudo find /var/lib/playkeeper/server/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/data-before.txt
+          worlds() { sudo sh -c 'find /var/lib/playkeeper/servers/*/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} +' | sort -k2; }
+          worlds > /tmp/evidence/data-before.txt
+          test -s /tmp/evidence/data-before.txt
           sudo playkeeper uninstall --yes | tee /tmp/evidence/uninstall.txt
-          sudo find /var/lib/playkeeper/server/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/data-after.txt
+          worlds > /tmp/evidence/data-after.txt
           diff /tmp/evidence/data-before.txt /tmp/evidence/data-after.txt
           if systemctl list-unit-files | grep playkeeper; then echo "units left behind"; exit 1; fi
           if sudo ss -ltnH | grep -E ':(8443|25565) '; then echo "listeners left behind"; exit 1; fi
