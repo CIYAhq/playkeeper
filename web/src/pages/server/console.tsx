@@ -5,8 +5,10 @@ import type { LogLine, LogsResponse, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
+import { lineWidth, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/i18n'
 import { behindSeconds, parseLine, type LineKind } from '@/lib/console'
@@ -43,12 +45,14 @@ const quick: { command: string; key: MessageKey; icon: ReactNode; fillOnly?: boo
 
 function useLog(server: ServerStatus) {
   const [lines, setLines] = useState<LogLine[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [truncated, setTruncated] = useState(false)
   const cursor = useRef<{ epoch: string; next: number }>({ epoch: '', next: 0 })
   useEffect(() => {
     let stopped = false
     cursor.current = { epoch: '', next: 0 }
     setLines([])
+    setLoaded(false)
     async function poll() {
       try {
         const c = cursor.current
@@ -61,6 +65,7 @@ function useLog(server: ServerStatus) {
       } catch {
         // The next poll tries again; the agent being away shows elsewhere.
       }
+      if (!stopped) setLoaded(true)
     }
     void poll()
     const id = window.setInterval(() => document.visibilityState === 'visible' && void poll(), 2000)
@@ -69,13 +74,13 @@ function useLog(server: ServerStatus) {
       window.clearInterval(id)
     }
   }, [server.id])
-  return { lines, truncated }
+  return { lines, loaded, truncated }
 }
 
 export function ConsolePage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const { lines, truncated } = useLog(s)
+  const { lines, loaded, truncated } = useLog(s)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [follow, setFollow] = useState(true)
@@ -173,7 +178,17 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
       tabIndex={0}
     >
       {truncated && <p className="px-2 pb-2 text-xs text-[#a3a89c]">{t('console.truncated', { count: keep })}</p>}
-      {shown.length === 0 ? (
+      {!loaded ? (
+        <div>
+          <LoadingLabel />
+          {Array.from({ length: 8 }, (_, i) => (
+            <div key={i} className="flex h-6 items-center gap-3 px-2">
+              <Skeleton className="h-3 w-[4.5rem] shrink-0 bg-white/10 max-sm:w-11" />
+              <Skeleton className={cn('h-3 bg-white/10', lineWidth(i))} />
+            </div>
+          ))}
+        </div>
+      ) : shown.length === 0 ? (
         <p className="px-2 py-1 text-[#a3a89c]">{rows.length ? t('console.noMatch') : t('console.empty', { server: s.name })}</p>
       ) : (
         shown.map((r) => (

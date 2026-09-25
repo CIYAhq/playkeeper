@@ -7,6 +7,7 @@ import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
@@ -49,8 +50,9 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
   if (!ws.servers) {
     return (
       <PageBody>
+        <LoadingLabel />
         <Skeleton className="h-10 w-64" />
-        <Skeleton className="mt-6 h-48 w-full" />
+        <Skeleton className="mt-6 h-48 w-full rounded-3xl" />
       </PageBody>
     )
   }

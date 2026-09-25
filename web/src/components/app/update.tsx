@@ -6,8 +6,10 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Elapsed, Spinner } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { ListSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatList } from '@/lib/format'
@@ -175,6 +177,14 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           ) : (
             <>
               {error && <p className="text-sm text-destructive-foreground">{error}</p>}
+              {!info && !error && (
+                <>
+                  <div className="flex h-5 items-center">
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <ListSkeleton rows={3} lines={1} face="size-1.5 rounded-full" rowClassName="flex h-[18px] items-center gap-2.5 max-sm:h-5" className="mt-2 flex flex-col gap-1.5" />
+                </>
+              )}
               {info && noteLines(info.notes).length > 0 && (
                 <>
                   <h3 className="text-[13px] font-semibold">{t('update.whatsNew')}</h3>

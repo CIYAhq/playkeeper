@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, CopyButton, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
+import { ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -271,22 +272,26 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
           <SectionLabel className="px-4">
             <span id="everyone">{t('players.everyone')}</span>
           </SectionLabel>
-          <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-            {everyoneRows.map(({ key, item: r, state }) => {
-              const stat = played.find((x) => x.name.toLowerCase() === r.name.toLowerCase())
-              const line = isOnline(r.name) ? onlineFor(r.name) : ops.has(r.name.toLowerCase()) ? t('players.access.operator') : stat ? t('players.lastSeen', { time: relativeTime(stat.lastSeen) }) : t('players.onList')
-              return (
-                <li key={key} {...presenceProps(state)} className="flex min-h-14 items-center gap-3 border-b border-border py-1.5 pr-1 pl-4 last:border-b-0">
-                  <PlayerFace name={r.name} uuid={r.uuid} size={36} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-base">{r.name}</span>
-                    <span className="block truncate text-[13px] text-muted-foreground">{line}</span>
-                  </span>
-                  {onList(r.name) && <PlayerMenu server={s} name={r.name} op={ops.has(r.name.toLowerCase())} online={isOnline(r.name)} onAction={(a) => void lists.act(a, r.name)} phone />}
-                </li>
-              )
-            })}
-          </ul>
+          {everyone ? (
+            <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
+              {everyoneRows.map(({ key, item: r, state }) => {
+                const stat = played.find((x) => x.name.toLowerCase() === r.name.toLowerCase())
+                const line = isOnline(r.name) ? onlineFor(r.name) : ops.has(r.name.toLowerCase()) ? t('players.access.operator') : stat ? t('players.lastSeen', { time: relativeTime(stat.lastSeen) }) : t('players.onList')
+                return (
+                  <li key={key} {...presenceProps(state)} className="flex min-h-14 items-center gap-3 border-b border-border py-1.5 pr-1 pl-4 last:border-b-0">
+                    <PlayerFace name={r.name} uuid={r.uuid} size={36} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-base">{r.name}</span>
+                      <span className="block truncate text-[13px] text-muted-foreground">{line}</span>
+                    </span>
+                    {onList(r.name) && <PlayerMenu server={s} name={r.name} op={ops.has(r.name.toLowerCase())} online={isOnline(r.name)} onAction={(a) => void lists.act(a, r.name)} phone />}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <ListSkeleton rows={4} face="size-9 rounded-md" rowClassName="flex min-h-14 items-center gap-3 border-b border-border py-1.5 pr-1 pl-4 last:border-b-0" className="mt-2 overflow-hidden rounded-3xl border border-border bg-white" />
+          )}
         </section>
         <div className="flex items-center gap-3 pt-2">
           <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{t('players.tellPhone', { address })}</p>
@@ -302,28 +307,32 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
         <Card>
           <div className="flex items-baseline justify-between gap-3">
             <CardTitle>{t('players.whoCanJoin')}</CardTitle>
-            <span className="text-xs text-muted-foreground">{t('players.people', { count: whitelist.length })}</span>
+            {lists.whitelist && <span className="text-xs text-muted-foreground">{t('players.people', { count: whitelist.length })}</span>}
           </div>
           <CardHint>{t('players.whoHint')}</CardHint>
           <div className="mt-3">
             <AddPlayer server={s} form={lists.form} placeholder={t('players.namePlaceholder')} />
           </div>
-          <ul className="mt-3 flex flex-col">
-            {listed.map(({ key, item: w, state }) => {
-              const op = ops.has(w.name.toLowerCase())
-              const added = addedAt.get(w.name.toLowerCase())
-              return (
-                <li key={key} {...presenceProps(state)} className="flex min-h-12 items-center gap-3 border-t border-border py-2">
-                  <PlayerFace name={w.name} uuid={w.uuid} size={28} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold">{w.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{op ? t('players.operator') : added ? t('players.added', { time: relativeTime(added) }) : t('players.onList')}</span>
-                  </span>
-                  <PlayerMenu server={s} name={w.name} op={op} online={isOnline(w.name)} onAction={(a) => void lists.act(a, w.name)} />
-                </li>
-              )
-            })}
-          </ul>
+          {lists.whitelist ? (
+            <ul className="mt-3 flex flex-col">
+              {listed.map(({ key, item: w, state }) => {
+                const op = ops.has(w.name.toLowerCase())
+                const added = addedAt.get(w.name.toLowerCase())
+                return (
+                  <li key={key} {...presenceProps(state)} className="flex min-h-12 items-center gap-3 border-t border-border py-2">
+                    <PlayerFace name={w.name} uuid={w.uuid} size={28} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold">{w.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{op ? t('players.operator') : added ? t('players.added', { time: relativeTime(added) }) : t('players.onList')}</span>
+                    </span>
+                    <PlayerMenu server={s} name={w.name} op={op} online={isOnline(w.name)} onAction={(a) => void lists.act(a, w.name)} />
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <ListSkeleton face="size-7 rounded-md" rowClassName="flex min-h-12 items-center gap-3 border-t border-border py-2" className="mt-3 flex flex-col" />
+          )}
         </Card>
         <Card>
           <div className="flex items-baseline justify-between gap-3">
@@ -397,7 +406,8 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
               </tr>
             </thead>
             <tbody>
-              {played.length === 0 && (
+              {!p.summary && <TableSkeleton cols={['start', 'start', 'end', 'end', 'start']} rowClassName="h-12 border-t border-border" />}
+              {p.summary && played.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-3 py-4 text-muted-foreground">
                     {t('players.noneYet')}

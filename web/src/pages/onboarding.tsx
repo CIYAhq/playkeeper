@@ -7,8 +7,9 @@ import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
+import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
+import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -246,6 +247,9 @@ function CheckIcon({ status }: { status: PreflightCheck['status'] }) {
   }
 }
 
+const checkListClass = 'mt-4 flex flex-col max-sm:rounded-3xl max-sm:border max-sm:border-border max-sm:bg-white max-sm:px-4'
+const checkRowClass = 'flex gap-3 border-t border-border py-3 first:border-t-0 sm:first:border-t'
+
 function CheckStage({ onNext }: { onNext: () => void }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
@@ -296,26 +300,29 @@ function CheckStage({ onNext }: { onNext: () => void }) {
           {error}
         </p>
       )}
-      {!pre && !error && <p className="mt-6 text-[13px] text-muted-foreground">{t('onboarding.checking')}</p>}
-      <ul className="mt-4 flex flex-col max-sm:rounded-3xl max-sm:border max-sm:border-border max-sm:bg-white max-sm:px-4">
-        {rows.map((r) => (
-          <li key={r.key} className="flex gap-3 border-t border-border py-3 first:border-t-0 sm:first:border-t">
-            <span className="mt-px">
-              <CheckIcon status={r.status} />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13px] font-semibold max-sm:text-[15px]">{r.title}</span>
-              <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>
-              {r.key === 'firewall' && (
-                <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                  {t('onboarding.check.firewallLink')}
-                  <ExternalLinkIcon className="size-3" aria-hidden="true" />
-                </a>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {pre ? (
+        <ul className={checkListClass}>
+          {rows.map((r) => (
+            <li key={r.key} className={checkRowClass}>
+              <span className="mt-px">
+                <CheckIcon status={r.status} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-semibold max-sm:text-[15px]">{r.title}</span>
+                <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>
+                {r.key === 'firewall' && (
+                  <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                    {t('onboarding.check.firewallLink')}
+                    <ExternalLinkIcon className="size-3" aria-hidden="true" />
+                  </a>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        !error && <ListSkeleton rows={7} face="mt-px size-[18px] rounded-full" rowClassName={checkRowClass} className={checkListClass} label={t('onboarding.checking')} />
+      )}
       {pre && !pre.ok && <p className="mt-3 text-[13px] text-destructive-foreground">{t('onboarding.checkBlocked')}</p>}
       {phone ? (
         <PhoneActions>
@@ -452,7 +459,27 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
       </FrameCard>
     )
   }
-  if (!c || !catalog) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+  const heading = (
+    <>
+      <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em] sm:text-2xl sm:font-bold">{t('style.question')}</h1>
+      <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('style.leadPhone') : t('style.lead')}</p>
+    </>
+  )
+  if (!c || !catalog) {
+    const loading = (
+      <>
+        {heading}
+        <CardsSkeleton count={cardStyles.length} className={cn('mt-4 grid gap-2.5', phone ? 'grid-cols-1' : 'grid-cols-3')} card={phone ? 'h-[70px]' : 'h-56'} />
+      </>
+    )
+    return phone ? (
+      <div className="w-full pb-28">{loading}</div>
+    ) : (
+      <FrameCard wide className="max-w-[640px]">
+        {loading}
+      </FrameCard>
+    )
+  }
 
   const summary = phone
     ? t('onboarding.summaryPhone', { type: typeName(c.type), version: version?.minecraftVersion ?? '', world: t(`style.world.${c.levelType}`).toLowerCase(), memory: formatMB(c.memoryMB) })
@@ -463,8 +490,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
 
   const body = (
     <>
-      <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em] sm:text-2xl sm:font-bold">{t('style.question')}</h1>
-      <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('style.leadPhone') : t('style.lead')}</p>
+      {heading}
       <div className="mt-4 flex flex-col gap-3">
         <StyleCards
           catalog={catalog}

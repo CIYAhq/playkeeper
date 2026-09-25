@@ -2,6 +2,7 @@
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { CardsSkeleton, lineWidth, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { mergePrefs, undoPrefs, usePending, withChanges } from './optimistic'
 import { presence, presenceProps, settle, useListPresence } from './presence'
 import { navigate } from './router'
@@ -169,5 +170,40 @@ describe('optimistic changes', () => {
     expect(button.textContent).toBe('')
     expect(onError).toHaveBeenCalledWith(refused)
     expect(reload).not.toHaveBeenCalled()
+  })
+})
+
+describe('skeletons', () => {
+  const visibleShapes = () => document.querySelectorAll('[data-slot="skeleton"]:not([aria-hidden="true"])')
+
+  it('fill the real rows’ boxes and say “Loading…” once', async () => {
+    await render(<ListSkeleton rows={4} face="size-7 rounded-md" rowClassName="flex min-h-12 border-t" className="mt-3 flex flex-col" label="Checking…" />)
+    const rows = [...document.querySelectorAll('ul > li')]
+    expect(rows).toHaveLength(4)
+    expect(rows.every((row) => row.className === 'flex min-h-12 border-t')).toBe(true)
+    expect(document.body.textContent).toBe('Checking…')
+    expect(visibleShapes()).toHaveLength(0)
+  })
+
+  it('line up with a table’s columns, numbers on the right', async () => {
+    await render(
+      <table>
+        <tbody>
+          <TableSkeleton rows={2} cols={['start', 'end']} rowClassName="h-12" />
+        </tbody>
+      </table>,
+    )
+    const rows = [...document.querySelectorAll('tr')].map((tr) => [...tr.querySelectorAll('[data-slot="skeleton"]')].map((s) => s.className))
+    expect(rows).toHaveLength(2)
+    expect(rows.every((cells) => cells.length === 2 && cells[1]?.includes('ml-auto') && !cells[0]?.includes('ml-auto'))).toBe(true)
+    expect(document.body.textContent).toBe('Loading…')
+  })
+
+  it('stand in for each choice card and vary their line widths', async () => {
+    await render(<CardsSkeleton count={3} className="grid grid-cols-3" card="h-56" />)
+    expect(document.querySelectorAll('.grid > [data-slot="skeleton"].h-56')).toHaveLength(3)
+    expect(visibleShapes()).toHaveLength(0)
+    expect(new Set([0, 1, 2, 3, 4, 5].map(lineWidth)).size).toBe(6)
+    expect(lineWidth(6)).toBe(lineWidth(0))
   })
 })

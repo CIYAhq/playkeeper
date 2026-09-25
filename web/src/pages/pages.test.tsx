@@ -267,6 +267,15 @@ describe('Players', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toBe('That player does not exist')
   })
 
+  it('shows rows shaped like players until the lists arrive', async () => {
+    const text = await render(<PlayersPage server={server()} />)
+    expect(text).not.toContain('Nobody’s joined yet')
+    expect(text).not.toContain('Nobody has played yet.')
+    expect(text).not.toContain('0 people')
+    expect(text).toContain('Loading…')
+    expect(document.querySelectorAll('li [data-slot="skeleton"]').length).toBeGreaterThan(0)
+  })
+
   it('explains how to invite someone when nobody has joined', async () => {
     answer({ '/whitelist': [], '/operators': [], '/players/summary': { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
     const text = await render(<PlayersPage server={server()} />)

@@ -11,6 +11,7 @@ import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryRea
 import { PhoneActions } from '@/components/app/frame'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
+import { CardsSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -120,7 +121,7 @@ export function NewServerPage() {
       </Notice>
     )
   } else if (!c || !catalog) {
-    body = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+    body = <CardsSkeleton count={6} className={cn('grid gap-2.5', phone ? 'grid-cols-1' : 'grid-cols-2 xl:grid-cols-3')} card={phone ? 'h-16' : 'h-32'} />
   } else {
     switch (step) {
       case 0:

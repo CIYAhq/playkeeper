@@ -7,11 +7,13 @@ import { EmptyArt, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
+import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
@@ -64,20 +66,24 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             <span id="backups">{t('world.listPhone')}</span>
             {verified && `${t('common.dot')}${t('world.allVerified')}`}
           </SectionLabel>
-          <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-            {rows.map(({ key, item: b, state }) => (
-              <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base">{formatDay(b.createdAt)}</span>
-                  <span className="block text-[13px] text-muted-foreground">{[b.note, formatBytes(b.sizeBytes), b.downloadedAt ? t('world.phoneDownloaded') : t('world.phoneNotDownloaded')].filter(Boolean).join(t('common.dot'))}</span>
-                </span>
-                <Button size="lg" variant={b.id === newest && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
-                  <DownloadIcon />
-                  {t('common.download')}
-                </Button>
-              </li>
-            ))}
-          </ul>
+          {backups.data ? (
+            <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
+              {rows.map(({ key, item: b, state }) => (
+                <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-base">{formatDay(b.createdAt)}</span>
+                    <span className="block text-[13px] text-muted-foreground">{[b.note, formatBytes(b.sizeBytes), b.downloadedAt ? t('world.phoneDownloaded') : t('world.phoneNotDownloaded')].filter(Boolean).join(t('common.dot'))}</span>
+                  </span>
+                  <Button size="lg" variant={b.id === newest && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
+                    <DownloadIcon />
+                    {t('common.download')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ListSkeleton rowClassName="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0" className="mt-2 overflow-hidden rounded-3xl border border-border bg-white" trailing={<Skeleton className="h-10 w-28 shrink-0 rounded-lg" />} />
+          )}
         </section>
         <button type="button" onClick={() => setRestoreSheet(true)} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 text-left">
           <RotateCcwIcon className="size-5 text-muted-foreground" aria-hidden="true" />
@@ -134,7 +140,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
     <>
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
         <MakeBackup server={s} onDone={refresh} />
-        <WorldInfo server={s} backups={list} />
+        <WorldInfo server={s} backups={backups.data} />
       </div>
       <section aria-labelledby="backups" className="mt-2">
         <h2 id="backups" className="text-[15px] font-semibold">
@@ -153,6 +159,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
               </tr>
             </thead>
             <tbody>
+              {!backups.data && <TableSkeleton cols={['start', 'end', 'start', 'start', 'end']} rowClassName="h-12 border-t border-border" />}
               {rows.map(({ key, item: b, state }) => (
                 <BackupRow key={key} server={s} backup={b} state={state} newest={b.id === newest} onRestore={() => void restoreFrom(b)} onChanged={refresh} />
               ))}
@@ -243,7 +250,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   )
 }
 
-function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] }) {
+function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] | undefined }) {
   const later = [
     { icon: <MapIcon />, title: t('world.pregen'), hint: t('world.pregenHint') },
     { icon: <PackageIcon />, title: t('world.packs'), hint: t('world.packsHint') },
@@ -264,7 +271,7 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">{t('world.backups')}</dt>
-          <dd className="mt-0.5 text-lg font-bold tabular-nums">{backups.length}</dd>
+          <dd className="mt-0.5 text-lg font-bold tabular-nums">{backups ? backups.length : <InlineSkeleton className="h-5 w-6" />}</dd>
         </div>
       </dl>
       <ul className="mt-1 flex flex-col">
