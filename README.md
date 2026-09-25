@@ -4,7 +4,7 @@
 
 Playkeeper is a self-hosted dashboard for setting up and running a Minecraft Java (Paper) server on a Linux VPS you already own: install it, create a server in the browser, invite friends, see real player and server activity, and keep a backup you can restore on another machine.
 
-> **Status: v0.1.0, an early release.** The installer, dashboard, backups and restore work in rehearsals on fresh Ubuntu 24.04 KVM guests and fresh GitHub-hosted runners, with protocol-level test bots. **Not yet verified:** a real provider VPS reachable from the internet, an official Minecraft client with a genuine account, and restore on a physically separate machine. Keep your own copies of any backup you care about.
+> **Status: v0.2.0, an early release.** **Verified by the owner:** installing on a real provider VPS, and joining with the official Minecraft client from another network. **Tested on every change** on fresh GitHub-hosted Ubuntu 24.04 runners: install, onboarding, play with protocol-level test bots, backup, restore on a second runner, the upgrade from 0.1.0, an update from the dashboard and the automatic rollback; 0.1.0 also passed a fuller rehearsal in fresh KVM guests. **Not yet verified:** a second person joining, the server surviving a reboot of the VPS, and restoring a backup on a physically separate machine. Keep your own copies of any backup you care about.
 
 ## Install on your VPS
 
@@ -29,7 +29,7 @@ sha256sum -c playkeeper-linux-amd64.tar.gz.sha256 && tar -xzf playkeeper-linux-a
 sudo ./playkeeper-*-linux-amd64/install.sh
 ```
 
-**Tested on:** Ubuntu 24.04 LTS, x86_64, systemd, in fresh KVM guests built from the official Ubuntu cloud image (3 GB RAM, 2 vCPU, 20 GB disk) and on GitHub-hosted `ubuntu-24.04` runners. The installer refuses other distributions and CPUs unless you pass `--allow-untested-os`.
+**Tested on:** Ubuntu 24.04 LTS, x86_64, systemd, in fresh KVM guests built from the official Ubuntu cloud image (3 GB RAM, 2 vCPU, 20 GB disk) and on GitHub-hosted `ubuntu-24.04` runners. The owner has also installed it on a real provider VPS (see the status above). The installer refuses other distributions and CPUs unless you pass `--allow-untested-os`.
 
 **You need:** root (sudo) on the VPS; at least 2 vCPUs (the size that was tested; one vCPU is untested, and the installer does not check the count); at least 3 GB RAM (2.3 GB is the hard minimum the installer accepts) and 5 GB free disk (3 GB minimum); TCP ports **8443** (panel) and **25565** (Minecraft) free and open in your provider's firewall; outbound HTTPS to GitHub, the Ubuntu archive, Docker Hub, PaperMC and Mojang. Docker is installed from Ubuntu's `docker.io` package if missing; an existing Docker is used as it is. To check a server without changing it, run `sudo ./playkeeper preflight` from the extracted tarball.
 
@@ -38,7 +38,13 @@ The installer checks the server first (changing nothing), lists every change it 
 - an `https://<your-ip>:8443/setup#code=…` link with a **one-time setup code** (24 hours), and
 - the **SHA-256 fingerprint** of the panel's self-signed certificate. Your browser will warn about the certificate; continue only if the fingerprint it shows matches.
 
-Everything else happens in the browser: create the admin account, pass the server check, accept the Minecraft EULA, pick a version and memory (defaults are preselected), wait until the server is ready, then copy the join address and add your friends' usernames.
+Everything else happens in the browser: create the admin account, pass the server check, accept the Minecraft EULA, pick a Paper version and memory (the newest stable Paper release and a suggested memory size are preselected), wait until the server is ready, then copy the join address and add your friends' usernames. The versions come from [PaperMC](https://papermc.io); experimental ones are marked and need your confirmation, and every Paper download is checked against the SHA-256 PaperMC publishes for it.
+
+**Update Playkeeper:** the dashboard shows when a new release is available; **Playkeeper updates** in Settings shows what changed and installs it when you click **Update to …**. Before anything from the download runs, Playkeeper checks that the release's manifest is signed with the Playkeeper release key built into your installed version, and that the download matches the manifest. Only the dashboard and agent restart; the Minecraft server keeps running. If the new version is not healthy within two minutes, the previous version, its services, settings and databases are put back automatically. Playkeeper looks for a new release a minute after it starts and then twice a day, and downloads nothing until you click. It never goes back to an older version.
+
+**Upgrade from 0.1.0:** 0.1.0 cannot update itself. Run the same one-line install command on the VPS: it sees the installed version, shows what it keeps and replaces, and upgrades in place. Worlds, backups, settings and the admin account are kept, and later updates come from the dashboard. Running the command again later is safe: it does nothing if the version is the same and refuses an older one.
+
+**Change the Minecraft version:** **Minecraft version** in Settings offers the newer Paper versions for your server. When you click **Back up and update**, Playkeeper takes a backup first, and puts it back if the server does not start on the new version. Older versions are not offered: a world opened with a newer Minecraft version cannot go back.
 
 **Uninstall:** `sudo playkeeper uninstall` removes Playkeeper, its services, users, container and the Docker packages it installed, and keeps your worlds and backups in `/var/lib/playkeeper` (reinstalling picks them up). `--purge` deletes them too and asks you to type a confirmation.
 
@@ -60,7 +66,7 @@ git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 ./scripts/setup.sh    # pinned Go and Node into .tools/, npm ci
 make check            # lint, typecheck, Go, web and installer-script unit tests (what CI runs)
 make dev              # agent + panel locally at https://localhost:8443 (uses your Docker)
-make package          # release tarball, get.sh and the stable-named copy in dist/
+make package          # release tarball, get.sh, the stable-named copy and the (unsigned) release manifest in dist/
 make e2e-vm           # the full KVM rehearsal: install, play, backup, restore, one-line install
 ```
 
