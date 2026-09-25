@@ -1879,3 +1879,25 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 		}
 	}
 }
+
+func TestAMachineWithoutServersSaysWhetherDockerAnswers(t *testing.T) {
+	e := newAgentEnv(t)
+	docker := func() (bool, bool) {
+		_, h := e.call("GET", "/v1/health", nil)
+		return e.a.Machine(context.Background()).Docker, h["docker"] == true
+	}
+	for _, want := range []bool{true, false, true} {
+		e.fd.down.Store(!want)
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			m, h := docker()
+			if m == want && h == want {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("docker answering=%v: machine says %v, health says %v", want, m, h)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}

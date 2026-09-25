@@ -104,7 +104,7 @@ func readCPUTimes() (cpuTimes, bool) {
 	return t, true
 }
 
-// hostLoop samples the machine's CPU use and Docker's version.
+// hostLoop samples the machine's CPU use and whether Docker answers, and its version.
 func (a *Agent) hostLoop(ctx context.Context) {
 	t := time.NewTicker(a.opts.SampleInterval)
 	defer t.Stop()
@@ -119,11 +119,13 @@ func (a *Agent) hostLoop(ctx context.Context) {
 			}
 			a.mu.Unlock()
 		}
-		if v, err := a.docker.Negotiate(ctx); err == nil {
-			a.mu.Lock()
+		v, err := a.docker.Negotiate(ctx)
+		a.mu.Lock()
+		a.dockerOK = err == nil
+		if err == nil {
 			a.dockerVersion = v.Version
-			a.mu.Unlock()
 		}
+		a.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return
