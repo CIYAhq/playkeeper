@@ -114,7 +114,7 @@ func Code(s Secret, t time.Time) string { return hotp(s.key, uint64(Step(t)), Di
 // store the returned step and pass it as lastStep next time (0 for a new
 // secret). Spaces and dashes in code are ignored.
 func Verify(s Secret, code string, t time.Time, lastStep int64) (int64, error) {
-	digits, ok := normalize(code)
+	digits, ok := Normalize(code)
 	if !ok {
 		return 0, ErrMalformed
 	}
@@ -142,7 +142,9 @@ func Verify(s Secret, code string, t time.Time, lastStep int64) (int64, error) {
 	return 0, ErrWrong
 }
 
-func normalize(code string) (string, bool) {
+// Normalize returns code without spaces and dashes, and whether that leaves
+// the six digits of a code.
+func Normalize(code string) (string, bool) {
 	if len(code) > 32 {
 		return "", false
 	}

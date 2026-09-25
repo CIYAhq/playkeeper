@@ -148,11 +148,17 @@ func TestVerifyNormalisesInput(t *testing.T) {
 	s := rfcSecret(t)
 	now := time.Unix(1111111111, 0) // code 050471
 	for _, in := range []string{"050471", "050 471", " 050471\n", "050-471", "0 5 0 4 7 1", "050\u00a0471"} {
+		if got, ok := Normalize(in); got != "050471" || !ok {
+			t.Errorf("Normalize(%q) = %q, %v", in, got, ok)
+		}
 		if _, err := Verify(s, in, now, 0); err != nil {
 			t.Errorf("Verify(%q) = %v", in, err)
 		}
 	}
 	for _, in := range []string{"", "05047", "0504711", "05047a", "５０４７１", "050471" + strings.Repeat(" ", 40), "050.471"} {
+		if _, ok := Normalize(in); ok {
+			t.Errorf("Normalize(%q) accepted it", in)
+		}
 		if _, err := Verify(s, in, now, 0); !errors.Is(err, ErrMalformed) {
 			t.Errorf("Verify(%q) = %v, want ErrMalformed", in, err)
 		}
