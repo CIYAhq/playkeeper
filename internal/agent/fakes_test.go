@@ -579,7 +579,7 @@ func (fr *fakeRCON) handle(c net.Conn) {
 				reply(id, 0, "Made "+strings.TrimPrefix(body, "op ")+" a server operator")
 			case strings.HasPrefix(body, "kick "):
 				reply(id, 0, "No player was found")
-			case strings.HasPrefix(body, "say "):
+			case strings.HasPrefix(body, "say "), strings.HasPrefix(body, "tellraw "):
 				reply(id, 0, "")
 			default:
 				reply(id, 0, "Unknown or incomplete command. See below for error\n"+body+"<--[HERE]")
