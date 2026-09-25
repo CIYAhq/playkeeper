@@ -82,6 +82,9 @@ type server struct {
 	nextAutoRestart time.Time
 	worldBytes      int64
 	worldAt         time.Time
+	// nextResume is when the reconciler may try save-on again after it
+	// failed to turn saving back on.
+	nextResume time.Time
 
 	// rconLock holds the console connection; a channel, so waiting for it
 	// honours a command's deadline.
@@ -535,7 +538,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	for _, q := range []string{
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
-		`DELETE FROM servers WHERE id = ?`,
+		`DELETE FROM gc_windows WHERE server_id = ?`, `DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {
 			return err

@@ -400,6 +400,29 @@ func TestRefusedBeforeAnythingIsPaused(t *testing.T) {
 	})
 }
 
+func TestCheckSpaceRefusesLikeTakeAndWritesNothing(t *testing.T) {
+	h := newHarness(t)
+	h.giveRoom(noExtra)
+	if err := CheckSpace(h.ctx, h.opts); err != nil {
+		t.Fatalf("with just enough room: %v", err)
+	}
+	h.giveRoom(func(Size) int64 { return -1 })
+	if e := errorOf(t, CheckSpace(h.ctx, h.opts)); e.Kind != KindInsufficientSpace || e.Hint == "" {
+		t.Errorf("one byte short: %+v", e)
+	}
+	h.giveRoom(noExtra)
+	write(t, h.opts.DataDir, "world/region/r.0.0\n.mca", "data")
+	if e := errorOf(t, CheckSpace(h.ctx, h.opts)); e.Kind != KindRefused {
+		t.Errorf("a file a restore would refuse: %+v", e)
+	}
+	if len(h.server.sent()) > 0 || len(h.pauses) > 0 || len(h.phases) > 0 {
+		t.Errorf("sent %q, paused %v, phases %v", h.server.sent(), h.pauses, h.phases)
+	}
+	if left := h.leftovers(); len(left) > 0 {
+		t.Errorf("left behind: %q", left)
+	}
+}
+
 func TestStoppedServerIsArchivedWithoutCommands(t *testing.T) {
 	h := newHarness(t)
 	h.opts.State = ServerStopped

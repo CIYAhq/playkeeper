@@ -260,6 +260,7 @@ func New(opts Options) (*Agent, error) {
 	a.collectUpdateResult()
 	a.markInterruptedOperations()
 	a.pruneStages()
+	a.prunePartials()
 	return a, nil
 }
 
@@ -522,6 +523,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/servers/{id}/backups/{bid}/download", srv((*server).hBackupDownload)},
 		{"DELETE", "/v1/servers/{id}/backups/{bid}", srv((*server).hBackupDelete)},
 		{"POST", "/v1/servers/{id}/backups/{bid}/restore", srv((*server).hRestoreFromBackup)},
+		{"POST", "/v1/servers/{id}/saving/resume", srv((*server).hSavingResume)},
 		{"POST", "/v1/servers/{id}/restore/upload", srv((*server).hRestoreUpload)},
 		{"POST", "/v1/restore/upload", a.hRestoreUploadNew},
 		{"GET", "/v1/restore/{id}", a.hRestorePreview},

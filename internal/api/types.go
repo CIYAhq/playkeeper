@@ -68,6 +68,10 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// SavingPausedSince is when a backup left world saving off, shown while
+	// no operation runs: progress since then is lost if the server stops
+	// unexpectedly. Playkeeper keeps trying to turn saving back on.
+	SavingPausedSince *time.Time `json:"savingPausedSince,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -507,18 +511,25 @@ type Event struct {
 }
 
 type Backup struct {
-	ID               string     `json:"id"`
-	ServerID         string     `json:"serverId"`
-	Kind             string     `json:"kind"` // manual | rollback
-	CreatedAt        time.Time  `json:"createdAt"`
-	FileName         string     `json:"fileName"`
-	SizeBytes        int64      `json:"sizeBytes"`
-	SHA256           string     `json:"sha256"`
-	Location         string     `json:"location"` // on-host
-	Verified         *bool      `json:"verified,omitempty"`
-	VerifiedAt       *time.Time `json:"verifiedAt,omitempty"`
-	VerifyError      string     `json:"verifyError,omitempty"`
-	DowntimeMs       int64      `json:"downtimeMs"`
+	ID          string     `json:"id"`
+	ServerID    string     `json:"serverId"`
+	Kind        string     `json:"kind"` // manual | rollback
+	CreatedAt   time.Time  `json:"createdAt"`
+	FileName    string     `json:"fileName"`
+	SizeBytes   int64      `json:"sizeBytes"`
+	SHA256      string     `json:"sha256"`
+	Location    string     `json:"location"` // on-host
+	Verified    *bool      `json:"verified,omitempty"`
+	VerifiedAt  *time.Time `json:"verifiedAt,omitempty"`
+	VerifyError string     `json:"verifyError,omitempty"`
+	DowntimeMs  int64      `json:"downtimeMs"`
+	// Method is how the archive was made: online_copy or online_in_place
+	// (players stayed online) or stopped (the server wasn't running).
+	Method string `json:"method,omitempty"`
+	// SavingPausedMs is how long world saving was paused; DurationMs is the
+	// whole backup, from the space check to the archive in place.
+	SavingPausedMs   int64      `json:"savingPausedMs"`
+	DurationMs       int64      `json:"durationMs"`
 	MinecraftVersion string     `json:"minecraftVersion"`
 	LevelName        string     `json:"levelName"`
 	FileCount        int        `json:"fileCount"`
@@ -530,6 +541,9 @@ type Backup struct {
 type BackupRequest struct {
 	Actor string `json:"actor"`
 	Note  string `json:"note,omitempty"`
+	// Stopped backs a running server up with it stopped, for a console that
+	// can't pause saving (a plugin changed the commands, or it timed out).
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 type ManifestSummary struct {

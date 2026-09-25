@@ -126,4 +126,28 @@ INSERT INTO samples_v2(server_id, ts, state, players_online, players_max, cpu_pc
 DROP TABLE samples;
 ALTER TABLE samples_v2 RENAME TO samples;
 `,
+	// Online backups, and the history behind lag and memory advice.
+	// saving_paused_since is set while a backup may have left world saving
+	// off; gc_windows holds 15-minute summaries of the JVM's GC log.
+	`
+ALTER TABLE backups ADD COLUMN saving_paused_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE backups ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE servers ADD COLUMN saving_paused_since INTEGER;
+ALTER TABLE servers ADD COLUMN gc_cursor TEXT NOT NULL DEFAULT '';
+ALTER TABLE samples ADD COLUMN tps REAL;
+ALTER TABLE samples ADD COLUMN mspt REAL;
+CREATE TABLE gc_windows (
+  server_id           TEXT NOT NULL,
+  start               INTEGER NOT NULL,
+  collections         INTEGER NOT NULL,
+  min_after_mb        INTEGER NOT NULL,
+  max_after_mb        INTEGER NOT NULL,
+  heap_mb             INTEGER NOT NULL,
+  full_gcs            INTEGER NOT NULL,
+  evacuation_failures INTEGER NOT NULL,
+  pause_ms            REAL NOT NULL,
+  max_pause_ms        REAL NOT NULL,
+  PRIMARY KEY (server_id, start)
+);
+`,
 }

@@ -180,6 +180,24 @@ func Take(ctx context.Context, o Options) (*Result, error) {
 	return r.take(ctx)
 }
 
+// CheckSpace is Take's first step for a stopped server on its own: it sizes
+// the backup and checks free space, writing nothing. A caller that stops the
+// server for its backup calls it first, so a backup that can't fit never
+// stops the server. It returns the *Error Take would.
+func CheckSpace(ctx context.Context, o Options) error {
+	o.State, o.Console = ServerStopped, nil
+	r, err := newRun(o)
+	if err != nil {
+		return err
+	}
+	size, err := Measure(r.o.DataDir, r.lim)
+	if err != nil {
+		return r.fail(ctx, err)
+	}
+	_, err = r.plan(size)
+	return err
+}
+
 // ResumeSaving sends save-on once. It is for a caller whose backup failed with
 // KindSavingPaused, or that died between OnPauseChange(true) and
 // OnPauseChange(false); retry it until it returns nil. A server that is

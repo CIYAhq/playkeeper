@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -214,6 +215,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Gameplay = effectiveGameplay(sc.Gameplay, readProperties(s.dataDir()))
 	}
 	st.FirstSteps = s.firstSteps()
+	if st.Operation == nil {
+		st.SavingPausedSince = s.savingPausedSince()
+	}
 	return st
 }
 
@@ -848,14 +852,57 @@ func (s *server) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Notes can be at most 200 characters."))
 		return
 	}
+	if !req.Stopped && !s.busy() {
+		if _, running, err := s.containerRunning(r.Context()); err == nil && running && !s.online(r.Context()) {
+			writeError(w, s.errNotOnlineForBackup())
+			return
+		}
+	}
 	op, err := s.beginOp("backup", actor, func(ctx context.Context, h *opHandle) error {
-		return s.backupOp(ctx, h, actor, strings.TrimSpace(req.Note))
+		return s.backupOp(ctx, h, actor, strings.TrimSpace(req.Note), req.Stopped)
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// hSavingResume turns world saving back on after a backup left it off, for
+// the "Turn saving back on" action. It holds the operation lock, so it can't
+// run during a backup, which pauses saving on purpose.
+func (s *server) hSavingResume(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		writeError(w, s.busyError())
+		return
+	}
+	defer release()
+	if s.savingPausedSince() == nil {
+		writeJSON(w, http.StatusOK, s.Status(r.Context()))
+		return
+	}
+	if !s.online(r.Context()) {
+		writeError(w, errConflict("The server is not online, so its console can't turn saving back on.", "Start the server: it saves again from the moment it starts."))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	if err := backup.ResumeSaving(ctx, rconConsole{s}); err != nil {
+		s.audit(actor, "saving.resumed", "server", "failed", err.Error())
+		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not turn world saving back on: " + err.Error(),
+			Hint: "Open the Console and run save-on, or restart the server."})
+		return
+	}
+	s.setSavingPaused(false)
+	s.recordEvent(s.now(), "saving_resumed", "", "playkeeper", "")
+	s.audit(actor, "saving.resumed", "server", "succeeded", "")
+	writeJSON(w, http.StatusOK, s.Status(r.Context()))
 }
 
 func (s *server) hBackupVerify(w http.ResponseWriter, r *http.Request) {

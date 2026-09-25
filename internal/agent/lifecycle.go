@@ -40,8 +40,14 @@ func (h *opHandle) phase(p string) {
 }
 
 func (h *opHandle) set(key string, v any) {
+	h.setAll(map[string]any{key: v})
+}
+
+func (h *opHandle) setAll(kv map[string]any) {
 	unlock := h.mu()
-	h.op.Detail[key] = v
+	for k, v := range kv {
+		h.op.Detail[k] = v
+	}
 	snap := copyOp(h.op)
 	unlock()
 	h.save(snap)
@@ -722,6 +728,9 @@ func (s *server) reconcile(ctx context.Context) {
 	desired := s.desired()
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if err != nil {
+		if docker.IsNotFound(err) {
+			s.resumeSaving(ctx, c, false)
+		}
 		s.mu.Lock()
 		due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
@@ -730,6 +739,7 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 		return
 	}
+	s.resumeSaving(ctx, c, c.State.Running)
 	if c.State.Running {
 		return
 	}

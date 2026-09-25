@@ -106,6 +106,38 @@ control "restore from a backup compares the whole-archive SHA-256" internal/agen
   'if p.SHA256 != b.SHA256 {' \
   'if false && p.SHA256 != b.SHA256 {' \
   ./internal/agent '^TestRecompressedBackupFailsItsRecordedChecksum$'
+control "a console command that was written is never sent again" internal/agent/collector.go \
+  'if attempt > 0 || !errors.Is(err, minecraft.ErrNotSent) || ctx.Err() != nil {' \
+  'if attempt > 0 || ctx.Err() != nil {' \
+  ./internal/agent '^(TestLostConsoleRepliesAreNeverResent|TestLostSaveOnReplyKeepsTheBackup)$'
+control "a lost console reply says the command may have run" internal/minecraft/rcon.go \
+  'gotID, _, body, err := r.read()
+		if err != nil {
+			return "", r.ctxErr(ctx, err)' \
+  'gotID, _, body, err := r.read()
+		if err != nil {
+			return "", notSent(r.ctxErr(ctx, err))' \
+  ./internal/minecraft '^TestRCONCommandContextNeverResendsAndHonoursTheContext$'
+control "a failed online backup turns saving back on" internal/backup/online.go \
+  'if !r.paused || r.resumeTried {' \
+  'if !r.paused || r.resumeTried || true {' \
+  ./internal/backup '^(TestSavingIsTurnedBackOnAfterEveryFailure|TestSavingIsTurnedBackOnAfterAPanic)$'
+control "a failed online backup turns saving back on (agent)" internal/backup/online.go \
+  'if !r.paused || r.resumeTried {' \
+  'if !r.paused || r.resumeTried || true {' \
+  ./internal/agent '^TestFailedOnlineBackupTurnsSavingBackOn$'
+control "saving left paused by a backup is remembered" internal/agent/backups.go \
+  's.setSavingPaused(paused)' \
+  's.setSavingPaused(false)' \
+  ./internal/agent '^TestSavingLeftPausedIsShownAndTurnedBackOn$'
+control "a backup that can't fit never stops the server" internal/agent/backups.go \
+  'if err := backup.CheckSpace(ctx, o); err != nil {' \
+  'if err := backup.CheckSpace(ctx, o); false && err != nil {' \
+  ./internal/agent '^TestBackupWithoutRoomNeverTouchesTheServer$'
+control "the reconciler turns saving back on" internal/agent/backups.go \
+  'due := !s.now().Before(s.nextResume)' \
+  'due := false && !s.now().Before(s.nextResume)' \
+  ./internal/agent '^TestReconcilerTurnsSavingBackOn$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
