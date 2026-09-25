@@ -200,7 +200,7 @@ func (a *Agent) hUpdateApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Choose the version to install."))
 		return
 	}
-	op, err := a.beginOp("update", actor, func(ctx context.Context, h *opHandle) error {
+	op, err := a.beginMachineOp("update", actor, func(ctx context.Context, h *opHandle) error {
 		return a.stageUpdate(ctx, h, req.Version, actor)
 	})
 	if err != nil {

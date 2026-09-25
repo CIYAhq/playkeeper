@@ -11,12 +11,13 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
 
+// Keys of 0.1.0 and 0.2.0's single server; migrateSingleServer moves them to
+// the servers table. The update keys (update.go) stay machine-wide.
 const (
 	kvServerConfig    = "server_config"
 	kvDesired         = "desired_state"
 	kvCollectingSince = "collecting_since"
 	kvLogCursor       = "log_cursor"
-	kvPendingRecreate = "pending_recreate"
 )
 
 func (a *Agent) kvGet(key string) (string, bool, error) {
@@ -33,14 +34,13 @@ func (a *Agent) kvSet(key, value string) error {
 	return err
 }
 
-func (a *Agent) kvDelete(key string) error {
-	_, err := a.db.Exec(`DELETE FROM kv WHERE key = ?`, key)
-	return err
-}
-
-func (a *Agent) serverConfig() (*api.ServerConfig, error) {
-	v, ok, err := a.kvGet(kvServerConfig)
-	if err != nil || !ok {
+func (s *server) serverConfig() (*api.ServerConfig, error) {
+	var v string
+	err := s.db.QueryRow(`SELECT config FROM servers WHERE id = ?`, s.id).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	var sc api.ServerConfig
@@ -50,48 +50,68 @@ func (a *Agent) serverConfig() (*api.ServerConfig, error) {
 	return &sc, nil
 }
 
-func (a *Agent) saveServerConfig(sc api.ServerConfig) error {
+func (s *server) saveServerConfig(sc api.ServerConfig) error {
 	b, err := json.Marshal(sc)
 	if err != nil {
 		return err
 	}
-	return a.kvSet(kvServerConfig, string(b))
+	res, err := s.db.Exec(`UPDATE servers SET config = ? WHERE id = ?`, string(b), s.id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return errNotFound("Server")
+	}
+	return nil
 }
 
-func (a *Agent) desired() string {
-	v, ok, _ := a.kvGet(kvDesired)
-	if !ok {
+func (s *server) desired() string {
+	var v string
+	if err := s.db.QueryRow(`SELECT desired FROM servers WHERE id = ?`, s.id).Scan(&v); err != nil {
 		return api.DesiredStopped
 	}
 	return v
 }
 
-func (a *Agent) setDesired(d string) error { return a.kvSet(kvDesired, d) }
+func (s *server) setDesired(d string) error {
+	_, err := s.db.Exec(`UPDATE servers SET desired = ? WHERE id = ?`, d, s.id)
+	return err
+}
 
-func (a *Agent) collectingSince() *time.Time {
-	v, ok, _ := a.kvGet(kvCollectingSince)
-	if !ok {
+func (s *server) collectingSince() *time.Time {
+	var v sql.NullInt64
+	if err := s.db.QueryRow(`SELECT collecting_since FROM servers WHERE id = ?`, s.id).Scan(&v); err != nil || !v.Valid {
 		return nil
 	}
-	t, err := time.Parse(time.RFC3339Nano, v)
-	if err != nil {
-		return nil
-	}
+	t := time.UnixMilli(v.Int64).UTC()
 	return &t
 }
 
+func (s *server) setCollectingSince(t time.Time) {
+	_, _ = s.db.Exec(`UPDATE servers SET collecting_since = ? WHERE id = ? AND collecting_since IS NULL`, t.UnixMilli(), s.id)
+}
+
+// audit records a machine-wide action; server.audit records a server's.
 func (a *Agent) audit(actor, action, target, result, detail string) {
+	a.auditFor("", actor, action, target, result, detail)
+}
+
+func (s *server) audit(actor, action, target, result, detail string) {
+	s.auditFor(s.id, actor, action, target, result, detail)
+}
+
+func (a *Agent) auditFor(serverID, actor, action, target, result, detail string) {
 	if actor == "" {
 		actor = "unknown"
 	}
-	if _, err := a.db.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail) VALUES(?,?,?,?,?,?)`,
-		a.now().UnixMilli(), actor, action, target, result, detail); err != nil {
+	if _, err := a.db.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail, server_id) VALUES(?,?,?,?,?,?,?)`,
+		a.now().UnixMilli(), actor, action, target, result, detail, serverID); err != nil {
 		a.log.Error("audit write failed", "err", err)
 	}
 }
 
 func (a *Agent) listAudit(limit int) ([]api.AuditEntry, error) {
-	rows, err := a.db.Query(`SELECT id, ts, actor, action, target, result, detail FROM audit ORDER BY id DESC LIMIT ?`, limit)
+	rows, err := a.db.Query(`SELECT id, server_id, ts, actor, action, target, result, detail FROM audit ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +120,7 @@ func (a *Agent) listAudit(limit int) ([]api.AuditEntry, error) {
 	for rows.Next() {
 		var e api.AuditEntry
 		var ts int64
-		if err := rows.Scan(&e.ID, &ts, &e.Actor, &e.Action, &e.Target, &e.Result, &e.Detail); err != nil {
+		if err := rows.Scan(&e.ID, &e.ServerID, &ts, &e.Actor, &e.Action, &e.Target, &e.Result, &e.Detail); err != nil {
 			return nil, err
 		}
 		e.TS = time.UnixMilli(ts).UTC()
@@ -115,23 +135,25 @@ func (a *Agent) saveOperation(op *api.Operation) {
 	if op.FinishedAt != nil {
 		finished = op.FinishedAt.UnixMilli()
 	}
-	_, err := a.db.Exec(`INSERT INTO operations(id, kind, status, phase, actor, started_at, finished_at, error, hint, detail)
-		VALUES(?,?,?,?,?,?,?,?,?,?)
+	_, err := a.db.Exec(`INSERT INTO operations(id, server_id, kind, status, phase, actor, started_at, finished_at, error, hint, detail)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET status=excluded.status, phase=excluded.phase, finished_at=excluded.finished_at,
 		error=excluded.error, hint=excluded.hint, detail=excluded.detail`,
-		op.ID, op.Kind, op.Status, op.Phase, op.Actor, op.StartedAt.UnixMilli(), finished, op.Error, op.Hint, string(detail))
+		op.ID, op.ServerID, op.Kind, op.Status, op.Phase, op.Actor, op.StartedAt.UnixMilli(), finished, op.Error, op.Hint, string(detail))
 	if err != nil {
 		a.log.Error("operation write failed", "err", err)
 	}
 }
 
+const operationColumns = `id, server_id, kind, status, phase, actor, started_at, finished_at, error, hint, detail`
+
 func (a *Agent) loadOperation(id string) (*api.Operation, error) {
-	return a.scanOperation(a.db.QueryRow(`SELECT id, kind, status, phase, actor, started_at, finished_at, error, hint, detail FROM operations WHERE id = ?`, id))
+	return a.scanOperation(a.db.QueryRow(`SELECT `+operationColumns+` FROM operations WHERE id = ?`, id))
 }
 
-func (a *Agent) lastFinishedOperation() *api.Operation {
-	op, _ := a.scanOperation(a.db.QueryRow(`SELECT id, kind, status, phase, actor, started_at, finished_at, error, hint, detail
-		FROM operations WHERE status != 'running' ORDER BY started_at DESC LIMIT 1`))
+func (s *server) lastFinishedOperation() *api.Operation {
+	op, _ := s.scanOperation(s.db.QueryRow(`SELECT `+operationColumns+`
+		FROM operations WHERE server_id = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1`, s.id))
 	return op
 }
 
@@ -140,7 +162,7 @@ func (a *Agent) scanOperation(row *sql.Row) (*api.Operation, error) {
 	var started int64
 	var finished sql.NullInt64
 	var detail string
-	if err := row.Scan(&op.ID, &op.Kind, &op.Status, &op.Phase, &op.Actor, &started, &finished, &op.Error, &op.Hint, &detail); err != nil {
+	if err := row.Scan(&op.ID, &op.ServerID, &op.Kind, &op.Status, &op.Phase, &op.Actor, &started, &finished, &op.Error, &op.Hint, &detail); err != nil {
 		return nil, err
 	}
 	op.StartedAt = time.UnixMilli(started).UTC()

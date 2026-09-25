@@ -358,19 +358,27 @@ func runStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	var st api.ServerStatus
-	if _, err := agentclient.New(cfg.SocketPath).Do(context.Background(), "GET", "/v1/server", nil, nil, &st); err != nil {
+	var servers []api.ServerStatus
+	if _, err := agentclient.New(cfg.SocketPath).Do(context.Background(), "GET", "/v1/servers", nil, nil, &servers); err != nil {
 		return err
 	}
-	fmt.Printf("Phase:    %s %s\nDesired:  %s\nReachable on port %d from this host: %v\n", st.Phase, st.PhaseDetail, st.Desired, st.GamePort, st.Reachable)
-	if st.Config != nil {
-		fmt.Printf("Version:  %s (Paper build %d)\nMemory:   %d MB budget, %d MB Java heap\n", st.Config.MinecraftVersion, st.Config.PaperBuild, st.Config.MemoryMB, st.Config.HeapMB)
+	if len(servers) == 0 {
+		fmt.Println("No servers yet. Create one in the dashboard.")
 	}
-	if st.Players != nil {
-		fmt.Printf("Players:  %d/%d %s (%s)\n", st.Players.Online, st.Players.Max, strings.Join(st.Players.Names, ", "), st.Players.Source)
-	}
-	if st.LastError != "" {
-		fmt.Printf("Problem:  %s\n          %s\n", st.LastError, st.LastErrorHint)
+	for i, st := range servers {
+		if i > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("Server:   %s (%s)\nPhase:    %s %s\nDesired:  %s\nReachable on port %d from this host: %v\n", st.Name, st.ID, st.Phase, st.PhaseDetail, st.Desired, st.GamePort, st.Reachable)
+		if st.Config != nil {
+			fmt.Printf("Version:  %s (Paper build %d)\nMemory:   %d MB budget, %d MB Java heap\n", st.Config.MinecraftVersion, st.Config.PaperBuild, st.Config.MemoryMB, st.Config.HeapMB)
+		}
+		if st.Players != nil {
+			fmt.Printf("Players:  %d/%d %s (%s)\n", st.Players.Online, st.Players.Max, strings.Join(st.Players.Names, ", "), st.Players.Source)
+		}
+		if st.LastError != "" {
+			fmt.Printf("Problem:  %s\n          %s\n", st.LastError, st.LastErrorHint)
+		}
 	}
 	return nil
 }
