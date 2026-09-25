@@ -624,3 +624,72 @@ const (
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
 )
+
+// Wave 6: each server's live map, and starting a server from a world.
+
+// MapInfo is a server's live map: whether Playkeeper set it up, how it is
+// doing (internal/webmap's states) and its two sharing switches.
+type MapInfo struct {
+	// Supported is false for server types that cannot run a map plugin.
+	Supported bool `json:"supported"`
+	// Enabled: Playkeeper installed the map plugin on the server.
+	Enabled bool `json:"enabled"`
+	// State is unsupported, not_installed, server_stopped, needs_restart,
+	// not_answering, drawing or ready.
+	State     string            `json:"state"`
+	Params    map[string]string `json:"params,omitempty"`
+	Message   string            `json:"message"`
+	Hint      string            `json:"hint,omitempty"`
+	Areas     int               `json:"areas"`
+	Bytes     int64             `json:"bytes"`
+	LastDrawn *time.Time        `json:"lastDrawn,omitempty"`
+	Progress  *MapProgress      `json:"progress,omitempty"`
+	// Plugin and PluginVersion name the map plugin Playkeeper installs.
+	Plugin        string `json:"plugin"`
+	PluginVersion string `json:"pluginVersion,omitempty"`
+	// What drawing the land explored so far costs, for the setup card.
+	EstimatedMinutes   int `json:"estimatedMinutes"`
+	EstimatedMegabytes int `json:"estimatedMegabytes"`
+	// Public lets anyone with the link open the map; PublicPlayers shows
+	// players on it.
+	Public        bool `json:"public"`
+	PublicPlayers bool `json:"publicPlayers"`
+	// Link is the shared map on the machine's friendly address, empty while
+	// the machine has none; Path is its path on any of the panel's
+	// addresses.
+	Link string `json:"link,omitempty"`
+	Path string `json:"path"`
+	// RestartWhenEmpty: the server restarts to load the map once nobody is
+	// playing.
+	RestartWhenEmpty bool      `json:"restartWhenEmpty"`
+	CheckedAt        time.Time `json:"checkedAt"`
+}
+
+// MapProgress is a full render's progress in 512×512-block areas, with an
+// estimate of the time left once it has been measured.
+type MapProgress struct {
+	Done        int  `json:"done"`
+	Total       int  `json:"total"`
+	Percent     int  `json:"percent"`
+	SecondsLeft *int `json:"secondsLeft,omitempty"`
+}
+
+// MapShareRequest changes the sharing switches that are set.
+type MapShareRequest struct {
+	Public  *bool  `json:"public,omitempty"`
+	Players *bool  `json:"players,omitempty"`
+	Actor   string `json:"actor"`
+}
+
+// MapDisableRequest turns the map off; DeleteMap also deletes what was
+// drawn.
+type MapDisableRequest struct {
+	DeleteMap bool   `json:"deleteMap"`
+	Actor     string `json:"actor"`
+}
+
+// PublicMap is what the shared map page may know about a server.
+type PublicMap struct {
+	Name    string `json:"name"`
+	Players bool   `json:"players"`
+}

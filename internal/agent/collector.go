@@ -514,6 +514,7 @@ func (s *server) sample(ctx context.Context) {
 		s.log.Error("sample insert failed", "err", err)
 	}
 	s.setCollectingSince(now)
+	s.restartMapWhenEmpty(row.state == "online", snap)
 }
 
 func cpuPercent(prev, cur *docker.Stats) *float64 {

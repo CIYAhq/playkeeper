@@ -126,4 +126,19 @@ INSERT INTO samples_v2(server_id, ts, state, players_online, players_max, cpu_pc
 DROP TABLE samples;
 ALTER TABLE samples_v2 RENAME TO samples;
 `,
+	// Wave 6: each server's map. A row exists while the map is turned on. It
+	// keeps the add-on records of squaremap (and anything it needed) as JSON,
+	// the two sharing switches, when the first full drawing was asked for,
+	// and who asked for a restart once nobody is playing.
+	`
+CREATE TABLE maps (
+  server_id          TEXT PRIMARY KEY,
+  addons             TEXT NOT NULL DEFAULT '[]',
+  installed_at       INTEGER NOT NULL,
+  public             INTEGER NOT NULL DEFAULT 0,
+  public_players     INTEGER NOT NULL DEFAULT 0,
+  first_render_at    INTEGER,
+  restart_when_empty TEXT NOT NULL DEFAULT ''
+);
+`,
 }

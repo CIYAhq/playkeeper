@@ -182,6 +182,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	if sc != nil && running && iconNewer(sc, st.StartedAt) {
 		st.PendingRestart = true
 	}
+	if sc != nil && running && s.mapNeedsRestart(c) {
+		st.PendingRestart = true
+	}
 	if st.Operation != nil {
 		switch api.Phase(st.Operation.Phase) {
 		case api.PhasePulling, api.PhaseDownloading, api.PhaseStartingContainer, api.PhaseStopping:

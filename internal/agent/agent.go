@@ -20,11 +20,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/store"
+	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
 const (
@@ -86,6 +88,12 @@ type Options struct {
 	HTTPClient *http.Client
 	// FillURL is PaperMC's Fill API (default https://fill.papermc.io).
 	FillURL string
+
+	// Wave 6: the live map.
+	// MapAddr maps the container address to squaremap's address (tests).
+	MapAddr func(containerIP string) string
+	// Addons installs squaremap (tests pass one with fake sources).
+	Addons *addons.Library
 }
 
 // Retention bounds stored analytics and audit data.
@@ -145,6 +153,11 @@ type Agent struct {
 
 	upd     updateState
 	catalog catalogCache
+
+	// Wave 6: the live map, and servers started from a world.
+	maps      mapState
+	mapClient *http.Client
+	addonLib  *addons.Library
 }
 
 func New(opts Options) (*Agent, error) {
@@ -208,8 +221,18 @@ func New(opts Options) (*Agent, error) {
 	if opts.FillURL == "" {
 		opts.FillURL = minecraft.DefaultFillURL
 	}
+	if opts.MapAddr == nil {
+		opts.MapAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(webmap.Port)) }
+	}
+	if opts.Addons == nil {
+		opts.Addons = addons.New(opts.HTTPClient)
+		opts.Addons.Now = opts.Now
+	}
 	cfg := opts.Config
-	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
+	if opts.Addons.TempDir == "" {
+		opts.Addons.TempDir = filepath.Join(cfg.AgentDir(), "addons-tmp")
+	}
+	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir(), opts.Addons.TempDir} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return nil, err
 		}
@@ -231,6 +254,9 @@ func New(opts Options) (*Agent, error) {
 		started: opts.Now(),
 		mopLock: make(chan struct{}, 1),
 		servers: map[string]*server{},
+
+		mapClient: webmap.NewClient(),
+		addonLib:  opts.Addons,
 	}
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	a.allowed = map[uint32]bool{}
@@ -533,6 +559,16 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+
+		// Wave 6: the live map and the shared map.
+		{"GET", "/v1/servers/{id}/map", srv((*server).hMap)},
+		{"GET", "/v1/servers/{id}/map/{rest...}", srv((*server).hMapProxy)},
+		{"POST", "/v1/servers/{id}/map/enable", srv((*server).hMapEnable)},
+		{"POST", "/v1/servers/{id}/map/disable", srv((*server).hMapDisable)},
+		{"POST", "/v1/servers/{id}/map/share", srv((*server).hMapShare)},
+		{"POST", "/v1/servers/{id}/map/restart-later", srv((*server).hMapRestartLater)},
+		{"GET", "/v1/public-maps/{slug}", a.hPublicMap},
+		{"GET", "/v1/public-maps/{slug}/{rest...}", a.hPublicMapProxy},
 	}
 }
 

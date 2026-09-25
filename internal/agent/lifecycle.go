@@ -529,6 +529,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureTelemetryOff(); err != nil {
 		return err
 	}
+	if err := s.writeMapConfig(); err != nil {
+		return err
+	}
 	name := s.containerName()
 	spec, hash := s.containerSpec(sc, false)
 	c, err := s.docker.ContainerInspect(ctx, name)
@@ -569,7 +572,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	return s.waitReady(ctx, h, id)
+	if err := s.waitReady(ctx, h, id); err != nil {
+		return err
+	}
+	s.mapStarted()
+	return nil
 }
 
 func classifyStartError(err error, port int) error {
