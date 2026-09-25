@@ -979,7 +979,7 @@ func waitVersion(ctx context.Context, socket, certPath string, port int, want st
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("Playkeeper %s did not come up healthy: %v", want, lastErr)
+			return fmt.Errorf("no healthy answer in time (last error: %v)", lastErr)
 		case <-time.After(time.Second):
 		}
 	}

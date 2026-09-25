@@ -228,7 +228,7 @@ func TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard(t *testing.T) {
 	e.create()
 	dir := filepath.Join(e.cfg.AgentDir(), "update")
 	op := e.applyUpdate("0.2.1")
-	res := update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeRolledBack, Error: "Playkeeper 0.2.1 did not come up healthy: the agent exited", FinishedAt: time.Now().UTC()}
+	res := update.Result{OpID: op.ID, From: "0.2.0", To: "0.2.1", Outcome: update.OutcomeRolledBack, Error: "wait until Playkeeper 0.2.1 is healthy: no healthy answer in time (last error: the agent exited)", FinishedAt: time.Now().UTC()}
 	rb, _ := json.Marshal(res)
 	os.WriteFile(filepath.Join(dir, update.ResultFile), rb, 0o600)
 	e.waitFor("the rollback to be reported", func() bool {
@@ -236,8 +236,8 @@ func TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard(t *testing.T) {
 		return o.Phase == update.OutcomeRolledBack
 	})
 	o, _ := e.a.loadOperation(op.ID)
-	if o.Status != api.OpFailed || !strings.Contains(o.Error, "0.2.0 was put back and is running") {
-		t.Fatalf("a rolled-back update must fail its operation and say what runs: %+v", o)
+	if o.Status != api.OpFailed || !strings.Contains(o.Error, "0.2.0 was put back and is running") || !strings.Contains(o.Error, "What went wrong: wait until Playkeeper 0.2.1 is healthy") {
+		t.Fatalf("a rolled-back update must fail its operation and say what runs and why: %+v", o)
 	}
 
 	// The updater never starts (for example, its trigger is disabled).

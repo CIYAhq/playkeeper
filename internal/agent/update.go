@@ -299,7 +299,7 @@ func (a *Agent) collectUpdateResult() {
 	case update.OutcomeUpdated:
 		status = api.OpSucceeded
 	case update.OutcomeRolledBack:
-		msg = fmt.Sprintf("Playkeeper %s did not come up healthy (%s), so %s was put back and is running.", res.To, res.Error, res.From)
+		msg = fmt.Sprintf("Playkeeper %s did not work, so %s was put back and is running. What went wrong: %s.", res.To, res.From, res.Error)
 		hint = "Nothing else changed. Your server and worlds were not touched."
 	case update.OutcomeRefused:
 		msg = fmt.Sprintf("Playkeeper %s was not installed: %s.", res.To, res.Error)
