@@ -71,11 +71,16 @@ type scan struct {
 	rep       Report
 	seen      map[fileKey]bool // hard-linked files already counted
 
+	// The disk the report measures, when its device is known.
+	diskDev    uint64
+	diskHasDev bool
+
 	// The folder from the layout being scanned.
 	root     string
 	rootInfo fs.FileInfo
 	rootStat fileStat
 	worlds   bool // a server's data folder: a folder holding a level.dat is a world
+	onDisk   bool // it is on the disk the report measures, or which disk it is on is unknown
 	entries  int
 	capped   bool
 }
@@ -85,14 +90,19 @@ func newScan(ctx context.Context, o Options) *scan {
 }
 
 func (s *scan) run(l Layout) *Report {
-	s.rep = Report{ScannedAt: s.now, Servers: []ServerUsage{}, Candidates: []Candidate{}}
+	s.rep = Report{ScannedAt: s.now, Servers: []ServerUsage{}, Candidates: []Candidate{}, Ways: []Way{}}
+	s.measureDisk(l)
 	anyBusy := slices.ContainsFunc(l.Servers, func(sv Server) bool { return sv.Busy })
-	owned := make(map[string]kinds, len(l.Servers))
-	machine := kinds{}
+	owned := make(map[string]*owner, len(l.Servers))
+	machine := newOwner()
 	for _, sv := range l.Servers {
-		owned[sv.ID] = kinds{}
-		if found, world := s.server(sv, owned[sv.ID]); found {
-			s.leftovers(l, sv, owned[sv.ID], world)
+		to := newOwner()
+		owned[sv.ID] = to
+		if found, world := s.server(sv, to); found {
+			s.leftovers(l, sv, to, world)
+		}
+		if sv.SpoolDir != "" {
+			s.spool(sv, to)
 		}
 	}
 	if l.BackupsDir != "" {
@@ -101,22 +111,34 @@ func (s *scan) run(l Layout) *Report {
 	if l.StagingDir != "" {
 		s.staging(l, machine, anyBusy)
 	}
-	machine.add(KindDockerImage, Usage{Bytes: l.DockerImageBytes})
+	if l.DownloadsDir != "" {
+		s.downloads(l, machine, anyBusy)
+	}
+	image := Usage{Bytes: l.DockerImageBytes}
+	machine.all.add(KindDockerImage, image)
+	machine.onDisk.add(KindDockerImage, image)
+	onDisk := make([]kinds, 0, len(l.Servers))
 	for _, sv := range l.Servers {
-		ks, total := owned[sv.ID].list()
-		s.rep.Servers = append(s.rep.Servers, ServerUsage{ID: sv.ID, Total: total, Kinds: ks})
+		to := owned[sv.ID]
+		ks, total := to.all.list()
+		s.rep.Servers = append(s.rep.Servers, ServerUsage{ID: sv.ID, Name: sv.name(), Total: total, Kinds: ks, Groups: serverGroups(to.all)})
 		s.rep.Total.add(total)
+		onDisk = append(onDisk, to.onDisk)
 	}
 	var total Usage
-	s.rep.Machine, total = machine.list()
+	s.rep.Machine, total = machine.all.list()
 	s.rep.Total.add(total)
+	if s.rep.Disk != nil {
+		s.rep.Disk.fillBar(onDisk, machine.onDisk)
+	}
 	sortCandidates(s.rep.Candidates)
+	s.rep.Ways, s.rep.Freeable = ways(s.rep.Candidates, l.Servers, s.o)
 	return &s.rep
 }
 
 // server counts a server's data folder and offers what can go from it. It
 // reports whether the folder is there and whether it holds a world.
-func (s *scan) server(sv Server, to kinds) (found, world bool) {
+func (s *scan) server(sv Server, to *owner) (found, world bool) {
 	r, ok := s.begin(sv.DataDir, true)
 	if !ok {
 		return false, false
@@ -145,16 +167,26 @@ func (s *scan) begin(dir string, worlds bool) (*os.Root, bool) {
 		s.unreadable("", err)
 	default:
 		s.rootStat = statOf(s.rootInfo)
+		s.onDisk = !s.diskHasDev || !s.rootStat.hasDev || s.rootStat.key.dev == s.diskDev
 		return r, true
 	}
 	return nil, false
+}
+
+// beginIfThere is begin for a folder that may not have been made yet, and
+// then holds nothing.
+func (s *scan) beginIfThere(dir string) (*os.Root, bool) {
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil, false
+	}
+	return s.begin(dir, false)
 }
 
 // walk counts what is in the folder r as kind into to, asking visit (when
 // not nil) what each entry is. In a server's data folder, a folder holding
 // a level.dat is a world, with everything in it, and nothing in a world is
 // offered.
-func (s *scan) walk(r *os.Root, rel string, depth int, kind Kind, to kinds, visit visitFunc) sub {
+func (s *scan) walk(r *os.Root, rel string, depth int, kind Kind, to *owner, visit visitFunc) sub {
 	var in sub
 	if s.worlds && kind != KindWorld && isWorld(r) {
 		kind, visit, in.world = KindWorld, nil, true
@@ -220,7 +252,7 @@ func (s *scan) each(r *os.Root, rel string, depth int, fn func(e *entry)) bool {
 
 // count counts the entry e of the folder r as kind into to, with everything
 // in it if it is a folder.
-func (s *scan) count(r *os.Root, e *entry, kind Kind, to kinds, visit visitFunc) sub {
+func (s *scan) count(r *os.Root, e *entry, kind Kind, to *owner, visit visitFunc) sub {
 	st := statOf(e.info)
 	own := sub{Usage: Usage{Bytes: st.bytes, Files: 1}, newest: e.info.ModTime()}
 	if st.linked {
@@ -230,19 +262,28 @@ func (s *scan) count(r *os.Root, e *entry, kind Kind, to kinds, visit visitFunc)
 		s.seen[st.key] = true
 	}
 	if !e.info.IsDir() {
-		to.add(kind, own.Usage)
+		s.add(to, kind, own.Usage)
 		return own
 	}
 	in := s.dir(r, e, kind, to, visit)
 	if in.world {
 		kind = KindWorld
 	}
-	to.add(kind, own.Usage)
+	s.add(to, kind, own.Usage)
 	in.add(own)
 	return in
 }
 
-func (s *scan) dir(r *os.Root, e *entry, kind Kind, to kinds, visit visitFunc) sub {
+// add counts u as kind for to, and for the disk too when the folder being
+// scanned is on it.
+func (s *scan) add(to *owner, kind Kind, u Usage) {
+	to.all.add(kind, u)
+	if s.onDisk {
+		to.onDisk.add(kind, u)
+	}
+}
+
+func (s *scan) dir(r *os.Root, e *entry, kind Kind, to *owner, visit visitFunc) sub {
 	path := s.path(e.rel)
 	if e.depth >= s.o.MaxDepth {
 		s.rep.Truncated = true

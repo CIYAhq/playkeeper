@@ -25,6 +25,7 @@ const (
 	ReasonPartialFile    Reason = "partial_file"     // an unfinished file from a backup or download that stopped
 	ReasonStaleStage     Reason = "stale_stage"      // a backup unpacked for a restore nobody applied or cancelled
 	ReasonPrunedBackup   Reason = "pruned_backup"    // a backup the backup rules would delete
+	ReasonDownloaded     Reason = "downloaded"       // a file Playkeeper downloads again when it is needed
 )
 
 // Risk is how careful to be before deleting a candidate.
@@ -107,12 +108,11 @@ func (c *Candidate) makeID() string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func validID(id string) bool {
-	if len(id) != 32 {
-		return false
-	}
-	for i := 0; i < len(id); i++ {
-		if !(id[i] >= '0' && id[i] <= '9' || id[i] >= 'a' && id[i] <= 'f') {
+func validID(id string) bool { return len(id) == 32 && lowerHex(id) }
+
+func lowerHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if !(s[i] >= '0' && s[i] <= '9' || s[i] >= 'a' && s[i] <= 'f') {
 			return false
 		}
 	}
@@ -184,7 +184,11 @@ func (s *scan) dataRules(sv Server) visitFunc {
 		switch {
 		case strings.HasSuffix(e.name, ".jar"):
 			if regular && prefix != "" && e.name != sv.Jar && sameSoftware(e.name, prefix) {
-				return KindSoftware, nil, s.unused(sv, KindSoftware, e, "")
+				version, build := jarVersion(e.name, prefix)
+				if version != sv.MinecraftVersion {
+					build = ""
+				}
+				return KindSoftware, nil, s.unused(sv, KindSoftware, e, version, build)
 			}
 			return KindSoftware, nil, nil
 		case (strings.HasPrefix(e.name, "hs_err_pid") || strings.HasPrefix(e.name, "replay_pid")) && strings.HasSuffix(e.name, ".log"):
@@ -222,7 +226,7 @@ func (s *scan) crashVisit(sv Server) visitFunc {
 func (s *scan) versionsVisit(sv Server) visitFunc {
 	return func(e *entry) (Kind, visitFunc, *pending) {
 		if e.info.IsDir() && versionLike(e.name) && e.name != sv.MinecraftVersion {
-			return KindSoftware, nil, s.unused(sv, KindSoftware, e, e.name)
+			return KindSoftware, nil, s.unused(sv, KindSoftware, e, e.name, "")
 		}
 		return KindSoftware, nil, nil
 	}
@@ -233,7 +237,7 @@ func (s *scan) versionsVisit(sv Server) visitFunc {
 func (s *scan) cacheVisit(sv Server) visitFunc {
 	return func(e *entry) (Kind, visitFunc, *pending) {
 		if v := cachedVersion(e.name); v != "" && v != sv.MinecraftVersion && e.info.Mode().IsRegular() {
-			return KindCaches, nil, s.unused(sv, KindCaches, e, v)
+			return KindCaches, nil, s.unused(sv, KindCaches, e, v, "")
 		}
 		return KindCaches, nil, nil
 	}
@@ -251,8 +255,10 @@ func (s *scan) old(sv Server, reason Reason, e *entry) *pending {
 	return p
 }
 
-func (s *scan) unused(sv Server, kind Kind, e *entry, version string) *pending {
-	params, text := unusedText(e.rel, version)
+// unused offers server software for the Minecraft version given, if known,
+// and with a build only for an older build of the version the server runs.
+func (s *scan) unused(sv Server, kind Kind, e *entry, version, build string) *pending {
+	params, text := unusedText(e.rel, softwareName(softwarePrefix(sv)), version, build)
 	return s.candidate(sv.ID, kind, ReasonUnusedSoftware, RiskLow, params, text)
 }
 
@@ -277,6 +283,39 @@ func sameSoftware(name, prefix string) bool {
 	return ok && v != "" && isDigit(rune(v[0]))
 }
 
+// softwareName is what the software whose jars start with prefix is
+// called: Paper for paper-, NeoForge for neoforge-.
+func softwareName(prefix string) string {
+	word := strings.ToLower(prefix)
+	if i := strings.IndexAny(word, "-_. "); i >= 0 {
+		word = word[:i]
+	}
+	switch {
+	case word == "":
+		return ""
+	case word == "neoforge":
+		return "NeoForge"
+	case word[0] >= 'a' && word[0] <= 'z':
+		return string(word[0]-'a'+'A') + word[1:]
+	}
+	return word
+}
+
+// jarVersion is the Minecraft version and the build in the name of a server
+// jar that starts with prefix: 1.21.3 and 100 in paper-1.21.3-100.jar. The
+// build is "" unless it is a number.
+func jarVersion(name, prefix string) (version, build string) {
+	rest := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".jar")
+	version, build, _ = strings.Cut(rest, "-")
+	if !versionLike(version) {
+		return "", ""
+	}
+	if build == "" || strings.ContainsFunc(build, func(r rune) bool { return !isDigit(r) }) {
+		build = ""
+	}
+	return version, build
+}
+
 // cachedVersion is the Minecraft version of a server jar Paper keeps in its
 // cache folder (mojang_1.21.4.jar), or "".
 func cachedVersion(name string) string {
@@ -296,7 +335,7 @@ func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 // version change set aside next to it (DataDir.replaced-<time> and the
 // like), and offers them once they are a day old, provided the server's
 // folder holds a world again and nothing is running on the server.
-func (s *scan) leftovers(l Layout, sv Server, to kinds, world bool) {
+func (s *scan) leftovers(l Layout, sv Server, to *owner, world bool) {
 	r, ok := s.begin(filepath.Dir(sv.DataDir), false)
 	if !ok {
 		return
@@ -335,7 +374,7 @@ func leftoverName(name, base string) (why string, at time.Time, ok bool) {
 // nothing has written to for a while, and backups the rules would delete.
 // Partial files aren't offered while any server is busy, since a backup
 // may be writing one.
-func (s *scan) backups(l Layout, owned map[string]kinds, machine kinds, anyBusy bool) {
+func (s *scan) backups(l Layout, owned map[string]*owner, machine *owner, anyBusy bool) {
 	r, ok := s.begin(l.BackupsDir, false)
 	if !ok {
 		return
@@ -345,9 +384,9 @@ func (s *scan) backups(l Layout, owned map[string]kinds, machine kinds, anyBusy 
 	for _, b := range l.Backups {
 		byName[b.FileName] = b
 	}
-	owner := func(b Backup) kinds {
-		if k, ok := owned[b.ServerID]; ok {
-			return k
+	whose := func(b Backup) *owner {
+		if o, ok := owned[b.ServerID]; ok {
+			return o
 		}
 		return machine
 	}
@@ -360,12 +399,12 @@ func (s *scan) backups(l Layout, owned map[string]kinds, machine kinds, anyBusy 
 	s.each(r, "", 0, func(e *entry) {
 		regular := e.info.Mode().IsRegular()
 		if b, ok := byName[e.name]; ok && regular {
-			archives[e.name] = archive{e, s.count(r, e, KindBackups, owner(b), nil)}
+			archives[e.name] = archive{e, s.count(r, e, KindBackups, whose(b), nil)}
 			return
 		}
 		if name, ok := strings.CutSuffix(e.name, ".sha256"); ok && regular {
 			if b, ok := byName[name]; ok {
-				sums[name] = s.count(r, e, KindBackups, owner(b), nil)
+				sums[name] = s.count(r, e, KindBackups, whose(b), nil)
 				return
 			}
 		}
@@ -413,7 +452,7 @@ func isPartial(name string) bool {
 // staging counts restore stages and offers those no restore is using that
 // haven't changed for a while. None is offered while a server is busy,
 // since its operation may be using one.
-func (s *scan) staging(l Layout, machine kinds, anyBusy bool) {
+func (s *scan) staging(l Layout, machine *owner, anyBusy bool) {
 	r, ok := s.begin(l.StagingDir, false)
 	if !ok {
 		return
@@ -429,4 +468,59 @@ func (s *scan) staging(l Layout, machine kinds, anyBusy bool) {
 		p.minAge = s.o.StageAge
 		s.offer(p, e, es)
 	})
+}
+
+// downloads counts the downloads folder and offers what in it hasn't
+// changed for PartialAge. Nothing is offered while a server is busy, since
+// its operation may be using a download.
+func (s *scan) downloads(l Layout, machine *owner, anyBusy bool) {
+	r, ok := s.beginIfThere(l.DownloadsDir)
+	if !ok {
+		return
+	}
+	defer r.Close()
+	s.each(r, "", 0, func(e *entry) {
+		es := s.count(r, e, KindDownloads, machine, nil)
+		if anyBusy {
+			return
+		}
+		params, text := downloadText(e.name, es.newest.In(s.o.Location))
+		p := s.candidate("", KindDownloads, ReasonDownloaded, RiskLow, params, text)
+		p.minAge = s.o.PartialAge
+		s.offer(p, e, es)
+	})
+}
+
+// spool counts a server's off-site spool folder: its copies being
+// encrypted or waiting to be sent as the server's backups, anything else
+// as its other files. Nothing in it is offered; the offsite package's
+// AbortStale knows which copies an upload will resume.
+func (s *scan) spool(sv Server, to *owner) {
+	r, ok := s.begin(sv.SpoolDir, false)
+	if !ok {
+		return
+	}
+	defer r.Close()
+	s.each(r, "", 0, func(e *entry) {
+		kind := KindOther
+		if e.info.Mode().IsRegular() && isSpoolFile(e.name) {
+			kind = KindBackups
+		}
+		s.count(r, e, kind, to, nil)
+	})
+}
+
+// isSpoolFile reports whether name is an off-site copy being encrypted or
+// waiting to be sent: .offsite-<16 hex digits>.partial or .age.
+func isSpoolFile(name string) bool {
+	id, ok := strings.CutPrefix(name, ".offsite-")
+	if !ok {
+		return false
+	}
+	for _, suffix := range [...]string{".age", ".partial"} {
+		if v, ok := strings.CutSuffix(id, suffix); ok {
+			return len(v) == 16 && lowerHex(v)
+		}
+	}
+	return false
 }
