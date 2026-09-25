@@ -1,0 +1,246 @@
+{
+ "pagination": {
+  "count": 3,
+  "limit": 25,
+  "offset": 0
+ },
+ "result": [
+  {
+   "createdAt": "2026-09-19T17:49:07.067716Z",
+   "id": 30490,
+   "projectId": 487,
+   "name": "5.6.2",
+   "visibility": "public",
+   "description": "## Added\n\n-   [[#494](https://github.com/Imprex-Development/orebfuscator/pull/494)] Added support for 26.3\n\n## Fixed\n\n-   [[#493](https://github.com/Imprex-Development/orebfuscator/pull/493)] Fixed Fo",
+   "stats": {
+    "totalDownloads": 73,
+    "platformDownloads": {
+     "PAPER": 73
+    }
+   },
+   "author": "Ingrim4",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-04-22T21:56:27.280972Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "PINNED",
+     "SENDS_NOTIFICATIONS",
+     "FROZEN"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "orebfuscator-bukkit-5.6.2.jar",
+      "sizeBytes": 5570811,
+      "sha256Hash": "a9c2979d93e188408dbe08c707596781fb8bef2b07f2b7a6f3e204527efd5411"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/Imprex-Development/Orebfuscator/versions/5.6.2/PAPER/orebfuscator-bukkit-5.6.2.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ProtocolLib",
+      "projectId": null,
+      "required": true,
+      "externalUrl": "https://github.com/dmulloy2/ProtocolLib/",
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.16.5-26.3"
+    ]
+   },
+   "memberNames": [
+    "ingrim4",
+    "ngloader",
+    "imprex-development"
+   ]
+  },
+  {
+   "createdAt": "2026-06-16T23:10:07.231353Z",
+   "id": 26530,
+   "projectId": 487,
+   "name": "5.6.1",
+   "visibility": "public",
+   "description": "## Added\n\n-   [[#486](https://github.com/Imprex-Development/orebfuscator/pull/486)] Added thread and executor information to dump files to improve debugging\n\n## Fixed\n\n-   [[#477](https://github.com/I",
+   "stats": {
+    "totalDownloads": 1339,
+    "platformDownloads": {
+     "PAPER": 1339
+    }
+   },
+   "author": "Ingrim4",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-04-22T21:56:27.280972Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "PINNED",
+     "SENDS_NOTIFICATIONS",
+     "FROZEN"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "orebfuscator-plugin-5.6.1.jar",
+      "sizeBytes": 4667454,
+      "sha256Hash": "3556be201ffc6c610c7c0fa9d299c6879b0e91c4af40ee09019cf2bedc155b5b"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/Imprex-Development/Orebfuscator/versions/5.6.1/PAPER/orebfuscator-plugin-5.6.1.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ProtocolLib",
+      "projectId": null,
+      "required": true,
+      "externalUrl": "https://github.com/dmulloy2/ProtocolLib/",
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.16.5-26.2"
+    ]
+   },
+   "memberNames": [
+    "ingrim4",
+    "ngloader",
+    "imprex-development"
+   ]
+  },
+  {
+   "createdAt": "2025-12-12T21:00:36.854909Z",
+   "id": 20771,
+   "projectId": 487,
+   "name": "5.5.7",
+   "visibility": "public",
+   "description": "## Added\n- Support for Minecraft 1.21.11",
+   "stats": {
+    "totalDownloads": 1564,
+    "platformDownloads": {
+     "PAPER": 1564
+    }
+   },
+   "author": "Ingrim4",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-04-22T21:56:27.280972Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "PINNED",
+     "SENDS_NOTIFICATIONS",
+     "FROZEN"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "orebfuscator-plugin-5.5.7.jar",
+      "sizeBytes": 3650951,
+      "sha256Hash": "4050ea71f66e8331c08ae123dd0d22e5dac39f912766c6385cbea5b73fc2e0f7"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/Imprex-Development/Orebfuscator/versions/5.5.7/PAPER/orebfuscator-plugin-5.5.7.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ProtocolLib",
+      "projectId": null,
+      "required": true,
+      "externalUrl": "https://github.com/dmulloy2/ProtocolLib/",
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.16-1.21.11"
+    ]
+   },
+   "memberNames": [
+    "ingrim4",
+    "ngloader",
+    "imprex-development"
+   ]
+  }
+ ]
+}

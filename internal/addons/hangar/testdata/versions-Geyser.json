@@ -1,0 +1,105 @@
+{
+ "pagination": {
+  "count": 1,
+  "limit": 25,
+  "offset": 0
+ },
+ "result": [
+  {
+   "createdAt": "2023-03-19T20:49:50.933106Z",
+   "id": 238,
+   "projectId": 14,
+   "name": "Geyser",
+   "visibility": "public",
+   "description": "Updated to new downloads API.",
+   "stats": {
+    "totalDownloads": 82074,
+    "platformDownloads": {
+     "PAPER": 73522,
+     "WATERFALL": 1945,
+     "VELOCITY": 6607
+    }
+   },
+   "author": "Redned",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2022-12-23T23:21:00.775174Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "SENDS_NOTIFICATIONS",
+     "FROZEN",
+     "PINNED"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": null,
+     "externalUrl": "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot",
+     "downloadUrl": null
+    },
+    "WATERFALL": {
+     "fileInfo": null,
+     "externalUrl": "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/bungeecord",
+     "downloadUrl": null
+    },
+    "VELOCITY": {
+     "fileInfo": null,
+     "externalUrl": "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/velocity",
+     "downloadUrl": null
+    }
+   },
+   "pluginDependencies": {},
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ],
+    "WATERFALL": [
+     "1.20",
+     "1.21"
+    ],
+    "VELOCITY": [
+     "4.0.0",
+     "4.1.0",
+     "4.1.1"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.20-26.2"
+    ],
+    "WATERFALL": [
+     "1.20-1.21"
+    ],
+    "VELOCITY": [
+     "3.5-4.1.1"
+    ]
+   },
+   "memberNames": [
+    "tim203",
+    "geysermc",
+    "camotoy",
+    "redned",
+    "rtm516",
+    "amberichu"
+   ]
+  }
+ ]
+}

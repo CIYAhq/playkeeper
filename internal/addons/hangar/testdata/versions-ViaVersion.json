@@ -1,0 +1,377 @@
+{
+ "pagination": {
+  "count": 3,
+  "limit": 25,
+  "offset": 0
+ },
+ "result": [
+  {
+   "createdAt": "2026-09-20T12:56:41.657559Z",
+   "id": 30566,
+   "projectId": 31,
+   "name": "5.12.1-SNAPSHOT+1069",
+   "visibility": "public",
+   "description": "[b402312](https://github.com/ViaVersion/ViaVersion/commit/b402312) Force set health back >0 in 1.19.1->1.19.3 (#5061)",
+   "stats": {
+    "totalDownloads": 1131,
+    "platformDownloads": {
+     "PAPER": 990,
+     "VELOCITY": 141
+    }
+   },
+   "author": "kennytv",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-08-10T10:49:01.565967Z",
+    "name": "Snapshot",
+    "description": "Development builds",
+    "color": "#84cc16",
+    "flags": []
+   },
+   "pinnedStatus": "NONE",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaVersion-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 6504194,
+      "sha256Hash": "d3bd99c2c492367e39a3e09761d95b911f7a904af4fd08efc97548c987830fcb"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.12.1-SNAPSHOT%2B1069/PAPER/ViaVersion-5.12.1-SNAPSHOT.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaVersion-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 6504194,
+      "sha256Hash": "d3bd99c2c492367e39a3e09761d95b911f7a904af4fd08efc97548c987830fcb"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.12.1-SNAPSHOT%2B1069/PAPER/ViaVersion-5.12.1-SNAPSHOT.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.3"
+    ],
+    "VELOCITY": [
+     "3.4-4.2.0"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-09-20T11:09:51.401215Z",
+   "id": 30558,
+   "projectId": 31,
+   "name": "5.12.1-SNAPSHOT+1068",
+   "visibility": "public",
+   "description": "[46a6105](https://github.com/ViaVersion/ViaVersion/commit/46a6105) Add missing tags across protocols, reduce stored tags size",
+   "stats": {
+    "totalDownloads": 24,
+    "platformDownloads": {
+     "PAPER": 21,
+     "VELOCITY": 3
+    }
+   },
+   "author": "kennytv",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-08-10T10:49:01.565967Z",
+    "name": "Snapshot",
+    "description": "Development builds",
+    "color": "#84cc16",
+    "flags": []
+   },
+   "pinnedStatus": "NONE",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaVersion-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 6502487,
+      "sha256Hash": "40256c08b47993837716880206c8d1d8593c610dba6ef15f6ca10dd312f33289"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.12.1-SNAPSHOT%2B1068/PAPER/ViaVersion-5.12.1-SNAPSHOT.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaVersion-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 6502487,
+      "sha256Hash": "40256c08b47993837716880206c8d1d8593c610dba6ef15f6ca10dd312f33289"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.12.1-SNAPSHOT%2B1068/PAPER/ViaVersion-5.12.1-SNAPSHOT.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.3"
+    ],
+    "VELOCITY": [
+     "3.4-4.2.0"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-09-18T15:01:51.714442Z",
+   "id": 30415,
+   "projectId": 31,
+   "name": "5.12.0",
+   "visibility": "public",
+   "description": "Added 26.3 client support!\n- Fixed most disconnects from item hover event in 1.20.5+ versions\n- Fixed consume_effects item hashing in 1.21.2+ (by EnZaXD)\n- Fixed shears breaking speed in 26.1->26.2\n- ",
+   "stats": {
+    "totalDownloads": 4856,
+    "platformDownloads": {
+     "PAPER": 4372,
+     "VELOCITY": 484
+    }
+   },
+   "author": "kennytv",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2022-12-31T20:04:25.916259Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "SENDS_NOTIFICATIONS",
+     "FROZEN",
+     "PINNED"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaVersion-5.12.0.jar",
+      "sizeBytes": 6503775,
+      "sha256Hash": "c4d512fa9760fa41d17abaedde12aa1f4c9bde920d0a992fe0fc016962f126be"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.12.0/PAPER/ViaVersion-5.12.0.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaVersion-5.12.0.jar",
+      "sizeBytes": 6503775,
+      "sha256Hash": "c4d512fa9760fa41d17abaedde12aa1f4c9bde920d0a992fe0fc016962f126be"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaVersion/versions/5.12.0/PAPER/ViaVersion-5.12.0.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.3"
+    ],
+    "VELOCITY": [
+     "3.4-3.5",
+     "4.0.0-4.2.0"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  }
+ ]
+}
