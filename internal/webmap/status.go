@@ -127,7 +127,7 @@ func (m Map) Status(ctx context.Context, c Check) Status {
 		return s.set(StateDrawing, nil, "Drawing the map for the first time.", "The first areas appear in a minute or two.")
 	}
 	return s.set(StateReady, kv("areas", areas), "The map is up to date: "+thousands(s.Areas)+" areas drawn.",
-		"New land appears a few minutes after someone explores it.")
+		"New land shows up a few minutes after someone explores it.")
 }
 
 func (s Status) set(st State, params map[string]string, msg, hint string) Status {
