@@ -22,7 +22,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 )
 
-var update = flag.Bool("update", false, "rewrite testdata/share-link.txt from testdata/paper-server.json")
+var update = flag.Bool("update", false, "rewrite the testdata/share-link*.txt links from testdata/paper-server.json")
 
 func readFile(t *testing.T, name string) []byte {
 	t.Helper()

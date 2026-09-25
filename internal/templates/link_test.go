@@ -49,21 +49,44 @@ func TestLinkRoundTrip(t *testing.T) {
 	}
 }
 
-// testdata/share-link.txt is the Paper fixture's link, which the site check
-// opens in a browser. Decoding it keeps it in step with the fixture; run
-// the tests with -update to write it again.
-func TestShareLinkFixture(t *testing.T) {
-	tp := fixture(t, "paper-server.json")
-	if *update {
-		if err := os.WriteFile(filepath.Join("testdata", "share-link.txt"), []byte(mustLink(t, tp).URL+"\n"), 0o644); err != nil {
-			t.Fatal(err)
+// The site check opens the testdata/share-link*.txt links on the share page
+// in a browser: the Paper fixture's link, the same with markup in its name,
+// and one holding the fixture padded with spaces past what a template can
+// be. Decoding them keeps them in step with this package; run the tests
+// with -update to write them again.
+func TestShareLinkFixtures(t *testing.T) {
+	paper := fixture(t, "paper-server.json")
+	markup := fixture(t, "paper-server.json")
+	markup.Name = "<b>Survival</b> & <i>friends</i>"
+	js, err := canonicalJSON(paper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	padded := append(js, bytes.Repeat([]byte(" "), MaxFileSize)...)
+	for _, c := range []struct {
+		file string
+		link string
+		want *Template
+	}{
+		{"share-link.txt", mustLink(t, paper).URL, paper},
+		{"share-link-markup.txt", mustLink(t, markup).URL, markup},
+		{"share-link-oversized.txt", ShareURL + "#" + craft(linkVersion, deflate(t, padded)), nil},
+	} {
+		if *update {
+			if err := os.WriteFile(filepath.Join("testdata", c.file), []byte(c.link+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := DecodeLink(string(readFile(t, c.file)))
+		switch {
+		case c.want == nil:
+			refused(t, err, KindTooLarge)
+		case err != nil:
+			t.Errorf("testdata/%s: %v (run go test -update to write it again)", c.file, err)
+		default:
+			sameTemplate(t, got, c.want)
 		}
 	}
-	got, err := DecodeLink(string(readFile(t, "share-link.txt")))
-	if err != nil {
-		t.Fatalf("testdata/share-link.txt: %v (run go test -update to write it again)", err)
-	}
-	sameTemplate(t, got, tp)
 }
 
 func TestLinkCutOff(t *testing.T) {
