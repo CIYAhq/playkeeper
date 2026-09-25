@@ -183,7 +183,9 @@ func requestsFull(scope string) *Error {
 	return e
 }
 
-func requestDecided() *Error {
+// RequestDecided is the refusal when someone else answered a join request
+// first, including when the caller's conditional update changed no row.
+func RequestDecided() *Error {
 	return &Error{Code: CodeRequestDecided, Status: http.StatusConflict,
 		Msg: "Someone already answered this request.", Hint: "Reload the Players tab to see the answer."}
 }

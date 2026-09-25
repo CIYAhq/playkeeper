@@ -78,9 +78,15 @@ func NewJoinRequest(r Redemption, address string, pending Pending, now time.Time
 // Approve says yes to a pending request. by is the signed-in account that
 // answers, which must be able to let players into the server (see
 // CanLetPlayersIn). It returns the request as decided and the friend to
-// add. The caller asks the agent to add the player, then stores the
-// request only if it is still pending, so two people answering at once
-// can't both decide it.
+// add. The caller stores the request only if it is still pending, so two
+// people answering at once can't both decide it:
+//
+//	UPDATE join_requests SET state = :state, decided_at = :at, decided_by = :by, address = ''
+//	WHERE id = :id AND state = 'pending'
+//
+// If no row changed, someone answered first: answer RequestDecided.
+// Otherwise ask the agent to add the player, and put the request back to
+// pending if that fails.
 func Approve(r JoinRequest, by Account, now time.Time) (JoinRequest, PlayerGrant, error) {
 	p := mojang.Profile{ID: r.PlayerUUID, Name: r.PlayerName}
 	if id, ok := mojang.NormalizeUUID(p.ID); !ok || id != p.ID || !minecraft.ValidPlayerName(p.Name) {
@@ -93,9 +99,8 @@ func Approve(r JoinRequest, by Account, now time.Time) (JoinRequest, PlayerGrant
 	return d, PlayerGrant{InviteID: r.InviteID, ServerID: r.ServerID, Profile: p, RequestID: r.ID}, nil
 }
 
-// Decline says no to a pending request, with the same rules as Approve.
-// The caller stores the request only if it is still pending, and gives the
-// invite its use back:
+// Decline says no to a pending request, stored the same way as Approve's.
+// In the same write, the caller gives the invite its use back:
 //
 //	UPDATE invites SET uses = uses - 1 WHERE id = :invite AND uses > 0
 func Decline(r JoinRequest, by Account, now time.Time) (JoinRequest, error) {
@@ -107,7 +112,7 @@ func decide(r JoinRequest, by Account, state RequestState, now time.Time) (JoinR
 		return JoinRequest{}, err
 	}
 	if r.State != RequestPending {
-		return JoinRequest{}, requestDecided()
+		return JoinRequest{}, RequestDecided()
 	}
 	r.State = state
 	r.DecidedAt = stamp(now)
