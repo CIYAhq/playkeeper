@@ -1034,4 +1034,13 @@ export const en = {
   'error.http': 'Request failed (HTTP {status})',
   'error.notice': 'Playkeeper is in test mode',
   'error.noticeBody': 'Offline mode is on for Playkeeper’s automated tests: anyone could join with any name. Never use this for a real server.',
+
+  // Follow-ups after 0.3.0.
+  'world.leftoverPrevious': 'Your world from before a restore is still on this VPS',
+  'world.leftoverFailed': 'A restored world that didn’t start is still on this VPS',
+  'world.leftoverBody': 'Set aside {time} · {size}',
+  'world.leftoverDiscard': 'Discard',
+  'world.leftoverDiscardTitle': 'Discard this world copy?',
+  'world.leftoverDiscardBody': 'The copy set aside {time} is deleted from this VPS. Your current world and your backups aren’t affected.',
+  'world.leftoverDiscardConfirm': 'Discard copy',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

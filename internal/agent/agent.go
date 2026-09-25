@@ -533,6 +533,9 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+		// Follow-ups after 0.3.0.
+		{"GET", "/v1/servers/{id}/world-copies", srv((*server).hWorldCopies)},
+		{"DELETE", "/v1/servers/{id}/world-copies/{name}", srv((*server).hWorldCopyDelete)},
 	}
 }
 

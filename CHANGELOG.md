@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## Unreleased
 
 - If a restore is interrupted, for example by a power cut, Playkeeper puts the previous world and its settings back when it starts again, and never starts the server on an empty world in the meantime.
+- The **World** tab shows a world a restore left behind, such as a restored world that did not start, with a button to discard it and free the space.
 
 ## 0.3.0
 

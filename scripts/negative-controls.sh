@@ -290,6 +290,14 @@ control "no start recreates a world directory a restore moved aside" internal/ag
   'if prev := s.newestPreviousWorld(); prev != "" {' \
   'if prev := s.newestPreviousWorld(); false && prev != "" {' \
   ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+control "a world copy is discarded only by its exact name" internal/agent/backups.go \
+  'if !reWorldCopy.MatchString(name) {' \
+  'if false && !reWorldCopy.MatchString(name) {' \
+  ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
+control "no world copy is discarded while the live world folder is missing" internal/agent/backups.go \
+  'if !dirExists(s.dataDir()) {' \
+  'if false && !dirExists(s.dataDir()) {' \
+  ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

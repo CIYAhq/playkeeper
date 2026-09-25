@@ -40,6 +40,8 @@ To restore over an existing world instead (the server's **World** tab → a back
 
 If a restore is interrupted, for example by a power cut, Playkeeper puts the previous world and its settings back when it starts again. If it cannot, the server stays stopped and its error names the folder the previous world is in (`data.replaced-<time>`, next to the server's `data` folder): move that folder back to `data` and press **Start**.
 
+A world a restore leaves behind, such as a restored world that did not start, stays next to the server's `data` folder, and the **World** tab shows it until you press **Discard**.
+
 ## What is not restored
 
 - Playkeeper admin accounts and sessions (the new server keeps its own).

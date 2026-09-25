@@ -1797,6 +1797,84 @@ func TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack(t *testing.
 	e.waitFor("the previous world running again", e.onlineIdle)
 }
 
+// The world folders restores leave next to the live one are listed with
+// their sizes, newest first, and can be discarded one at a time: only real
+// copies by their exact names, never while the server is busy, and never
+// while the live world folder is missing.
+func TestWorldCopiesAreListedAndDiscarded(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	dir := e.srv().dir()
+	write := func(rel string, size int) {
+		t.Helper()
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, bytes.Repeat([]byte("x"), size), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("data/world/level.dat", 10)
+	write("data.replaced-20260924-090000/world/level.dat", 100)
+	write("data.failed-restore-20260925-101500/world/level.dat", 100)
+	write("data.failed-restore-20260925-101500/world/region/r.0.0.mca", 1000)
+	write("data.failed-update-20260925-101500/world/level.dat", 10)
+	write("data.replaced-yesterday/world/level.dat", 10)
+	if err := os.Symlink(filepath.Join(dir, "data"), filepath.Join(dir, "data.replaced-20260925-120000")); err != nil {
+		t.Fatal(err)
+	}
+	var list []api.WorldCopy
+	e.decode("GET", e.sp("/world-copies"), &list)
+	want := []api.WorldCopy{
+		{Name: "data.failed-restore-20260925-101500", Kind: api.WorldCopyFailedRestore, CreatedAt: time.Date(2026, 9, 25, 10, 15, 0, 0, time.UTC), SizeBytes: 1100},
+		{Name: "data.replaced-20260924-090000", Kind: api.WorldCopyPrevious, CreatedAt: time.Date(2026, 9, 24, 9, 0, 0, 0, time.UTC), SizeBytes: 100},
+	}
+	if fmt.Sprint(list) != fmt.Sprint(want) {
+		t.Fatalf("world copies:\n got %v\nwant %v", list, want)
+	}
+	for _, name := range []string{"..%2F..%2Fetc", "data", "data.failed-update-20260925-101500", "data.replaced-yesterday", "data.replaced-20260924-090000%2F..%2Fdata"} {
+		if code, out := e.call("DELETE", e.sp("/world-copies/"+name+"?actor=admin"), nil); code != 400 {
+			t.Errorf("discarding %q: %d %v", name, code, out)
+		}
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260925-120000?actor=admin"), nil); code != 404 {
+		t.Errorf("discarding a symlink: %d %v", code, out)
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260101-000000?actor=admin"), nil); code != 404 {
+		t.Errorf("discarding a copy that does not exist: %d %v", code, out)
+	}
+	release, _ := e.srv().holdOpLock()
+	code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260924-090000?actor=admin"), nil)
+	release()
+	if code != 409 || out["code"] != api.CodeBusy {
+		t.Errorf("discarding while the server is busy: %d %v", code, out)
+	}
+	if err := os.Rename(filepath.Join(dir, "data"), filepath.Join(dir, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260924-090000?actor=admin"), nil); code != 409 || !strings.Contains(fmt.Sprint(out["error"]), "world folder is missing") {
+		t.Errorf("discarding while the live world folder is missing: %d %v", code, out)
+	}
+	if err := os.Rename(filepath.Join(dir, "moved"), filepath.Join(dir, "data")); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260924-090000?actor=admin"), nil); code != 204 {
+		t.Fatalf("discarding a copy: %d %v", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data.replaced-20260924-090000")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the discarded copy is still there: %v", err)
+	}
+	for _, keep := range []string{"data/world/level.dat", "data.failed-restore-20260925-101500/world/level.dat", "data.failed-update-20260925-101500/world/level.dat", "data.replaced-yesterday/world/level.dat"} {
+		if _, err := os.Stat(filepath.Join(dir, keep)); err != nil {
+			t.Fatalf("discarding one copy touched %s: %v", keep, err)
+		}
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'world_copy.deleted' AND target = 'data.replaced-20260924-090000' AND actor = 'admin'`); n != 1 {
+		t.Fatalf("want one audit row for the discarded copy, got %d", n)
+	}
+}
+
 func worldHash(t *testing.T, dir string) string {
 	t.Helper()
 	h := sha256.New()

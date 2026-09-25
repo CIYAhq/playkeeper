@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -488,17 +489,93 @@ func dirExists(p string) bool {
 // newestPreviousWorld is the newest previous world a restore moved aside
 // from the live directory, or "".
 func (s *server) newestPreviousWorld() string {
-	entries, _ := os.ReadDir(s.dir())
-	newest := ""
-	for _, e := range entries {
-		if m := reWorldCopy.FindStringSubmatch(e.Name()); m != nil && m[1] == "replaced" && e.Name() > newest {
-			newest = e.Name()
+	for _, c := range s.worldCopies() {
+		if c.Kind == api.WorldCopyPrevious {
+			return filepath.Join(s.dir(), c.Name)
 		}
 	}
-	if newest == "" {
-		return ""
+	return ""
+}
+
+// worldCopies lists the world folders restores left next to the live one,
+// newest first, without their sizes.
+func (s *server) worldCopies() []api.WorldCopy {
+	entries, _ := os.ReadDir(s.dir())
+	out := []api.WorldCopy{}
+	for _, e := range entries {
+		m := reWorldCopy.FindStringSubmatch(e.Name())
+		if m == nil || !e.IsDir() {
+			continue
+		}
+		at, err := time.Parse("20060102-150405", m[2])
+		if err != nil {
+			continue
+		}
+		kind := api.WorldCopyPrevious
+		if m[1] == "failed-restore" {
+			kind = api.WorldCopyFailedRestore
+		}
+		out = append(out, api.WorldCopy{Name: e.Name(), Kind: kind, CreatedAt: at.UTC()})
 	}
-	return filepath.Join(s.dir(), newest)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if info, err := d.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	})
+	return total
+}
+
+func (s *server) hWorldCopies(w http.ResponseWriter, r *http.Request) {
+	list := s.worldCopies()
+	for i := range list {
+		list[i].SizeBytes = dirSize(filepath.Join(s.dir(), list[i].Name))
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// hWorldCopyDelete discards one world copy. Nothing is discarded while the
+// live world folder is missing, because a copy may then be the only world.
+func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
+	actor, err := validActor(r.URL.Query().Get("actor"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	name := r.PathValue("name")
+	if !reWorldCopy.MatchString(name) {
+		writeError(w, errInvalid("invalid world copy name"))
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		writeError(w, s.busyError())
+		return
+	}
+	defer release()
+	path := filepath.Join(s.dir(), name)
+	if st, err := os.Lstat(path); err != nil || !st.IsDir() {
+		writeError(w, errNotFound("World copy"))
+		return
+	}
+	if !dirExists(s.dataDir()) {
+		writeError(w, errConflict("The world folder is missing, so this copy may be the only one of your world.", "Move the copy you want to keep back to "+s.dataDir()+", then try again."))
+		return
+	}
+	if err := os.RemoveAll(path); err != nil {
+		writeError(w, fmt.Errorf("could not discard the world copy: %w", err))
+		return
+	}
+	s.audit(actor, "world_copy.deleted", name, "succeeded", "")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // stageArchive copies an archive into staging, then verifies and extracts it

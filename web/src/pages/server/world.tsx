@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
+import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
-import { Card, CardHint, CardTitle, copyText, SectionLabel } from '@/components/app/bits'
+import { Card, CardHint, CardTitle, copyText, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { Button } from '@/components/ui/button'
@@ -44,6 +44,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   if (backups.data && list.length === 0) {
     return (
       <>
+        <LeftoverCopy server={s} />
         <EmptyBackups server={s} phone={phone} />
         {dialog}
       </>
@@ -54,6 +55,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
     const verified = list.length > 0 && list.every((b) => b.verified)
     return (
       <div className="flex flex-col gap-4">
+        <LeftoverCopy server={s} />
         <MakeBackup server={s} phone onDone={refresh} />
         <section aria-labelledby="backups">
           <SectionLabel className="px-4">
@@ -128,6 +130,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
 
   return (
     <>
+      <LeftoverCopy server={s} />
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
         <MakeBackup server={s} onDone={refresh} />
         <WorldInfo server={s} backups={list} />
@@ -450,5 +453,75 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         ))}
       </ol>
     </div>
+  )
+}
+
+function leftoverTitle(c: WorldCopy): string {
+  switch (c.kind) {
+    case 'previous':
+      return t('world.leftoverPrevious')
+    case 'failed_restore':
+      return t('world.leftoverFailed')
+    default: {
+      const unreachable: never = c.kind
+      return unreachable
+    }
+  }
+}
+
+/** The newest world folder a restore left next to the live one, until it's discarded. */
+function LeftoverCopy({ server: s }: { server: ServerStatus }) {
+  const ws = useWorkspace()
+  const copies = usePoll(() => get<WorldCopy[]>(serverApi(s.id, '/world-copies')), 30_000, s.id)
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const c = copies.data?.[0]
+  if (ws.stale || !c) return null
+  const when = formatDay(c.createdAt)
+
+  async function discard(name: string) {
+    setBusy(true)
+    try {
+      await del(serverApi(s.id, `/world-copies/${encodeURIComponent(name)}`))
+      setConfirm(false)
+      await copies.refresh()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <Notice
+        title={leftoverTitle(c)}
+        action={
+          <Button variant="outline" size="sm" disabled={!!s.operation} onClick={() => setConfirm(true)}>
+            <Trash2Icon />
+            {t('world.leftoverDiscard')}
+          </Button>
+        }
+      >
+        {t('world.leftoverBody', { time: when, size: formatBytes(c.sizeBytes) })}
+      </Notice>
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogPopup className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">{t('world.leftoverDiscardTitle')}</DialogTitle>
+            <DialogDescription>{t('world.leftoverDiscardBody', { time: when })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter variant="bare" className="border-t border-border pt-4">
+            <Button variant="ghost" onClick={() => setConfirm(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={() => void discard(c.name)} loading={busy}>
+              <Trash2Icon />
+              {t('world.leftoverDiscardConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
   )
 }

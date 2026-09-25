@@ -11,11 +11,13 @@ import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { WorldPage } from './server/world'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  del: vi.fn(() => Promise.resolve(undefined)),
 }))
 
 const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
@@ -301,5 +303,39 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+})
+
+// Follow-ups after 0.3.0.
+describe('World', () => {
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+    if (!button) throw new Error(`no ${label} button`)
+    await act(async () => button.click())
+  }
+
+  it('shows the newest world copy a restore left, and discards it only after asking', async () => {
+    const copies = [
+      { name: 'data.failed-restore-20260925-101500', kind: 'failed_restore', createdAt: '2026-09-25T10:15:00Z', sizeBytes: 1100 * 2 ** 20 },
+      { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 900 * 2 ** 20 },
+    ]
+    answer({ '/world-copies': copies, '/backups': [] })
+    vi.mocked(client.del).mockClear()
+    const text = await render(<WorldPage server={server()} />)
+    expect(text).toContain('A restored world that didn’t start is still on this VPS')
+    expect(text).toContain('1.1 GB')
+    expect(text).not.toContain('Your world from before a restore')
+    await click('Discard')
+    expect(client.del).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Discard this world copy?')
+    answer({ '/world-copies': copies.slice(1), '/backups': [] })
+    await click('Discard copy')
+    expect(client.del).toHaveBeenCalledWith('/api/servers/abcdefghjk/world-copies/data.failed-restore-20260925-101500')
+    expect(document.body.textContent).toContain('Your world from before a restore is still on this VPS')
+  })
+
+  it('shows nothing when no restore left a copy', async () => {
+    answer({ '/world-copies': [], '/backups': [] })
+    expect(await render(<WorldPage server={server()} />)).not.toContain('still on this VPS')
   })
 })
