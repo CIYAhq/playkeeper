@@ -52,7 +52,7 @@ export function runningOp(a: Address, kind?: string): Operation | undefined {
 
 /** Whether the free name, and each server's address under it, is published. */
 export function freePublished(a: Address): boolean {
-  return a.free?.state === 'active' && a.free.dns === 'ok' && (a.servers ?? []).every((s) => !s.address || s.published)
+  return a.free?.state === 'active' && a.free.dns === 'ok' && (!!a.free.serversWait || (a.servers ?? []).every((s) => !s.address || s.published))
 }
 
 export type FreeStage = 'claiming' | 'publishing' | 'lapsed' | 'done'

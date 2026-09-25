@@ -1,6 +1,6 @@
 import { Fragment, useId, useState, type ReactNode } from 'react'
 import { CircleCheckIcon, CircleIcon, PencilIcon } from 'lucide-react'
-import { get, post } from '@/api/client'
+import { ApiError, get, post } from '@/api/client'
 import type { Address, NameAvailability } from '@/api/types'
 import { machineApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel, Spinner, useNow } from '@/components/app/bits'
@@ -17,6 +17,7 @@ import { Group } from '../more'
 import { refusal } from '../two-factor'
 import { OwnSteps } from './own'
 import {
+  aliveCheckPort,
   CertificateNotice,
   ConfirmDialog,
   CopyIconButton,
@@ -27,9 +28,11 @@ import {
   isFailure,
   LapsedHeader,
   openLabel,
+  OutLink,
   PhoneAction,
   ResultBlock,
   RetryButton,
+  ServersWaitNotice,
   TermsLine,
   UnreachableNotice,
   useLookup,
@@ -400,6 +403,21 @@ function ClaimFailure({ failure, machine, onRetry, onUseOwn, touch }: { failure:
           {t('address.notPublicBody', { ip: String(e.params?.ip ?? '') })}
         </ResultBlock>
       )
+    case 'not_answering':
+      return (
+        <ResultBlock
+          tone="red"
+          title={t('address.notReachable', { machine })}
+          actions={
+            <>
+              {retry}
+              <OutLink href={t('onboarding.check.firewallUrl')}>{t('address.openPort')}</OutLink>
+            </>
+          }
+        >
+          {t('address.notReachableBody', { port: Number(e.params?.port ?? aliveCheckPort) })}
+        </ResultBlock>
+      )
     case 'name_taken':
     case 'name_held':
     case 'name_reserved':
@@ -466,6 +484,23 @@ function rowStatus(stage: FreeStage, published: boolean): string | undefined {
   return undefined
 }
 
+/** When a server's own address under the name starts, while the names service holds it back. */
+function waitStatus(a: Address, address: string): string | undefined {
+  const wait = a.free?.serversWait
+  switch (wait) {
+    case undefined:
+      return undefined
+    case 'server_address_not_yet':
+      return t('address.rowShortFrom', { address, date: formatDate(a.free?.serversFrom ?? a.free?.claimedAt ?? '') })
+    case 'not_answering':
+      return t('address.rowShortWaiting', { address, port: aliveCheckPort })
+    default: {
+      const never: never = wait
+      return never
+    }
+  }
+}
+
 /** A free name: being claimed, publishing, working, or lapsed, with change and release. */
 export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & { claim: Claim }) {
   const phone = useIsPhone()
@@ -482,7 +517,11 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
       done?.()
       await refresh()
     } catch (e) {
-      toastManager.add({ title: refusal(e), type: 'error' })
+      if (e instanceof ApiError && e.code === 'not_answering') {
+        toastManager.add({ title: t('address.notReachable', { machine }), description: t('address.notReachableBody', { port: Number(e.params?.port ?? aliveCheckPort) }), type: 'error' })
+      } else {
+        toastManager.add({ title: refusal(e), type: 'error' })
+      }
     } finally {
       setBusy(undefined)
     }
@@ -523,7 +562,11 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
       />
     )
   const rows: AddressRowData[] = [
-    ...(a.servers ?? []).flatMap((s) => (s.address ? [{ id: s.serverId, label: s.name, value: s.address, status: rowStatus(stage, s.published) }] : [])),
+    ...(a.servers ?? []).flatMap((s) => {
+      if (!s.address) return []
+      if (a.free?.serversWait && !s.published && stage !== 'lapsed') return [{ id: s.serverId, label: s.name, value: s.port === 25565 ? host : `${host}:${s.port}`, status: waitStatus(a, s.address) }]
+      return [{ id: s.serverId, label: s.name, value: s.address, status: rowStatus(stage, s.published) }]
+    }),
     dashboardRow(host, a.panelPort, rowStatus(stage, a.free?.state === 'active' && a.free.dns === 'ok')),
   ]
   const release = () =>
@@ -538,6 +581,7 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
         notices={
           <>
             <UnreachableNotice a={a} />
+            <ServersWaitNotice a={a} machine={machine} />
             <CertificateNotice a={a} now={now} busy={busy === 'certificate'} onRetry={() => void act('certificate')} />
           </>
         }

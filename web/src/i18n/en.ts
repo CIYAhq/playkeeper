@@ -1057,6 +1057,20 @@ export const en = {
   'address.stopBodyNoIp': 'The addresses stop working right away.',
   'address.stopped': 'Stopped using {domain}',
 
+  // Machine settings › Address: the free address service's checks and limits
+  'address.notReachable': 'The free address service couldn’t reach {machine}',
+  'address.notReachableBody': 'Open port {port} in your VPS provider’s firewall, then try again.',
+  'address.lapsedNoAnswerBody': 'The free address service couldn’t reach {machine} on port {port} for a week. Open port {port}, then refresh.',
+  'address.serversFrom': 'Server addresses start on {date}',
+  'address.serversFromBody': 'A new free address gets its server addresses a few days after it’s claimed. Until then, players join at {address} with the port listed below.',
+  'address.serversWaitPort': 'Server addresses wait for port {port}',
+  'address.serversWaitPortBody': 'The free address service hasn’t reached {machine} on port {port} yet. Open port {port} in your VPS provider’s firewall. If it can’t reach {machine} within a week of the claim, the address stops working.',
+  'address.rowShortFrom': '{address} from {date}',
+  'address.rowShortWaiting': '{address} once port {port} is open',
+  'address.certLimit': 'New certificates are paused for now',
+  'address.certLimitAll': 'The free address service hands out only so many certificates a week, to stay within Let’s Encrypt’s limits. Playkeeper tries again after {date}. Players can still join.',
+  'address.certLimitName': '{address} has asked for as many certificates this week as one free address can. Playkeeper tries again after {date}. Players can still join.',
+
   // Machine page › Health: the dashboard's certificate
   'machine.certificate': 'Dashboard certificate',
   'machine.certSelfSigned': 'Self-signed',

@@ -6,7 +6,7 @@ import * as client from '@/api/client'
 import type { Address, AddressCheck, AddressPlan, DNSRecord, FreeAddress, JoinAddress, MachineView, Me, NameAvailability, Operation, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
-import { formatDate, formatLongDate } from '@/lib/format'
+import { formatDate, formatDateTime, formatLongDate } from '@/lib/format'
 import { MachineSettingsPage } from '.'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -286,6 +286,20 @@ describe('choosing an address', () => {
     expect(text()).toContain('The free address service saw 10.0.0.5, which a name can’t point at.')
   })
 
+  it('says when the free address service couldn’t reach the dashboard on port 8443, with Try again and how to open it', async () => {
+    vi.mocked(client.post).mockRejectedValue(refusal(409, 'not_answering', 'siya.playkeeper.io stays off.', { name: 'siya', ip, port: 8443 }))
+    await show(none)
+    await settle()
+    await click(button('Claim siya.playkeeper.io'))
+    expect(text()).toContain('The free address service couldn’t reach my-vps')
+    expect(text()).toContain('Open port 8443 in your VPS provider’s firewall, then try again.')
+    expect(text()).not.toContain('stays off')
+    expect(link('How to open a port').getAttribute('href')).toBe('https://github.com/CIYAhq/playkeeper#install-on-your-vps')
+    await click(button('Try again'))
+    expect(client.post).toHaveBeenCalledTimes(2)
+    expect(client.post).toHaveBeenLastCalledWith('/api/machines/m1/address/claim', { name: 'siya', acceptTerms: true })
+  })
+
   it('says plainly when the free address service can’t be reached, and nothing else breaks', async () => {
     names = { siya: refusal(503, 'names_unreachable', 'Playkeeper couldn’t reach the free address service.', { detail: 'dial tcp: lookup names.playkeeper.io: no such host' }) }
     await show(none)
@@ -385,6 +399,56 @@ describe('a free address', () => {
     await click(button('Try again'))
     expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/certificate', { acceptTerms: true })
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'Let’s Encrypt refuses new attempts until 2026-09-26 10:00 UTC. Playkeeper tries again by itself then.', type: 'error' }))
+  })
+
+  it('says why it lapsed when the dashboard didn’t answer on port 8443, and a refresh that still can’t reach it says so', async () => {
+    const stoppedAt = '2026-10-03T09:00:00Z'
+    vi.mocked(client.post).mockRejectedValueOnce(refusal(409, 'not_answering', 'alex.playkeeper.io stays off.', { name: 'alex', ip, port: 8443 }, 'Open port 8443.'))
+    const add = vi.spyOn(toastManager, 'add')
+    await show(free({}, { state: 'lapsed', lapseReason: 'no_answer', stoppedAt }))
+    expect(text()).toContain(`This address stopped updating on ${formatDate(stoppedAt)}`)
+    expect(text()).toContain('The free address service couldn’t reach my-vps on port 8443 for a week. Open port 8443, then refresh.')
+    expect(text()).not.toContain('offline for about a month')
+    await click(button('Refresh'))
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'The free address service couldn’t reach my-vps', description: 'Open port 8443 in your VPS provider’s firewall, then try again.', type: 'error' }),
+    )
+  })
+
+  const waiting = { servers: [survival({ label: 'survival', address: 'survival.alex.playkeeper.io' }), creative({ label: 'creative', address: 'creative.alex.playkeeper.io' })] }
+
+  it('gives the servers their addresses a few days after the claim, and the name with the port meanwhile', async () => {
+    const serversFrom = '2026-09-28T12:00:00Z'
+    await show(free(waiting, { serversWait: 'server_address_not_yet', serversFrom }))
+    expect(text()).toContain('alex.playkeeper.io is yours')
+    expect(text()).toContain(`Server addresses start on ${formatDate(serversFrom)}`)
+    expect(text()).toContain('Until then, players join at alex.playkeeper.io with the port listed below.')
+    expect(text()).toContain(`survival.alex.playkeeper.io from ${formatDate(serversFrom)}`)
+    expect(text()).toContain('alex.playkeeper.io:25566')
+    expect(document.querySelector('[aria-label="Copy alex.playkeeper.io:25566"]')).toBeTruthy()
+    expect(text()).not.toContain('publishing…')
+  })
+
+  it('says server addresses wait for port 8443 until the service reaches the dashboard', async () => {
+    await show(free(waiting, { serversWait: 'not_answering' }))
+    expect(text()).toContain('Server addresses wait for port 8443')
+    expect(text()).toContain('The free address service hasn’t reached my-vps on port 8443 yet.')
+    expect(text()).toContain('creative.alex.playkeeper.io once port 8443 is open')
+    expect(link('How to open a port')).toBeTruthy()
+  })
+
+  it('says when the certificate limit lets it try again, without a Try again that can only fail', async () => {
+    const retryAt = new Date(Date.now() + 2 * 86_400_000).toISOString()
+    const limited = (kind: string, renewing: boolean) =>
+      free({ certificate: { names: ['alex.playkeeper.io'], challenge: 'dns-01', notAfter: renewing ? notAfter : undefined, problem: { code: 'certificate_limit', params: { kind, until: retryAt }, message: 'Paused.', retryAt } } })
+    await show(limited('all', false))
+    expect(text()).toContain('New certificates are paused for now')
+    expect(text()).toContain(`to stay within Let’s Encrypt’s limits. Playkeeper tries again after ${formatDateTime(retryAt)}. Players can still join.`)
+    expect(buttons('Try again')).toHaveLength(0)
+    await show(limited('name', true))
+    expect(text()).toContain('Couldn’t renew the certificate')
+    expect(text()).toContain(`It runs out on ${formatDate(notAfter)}. alex.playkeeper.io has asked for as many certificates this week as one free address can. Playkeeper tries again after ${formatDateTime(retryAt)}.`)
+    expect(buttons('Try again')).toHaveLength(0)
   })
 })
 

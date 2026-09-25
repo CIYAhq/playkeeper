@@ -11,7 +11,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { certValid, dashboardURL } from '@/lib/address'
-import { formatDate } from '@/lib/format'
+import { formatDate, formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Group } from '../more'
 import { DialogButtons, DialogHeading } from '../two-factor'
@@ -195,19 +195,29 @@ export function certProblemText(a: Address, now: number): { title: string; body:
   const p = a.certificate?.problem
   if (!p) return undefined
   const port80 = p.code === 'port80_unreachable'
-  const other = [p.message, p.hint].filter(Boolean).join(' ')
+  const limit = p.code === 'certificate_limit' && !!p.retryAt
+  const other = limit ? certLimitText(a.host ?? '', p.params?.kind, p.retryAt ?? '') : [p.message, p.hint].filter(Boolean).join(' ')
   const notAfter = a.certificate?.notAfter
   if (notAfter && certValid(a.certificate, now)) {
     const date = formatDate(notAfter)
     return { title: t('address.certRenewProblem'), body: port80 ? t('address.certRenewPort80', { date }) : `${t('address.certRunsOut', { date })} ${other}`, port80 }
   }
+  if (limit) return { title: t('address.certLimit'), body: other, port80 }
   return { title: t('address.certProblem'), body: port80 ? t('address.certPort80') : other, port80 }
+}
+
+/** The free address service's weekly certificate limit: one name's share, or every name's. */
+function certLimitText(address: string, scope: string | undefined, retryAt: string): string {
+  const date = formatDateTime(retryAt)
+  return scope === 'name' ? t('address.certLimitName', { address, date }) : t('address.certLimitAll', { date })
 }
 
 /** A certificate problem under a working address, with Try again. */
 export function CertificateNotice({ a, now, busy, onRetry }: { a: Address; now: number; busy: boolean; onRetry: () => void }) {
   const text = certProblemText(a, now)
   if (!text) return null
+  const retryAt = a.certificate?.problem?.retryAt
+  const waiting = !!retryAt && Date.parse(retryAt) > now
   return (
     <Notice
       tone={certValid(a.certificate, now) ? 'warning' : 'error'}
@@ -216,10 +226,12 @@ export function CertificateNotice({ a, now, busy, onRetry }: { a: Address; now: 
       className="mt-4"
       action={
         <div className="flex flex-col items-start gap-2">
-          <div className="flex items-center gap-3">
-            <RetryButton busy={busy} onClick={onRetry} />
-            {text.port80 && <OutLink href={t('onboarding.check.firewallUrl')}>{t('address.openPort')}</OutLink>}
-          </div>
+          {(!waiting || text.port80) && (
+            <div className="flex items-center gap-3">
+              {!waiting && <RetryButton busy={busy} onClick={onRetry} />}
+              {text.port80 && <OutLink href={t('onboarding.check.firewallUrl')}>{t('address.openPort')}</OutLink>}
+            </div>
+          )}
           <TermsLine a={a} />
         </div>
       }
@@ -237,6 +249,34 @@ export function UnreachableNotice({ a }: { a: Address }) {
     </Notice>
   )
 }
+
+/** Why the servers have no address under a working free name yet. */
+export function ServersWaitNotice({ a, machine }: { a: Address; machine: string }) {
+  const f = a.free
+  if (f?.state !== 'active' || !f.serversWait || !(a.servers ?? []).some((s) => s.address && !s.published)) return null
+  const wait = f.serversWait
+  switch (wait) {
+    case 'server_address_not_yet':
+      return (
+        <Notice stacked title={t('address.serversFrom', { date: formatDate(f.serversFrom ?? f.claimedAt) })} className="mt-4">
+          {t('address.serversFromBody', { address: a.host ?? '' })}
+        </Notice>
+      )
+    case 'not_answering':
+      return (
+        <Notice tone="warning" stacked title={t('address.serversWaitPort', { port: aliveCheckPort })} className="mt-4" action={<OutLink href={t('onboarding.check.firewallUrl')}>{t('address.openPort')}</OutLink>}>
+          {t('address.serversWaitPortBody', { machine, port: aliveCheckPort })}
+        </Notice>
+      )
+    default: {
+      const never: never = wait
+      return never
+    }
+  }
+}
+
+/** The port the free address service checks the dashboard on, whatever port the panel uses. */
+export const aliveCheckPort = 8443
 
 /** The top of a working address: Pip, what it is, and Open. */
 export function DoneHeader({ pip, spinner, title, sub, open, openLabel, openEnabled }: { pip: PipPose; spinner?: boolean; title: string; sub?: string; open: string; openLabel: string; openEnabled: boolean }) {
@@ -287,7 +327,9 @@ export function LapsedHeader({ a, date, machine, busy, onRefresh }: { a: Address
     <div className={cn('flex gap-x-4 gap-y-3', phone ? 'flex-col' : 'flex-wrap items-center')} role="status">
       <div className="min-w-0 flex-1">
         <p className="text-[15px] font-semibold text-warning-foreground">{t('address.lapsed', { date })}</p>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">{t('address.lapsedBody', { machine })}</p>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          {a.free?.lapseReason === 'no_answer' ? t('address.lapsedNoAnswerBody', { machine, port: aliveCheckPort }) : t('address.lapsedBody', { machine })}
+        </p>
         <TermsLine a={a} className="mt-1" />
       </div>
       <Button size={phone ? 'touch' : 'default'} loading={busy} onClick={onRefresh}>

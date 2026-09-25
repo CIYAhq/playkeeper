@@ -531,6 +531,11 @@ export interface JoinAddress {
 export interface FreeAddress {
   name: string
   state: 'active' | 'lapsed' | 'released'
+  /** Why a lapsed name stopped: not refreshed for a month, or the dashboard not answering on port 8443 for a week. */
+  lapseReason?: 'not_refreshed' | 'no_answer'
+  /** Why the servers have no address under the name yet; players join at the name with the port meanwhile. */
+  serversWait?: 'server_address_not_yet' | 'not_answering'
+  serversFrom?: string
   dns: 'ok' | 'pending'
   ipv4?: string
   ipv6?: string
