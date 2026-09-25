@@ -466,7 +466,7 @@ func ids(list []map[string]any) string {
 
 func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 	e := newEnv(t)
-	e.setup(t)
+	cookie, csrf := e.setup(t)
 	s := e.srv
 	local, err := s.machineForServer("nobodyhass")
 	if err != nil || local.Kind != localKind {
@@ -475,60 +475,115 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 	alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
 	owner := func(id string) string {
 		m, err := s.machineForServer(id)
+		if errors.Is(err, errDisputed) {
+			return "disputed"
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		return m.ID
 	}
+	events := func(m machine) string {
+		rows, err := s.db.Query(`SELECT kind || ' ' || code FROM machine_events WHERE machine_id = ? ORDER BY id`, m.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var ev string
+			rows.Scan(&ev)
+			out = append(out, ev)
+		}
+		return strings.Join(out, ", ")
+	}
 
-	if got := ids(s.claimServers(alpha, serverList("xxxxxxxxxx", "yyyyyyyyyy", "../etc", ""), nil)); got != "xxxxxxxxxx yyyyyyyyyy" {
+	if got := ids(s.claimServers(alpha, serverList("xxxxxxxxxx", "yyyyyyyyyy", "../etc", ""))); got != "xxxxxxxxxx yyyyyyyyyy" {
 		t.Fatalf("alpha shows %q", got)
 	}
 	if owner("xxxxxxxxxx") != alpha.ID || owner("yyyyyyyyyy") != alpha.ID {
 		t.Fatal("alpha's servers go to alpha")
 	}
-	if got := ids(s.claimServers(beta, serverList("xxxxxxxxxx", "zzzzzzzzzz"), nil)); got != "zzzzzzzzzz" || owner("xxxxxxxxxx") != alpha.ID {
-		t.Fatalf("beta can't take alpha's server: beta shows %q", got)
+
+	// A server that two joined machines list goes to neither.
+	if got := ids(s.claimServers(beta, serverList("xxxxxxxxxx", "zzzzzzzzzz"))); got != "zzzzzzzzzz" {
+		t.Fatalf("beta shows %q", got)
 	}
-	if !strings.Contains(e.logs.String(), "another machine runs") {
-		t.Fatal("the clash is logged")
+	if owner("xxxxxxxxxx") != "disputed" || owner("zzzzzzzzzz") != beta.ID || !strings.Contains(e.logs.String(), "another machine runs") {
+		t.Fatal("beta listing alpha's server disputes it")
+	}
+	s.claimServers(beta, serverList("xxxxxxxxxx", "zzzzzzzzzz"))
+	if got := events(beta); got != "machine.server_disputed xxxxxxxxxx" {
+		t.Fatalf("beta's events: %q", got)
+	}
+	if r := e.do(t, "POST", "/api/servers/xxxxxxxxxx/start", `{}`, auth(cookie, csrf)); r.status != http.StatusConflict || r.body["code"] != codeServerDisputed ||
+		e.sawLocally("POST /v1/servers/xxxxxxxxxx/start") {
+		t.Fatalf("a disputed server's requests go nowhere: %d %v", r.status, r.body)
+	}
+	if got := s.claimServers(alpha, serverList("xxxxxxxxxx", "yyyyyyyyyy")); len(got) != 2 || got[0]["disputed"] != true || got[1]["disputed"] != nil {
+		t.Fatalf("alpha's list marks the disputed server: %v", got)
+	}
+	s.claimServers(beta, serverList("zzzzzzzzzz"))
+	if owner("xxxxxxxxxx") != alpha.ID {
+		t.Fatal("once beta stops listing it, alpha has it again")
 	}
 
-	s.releaseLocal(map[string]bool{"yyyyyyyyyy": true})
-	if owner("yyyyyyyyyy") != local.ID {
-		t.Fatal("the dashboard's own machine keeps its server ids")
+	// The dashboard's own machine keeps its ids, even while its agent can't
+	// be reached.
+	s.claimLocal(local, serverList("yyyyyyyyyy", "localsrvab", "../etc"))
+	if owner("yyyyyyyyyy") != local.ID || owner("localsrvab") != local.ID {
+		t.Fatal("the dashboard's own machine takes its server ids")
 	}
-	if got := ids(s.claimServers(alpha, serverList("xxxxxxxxxx", "yyyyyyyyyy"), map[string]bool{"yyyyyyyyyy": true})); got != "xxxxxxxxxx" || owner("yyyyyyyyyy") != local.ID {
-		t.Fatalf("alpha can't take a local server: alpha shows %q", got)
+	if got := ids(s.claimServers(alpha, serverList("xxxxxxxxxx", "yyyyyyyyyy", "localsrvab"))); got != "xxxxxxxxxx" ||
+		owner("yyyyyyyyyy") != local.ID || owner("localsrvab") != local.ID {
+		t.Fatalf("alpha can't take the dashboard's servers: alpha shows %q", got)
+	}
+	s.claimLocal(local, serverList("yyyyyyyyyy"))
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE server_id IN ('localsrvab', '../etc')`).Scan(&n)
+	if n != 0 {
+		t.Fatal("a server the dashboard's machine no longer lists is forgotten")
 	}
 
 	// Statuses are kept for when a machine is away, at most every 30 s.
 	stopped := []map[string]any{{"id": "xxxxxxxxxx", "name": "x", "phase": "stopped"}}
 	e.clock.add(10 * time.Second)
-	s.claimServers(alpha, stopped, nil)
+	s.claimServers(alpha, stopped)
 	if last := s.lastKnownServers(alpha); len(last) != 1 || last[0]["phase"] != "online" || !lastKnownAt(last[0]).Equal(e.clock.now().Add(-10*time.Second)) {
 		t.Fatalf("within 30 s: %v", last)
 	}
 	e.clock.add(25 * time.Second)
-	s.claimServers(alpha, stopped, nil)
+	s.claimServers(alpha, stopped)
 	if last := s.lastKnownServers(alpha); len(last) != 1 || last[0]["phase"] != "stopped" || !lastKnownAt(last[0]).Equal(e.clock.now()) {
 		t.Fatalf("after 30 s: %v", last)
 	}
 
-	s.claimServers(alpha, nil, nil)
+	s.claimServers(alpha, nil)
 	if owner("xxxxxxxxxx") != local.ID || len(s.lastKnownServers(alpha)) != 0 {
 		t.Fatal("a server alpha no longer lists is forgotten")
 	}
 	s.claimCreated(alpha, []byte(`{"id":"0123456789abcdef","serverId":"newsrvabcd"}`))
-	s.claimCreated(local, []byte(`{"serverId":"localsrvab"}`))
+	s.claimCreated(alpha, []byte(`{"serverId":"yyyyyyyyyy"}`))
 	s.claimCreated(alpha, []byte(`{"serverId":"../etc"}`))
-	if owner("newsrvabcd") != alpha.ID {
-		t.Fatal("a server made on alpha goes to alpha")
+	s.claimCreated(local, []byte(`{"serverId":"newlocalab"}`))
+	if owner("newsrvabcd") != alpha.ID || owner("yyyyyyyyyy") != local.ID {
+		t.Fatal("a server made on alpha goes to alpha, and only if no machine has its id")
 	}
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE server_id IN ('localsrvab', '../etc')`).Scan(&n)
-	if n != 0 {
-		t.Fatal("only joined machines' servers are recorded")
+	var mid string
+	s.db.QueryRow(`SELECT machine_id FROM server_machines WHERE server_id = 'newlocalab'`).Scan(&mid)
+	s.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE server_id = '../etc'`).Scan(&n)
+	if mid != local.ID || n != 0 {
+		t.Fatalf("a server made on the dashboard's machine is kept as its: %q, odd ids %d", mid, n)
+	}
+
+	// Removing a machine ends its disputes and forgets its servers.
+	s.claimServers(beta, serverList("newsrvabcd", "zzzzzzzzzz"))
+	if owner("newsrvabcd") != "disputed" {
+		t.Fatal("beta disputes alpha's new server")
+	}
+	s.onMachineEvent(machinelink.Event{Kind: machinelink.EventRemoved, MachineID: beta.ID, Name: "beta", Actor: "admin", At: e.clock.now()})
+	if owner("newsrvabcd") != alpha.ID || owner("zzzzzzzzzz") != local.ID {
+		t.Fatal("a removed machine's servers and disputes are gone")
 	}
 }
 
@@ -537,7 +592,7 @@ func TestAnOfflineMachineShowsItsLastKnownServers(t *testing.T) {
 	cookie, csrf := e.setup(t)
 	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
 	alpha := e.addRemote(t, "alphaalpha", "alpha")
-	e.srv.claimServers(alpha, serverList("xxxxxxxxxx"), nil)
+	e.srv.claimServers(alpha, serverList("xxxxxxxxxx"))
 	var list []map[string]any
 	if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk xxxxxxxxxx" || list[1]["machineId"] != alpha.ID || list[1]["lastKnownAt"] == nil {
 		t.Fatalf("servers: %d %v", r, list)

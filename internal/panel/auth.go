@@ -85,7 +85,8 @@ CREATE TABLE player_heads (
 `,
 	// Machines that joined over a machine link (kind 'remote'), their join
 	// codes (a keyed hash only, never the code), what happened to each, and
-	// which machine runs each server with its last known status.
+	// which machine runs each server with its last known status and the
+	// joined machine that also lists it, if any.
 	`
 ALTER TABLE machines ADD COLUMN public_key BLOB;
 ALTER TABLE machines ADD COLUMN joined_from TEXT NOT NULL DEFAULT '';
@@ -118,10 +119,11 @@ CREATE TABLE machine_events (
 );
 CREATE INDEX machine_events_machine ON machine_events(machine_id, id);
 CREATE TABLE server_machines (
-  server_id  TEXT PRIMARY KEY,
-  machine_id TEXT NOT NULL,
-  status     TEXT NOT NULL DEFAULT '',
-  seen_at    INTEGER NOT NULL DEFAULT 0
+  server_id   TEXT PRIMARY KEY,
+  machine_id  TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT '',
+  seen_at     INTEGER NOT NULL DEFAULT 0,
+  disputed_by TEXT NOT NULL DEFAULT ''
 );
 `,
 }

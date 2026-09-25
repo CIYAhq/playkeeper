@@ -116,6 +116,9 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE machine_id = ?`, e.MachineID); err != nil {
 			s.log.Error("forget a removed machine's servers", "err", err)
 		}
+		if _, err := s.db.Exec(`UPDATE server_machines SET disputed_by = '' WHERE disputed_by = ?`, e.MachineID); err != nil {
+			s.log.Error("forget a removed machine's servers", "err", err)
+		}
 	}
 }
 
@@ -487,17 +490,75 @@ func (s *Server) hJoinCodeCancel(w http.ResponseWriter, r *http.Request, sess *s
 }
 
 // --- which machine runs each server ---
+//
+// server_machines says which machine runs each server, and a server's
+// requests go only where it says: the panel never asks the machines. The
+// dashboard's own machine is trusted, so its list decides its rows and
+// takes ids over from joined machines. A joined machine gets the servers it
+// creates through the dashboard, and others from its lists, first come
+// first served. When a second joined machine lists a server that another
+// one has, the server is disputed and its requests go to neither until one
+// of them stops listing it or is removed: listing another machine's ids
+// can't redirect that machine's requests.
 
 // lastKnownAfter is how often a joined machine's server statuses are saved
 // for when it is away.
 const lastKnownAfter = 30 * time.Second
 
-// claimServers records which joined machine runs each server it lists and
-// keeps their statuses for when it is away. The local machine always keeps
-// its own server ids, and otherwise the first machine to report an id keeps
-// it, so a machine can't take over another's servers. It returns the
-// servers this machine may show.
-func (s *Server) claimServers(m machine, servers []map[string]any, local map[string]bool) []map[string]any {
+// errDisputed is a server two joined machines both list.
+var errDisputed = errors.New("two machines list this server")
+
+const codeServerDisputed = "server_disputed"
+
+// claimLocal records the servers the dashboard's own machine lists, taking
+// them over from joined machines, and forgets those it no longer lists. It
+// writes only what changed.
+func (s *Server) claimLocal(m machine, servers []map[string]any) {
+	rows, err := s.db.Query(`SELECT server_id FROM server_machines WHERE machine_id = ?`, m.ID)
+	if err != nil {
+		s.log.Error("record server machines", "err", err)
+		return
+	}
+	had := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			had[id] = true
+		}
+	}
+	rows.Close()
+	listed := map[string]bool{}
+	for _, sv := range servers {
+		if id, _ := sv["id"].(string); reMachineID.MatchString(id) {
+			listed[id] = true
+			if !had[id] {
+				s.takeServer(m, id)
+			}
+		}
+	}
+	for id := range had {
+		if listed[id] {
+			continue
+		}
+		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE server_id = ? AND machine_id = ?`, id, m.ID); err != nil {
+			s.log.Error("record server machines", "err", err)
+		}
+	}
+}
+
+// takeServer gives a server to the dashboard's own machine.
+func (s *Server) takeServer(m machine, id string) {
+	if _, err := s.db.Exec(`INSERT INTO server_machines(server_id, machine_id) VALUES(?, ?)
+		ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, status = '', seen_at = 0, disputed_by = ''`, id, m.ID); err != nil {
+		s.log.Error("record server machines", "err", err)
+	}
+}
+
+// claimServers records which of the servers a joined machine lists it runs,
+// keeping their statuses for when it is away, and returns those. Listing a
+// server another machine has disputes it (see above) and goes in the
+// machine's events.
+func (s *Server) claimServers(m machine, servers []map[string]any) []map[string]any {
 	now := s.now()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -506,18 +567,19 @@ func (s *Server) claimServers(m machine, servers []map[string]any, local map[str
 	}
 	defer tx.Rollback()
 	var out []map[string]any
-	var ids []any
+	var runs, disputes []any
+	var disputed []string
 	for _, sv := range servers {
 		id, _ := sv["id"].(string)
-		if !reMachineID.MatchString(id) || local[id] {
+		if !reMachineID.MatchString(id) {
 			continue
 		}
 		b, err := json.Marshal(sv)
 		if err != nil {
 			continue
 		}
-		var owner string
-		switch err := tx.QueryRow(`SELECT machine_id FROM server_machines WHERE server_id = ?`, id).Scan(&owner); {
+		var owner, disputedBy string
+		switch err := tx.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, id).Scan(&owner, &disputedBy); {
 		case isNoRows(err):
 			_, err = tx.Exec(`INSERT INTO server_machines(server_id, machine_id, status, seen_at) VALUES(?,?,?,?)`, id, m.ID, string(b), millis(now))
 			if err != nil {
@@ -528,19 +590,34 @@ func (s *Server) claimServers(m machine, servers []map[string]any, local map[str
 			s.log.Error("record server machines", "err", err)
 			return nil
 		case owner != m.ID:
-			s.log.Warn("a machine lists a server another machine runs; ignoring it", "machine", m.ID, "server", id, "runs on", owner)
+			disputes = append(disputes, id)
+			if disputedBy != m.ID {
+				if _, err := tx.Exec(`UPDATE server_machines SET disputed_by = ? WHERE server_id = ?`, m.ID, id); err != nil {
+					s.log.Error("record server machines", "err", err)
+					return nil
+				}
+				disputed = append(disputed, id)
+				s.log.Warn("a machine lists a server another machine runs", "machine", m.ID, "server", id, "runs on", owner)
+			}
 			continue
 		default:
-			_, _ = tx.Exec(`UPDATE server_machines SET status = ?, seen_at = ? WHERE server_id = ? AND (seen_at < ? OR status = '')`, string(b), millis(now), id, millis(now.Add(-lastKnownAfter)))
+			_, err = tx.Exec(`UPDATE server_machines SET status = ?, seen_at = ? WHERE server_id = ? AND (seen_at < ? OR status = '')`, string(b), millis(now), id, millis(now.Add(-lastKnownAfter)))
+			if err != nil {
+				s.log.Error("record server machines", "err", err)
+				return nil
+			}
+			if disputedBy != "" {
+				sv["disputed"] = true
+			}
 		}
-		ids = append(ids, id)
+		runs = append(runs, id)
 		out = append(out, sv)
 	}
-	q := `DELETE FROM server_machines WHERE machine_id = ?`
-	if len(ids) > 0 {
-		q += ` AND server_id NOT IN (?` + strings.Repeat(",?", len(ids)-1) + `)`
+	if _, err := tx.Exec(`DELETE FROM server_machines WHERE machine_id = ?`+notIn("server_id", len(runs)), append([]any{m.ID}, runs...)...); err != nil {
+		s.log.Error("record server machines", "err", err)
+		return nil
 	}
-	if _, err := tx.Exec(q, append([]any{m.ID}, ids...)...); err != nil {
+	if _, err := tx.Exec(`UPDATE server_machines SET disputed_by = '' WHERE disputed_by = ?`+notIn("server_id", len(disputes)), append([]any{m.ID}, disputes...)...); err != nil {
 		s.log.Error("record server machines", "err", err)
 		return nil
 	}
@@ -548,31 +625,33 @@ func (s *Server) claimServers(m machine, servers []map[string]any, local map[str
 		s.log.Error("record server machines", "err", err)
 		return nil
 	}
+	for _, id := range disputed {
+		s.machineEvent(m.ID, now, "machine.server_disputed", "", "", id)
+	}
 	return out
 }
 
-// releaseLocal drops joined machines' claims on ids the local machine runs.
-func (s *Server) releaseLocal(local map[string]bool) {
-	for id := range local {
-		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE server_id = ?`, id); err != nil {
-			s.log.Error("record server machines", "err", err)
-		}
+// notIn is " AND column NOT IN (?, ...)" for n values, or "" for none.
+func notIn(column string, n int) string {
+	if n == 0 {
+		return ""
 	}
+	return " AND " + column + " NOT IN (?" + strings.Repeat(",?", n-1) + ")"
 }
 
 // lastKnownServers are a machine's servers as it last listed them, each
 // with lastKnownAt, for while it can't be reached.
 func (s *Server) lastKnownServers(m machine) []map[string]any {
-	rows, err := s.db.Query(`SELECT status, seen_at FROM server_machines WHERE machine_id = ? ORDER BY server_id`, m.ID)
+	rows, err := s.db.Query(`SELECT status, seen_at, disputed_by FROM server_machines WHERE machine_id = ? ORDER BY server_id`, m.ID)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
-		var raw string
+		var raw, disputedBy string
 		var seen int64
-		if rows.Scan(&raw, &seen) != nil {
+		if rows.Scan(&raw, &seen, &disputedBy) != nil {
 			continue
 		}
 		var sv map[string]any
@@ -580,21 +659,26 @@ func (s *Server) lastKnownServers(m machine) []map[string]any {
 			continue
 		}
 		sv["lastKnownAt"] = fromMillis(seen)
+		if disputedBy != "" {
+			sv["disputed"] = true
+		}
 		out = append(out, sv)
 	}
 	return out
 }
 
 // claimCreated records the server a machine route created (a new server or
-// a restore into a new one), so its requests go to that machine at once.
+// a restore into a new one), so its requests go to that machine at once. A
+// joined machine only gets an id no machine has.
 func (s *Server) claimCreated(m machine, raw json.RawMessage) {
-	if m.Kind != remoteKind {
-		return
-	}
 	var op struct {
 		ServerID string `json:"serverId"`
 	}
 	if json.Unmarshal(raw, &op) != nil || !reMachineID.MatchString(op.ServerID) {
+		return
+	}
+	if m.Kind == localKind {
+		s.takeServer(m, op.ServerID)
 		return
 	}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO server_machines(server_id, machine_id, seen_at) VALUES(?,?,?)`, op.ServerID, m.ID, millis(s.now())); err != nil {

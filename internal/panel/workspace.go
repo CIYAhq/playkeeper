@@ -161,20 +161,24 @@ func (s *Server) machineByID(id string) (machine, error) {
 
 var errNotFound = errors.New("not found")
 
-// machineForServer finds the machine that runs a server from the index the
-// server lists keep (see claimServers): a joined machine that claimed it, or
-// else the local machine. It never asks the machines.
+// machineForServer finds the machine that runs a server in server_machines
+// (see claimServers), or the dashboard's own machine for a server no
+// machine has. A disputed server has none. It never asks the machines.
 func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
 	if err != nil || len(list) == 0 {
 		return machine{}, errNotFound
 	}
-	var owner string
-	if err := s.db.QueryRow(`SELECT machine_id FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner); err == nil {
+	var owner, disputedBy string
+	if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy); err == nil {
 		for _, m := range list {
-			if m.ID == owner {
-				return m, nil
+			if m.ID != owner {
+				continue
 			}
+			if disputedBy != "" && m.Kind != localKind {
+				return machine{}, errDisputed
+			}
+			return m, nil
 		}
 	}
 	for _, m := range list {
@@ -326,18 +330,10 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 		s.agentFailure(w, got[0].err)
 		return
 	}
-	local := map[string]bool{}
 	for i, m := range list {
 		if m.Kind == localKind && got[i].err == nil {
-			for _, sv := range got[i].servers {
-				if id, ok := sv["id"].(string); ok {
-					local[id] = true
-				}
-			}
+			s.claimLocal(m, got[i].servers)
 		}
-	}
-	if len(list) > 1 {
-		s.releaseLocal(local)
 	}
 	out := []map[string]any{}
 	for i, m := range list {
@@ -347,7 +343,7 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 		case got[i].err != nil:
 			servers = s.lastKnownServers(m)
 		default:
-			servers = s.claimServers(m, servers, local)
+			servers = s.claimServers(m, servers)
 		}
 		for _, sv := range servers {
 			sv["machineId"] = m.ID
