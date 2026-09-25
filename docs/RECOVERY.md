@@ -4,23 +4,23 @@ Use this when a server is lost, when you move to another VPS, or to go back to a
 
 ## 1. Get the archive off the old server
 
-- **Panel still works:** World → pick a verified backup → **Download**. Note the SHA-256 shown next to it.
-- **Panel does not work but you can SSH in:** archives are in `/var/lib/playkeeper/backups/`, each with a `.sha256` file next to it. Only root can read them, so log in as your normal user, list them with sudo and copy the one you want to your home directory (use the full file name; `*` does not work in a folder only root can read):
+- **Panel still works:** open the server's **World** tab → pick a verified backup → **Download**. Note its SHA-256 (the backup's **…** menu → **Copy checksum**).
+- **Panel does not work but you can SSH in:** archives are in `/var/lib/playkeeper/backups/`, each with a `.sha256` file next to it. Since 0.3.0 their names start with the server's name (`playkeeper-survival-…`); older ones start with the world's (`playkeeper-world-…`). Only root can read them, so log in as your normal user, list them with sudo and copy the one you want to your home directory (use the full file name; `*` does not work in a folder only root can read):
 
   ```bash
   sudo ls -l /var/lib/playkeeper/backups/
-  B=/var/lib/playkeeper/backups/playkeeper-world-20260924-183128-0eaf9f.tar.gz   # the name from the list
+  B=/var/lib/playkeeper/backups/playkeeper-survival-20260924-183128-0eaf9f.tar.gz   # the name from the list
   sudo install -m 600 -o "$USER" "$B" "$B.sha256" ~/
   ```
 
   Then, on the computer you copy it to:
 
   ```bash
-  scp YOU@OLD-SERVER:'playkeeper-world-20260924-183128-0eaf9f.tar.gz*' .
-  sha256sum -c playkeeper-world-20260924-183128-0eaf9f.tar.gz.sha256
+  scp YOU@OLD-SERVER:'playkeeper-survival-20260924-183128-0eaf9f.tar.gz*' .
+  sha256sum -c playkeeper-survival-20260924-183128-0eaf9f.tar.gz.sha256
   ```
 
-  Afterwards delete the copies in your home directory on the old server (`rm ~/playkeeper-world-*.tar.gz*`).
+  Afterwards delete the copies in your home directory on the old server (`rm ~/playkeeper-*.tar.gz*`).
 
 - **Server and disk are gone:** only copies you downloaded earlier can help. Archives kept on the server itself are not disaster recovery.
 
@@ -30,13 +30,13 @@ Follow the install steps in the [README](../README.md#install-on-your-vps). Open
 
 ## 3. Restore in the browser
 
-1. **Check server** → Continue. **Minecraft EULA** → tick the box → Continue.
-2. **Your server** → choose **Restore a backup** → pick the `.tar.gz` file → **Upload and check**. Every file is checked against its SHA-256 before anything changes; a damaged or foreign file is refused with the reason.
-3. Read the preview: world name, Minecraft/Paper version, size, what will happen, and what is not included. Compare the archive SHA-256 with the one from step 1.
-4. Press **Restore this world**. Playkeeper downloads Paper for the backup's Minecraft version from PaperMC (the newest stable build, never an older build than the backup was made with), checks it against the SHA-256 PaperMC publishes and starts the server, so the new server needs outbound HTTPS to Docker Hub, PaperMC and Mojang while it restores.
-5. When **Your server is ready** appears, give players the new join address. They are still on the allowlist from the backup.
+1. After **Checking this VPS**, choose **Skip for now** instead of creating a server.
+2. On Home, open **New server** → **Restore it as a new server** → pick the `.tar.gz` file. Every file is checked against its SHA-256 before anything changes; a damaged or foreign file is refused with the reason.
+3. Read the preview: world name, Minecraft/Paper version, size, what will happen, and what is not included. Compare the archive's SHA-256 with the one from step 1. Name the server and accept the Minecraft EULA.
+4. Press **Restore as a new server**. Playkeeper downloads Paper for the backup's Minecraft version from PaperMC (the newest stable build, never an older build than the backup was made with), checks it against the SHA-256 PaperMC publishes and starts the server, so the new server needs outbound HTTPS to Docker Hub, PaperMC and Mojang while it restores.
+5. When the server shows **Online**, give players the new join address. They are still on the allowlist from the backup.
 
-To restore over an existing world instead (World → **Restore…** or upload a file there), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
+To restore over an existing world instead (the server's **World** tab → a backup's **…** menu → **Restore this backup…**, or drop a file under **Restore a world**), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
 
 ## What is not restored
 
@@ -49,7 +49,7 @@ Worlds, `server.properties` (without secrets), the allowlist, operators, bans an
 
 ## A Playkeeper update went wrong
 
-An update from the dashboard, and the one-line upgrade from 0.1.0, put the previous version back by themselves when the new one is not healthy within two minutes. The Minecraft server keeps running throughout. You only need this section when putting the previous version back also failed: the dashboard says so, or it does not load at all after an update.
+An update from the dashboard, and the one-line upgrade from 0.1.0, put the previous version back by themselves when the new one is not healthy within two minutes. The Minecraft servers keep running throughout. You only need this section when putting the previous version back also failed: the dashboard says so, or it does not load at all after an update.
 
 1. See what is installed and what the updater did:
 
@@ -85,4 +85,4 @@ An update from the dashboard, and the one-line upgrade from 0.1.0, put the previ
 
 3. `playkeeper version` shows the previous version again and the dashboard loads. Your worlds and backups were never part of the update.
 
-If a Minecraft version change goes wrong instead, Playkeeper puts back the backup it took first ("Automatic backup before updating from Paper …"). If that also failed, restore that backup from the World page.
+If a Minecraft version change goes wrong instead, Playkeeper puts back the backup it took first ("Automatic backup before updating from Paper …"). If that also failed, restore that backup from the server's World tab.

@@ -53,16 +53,18 @@ func (a *Agent) Preflight(ctx context.Context) api.Preflight {
 	} else {
 		checks = append(checks, diskCheck(free))
 	}
-	ours := false
+	port := a.cfg.GamePort
+	ours := ""
 	if dockerOK {
-		if c, err := a.docker.ContainerInspect(ctx, containerName); err == nil && c.State.Running {
-			ours = true
+		for _, s := range a.serverList() {
+			if _, running, _ := s.containerRunning(ctx); running && s.gamePort == port {
+				ours = s.name()
+			}
 		}
 	}
-	port := a.cfg.GamePort
 	switch {
-	case ours:
-		add("port", "Game port", "pass", fmt.Sprintf("Port %d is used by your Playkeeper server.", port), "")
+	case ours != "":
+		add("port", "Game port", "pass", fmt.Sprintf("Port %d is used by your Playkeeper server %s.", port, ours), "")
 	case a.opts.PortInUse(port):
 		add("port", "Game port", "fail", fmt.Sprintf("Port %d is already used by another program.", port),
 			fmt.Sprintf("Find it with: sudo ss -ltnp 'sport = :%d' — stop it, or reinstall Playkeeper with a different --game-port.", port))
