@@ -495,7 +495,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.45fr_1fr]">
-      <Card className="p-6">
+      <Card className="min-w-0 p-6">
         <div className="flex items-start gap-5">
           <Pip pose="hurt" size={72} />
           <div className="min-w-0 pt-2">
