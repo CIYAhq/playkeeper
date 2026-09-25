@@ -470,8 +470,8 @@ func (a *Agent) hDiscordTest(w http.ResponseWriter, r *http.Request) {
 }
 
 // hDiscordNotify takes the alerts the panel knows about first: join
-// requests from invite links, and team members turning two-factor sign-in
-// on or off.
+// requests from invite links, team members turning two-factor sign-in on or
+// off, and admins confirming a member's Admin rights.
 func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 	var req api.DiscordNotifyRequest
 	if err := decode(r, &req); err != nil {
@@ -494,8 +494,18 @@ func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
+	case api.DiscordAdminConfirmed:
+		if invites.ValidUsername(req.Member) != nil || invites.ValidUsername(req.Actor) != nil {
+			writeError(w, errInvalid("Usernames are 3–32 letters, numbers, dots, dashes or underscores."))
+			return
+		}
+		if a.discordConnected() {
+			a.disc.n.Notify(discord.AdminConfirmed(req.Member, req.Actor))
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
 	default:
-		writeError(w, errInvalid("Only join requests and two-factor changes can be reported."))
+		writeError(w, errInvalid("Only join requests, two-factor changes and Admin confirmations can be reported."))
 		return
 	}
 	if !minecraft.ValidPlayerName(req.Player) {

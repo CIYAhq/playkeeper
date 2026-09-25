@@ -356,6 +356,8 @@ func TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff(t *testing.T) {
 		{map[string]any{"kind": "two_factor_changed", "member": "@everyone", "on": true, "admin": true, "actor": "panel"}, 400},
 		{map[string]any{"kind": "two_factor_changed", "member": "mara", "on": true, "admin": true}, 400},
 		{map[string]any{"kind": "two_factor", "member": "mara", "on": true, "admin": true, "actor": "panel"}, 400},
+		{map[string]any{"kind": "admin_confirmed", "member": "@everyone", "actor": "juno"}, 400},
+		{map[string]any{"kind": "admin_confirmed", "member": "mara", "actor": "invite:abc"}, 400},
 	} {
 		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != c.status {
 			t.Errorf("%v: %d %v", c.body, code, out)
@@ -368,6 +370,10 @@ func TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff(t *testing.T) {
 	if n := len(f.messages("Two-factor sign-in")); n != 1 {
 		t.Fatalf("%d messages for one change", n)
 	}
+	if code, out := e.call("POST", "/v1/discord/notify", map[string]any{"kind": "admin_confirmed", "member": "mara", "actor": "juno"}); code != 204 {
+		t.Fatalf("confirmation: %d %v", code, out)
+	}
+	f.waitMessage(e, "Admin rights confirmed", "**juno** gave **mara** Admin rights")
 }
 
 func TestDiscordTestEndpointMustBeOnThisMachine(t *testing.T) {

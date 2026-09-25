@@ -737,8 +737,9 @@ type DiscordSettingsRequest struct {
 }
 
 // DiscordNotifyRequest is an alert the panel reports: a join request
-// (ServerID and Player), or a team member turning two-factor sign-in on or
-// off (Member, On, and Admin for an admin).
+// (ServerID and Player), a team member turning two-factor sign-in on or
+// off (Member, On, and Admin for an admin), or an admin other than the
+// owner (Actor) confirming Member's Admin rights.
 type DiscordNotifyRequest struct {
 	Kind     string `json:"kind"`
 	ServerID string `json:"serverId,omitempty"`
@@ -753,6 +754,7 @@ type DiscordNotifyRequest struct {
 const (
 	DiscordJoinRequested    = "join_requested"
 	DiscordTwoFactorChanged = "two_factor_changed"
+	DiscordAdminConfirmed   = "admin_confirmed"
 )
 
 // CodeAdminUnconfirmed refuses an admin action to an admin who turned on

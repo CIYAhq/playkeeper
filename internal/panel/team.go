@@ -357,7 +357,8 @@ func canConfirm(a, t access) error {
 
 // hTeamConfirmAdmin confirms an admin's rights with one click, once they
 // have turned on two-factor sign-in. It confirms that very setup: turned
-// off and on again, it needs confirming again.
+// off and on again, it needs confirming again. When an admin confirms, the
+// owner hears about it on Discord.
 func (s *Server) hTeamConfirmAdmin(w http.ResponseWriter, r *http.Request, sess *session) {
 	t, ok := s.teamMemberTarget(w, r, sess)
 	if !ok {
@@ -378,6 +379,9 @@ func (s *Server) hTeamConfirmAdmin(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.audit(sess.User.Username, "team.confirm_admin", t.Name, "succeeded", "")
+	if !sess.Access.owner() {
+		s.notifyTeam(api.DiscordNotifyRequest{Kind: api.DiscordAdminConfirmed, Member: t.Name, Actor: sess.User.Username})
+	}
 	s.answerMember(w, r, sess, t.UserID)
 }
 

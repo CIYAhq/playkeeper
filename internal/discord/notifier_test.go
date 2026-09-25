@@ -536,6 +536,7 @@ func TestTwoFactorChangesArePostedWhateverTheSwitches(t *testing.T) {
 	h.Notify(TwoFactorChanged("mara", false, true))
 	h.Notify(TwoFactorChanged("tobi_k", true, false))
 	h.Notify(TwoFactorChanged("tobi_k", false, false))
+	h.Notify(AdminConfirmed("mara", "juno"))
 	h.Notify(PlayerJoined("Steve"))
 	h.sendDue()
 	var got []string
@@ -549,12 +550,15 @@ func TestTwoFactorChangesArePostedWhateverTheSwitches(t *testing.T) {
 		"Two-factor sign-in turned off: **mara** turned off two-factor sign-in. They have Moderator rights until it's back on and confirmed.",
 		`Two-factor sign-in turned on: **tobi\_k** turned on two-factor sign-in.`,
 		`Two-factor sign-in turned off: **tobi\_k** turned off two-factor sign-in.`,
+		"Admin rights confirmed: **juno** gave **mara** Admin rights after they turned on two-factor sign-in.",
 	}
 	if !slices.Equal(got, want) {
-		t.Errorf("with every switch off, only the two-factor changes go out, each one:\n%q\nwant\n%q", got, want)
+		t.Errorf("with every switch off, only the two-factor changes and confirmations go out, each one:\n%q\nwant\n%q", got, want)
 	}
-	if KindTwoFactor.Valid() || ParseAlerts(string(KindTwoFactor)).Has(KindTwoFactor) {
-		t.Error("two-factor changes must not be a switch anyone can turn off")
+	for _, k := range []Kind{KindTwoFactor, KindAdminConfirmed} {
+		if k.Valid() || ParseAlerts(string(k)).Has(k) {
+			t.Errorf("%s must not be a switch anyone can turn off", k)
+		}
 	}
 }
 

@@ -27,6 +27,10 @@ const (
 	// It changes who can run the dashboard, so it is always posted and
 	// never one of the switches.
 	KindTwoFactor Kind = "two_factor"
+	// KindAdminConfirmed is an admin other than the owner confirming a team
+	// member's Admin rights. It is always posted too, so the owner hears of
+	// every new admin.
+	KindAdminConfirmed Kind = "admin_confirmed"
 )
 
 // kindInfo is what Playkeeper knows about each kind, in the order the
@@ -75,7 +79,7 @@ func (k Kind) DefaultOn() bool {
 
 // always reports whether alerts of kind k are posted whatever the switches
 // say.
-func (k Kind) always() bool { return k == KindTwoFactor }
+func (k Kind) always() bool { return k == KindTwoFactor || k == KindAdminConfirmed }
 
 func (k Kind) quiet() time.Duration {
 	if k.always() {
@@ -161,10 +165,12 @@ type Event struct {
 	// Version is the Playkeeper version that is available.
 	Version string
 	// Member is the team member who turned two-factor sign-in on or off;
-	// On says which, and Admin whether they are an admin.
+	// On says which, and Admin whether they are an admin. For a
+	// confirmation, By is the admin who confirmed Member's Admin rights.
 	Member string
 	On     bool
 	Admin  bool
+	By     string
 	// Server is the server the event is about, for a Notifier that posts
 	// about several; zero means the Notifier's own server.
 	Server ServerInfo
@@ -220,6 +226,12 @@ func TwoFactorChanged(member string, on, admin bool) Event {
 	return Event{Kind: KindTwoFactor, Member: member, On: on, Admin: admin}
 }
 
+// AdminConfirmed is the admin by, who isn't the owner, confirming member's
+// Admin rights after member turned on two-factor sign-in.
+func AdminConfirmed(member, by string) Event {
+	return Event{Kind: KindAdminConfirmed, Member: member, By: by}
+}
+
 // subject is what the quiet period of an alert applies to: its kind, plus
 // the player or version it is about. A crash after which Playkeeper gives up
 // has its own subject, so it is never swallowed by earlier crash alerts.
@@ -237,7 +249,7 @@ func (e Event) subjectInServer() string {
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))
 	case KindUpdateAvailable:
 		return string(e.Kind) + ":" + oneLine(e.Version)
-	case KindTwoFactor:
+	case KindTwoFactor, KindAdminConfirmed:
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Member))
 	case KindCrash:
 		if !e.Restarting {
@@ -308,6 +320,8 @@ func (e Event) embed(info ServerInfo) embed {
 		default:
 			title, text = "Two-factor sign-in turned off", who+" turned off two-factor sign-in."
 		}
+	case KindAdminConfirmed:
+		title, text = "Admin rights confirmed", member(e.By)+" gave "+member(e.Member)+" Admin rights after they turned on two-factor sign-in."
 	default:
 		title, text = "Server alert", name+"."
 	}

@@ -139,6 +139,20 @@ func (e *env) agentBody(key string) string {
 	return ""
 }
 
+// agentBodies are the bodies of every request the agent saw for key, oldest
+// first.
+func (e *env) agentBodies(key string) []string {
+	e.agent.mu.Lock()
+	defer e.agent.mu.Unlock()
+	var out []string
+	for i, h := range e.agent.hits {
+		if h == key {
+			out = append(out, e.agent.bodies[i])
+		}
+	}
+	return out
+}
+
 // waitForHit waits for a request the panel sends in the background.
 func (e *env) waitForHit(t *testing.T, key string) string {
 	t.Helper()
@@ -570,6 +584,24 @@ func TestAdminRightsWaitForConfirmation(t *testing.T) {
 	fay := addAdmin(t, e, "fay", "*")
 	if r := e.do(t, "POST", mara.path()+"/confirm-admin", `{}`, fay.auth()); r.status != 200 {
 		t.Fatalf("an admin of every server confirms: %d %v", r.status, r.body)
+	}
+	// The owner hears on Discord when an admin confirms someone, and not
+	// about their own confirmations.
+	var confirmed []string
+	for range 200 {
+		confirmed = confirmed[:0]
+		for _, b := range e.agentBodies("POST /v1/discord/notify") {
+			if strings.Contains(b, `"kind":"admin_confirmed"`) {
+				confirmed = append(confirmed, b)
+			}
+		}
+		if len(confirmed) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(confirmed) != 1 || !strings.Contains(confirmed[0], `"member":"mara"`) || !strings.Contains(confirmed[0], `"actor":"fay"`) {
+		t.Fatalf("Discord hears of the admin's confirmation only: %v", confirmed)
 	}
 
 	// Making someone an admin is the owner's decision, so it confirms the
