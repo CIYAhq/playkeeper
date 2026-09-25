@@ -136,14 +136,17 @@ func opName(op string) string {
 	return "The request"
 }
 
-func permissionWhat(op string) string {
-	switch op {
-	case opUpload:
+// permissionWhat is what request r needed permission to do.
+func (c *Client) permissionWhat(r *http.Request) string {
+	switch {
+	case r == nil:
+		return "use this bucket"
+	case r.Method == http.MethodPut || r.Method == http.MethodPost:
 		return "write files to this bucket"
-	case opList:
-		return "list the files in this bucket"
-	case opDelete, opAbort:
+	case r.Method == http.MethodDelete:
 		return "delete files in this bucket"
+	case r.URL.Path == c.url("", nil).Path:
+		return "list the files in this bucket"
 	}
 	return "read files in this bucket"
 }
@@ -191,9 +194,9 @@ func (c *Client) clean(s string) string {
 	return s
 }
 
-// responseError turns a failed response into an Error. sent is when the
-// request was signed, to tell how far off the clock is.
-func (c *Client) responseError(op, name string, status int, h http.Header, body []byte, sent time.Time) *Error {
+// responseError turns a failed response to r into an Error. sent is when
+// the request was signed, to tell how far off the clock is.
+func (c *Client) responseError(op, name string, r *http.Request, status int, h http.Header, body []byte, sent time.Time) *Error {
 	se, _ := parseS3Error(body)
 	e := &Error{Op: op, Name: name, Status: status, Code: se.Code, svcMsg: strings.ToLower(se.Message)}
 	region := se.Region
@@ -263,10 +266,10 @@ func (c *Client) responseError(op, name string, status int, h http.Header, body 
 		e.Hint = "Check the account's billing and status at the storage service."
 	case code == "AccessDenied" || status == http.StatusForbidden || status == http.StatusUnauthorized:
 		e.Kind = KindPermission
-		e.Msg = "The access key isn't allowed to " + permissionWhat(op) + "."
+		e.Msg = "The access key isn't allowed to " + c.permissionWhat(r) + "."
 		e.Hint = permissionHint
 		if code == "" {
-			e.Msg = "The storage service refused access: the keys are wrong, or the access key isn't allowed to " + permissionWhat(op) + "."
+			e.Msg = "The storage service refused access: the keys are wrong, or the access key isn't allowed to " + c.permissionWhat(r) + "."
 			e.Hint = "Check the access key ID and secret. " + permissionHint
 		}
 	case code == "SlowDown" || code == "Throttling" || code == "ThrottlingException" || code == "TooManyRequests" ||

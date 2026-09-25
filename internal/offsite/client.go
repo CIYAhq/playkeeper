@@ -241,7 +241,7 @@ func (c *Client) attempt(ctx context.Context, cl call, handle func(*http.Respons
 	resp.Body = &watchedBody{ReadCloser: resp.Body, t: timer, d: c.stall}
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-		e := c.responseError(cl.op, cl.name, resp.StatusCode, resp.Header, body, sent)
+		e := c.responseError(cl.op, cl.name, req, resp.StatusCode, resp.Header, body, sent)
 		e.wait = retryAfter(resp.Header)
 		return resp, e
 	}
@@ -316,7 +316,7 @@ func (c *Client) readXML(op, name string, r *http.Response, v any) error {
 	}
 	body = bytes.TrimLeft(body, " \t\r\n")
 	if _, ok := parseS3Error(body); ok {
-		return c.responseError(op, name, r.StatusCode, r.Header, body, time.Time{})
+		return c.responseError(op, name, r.Request, r.StatusCode, r.Header, body, time.Time{})
 	}
 	if err := xml.Unmarshal(body, v); err != nil {
 		return unexpected(op, name, "The storage service sent an answer Playkeeper doesn't understand.")
