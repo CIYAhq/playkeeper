@@ -1,14 +1,17 @@
 # playkeeper.io
 
-This folder is the website at [playkeeper.io](https://playkeeper.io): one page with the install command, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
+This folder is the website at [playkeeper.io](https://playkeeper.io): a page with the install command and a guide to how big a VPS to rent, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
 
 | Path | Answer |
 | --- | --- |
 | `/` | the page (`index.html`, `style.css`, `copy.js`, `favicon.svg`) |
+| `/sizing` | the VPS sizing guide (`sizing.html`, `sizing-data.js`, `sizing.css`, `sizing-nojs.css`, `sizing.js`, `pip-wave.svg`, `playkeeper-mark.svg`); `/sizing/` redirects to it |
 | `/install` | `302` to the latest release's `get.sh` |
 | `/healthz` | `200` with `ok`, for health checks |
 
 `Dockerfile` builds the image (nginx, pinned by digest, on port 80) with a health check on `/healthz`. `nginx.conf` holds the redirect, the health path and the security headers. CI builds the image and checks those paths on every pull request with `scripts/site-check.sh`.
+
+`sizing.html` and `sizing-data.js` are generated: `make sizing` (`go run ./cmd/sizing-guide`) writes them from `sizing.html.tmpl` and the numbers in `internal/sizing`. Change those, not the generated files, then run it and commit the result; `make check` fails while they are out of date. The table works without JavaScript; the questions need it.
 
 ## Host it with Coolify
 
@@ -68,7 +71,7 @@ Then open `https://playkeeper.io` in a browser: you should see the install page.
 ## Updating
 
 - **A new Playkeeper release:** nothing to do. `/install` always points at the latest release.
-- **A change to this folder:** in Coolify, open the application and select **Deploy** again. An application added by repository URL is not redeployed on its own when `main` changes.
+- **A change to this folder:** in Coolify, open the application and select **Deploy** again. An application added by repository URL is not redeployed on its own when `main` changes. That includes new sizing numbers: they reach `/sizing` only with the next deploy.
 - **A new nginx version:** change the tag and the digest on the `FROM` line of `Dockerfile` (Docker Hub lists both for each `…-alpine-slim` tag), then check and redeploy.
 
 ## Try it on your computer
@@ -76,6 +79,6 @@ Then open `https://playkeeper.io` in a browser: you should see the install page.
 With Docker installed, from the repository root:
 
 ```bash
-scripts/site-check.sh                         # builds the image and checks /, /healthz, /install and the headers
+scripts/site-check.sh                         # builds the image and checks /, /sizing, /healthz, /install and the headers
 docker build -t playkeeper-site site && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080
 ```
