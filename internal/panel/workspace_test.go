@@ -186,11 +186,11 @@ func TestPlayerFacesComeFromTheirOwnSkin(t *testing.T) {
 		case "/users/profiles/minecraft/elsewhere":
 			io.WriteString(w, `{"id":"2123456789abcdef0123456789abcdef","name":"elsewhere"}`)
 		case "/session/minecraft/profile/0123456789abcdef0123456789abcdef":
-			io.WriteString(w, `{"properties":[{"name":"textures","value":"`+textures(skins.URL+"/texture/custom")+`"}]}`)
+			io.WriteString(w, `{"name":"mara_k","properties":[{"name":"textures","value":"`+textures(skins.URL+"/texture/custom")+`"}]}`)
 		case "/session/minecraft/profile/2123456789abcdef0123456789abcdef":
-			io.WriteString(w, `{"properties":[{"name":"textures","value":"`+textures("https://evil.example/texture/x")+`"}]}`)
+			io.WriteString(w, `{"name":"elsewhere","properties":[{"name":"textures","value":"`+textures("https://evil.example/texture/x")+`"}]}`)
 		case "/session/minecraft/profile/3123456789abcdef0123456789abcdef":
-			io.WriteString(w, `{"properties":[{"name":"textures","value":"`+textures(skins.URL+"/texture/5c500205248f3af53ea628f862ebf756fe8e7c9ec8afa4bd963fed1497f46ee1")+`"}]}`)
+			io.WriteString(w, `{"name":"somebody","properties":[{"name":"textures","value":"`+textures(skins.URL+"/texture/5c500205248f3af53ea628f862ebf756fe8e7c9ec8afa4bd963fed1497f46ee1")+`"}]}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -231,6 +231,13 @@ func TestPlayerFacesComeFromTheirOwnSkin(t *testing.T) {
 	}
 	if r := e.do(t, "GET", "/api/players/somebody/head?uuid=3123456789abcdef0123456789abcdef", "", auth(cookie, "")); r.status != http.StatusNotFound {
 		t.Errorf("a player on a default skin gets initials, not Mojang art: %d", r.status)
+	}
+	// Faces are cached by name: another player's UUID must not put their face under this name.
+	if r := e.do(t, "GET", "/api/players/Alice/head?uuid=0123456789abcdef0123456789abcdef", "", auth(cookie, "")); r.status != http.StatusNotFound {
+		t.Errorf("a UUID that isn't Alice's gives no face: %d", r.status)
+	}
+	if r := e.do(t, "GET", "/api/players/MARA_K/head?uuid=0123456789abcdef0123456789abcdef", "", auth(cookie, "")); r.status != http.StatusOK {
+		t.Errorf("a UUID matches its name in any case: %d", r.status)
 	}
 	if r := e.do(t, "GET", "/api/players/bad;name/head", "", auth(cookie, "")); r.status != http.StatusBadRequest {
 		t.Errorf("a bad name: %d", r.status)

@@ -174,7 +174,8 @@ func (f *headFetcher) fetch(name, uuid string) (string, []byte) {
 	defer func() { <-f.sem }()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if uuid == "" {
+	given := uuid != ""
+	if !given {
 		var p struct {
 			ID string `json:"id"`
 		}
@@ -190,6 +191,7 @@ func (f *headFetcher) fetch(name, uuid string) (string, []byte) {
 		return headUnknown, nil
 	}
 	var profile struct {
+		Name       string `json:"name"`
 		Properties []struct {
 			Name  string `json:"name"`
 			Value string `json:"value"`
@@ -199,6 +201,11 @@ func (f *headFetcher) fetch(name, uuid string) (string, []byte) {
 	case err != nil:
 		return headFailed, nil
 	case status == http.StatusNotFound || status == http.StatusNoContent:
+		return headUnknown, nil
+	}
+	// The face is cached under the name, so a UUID from the request only
+	// counts when it is that player's.
+	if given && !strings.EqualFold(profile.Name, name) {
 		return headUnknown, nil
 	}
 	skinURL := ""
