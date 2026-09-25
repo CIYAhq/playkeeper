@@ -49,6 +49,8 @@ type agentEnv struct {
 	// stagedVersion is what a downloaded binary reports.
 	updateKeys    []ed25519.PublicKey
 	stagedVersion string
+	// procStat, when set, replaces reading /proc/stat.
+	procStat func() ([]byte, error)
 	// sid is the server most helpers act on: the one create made last.
 	sid string
 	// live is the running agent, for the fake RCON's password check.
@@ -121,7 +123,7 @@ func (e *agentEnv) start() {
 		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
 		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
-		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
+		HostMemoryMB: func() int { return 4096 }, ProcStat: e.procStat, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {
 				return free, 100 << 30, nil
 			}

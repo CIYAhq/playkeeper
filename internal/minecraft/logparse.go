@@ -54,9 +54,6 @@ var (
 	reName      = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
 	reLogName   = regexp.MustCompile(`^[A-Za-z0-9_]{1,16}$`)
 	reListReply = regexp.MustCompile(`There are (\d+) of a max of (\d+) players online:?\s*(.*)$`)
-	reTPS       = regexp.MustCompile(`TPS from last 1m, 5m, 15m: \*?([0-9]+(?:\.[0-9]+)?)`)
-	reFormat    = regexp.MustCompile(`§[0-9a-fk-orx]`)
-	reBehind    = regexp.MustCompile(`Can't keep up! Is the server overloaded\? Running (\d+)ms or (\d+) ticks behind`)
 )
 
 // StripANSI removes terminal colour codes the container image emits.
@@ -139,15 +136,4 @@ func ParseList(reply string) (online, max int, names []string, ok bool) {
 		}
 	}
 	return online, max, names, true
-}
-
-// ParseTPS reads the last minute's ticks per second from Paper's `tps`
-// command (20 is full speed).
-func ParseTPS(reply string) (float64, bool) {
-	m := reTPS.FindStringSubmatch(reFormat.ReplaceAllString(StripANSI(reply), ""))
-	if m == nil {
-		return 0, false
-	}
-	v, err := strconv.ParseFloat(m[1], 64)
-	return v, err == nil
 }

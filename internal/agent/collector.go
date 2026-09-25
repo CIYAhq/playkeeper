@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/diagnose"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
@@ -394,6 +395,9 @@ func (s *server) measureWorld(now time.Time, level string) {
 	s.mu.Lock()
 	s.worldBytes, s.worldAt = total, now
 	s.mu.Unlock()
+	if n, ok := s.countChunks(level); ok {
+		s.recordChunks(now, n)
+	}
 }
 
 func (s *server) sampleLoop(ctx context.Context) {
@@ -417,6 +421,8 @@ type sampleRow struct {
 	mem      *int64
 	memLimit *int64
 	diskFree *int64
+	tps      *float64
+	mspt     *float64
 }
 
 func (s *server) sample(ctx context.Context) {
@@ -430,9 +436,11 @@ func (s *server) sample(ctx context.Context) {
 	sc, _ := s.serverConfig()
 	if sc != nil {
 		s.measureWorld(now, sc.LevelName)
+		s.readGCLog(now)
 	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	var snap *api.PlayerSnapshot
+	var ticks *diagnose.TickStats
 	reachable := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
@@ -474,10 +482,13 @@ func (s *server) sample(ctx context.Context) {
 					s.reconcileWithList(now, names)
 				}
 			}
-			if out, err := s.rconCommand("tps"); err == nil {
-				if tps, ok := minecraft.ParseTPS(out); ok {
-					res.TPS = &tps
+			if t, ok := s.readTicks(*sc); ok {
+				ticks = &t
+				row.tps = &t.TPS
+				if t.MSPT > 0 {
+					row.mspt = &t.MSPT
 				}
+				res.TPS, res.MSPT = row.tps, row.mspt
 			}
 			row.state = "online"
 		} else {
@@ -500,6 +511,17 @@ func (s *server) sample(ctx context.Context) {
 	if snap != nil && snap.Names == nil {
 		snap.Names = []string{}
 	}
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO samples(server_id, ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free, tps, mspt) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		s.id, now.UnixMilli(), row.state, row.online, row.max, row.cpu, row.mem, row.memLimit, row.diskFree, row.tps, row.mspt)
+	if err != nil {
+		s.log.Error("sample insert failed", "err", err)
+	}
+	// The diagnosis averages the stored samples, this one included.
+	if row.state == "online" {
+		res.Lag = string(s.updateLag(now, *sc, ticks, row.online).Status)
+	} else {
+		s.clearLag()
+	}
 	s.mu.Lock()
 	s.resources = res
 	s.players = snap
@@ -508,11 +530,6 @@ func (s *server) sample(ctx context.Context) {
 		s.reachableAt = now
 	}
 	s.mu.Unlock()
-	_, err = s.db.Exec(`INSERT OR REPLACE INTO samples(server_id, ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free) VALUES(?,?,?,?,?,?,?,?,?)`,
-		s.id, now.UnixMilli(), row.state, row.online, row.max, row.cpu, row.mem, row.memLimit, row.diskFree)
-	if err != nil {
-		s.log.Error("sample insert failed", "err", err)
-	}
 	s.setCollectingSince(now)
 }
 
@@ -643,6 +660,7 @@ func (a *Agent) prune() {
 		{`DELETE FROM sessions WHERE start_ts < ? AND end_ts IS NOT NULL`, []any{now.Add(-r.Events).UnixMilli()}},
 		{`DELETE FROM operations WHERE started_at < ? AND status != 'running'`, []any{now.Add(-r.Operations).UnixMilli()}},
 		{`DELETE FROM audit WHERE ts < ?`, []any{now.Add(-r.Audit).UnixMilli()}},
+		{`DELETE FROM gc_windows WHERE start < ?`, []any{now.Add(-gcKeep).UnixMilli()}},
 		{`DELETE FROM samples WHERE rowid NOT IN (SELECT rowid FROM samples ORDER BY ts DESC LIMIT ?)`, []any{r.MaxSamples}},
 		{`DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)`, []any{r.MaxEvents}},
 		{`DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT ?)`, []any{r.MaxAudit}},

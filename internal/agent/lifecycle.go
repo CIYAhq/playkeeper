@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -276,6 +277,13 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Cont
 	sum := sha256.Sum256(b)
 	hash := hex.EncodeToString(sum[:8])
 	cfg.Labels[labelSpec] = hash
+	if !setupOnly {
+		// The GC log stays out of the hash, so adding it never restarts a
+		// running server; startServer recreates a stopped container without
+		// it, so it applies from the server's next start.
+		cfg.Env = append(cfg.Env, "JVM_OPTS="+gcLogFlag)
+		cfg.Labels[labelGCLog] = gcLogVersion
+	}
 	return cfg, hash
 }
 
@@ -326,6 +334,17 @@ func (s *server) ensureDirs() error {
 		if err := os.Chown(data, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 			return err
 		}
+	}
+	// Java refuses to start when its GC log's folder is missing. The game
+	// owns data/, so whatever already stands at logs is left alone, and
+	// Lchown never follows a symlink swapped in after Mkdir.
+	logs := filepath.Join(data, "logs")
+	if err := os.Mkdir(logs, 0o750); err == nil && os.Geteuid() == 0 {
+		if err := os.Lchown(logs, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+			return err
+		}
+	} else if err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
 	}
 	return s.ensureRCONSecret()
 }
@@ -548,7 +567,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 		fallthrough
-	case err == nil && c.Config.Labels[labelSpec] != hash:
+	case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion):
 		if err := s.docker.ContainerRemove(ctx, c.ID, true); err != nil && !docker.IsNotFound(err) {
 			return s.dockerErr(err)
 		}

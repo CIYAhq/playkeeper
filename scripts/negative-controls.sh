@@ -138,6 +138,35 @@ control "the reconciler turns saving back on" internal/agent/backups.go \
   'due := !s.now().Before(s.nextResume)' \
   'due := false && !s.now().Before(s.nextResume)' \
   ./internal/agent '^TestReconcilerTurnsSavingBackOn$'
+control "the GC log flag stays out of the container definition's hash" internal/agent/lifecycle.go \
+  'b, _ := json.Marshal(cfg)' \
+  'cfg.Env = append(cfg.Env, "JVM_OPTS="+gcLogFlag)
+	b, _ := json.Marshal(cfg)' \
+  ./internal/agent '^TestMigratedServerKeepsItsExactContainerDefinition$'
+control "a running server never needs a restart for the GC log" internal/agent/handlers.go \
+  'st.PendingRestart = c.Config.Labels[labelSpec] != hash' \
+  'st.PendingRestart = c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion' \
+  ./internal/agent '^TestGCLogFlagAppliesFromTheNextStart$'
+control "a stopped server gets the GC log at its next start" internal/agent/lifecycle.go \
+  'case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion):' \
+  'case err == nil && c.Config.Labels[labelSpec] != hash:' \
+  ./internal/agent '^TestGCLogFlagAppliesFromTheNextStart$'
+control "a GC log line still being written is not read" internal/agent/running.go \
+  "end := bytes.LastIndexByte(buf, '\n')" \
+  'end := len(buf) - 1' \
+  ./internal/agent '^TestGCLogIsReadOnce$'
+control "the GC log cursor survives an agent restart" internal/agent/running.go \
+  'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), s.id)' \
+  'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), "")' \
+  ./internal/agent '^TestGCLogIsReadOnce$'
+control "reading game files never waits on a pipe" internal/agent/sys_linux.go \
+  'const gameReadFlags = os.O_RDONLY | syscall.O_NONBLOCK | syscall.O_NOCTTY' \
+  'const gameReadFlags = os.O_RDONLY | syscall.O_NOCTTY' \
+  ./internal/agent '^TestGCLogIsReadOnce$'
+control "chunk counts read region folders only" internal/agent/running.go \
+  'path.Base(path.Dir(p)) != "region"' \
+  'path.Base(path.Dir(p)) == ""' \
+  ./internal/agent '^TestNewChunksComeFromRegionFiles$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \

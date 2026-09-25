@@ -85,6 +85,7 @@ type server struct {
 	// nextResume is when the reconciler may try save-on again after it
 	// failed to turn saving back on.
 	nextResume time.Time
+	lag        lagState
 
 	// rconLock holds the console connection; a channel, so waiting for it
 	// honours a command's deadline.

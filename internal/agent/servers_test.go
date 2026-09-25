@@ -98,6 +98,7 @@ func TestSingleServerInstallMigratesWithoutRestarting(t *testing.T) {
 	// The running container, made by 0.2.0's definition.
 	legacy := &server{Agent: &Agent{cfg: e.cfg, opts: Options{StopTimeout: 5 * time.Second}}, layout: layoutV1, gamePort: e.cfg.GamePort}
 	spec, hash := legacy.containerSpec(sc, false)
+	spec = withoutGCLog(spec)
 	e.fd.mu.Lock()
 	e.fd.images[minecraft.Image] = true
 	e.fd.mu.Unlock()

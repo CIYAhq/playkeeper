@@ -56,10 +56,12 @@ type Options struct {
 	PingAddr        string
 	OfflineModeTest bool
 	HostMemoryMB    func() int
-	DiskUsage       func(path string) (free, total int64, err error)
-	CheckEgress     func(ctx context.Context) error
-	PortInUse       func(port int) bool
-	Retention       Retention
+	// ProcStat reads /proc/stat, for the machine's CPU use and steal.
+	ProcStat    func() ([]byte, error)
+	DiskUsage   func(path string) (free, total int64, err error)
+	CheckEgress func(ctx context.Context) error
+	PortInUse   func(port int) bool
+	Retention   Retention
 	// StopTimeout bounds a graceful server stop (default 90s).
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
@@ -139,7 +141,7 @@ type Agent struct {
 	dockerOK      bool
 	dockerVersion string
 	hostCPU       *float64
-	hostPrev      cpuTimes
+	hostTimes     []cpuSnapshot
 
 	allowed map[uint32]bool
 
@@ -162,6 +164,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.HostMemoryMB == nil {
 		opts.HostMemoryMB = hostMemoryMB
+	}
+	if opts.ProcStat == nil {
+		opts.ProcStat = func() ([]byte, error) { return os.ReadFile("/proc/stat") }
 	}
 	if opts.DiskUsage == nil {
 		opts.DiskUsage = diskUsage
@@ -514,6 +519,7 @@ func (a *Agent) routeTable() []Route {
 		{"DELETE", "/v1/servers/{id}/operators/{name}", srv((*server).hOperatorRemove)},
 		{"POST", "/v1/servers/{id}/kick", srv((*server).hKick)},
 		{"GET", "/v1/servers/{id}/metrics", srv((*server).hMetrics)},
+		{"GET", "/v1/servers/{id}/running", srv((*server).hRunning)},
 		{"GET", "/v1/servers/{id}/players/sessions", srv((*server).hSessions)},
 		{"GET", "/v1/servers/{id}/players/summary", srv((*server).hSummary)},
 		{"GET", "/v1/servers/{id}/events", srv((*server).hEvents)},

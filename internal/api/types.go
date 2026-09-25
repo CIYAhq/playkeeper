@@ -187,8 +187,13 @@ type PlayerSnapshot struct {
 type Resources struct {
 	CPUPercent *float64 `json:"cpuPercent,omitempty"`
 	// TPS is the server's ticks per second over the last minute (20 is full
-	// speed), from Paper's tps command.
-	TPS            *float64  `json:"tps,omitempty"`
+	// speed) and MSPT the milliseconds a tick took (50 fits 20 a second),
+	// from the tick commands its type and version understand.
+	TPS  *float64 `json:"tps,omitempty"`
+	MSPT *float64 `json:"mspt,omitempty"`
+	// Lag is the status of Running: smooth, a_bit_behind, lagging, frozen or
+	// unknown.
+	Lag            string    `json:"lag,omitempty"`
 	MemBytes       *int64    `json:"memBytes,omitempty"`
 	MemLimitBytes  *int64    `json:"memLimitBytes,omitempty"`
 	DiskFreeBytes  *int64    `json:"diskFreeBytes,omitempty"`
@@ -424,10 +429,58 @@ type MetricsBucket struct {
 	PlayersMax *int      `json:"playersMax"`
 	CPUAvg     *float64  `json:"cpuAvg"`
 	MemAvg     *int64    `json:"memAvg"`
+	TPSAvg     *float64  `json:"tpsAvg"`
+	MSPTAvg    *float64  `json:"msptAvg"`
 	// Coverage is the fraction of expected samples actually collected.
 	Coverage float64 `json:"coverage"`
 	// State is online, offline (server not running), or no_data (collector gap).
 	State string `json:"state"`
+}
+
+// DiagnosisEvidence is one observation a diagnosis rests on. Kind and Params
+// are for translation; Text is the English wording.
+type DiagnosisEvidence struct {
+	Kind   string         `json:"kind"`
+	Params map[string]any `json:"params,omitempty"`
+	Text   string         `json:"text"`
+}
+
+// DiagnosisAction is something the user can do about a finding; Params name
+// its target, such as the memory budget to switch to.
+type DiagnosisAction struct {
+	Kind        string         `json:"kind"`
+	Params      map[string]any `json:"params,omitempty"`
+	Title       string         `json:"title"`
+	Recommended bool           `json:"recommended,omitempty"`
+}
+
+// LagCause is one likely reason a server falls behind. Score (1–100) is how
+// strongly the evidence points at it.
+type LagCause struct {
+	Kind        string              `json:"kind"`
+	Params      map[string]any      `json:"params,omitempty"`
+	Score       int                 `json:"score"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Actions     []DiagnosisAction   `json:"actions"`
+}
+
+// Running is "How it's running": how the server ticked over the last
+// WindowMinutes and, when it fell behind, the likely causes, most likely
+// first.
+type Running struct {
+	Status        string              `json:"status"` // smooth | a_bit_behind | lagging | frozen | unknown
+	Params        map[string]any      `json:"params,omitempty"`
+	Title         string              `json:"title"`
+	Explanation   string              `json:"explanation"`
+	Evidence      []DiagnosisEvidence `json:"evidence"`
+	Causes        []LagCause          `json:"causes"`
+	WindowMinutes int                 `json:"windowMinutes"`
+	At            *time.Time          `json:"at,omitempty"`
+	// BehindSince is when the current stretch below full speed began.
+	BehindSince *time.Time `json:"behindSince,omitempty"`
+	Players     *int       `json:"players,omitempty"`
 }
 
 type Gap struct {
