@@ -318,6 +318,78 @@ control "a failed undo moves the restored world out of the stage" internal/agent
   'if restoredAt == st.data && renameDir(st.data, failedAt) == nil {' \
   'if false && restoredAt == st.data && renameDir(st.data, failedAt) == nil {' \
   ./internal/agent '^TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails$'
+control "a restore the agent stops in is not undone" internal/agent/backups.go \
+  'if err != nil && s.stopping() {' \
+  'if false && err != nil && s.stopping() {' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^stops_while'
+control "an undo the agent stops in is finished by the next start" internal/agent/backups.go \
+  'if s.stopping() {' \
+  'if false && s.stopping() {' \
+  ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$/^stops_while_the_previous_world_is_put_back$'
+control "the stage of a restore being finished is not pruned at start" internal/agent/backups.go \
+  'if a.resuming(dir) {' \
+  'if false && a.resuming(dir) {' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_after_the_swap$'
+control "the previous world's copy goes only once the restore is recorded as kept" internal/agent/backups.go \
+  'j.State = swapKept' \
+  'j.State = swapChecking' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_once_the_restore_is_kept$'
+control "a restored world still starting after a restart is kept only once online" internal/agent/backups.go \
+  'err = s.waitOnline(ctx, h)' \
+  'err = nil' \
+  ./internal/agent '^TestRestoredWorldThatDoesNotStartIsSwappedBackOut$/^after_the_agent_stops_while_the_restored_world_boots$'
+control "a restore finished after a restart saves the restored settings" internal/agent/backups.go \
+  'if err := s.saveServerConfig(j.Restored); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_after_the_swap$'
+control "a restored world that does not start is swapped back out" internal/agent/backups.go \
+  'return s.revertRestore(h, stageDir, j)' \
+  'return err' \
+  ./internal/agent '^TestRestoredWorldThatDoesNotStartIsSwappedBackOut$/^during_the_restore$'
+control "a 0.3.0 restore that saved its settings is finished" internal/agent/recovery.go \
+  'case hasLive && hasAside && !hasStaged && restored:' \
+  'case hasLive && hasAside && !hasStaged && false:' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_with_the_restored_settings_saved$'
+control "a 0.3.0 restore whose world was online is kept" internal/agent/recovery.go \
+  'case p.op.Phase == string(api.PhaseOnline) && hasLive && !hasStaged:' \
+  'case false:' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_while_deleting_the_previous_world.s_copy$'
+control "a 0.3.0 restore that moved the live world aside is undone" internal/agent/recovery.go \
+  'case !hasLive && hasAside:' \
+  'case false:' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_with_the_live_world_moved_aside$'
+control "a 0.3.0 restore counts as having saved its settings only if they are the backup's" internal/agent/recovery.go \
+  'sc.MOTD == validMOTDOr(m.Settings["motd"])' \
+  'true' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_with_the_restored_world_moved_in$'
+control "an undone 0.3.0 restore gets the settings from its rollback archive back" internal/agent/recovery.go \
+  'if rollbackID == "" || !restoredFrom(cur, restored) {' \
+  'if true {' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/restored_world_does_not_start$'
+control "only unfinished backups are deleted at start" internal/agent/recovery.go \
+  'if !e.Type().IsRegular() || !reArchiveLeftover.MatchString(e.Name()) {' \
+  'if !e.Type().IsRegular() {' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_while_saving_the_rollback_archive$'
+control "an unfinished rollback archive is deleted at start" internal/agent/agent.go \
+  'a.pruneArchiveLeftovers()' \
+  '' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_while_saving_the_rollback_archive$'
+control "a 0.3.0 restore the agent stops in while taking it over is left for the next start" internal/agent/recovery.go \
+  'if s.stopping() {' \
+  'if false && s.stopping() {' \
+  ./internal/agent '^TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart$'
+control "only a restored world started during a restore 0.3.0 undid is stopped" internal/agent/recovery.go \
+  'if !running || !ok || started.Before(op.StartedAt) || started.After(*op.FinishedAt) {' \
+  'if !running || !ok || started.IsZero() {' \
+  ./internal/agent '^TestRestoreUndoneBy030StoppingIsTidiedUp$/^the_server_was_restarted_since$'
+control "only a restore 0.3.0 undid because the agent stopped is corrected" internal/agent/recovery.go \
+  'strings.Contains(why, "context canceled")' \
+  'strings.Contains(why, "")' \
+  ./internal/agent '^TestUndoneByStop$'
+control "a restore 0.3.0 undid is dealt with once" internal/agent/recovery.go \
+  ' || op.Detail["recoveredAfterRestart"] != nil' \
+  '' \
+  ./internal/agent '^TestUndoneByStop$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
