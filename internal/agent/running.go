@@ -5,10 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
-	"io/fs"
 	"net/http"
-	"os"
 	"path"
 	"slices"
 	"strings"
@@ -16,6 +13,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/diagnose"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 const (
@@ -37,10 +35,9 @@ const (
 	// gcReadLimit bounds one read of the log; a backlog takes a few samples.
 	gcReadLimit = 1 << 20
 
-	// chunkFileLimit bounds the region files one chunk count opens.
+	// chunkFileLimit bounds the region files one chunk count opens, and the
+	// entries it lists in one folder.
 	chunkFileLimit = 20000
-	// propertiesLimit bounds reading server.properties.
-	propertiesLimit = 64 << 10
 )
 
 // lagState is what the sampler keeps between samples to explain lag,
@@ -139,40 +136,47 @@ func (s *server) serverCPU(now time.Time) *float64 {
 // (world_nether/DIM-1/region) and vanilla (world/DIM-1/region) lay them out.
 // Entities and poi folders hold other data in the same format.
 func (s *server) countChunks(level string) (int, bool) {
-	root, err := os.OpenRoot(s.dataDir())
+	d, err := s.gameFiles()
 	if err != nil {
 		return 0, false
 	}
-	defer root.Close()
-	total, files := 0, 0
-	header := make([]byte, 4096)
+	defer d.Close()
+	c := chunkCounter{d: d}
 	for _, dir := range []string{level, level + "_nether", level + "_the_end"} {
-		_ = fs.WalkDir(root.FS(), dir, func(p string, d fs.DirEntry, err error) error {
-			switch {
-			case err != nil:
-				return nil
-			case d.IsDir():
-				if strings.Count(p, "/") > 6 {
-					return fs.SkipDir
-				}
-				return nil
-			case !d.Type().IsRegular() || path.Base(path.Dir(p)) != "region" || !strings.HasSuffix(p, ".mca"):
-				return nil
-			}
-			if files++; files > chunkFileLimit {
-				return fs.SkipAll
-			}
-			f, _, err := openGameFile(root, p)
-			if err != nil {
-				return nil
-			}
-			n, _ := io.ReadFull(f, header)
-			f.Close()
-			total += diagnose.CountChunks(header[:n])
-			return nil
-		})
+		c.walk(dir)
 	}
-	return total, true
+	return c.total, true
+}
+
+// chunkCounter walks a world's folders through internal/gamefiles, which
+// neither follows a link the game put in place of a folder or file nor waits
+// on a named pipe, reading at most chunkFileLimit region headers.
+type chunkCounter struct {
+	d            *gamefiles.Dir
+	total, files int
+}
+
+func (c *chunkCounter) walk(dir string) {
+	entries, err := c.d.ReadDir(dir, chunkFileLimit)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		p := dir + "/" + e.Name()
+		switch {
+		case c.files >= chunkFileLimit:
+			return
+		case e.IsDir():
+			if strings.Count(p, "/") <= 6 {
+				c.walk(p)
+			}
+		case e.Type().IsRegular() && path.Base(dir) == "region" && strings.HasSuffix(p, ".mca"):
+			c.files++
+			if b, _, err := c.d.ReadRange(p, 0, 4096); err == nil {
+				c.total += diagnose.CountChunks(b)
+			}
+		}
+	}
 }
 
 func (s *server) recordChunks(now time.Time, count int) {
@@ -226,33 +230,29 @@ func (s *server) loadGCCursor() gcCursor {
 
 // readGCLog folds the pauses logged since the last read into the recent
 // events ExplainLag reads and the stored windows AdviseMemory reads. Only
-// complete lines are read. The game can write anything to the file, so
-// pauses dated outside the last day are dropped: they would only add rows.
+// complete lines are read. The game can write anything to the file, or put a
+// link or a named pipe in its place, so it is read through internal/gamefiles,
+// and pauses dated outside the last day are dropped: they would only add rows.
 func (s *server) readGCLog(now time.Time) {
-	root, err := os.OpenRoot(s.dataDir())
+	d, err := s.gameFiles()
 	if err != nil {
 		return
 	}
-	defer root.Close()
-	f, st, err := openGameFile(root, gcLogRel)
-	if err != nil {
-		return
-	}
-	defer f.Close()
+	defer d.Close()
 	cur := s.loadGCCursor()
-	ino, _ := fileInode(st)
-	if cur.Inode != ino || st.Size() < cur.Offset {
-		cur = gcCursor{Inode: ino}
-	}
-	if st.Size() == cur.Offset {
-		return
-	}
-	if _, err := f.Seek(cur.Offset, io.SeekStart); err != nil {
-		return
-	}
-	buf, err := io.ReadAll(io.LimitReader(f, gcReadLimit))
+	buf, st, err := d.ReadRange(gcLogRel, cur.Offset, gcReadLimit)
 	if err != nil {
 		return
+	}
+	if ino, _ := fileInode(st); cur.Inode != ino || st.Size() < cur.Offset {
+		cur = gcCursor{Inode: ino}
+		buf, st, err = d.ReadRange(gcLogRel, 0, gcReadLimit)
+		if err != nil {
+			return
+		}
+		if again, _ := fileInode(st); again != ino {
+			return
+		}
 	}
 	end := bytes.LastIndexByte(buf, '\n')
 	if end < 0 {
@@ -367,7 +367,12 @@ func (s *server) gcWindows(from time.Time) ([]diagnose.GCWindow, error) {
 // distances reads view-distance and simulation-distance from
 // server.properties (0 when unknown).
 func (s *server) distances() (view, simulation int) {
-	b, err := readGameFile(s.dataDir(), "server.properties", propertiesLimit)
+	d, err := s.gameFiles()
+	if err != nil {
+		return 0, 0
+	}
+	defer d.Close()
+	b, err := d.ReadProperties()
 	if err != nil {
 		return 0, 0
 	}

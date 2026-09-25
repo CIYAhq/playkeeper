@@ -6,10 +6,7 @@ import (
 	"errors"
 	"net"
 	"os"
-	"syscall"
 )
-
-const gameReadFlags = os.O_RDONLY | syscall.O_NONBLOCK
 
 func fileInode(os.FileInfo) (uint64, bool) { return 0, false }
 

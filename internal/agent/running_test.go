@@ -240,6 +240,18 @@ func TestGCLogIsReadOnce(t *testing.T) {
 	if n := e.gcCollections(); n != 5 {
 		t.Fatalf("a link out of the server's folder is not read: %d", n)
 	}
+	os.Remove(logPath)
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "logs", "other.log"), []byte(gcLine(now, 7, 900, 480, 1024, 12)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("other.log", logPath); err != nil {
+		t.Fatal(err)
+	}
+	before = samples()
+	e.waitFor("two samples with a link inside", func() bool { return samples() >= before+2 })
+	if n := e.gcCollections(); n != 5 {
+		t.Fatalf("a link inside the server's folder is not read either: %d", n)
+	}
 
 	old := now.Add(-15 * 24 * time.Hour).Truncate(gcWindow)
 	if _, err := e.a.db.Exec(`INSERT INTO gc_windows(server_id, start, collections, min_after_mb, max_after_mb, heap_mb, full_gcs, evacuation_failures, pause_ms, max_pause_ms) VALUES(?, ?, 9, 1, 1, 1024, 0, 0, 1, 1)`,
@@ -344,6 +356,19 @@ func TestNewChunksComeFromRegionFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(e.dataDir(), "world", "region", "r.5.5.mca")); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := filepath.Join(e.dir, "elsewhere")
+	if err := os.MkdirAll(filepath.Join(elsewhere, "region"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, "region", "r.0.0.mca"), regionHeader(900), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(e.dataDir(), "world", "dimensions", "minecraft", "elsewhere")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(e.dataDir(), "world", "region", "r.7.7.mca"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if n, ok := e.srv().countChunks("world"); !ok || n != 135 {

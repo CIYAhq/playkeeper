@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"os"
 	"path"
@@ -15,6 +14,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/diagnose"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
@@ -23,7 +23,8 @@ const (
 	// read, as many as diagnose.ExplainCrash looks at.
 	crashLogLines = 2000
 	crashReadTime = 10 * time.Second
-	// A crash report is a few kilobytes; one that ran on past this is cut.
+	// A crash report is a few kilobytes and Java's error report a few
+	// hundred; one that ran on past this is cut.
 	crashReportLimit = 1 << 20
 	maxDirEntries    = 1000
 	// keepNewestBackups stay when the crash helper offers to free disk
@@ -33,7 +34,12 @@ const (
 	removedAddonsDir  = "removed-addons"
 )
 
-var reCrashReport = regexp.MustCompile(`^crash-[0-9A-Za-z._-]{1,80}\.txt$`)
+var (
+	reCrashReport = regexp.MustCompile(`^crash-[0-9A-Za-z._-]{1,80}\.txt$`)
+	// Java writes hs_err_pid<pid>.log to its working folder, the data
+	// directory, when the JVM itself fails.
+	reJVMReport = regexp.MustCompile(`^hs_err_pid[0-9]{1,10}\.log$`)
+)
 
 // explainCrash works out why the server's run ended unexpectedly, or why it
 // did not start, and keeps the answer until the server is online again or
@@ -159,50 +165,57 @@ func (s *server) runLog(ctx context.Context, id string, since time.Time) []strin
 	}
 }
 
-// newestCrashReport reads the newest crash report written since the run
-// began, if there is one.
+// newestCrashReport reads the newest report written since the run began:
+// Minecraft's crash report, or else the report Java writes when the JVM
+// itself fails. The game can put a link or a named pipe in their place, so
+// they are read through internal/gamefiles, and only their start.
 func (s *server) newestCrashReport(since time.Time) (text, name string) {
-	root, err := os.OpenRoot(s.dataDir())
+	if since.IsZero() {
+		return "", ""
+	}
+	d, err := s.gameFiles()
 	if err != nil {
 		return "", ""
 	}
-	defer root.Close()
-	entries := readDirIn(root, "crash-reports")
+	defer d.Close()
+	for _, r := range []struct {
+		dir string
+		re  *regexp.Regexp
+	}{{"crash-reports", reCrashReport}, {".", reJVMReport}} {
+		name := newestFile(d, r.dir, r.re, since.Add(-time.Second))
+		if name == "" {
+			continue
+		}
+		b, _, err := d.ReadRange(path.Join(r.dir, name), 0, crashReportLimit)
+		if err != nil {
+			s.log.Warn("crash helper could not read a report", "server", s.id, "file", name, "err", err)
+			continue
+		}
+		return string(b), name
+	}
+	return "", ""
+}
+
+// newestFile names the newest file in dir whose name matches re, changed at
+// or after from.
+func newestFile(d *gamefiles.Dir, dir string, re *regexp.Regexp, from time.Time) string {
+	entries, err := d.ReadDir(dir, maxDirEntries)
+	if err != nil {
+		return ""
+	}
 	var newest time.Time
+	name := ""
 	for _, e := range entries {
-		if !e.Type().IsRegular() || !reCrashReport.MatchString(e.Name()) {
+		if !e.Type().IsRegular() || !re.MatchString(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
-		if err != nil || info.ModTime().Before(since.Add(-time.Second)) || !info.ModTime().After(newest) {
+		if err != nil || info.ModTime().Before(from) || !info.ModTime().After(newest) {
 			continue
 		}
 		newest, name = info.ModTime(), e.Name()
 	}
-	if name == "" {
-		return "", ""
-	}
-	f, _, err := openGameFile(root, "crash-reports/"+name)
-	if err != nil {
-		return "", ""
-	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, crashReportLimit))
-	if err != nil {
-		return "", ""
-	}
-	return string(b), name
-}
-
-// readDirIn lists at most maxDirEntries entries of a directory below root.
-func readDirIn(root *os.Root, dir string) []os.DirEntry {
-	d, err := root.Open(dir)
-	if err != nil {
-		return nil
-	}
-	defer d.Close()
-	entries, _ := d.ReadDir(maxDirEntries)
-	return entries
+	return name
 }
 
 // addonDir is where the server's type loads plugins or mods from.
@@ -216,13 +229,17 @@ func addonDir(sc api.ServerConfig) string {
 
 // addons lists the plugin or mod jars the server loads.
 func (s *server) addons(sc api.ServerConfig) []diagnose.Addon {
-	root, err := os.OpenRoot(s.dataDir())
+	d, err := s.gameFiles()
 	if err != nil {
 		return nil
 	}
-	defer root.Close()
+	defer d.Close()
+	entries, err := d.ReadDir(addonDir(sc), maxDirEntries)
+	if err != nil {
+		return nil
+	}
 	var out []diagnose.Addon
-	for _, e := range readDirIn(root, addonDir(sc)) {
+	for _, e := range entries {
 		if e.Type().IsRegular() && validAddonJar(e.Name()) == nil {
 			out = append(out, diagnose.Addon{File: e.Name()})
 		}

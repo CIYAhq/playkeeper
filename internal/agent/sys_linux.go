@@ -9,8 +9,6 @@ import (
 	"syscall"
 )
 
-const gameReadFlags = os.O_RDONLY | syscall.O_NONBLOCK | syscall.O_NOCTTY
-
 // fileInode tells a file apart from one that replaced it under the same name.
 func fileInode(fi os.FileInfo) (uint64, bool) {
 	st, ok := fi.Sys().(*syscall.Stat_t)

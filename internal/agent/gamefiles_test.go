@@ -199,6 +199,90 @@ func TestGameFilesAreReadWithoutFollowingLinks(t *testing.T) {
 	}
 }
 
+// Crash reports, Java's error report and the add-on folder belong to the
+// game too. The crash helper reads the newest report of the run and only its
+// first megabyte, never through a link, and a named pipe in place of a report
+// or of a folder it lists does not make it wait: a pipe at crash-reports or
+// plugins used to hold a failed start or the reconcile loop forever.
+func TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting(t *testing.T) {
+	e := crashEnv(t)
+	host := e.hostFiles()
+	data := e.dataDir()
+	s := e.srv()
+	since := time.Now().Add(-time.Minute)
+	report := func() (string, string) { text, name := s.newestCrashReport(since); return name, text }
+	link := func(to, at string) {
+		t.Helper()
+		if err := os.RemoveAll(at); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(to, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pipe := func(at string) {
+		t.Helper()
+		if err := os.RemoveAll(at); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(at, 0o640); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if f, err := os.OpenFile(at, os.O_RDWR|syscall.O_NONBLOCK, 0); err == nil {
+				os.Remove(at)
+				f.Close()
+			}
+		})
+	}
+
+	jvm := "#\n# A fatal error has been detected by the Java Runtime Environment:\n#\n#  SIGSEGV (0xb) at pc=0x00007f3a2c4d5e6f, pid=87, tid=112\n"
+	writeGameFile(t, filepath.Join(data, "hs_err_pid12.log"), "# an earlier run\n", since.Add(-48*time.Hour))
+	writeGameFile(t, filepath.Join(data, "hs_err_pid87.log"), jvm, time.Time{})
+	if name, text := report(); name != "hs_err_pid87.log" || text != jvm {
+		t.Fatalf("Java's report of the run: %s %q", name, text)
+	}
+	if text, name := s.newestCrashReport(time.Time{}); name != "" || text != "" {
+		t.Fatalf("a start that failed before the server ran has no report, got %s", name)
+	}
+	reports := filepath.Join(data, "crash-reports")
+	mc := "---- Minecraft Crash Report ----\nDescription: Exception in server tick loop\n"
+	writeGameFile(t, filepath.Join(reports, "crash-2026-09-25_21.40.12-server.txt"), mc+strings.Repeat("x", 2*crashReportLimit), time.Time{})
+	if name, text := report(); name != "crash-2026-09-25_21.40.12-server.txt" || !strings.HasPrefix(text, mc) || len(text) != crashReportLimit {
+		t.Fatalf("Minecraft's report comes first, cut at %d bytes: %s, %d bytes", crashReportLimit, name, len(text))
+	}
+
+	writeGameFile(t, filepath.Join(host, "reports", "crash-2026-09-25_21.41.00-server.txt"), "Description: PanelSecret\n", time.Time{})
+	writeGameFile(t, filepath.Join(data, "world", "hs_err_pid88.log"), jvm, time.Time{})
+	link(filepath.Join(host, "reports"), reports)
+	link(filepath.Join(host, "panel.db"), filepath.Join(data, "hs_err_pid87.log"))
+	link("world/hs_err_pid88.log", filepath.Join(data, "hs_err_pid88.log"))
+	if name, text := report(); name != "" || text != "" {
+		t.Fatalf("a report was read through a link: %s %q", name, text)
+	}
+
+	pipe(reports)
+	pipe(filepath.Join(data, "hs_err_pid89.log"))
+	pipe(filepath.Join(data, "plugins"))
+	done := make(chan string, 1)
+	go func() {
+		name, _ := report()
+		done <- fmt.Sprintf("report %q, %d add-ons", name, len(s.addons(api.ServerConfig{})))
+	}()
+	select {
+	case got := <-done:
+		if got != `report "", 0 add-ons` {
+			t.Fatalf("with named pipes: %s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the crash helper waited on a named pipe")
+	}
+	e.fd.crash(1)
+	if c := e.waitCrash(); c.Kind != "unknown" {
+		t.Fatalf("a crash with named pipes in the server's files: %s %s", c.Kind, c.Explanation)
+	}
+}
+
 // A plugin can truncate the server's jar to a terabyte of holes. The start
 // does not spend hours hashing it: it is too large to be Paper, so it is
 // downloaded and checked again.
