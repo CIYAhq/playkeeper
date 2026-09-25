@@ -156,6 +156,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const live = ws.machine?.live
   const tab: ServerTab = route.name === 'server' ? route.tab : 'overview'
   const healthy = !!ws.updating || (!ws.agentDown && !!live && live.docker)
+  const onMachine = route.name === 'machine' && route.id === ws.machine?.id
   return (
     <aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col px-3 pt-3 pb-2">
       <a {...linkProps({ name: 'home' })} className="flex h-9 items-center gap-2 rounded-lg px-1.5 text-[15px] font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -178,8 +179,11 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         {ws.machine && (
           <a
             {...linkProps({ name: 'machine', id: ws.machine.id })}
-            aria-current={route.name === 'machine' ? 'page' : undefined}
-            className={cn('mt-3 flex h-7 items-center gap-2 rounded-lg px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', route.name === 'machine' && 'text-foreground')}
+            aria-current={onMachine ? 'page' : undefined}
+            className={cn(
+              'mt-3 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+              onMachine && 'border-border bg-white text-foreground shadow-outline',
+            )}
           >
             <ServerIcon className="size-3.5" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">{ws.machineName}</span>
@@ -210,7 +214,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         <SideItem to={{ name: 'settings' }} active={route.name === 'settings'} icon={<SettingsIcon />}>
           {t('nav.settings')}
         </SideItem>
-        <UserRow />
+        <UserRow active={route.name === 'account'} />
       </div>
     </aside>
   )
@@ -220,12 +224,12 @@ export function roleLabel(role: string): string {
   return role === 'member' ? t('nav.role.member') : t('nav.role.owner')
 }
 
-function UserRow() {
+function UserRow({ active }: { active: boolean }) {
   const { me, signOut } = useWorkspace()
   const name = me.user.username
   return (
-    <div className="mt-1 flex items-center gap-2.5 px-2 py-1.5">
-      <a {...linkProps({ name: 'settings' })} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <div className={cn('mt-1 flex items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5', active && 'border-border bg-white shadow-outline')}>
+      <a {...linkProps({ name: 'account' })} aria-current={active ? 'page' : undefined} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Avatar name={name} />
         <span className="min-w-0 leading-tight">
           <span className="block truncate text-[13px] font-semibold">{name}</span>
@@ -261,9 +265,10 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const inServer = route.name === 'server' || (route.name === 'more' && !!phoneServer)
+  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'account'
+  const inServer = route.name === 'server' || (underMore && !!phoneServer)
   const slug = route.name === 'server' ? route.slug : phoneServer?.slug
-  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : route.name === 'more' ? 'more' : undefined
+  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : underMore ? 'more' : undefined
   const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
@@ -341,12 +346,12 @@ export function PhoneMoreButton() {
 /** The phone header of pages opened from another: a back link and a title. */
 export function PhoneBackHeader({ to, label, title }: { to: Route; label: string; title?: ReactNode }) {
   return (
-    <header className="flex items-center gap-1 pt-2 pb-2">
-      <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-success-strong">
-        <ChevronLeftIcon className="size-5" aria-hidden="true" />
-        {label}
+    <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-2">
+      <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 min-w-0 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[15px] font-medium text-success-strong">
+        <ChevronLeftIcon className="size-5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
       </a>
-      {title && <div className="ml-auto text-[15px] font-semibold">{title}</div>}
+      {title && <div className="truncate text-[17px] font-semibold">{title}</div>}
     </header>
   )
 }

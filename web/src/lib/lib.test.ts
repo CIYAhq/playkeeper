@@ -48,6 +48,8 @@ describe('router', () => {
       { name: 'server', slug: 'my-world-2', tab: 'players' },
       { name: 'machine', id: 'm2345abcde' },
       { name: 'settings' },
+      { name: 'account' },
+      { name: 'account', section: 'two-factor' },
       { name: 'more' },
       { name: 'welcome' },
     ]
@@ -59,6 +61,7 @@ describe('router', () => {
     expect(parse('/world/')).toEqual({ name: 'legacy', tab: 'world' })
     expect(parse('/servers/survival/nope')).toEqual({ name: 'home' })
     expect(parse('/servers/Bad Slug')).toEqual({ name: 'home' })
+    expect(parse('/account/nope')).toEqual({ name: 'account' })
     expect(parse('/whatever')).toEqual({ name: 'home' })
   })
 })

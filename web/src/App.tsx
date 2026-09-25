@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
+import { AccountPage } from '@/pages/account'
 import { HomePage } from '@/pages/home'
 import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
@@ -103,7 +104,7 @@ export function App() {
     case 'ready':
       if (!me) return null
       return (
-        <WorkspaceProvider me={me} onSignedOut={signedOut}>
+        <WorkspaceProvider me={me} onMe={signedIn} onSignedOut={signedOut}>
           <Routes route={route} />
         </WorkspaceProvider>
       )
@@ -148,6 +149,8 @@ function page(route: Route) {
       return <MachinePage id={route.id} />
     case 'settings':
       return <GlobalSettingsPage />
+    case 'account':
+      return <AccountPage section={route.section} />
     case 'more':
       return <MorePage />
     default: {

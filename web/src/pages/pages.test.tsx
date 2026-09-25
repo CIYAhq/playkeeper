@@ -92,6 +92,7 @@ function workspace(over: Partial<Workspace> = {}): Workspace {
     lastSlug: undefined,
     setLastSlug: () => {},
     signOut: async () => {},
+    reloadMe: async () => {},
     ...over,
   }
 }

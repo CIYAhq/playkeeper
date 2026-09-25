@@ -12,6 +12,7 @@ export type Route =
   | { name: 'server'; slug: string; tab: ServerTab }
   | { name: 'machine'; id: string }
   | { name: 'settings' }
+  | { name: 'account'; section?: 'two-factor' }
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
@@ -32,6 +33,8 @@ export function parse(pathname: string): Route {
       return { name: 'welcome' }
     case 'settings':
       return { name: 'settings' }
+    case 'account':
+      return second === 'two-factor' && !third ? { name: 'account', section: 'two-factor' } : { name: 'account' }
     case 'more':
       return { name: 'more' }
     case 'console':
@@ -70,6 +73,8 @@ export function href(route: Route): string {
       return `/machines/${route.id}`
     case 'settings':
       return '/settings'
+    case 'account':
+      return route.section ? `/account/${route.section}` : '/account'
     case 'more':
       return '/more'
     case 'legacy':

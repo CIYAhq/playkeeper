@@ -30,6 +30,8 @@ export interface Workspace {
   lastSlug: string | undefined
   setLastSlug: (slug: string) => void
   signOut: () => Promise<void>
+  /** Loads the signed-in user again, such as after a password change. */
+  reloadMe: () => Promise<void>
 }
 
 const Ctx = createContext<Workspace | null>(null)
@@ -53,7 +55,7 @@ function readLast(): string | undefined {
   }
 }
 
-export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSignedOut: () => void; children: ReactNode }) {
+export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me; onMe: (m: Me) => void; onSignedOut: () => void; children: ReactNode }) {
   const servers = usePoll(() => get<ServerStatus[]>('/api/servers'), 3000)
   const machines = usePoll(() => get<MachineView[]>('/api/machines'), 5000)
   const [prefs, setPrefsState] = useState<Record<string, string>>({})
@@ -81,6 +83,9 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
       onSignedOut()
     }
   }, [onSignedOut])
+  const reloadMe = useCallback(async () => {
+    onMe(await get<Me>('/api/auth/me'))
+  }, [onMe])
 
   const machine = machines.data?.[0]
   const live = machine?.live
@@ -130,8 +135,9 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
       lastSlug,
       setLastSlug,
       signOut,
+      reloadMe,
     }),
-    [me, serverList, servers.error, shownMachine, machines.data, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut],
+    [me, serverList, servers.error, shownMachine, machines.data, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut, reloadMe],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
