@@ -9,6 +9,10 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - When a server crashes or doesn't start, its Overview explains why from the server's own log and crash report, with the fix one click away: more memory, removing the plugin or mod that failed, restoring a backup, or starting again.
 - Settings › Memory suggests a size from how much memory the server needed over the last 14 days. Servers created before this version start measuring at their next restart.
 
+## 0.3.1
+
+- Security fix: Playkeeper no longer follows links that a plugin or mod puts in a server's files, which could make it overwrite or read other files on the machine, including its own. If one is in the way, Playkeeper stops and says which file to remove.
+
 ## 0.3.0
 
 - A new dashboard, for desktop and phone: Home shows every server and who's playing, each server has Overview, Console, Players, World and Settings, and on a phone there are bottom tabs and sheets.
