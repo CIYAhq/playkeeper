@@ -750,9 +750,20 @@ func (s *server) hAddonUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
-// addonJob runs an install or update and stores its records. The files are
-// in the folder only once every download matched its published hash.
+// addonJob runs an install or update and says whether the running server
+// needs a restart to load it.
 func (s *server) addonJob(ctx context.Context, h *opHandle, actor string, run func(addons.Server, []addons.Installed, func(addons.Progress)) (*addons.Result, error)) error {
+	if err := s.installAddons(ctx, h, actor, run); err != nil {
+		return err
+	}
+	_, running, _ := s.containerRunning(ctx)
+	h.set("restartNeeded", running)
+	return nil
+}
+
+// installAddons runs an install or update and stores its records. The files
+// are in the folder only once every download matched its published hash.
+func (s *server) installAddons(ctx context.Context, h *opHandle, actor string, run func(addons.Server, []addons.Installed, func(addons.Progress)) (*addons.Result, error)) error {
 	_, srv, _, err := s.addonContext()
 	if err != nil {
 		return err
@@ -797,8 +808,6 @@ func (s *server) addonJob(ctx context.Context, h *opHandle, actor string, run fu
 		}
 		h.set("manual", manual)
 	}
-	_, running, _ := s.containerRunning(ctx)
-	h.set("restartNeeded", running)
 	return nil
 }
 

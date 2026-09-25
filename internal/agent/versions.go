@@ -198,7 +198,7 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 		return err
 	}
 	if warn && wasRunning {
-		s.warnPlayers(ctx, h)
+		s.warnPlayers(ctx, h, "Updating")
 	}
 	if err := s.stopServer(ctx, h); err != nil {
 		return err
@@ -282,9 +282,10 @@ func (s *server) putBackupBack(b *api.Backup) error {
 	return nil
 }
 
-// warnPlayers tells anyone online that the server is about to update, then
-// gives them WarnDelay to finish what they are doing.
-func (s *server) warnPlayers(ctx context.Context, h *opHandle) {
+// warnPlayers tells anyone online that the server is about to go down for
+// what ("Updating", "Restarting"), then gives them WarnDelay to finish what
+// they are doing.
+func (s *server) warnPlayers(ctx context.Context, h *opHandle, what string) {
 	s.mu.Lock()
 	players := s.players
 	s.mu.Unlock()
@@ -292,8 +293,8 @@ func (s *server) warnPlayers(ctx context.Context, h *opHandle) {
 		return
 	}
 	h.phase("warning_players")
-	if _, err := s.rconCommand("say Updating in " + inWords(s.opts.WarnDelay) + ", back soon!"); err != nil {
-		s.log.Warn("could not warn players before the update", "server", s.id, "err", err)
+	if _, err := s.rconCommand("say " + what + " in " + inWords(s.opts.WarnDelay) + ", back soon!"); err != nil {
+		s.log.Warn("could not warn players before going down", "server", s.id, "err", err)
 		return
 	}
 	select {

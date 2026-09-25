@@ -711,6 +711,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		return fmt.Errorf("could not record the restored server's settings, so the previous world was put back: %w", err)
 	}
 	_ = s.setDesired(api.DesiredRunning)
+	s.holdRestoredPregen(sc)
 	startErr := s.startServer(ctx, h, sc)
 	if startErr != nil && hadLive && prev != nil {
 		h.phase("reverting")
@@ -728,6 +729,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed restore was kept at " + failedAt + " for inspection."}
 	}
 	worldSafe = true
+	s.forgetPregen()
 	if startErr != nil {
 		return startErr
 	}

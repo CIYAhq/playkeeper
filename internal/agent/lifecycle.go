@@ -78,7 +78,7 @@ var opLabels = map[string]string{
 	"restart": "restarting", "backup": "a backup", "restore": "a restore", "recover": "an automatic restart",
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
-	"addon-install": "installing add-ons", "addon-update": "updating add-ons",
+	"addon-install": "installing add-ons", "addon-update": "updating add-ons", "pregen-start": "starting map pre-generation",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide

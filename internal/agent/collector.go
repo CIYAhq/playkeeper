@@ -379,6 +379,14 @@ func (s *server) measureWorld(now time.Time, level string) {
 	if !due || level == "" {
 		return
 	}
+	total := s.worldSize(level)
+	s.mu.Lock()
+	s.worldBytes, s.worldAt = total, now
+	s.mu.Unlock()
+}
+
+// worldSize adds up the files of the world's three dimensions.
+func (s *server) worldSize(level string) int64 {
 	var total int64
 	for _, dir := range []string{level, level + "_nether", level + "_the_end"} {
 		filepath.WalkDir(filepath.Join(s.dataDir(), dir), func(_ string, d fs.DirEntry, err error) error {
@@ -391,9 +399,7 @@ func (s *server) measureWorld(now time.Time, level string) {
 			return nil
 		})
 	}
-	s.mu.Lock()
-	s.worldBytes, s.worldAt = total, now
-	s.mu.Unlock()
+	return total
 }
 
 func (s *server) sampleLoop(ctx context.Context) {

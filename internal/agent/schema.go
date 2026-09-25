@@ -127,9 +127,11 @@ DROP TABLE samples;
 ALTER TABLE samples_v2 RENAME TO samples;
 `,
 	// Plugins and mods Playkeeper installed, one row per add-on and server,
-	// and each server's map pre-generation. addons_changed_at is when a
-	// server's add-on files last changed, so a running server that hasn't
-	// loaded the change shows it needs a restart.
+	// and the map pre-generation Playkeeper started last on each server:
+	// ended is '' until it is 'finished' or 'cancelled', and rate (chunks a
+	// second) is kept for the next task's estimates. addons_changed_at is
+	// when a server's add-on files last changed, so a running server that
+	// hasn't loaded the change shows it needs a restart.
 	`
 CREATE TABLE addons (
   server_id      TEXT NOT NULL,
@@ -158,13 +160,16 @@ CREATE TABLE pregen (
   preset             TEXT NOT NULL DEFAULT '',
   radius             INTEGER NOT NULL DEFAULT 0,
   pause_for_players  INTEGER NOT NULL DEFAULT 1,
+  paused_by_user     INTEGER NOT NULL DEFAULT 0,
   paused_by_policy   INTEGER NOT NULL DEFAULT 0,
   paused_for         TEXT NOT NULL DEFAULT '',
   started_at         INTEGER NOT NULL,
-  finished_at        INTEGER,
+  ended              TEXT NOT NULL DEFAULT '',
+  ended_at           INTEGER,
   world_bytes_before INTEGER,
   world_bytes_after  INTEGER,
   chunks             INTEGER NOT NULL DEFAULT 0,
+  total              INTEGER NOT NULL DEFAULT 0,
   elapsed_secs       INTEGER NOT NULL DEFAULT 0,
   rate               REAL NOT NULL DEFAULT 0
 );

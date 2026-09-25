@@ -25,6 +25,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 )
 
@@ -90,6 +91,11 @@ type Options struct {
 	// Addons is the plugin and mod library (default: Modrinth and Hangar
 	// through HTTPClient, downloading into the staging folder).
 	Addons *addons.Library
+	// PregenInterval is how often a running map pre-generation is checked
+	// (default 5s); PregenResumeAfter is how long a server must be empty
+	// before a task paused for its players continues (default 2 minutes).
+	PregenInterval    time.Duration
+	PregenResumeAfter time.Duration
 }
 
 // Retention bounds stored analytics and audit data.
@@ -229,6 +235,12 @@ func New(opts Options) (*Agent, error) {
 		lib := addons.New(opts.HTTPClient)
 		lib.TempDir = cfg.StagingDir()
 		opts.Addons = lib
+	}
+	if opts.PregenInterval == 0 {
+		opts.PregenInterval = 5 * time.Second
+	}
+	if opts.PregenResumeAfter == 0 {
+		opts.PregenResumeAfter = pregen.DefaultResumeAfter
 	}
 	db, err := store.Open(filepath.Join(cfg.AgentDir(), "agent.db"), migrations)
 	if err != nil {
@@ -546,6 +558,11 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/addons/remove", srv((*server).hAddonRemove)},
 		{"POST", "/v1/servers/{id}/addons/adopt", srv((*server).hAddonAdopt)},
 		{"POST", "/v1/servers/{id}/addons/forget", srv((*server).hAddonForget)},
+		{"GET", "/v1/servers/{id}/pregen", srv((*server).hPregen)},
+		{"POST", "/v1/servers/{id}/pregen/start", srv((*server).hPregenStart)},
+		{"POST", "/v1/servers/{id}/pregen/pause", srv((*server).hPregenPause)},
+		{"POST", "/v1/servers/{id}/pregen/continue", srv((*server).hPregenContinue)},
+		{"POST", "/v1/servers/{id}/pregen/cancel", srv((*server).hPregenCancel)},
 		{"GET", "/v1/addons/icon", a.hAddonIcon},
 		{"POST", "/v1/restore/upload", a.hRestoreUploadNew},
 		{"GET", "/v1/restore/{id}", a.hRestorePreview},
