@@ -45,8 +45,8 @@ func Detect(dataDir string, p Platform) (Installed, error) {
 		return Installed{}, err
 	}
 	defer root.Close()
-	d, err := root.Open(dir)
-	if errors.Is(err, fs.ErrNotExist) {
+	d, err := root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return Installed{}, notInstalled
 	}
 	if err != nil {

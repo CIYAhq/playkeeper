@@ -132,20 +132,6 @@ func yamlTop(b []byte, key string) string {
 	return ""
 }
 
-// metaIn reads the descriptor of a regular file in r.
-func metaIn(r *os.Root, name string) JarMeta {
-	fi, err := r.Lstat(name)
-	if err != nil || !fi.Mode().IsRegular() {
-		return JarMeta{}
-	}
-	f, err := r.Open(name)
-	if err != nil {
-		return JarMeta{}
-	}
-	defer f.Close()
-	return readJarMeta(f, fi.Size())
-}
-
 func metaOf(path string) JarMeta {
 	f, err := os.Open(path)
 	if err != nil {

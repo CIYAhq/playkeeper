@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // makeJar writes a jar holding files (name to content) and a class file.
@@ -90,6 +92,33 @@ func TestDetect(t *testing.T) {
 
 	if _, err := Detect(dir, "forge"); err == nil || errors.Is(err, ErrNotInstalled) {
 		t.Errorf("Detect(unknown platform) = %v", err)
+	}
+}
+
+// The game can replace the plugins folder with a named pipe, which would
+// hold Detect in open(2) until something writes to it.
+func TestDetectDoesNotWaitOnAPipe(t *testing.T) {
+	dir := t.TempDir()
+	pipe := filepath.Join(dir, "plugins")
+	if err := syscall.Mkfifo(pipe, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := Detect(dir, Bukkit)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrNotInstalled) {
+			t.Errorf("Detect with a pipe for plugins = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		if fd, err := syscall.Open(pipe, syscall.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			syscall.Close(fd)
+		}
+		<-done
+		t.Fatal("Detect waited on the pipe")
 	}
 }
 

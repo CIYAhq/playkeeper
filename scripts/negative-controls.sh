@@ -357,6 +357,48 @@ control "a restored world is given to the game without following links" internal
   'if d.Type()&fs.ModeSymlink != 0 {' \
   'if false {' \
   ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
+control "add-on files: opening a named pipe does not wait" internal/addons/files.go \
+  'os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)' \
+  'os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/addons '^TestPipesSwappedInAreRefusedWithoutWaiting$'
+control "add-on files: the opened file is the regular file checked" internal/addons/files.go \
+  'if err == nil && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  'if false && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  ./internal/addons '^TestPipesSwappedInAreRefusedWithoutWaiting$'
+control "add-on folder: a named pipe swapped in fails at once" internal/addons/files.go \
+  'data.OpenRoot(t.Folder + "/.")' \
+  'data.OpenRoot(t.Folder)' \
+  ./internal/addons '^TestPipesSwappedInAreRefusedWithoutWaiting$'
+control "add-on files: only a file of the recorded size is hashed" internal/addons/files.go \
+  '|| rec.Size > 0 && size != rec.Size ||' \
+  '||' \
+  ./internal/addons '^TestGrownJarsAreNotHashed$'
+control "add-on files: a record without a size is hashed only up to the size limit" internal/addons/files.go \
+  '|| rec.Size <= 0 && size > max {' \
+  '{' \
+  ./internal/addons '^TestGrownJarsAreNotHashed$'
+control "add-on files: hashing reads only the size it saw" internal/addons/files.go \
+  'ctxReader{ctx, io.NewSectionReader(f, 0, size)}' \
+  'ctxReader{ctx, f}' \
+  ./internal/addons '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "add-on files: hashing stops with its context" internal/addons/files.go \
+  'if err := c.ctx.Err(); err != nil {' \
+  'if err := c.ctx.Err(); false && err != nil {' \
+  ./internal/addons '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "add-on scan: stops with its context" internal/addons/scan.go \
+  'l.readLocal(ctx, root, lf, identify, verify)
+			if err := ctx.Err(); err != nil {' \
+  'l.readLocal(ctx, root, lf, identify, verify)
+			if err := ctx.Err(); false && err != nil {' \
+  ./internal/addons '^TestAScanStopsWithItsContext$'
+control "pre-generation: a named pipe for the plugins folder is not waited on" internal/pregen/detect.go \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/pregen '^TestDetectDoesNotWaitOnAPipe$'
+control "data packs: a named pipe for the datapacks folder is not waited on" internal/packs/datapacks.go \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
+  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/packs '^TestListDoesNotWaitOnAPipe$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

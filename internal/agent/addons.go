@@ -623,7 +623,7 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 	case rec != nil:
 		a := apiAddon(*rec)
 		out.Installed = &a
-		if p, err := lib.PreviewUninstall(srv, installed, rec.Key()); err == nil {
+		if p, err := lib.PreviewUninstall(r.Context(), srv, installed, rec.Key()); err == nil {
 			out.Changed, out.Missing = p.Changed, p.Missing
 		}
 		l := d.Latest
@@ -661,7 +661,7 @@ func (s *server) hAddonRemovePreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	p, err := s.lib().PreviewUninstall(srv, installed, key)
+	p, err := s.lib().PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
 		return
@@ -922,7 +922,7 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lib := s.lib()
-	preview, err := lib.PreviewUninstall(srv, installed, key)
+	preview, err := lib.PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
 		return
@@ -934,7 +934,7 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	target := string(key.Source) + ":" + key.ProjectID
-	rm, err := lib.Uninstall(srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
+	rm, err := lib.Uninstall(r.Context(), srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
 	if err != nil {
 		s.audit(actor, "addon.removed", target, "refused", err.Error())
 		writeError(w, addonError(err))
@@ -945,7 +945,7 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 	warnings := rm.Warnings
 	rest := slices.DeleteFunc(slices.Clone(installed), func(rec addons.Installed) bool { return rec.Key() == key })
 	for _, k := range extra {
-		orm, err := lib.Uninstall(srv, rest, k, addons.UninstallOptions{RemoveConfig: !req.KeepConfig})
+		orm, err := lib.Uninstall(r.Context(), srv, rest, k, addons.UninstallOptions{RemoveConfig: !req.KeepConfig})
 		if err != nil {
 			if n := noticeOf(err); n != nil {
 				warnings = append(warnings, addons.Notice{Kind: addons.Kind(n.Kind), Params: n.Params, Msg: n.Message, Hint: n.Hint})
@@ -1079,7 +1079,7 @@ func (s *server) hAddonForget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	p, err := s.lib().PreviewUninstall(srv, installed, key)
+	p, err := s.lib().PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
 		return

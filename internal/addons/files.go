@@ -1,6 +1,7 @@
 package addons
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"syscall"
 	"unicode"
 	"unicode/utf8"
 
@@ -70,24 +72,35 @@ func openFolder(srv Server, t Target, create bool) (*os.Root, error) {
 	}
 	defer data.Close()
 	fi, err := data.Lstat(t.Folder)
-	switch {
-	case errors.Is(err, fs.ErrNotExist) && create:
+	if errors.Is(err, fs.ErrNotExist) && create {
 		if err := data.Mkdir(t.Folder, 0o750); err != nil && !errors.Is(err, fs.ErrExist) {
 			return nil, folderError(t, err)
 		}
 		if err := chown(data, t.Folder, srv.Owner); err != nil {
 			return nil, folderError(t, err)
 		}
-	case errors.Is(err, fs.ErrNotExist):
+		fi, err = data.Lstat(t.Folder)
+	}
+	switch {
+	case errors.Is(err, fs.ErrNotExist) && !create:
 		return nil, nil
 	case err != nil:
 		return nil, folderError(t, err)
 	case !fi.IsDir():
 		return nil, folderError(t, errors.New("it is not a folder"))
 	}
-	r, err := data.OpenRoot(t.Folder)
+	if openHook != nil {
+		openHook(t.Folder)
+	}
+	// With the trailing "/." os.Root opens the folder with O_DIRECTORY, so a
+	// named pipe the game swaps in fails at once instead of blocking.
+	r, err := data.OpenRoot(t.Folder + "/.")
 	if err != nil {
 		return nil, folderError(t, err)
+	}
+	if st, err := r.Stat("."); err != nil || !os.SameFile(fi, st) {
+		r.Close()
+		return nil, folderError(t, errors.New("it was replaced while Playkeeper was opening it"))
 	}
 	return r, nil
 }
@@ -99,40 +112,99 @@ func chown(r *os.Root, name string, o *Owner) error {
 	return r.Lchown(name, o.UID, o.GID)
 }
 
+// errNotRegular refuses what is not a regular file, or no longer the one
+// that was checked.
 var errNotRegular = errors.New("not a regular file")
 
-// sumFile hashes a regular file in r with each algorithm.
-func sumFile(r *os.Root, name string, algos ...string) (map[string]string, int64, error) {
+// openHook, when a test sets it, runs between the check of a file or of the
+// add-on folder and its open, so the test can swap it in between.
+var openHook func(name string)
+
+// openFile opens name in r for reading. The game can swap any file in the
+// folder at any moment, so the name is checked, opened once without
+// waiting on a named pipe, and the handle must then be the regular file
+// that was checked; everything afterwards reads through that handle.
+func openFile(r *os.Root, name string) (*os.File, fs.FileInfo, error) {
 	fi, err := r.Lstat(name)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
 	if !fi.Mode().IsRegular() {
-		return nil, 0, errNotRegular
+		return nil, nil, errNotRegular
 	}
-	f, err := r.Open(name)
+	if openHook != nil {
+		openHook(name)
+	}
+	f, err := r.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
-	defer f.Close()
+	st, err := f.Stat()
+	if err == nil && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {
+		err = errNotRegular
+	}
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	return f, st, nil
+}
+
+// sumFile hashes the first size bytes of f with each algorithm. It stops
+// when ctx ends, and fails with errNotRegular when f has shrunk.
+func sumFile(ctx context.Context, f *os.File, size int64, algos ...string) (map[string]string, error) {
 	ws := make([]io.Writer, len(algos))
 	hs := make(map[string]hash.Hash, len(algos))
 	for i, a := range algos {
 		h, err := fetch.NewHash(a)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		ws[i], hs[a] = h, h
 	}
-	n, err := io.Copy(io.MultiWriter(ws...), f)
+	n, err := io.Copy(io.MultiWriter(ws...), ctxReader{ctx, io.NewSectionReader(f, 0, size)})
 	if err != nil {
-		return nil, 0, err
+		return nil, err
+	}
+	if n != size {
+		return nil, errNotRegular
 	}
 	out := make(map[string]string, len(algos))
 	for a, h := range hs {
 		out[a] = hex.EncodeToString(h.Sum(nil))
 	}
-	return out, n, nil
+	return out, nil
+}
+
+// unchanged reports whether f, a regular file of size bytes, still holds
+// rec's file. The size is compared first, so a file the game grew to
+// terabytes is never read; a record without a size is hashed only up to
+// max bytes.
+func unchanged(ctx context.Context, f *os.File, size int64, rec Installed, max int64) (bool, error) {
+	if !validHash(rec.HashAlgo, rec.Hash) || rec.Size > 0 && size != rec.Size || rec.Size <= 0 && size > max {
+		return false, nil
+	}
+	sums, err := sumFile(ctx, f, size, rec.HashAlgo)
+	if errors.Is(err, errNotRegular) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return sums[rec.HashAlgo] == strings.ToLower(rec.Hash), nil
+}
+
+// ctxReader ends a read when its context ends.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 // place copies the verified file src into r as name without replacing

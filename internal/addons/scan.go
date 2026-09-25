@@ -153,15 +153,10 @@ func (l *Library) inventory(ctx context.Context, srv Server, t Target, installed
 			if err != nil {
 				continue
 			}
-			lf := &localFile{name: name, size: fi.Size(), rec: byFile[name], meta: metaIn(root, name)}
-			switch {
-			case lf.rec != nil && verify:
-				sums, n, err := sumFile(root, name, lf.rec.HashAlgo)
-				lf.modified = err != nil || sums[lf.rec.HashAlgo] != strings.ToLower(lf.rec.Hash) || lf.rec.Size > 0 && n != lf.rec.Size
-			case lf.rec == nil && identify && lf.size <= l.maxFileSize():
-				if sums, _, err := sumFile(root, name, "sha512"); err == nil {
-					lf.sha512 = sums["sha512"]
-				}
+			lf := &localFile{name: name, size: fi.Size(), rec: byFile[name]}
+			l.readLocal(ctx, root, lf, identify, verify)
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
 			}
 			inv.files = append(inv.files, lf)
 			inv.byName[name] = lf
@@ -183,6 +178,27 @@ func (l *Library) inventory(ctx context.Context, srv Server, t Target, installed
 		}
 	}
 	return inv, warnings, nil
+}
+
+// readLocal reads what lf's jar says about itself and, as asked, checks it
+// against its record or hashes it to identify it, all through one handle.
+func (l *Library) readLocal(ctx context.Context, root *os.Root, lf *localFile, identify, verify bool) {
+	f, st, err := openFile(root, lf.name)
+	if err != nil {
+		lf.modified = lf.rec != nil && verify
+		return
+	}
+	defer f.Close()
+	lf.size, lf.meta = st.Size(), readJarMeta(f, st.Size())
+	switch {
+	case lf.rec != nil && verify:
+		same, err := unchanged(ctx, f, lf.size, *lf.rec, l.maxFileSize())
+		lf.modified = err != nil || !same
+	case lf.rec == nil && identify && lf.size <= l.maxFileSize():
+		if sums, err := sumFile(ctx, f, lf.size, "sha512"); err == nil {
+			lf.sha512 = sums["sha512"]
+		}
+	}
 }
 
 // identify asks Modrinth which of the files added by hand it knows.
