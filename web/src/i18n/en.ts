@@ -1034,4 +1034,19 @@ export const en = {
   'error.http': 'Request failed (HTTP {status})',
   'error.notice': 'Playkeeper is in test mode',
   'error.noticeBody': 'Offline mode is on for Playkeeper’s automated tests: anyone could join with any name. Never use this for a real server.',
+
+  // Wave 5: roles, the team, Discord, invite links and player profiles
+  'role.admin': 'Admin',
+  'role.moderator': 'Moderator',
+  'role.viewer': 'Viewer',
+  'role.adminHint': 'Everything, including the team, addresses and machines.',
+  'role.moderatorHint': 'Runs the servers day to day: players, console, restarts and backups.',
+  'role.viewerHint': 'Can look around, can’t change anything.',
+  'scope.all': 'All servers',
+  'scope.none': 'No servers',
+  'scope.count': { one: '{count} server', other: '{count} servers' },
+  'scope.only': '{server} only',
+  'time.inDays': { one: 'in {count} day', other: 'in {count} days' },
+  'time.inHours': 'in {count} h',
+  'time.inMinutes': 'in {count} min',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

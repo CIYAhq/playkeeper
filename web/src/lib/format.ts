@@ -105,3 +105,11 @@ export function joinAddress(hostname: string, gamePort: number): string {
   const host = hostname.includes(':') && !hostname.startsWith('[') ? `[${hostname}]` : hostname
   return gamePort === 25565 ? host : `${host}:${gamePort}`
 }
+
+/** How long until a moment: "in 6 days", "in 5 h" or "in 12 min". */
+export function timeUntil(iso: string, now: number = Date.now()): string {
+  const s = Math.max(0, Math.floor((new Date(iso).getTime() - now) / 1000))
+  if (s >= 86400) return t('time.inDays', { count: Math.floor(s / 86400) })
+  if (s >= 3600) return t('time.inHours', { count: Math.floor(s / 3600) })
+  return t('time.inMinutes', { count: Math.max(1, Math.floor(s / 60)) })
+}

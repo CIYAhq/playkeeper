@@ -6,13 +6,18 @@ export class ApiError extends Error {
   code: string
   hint?: string
   operation?: Operation
+  params?: Record<string, string>
+  /** Seconds from a Retry-After header, for rate limits. */
+  retryAfter?: number
 
-  constructor(status: number, body: ApiErrorBody) {
+  constructor(status: number, body: ApiErrorBody, retryAfter?: number) {
     super(body.error)
     this.status = status
     this.code = body.code
     this.hint = body.hint
     this.operation = body.operation
+    this.params = body.params
+    this.retryAfter = retryAfter
   }
 }
 
@@ -38,7 +43,8 @@ async function parseError(res: Response): Promise<ApiError> {
   } catch {
     // Non-JSON error bodies keep the generic message.
   }
-  return new ApiError(res.status, body)
+  const retryAfter = Number(res.headers.get('Retry-After'))
+  return new ApiError(res.status, body, retryAfter > 0 ? retryAfter : undefined)
 }
 
 export async function api<T>(method: string, path: string, body?: unknown, raw?: Blob): Promise<T> {
@@ -69,3 +75,4 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
 export const get = <T>(path: string) => api<T>('GET', path)
 export const post = <T>(path: string, body: unknown = {}) => api<T>('POST', path, body)
 export const del = <T>(path: string) => api<T>('DELETE', path)
+export const put = <T>(path: string, body: unknown) => api<T>('PUT', path, body)
