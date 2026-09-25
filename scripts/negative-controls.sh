@@ -473,6 +473,36 @@ control "public routes: only successful answers may be cached" internal/panel/pu
   'if w.cache != "" && (status < 300 || status == http.StatusNotModified) {' \
   'if w.cache != "" {' \
   ./internal/panel '^TestPublicRoutesCacheOnlyWhatTheyMay$'
+control "add-on installs: a confirmed plan is required" internal/agent/addons.go \
+  'if err := confirmedPlan(req.Fingerprint); err != nil {' \
+  'if err := confirmedPlan(req.Fingerprint); false && err != nil {' \
+  ./internal/agent '^TestAddonRoutesRejectBadInput$'
+control "add-on updates: a confirmed plan is required" internal/agent/addons.go \
+  'keys, err := updateKeys(req.Addons)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := confirmedPlan(req.Fingerprint); err != nil {' \
+  'keys, err := updateKeys(req.Addons)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := confirmedPlan(req.Fingerprint); false && err != nil {' \
+  ./internal/agent '^TestAddonRoutesRejectBadInput$'
+control "add-on installs: only the confirmed plan is carried out" internal/agent/addons.go \
+  'Project: key.ProjectID, Fingerprint: req.Fingerprint, OnProgress: progress' \
+  'Project: key.ProjectID, OnProgress: progress' \
+  ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "add-on updates: only the confirmed plan is carried out" internal/agent/addons.go \
+  'Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress' \
+  'Changed: req.Changed, OnProgress: progress' \
+  ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "port sharing: a connection nobody accepts is closed" internal/portshare/portshare.go \
+  't := time.NewTimer(l.s.handoff)' \
+  't := time.NewTimer(time.Hour)' \
+  ./internal/portshare '^TestHandoffTimeout$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

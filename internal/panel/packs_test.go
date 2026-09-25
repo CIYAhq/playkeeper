@@ -143,6 +143,7 @@ func TestAddonAndPackRoutesReachTheAgent(t *testing.T) {
 		{"GET", srv + "/addons/search?q=chunky&sort=downloads", "", "/v1/servers/" + sampleServer + "/addons/search", url.Values{"q": {"chunky"}, "sort": {"downloads"}}, ""},
 		{"GET", srv + "/addons/project/hangar/EssentialsX/removal", "", "/v1/servers/" + sampleServer + "/addons/project/hangar/EssentialsX/removal", url.Values{}, ""},
 		{"POST", srv + "/addons/install", `{"source":"modrinth","project":"AANobbMI","fingerprint":"f1"}`, "/v1/servers/" + sampleServer + "/addons/install", url.Values{}, "body"},
+		{"POST", srv + "/addons/update/plan", `{"addons":[{"source":"modrinth","projectId":"AANobbMI"}]}`, "/v1/servers/" + sampleServer + "/addons/update/plan", url.Values{}, "body"},
 		{"POST", srv + "/pregen/start", `{"radius":2500}`, "/v1/servers/" + sampleServer + "/pregen/start", url.Values{}, "body"},
 		{"POST", srv + "/datapacks/Graves_v2.zip/disable", `{}`, "/v1/servers/" + sampleServer + "/datapacks/Graves_v2.zip/disable", url.Values{}, "body"},
 		{"DELETE", srv + "/datapacks/Hand%20Made", "", "/v1/servers/" + sampleServer + "/datapacks/Hand Made", url.Values{"actor": {"admin"}}, ""},
