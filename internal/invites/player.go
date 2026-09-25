@@ -122,8 +122,9 @@ func (r Redemption) Grant() (g PlayerGrant, ok bool) {
 // RedeemPlayer checks a friend invite and looks the friend's name up with
 // Mojang. The invite is checked first, so a link that doesn't work costs no
 // lookup. For a Grant, the caller then counts the use (see RecordUse; a
-// friend who already joined with this invite shouldn't use it up twice) and
-// asks the agent to add the player. Otherwise it makes a join request.
+// friend who already joined with this invite shouldn't use it up twice),
+// asks the agent to add the player and keeps the grant's Origin. Otherwise
+// it makes a join request.
 func RedeemPlayer(ctx context.Context, lookup ProfileLookup, inv Invite, code string, creator Account, name string, now time.Time) (Redemption, error) {
 	p, err := findPlayer(ctx, lookup, inv, code, creator, name, now)
 	if err != nil {

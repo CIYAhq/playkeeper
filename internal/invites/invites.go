@@ -1,7 +1,10 @@
 // Package invites makes invite links. A friend opens a player invite to add
 // their Minecraft account to one server's whitelist; a new team member
 // opens a member invite to create a Playkeeper account with a role in one
-// project, for all of its servers or some.
+// project, for all of its servers or some. A player invite lets friends in
+// right away or after a yes; then redeeming it makes a JoinRequest for a
+// moderator to approve or decline. An Origin remembers which invite let a
+// player in.
 //
 // Both kinds of link point at the panel's public page, /join/<code>. The
 // code is random and the panel looks invites up by its SHA-256. A member
