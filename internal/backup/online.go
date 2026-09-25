@@ -79,6 +79,20 @@ const (
 	consistencyInPlace = "server running: world saved with save-all flush, saving paused while archiving; players stayed online"
 )
 
+// MethodOf tells how an archive was made from its manifest, or returns "" for
+// an archive whose Consistency Playkeeper did not write.
+func MethodOf(m Manifest) Method {
+	switch m.Consistency {
+	case consistencyStopped:
+		return MethodStopped
+	case consistencyCopy:
+		return MethodOnlineCopy
+	case consistencyInPlace:
+		return MethodOnlineInPlace
+	}
+	return ""
+}
+
 // Timeouts bound the console steps; zero fields take the defaults.
 type Timeouts struct {
 	// Command bounds one save-off or save-on (default 15 s).

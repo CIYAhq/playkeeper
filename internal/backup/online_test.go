@@ -241,7 +241,7 @@ func TestRunningServerIsBackedUpWithoutStopping(t *testing.T) {
 		t.Errorf("result %+v", res)
 	}
 	m := h.verified(res)
-	if m.Consistency != consistencyCopy || m.MinecraftVersion != "26.1.2" || m.LevelName != "world" {
+	if m.Consistency != consistencyCopy || MethodOf(m) != MethodOnlineCopy || m.MinecraftVersion != "26.1.2" || m.LevelName != "world" {
 		t.Errorf("manifest %+v", m)
 	}
 	_, stopped := createArchive(t, h.opts.DataDir)
@@ -345,7 +345,7 @@ func TestInPlaceWhenThereIsNoRoomForACopy(t *testing.T) {
 	if res.Method != MethodOnlineInPlace || res.Staged != 0 {
 		t.Errorf("result %+v", res)
 	}
-	if m := h.verified(res); m.Consistency != consistencyInPlace {
+	if m := h.verified(res); m.Consistency != consistencyInPlace || MethodOf(m) != MethodOnlineInPlace {
 		t.Errorf("consistency %q", m.Consistency)
 	}
 	if !h.server.isSaving() {
@@ -420,7 +420,7 @@ func TestStoppedServerIsArchivedWithoutCommands(t *testing.T) {
 	if len(h.pauses) > 0 {
 		t.Errorf("pause changes %v for a stopped server", h.pauses)
 	}
-	if m := h.verified(res); m.Consistency != consistencyStopped {
+	if m := h.verified(res); m.Consistency != consistencyStopped || MethodOf(m) != MethodStopped {
 		t.Errorf("consistency %q", m.Consistency)
 	}
 	if left := h.leftovers(); len(left) > 0 {
@@ -728,6 +728,15 @@ func TestSavingAlreadyOffIsTurnedOn(t *testing.T) {
 	}
 	if !res.SavingWasOff || !h.server.isSaving() {
 		t.Errorf("saving was off before: %v; on now: %v", res.SavingWasOff, h.server.isSaving())
+	}
+}
+
+func TestMethodOf(t *testing.T) {
+	if got := MethodOf(Manifest{Consistency: "server stopped during archive"}); got != MethodStopped {
+		t.Errorf("a backup from Playkeeper 0.2 is %q, want %q", got, MethodStopped)
+	}
+	if got := MethodOf(Manifest{Consistency: "crash-consistent snapshot"}); got != "" {
+		t.Errorf("an archive from elsewhere is %q", got)
 	}
 }
 
