@@ -436,6 +436,32 @@ func TestTeamInvitesMakeMembers(t *testing.T) {
 	}
 }
 
+// The invite page and the new member's Home name the team once it has a
+// name of its own, and say nothing while it has the default one.
+func TestTeamNameOnInviteAndHome(t *testing.T) {
+	e := newJoinEnv(t)
+	own := owner(t, e.env)
+	var me struct {
+		Access accessBody `json:"access"`
+	}
+	e.get(t, "/api/auth/me", own.cookie, &me)
+	if me.Access.Team != "" {
+		t.Fatalf("the default name is shown: %q", me.Access.Team)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE projects SET name = 'Friends'`); err != nil {
+		t.Fatal(err)
+	}
+	r := e.do(t, "POST", "/api/team/invites", `{"role":"moderator","servers":{"all":true}}`, own.auth())
+	code, _ := strings.CutPrefix(r.body["path"].(string), invites.JoinPath+"/")
+	if r := e.public(t, "preview", codeBody(code)); r.status != 200 || r.body["team"] != "Friends" {
+		t.Fatalf("preview: %d %v", r.status, r.body)
+	}
+	r = e.public(t, "accept", codeBody(code, "username", "mara", "password", "member password 1"))
+	if acc, _ := r.body["access"].(map[string]any); r.status != 200 || acc["team"] != "Friends" {
+		t.Fatalf("accept: %d %v", r.status, r.body)
+	}
+}
+
 // The public invite pages are no-store, logged without their codes, and
 // slow down anyone trying codes.
 func TestPublicInvitePagesKeepCodesSafe(t *testing.T) {

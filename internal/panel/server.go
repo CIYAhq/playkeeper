@@ -589,6 +589,7 @@ func (s *Server) userByName(name string) (user, error) {
 // what works. The panel checks every request anyway.
 type accessBody struct {
 	ProjectID string        `json:"projectId,omitempty"`
+	Team      string        `json:"team,omitempty"` // "" while the project has the default name
 	Role      string        `json:"role"`
 	Servers   invites.Scope `json:"servers"`
 	TwoFactor bool          `json:"twoFactor"`
@@ -608,7 +609,7 @@ func (s *Server) meBody(sess session) map[string]any {
 	return map[string]any{
 		"user":      map[string]string{"username": sess.User.Username, "role": sess.User.Role},
 		"csrfToken": sess.CSRF,
-		"access": accessBody{ProjectID: a.ProjectID, Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
+		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
 			AwaitingConfirmation: a.awaitingConfirmation(), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
