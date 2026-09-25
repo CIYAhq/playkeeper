@@ -5,7 +5,7 @@ import type { Activity, Crash, LogsResponse, RestorePreview, ServerStatus, Sessi
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
-import { Card, CardHint, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel } from '@/components/app/bits'
+import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { PlayersChart } from '@/components/app/players-chart'
@@ -508,7 +508,6 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
       </Card>
       <Card>
         <CardTitle>{t('crash.fix')}</CardTitle>
-        {options.length > 1 && <CardHint>{t('crash.pick')}</CardHint>}
         <CardGroup value={choice?.id ?? ''} onChange={setPicked} label={t('crash.fix')} className="mt-3 flex flex-col gap-2.5">
           {options.map((o) => (
             <ChoiceCard key={o.id} value={o.id} radio="start" disabled={!o.plan} className="gap-3 p-3.5">

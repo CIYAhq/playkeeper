@@ -362,7 +362,6 @@ export const en = {
   'crash.what': 'What happened',
   'crash.lastLines': 'Last lines before it stopped',
   'crash.fix': 'How to fix it',
-  'crash.pick': 'Pick one',
   'crash.generic': '{server} stopped unexpectedly.',
   'crash.memory': 'It ran out of its {memory} of memory.',
   'crash.memoryPlain': 'It ran out of memory.',
