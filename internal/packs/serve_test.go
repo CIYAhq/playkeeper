@@ -57,7 +57,7 @@ func TestPackHandler(t *testing.T) {
 		"Content-Type":           "application/zip",
 		"Content-Length":         "100",
 		"ETag":                   `"` + sum + `"`,
-		"Cache-Control":          "no-cache",
+		"Cache-Control":          "no-store",
 		"X-Content-Type-Options": "nosniff",
 		"Content-Disposition":    `attachment; filename="` + sum + `.zip"`,
 		"Accept-Ranges":          "bytes",

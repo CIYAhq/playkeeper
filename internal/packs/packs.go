@@ -205,6 +205,7 @@ const (
 	CodeNotApplied             = "not_applied"
 	CodeUnexpectedReply        = "unexpected_reply"
 	CodeConsole                = "console_failed"
+	CodeNoIcon                 = "no_icon"
 )
 
 // Error is an error the UI can show: Code is a stable identifier to
@@ -237,6 +238,7 @@ var (
 	ErrUnknownPack      = &Error{Code: CodeUnknownPack}
 	ErrNotApplied       = &Error{Code: CodeNotApplied}
 	ErrUnexpectedReply  = &Error{Code: CodeUnexpectedReply}
+	ErrNoIcon           = &Error{Code: CodeNoIcon}
 )
 
 const hintRedownload = "Download the pack again from where you got it, or ask its author for a fixed version."
