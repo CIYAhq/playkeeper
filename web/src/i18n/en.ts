@@ -1099,6 +1099,8 @@ export const en = {
   'addons.sort.updated': 'Recently updated',
   'addons.by': 'by {author}',
   'addons.downloadsCount': { one: '{value} download', other: '{value} downloads' },
+  'addons.countThousands': '{value}k',
+  'addons.countMillions': '{value}M',
   'addons.installShort': 'Install',
   'addons.install': 'Install {name}',
   'addons.installed': 'Installed',

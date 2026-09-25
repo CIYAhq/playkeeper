@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeftIcon, DownloadIcon, SearchIcon } from 'lucide-react'
+import { ArrowLeftIcon, DownloadIcon, RefreshCwIcon, SearchIcon } from 'lucide-react'
 import { ApiError, get } from '@/api/client'
 import type { AddonBrowse, AddonCard, AddonDetails, AddonNotice } from '@/api/types'
 import { Pip } from '@/components/app/art'
@@ -160,6 +160,7 @@ export function BrowseView() {
         <h3 className="mt-4 text-lg font-bold">{a.kind === 'mod' ? t('addons.unreachableMods') : t('addons.unreachable')}</h3>
         <p className="mt-1 text-sm text-muted-foreground">{a.kind === 'mod' ? t('addons.keepWorkingMods') : t('addons.keepWorking')}</p>
         <Button variant="outline" className="mt-5" onClick={() => void load(0)} loading={loading}>
+          <RefreshCwIcon />
           {t('common.tryAgain')}
         </Button>
       </div>
@@ -280,7 +281,7 @@ function PhoneCard({ card: c, installed }: { card: AddonCard; installed: boolean
         <AddonIcon url={c.iconUrl} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base leading-5 font-medium">{c.name}</span>
-          <span className="block truncate text-[13px] text-muted-foreground">{[c.summary, compactCount(c.downloads)].filter(Boolean).join(t('common.dot'))}</span>
+          <span className="line-clamp-2 text-[13px] leading-[18px] text-muted-foreground">{[c.summary, compactCount(c.downloads)].filter(Boolean).join(t('common.dot'))}</span>
         </span>
       </button>
       {installed ? (
@@ -289,7 +290,6 @@ function PhoneCard({ card: c, installed }: { card: AddonCard; installed: boolean
         </Marker>
       ) : (
         <Button variant="outline" className="h-11 rounded-xl px-3 text-[15px]" onClick={() => void q.run()} loading={q.busy} disabled={q.disabled} aria-label={t('addons.install', { name: c.name })}>
-          <DownloadIcon />
           {t('addons.installShort')}
         </Button>
       )}

@@ -238,7 +238,11 @@ describe('library helpers', () => {
 
   it('shortens download counts and dates', () => {
     expect(compactCount(2_100_000)).toBe('2.1M')
-    expect(compactCount(380_000)).toBe('380K')
+    expect(compactCount(14_600_000)).toBe('14.6M')
+    expect(compactCount(999_600)).toBe('1M')
+    expect(compactCount(380_000)).toBe('380k')
+    expect(compactCount(250_200)).toBe('250k')
+    expect(compactCount(9_640)).toBe('9.6k')
     expect(compactCount(950)).toBe('950')
     const now = Date.parse('2026-09-25T12:00:00Z')
     expect(updatedAgo('2026-09-20T12:00:00Z', now)).toBe('5 days ago')

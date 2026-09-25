@@ -1,5 +1,5 @@
 import type { Addon, AddonCard, AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonProgress, AddonSource, AddonStep, AddonVersion, Addons, Operation } from '@/api/types'
-import { formatLocale } from '@/i18n'
+import { formatLocale, t } from '@/i18n'
 import { relativeTime } from '@/lib/format'
 
 export type AddonKind = 'plugin' | 'mod'
@@ -205,7 +205,10 @@ export function updatedAgo(iso: string, now: number = Date.now()): string {
   return rtf.format(-Math.floor(days / 365), 'year')
 }
 
-/** "2.1M", "380K": downloads as the library cards show them. */
+/** "2.1M", "380k", "9.6k": downloads as the library cards show them. */
 export function compactCount(n: number): string {
-  return new Intl.NumberFormat(formatLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+  const num = (v: number, digits: number) => new Intl.NumberFormat(formatLocale(), { maximumFractionDigits: digits }).format(v)
+  if (n >= 999_500) return t('addons.countMillions', { value: num(n / 1_000_000, 1) })
+  if (n >= 1000) return t('addons.countThousands', { value: num(n < 10_000 ? n / 1000 : Math.round(n / 1000), 1) })
+  return num(n, 0)
 }
