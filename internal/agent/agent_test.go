@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,22 +29,33 @@ import (
 )
 
 type agentEnv struct {
-	t      *testing.T
-	dir    string
-	cfg    config.Config
-	fd     *fakeDocker
-	rcon   *fakeRCON
-	slp    string
-	a      *Agent
-	ts     *httptest.Server
-	jarSum string
-	mu     sync.Mutex
+	t    *testing.T
+	dir  string
+	cfg  config.Config
+	fd   *fakeDocker
+	rcon *fakeRCON
+	slp  string
+	a    *Agent
+	ts   *httptest.Server
+	fill *fakeFill
+	mu   sync.Mutex
 	// clockOffset moves the agent's clock and crashBackoff, when set, replaces
 	// the zero backoff (both taken at start); diskFree, when set, is the free
 	// space the agent measures.
 	clockOffset  time.Duration
 	crashBackoff []time.Duration
 	diskFree     atomic.Int64
+	// updateKeys are the release keys the agent trusts (none by default), and
+	// stagedVersion is what a downloaded binary reports.
+	updateKeys    []ed25519.PublicKey
+	stagedVersion string
+}
+
+func (e *agentEnv) binaryVersion(string) (string, error) {
+	if e.stagedVersion == "" {
+		return "", errors.New("no staged version configured")
+	}
+	return e.stagedVersion, nil
 }
 
 func newAgentEnv(t *testing.T) *agentEnv {
@@ -52,7 +64,7 @@ func newAgentEnv(t *testing.T) *agentEnv {
 	e := &agentEnv{t: t, dir: dir}
 	e.fd = startFakeDocker(t, filepath.Join(dir, "docker.sock"))
 	sum := sha256.Sum256(e.fd.jarContent)
-	e.jarSum = hex.EncodeToString(sum[:])
+	e.fill = startFakeFill(t, hex.EncodeToString(sum[:]))
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = filepath.Join(dir, "agent.sock")
@@ -88,7 +100,8 @@ func (e *agentEnv) start() {
 			return 50 << 30, 100 << 30, nil
 		},
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
-		JarSHA256: func(string) string { return e.jarSum }, StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second,
+		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second,
+		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 	})
 	if err != nil {
 		e.t.Fatal(err)
@@ -1005,9 +1018,7 @@ func TestExternalCleanStopIsRestored(t *testing.T) {
 
 func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 	e := newAgentEnv(t)
-	e.jarSum = strings.Repeat("0", 64)
-	e.stop()
-	e.start()
+	e.fill.set(strings.Repeat("0", 64), nil)
 	code, out := e.call("POST", "/v1/server", map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("create: %d %v", code, out)

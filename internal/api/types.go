@@ -50,6 +50,55 @@ type ServerStatus struct {
 	PendingRestart  bool            `json:"pendingRestart"`
 	AgentVersion    string          `json:"agentVersion"`
 	CollectingSince *time.Time      `json:"collectingSince,omitempty"`
+	// UpdateAvailable is a newer, signed Playkeeper release, if the last
+	// check found one; UpdateInstalling the release being installed.
+	UpdateAvailable  string `json:"updateAvailable,omitempty"`
+	UpdateInstalling string `json:"updateInstalling,omitempty"`
+}
+
+// UpdateInfo is what Playkeeper knows about its own updates.
+type UpdateInfo struct {
+	Current string `json:"current"`
+	// Supported is false when this build cannot install updates; Reason says why.
+	Supported   bool          `json:"supported"`
+	Reason      string        `json:"reason,omitempty"`
+	Latest      string        `json:"latest,omitempty"`
+	Available   bool          `json:"available"`
+	Notes       string        `json:"notes,omitempty"`
+	ReleaseDate string        `json:"releaseDate,omitempty"`
+	CheckedAt   *time.Time    `json:"checkedAt,omitempty"`
+	CheckError  string        `json:"checkError,omitempty"`
+	Installing  string        `json:"installing,omitempty"`
+	LastResult  *UpdateResult `json:"lastResult,omitempty"`
+}
+
+// UpdateResult is how the last update ended: updated, rolled_back (the new
+// version was unhealthy and the previous one is running again), refused
+// (nothing changed) or failed (the host needs a manual fix).
+type UpdateResult struct {
+	From       string    `json:"from"`
+	To         string    `json:"to"`
+	Outcome    string    `json:"outcome"`
+	Error      string    `json:"error,omitempty"`
+	FinishedAt time.Time `json:"finishedAt"`
+}
+
+type UpdateCheckRequest struct {
+	Actor string `json:"actor"`
+}
+
+type UpdateApplyRequest struct {
+	// Version is the release the admin chose; it must still be the latest.
+	Version string `json:"version"`
+	Actor   string `json:"actor"`
+}
+
+// VersionChangeRequest moves the server to another Paper build. Only newer
+// versions are allowed; experimental ones need AcceptExperimental.
+type VersionChangeRequest struct {
+	VersionID          string `json:"versionId"`
+	AcceptExperimental bool   `json:"acceptExperimental"`
+	Actor              string `json:"actor"`
 }
 
 type PlayerSnapshot struct {
@@ -73,6 +122,10 @@ type ServerConfig struct {
 	VersionID        string `json:"versionId"`
 	MinecraftVersion string `json:"minecraftVersion"`
 	PaperBuild       int    `json:"paperBuild"`
+	// JarSHA256 is the checksum PaperMC publishes for this build; the jar is
+	// verified against it before every start. Servers created by 0.1.0 have
+	// none and use the checksum pinned in that release.
+	JarSHA256 string `json:"jarSha256,omitempty"`
 	// MemoryMB is the memory budget: the container's hard memory limit.
 	MemoryMB int `json:"memoryMB"`
 	// HeapMB is the Java heap (-Xms/-Xmx) derived from MemoryMB.
@@ -91,10 +144,12 @@ type ServerConfig struct {
 type CreateServerRequest struct {
 	AcceptEULA bool   `json:"acceptEula"`
 	VersionID  string `json:"versionId"`
-	MemoryMB   int    `json:"memoryMB"`
-	MOTD       string `json:"motd"`
-	MaxPlayers int    `json:"maxPlayers"`
-	Actor      string `json:"actor"`
+	// AcceptExperimental confirms an experimental (alpha or beta) version.
+	AcceptExperimental bool   `json:"acceptExperimental,omitempty"`
+	MemoryMB           int    `json:"memoryMB"`
+	MOTD               string `json:"motd"`
+	MaxPlayers         int    `json:"maxPlayers"`
+	Actor              string `json:"actor"`
 }
 
 type SettingsRequest struct {
@@ -136,15 +191,23 @@ type CatalogEntry struct {
 	Java             int    `json:"java"`
 	Recommended      bool   `json:"recommended"`
 	Notes            string `json:"notes"`
+	// Channel is PaperMC's build channel: STABLE, BETA or ALPHA. Experimental
+	// is set for versions without a stable build yet.
+	Channel      string `json:"channel"`
+	Experimental bool   `json:"experimental"`
+	// Supported is false for versions PaperMC no longer updates.
+	Supported bool `json:"supported"`
 }
 
 type Catalog struct {
-	Versions            []CatalogEntry `json:"versions"`
-	MemoryOptionsMB     []int          `json:"memoryOptionsMB"`
-	RecommendedMemoryMB int            `json:"recommendedMemoryMB"`
-	HostMemoryMB        int            `json:"hostMemoryMB"`
-	MaxMemoryMB         int            `json:"maxMemoryMB"`
-	Image               string         `json:"image"`
+	Versions []CatalogEntry `json:"versions"`
+	// VersionsError says why the version list could not be loaded from PaperMC.
+	VersionsError       string `json:"versionsError,omitempty"`
+	MemoryOptionsMB     []int  `json:"memoryOptionsMB"`
+	RecommendedMemoryMB int    `json:"recommendedMemoryMB"`
+	HostMemoryMB        int    `json:"hostMemoryMB"`
+	MaxMemoryMB         int    `json:"maxMemoryMB"`
+	Image               string `json:"image"`
 }
 
 type PreflightCheck struct {

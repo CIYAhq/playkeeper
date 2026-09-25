@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/store"
+	"github.com/CIYAhq/playkeeper/internal/update"
 )
 
 const (
@@ -64,12 +66,22 @@ type Options struct {
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
 	ReadyTimeout time.Duration
-	// JarSHA256 returns the pinned jar checksum for a version (tests).
-	JarSHA256 func(versionID string) string
 	// ReconcileInterval is how often desired and observed state are compared.
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
 	CrashBackoff []time.Duration
+	// UpdateKeys are the release signing keys updates must be signed with
+	// (default: the keys compiled into this build).
+	UpdateKeys []ed25519.PublicKey
+	// UpdateCheckInterval is how often the agent looks for a new release
+	// (default 12h; negative turns the automatic check off).
+	UpdateCheckInterval time.Duration
+	// BinaryVersion runs a downloaded binary's `version` command (tests).
+	BinaryVersion func(path string) (string, error)
+	// HTTPClient fetches releases and PaperMC's version list.
+	HTTPClient *http.Client
+	// FillURL is PaperMC's Fill API (default https://fill.papermc.io).
+	FillURL string
 }
 
 // Retention bounds stored analytics and audit data.
@@ -142,6 +154,9 @@ type Agent struct {
 	rconIP string
 
 	allowed map[uint32]bool
+
+	upd     updateState
+	catalog catalogCache
 }
 
 func New(opts Options) (*Agent, error) {
@@ -181,17 +196,26 @@ func New(opts Options) (*Agent, error) {
 	if opts.ReadyTimeout == 0 {
 		opts.ReadyTimeout = 10 * time.Minute
 	}
-	if opts.JarSHA256 == nil {
-		opts.JarSHA256 = func(id string) string {
-			e, _ := minecraft.LookupVersion(id)
-			return e.JarSHA256
-		}
-	}
 	if opts.ReconcileInterval == 0 {
 		opts.ReconcileInterval = 3 * time.Second
 	}
 	if len(opts.CrashBackoff) == 0 {
 		opts.CrashBackoff = []time.Duration{0, 30 * time.Second, 2 * time.Minute}
+	}
+	if opts.UpdateKeys == nil {
+		opts.UpdateKeys = update.TrustedKeys()
+	}
+	if opts.UpdateCheckInterval == 0 {
+		opts.UpdateCheckInterval = 12 * time.Hour
+	}
+	if opts.BinaryVersion == nil {
+		opts.BinaryVersion = binaryVersion
+	}
+	if opts.HTTPClient == nil {
+		opts.HTTPClient = &http.Client{Timeout: 10 * time.Minute}
+	}
+	if opts.FillURL == "" {
+		opts.FillURL = minecraft.DefaultFillURL
 	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir(), filepath.Dir(cfg.ServerDataDir())} {
@@ -239,6 +263,7 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.markInterruptedOperations()
 	a.pruneStages()
+	a.loadUpdateState()
 	return a, nil
 }
 
@@ -248,6 +273,7 @@ func (a *Agent) Start() {
 	a.loop(a.sampleLoop)
 	a.loop(a.reconcileLoop)
 	a.loop(a.pruneLoop)
+	a.loop(a.updateLoop)
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -402,6 +428,10 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/restore/{id}/apply", a.hRestoreApply},
 		{"DELETE", "/v1/restore/{id}", a.hRestoreDiscard},
 		{"GET", "/v1/audit", a.hAudit},
+		{"GET", "/v1/update", a.hUpdate},
+		{"POST", "/v1/update/check", a.hUpdateCheck},
+		{"POST", "/v1/update/apply", a.hUpdateApply},
+		{"POST", "/v1/server/version", a.hVersionChange},
 	}
 }
 

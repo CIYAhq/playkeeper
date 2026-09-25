@@ -39,6 +39,9 @@ type fakeDocker struct {
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
 	holdImages   bool          // image inspects wait until the caller gives up
+	// bootFailsOn names a Minecraft version whose server rewrites the world's
+	// level.dat, as an upgrade would, then exits while starting.
+	bootFailsOn string
 }
 
 type fakeLine struct {
@@ -358,6 +361,18 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	}
 	version := strings.TrimSuffix(strings.TrimPrefix(env(c.cfg, "CUSTOM_SERVER"), "/data/paper-"), ".jar")
 	fd.log(c, "[12:00:00 INFO]: Starting minecraft server version "+version)
+	if fd.bootFailsOn != "" && strings.HasPrefix(version, fd.bootFailsOn+"-") {
+		for _, b := range c.cfg.HostConfig.Binds {
+			if host, dst, _ := strings.Cut(b, ":"); dst == "/data" {
+				os.WriteFile(filepath.Join(host, "world", "level.dat"), []byte("upgraded by "+version), 0o644)
+			}
+		}
+		fd.log(c, "[12:00:00 ERROR]: Failed to upgrade the world")
+		c.running, c.exitCode, c.finished = false, 1, time.Now().UTC()
+		close(c.wake)
+		c.wake = make(chan struct{})
+		return
+	}
 	if fd.bootExit != 0 {
 		fd.log(c, "[12:00:00 ERROR]: Encountered an unexpected exception")
 		c.running, c.exitCode, c.finished = false, fd.bootExit, time.Now().UTC()

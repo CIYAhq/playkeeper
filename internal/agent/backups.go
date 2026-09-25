@@ -408,16 +408,16 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 			"The RCON password (this host generates its own)",
 		},
 	}
-	entry, ok := minecraft.LookupMinecraft(m.MinecraftVersion)
-	if !ok {
+	entry, err := a.restoreBuild(a.ctx, m.MinecraftVersion, m.PaperBuild)
+	switch {
+	case err != nil:
 		p.Compatible = false
-		var known []string
-		for _, v := range minecraft.Versions() {
-			known = append(known, v.MinecraftVersion)
-		}
-		p.Problems = append(p.Problems, fmt.Sprintf("This backup is from Minecraft %s; this Playkeeper can run %s.", m.MinecraftVersion, strings.Join(known, " and ")))
-	} else if entry.PaperBuild != m.PaperBuild {
-		p.Warnings = append(p.Warnings, fmt.Sprintf("The backup used Paper build %d; this host will run the pinned build %d of the same Minecraft version.", m.PaperBuild, entry.PaperBuild))
+		p.Problems = append(p.Problems, fmt.Sprintf("This backup is from Minecraft %s, which cannot be restored here: %v.", m.MinecraftVersion, err))
+	case entry.PaperBuild != m.PaperBuild:
+		p.Warnings = append(p.Warnings, fmt.Sprintf("The backup used Paper build %d; this host will run build %d of the same Minecraft version, the latest stable one.", m.PaperBuild, entry.PaperBuild))
+	}
+	if entry.Experimental {
+		p.Warnings = append(p.Warnings, fmt.Sprintf("Paper %s build %d is experimental (%s), like the build the backup was made with.", entry.MinecraftVersion, entry.PaperBuild, strings.ToLower(entry.Channel)))
 	}
 	if m.SourceInstall != "" && m.SourceInstall == shortID(a.cfg.InstallID) {
 		p.Source += " (made on this host)"
@@ -470,12 +470,7 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 	return p
 }
 
-func labelFor(mc string) string {
-	if e, ok := minecraft.LookupMinecraft(mc); ok {
-		return e.Label
-	}
-	return "Minecraft " + mc
-}
+func labelFor(mc string) string { return "Paper " + mc }
 
 func (a *Agent) loadStage(id string) (*stage, error) {
 	if !reStageID.MatchString(id) {
@@ -520,9 +515,9 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 		}
 	}()
 	m := st.manifest
-	entry, ok := minecraft.LookupMinecraft(m.MinecraftVersion)
-	if !ok {
-		return errInvalid("backup version %s is not supported", m.MinecraftVersion)
+	entry, err := a.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+	if err != nil {
+		return errInvalid("This backup cannot be restored: %v.", err)
 	}
 	prev, err := a.serverConfig()
 	if err != nil {
@@ -597,10 +592,10 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	if maxPlayers < 1 || maxPlayers > 100 {
 		maxPlayers = 10
 	}
-	sc := api.ServerConfig{
-		VersionID: entry.ID, MinecraftVersion: entry.MinecraftVersion, PaperBuild: entry.PaperBuild, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
-		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, Image: minecraft.Image, CreatedAt: a.now().UTC(),
-	}
+	sc := withBuild(api.ServerConfig{
+		MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
+		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: a.now().UTC(),
+	}, entry)
 	if prev != nil {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt
 	} else {
