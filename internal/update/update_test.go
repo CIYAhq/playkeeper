@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -193,8 +194,10 @@ func TestDownloadsAreCheckedAgainstTheSignedManifest(t *testing.T) {
 	if _, err := os.Stat(dst); err == nil {
 		t.Fatal("a refused download must be deleted")
 	}
-	if err := serve(append(good, 0)).Download(ctx, a, dst); err == nil {
-		t.Fatal("a longer tarball must be refused")
+	long := append(append([]byte(nil), good...), make([]byte, 1<<20)...)
+	want := fmt.Sprintf("is %d bytes, the signed manifest says %d", a.Size+1, a.Size)
+	if err := serve(long).Download(ctx, a, dst); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("a longer tarball must be refused for its size, reading at most one byte more than signed: %v", err)
 	}
 	if _, err := serve(good).Latest(ctx, []ed25519.PublicKey{}); err != ErrNoTrustedKey {
 		t.Fatalf("without keys nothing is fetched: %v", err)

@@ -139,6 +139,10 @@ control "update download size" internal/update/fetch.go \
   'if n != a.Size {' \
   'if false && n != a.Size {' \
   ./internal/update '^TestDownloadsAreCheckedAgainstTheSignedManifest$'
+control "update download stops at the signed size" internal/update/fetch.go \
+  'io.LimitReader(body, a.Size+1)' \
+  'body' \
+  ./internal/update '^TestDownloadsAreCheckedAgainstTheSignedManifest$'
 control "update download SHA-256" internal/update/fetch.go \
   'if got := hex.EncodeToString(h.Sum(nil)); got != a.SHA256 {' \
   'if got := hex.EncodeToString(h.Sum(nil)); false && got != a.SHA256 {' \
@@ -209,7 +213,7 @@ control "a version that does not start gets the world back" internal/agent/versi
   ./internal/agent '^TestVersionThatDoesNotStartPutsTheWorldBack$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
   'if !ok || !reSHA256.MatchString(d.Checksums.SHA256) {' \
-  'if !ok {' \
+  'if !ok || false && !reSHA256.MatchString(d.Checksums.SHA256) {' \
   ./internal/minecraft '^TestCatalogSkipsBuildsWithoutAChecksumAndVersionsTheImageCannotRun$'
 control "Paper jar checksum" internal/agent/lifecycle.go \
   'if sum != want {' \
