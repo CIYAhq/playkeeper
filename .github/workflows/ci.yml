@@ -53,6 +53,15 @@ jobs:
             dist/get.sh
           retention-days: 7
 
+  site:
+    name: Site image — build it, check /, /healthz and the /install redirect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the playkeeper.io image and check what it serves
+        run: scripts/site-check.sh
+
   install-and-play:
     name: Fresh runner — install, onboarding, two bots, backup, uninstall
     needs: check
