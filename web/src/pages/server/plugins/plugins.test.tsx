@@ -211,6 +211,7 @@ describe('Plugins tab', () => {
     expect(text).toContain('Downloaded Chunky 1.4.40')
     expect(text).toContain('Was 1.4.36 · checksum matched')
     expect(text).toContain('Downloading CoreProtect 23.2')
+    expect(text).toContain('Was 23.1 · 0.9 of 1.3 MB')
     expect(text).toContain('Restart Survival to load them')
     expect(text).toContain('Keeps going if you close this.')
   })
@@ -226,6 +227,30 @@ describe('Plugins tab', () => {
     const row = [...document.querySelectorAll('li')].find((li) => li.textContent?.includes('Multiverse-Core'))
     expect(row?.textContent).toContain('Update available · 5.1.0')
     expect(row?.textContent).not.toContain('New')
+  })
+
+  it('reinstalls a missing file without calling the same version old', async () => {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    const op: Operation = {
+      id: 'op2',
+      kind: 'addon-update',
+      status: 'running',
+      phase: 'downloading',
+      actor: 'siya',
+      startedAt: '',
+      detail: { files: [{ name: 'LuckPerms', versionNumber: '5.4.150', was: '5.4.150', size: 1000, received: 1000, state: 'verified' }] },
+    }
+    vi.mocked(client.post).mockImplementation((() => Promise.resolve(op)) as typeof client.post)
+    await render(server())
+    const text = await click('Reinstall')
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/update', { addons: [{ source: 'modrinth', projectId: 'luckperms' }], changed: undefined })
+    expect(text).toContain('Installing LuckPerms')
+    expect(text).toContain('Downloaded LuckPerms 5.4.150')
+    expect(text).toContain('Checksum matched')
+    expect(text).not.toContain('Was 5.4.150')
   })
 
   it('says nothing is installed yet', async () => {

@@ -1,6 +1,6 @@
 import type { Addon, AddonCard, AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonProgress, AddonSource, AddonStep, AddonVersion, Addons, Operation } from '@/api/types'
 import { formatLocale, t } from '@/i18n'
-import { relativeTime } from '@/lib/format'
+import { formatBytes, relativeTime } from '@/lib/format'
 
 export type AddonKind = 'plugin' | 'mod'
 
@@ -211,4 +211,13 @@ export function compactCount(n: number): string {
   if (n >= 999_500) return t('addons.countMillions', { value: num(n / 1_000_000, 1) })
   if (n >= 1000) return t('addons.countThousands', { value: num(n < 10_000 ? n / 1000 : Math.round(n / 1000), 1) })
   return num(n, 0)
+}
+
+/** "0.9" of "1.3 MB": what a download has received, in the unit of its size. */
+export function downloadProgress(received: number, size: number): { received: string; size: string } {
+  if (!(size > 0)) return { received: formatBytes(received), size: formatBytes(size) }
+  let unit = 1
+  while (size / unit >= 1024 && unit < 1024 ** 4) unit *= 1024
+  const v = received / unit
+  return { received: new Intl.NumberFormat(formatLocale(), { maximumFractionDigits: unit === 1 || v >= 10 ? 0 : 1 }).format(v), size: formatBytes(size) }
 }

@@ -14,8 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { checksumFailed, keyFrom, keyOf, opFiles, opNotice, opRestartNeeded, sameKey } from '@/lib/addons'
-import { formatBytes, formatList } from '@/lib/format'
+import { checksumFailed, downloadProgress, keyFrom, keyOf, opFiles, opNotice, opRestartNeeded, sameKey } from '@/lib/addons'
+import { formatList } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAddons, type Ask, type Job } from './state'
 
@@ -33,14 +33,16 @@ function fileTitle(f: AddonProgress): string {
 }
 
 function fileHint(f: AddonProgress): string {
+  // A reinstall brings back the same version: "Was 24.1" would say nothing.
+  const was = f.was && f.was !== f.versionNumber ? f.was : undefined
   if (f.state === 'verified') {
     if (f.neededBy) return t('addons.neededByMatched', { name: f.neededBy })
-    if (f.was) return t('addons.wasMatched', { version: f.was })
+    if (was) return t('addons.wasMatched', { version: was })
     return t('addons.checksumMatched')
   }
-  const sizes = { received: formatBytes(f.received), size: formatBytes(f.size) }
+  const sizes = downloadProgress(f.received, f.size)
   if (f.neededBy) return t('addons.neededByProgress', { name: f.neededBy, ...sizes })
-  if (f.was) return t('addons.wasProgress', { version: f.was, ...sizes })
+  if (was) return t('addons.wasProgress', { version: was, ...sizes })
   return t('addons.progress', sizes)
 }
 

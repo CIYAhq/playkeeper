@@ -7,6 +7,7 @@ import {
   appendCards,
   checksumFailed,
   compactCount,
+  downloadProgress,
   footerFor,
   isAddonOp,
   maxSearch,
@@ -250,6 +251,12 @@ describe('library helpers', () => {
     expect(updatedAgo('2026-06-01T12:00:00Z', now)).toBe('3 months ago')
     expect(updatedAgo('2024-01-01T12:00:00Z', now)).toBe('2 years ago')
     expect(updatedAgo('not a date', now)).toBe('')
+  })
+
+  it('writes download progress in the unit of the file size', () => {
+    expect(downloadProgress(900_000, 1_400_000)).toEqual({ received: '0.9', size: '1.3 MB' })
+    expect(downloadProgress(12_000, 190_000)).toEqual({ received: '12', size: '186 KB' })
+    expect(downloadProgress(300, 900)).toEqual({ received: '300', size: '900 B' })
   })
 })
 
