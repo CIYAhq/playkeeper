@@ -89,8 +89,8 @@ type VersionChoice struct {
 	Experimental     bool              `json:"experimental,omitempty"`
 	// Requested is the template's Minecraft version, when it differs.
 	Requested string `json:"requested,omitempty"`
-	// RequestedBuild is the template's build details, when they differ
-	// from the catalog's.
+	// RequestedBuild is the template's build details, when the type and
+	// Minecraft version are the template's but the build is not.
 	RequestedBuild map[string]string `json:"requestedBuild,omitempty"`
 }
 
@@ -102,8 +102,9 @@ type PlannedAddon struct {
 	// Unpinned is set when the pinned version is not used because the new
 	// server's Minecraft version differs from the template's.
 	Unpinned bool `json:"unpinned,omitempty"`
-	// PageURL is the add-on's page on its source, by project id, for
-	// checking it before trusting it.
+	// PageURL is the add-on's page on Modrinth, by project id, for checking
+	// it before trusting it. Hangar's pages go by owner, which templates do
+	// not carry.
 	PageURL string `json:"pageUrl,omitempty"`
 }
 
@@ -239,7 +240,7 @@ func (p *Plan) chooseVersion(t *Template, ct CatalogType) {
 			fmt.Sprintf("Playkeeper cannot create %s servers on Minecraft %s here, so the new server gets %s, the nearest version it can.", name, want, v.MinecraftVersion),
 			"Worlds and add-ons made for one version do not always work on another."))
 	}
-	if len(t.Server.Build) > 0 && !maps.Equal(v.Build, t.Server.Build) {
+	if same && p.Type.Requested == "" && len(t.Server.Build) > 0 && !maps.Equal(v.Build, t.Server.Build) {
 		p.Version.RequestedBuild = t.Server.Build
 	}
 	if v.Experimental {
@@ -485,12 +486,16 @@ func dependenciesFirst(as []Addon) []Addon {
 }
 
 // request is what to ask the add-on library for: the pinned version, or
-// the newest release that fits.
+// the newest release that fits. A pinned beta or alpha lets pre-releases
+// in, for the add-on's dependencies and, when unpinned, when no release
+// fits.
 func request(a Addon, unpinned bool) addons.InstallRequest {
 	req := addons.InstallRequest{Source: a.Source, Project: a.Project}
-	if a.Pin != nil && !unpinned {
-		req.VersionID = a.Pin.VersionID
+	if a.Pin != nil {
 		req.AllowPrerelease = a.Pin.Channel == "beta" || a.Pin.Channel == "alpha"
+		if !unpinned {
+			req.VersionID = a.Pin.VersionID
+		}
 	}
 	return req
 }
