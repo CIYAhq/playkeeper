@@ -585,3 +585,25 @@ func TestDeleteKeepsBackupsWhenTheFilesCannotBeMoved(t *testing.T) {
 		}
 	}
 }
+
+// A deleted server's loops end with it, so nothing keeps sampling or
+// following a server that no longer exists.
+func TestDeletedServerLeavesNothingRunning(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	code, out := e.call("POST", e.sp("/delete"), map[string]any{"confirm": s.name(), "actor": "admin"})
+	if code != 202 {
+		t.Fatalf("delete: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("delete op: %+v", op)
+	}
+	if s.ctx.Err() == nil {
+		t.Fatal("the deleted server's loops are still running")
+	}
+	time.Sleep(3 * e.a.opts.SampleInterval)
+	if n := e.countRows(`SELECT COUNT(*) FROM samples WHERE server_id = ?`, e.sid); n != 0 {
+		t.Fatalf("%d samples recorded for the deleted server", n)
+	}
+}

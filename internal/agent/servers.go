@@ -46,9 +46,11 @@ type server struct {
 	layout   string
 	gamePort int
 
-	// ctx ends when the agent stops or the server is deleted.
+	// ctx ends when the agent stops or the server is deleted; loops counts
+	// the goroutines that run until then.
 	ctx    context.Context
 	cancel context.CancelFunc
+	loops  sync.WaitGroup
 
 	console *ring
 
@@ -197,8 +199,10 @@ func (s *server) startLoops() {
 	for _, fn := range []func(context.Context){s.followLoop, s.sampleLoop, s.reconcileLoop} {
 		fn := fn
 		s.wg.Add(1)
+		s.loops.Add(1)
 		go func() {
 			defer s.wg.Done()
+			defer s.loops.Done()
 			fn(s.ctx)
 		}()
 	}
@@ -504,6 +508,10 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	if s.layout == layoutV2 {
 		os.RemoveAll(filepath.Dir(s.agentSecret()))
 	}
+	// The server's loops end before its records go, so none of them writes a
+	// row for a server that no longer exists. Nothing below uses ctx.
+	s.cancel()
+	s.loops.Wait()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
