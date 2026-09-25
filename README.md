@@ -14,7 +14,7 @@ On the VPS:
 curl -fsSL https://playkeeper.io/install | sudo sh
 ```
 
-`https://playkeeper.io/install` serves `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest). It downloads `playkeeper-linux-amd64.tar.gz` and its `.sha256` from that release, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read the script first: `curl -fsSL https://playkeeper.io/install | less`.
+`https://playkeeper.io/install` redirects to `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest). The script downloads `playkeeper-linux-amd64.tar.gz` and its `.sha256` from that release, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read the script first: `curl -fsSL https://playkeeper.io/install | less`.
 
 If playkeeper.io is unreachable, the same script comes straight from GitHub:
 
@@ -78,4 +78,4 @@ Playkeeper is free software under the GNU Affero General Public License, version
 
 Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
 
-[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, published with GitHub Pages; its `/install` is the latest release's `get.sh`.
+[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, an nginx container ([site/README.md](site/README.md)); its `/install` redirects to the latest release's `get.sh`.

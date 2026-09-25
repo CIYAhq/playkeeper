@@ -29,14 +29,14 @@ CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `ma
 - `make package` — release tarball in `dist/` (static binary with the embedded UI, installer, notes), plus the one-line installer assets a release would carry (`get.sh` and the tarball under its stable name).
 - `make e2e-vm` — full rehearsal in fresh KVM guests (needs `/dev/kvm`, qemu, cloud-image-utils, sudo; see `scripts/e2e/vm-e2e.sh`).
 - `./scripts/negative-controls.sh` — removes each safety guard in turn in a throwaway worktree and checks that the test covering it fails.
-- `scripts/build-site.sh packaging/get.sh _site` — builds the playkeeper.io page into `_site/`. The published site serves the latest release's `get.sh` as `/install`.
+- `scripts/site-check.sh` — builds the playkeeper.io container from `site/` and checks `/`, `/healthz` and the `/install` redirect (needs Docker; CI runs it too). Hosting it is described in [site/README.md](site/README.md).
 - `make notices` — regenerates `THIRD_PARTY_NOTICES`, the licence texts of the third-party code in the binary. Run it after changing Go or npm dependencies and commit the result; `make check` fails while it is out of date.
 
 Protocol-bot tests need offline mode, which only the test harness enables (`PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1` on the agent). Never set it on a real server.
 
 ## Releases (maintainers)
 
-Pushing a `vMAJOR.MINOR.PATCH` tag runs [the release workflow](.github/workflows/release.yml): `make check` and `make package` with the version from the tag, an install of the built assets on a fresh runner, then a normal (not pre-release) GitHub release with `get.sh`, `playkeeper-linux-amd64.tar.gz` and its `.sha256`, which becomes the latest release. It then redeploys playkeeper.io through [the Pages workflow](.github/workflows/pages.yml) and runs the one-line install against `https://playkeeper.io/install` on a fresh runner. 0.x releases are labelled early. For a dry run, start the release workflow by hand or open a pull request that touches the release path: it builds and checks everything and uploads the assets as an artifact instead of releasing them.
+Pushing a `vMAJOR.MINOR.PATCH` tag runs [the release workflow](.github/workflows/release.yml): `make check` and `make package` with the version from the tag, an install of the built assets on a fresh runner, then a normal (not pre-release) GitHub release with `get.sh`, `playkeeper-linux-amd64.tar.gz` and its `.sha256`, which becomes the latest release. It then runs the one-line install from the GitHub release URL on a fresh runner and checks that `https://playkeeper.io/install`, a redirect to the latest release's `get.sh`, resolves to the new one; that last check only warns, because the site runs on its own server and needs no redeploy for a release. 0.x releases are labelled early. For a dry run, start the release workflow by hand or open a pull request that touches the release path: it builds and checks everything and uploads the assets as an artifact instead of releasing them.
 
 ## Where things live
 
@@ -49,10 +49,10 @@ Pushing a `vMAJOR.MINOR.PATCH` tag runs [the release workflow](.github/workflows
 | `internal/backup`, `internal/minecraft`, `internal/docker` | archive format, Minecraft protocols and log parsing, Docker client |
 | `web/` | React + TypeScript UI (embedded at build time) |
 | `packaging/` | `install.sh`, the one-line installer `get.sh`, their tests, install notes |
-| `scripts/` | toolchain setup, packaging, release checks, site build, KVM rehearsal harness, negative controls |
-| `site/` | the playkeeper.io page (GitHub Pages) |
+| `scripts/` | toolchain setup, packaging, release checks, site check, KVM rehearsal harness, negative controls |
+| `site/` | the playkeeper.io page and its nginx container (hosted with Coolify) |
 | `test/e2e/` | API client, scenario driver, protocol bot, Playwright specs |
-| `.github/workflows/` | CI, the release workflow and the Pages deployment |
+| `.github/workflows/` | CI and the release workflow |
 
 ## Design principles
 
