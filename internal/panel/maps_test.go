@@ -263,7 +263,7 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 				want = pageOff
 			}
 			if r.StatusCode != 404 || !bytes.Equal(body, want) {
-				t.Fatalf("%s, %s: %d %s", what, p, r.StatusCode, body)
+				t.Fatalf("%s, %s: %d %q", what, p, r.StatusCode, body)
 			}
 		}
 	}
