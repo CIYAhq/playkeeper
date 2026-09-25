@@ -340,7 +340,13 @@ func TestRCONCommandContextNeverResendsAndHonoursTheContext(t *testing.T) {
 	if out, err := r.CommandContext(context.Background(), "last"); err != nil || out != "bye" {
 		t.Fatalf("got %q %v", out, err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	// The fake hangs up just after its reply. Wait until this side can see
+	// that rather than for a fixed time, which a busy machine can outlast.
+	for deadline := time.Now().Add(5 * time.Second); r.stale() == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the server's hang-up never reached this side")
+		}
+	}
 	if _, err := r.CommandContext(context.Background(), "after"); !errors.Is(err, ErrNotSent) {
 		t.Fatalf("a connection the server closed must be noticed before writing, got %v", err)
 	}
