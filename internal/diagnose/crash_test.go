@@ -71,7 +71,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		evidence    []string
 	}{
 		{
-			name: "heap out of memory with room for a bigger budget", in: paperCrash(crashConsole(t, "paper_heap_oom.log")),
+			name: "heap out of memory with room for a bigger budget", in: paperCrash(crashConsole(t, "paper_heap_oom.txt")),
 			kind: CrashHeapMemory, certain: true, params: map[string]any{"budget_mb": 4096, "heap_mb": 3072},
 			fixes:       "raise_memory* from_mb=4096 to_mb=6144; restart",
 			explanation: []string{"ran out of the 3 GB it has for the game", "a plugin may be holding on to memory"},
@@ -79,7 +79,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "heap out of memory on a full machine offers what to do instead",
-			in:   with(paperCrash(crashConsole(t, "paper_heap_oom.log")), func(in *CrashInput) { in.RoomMB = 0 }),
+			in:   with(paperCrash(crashConsole(t, "paper_heap_oom.txt")), func(in *CrashInput) { in.RoomMB = 0 }),
 			kind: CrashHeapMemory, certain: true,
 			fixes:    "lower_view_distance* from=12 to=8; upgrade_host resource=memory; restart",
 			evidence: []string{"no memory to spare"},
@@ -99,20 +99,20 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			fixes: "upgrade_host* resource=memory; restart",
 		},
 		{
-			name: "metaspace after plugin reloads", in: paperCrash(crashConsole(t, "paper_metaspace.log")),
+			name: "metaspace after plugin reloads", in: paperCrash(crashConsole(t, "paper_metaspace.txt")),
 			kind: CrashMetaspace, certain: true, fixes: "restart*",
 			explanation: []string{"Reloading plugins without restarting makes it grow"},
 			evidence:    []string{"java.lang.OutOfMemoryError: Metaspace"},
 		},
 		{
-			name: "thread limit", in: paperCrash(crashConsole(t, "paper_threads.log")),
+			name: "thread limit", in: paperCrash(crashConsole(t, "paper_threads.txt")),
 			kind: CrashThreads, certain: true, fixes: "restart*",
 			explanation: []string{"A plugin that keeps starting new threads"},
 			evidence:    []string{"unable to create native thread"},
 		},
 		{
 			name: "Paper watchdog names the plugin the server thread was running",
-			in:   with(paperCrash(crashConsole(t, "paper_watchdog.log")), func(in *CrashInput) { in.Addons = addonFiles("EssentialsX-2.21.0.jar", "SlowShop-3.2.1.jar") }),
+			in:   with(paperCrash(crashConsole(t, "paper_watchdog.txt")), func(in *CrashInput) { in.Addons = addonFiles("EssentialsX-2.21.0.jar", "SlowShop-3.2.1.jar") }),
 			kind: CrashWatchdog, certain: true, params: map[string]any{"jar": "SlowShop-3.2.1.jar"},
 			fixes:       "update_addon* jar=SlowShop-3.2.1.jar; remove_addon jar=SlowShop-3.2.1.jar; restart",
 			explanation: []string{"running code from SlowShop-3.2.1.jar, so that plugin is the most likely cause"},
@@ -120,18 +120,18 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "Paper watchdog names a plugin that is no longer installed without offering to change it",
-			in:   paperCrash(crashConsole(t, "paper_watchdog.log")),
+			in:   paperCrash(crashConsole(t, "paper_watchdog.txt")),
 			kind: CrashWatchdog, certain: true, params: map[string]any{"jar": "SlowShop-3.2.1.jar"}, fixes: "restart*",
 		},
 		{
 			name: "Paper watchdog without a plugin at work",
-			in:   with(paperCrash(crashConsole(t, "paper_watchdog_no_plugin.log")), func(in *CrashInput) { in.Addons = addonFiles("LuckPerms-Bukkit-5.4.145.jar") }),
+			in:   with(paperCrash(crashConsole(t, "paper_watchdog_no_plugin.txt")), func(in *CrashInput) { in.Addons = addonFiles("LuckPerms-Bukkit-5.4.145.jar") }),
 			kind: CrashWatchdog, certain: true, fixes: "restart*; run_profiler",
 			explanation: []string{"doesn't show a plugin at work"},
 		},
 		{
 			name: "vanilla watchdog",
-			in: with(moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_watchdog.log")), func(in *CrashInput) {
+			in: with(moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_watchdog.txt")), func(in *CrashInput) {
 				in.CrashReport, in.CrashReportName = string(report), "crash-2026-09-25_03.22.17-server.txt"
 			}),
 			kind: CrashWatchdog, certain: true, params: map[string]any{"seconds": 60}, fixes: "restart*",
@@ -147,7 +147,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			evidence: []string{"java.lang.Error: ServerHangWatchdog detected that a single server tick took 60.00 seconds"},
 		},
 		{
-			name: "port taken inside the container", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_bind.log")),
+			name: "port taken inside the container", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_bind.txt")),
 			kind: CrashPortInUse, certain: true, params: map[string]any{"reason": "in_use", "port": 25565}, fixes: "restart*",
 			explanation: []string{"set to use the same port as the game"},
 			evidence:    []string{"**** FAILED TO BIND TO PORT!", "bind(..) failed: Address already in use"},
@@ -173,28 +173,28 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "plugin built for a newer Java is only a possible cause",
-			in:   with(paperCrash(crashConsole(t, "paper_plugin_java.log")), func(in *CrashInput) { in.Addons = addonFiles("FancyNpcs-2.8.0.jar") }),
+			in:   with(paperCrash(crashConsole(t, "paper_plugin_java.txt")), func(in *CrashInput) { in.Addons = addonFiles("FancyNpcs-2.8.0.jar") }),
 			kind: CrashNewerJava, params: map[string]any{"required": 26, "available": 25, "jar": "FancyNpcs-2.8.0.jar"},
 			fixes:       "remove_addon* jar=FancyNpcs-2.8.0.jar; update_addon jar=FancyNpcs-2.8.0.jar",
 			explanation: []string{"FancyNpcs-2.8.0.jar is built for Java 26, but the server runs Java 25", "Paper keeps running without a plugin that fails like this"},
 			evidence:    []string{"FancyNpcs-2.8.0.jar needs Java 26; the server runs Java 25."},
 		},
 		{
-			name: "server software built for a newer Java", in: paperCrash(crashConsole(t, "paper_server_java.log")),
+			name: "server software built for a newer Java", in: paperCrash(crashConsole(t, "paper_server_java.txt")),
 			kind: CrashNewerJava, certain: true, params: map[string]any{"required": 26, "available": 25},
 			explanation: []string{"The Paper server software is built for Java 26, but it ran on Java 25"},
 			evidence:    []string{"io/papermc/paperclip/Main has been compiled by a more recent version"},
 		},
 		{
 			name: "Fabric mod built for a newer Java",
-			in:   moddedCrash("fabric", "1.21.9", crashConsole(t, "fabric_java.log"), "sodium-fabric-0.7.1+mc1.21.9.jar", "lithium-fabric-0.16.0+mc1.21.9.jar"),
+			in:   moddedCrash("fabric", "1.21.9", crashConsole(t, "fabric_java.txt"), "sodium-fabric-0.7.1+mc1.21.9.jar", "lithium-fabric-0.16.0+mc1.21.9.jar"),
 			kind: CrashNewerJava, certain: true, params: map[string]any{"required": 26, "available": 25, "addon": "Sodium", "jar": "sodium-fabric-0.7.1+mc1.21.9.jar"},
 			fixes:       "remove_addon* jar=sodium-fabric-0.7.1+mc1.21.9.jar; update_addon jar=sodium-fabric-0.7.1+mc1.21.9.jar",
 			explanation: []string{"Sodium is built for Java 26, but the server runs Java 25, which can't load it."},
 		},
 		{
 			name: "Fabric mod missing a dependency",
-			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_missing.log"), "Chunky-Fabric-1.4.23.jar", "spark-1.10.121-fabric.jar"),
+			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_missing.txt"), "Chunky-Fabric-1.4.23.jar", "spark-1.10.121-fabric.jar"),
 			kind: CrashMissingDependency, certain: true,
 			params:      map[string]any{"addon": "Chunky", "addon_id": "chunky", "dependency": "fabric-api", "more": 1, "jar": "Chunky-Fabric-1.4.23.jar"},
 			fixes:       "install_addon* name=fabric-api; remove_addon jar=Chunky-Fabric-1.4.23.jar",
@@ -203,7 +203,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "Fabric mod made for another Minecraft version",
-			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_mismatch.log"), "fabric-api-0.128.2+1.21.5.jar", "fabric-language-kotlin-1.13.4+kotlin.2.2.0.jar"),
+			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_mismatch.txt"), "fabric-api-0.128.2+1.21.5.jar", "fabric-language-kotlin-1.13.4+kotlin.2.2.0.jar"),
 			kind: CrashIncompatibleAddon, certain: true,
 			params:      map[string]any{"addon": "Fabric API", "requires": "version 1.21.5", "jar": "fabric-api-0.128.2+1.21.5.jar"},
 			fixes:       "update_addon* jar=fabric-api-0.128.2+1.21.5.jar; remove_addon jar=fabric-api-0.128.2+1.21.5.jar",
@@ -211,28 +211,28 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "Fabric mods that break each other",
-			in:   moddedCrash("fabric", "1.21.1", crashConsole(t, "fabric_breaks.log"), "lithium-fabric-0.14.3+mc1.21.1.jar", "canary-mc1.21.1-0.3.3.jar"),
+			in:   moddedCrash("fabric", "1.21.1", crashConsole(t, "fabric_breaks.txt"), "lithium-fabric-0.14.3+mc1.21.1.jar", "canary-mc1.21.1-0.3.3.jar"),
 			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"addon": "Lithium", "other": "Canary"},
 			fixes:       "remove_addon* jar=canary-mc1.21.1-0.3.3.jar; remove_addon jar=lithium-fabric-0.14.3+mc1.21.1.jar",
 			explanation: []string{"Lithium is marked as incompatible with Canary"},
 		},
 		{
 			name: "Fabric mixin failure",
-			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_mixin.log"), "better-end-4.0.11.jar", "bclib-4.0.13.jar"),
+			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_mixin.txt"), "better-end-4.0.11.jar", "bclib-4.0.13.jar"),
 			kind: CrashMixinFailed, certain: true, params: map[string]any{"addon": "betterend", "jar": "better-end-4.0.11.jar"},
 			fixes:    "update_addon* jar=better-end-4.0.11.jar; remove_addon jar=better-end-4.0.11.jar",
 			evidence: []string{"Mixin apply for mod betterend failed"},
 		},
 		{
 			name: "Fabric mod failing in its entrypoint",
-			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_entrypoint.log"), "Chunky-Fabric-1.4.23.jar"),
+			in:   moddedCrash("fabric", "1.21.4", crashConsole(t, "fabric_entrypoint.txt"), "Chunky-Fabric-1.4.23.jar"),
 			kind: CrashAddonFailed, certain: true, params: map[string]any{"addon": "chunky", "jar": "Chunky-Fabric-1.4.23.jar"},
 			fixes:    "update_addon* jar=Chunky-Fabric-1.4.23.jar; remove_addon jar=Chunky-Fabric-1.4.23.jar",
 			evidence: []string{"provided by 'chunky'", "Caused by: java.lang.NoClassDefFoundError"},
 		},
 		{
 			name: "NeoForge mod missing a dependency",
-			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_missing.log"), "mowziesmobs-1.7.2-1.21.1.jar"),
+			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_missing.txt"), "mowziesmobs-1.7.2-1.21.1.jar"),
 			kind: CrashMissingDependency, certain: true, params: map[string]any{"addon": "mowziesmobs", "dependency": "geckolib", "jar": "mowziesmobs-1.7.2-1.21.1.jar"},
 			fixes:       "install_addon* name=geckolib; remove_addon jar=mowziesmobs-1.7.2-1.21.1.jar",
 			explanation: []string{"mowziesmobs requires geckolib 4.7 or above, and it isn't installed"},
@@ -240,83 +240,83 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "NeoForge file that stops it loading",
-			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_broken_file.log"), "Jade-1.21.1-NeoForge-15.10.0.jar", "sodium-fabric-0.6.13+mc1.21.1.jar"),
+			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_broken_file.txt"), "Jade-1.21.1-NeoForge-15.10.0.jar", "sodium-fabric-0.6.13+mc1.21.1.jar"),
 			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"jar": "Jade-1.21.1-NeoForge-15.10.0.jar", "reason": "invalid"},
 			fixes:       "update_addon* jar=Jade-1.21.1-NeoForge-15.10.0.jar; remove_addon jar=Jade-1.21.1-NeoForge-15.10.0.jar",
 			explanation: []string{"refused to start because it can't load Jade-1.21.1-NeoForge-15.10.0.jar"},
 		},
 		{
 			name: "NeoForge file it skipped is only a possible cause",
-			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_skipped_file.log"), "sodium-fabric-0.6.13+mc1.21.1.jar"),
+			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_skipped_file.txt"), "sodium-fabric-0.6.13+mc1.21.1.jar"),
 			kind: CrashIncompatibleAddon, params: map[string]any{"jar": "sodium-fabric-0.6.13+mc1.21.1.jar", "reason": "fabric"},
 			fixes:       "remove_addon* jar=sodium-fabric-0.6.13+mc1.21.1.jar",
 			explanation: []string{"it is a Fabric mod, not a NeoForge mod", "skips files like this and keeps running"},
 		},
 		{
 			name: "NeoForge mod failing while starting",
-			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_mod_failed.log"), "FarmersDelight-1.21.1-1.2.7.jar"),
+			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_mod_failed.txt"), "FarmersDelight-1.21.1-1.2.7.jar"),
 			kind: CrashAddonFailed, certain: true, params: map[string]any{"addon": "Farmer's Delight", "jar": "FarmersDelight-1.21.1-1.2.7.jar"},
 			fixes:    "update_addon* jar=FarmersDelight-1.21.1-1.2.7.jar; remove_addon jar=FarmersDelight-1.21.1-1.2.7.jar",
 			evidence: []string{"java.lang.NullPointerException: Cannot invoke"},
 		},
 		{
-			name: "data pack with errors", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_datapack.log")),
+			name: "data pack with errors", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_datapack.txt")),
 			kind: CrashDatapack, certain: true, params: map[string]any{"pack": "Terralith_1.21.x_v2.5.8.zip"},
 			fixes:       "remove_datapack* pack=Terralith_1.21.x_v2.5.8.zip",
 			explanation: []string{"from a data pack, has errors", "The errors are in the data pack Terralith_1.21.x_v2.5.8.zip"},
 		},
 		{
-			name: "world open somewhere else", in: paperCrash(crashConsole(t, "paper_world_locked.log")),
+			name: "world open somewhere else", in: paperCrash(crashConsole(t, "paper_world_locked.txt")),
 			kind: CrashWorldLocked, certain: true, fixes: "restart*",
 			evidence: []string{"session.lock: already locked"},
 		},
 		{
-			name: "damaged level.dat with a backup", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.log")),
+			name: "damaged level.dat with a backup", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")),
 			kind: CrashCorruptWorld, certain: true, params: map[string]any{"file": "level.dat"}, fixes: "restore_backup*",
 		},
 		{
 			name: "damaged level.dat without a backup",
-			in:   with(moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.log")), func(in *CrashInput) { in.HasBackup = false }),
+			in:   with(moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")), func(in *CrashInput) { in.HasBackup = false }),
 			kind: CrashCorruptWorld, certain: true, fixes: "",
 			explanation: []string{"There is no backup to restore."},
 		},
 		{
-			name: "unreadable chunk is only the likely cause", in: paperCrash(crashConsole(t, "paper_chunk.log")),
+			name: "unreadable chunk is only the likely cause", in: paperCrash(crashConsole(t, "paper_chunk.txt")),
 			kind: CrashCorruptWorld, params: map[string]any{"chunk_x": 12, "chunk_z": -5}, fixes: "restart*; restore_backup",
 			explanation: []string{"the chunk around x 192, z -80", "most likely reason", "Restoring a backup keeps the builds"},
 			evidence:    []string{"Couldn't load chunk [12, -5]"},
 		},
 		{
 			name: "disk that was full when it stopped",
-			in:   with(paperCrash(crashConsole(t, "disk_full.log")), func(in *CrashInput) { in.FreeDiskMB = ptr(int64(20480)) }),
+			in:   with(paperCrash(crashConsole(t, "disk_full.txt")), func(in *CrashInput) { in.FreeDiskMB = ptr(int64(20480)) }),
 			kind: CrashDiskFull, certain: true, params: map[string]any{"free_mb": 20480}, fixes: "restart*; free_disk free_mb=20480",
 			explanation: []string{"full at the time. There is 20 GB free now"},
 			evidence:    []string{"No space left on device", "20 GB free on the server's disk."},
 		},
 		{
 			name: "disk that is still full",
-			in:   with(paperCrash(crashConsole(t, "disk_full.log")), func(in *CrashInput) { in.FreeDiskMB = ptr(int64(40)) }),
+			in:   with(paperCrash(crashConsole(t, "disk_full.txt")), func(in *CrashInput) { in.FreeDiskMB = ptr(int64(40)) }),
 			kind: CrashDiskFull, certain: true, fixes: "free_disk* free_mb=40",
 			explanation: []string{"only 40 MB is free"},
 		},
 		{
 			name: "nearly full disk without a line about it is only the likely cause",
-			in:   with(paperCrash(crashConsole(t, "unknown.log")), func(in *CrashInput) { in.FreeDiskMB = ptr(int64(50)) }),
+			in:   with(paperCrash(crashConsole(t, "unknown.txt")), func(in *CrashInput) { in.FreeDiskMB = ptr(int64(50)) }),
 			kind: CrashDiskFull, fixes: "free_disk* free_mb=50",
 			explanation: []string{"Only 50 MB is free", "most likely reason"},
 		},
 		{
-			name: "EULA not accepted", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "eula.log")),
+			name: "EULA not accepted", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "eula.txt")),
 			kind: CrashEULA, certain: true, fixes: "accept_eula*",
 		},
 		{
-			name: "permission denied in the error it stopped with", in: paperCrash(crashConsole(t, "permission.log")),
+			name: "permission denied in the error it stopped with", in: paperCrash(crashConsole(t, "permission.txt")),
 			kind: CrashPermissionDenied, certain: true, params: map[string]any{"path": "./world/session.lock"}, fixes: "fix_permissions*",
 			explanation: []string{"stopped because it wasn't allowed to read or write ./world/session.lock"},
 		},
 		{
 			name: "plugin missing a dependency is only a possible cause",
-			in:   with(paperCrash(crashConsole(t, "paper_missing_dependency.log")), func(in *CrashInput) { in.Addons = addonFiles("EssentialsXChat-2.21.0.jar") }),
+			in:   with(paperCrash(crashConsole(t, "paper_missing_dependency.txt")), func(in *CrashInput) { in.Addons = addonFiles("EssentialsXChat-2.21.0.jar") }),
 			kind: CrashMissingDependency, params: map[string]any{"addon": "EssentialsChat", "dependency": "Essentials", "jar": "EssentialsXChat-2.21.0.jar"},
 			fixes:       "install_addon* name=Essentials; remove_addon jar=EssentialsXChat-2.21.0.jar",
 			explanation: []string{"couldn't load EssentialsChat because it needs Essentials", "Paper keeps running without a plugin that fails like this"},
@@ -335,7 +335,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "plugin failing to enable is only a possible cause",
-			in:   with(paperCrash(crashConsole(t, "paper_enable_failure.log")), func(in *CrashInput) { in.Addons = addonFiles("Shopkeepers-2.23.3.jar", "Vault-1.7.3.jar") }),
+			in:   with(paperCrash(crashConsole(t, "paper_enable_failure.txt")), func(in *CrashInput) { in.Addons = addonFiles("Shopkeepers-2.23.3.jar", "Vault-1.7.3.jar") }),
 			kind: CrashAddonFailed, params: map[string]any{"addon": "Shopkeepers", "jar": "Shopkeepers-2.23.3.jar"},
 			fixes:    "update_addon* jar=Shopkeepers-2.23.3.jar; remove_addon jar=Shopkeepers-2.23.3.jar",
 			evidence: []string{"Error occurred while enabling Shopkeepers v2.23.3", "java.lang.NoSuchMethodError", "Shopkeepers-2.23.3.jar//com.nisovin.shopkeepers.compat"},
@@ -346,7 +346,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			explanation: []string{"exit code 137 means it received SIGKILL"},
 		},
 		{
-			name: "unknown shows the last errors", in: paperCrash(crashConsole(t, "unknown.log")),
+			name: "unknown shows the last errors", in: paperCrash(crashConsole(t, "unknown.txt")),
 			kind: CrashUnknown, fixes: "restart*",
 			explanation: []string{"These are the last errors it found."},
 			evidence:    []string{"Encountered an unexpected exception", "net.minecraft.ReportedException: Exception ticking world", "Caused by: java.lang.IllegalStateException: Recursive call"},
@@ -388,7 +388,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 }
 
 func TestExplainCrashIgnoresCausesPlayersTypeInChat(t *testing.T) {
-	console := crashConsole(t, "paper_chat_spoof.log")
+	console := crashConsole(t, "paper_chat_spoof.txt")
 	jars := []string{"EssentialsX-2.21.0.jar", "FarmersDelight-1.21.1-1.2.7.jar", "better-end-4.0.11.jar", "Shopkeepers-2.23.3.jar"}
 	for _, serverType := range []string{"paper", "fabric", "neoforge", "vanilla"} {
 		d := ExplainCrash(moddedCrash(serverType, "1.21.4", console, jars...))
@@ -482,7 +482,7 @@ func TestRedactKeepsJarNamesThatLookLikeAddresses(t *testing.T) {
 }
 
 func TestExplainCrashOnlyOffersAddonFixesForOneInstalledJar(t *testing.T) {
-	console := crashConsole(t, "fabric_missing.log")
+	console := crashConsole(t, "fabric_missing.txt")
 	d := ExplainCrash(moddedCrash("fabric", "1.21.4", console, "Chunky-Fabric-1.4.23.jar", "ChunkyBorder-1.2.23.jar"))
 	if got := actionSummary(d.Fixes); got != "install_addon* name=fabric-api" {
 		t.Errorf("two jars could be Chunky, so neither may be removed; got %q", got)

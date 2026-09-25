@@ -1,0 +1,7 @@
+[12:00:03] [main/INFO]: Loading Minecraft 1.21.4 with Fabric Loader 0.16.10
+[12:00:05] [main/ERROR]: Mixin apply for mod betterend failed betterend.mixins.common.json:ChunkBiomeContainerMixin from mod betterend -> net.minecraft.class_4548: org.spongepowered.asm.mixin.injection.throwables.InvalidInjectionException Critical injection failure: @Inject annotation on onInit could not find any targets matching 'method_22405' in net.minecraft.class_4548. No refMap loaded. [PREINJECT Applicator Phase -> betterend.mixins.common.json:ChunkBiomeContainerMixin from mod betterend -> Prepare Injections -> handler$zza000$betterend$onInit(Lorg/spongepowered/asm/mixin/injection/callback/CallbackInfo;)V -> Parse]
+org.spongepowered.asm.mixin.injection.throwables.InvalidInjectionException: Critical injection failure: @Inject annotation on onInit could not find any targets matching 'method_22405' in net.minecraft.class_4548. No refMap loaded.
+	at org.spongepowered.asm.mixin.injection.struct.InjectionInfo.validateTargets(InjectionInfo.java:656) ~[sponge-mixin-0.15.4+mixin.0.8.7.jar:0.15.4+mixin.0.8.7]
+[12:00:05] [main/ERROR]: Failed to start the minecraft server
+java.lang.RuntimeException: Mixin transformation of net.minecraft.class_4548 failed
+	at net.fabricmc.loader.impl.launch.knot.KnotClassDelegate.getPostMixinClassByteArray(KnotClassDelegate.java:427) ~[fabric-loader-0.16.10.jar:?]

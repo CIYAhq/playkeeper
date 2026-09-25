@@ -22,7 +22,7 @@ func parseGCFixture(t *testing.T, name string, jvmStart time.Time) []GCEvent {
 func ms(v float64) time.Duration { return time.Duration(v * float64(time.Millisecond)) }
 
 func TestParseGCLineReadsG1PausesWithAikarsFlags(t *testing.T) {
-	events := parseGCFixture(t, "gc/g1_aikar.log", time.Time{})
+	events := parseGCFixture(t, "gc/g1_aikar.txt", time.Time{})
 	if len(events) != 11 {
 		t.Fatalf("got %d events, want 11: %+v", len(events), events)
 	}
@@ -59,7 +59,7 @@ func TestParseGCLineReadsG1PausesWithAikarsFlags(t *testing.T) {
 
 func TestParseGCLineAnchorsUptimeAndSkipsEverythingElse(t *testing.T) {
 	start := time.Date(2026, 9, 25, 9, 0, 0, 0, time.UTC)
-	events := parseGCFixture(t, "gc/g1_uptime_padded.log", start)
+	events := parseGCFixture(t, "gc/g1_uptime_padded.txt", start)
 	if len(events) != 1 || events[0].AfterMB != 18 || events[0].HeapMB != 2048 || !events[0].At.Equal(start.Add(ms(4230))) {
 		t.Fatalf("got %+v", events)
 	}
@@ -85,7 +85,7 @@ func TestParseGCLineAnchorsUptimeAndSkipsEverythingElse(t *testing.T) {
 }
 
 func TestSummarizeGCKeepsTheLowestHeapAfterEachWindow(t *testing.T) {
-	events := parseGCFixture(t, "gc/g1_aikar.log", time.Time{})
+	events := parseGCFixture(t, "gc/g1_aikar.txt", time.Time{})
 	events = append(events, GCEvent{Kind: GCYoung, AfterMB: 1})
 	windows := SummarizeGC(events, 15*time.Minute)
 	if len(windows) != 2 {
