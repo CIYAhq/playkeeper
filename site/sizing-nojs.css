@@ -1,10 +1,14 @@
 /* playkeeper.io/sizing without JavaScript: the questions can't answer, so the page shows the table of every size and the site links. */
 .guide, .menu-button, .lead .wide-only { display: none; }
+.lead { margin-bottom: 10px; }
 .nojs-note { display: block; margin: 0 0 8px; text-align: center; }
 @media (max-width: 640px) {
-  .top { flex-wrap: wrap; }
-  .site-nav { position: static; display: flex; flex-direction: row; flex-wrap: wrap; width: 100%; padding: 0; background: none; border: 0; box-shadow: none; }
+  .top { flex-wrap: wrap; row-gap: 0; }
+  /* The links' own padding would push the first one's text past the brand's 16 px. */
+  .site-nav { position: static; display: flex; flex-direction: row; flex-wrap: wrap; width: calc(100% + 8px); margin-left: -8px; padding: 0; background: none; border: 0; box-shadow: none; }
   .site-nav a { padding: 0 8px; }
   .site-nav a.button { margin: 0 0 0 auto; }
+  .lead { margin-bottom: 6px; }
   .nojs-note { text-align: left; }
+  .sizes h2 { margin-top: 24px; }
 }
