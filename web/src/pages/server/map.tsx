@@ -563,8 +563,10 @@ function CopyLink({ link, large }: { link: string; large?: boolean }) {
 
 /**
  * The two sharing switches: the link (with Copy), and whether the shared
- * map shows players. Without a friendly address the link uses the address
- * this dashboard was opened on, and suggests setting one up first.
+ * map shows players. The link's token is new each time sharing is switched
+ * on, so it shows once the agent has made it. Without a friendly address
+ * the link uses the address this dashboard was opened on, and suggests
+ * setting one up first.
  */
 function SharingControls({ server, info, onChange, large }: { server: ServerStatus; info: MapInfo; onChange: () => Promise<void>; large?: boolean }) {
   const ws = useWorkspace()
@@ -573,7 +575,7 @@ function SharingControls({ server, info, onChange, large }: { server: ServerStat
   const [pending, setPending] = useState<{ public?: boolean; players?: boolean }>({})
   const isPublic = pending.public ?? info.public
   const showPlayers = pending.players ?? info.publicPlayers
-  const link = info.link || `${window.location.origin}${info.path}`
+  const link = info.path ? info.link || `${window.location.origin}${info.path}` : ''
 
   async function change(field: 'public' | 'players', value: boolean) {
     setPending((p) => ({ ...p, [field]: value }))
@@ -607,8 +609,8 @@ function SharingControls({ server, info, onChange, large }: { server: ServerStat
       {isPublic && (
         <div className="animate-in duration-200 fade-in-0">
           <div className={large ? 'mt-4' : 'mt-3'}>
-            <CopyLink link={link} large={large} />
-            {!info.link && ws.machine && (
+            {link ? <CopyLink link={link} large={large} /> : <Skeleton className={large ? 'h-14 rounded-xl' : 'h-9 rounded-lg'} />}
+            {link && !info.link && ws.machine && (
               <p className={cn(hint, 'mt-2')}>
                 {rich('map.noAddress', {
                   address: (chunk) => (

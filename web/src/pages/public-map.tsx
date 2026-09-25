@@ -10,23 +10,24 @@ import { guessWorlds, sortWorlds } from '@/lib/map'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
-const reSlug = /^[a-z0-9][a-z0-9-]{0,39}$/
+/** A shared map's link token: 22 letters and digits, like invite codes. */
+const reToken = /^[A-Za-z0-9]{22}$/
 
-/** The slug of a shared map page's path, or undefined for any other page. */
-export function publicMapSlug(pathname: string): string | undefined {
+/** The link token in a shared map page's path, or undefined for any other page. */
+export function publicMapToken(pathname: string): string | undefined {
   const m = /^\/map\/([^/]*)\/?$/.exec(pathname)
   return m ? (m[1] ?? '') : undefined
 }
 
 /**
- * The shared map at /map/<server>, for anyone with the link and no
+ * The shared map at /map/<link token>, for anyone with the link and no
  * sign-in. A map that is turned off, a stopped server and a link that
  * doesn't exist all get the same page, which never names the server.
  */
-export function PublicMapPage({ slug }: { slug: string }) {
-  const valid = reSlug.test(slug)
-  const base = `/api/public/map/${slug}`
-  const map = usePoll(() => (valid ? get<PublicMap>(base) : Promise.reject(new ApiError(404, { error: '', code: 'not_found' }))), 30_000, slug)
+export function PublicMapPage({ token }: { token: string }) {
+  const valid = reToken.test(token)
+  const base = `/api/public/map/${token}`
+  const map = usePoll(() => (valid ? get<PublicMap>(base) : Promise.reject(new ApiError(404, { error: '', code: 'not_found' }))), 30_000, token)
   const off = !valid || map.error?.status === 404
   const [last, setLast] = useState<PublicMap>()
   useEffect(() => {
@@ -40,7 +41,7 @@ export function PublicMapPage({ slug }: { slug: string }) {
 
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar px-8 pt-4 pb-3.5 max-sm:px-4 max-sm:pt-[max(env(safe-area-inset-top),16px)] max-sm:pb-[max(env(safe-area-inset-bottom),16px)]">
-      {off ? <Unavailable /> : shown ? <SharedMap slug={slug} base={base} info={shown} /> : <Loading />}
+      {off ? <Unavailable /> : shown ? <SharedMap token={token} base={base} info={shown} /> : <Loading />}
       <Footer />
     </div>
   )
@@ -94,10 +95,10 @@ function PublicEmblem({ base, name, size }: { base: string; name: string; size: 
   )
 }
 
-function SharedMap({ slug, base, info }: { slug: string; base: string; info: PublicMap }) {
+function SharedMap({ token, base, info }: { token: string; base: string; info: PublicMap }) {
   const phone = useIsPhone()
-  const worlds = usePoll(() => get<MapWorlds>(`${base}/worlds`), 60_000, slug)
-  const players = usePoll<MapPlayers | undefined>(() => (info.players ? get<MapPlayers>(`${base}/players`) : Promise.resolve(undefined)), 3000, `${slug}:${info.players}`)
+  const worlds = usePoll(() => get<MapWorlds>(`${base}/worlds`), 60_000, token)
+  const players = usePoll<MapPlayers | undefined>(() => (info.players ? get<MapPlayers>(`${base}/players`) : Promise.resolve(undefined)), 3000, `${token}:${info.players}`)
   const [coords] = useState(() => new MapCoords())
   const [picked, setPicked] = useState<string>()
   const guess = useMemo(() => guessWorlds(worlds.data?.worlds ?? []), [worlds.data])

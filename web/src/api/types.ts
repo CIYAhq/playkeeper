@@ -487,6 +487,7 @@ export interface MapInfo {
   publicPlayers: boolean
   /** The shared map on the machine's friendly address; empty while it has none. */
   link?: string
+  /** /map/<link token>, new each time sharing is switched on; empty while the map isn't shared. */
   path: string
   restartWhenEmpty: boolean
   checkedAt: string
