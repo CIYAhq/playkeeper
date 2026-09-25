@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { get, post } from './client'
+import { ApiError, get, post } from './client'
 import type { PackPage, PackShare } from './types'
 import { errorText, serverApi } from './workspace'
 
@@ -15,14 +15,14 @@ export function packFileUrl(serverId: string): string {
 
 /** A server's friends' pack, and whether its page is shared. */
 export function usePackShare(serverId: string | undefined) {
-  const [data, setData] = useState<{ id?: string; share?: PackShare; error?: string }>({})
+  const [data, setData] = useState<{ id?: string; share?: PackShare; error?: string; unsupported?: boolean }>({})
   const [tick, setTick] = useState(0)
   useEffect(() => {
     if (!serverId) return
     let cancelled = false
     get<PackShare>(serverApi(serverId, '/mods/share'))
       .then((share) => !cancelled && setData({ id: serverId, share }))
-      .catch((e: unknown) => !cancelled && setData({ id: serverId, error: errorText(e) }))
+      .catch((e: unknown) => !cancelled && setData({ id: serverId, error: errorText(e), unsupported: e instanceof ApiError && e.status === 409 }))
     return () => {
       cancelled = true
     }
@@ -36,7 +36,18 @@ export function usePackShare(serverId: string | undefined) {
     [serverId],
   )
   const current = data.id === serverId ? data : {}
-  return { share: current.share, error: current.error, loading: !!serverId && !current.share && !current.error, reload: () => setTick((n) => n + 1), setPublic }
+  return {
+    share: current.share,
+    error: current.error,
+    // The server's type runs no mods, so there is no pack to share.
+    unsupported: !!current.unsupported,
+    loading: !!serverId && !current.share && !current.error,
+    reload: () => {
+      setData({})
+      setTick((n) => n + 1)
+    },
+    setPublic,
+  }
 }
 
 export type PackPageState = { kind: 'loading' } | { kind: 'ready'; page: PackPage } | { kind: 'gone' } | { kind: 'busy' }
