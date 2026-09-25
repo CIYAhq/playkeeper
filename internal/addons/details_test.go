@@ -99,13 +99,13 @@ func TestPreviewUninstall(t *testing.T) {
 	backwards, via := installed[0], installed[1]
 	writeFile(t, filepath.Join(plugins, "ViaBackwards", "config.yml"), []byte("enabled: true\n"))
 
-	p, err := l.PreviewUninstall(srv, installed, backwards.Key())
+	p, err := l.PreviewUninstall(context.Background(), srv, installed, backwards.Key())
 	if err != nil {
 		t.Fatal(err)
 	}
 	sameJSON(t, "preview", p, &RemovalPreview{Record: backwards, NeededBy: []string{}, Orphans: []Installed{via}, ConfigFolder: "ViaBackwards"})
 
-	p, err = l.PreviewUninstall(srv, installed, via.Key())
+	p, err = l.PreviewUninstall(context.Background(), srv, installed, via.Key())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +115,13 @@ func TestPreviewUninstall(t *testing.T) {
 
 	jar := filepath.Join(plugins, via.FileName)
 	writeFile(t, jar, append(readFile(t, jar), "patched"...))
-	if p, _ = l.PreviewUninstall(srv, installed, via.Key()); !p.Changed {
+	if p, _ = l.PreviewUninstall(context.Background(), srv, installed, via.Key()); !p.Changed {
 		t.Errorf("a changed file must show: %+v", p)
 	}
 	if got := ls(t, plugins); len(got) != 3 {
 		t.Errorf("a preview changed the folder: %v", got)
 	}
-	_, err = l.PreviewUninstall(srv, installed, Key{Modrinth, "nope"})
+	_, err = l.PreviewUninstall(context.Background(), srv, installed, Key{Modrinth, "nope"})
 	wantKind(t, err, KindNotManaged)
 }
 
@@ -134,7 +134,7 @@ func TestChangedFilesAreReplacedOrRemovedOnlyWhenAsked(t *testing.T) {
 	jar := filepath.Join(plugins, "ViaVersion-5.11.0.jar")
 	writeFile(t, jar, append(readFile(t, jar), "patched"...))
 
-	_, err := l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{})
+	_, err := l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{})
 	wantKind(t, err, KindModified)
 	p := mustPlanUpdate(t, l, srv, installed, UpdateRequest{Changed: true})
 	if !p.Ready || len(p.Blockers) != 0 || !slices.ContainsFunc(p.Warnings, func(n Notice) bool { return n.Kind == KindModified }) {
@@ -151,7 +151,7 @@ func TestChangedFilesAreReplacedOrRemovedOnlyWhenAsked(t *testing.T) {
 	updated := res.Installed
 	jar = filepath.Join(plugins, "ViaVersion-5.12.0.jar")
 	writeFile(t, jar, append(readFile(t, jar), "patched"...))
-	if _, err := l.Uninstall(srv, updated, updated[0].Key(), UninstallOptions{Changed: true}); err != nil {
+	if _, err := l.Uninstall(context.Background(), srv, updated, updated[0].Key(), UninstallOptions{Changed: true}); err != nil {
 		t.Fatal(err)
 	}
 	if got := ls(t, plugins); got != nil {

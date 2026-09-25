@@ -2,12 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -1125,16 +1123,9 @@ func (a *Agent) hAudit(w http.ResponseWriter, r *http.Request) {
 
 // whitelist reads the server's allowlist file.
 func (s *server) whitelist() ([]api.WhitelistEntry, error) {
-	b, err := os.ReadFile(filepath.Join(s.dataDir(), "whitelist.json"))
-	if os.IsNotExist(err) {
-		return []api.WhitelistEntry{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	var entries []api.WhitelistEntry
-	if err := json.Unmarshal(b, &entries); err != nil {
-		return nil, err
+	if err := s.readPlayerList("whitelist.json", &entries); err != nil {
+		return nil, gameFileError(err, "The allowlist could not be read.")
 	}
 	if entries == nil {
 		entries = []api.WhitelistEntry{}

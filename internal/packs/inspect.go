@@ -2,13 +2,11 @@ package packs
 
 import (
 	"archive/zip"
-	"bufio"
 	"bytes"
 	"compress/flate"
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,6 +16,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/CIYAhq/playkeeper/internal/zipdir"
 )
 
 const (
@@ -26,14 +26,6 @@ const (
 	maxDirectoryBytes = 32 << 20
 	// maxNameBytes bounds the names in a zip.
 	maxNameBytes = 1024
-
-	directoryEndLen          = 22
-	directory64LocLen        = 20
-	directory64EndLen        = 56
-	directoryHeaderLen       = 46
-	directoryHeaderSignature = 0x02014b50
-	directory64LocSignature  = 0x07064b50
-	directory64EndSignature  = 0x06064b50
 
 	flagEncrypted        = 0x1
 	flagStrongEncryption = 0x40
@@ -53,9 +45,6 @@ func Inspect(ctx context.Context, r io.ReaderAt, size int64, use Kind, lim Limit
 	lim = lim.orDefaults()
 	if max := lim.maxBytes(use); size > max {
 		return Info{}, tooLarge(size, max, use)
-	}
-	if size < directoryEndLen {
-		return Info{}, notZip()
 	}
 	records, err := checkDirectory(r, size, lim.MaxFiles)
 	if err != nil {
@@ -154,98 +143,38 @@ func Stage(dir string, body io.Reader, use Kind, lim Limits) (*os.File, int64, e
 	return f, n, nil
 }
 
-// checkDirectory finds a zip's central directory as archive/zip does and
-// checks it before zip.NewReader reads it. archive/zip reads entries until
-// one is malformed and compares their number with the declared one only
-// modulo 65,536, so a crafted zip could make it hold millions of entries in
-// memory. The directory must end where the zip's end records start and
-// hold exactly the declared number of entries. It returns that number.
+// checkDirectory checks a zip's table of contents with zipdir before
+// zip.NewReader reads it, and returns the number of entries it declares.
 func checkDirectory(r io.ReaderAt, size int64, maxFiles int) (int, error) {
-	tail := make([]byte, min(size, 65*1024))
-	if err := readFull(r, tail, size-int64(len(tail))); err != nil {
+	n, err := zipdir.Check(r, size, zipdir.Limits{Bytes: maxDirectoryBytes, Entries: maxFiles})
+	var ze *zipdir.Error
+	switch {
+	case err == nil:
+		return n, nil
+	case !errors.As(err, &ze):
 		return 0, fileFailed("read the pack", err)
 	}
-	p := -1
-	for i := len(tail) - directoryEndLen; i >= 0; i-- {
-		if tail[i] == 'P' && tail[i+1] == 'K' && tail[i+2] == 5 && tail[i+3] == 6 {
-			p = i
-			break
-		}
-	}
-	if p < 0 || p+directoryEndLen+int(le16(tail[p+20:])) > len(tail) {
+	switch ze.Problem {
+	case zipdir.NotZip:
 		return 0, notZip()
-	}
-	end := size - int64(len(tail)) + int64(p)
-	eocd := tail[p:]
-	disk, dirDisk := uint64(le16(eocd[4:])), uint64(le16(eocd[6:]))
-	recordsHere, records := uint64(le16(eocd[8:])), uint64(le16(eocd[10:]))
-	dirSize, dirOffset := uint64(le32(eocd[12:])), uint64(le32(eocd[16:]))
-
-	if records == 0xffff || dirSize == 0xffff || dirOffset == 0xffffffff {
-		if loc := end - directory64LocLen; loc >= 0 {
-			var lb [directory64LocLen]byte
-			if err := readFull(r, lb[:], loc); err != nil {
-				return 0, fileFailed("read the pack", err)
-			}
-			at := int64(le64(lb[8:]))
-			if le32(lb[:]) == directory64LocSignature && le32(lb[4:]) == 0 && le32(lb[16:]) == 1 && at >= 0 {
-				if at > size-directory64EndLen {
-					return 0, corrupt("", "its zip64 end record is outside the file")
-				}
-				var eb [directory64EndLen]byte
-				if err := readFull(r, eb[:], at); err != nil {
-					return 0, fileFailed("read the pack", err)
-				}
-				if le32(eb[:]) != directory64EndSignature {
-					return 0, corrupt("", "its zip64 end record is malformed")
-				}
-				end = at
-				disk, dirDisk = uint64(le32(eb[16:])), uint64(le32(eb[20:]))
-				recordsHere, records = le64(eb[24:]), le64(eb[32:])
-				dirSize, dirOffset = le64(eb[40:]), le64(eb[48:])
-			}
-		}
-	}
-
-	switch {
-	case disk != 0 || dirDisk != 0 || recordsHere != records:
+	case zipdir.TooManyEntries:
+		return 0, tooManyFiles(ze.Entries, maxFiles)
+	case zipdir.Split:
 		return 0, corrupt("", "it is one part of a zip split into several files, which Minecraft can't read")
-	case records > uint64(maxFiles):
-		return 0, tooManyFiles(records, maxFiles)
-	case dirSize > maxDirectoryBytes:
+	case zipdir.TooLarge:
 		return 0, corrupt("", "its table of contents is larger than "+formatSize(maxDirectoryBytes))
-	case dirOffset > uint64(end) || dirSize != uint64(end)-dirOffset:
+	case zipdir.Misplaced:
 		return 0, corrupt("", "its table of contents isn't where the zip says it is")
-	}
-
-	br := bufio.NewReader(io.NewSectionReader(r, int64(dirOffset), int64(dirSize)))
-	var hdr [directoryHeaderLen]byte
-	var n uint64
-	for left := int64(dirSize); left > 0; n++ {
-		if n == records {
-			return 0, corrupt("", "its table of contents lists more entries than it declares")
-		}
-		if left < directoryHeaderLen {
-			return 0, corrupt("", "its table of contents is malformed")
-		}
-		if _, err := io.ReadFull(br, hdr[:]); err != nil {
-			return 0, fileFailed("read the pack", err)
-		}
-		if le32(hdr[:]) != directoryHeaderSignature {
-			return 0, corrupt("", "its table of contents is malformed")
-		}
-		rest := int64(le16(hdr[28:])) + int64(le16(hdr[30:])) + int64(le16(hdr[32:]))
-		if left -= directoryHeaderLen + rest; left < 0 {
-			return 0, corrupt("", "its table of contents is malformed")
-		}
-		if _, err := br.Discard(int(rest)); err != nil {
-			return 0, fileFailed("read the pack", err)
-		}
-	}
-	if n != records {
+	case zipdir.MoreEntries:
+		return 0, corrupt("", "its table of contents lists more entries than it declares")
+	case zipdir.FewerEntries:
 		return 0, corrupt("", "its table of contents lists fewer entries than it declares")
+	case zipdir.Zip64Outside:
+		return 0, corrupt("", "its zip64 end record is outside the file")
+	case zipdir.Zip64Malformed:
+		return 0, corrupt("", "its zip64 end record is malformed")
 	}
-	return int(records), nil
+	return 0, corrupt("", "its table of contents is malformed")
 }
 
 // checkEntries checks every entry's name, type, encryption and compression,
@@ -384,23 +313,6 @@ func (c ctxReader) Read(p []byte) (int, error) {
 	}
 	return c.r.Read(p)
 }
-
-// readFull reads len(b) bytes at off: io.ReaderAt lets a complete read end
-// with io.EOF.
-func readFull(r io.ReaderAt, b []byte, off int64) error {
-	n, err := r.ReadAt(b, off)
-	if n == len(b) {
-		return nil
-	}
-	if err == nil || errors.Is(err, io.EOF) {
-		err = io.ErrUnexpectedEOF
-	}
-	return err
-}
-
-func le16(b []byte) uint16 { return binary.LittleEndian.Uint16(b) }
-func le32(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
-func le64(b []byte) uint64 { return binary.LittleEndian.Uint64(b) }
 
 // zipDetail explains an archive/zip error.
 func zipDetail(err error) string {
