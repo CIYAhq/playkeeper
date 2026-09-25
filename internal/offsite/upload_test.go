@@ -34,8 +34,8 @@ func wantKind(t *testing.T, err error, kind Kind) *Error {
 	if e.Kind != kind {
 		t.Fatalf("error kind %s (%q), want %s", e.Kind, e.Msg, kind)
 	}
-	if strings.Contains(e.Msg+e.Hint+e.Error(), testSecret) {
-		t.Fatalf("error shows the secret: %q", e.Msg)
+	if s := e.Msg + e.Hint + e.Error(); strings.Contains(s, testSecret) || strings.Contains(s, testPassword) {
+		t.Fatalf("error shows a secret: %q", e.Msg)
 	}
 	return e
 }
