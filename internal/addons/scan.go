@@ -249,7 +249,7 @@ func (lf *localFile) identified(now time.Time) Installed {
 		FileName: lf.name, HashAlgo: "sha512", Hash: lf.sha512, Size: lf.size, InstalledAt: now,
 	}
 	if p := lf.identP; p != nil {
-		rec.Slug, rec.IconURL = p.Slug, p.IconURL
+		rec.Slug, rec.Summary, rec.IconURL = p.Slug, p.Description, p.IconURL
 	}
 	for _, d := range v.Dependencies {
 		if d.DependencyType == modrinth.Required && d.ProjectID != "" && !slices.Contains(rec.Requires, d.ProjectID) {

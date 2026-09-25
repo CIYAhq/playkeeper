@@ -29,9 +29,9 @@ type VersionInfo struct {
 
 // project is what resolving needs to know about a project.
 type project struct {
-	Source                  Source
-	ID, Slug, Name, IconURL string
-	clientOnly              bool
+	Source                           Source
+	ID, Slug, Name, Summary, IconURL string
+	clientOnly                       bool
 }
 
 // candidate is one version of a project that fits the server: a file to
@@ -164,13 +164,13 @@ func (l *Library) projectCard(ctx context.Context, t Target, src Source, ref str
 			return nil, nil, lookupError(src, ref, err)
 		}
 		card := hangarCard(p)
-		return &project{Source: Hangar, ID: strconv.FormatInt(p.ID, 10), Slug: p.Namespace.Slug, Name: p.Name, IconURL: p.AvatarURL}, &card, nil
+		return &project{Source: Hangar, ID: strconv.FormatInt(p.ID, 10), Slug: p.Namespace.Slug, Name: p.Name, Summary: p.Description, IconURL: p.AvatarURL}, &card, nil
 	}
 	return nil, nil, fail(KindInvalid, kv("field", "source"), "Add-ons come from Modrinth or Hangar.", "")
 }
 
 func modrinthProject(p *modrinth.Project) *project {
-	return &project{Source: Modrinth, ID: p.ID, Slug: p.Slug, Name: p.Title, IconURL: p.IconURL, clientOnly: !p.RunsOnServer()}
+	return &project{Source: Modrinth, ID: p.ID, Slug: p.Slug, Name: p.Title, Summary: p.Description, IconURL: p.IconURL, clientOnly: !p.RunsOnServer()}
 }
 
 func lookupError(src Source, ref string, err error) error {

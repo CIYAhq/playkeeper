@@ -47,6 +47,7 @@ type Step struct {
 	ProjectID     string    `json:"projectId"`
 	Slug          string    `json:"slug"`
 	Name          string    `json:"name"`
+	Summary       string    `json:"summary,omitempty"`
 	IconURL       string    `json:"iconUrl,omitempty"`
 	VersionID     string    `json:"versionId"`
 	VersionNumber string    `json:"versionNumber"`
@@ -75,7 +76,7 @@ func (s Step) key() Key { return Key{s.Source, s.ProjectID} }
 
 func (s Step) record(now time.Time) Installed {
 	return Installed{
-		Source: s.Source, ProjectID: s.ProjectID, Slug: s.Slug, Name: s.Name, IconURL: s.IconURL,
+		Source: s.Source, ProjectID: s.ProjectID, Slug: s.Slug, Name: s.Name, Summary: s.Summary, IconURL: s.IconURL,
 		VersionID: s.VersionID, VersionNumber: s.VersionNumber, Channel: s.Channel, Published: s.Published,
 		FileName: s.FileName, HashAlgo: s.HashAlgo, Hash: strings.ToLower(s.Hash), Size: s.Size,
 		DependencyOf: s.DependencyOf, Requires: s.Requires, InstalledAt: now,
@@ -126,12 +127,17 @@ type Plan struct {
 }
 
 func (p *Plan) fingerprint() string {
+	// An author rewording a description does not change what the plan does.
+	steps := slices.Clone(p.Steps)
+	for i := range steps {
+		steps[i].Summary = ""
+	}
 	b, _ := json.Marshal(struct {
 		Steps     []Step
 		Satisfied []Satisfied
 		Manual    []ManualStep
 		Blockers  []Notice
-	}{p.Steps, p.Satisfied, p.Manual, p.Blockers})
+	}{steps, p.Satisfied, p.Manual, p.Blockers})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:16])
 }
@@ -250,7 +256,7 @@ func (r *resolver) add(c candidate, a Action, parent *Step, replaces *Installed)
 			fmt.Sprintf("%s %s is a %s version and may be unstable.", c.Name, c.Number, c.Channel), ""))
 	}
 	s := Step{
-		Action: a, Source: c.Source, ProjectID: c.ProjectID(), Slug: c.Slug, Name: c.Name, IconURL: c.IconURL,
+		Action: a, Source: c.Source, ProjectID: c.ProjectID(), Slug: c.Slug, Name: c.Name, Summary: c.Summary, IconURL: c.IconURL,
 		VersionID: c.VersionID, VersionNumber: c.Number, Channel: c.Channel, Published: c.Published,
 		FileName: c.FileName, Size: c.Size, HashAlgo: c.HashAlgo, Hash: c.Hash, Replaces: replaces, url: c.URL,
 	}

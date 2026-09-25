@@ -45,6 +45,7 @@ func TestInstallModrinth(t *testing.T) {
 	}
 	sameJSON(t, "ViaRewind's record", res.Installed[0], Installed{
 		Source: Modrinth, ProjectID: "TbHIxhx5", Slug: "viarewind", Name: "ViaRewind",
+		Summary:   "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
 		IconURL:   "https://cdn.modrinth.com/data/TbHIxhx5/f59ffe031387b06a9b1efa736dbbb4db44284574_96.webp",
 		VersionID: "EPLCoxMK", VersionNumber: "4.2.0", Channel: "release", Published: time.Date(2026, 9, 18, 15, 8, 24, 612555000, time.UTC),
 		FileName: "ViaRewind-4.2.0.jar", HashAlgo: "sha512", Hash: sha512hex(rewind.data), Size: int64(len(rewind.data)),
@@ -99,6 +100,7 @@ func TestInstallHangar(t *testing.T) {
 	rewind := f.hfile("30418")
 	sameJSON(t, "ViaRewind's record", res.Installed[0], Installed{
 		Source: Hangar, ProjectID: "112", Slug: "ViaRewind", Name: "ViaRewind", IconURL: "https://hangarcdn.papermc.io/avatars/project/112.webp?v=1",
+		Summary:   "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
 		VersionID: "30418", VersionNumber: "4.2.0", Channel: "release", Published: time.Date(2026, 9, 18, 15, 8, 16, 539019000, time.UTC),
 		FileName: "ViaRewind-4.2.0.jar", HashAlgo: "sha256", Hash: sha256hex(rewind.data), Size: int64(len(rewind.data)),
 		Requires: []string{"12", "31"}, InstalledAt: testNow,

@@ -205,7 +205,7 @@ func newer(c candidate, rec Installed) bool {
 }
 
 func recProject(rec Installed) *project {
-	return &project{Source: rec.Source, ID: rec.ProjectID, Slug: rec.Slug, Name: rec.Name, IconURL: rec.IconURL}
+	return &project{Source: rec.Source, ID: rec.ProjectID, Slug: rec.Slug, Name: rec.Name, Summary: rec.Summary, IconURL: rec.IconURL}
 }
 
 type latestResult struct {
