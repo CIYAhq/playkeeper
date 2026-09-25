@@ -22,14 +22,14 @@ type Kind string
 const (
 	KindInvalidConfig Kind = "invalid_config"     // a setting is missing or malformed
 	KindWrongKeys     Kind = "wrong_keys"         // unknown access key ID, or a secret that doesn't match it
-	KindNoSuchBucket  Kind = "no_such_bucket"
+	KindNoSuchBucket  Kind = "no_such_bucket"     // the bucket doesn't exist
 	KindPermission    Kind = "permission_denied"  // the key may not do this, or the account is disabled
 	KindClockSkew     Kind = "clock_skew"         // this machine's clock is too far off
 	KindWrongRegion   Kind = "wrong_region"       // the bucket is in another region
 	KindNetwork       Kind = "network"            // no connection, a timeout or a broken connection
 	KindTLS           Kind = "tls"                // the endpoint's certificate could not be verified
 	KindRedirect      Kind = "redirect"           // the service sent the request elsewhere; never followed
-	KindRateLimited   Kind = "rate_limited"
+	KindRateLimited   Kind = "rate_limited"       // the service asked to slow down
 	KindServiceError  Kind = "service_error"      // the service failed (HTTP 5xx)
 	KindStorageFull   Kind = "storage_full"       // a quota or storage cap is reached
 	KindChecksum      Kind = "checksum_mismatch"  // the service received different bytes than were sent
@@ -39,7 +39,7 @@ const (
 	KindConflict      Kind = "conflict"           // a different file already has the copy's name
 	KindUploadGone    Kind = "upload_gone"        // the unfinished upload no longer exists
 	KindLocked        Kind = "locked"             // old versions the bucket refuses to delete
-	KindTooLarge      Kind = "too_large"
+	KindTooLarge      Kind = "too_large"          // larger than the service accepts
 	KindCanceled      Kind = "canceled"           // the context was cancelled
 	KindUnexpected    Kind = "unexpected"         // an answer Playkeeper doesn't understand
 )
