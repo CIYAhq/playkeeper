@@ -1,0 +1,2 @@
+The game is running normallyTarget tick rate: 20.0 per second.
+Average time per tick: 6.3ms (Target: 50.0ms)Percentiles: P50: 5.8ms P95: 9.1ms P99: 14.2ms. Sample: 100

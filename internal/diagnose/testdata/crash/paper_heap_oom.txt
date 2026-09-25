@@ -1,0 +1,13 @@
+[03:09:58 INFO]: UUID of player Steve is 069a79f4-44e9-4726-a5be-fca90e38aaf5
+[03:10:02 INFO]: Steve joined the game
+[03:10:02 INFO]: Steve[/203.0.113.7:51422] logged in with entity id 412 at ([world]1204.5, 71.0, -388.2)
+[03:10:44 WARN]: Can't keep up! Is the server overloaded? Running 5214ms or 104 ticks behind
+[03:11:12 WARN]: Can't keep up! Is the server overloaded? Running 8830ms or 176 ticks behind
+[03:11:30 ERROR]: Encountered an unexpected exception
+java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.util.Arrays.copyOf(Arrays.java:3541) ~[?:?]
+	at net.minecraft.world.level.chunk.PalettedContainer.copy(PalettedContainer.java:343) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+	at net.minecraft.world.level.chunk.LevelChunkSection.copy(LevelChunkSection.java:77) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+	at net.minecraft.server.level.ChunkMap.save(ChunkMap.java:1024) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[03:11:31 ERROR]: This crash report has been saved to: /data/./crash-reports/crash-2026-09-25_03.11.31-server.txt
+[03:11:31 INFO]: Stopping server

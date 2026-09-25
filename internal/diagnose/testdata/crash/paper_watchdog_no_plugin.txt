@@ -1,0 +1,21 @@
+[18:40:12 ERROR]: ------------------------------
+[18:40:12 ERROR]: The server has stopped responding! This is (probably) not a Paper bug.
+[18:40:12 ERROR]: If you see a plugin in the Server thread dump below, then please report it to that author
+[18:40:12 ERROR]: Paper version: 1.21.4-232-main@12ab34c (2025-05-01T12:00:00Z) (Implementing API version 1.21.4-R0.1-SNAPSHOT)
+[18:40:12 ERROR]: ------------------------------
+[18:40:12 ERROR]: Server thread dump (Look for plugins here before reporting to Paper!):
+[18:40:12 ERROR]: ------------------------------
+[18:40:12 ERROR]: Current Thread: Server thread
+[18:40:12 ERROR]: 	PID: 38 | Suspended: false | Native: false | State: RUNNABLE
+[18:40:12 ERROR]: 	Stack:
+[18:40:12 ERROR]: 		net.minecraft.world.level.redstone.CollectingNeighborUpdater.runUpdates(CollectingNeighborUpdater.java:92)
+[18:40:12 ERROR]: 		net.minecraft.world.level.Level.updateNeighborsAt(Level.java:643)
+[18:40:12 ERROR]: 		net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:812)
+[18:40:12 ERROR]: 		net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:1572)
+[18:40:12 ERROR]: ------------------------------
+[18:40:12 ERROR]: Entire Thread Dump:
+[18:40:12 ERROR]: ------------------------------
+[18:40:12 ERROR]: Current Thread: Craft Scheduler Thread - 2 - LuckPerms
+[18:40:12 ERROR]: 	Stack:
+[18:40:12 ERROR]: 		LuckPerms-Bukkit-5.4.145.jar//me.lucko.luckperms.common.util.ExpiringSet.run(ExpiringSet.java:40)
+[18:40:12 ERROR]: ------------------------------

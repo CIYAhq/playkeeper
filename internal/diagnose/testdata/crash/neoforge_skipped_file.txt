@@ -1,0 +1,4 @@
+[12:00:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.neoForgeVersion, 21.1.172]
+[12:00:02] [main/WARN] [ne.ne.fm.lo.mo.ModDiscoverer/SCAN]: Skipping jar. File mods/sodium-fabric-0.6.13+mc1.21.1.jar is a Fabric mod and cannot be loaded
+[12:00:09] [Server thread/INFO] [minecraft/DedicatedServer/]: Done (6.211s)! For help, type "help"
+[16:31:40] [Server thread/INFO] [minecraft/MinecraftServer/]: Stopping server

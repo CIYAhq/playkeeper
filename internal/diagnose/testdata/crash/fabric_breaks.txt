@@ -1,0 +1,8 @@
+[12:00:00] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.10
+[12:00:00] [main/ERROR]: Incompatible mods found!
+net.fabricmc.loader.impl.FormattedException: Some of your mods are incompatible with the game or each other!
+A potential solution has been determined, this may resolve your problem:
+	 - Remove mod 'Canary' (canary) 0.3.3 (/data/mods/canary-mc1.21.1-0.3.3.jar).
+More details:
+	 - Mod 'Lithium' (lithium) 0.14.3+mc1.21.1 is incompatible with any version of mod 'Canary' (canary), yet a conflicting version is present: 0.3.3!
+	at net.fabricmc.loader.impl.FormattedException.ofLocalized(FormattedException.java:51) ~[fabric-loader-0.16.10.jar:?]
