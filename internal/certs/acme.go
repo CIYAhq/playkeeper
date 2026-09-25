@@ -221,8 +221,9 @@ func (is *Issuer) client(withKey bool) (*acme.Client, situation, error) {
 // account makes sure the account key is registered, creating the account
 // when the admin has accepted the current terms.
 func (is *Issuer) account(ctx context.Context, c *acme.Client, d acme.Directory, s situation) error {
-	_, err := c.GetReg(ctx, "")
+	a, err := c.GetReg(ctx, "")
 	if err == nil {
+		c.KID = acme.KeyID(a.URI)
 		return nil
 	}
 	if !errors.Is(err, acme.ErrNoAccount) {

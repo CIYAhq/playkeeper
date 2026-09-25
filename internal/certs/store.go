@@ -106,8 +106,9 @@ func (s *Store) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, er
 	return nil, fmt.Errorf("certs: no certificate for %q", displayName(hello.ServerName))
 }
 
-// Loaded describes the certificates from Dir the store can serve. Its error
-// says why other files in Dir, or a changed fallback, cannot be used.
+// Loaded describes the certificates loaded from Dir, including any that
+// are not valid now and so are not served. Its error says why other files
+// in Dir, or a changed fallback, cannot be used.
 func (s *Store) Loaded() ([]Certificate, error) {
 	s.maybeReload()
 	st := s.state.Load()

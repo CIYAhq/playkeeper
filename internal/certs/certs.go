@@ -79,7 +79,7 @@ func NormalizeName(name string) (string, error) {
 		return bad("numeric_tld")
 	}
 	if reservedTLDs[tld] {
-		return "", newProblem(nil, CodeInvalidName, map[string]string{"kind": "reserved_tld", "name": displayName(name), "tld": tld})
+		return "", newProblem(nil, CodeInvalidName, map[string]string{"kind": "reserved_tld", "name": displayName(name), "tld": "." + tld})
 	}
 	return n, nil
 }

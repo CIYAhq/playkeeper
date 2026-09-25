@@ -150,7 +150,7 @@ var catalog = map[string]text{
 	CodeInvalidName + ".bad_label": {msg: "{name} is not a valid domain name.",
 		hint: "Each part between the dots may only use letters, digits and hyphens, must not start or end with a hyphen, and has at most 63 characters.", action: true},
 	CodeInvalidName + ".numeric_tld":    {msg: "{name} ends in a number, so it is not a domain name.", hint: "Enter a name such as mc.example.com.", action: true},
-	CodeInvalidName + ".reserved_tld":   {msg: "{name} ends in .{tld}, which only works inside private networks.", hint: "Let's Encrypt only issues certificates for public domain names. Use a name you registered, such as mc.example.com.", action: true},
+	CodeInvalidName + ".reserved_tld":   {msg: "{name} ends in {tld}, which only works inside private networks.", hint: "Let's Encrypt only issues certificates for public domain names. Use a name you registered, such as mc.example.com.", action: true},
 	CodeInvalidName + ".too_many":       {msg: "One certificate can cover at most 10 names.", action: true},
 	CodeInvalidEmail:                    {msg: "{email} is not a valid email address.", hint: "Enter an address such as you@example.com, or leave it empty: it is optional.", action: true},
 	CodeInvalidPlan:                     {msg: "The join addresses are not set up correctly.", action: true},
@@ -217,7 +217,7 @@ var catalog = map[string]text{
 	CodeBadCertificate:              {msg: "Let's Encrypt sent a certificate Playkeeper cannot use.", hint: "Try again later. If it keeps happening, report the details."},
 	CodeCanceled:                    {msg: "Getting the certificate was stopped before it finished.", hint: "Try again."},
 	CodeCanceled + ".timeout":       {msg: "Getting the certificate took too long and was stopped.", hint: "Try again in a few minutes."},
-	CodeCAUnreachable:               {msg: "Playkeeper could not reach Let's Encrypt at {host}.", hint: "Check this server's internet connection and that outgoing HTTPS (port 443) is allowed, then try again."},
+	CodeCAUnreachable:               {msg: "Playkeeper could not connect to the certificate authority, {server}.", hint: "Check this server's internet connection and that outgoing HTTPS (port 443) is allowed, then try again."},
 	CodeClockWrong:                  {msg: "This server's clock is wrong, so secure connections to Let's Encrypt fail.", hint: "Turn on time synchronisation, for example with timedatectl set-ntp true, and try again.", action: true},
 	CodeCAUntrusted:                 {msg: "Playkeeper could not verify that it is talking to Let's Encrypt.", hint: "Something between this server and the internet, such as a proxy or firewall, may be intercepting secure connections. Check the network, then try again.", action: true},
 	CodeCAUnavailable:               {msg: "Let's Encrypt is having problems or is down for maintenance.", hint: "Playkeeper tries again later by itself; nothing is needed from you."},
@@ -228,7 +228,8 @@ var catalog = map[string]text{
 // fallbackText fills placeholders whose parameter is unknown.
 var fallbackText = map[string]string{
 	"name":      "this name",
-	"host":      "the certificate authority",
+	"host":      "this address",
+	"server":    "Let's Encrypt",
 	"ipv4":      "this server's public IPv4 address",
 	"ipv6":      "this server's IPv6 address",
 	"found":     "another address",
@@ -357,7 +358,7 @@ func explain(err error, s situation, now time.Time) *Problem {
 	var opErr *net.OpError
 	var netErr net.Error
 	if errors.As(err, &dnsErr) || errors.As(err, &opErr) || (errors.As(err, &netErr) && netErr.Timeout()) {
-		return newProblem(err, CodeCAUnreachable, map[string]string{"host": s.host})
+		return newProblem(err, CodeCAUnreachable, map[string]string{"server": s.host})
 	}
 	return newProblem(err, CodeFailed, nil)
 }
@@ -368,6 +369,7 @@ var (
 	reQuoted     = regexp.MustCompile(`"([^"\s]+)"`)
 	reURL        = regexp.MustCompile(`https://[^\s"'<>]+`)
 	reJWT        = regexp.MustCompile(`(jwt=)[^\s&"'<>]+`)
+	rePausedName = regexp.MustCompile(`certificates for ([^\s,"]+) and possibly others`)
 )
 
 // fromACME explains a problem document from the certificate authority. The
@@ -397,6 +399,11 @@ func fromACME(e *acme.Error, s situation, now time.Time) *Problem {
 	fqdn := ""
 	if s.name != "" {
 		fqdn = "_acme-challenge." + s.name
+	}
+	if strings.Contains(lower, "unpause") {
+		p := pausedProblem(e, detail, s)
+		p.Detail = cleanDetail(detail)
+		return p
 	}
 	var p *Problem
 	switch kind {
@@ -485,23 +492,29 @@ func problemKind(typ string) string {
 	return typ[strings.LastIndex(typ, ":")+1:]
 }
 
+// pausedProblem explains that Let's Encrypt paused the account for a name
+// after too many failures; its message links to an unpause page. The link
+// carries a token for the account: it stays in Params for the admin's
+// button, cleanDetail redacts it from Detail, and Params must not be logged.
+func pausedProblem(e *acme.Error, detail string, s situation) *Problem {
+	link := ""
+	for _, u := range reURL.FindAllString(detail, -1) {
+		if strings.Contains(u, "unpause") {
+			link = safeURL(strings.TrimRight(u, ".,;)"))
+			break
+		}
+	}
+	name := s.name
+	if m := rePausedName.FindStringSubmatch(detail); name == "" && m != nil {
+		name, _ = NormalizeName(m[1])
+	}
+	return newProblem(e, CodePaused, map[string]string{"name": name, "url": link})
+}
+
 func rateLimitProblem(e *acme.Error, detail string, s situation, now time.Time) *Problem {
 	lower := strings.ToLower(detail)
-	if strings.Contains(lower, "unpause") {
-		// The unpause link carries a token for the account. It stays in
-		// Params for the admin's button, cleanDetail redacts it from
-		// Detail, and Params must not be logged.
-		link := ""
-		for _, u := range reURL.FindAllString(detail, -1) {
-			if strings.Contains(u, "unpause") {
-				link = safeURL(strings.TrimRight(u, ".,;)"))
-				break
-			}
-		}
-		return newProblem(e, CodePaused, map[string]string{"name": s.name, "url": link})
-	}
 	until := now.Add(time.Hour)
-	if d, ok := acme.RateLimit(e); ok && d > 0 {
+	if d := retryAfter(e.Header.Get("Retry-After"), now); d > 0 {
 		until = now.Add(d)
 	} else if m := reRetryAfter.FindStringSubmatch(detail); m != nil {
 		if t, err := time.ParseInLocation("2006-01-02 15:04:05", m[1], time.UTC); err == nil {
