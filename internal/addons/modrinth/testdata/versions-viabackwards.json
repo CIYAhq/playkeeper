@@ -1,0 +1,297 @@
+[
+ {
+  "game_versions": [
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "folia",
+   "paper",
+   "velocity"
+  ],
+  "environment": "client_or_server",
+  "id": "w6P38zDf",
+  "project_id": "NpvuJQoq",
+  "author_id": "t0xQradN",
+  "featured": false,
+  "name": "5.12.1-SNAPSHOT+634",
+  "version_number": "5.12.1-SNAPSHOT+634",
+  "changelog_url": null,
+  "date_published": "2026-09-22T20:00:13.415091Z",
+  "downloads": 6859,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "MRuwrmOT",
+    "hashes": {
+     "sha512": "5062a409e20d267047a8d8820d28e0b341b7a827f6aff94af365175f1e84506a501f28f013bed89a51b3a2f5dc5afb177207d2ac26105e9afaf228de31def685",
+     "sha1": "bfefac3f6f7bbfff16707e35d0f6ea1384578bcd"
+    },
+    "url": "https://cdn.modrinth.com/data/NpvuJQoq/versions/w6P38zDf/ViaBackwards-5.12.1-SNAPSHOT.jar",
+    "filename": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+    "primary": true,
+    "size": 1433041,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "P1OZGk5p",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "TbHIxhx5",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "folia",
+   "paper",
+   "velocity"
+  ],
+  "environment": "client_or_server",
+  "id": "15H0TnQR",
+  "project_id": "NpvuJQoq",
+  "author_id": "t0xQradN",
+  "featured": false,
+  "name": "5.12.1-SNAPSHOT+633",
+  "version_number": "5.12.1-SNAPSHOT+633",
+  "changelog_url": null,
+  "date_published": "2026-09-20T11:10:18.896424Z",
+  "downloads": 6682,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "Uh8rWxh7",
+    "hashes": {
+     "sha1": "16db1001594330ce5d0b9b7ef51c339b6c1a793c",
+     "sha512": "da87d93c57ccc0da035507725072278f5bda92092c8ac7255649e3eb506c5959e1c5a5e84910216426726e382a892c9a6fe5a08c82f843dbe89c20c517fb94e5"
+    },
+    "url": "https://cdn.modrinth.com/data/NpvuJQoq/versions/15H0TnQR/ViaBackwards-5.12.1-SNAPSHOT.jar",
+    "filename": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+    "primary": true,
+    "size": 1432918,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "TbHIxhx5",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "P1OZGk5p",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "folia",
+   "paper",
+   "velocity"
+  ],
+  "environment": "client_or_server",
+  "id": "SxGhdsPK",
+  "project_id": "NpvuJQoq",
+  "author_id": "t0xQradN",
+  "featured": false,
+  "name": "5.12.0",
+  "version_number": "5.12.0",
+  "changelog_url": null,
+  "date_published": "2026-09-18T15:04:50.516162Z",
+  "downloads": 24849,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "408x5SfL",
+    "hashes": {
+     "sha512": "dba076b3283eb5987e3d37a63b57802e7946cf8a2d3b6f68ff57ddbc4eb648e2084decd212fef2cd0cde5187bc6565959c31b496bfb38000e67e3ffab4c290b3",
+     "sha1": "3603c85784c41387c56ec76c016c21e0a1ae303a"
+    },
+    "url": "https://cdn.modrinth.com/data/NpvuJQoq/versions/SxGhdsPK/ViaBackwards-5.12.0.jar",
+    "filename": "ViaBackwards-5.12.0.jar",
+    "primary": true,
+    "size": 1430897,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "P1OZGk5p",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "TbHIxhx5",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "folia",
+   "paper",
+   "velocity"
+  ],
+  "environment": "client_or_server",
+  "id": "hYhg2QBT",
+  "project_id": "NpvuJQoq",
+  "author_id": "t0xQradN",
+  "featured": false,
+  "name": "5.11.0",
+  "version_number": "5.11.0",
+  "changelog_url": null,
+  "date_published": "2026-07-12T16:46:37.395129Z",
+  "downloads": 177399,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "j5M7OQiU",
+    "hashes": {
+     "sha1": "22b7c4300b4d694f9cbba9f433b316db74350133",
+     "sha512": "85ab6b2444c17e6777f5bb7adb3c492e616451972d2a7989914e82b4714d82da2a5901b97f3b49b0f4e0ba2e5468f4799a1354157b2d955327ea256f307c82ca"
+    },
+    "url": "https://cdn.modrinth.com/data/NpvuJQoq/versions/hYhg2QBT/ViaBackwards-5.11.0.jar",
+    "filename": "ViaBackwards-5.11.0.jar",
+    "primary": true,
+    "size": 1378644,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P1OZGk5p",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "TbHIxhx5",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ }
+]

@@ -1,0 +1,600 @@
+{
+ "pagination": {
+  "count": 891,
+  "limit": 5,
+  "offset": 0
+ },
+ "result": [
+  {
+   "createdAt": "2022-12-23T20:47:00.582094Z",
+   "publishedAt": "2022-12-23T20:57:21.569868Z",
+   "id": 12,
+   "name": "ViaBackwards",
+   "namespace": {
+    "owner": "ViaVersion",
+    "slug": "ViaBackwards"
+   },
+   "stats": {
+    "views": 1232135,
+    "downloads": 742460,
+    "recentViews": 38822,
+    "recentDownloads": 20273,
+    "stars": 282,
+    "watchers": 165
+   },
+   "category": "misc",
+   "description": "Allow Java Edition clients with older versions to connect to your Minecraft server",
+   "lastUpdated": "2026-09-25T13:03:10.227632Z",
+   "visibility": "public",
+   "userActions": null,
+   "settings": {
+    "links": [
+     {
+      "id": 0,
+      "type": "top",
+      "title": "top",
+      "links": [
+       {
+        "id": 4,
+        "name": "Donate",
+        "url": "https://github.com/sponsors/kennytv"
+       },
+       {
+        "id": 1,
+        "name": "Issues",
+        "url": "https://github.com/ViaVersion/ViaBackwards/issues"
+       },
+       {
+        "id": 2,
+        "name": "Source",
+        "url": "https://github.com/ViaVersion/ViaBackwards/"
+       },
+       {
+        "id": 3,
+        "name": "Support",
+        "url": "https://discord.gg/viaversion"
+       }
+      ]
+     },
+     {
+      "id": 1,
+      "type": "sidebar",
+      "title": "Early-Access builds",
+      "links": [
+       {
+        "id": 0,
+        "name": "GitHub Sponsors",
+        "url": "https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false"
+       }
+      ]
+     }
+    ],
+    "tags": [
+     "SUPPORTS_FOLIA",
+     "ADDON"
+    ],
+    "license": {
+     "name": "GPL",
+     "url": "https://github.com/ViaVersion/ViaBackwards/blob/master/LICENSE",
+     "type": "GPL"
+    },
+    "keywords": [
+     "viaversion",
+     "viabackwards",
+     "protocolhack"
+    ],
+    "sponsors": "![https://www.yourkit.com/images/yklogo.png](https://www.yourkit.com/images/yklogo.png)\nYourKit supports open source pro",
+    "unlisted": false,
+    "donation": {
+     "subject": "",
+     "enable": false
+    }
+   },
+   "supportedPlatforms": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "WATERFALL": [
+     "1.19",
+     "1.20"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "mainPageContent": "# ViaBackwards\n## Installation\nThis plugin requires to have [**ViaVersion**](https://hangar.papermc.io/ViaVersion/ViaVersion) installed.\nDrag and drop both plugins in your plugin folder, and you are good to go.\n\nRequires Java 17. See [here]",
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ],
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/12.webp?v=1"
+  },
+  {
+   "createdAt": "2022-12-31T20:04:25.895662Z",
+   "publishedAt": "2023-01-05T16:21:22.608816Z",
+   "id": 31,
+   "name": "ViaVersion",
+   "namespace": {
+    "owner": "ViaVersion",
+    "slug": "ViaVersion"
+   },
+   "stats": {
+    "views": 1141082,
+    "downloads": 496657,
+    "recentViews": 43133,
+    "recentDownloads": 19689,
+    "stars": 468,
+    "watchers": 271
+   },
+   "category": "misc",
+   "description": "Allow newer Java Edition versions to connect, why lose players after a Minecraft update?",
+   "lastUpdated": "2026-09-20T12:56:41.657559Z",
+   "visibility": "public",
+   "userActions": null,
+   "settings": {
+    "links": [
+     {
+      "id": 0,
+      "type": "top",
+      "title": "top",
+      "links": [
+       {
+        "id": 1,
+        "name": "Issues",
+        "url": "https://github.com/ViaVersion/ViaVersion/issues"
+       },
+       {
+        "id": 2,
+        "name": "Source",
+        "url": "https://github.com/ViaVersion/ViaVersion/"
+       },
+       {
+        "id": 3,
+        "name": "Support",
+        "url": "https://discord.gg/ViaVersion"
+       },
+       {
+        "id": 4,
+        "name": "Wiki",
+        "url": "https://docs.viaversion.com/"
+       },
+       {
+        "id": 5,
+        "name": "Donate",
+        "url": "https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false"
+       }
+      ]
+     },
+     {
+      "id": 1,
+      "type": "sidebar",
+      "title": "Early-Access builds",
+      "links": [
+       {
+        "id": 0,
+        "name": "GitHub Sponsors",
+        "url": "https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false"
+       }
+      ]
+     }
+    ],
+    "tags": [
+     "SUPPORTS_FOLIA"
+    ],
+    "license": {
+     "name": "GPL",
+     "url": "https://github.com/ViaVersion/ViaVersion/blob/master/LICENSE",
+     "type": "GPL"
+    },
+    "keywords": [
+     "viaversion",
+     "via",
+     "connect",
+     "protocol",
+     "compatbility"
+    ],
+    "sponsors": null,
+    "unlisted": false,
+    "donation": {
+     "subject": "",
+     "enable": false
+    }
+   },
+   "supportedPlatforms": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "WATERFALL": [
+     "1.18",
+     "1.19",
+     "1.20"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "mainPageContent": "<center>\n  \n**For ViaVersion updates, consider joining our Discord.**\n  \n**Donate via [GitHub Sponsors](https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false) to get new updates early.**\n\n  \n  [![http",
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ],
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/31.webp?v=1"
+  },
+  {
+   "createdAt": "2023-02-16T15:38:38.719409Z",
+   "publishedAt": "2023-03-14T09:46:31.215551Z",
+   "id": 112,
+   "name": "ViaRewind",
+   "namespace": {
+    "owner": "ViaVersion",
+    "slug": "ViaRewind"
+   },
+   "stats": {
+    "views": 455736,
+    "downloads": 248486,
+    "recentViews": 10758,
+    "recentDownloads": 3117,
+    "stars": 73,
+    "watchers": 47
+   },
+   "category": "misc",
+   "description": "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
+   "lastUpdated": "2026-09-18T15:08:16.539019Z",
+   "visibility": "public",
+   "userActions": null,
+   "settings": {
+    "links": [
+     {
+      "id": 0,
+      "type": "top",
+      "title": "top",
+      "links": [
+       {
+        "id": 1,
+        "name": "Issues",
+        "url": "https://github.com/ViaVersion/ViaRewind/issues"
+       },
+       {
+        "id": 2,
+        "name": "Source",
+        "url": "https://github.com/ViaVersion/ViaRewind"
+       },
+       {
+        "id": 3,
+        "name": "Support",
+        "url": "http://viaversion.com/discord"
+       }
+      ]
+     }
+    ],
+    "tags": [
+     "ADDON",
+     "SUPPORTS_FOLIA"
+    ],
+    "license": {
+     "name": "GPL",
+     "url": "https://github.com/ViaVersion/ViaRewind/blob/master/LICENSE",
+     "type": "GPL"
+    },
+    "keywords": [],
+    "sponsors": null,
+    "unlisted": false,
+    "donation": {
+     "subject": "",
+     "enable": false
+    }
+   },
+   "supportedPlatforms": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "WATERFALL": [
+     "1.19",
+     "1.20"
+    ],
+    "VELOCITY": [
+     "3.4",
+     "3.4.0",
+     "3.5"
+    ]
+   },
+   "mainPageContent": "# ViaRewind\n**ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.** <br>\nRuns on 1.9-latest servers or 1.8 clients and lower.\n\n**Important: Do not put Via\\* plugins on both proxy and backend servers, but only on eith",
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ],
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/112.webp?v=1"
+  },
+  {
+   "createdAt": "2022-12-23T06:58:21.584949Z",
+   "publishedAt": "2024-05-08T10:29:36.57727Z",
+   "id": 6,
+   "name": "WorldEdit",
+   "namespace": {
+    "owner": "EngineHub",
+    "slug": "WorldEdit"
+   },
+   "stats": {
+    "views": 263717,
+    "downloads": 92248,
+    "recentViews": 11258,
+    "recentDownloads": 4156,
+    "stars": 122,
+    "watchers": 68
+   },
+   "category": "admin_tools",
+   "description": "A Minecraft Map Editor... that runs in-game! With selections, schematics, copy and paste, brushes, and scripting",
+   "lastUpdated": "2026-09-24T10:21:04.687744Z",
+   "visibility": "public",
+   "userActions": null,
+   "settings": {
+    "links": [
+     {
+      "id": 0,
+      "type": "top",
+      "title": "top",
+      "links": [
+       {
+        "id": 0,
+        "name": "Homepage",
+        "url": "https://enginehub.org/worldedit"
+       },
+       {
+        "id": 1,
+        "name": "Issues",
+        "url": "https://github.com/EngineHub/WorldEdit/issues"
+       },
+       {
+        "id": 2,
+        "name": "Source",
+        "url": "https://github.com/EngineHub/WorldEdit"
+       },
+       {
+        "id": 3,
+        "name": "Support",
+        "url": "https://discord.gg/enginehub"
+       },
+       {
+        "id": 4,
+        "name": "Wiki",
+        "url": "https://worldedit.enginehub.org/en/latest/"
+       }
+      ]
+     }
+    ],
+    "tags": [],
+    "license": {
+     "name": "Unspecified",
+     "url": "https://github.com/EngineHub/WorldEdit/blob/master/LICENSE.txt",
+     "type": "GPL"
+    },
+    "keywords": [
+     "worldedit",
+     "world",
+     "editor",
+     "brushes",
+     "sculpting"
+    ],
+    "sponsors": "<center>\n<a href=\"https://github.com/sponsors/EngineHub\">🎉 Support us on GitHub Sponsors!</a><br/><br/>\n\n<a href=\"https:",
+    "unlisted": false,
+    "donation": {
+     "subject": "",
+     "enable": false
+    }
+   },
+   "supportedPlatforms": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "mainPageContent": "<center>\n\n![WorldEdit Logo](https://raw.githubusercontent.com/EngineHub/WorldEdit/master/worldedit-logo.svg==93x345)\n\n**A Minecraft Map Editor... that runs in-game!**\nWith selections, schematics, copy and paste, brushes, and scripting.\nUse ",
+   "memberNames": [
+    "me4502",
+    "enginehub",
+    "wizjany",
+    "octylfractal"
+   ],
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/6.webp?v=1"
+  },
+  {
+   "createdAt": "2022-12-23T23:21:00.76682Z",
+   "publishedAt": "2022-12-23T23:26:25.893212Z",
+   "id": 14,
+   "name": "Geyser",
+   "namespace": {
+    "owner": "GeyserMC",
+    "slug": "Geyser"
+   },
+   "stats": {
+    "views": 307280,
+    "downloads": 82079,
+    "recentViews": 7773,
+    "recentDownloads": 2510,
+    "stars": 350,
+    "watchers": 177
+   },
+   "category": "misc",
+   "description": "A bridge/proxy allowing you to connect to Minecraft: Java Edition servers with Minecraft: Bedrock Edition.",
+   "lastUpdated": "2023-03-19T20:49:50.933106Z",
+   "visibility": "public",
+   "userActions": null,
+   "settings": {
+    "links": [
+     {
+      "id": 0,
+      "type": "top",
+      "title": "top",
+      "links": [
+       {
+        "id": 0,
+        "name": "Homepage",
+        "url": "https://geysermc.org"
+       },
+       {
+        "id": 1,
+        "name": "Issues",
+        "url": "https://github.com/GeyserMC/Geyser/issues"
+       },
+       {
+        "id": 2,
+        "name": "Source",
+        "url": "https://github.com/GeyserMC/Geyser"
+       },
+       {
+        "id": 3,
+        "name": "Support",
+        "url": "https://discord.gg/GeyserMC"
+       },
+       {
+        "id": 4,
+        "name": "Wiki",
+        "url": "https://wiki.geysermc.org"
+       }
+      ]
+     }
+    ],
+    "tags": [
+     "SUPPORTS_FOLIA"
+    ],
+    "license": {
+     "name": "MIT",
+     "url": "https://github.com/GeyserMC/Geyser/blob/master/LICENSE",
+     "type": "MIT"
+    },
+    "keywords": [
+     "java",
+     "bedrock",
+     "translator",
+     "proxy",
+     "protocol"
+    ],
+    "sponsors": "Thanks to all the donors over at [Open Collective](https://opencollective.com/geysermc) and [GitHub Sponsors](https://gi",
+    "unlisted": false,
+    "donation": {
+     "subject": "",
+     "enable": false
+    }
+   },
+   "supportedPlatforms": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ],
+    "WATERFALL": [
+     "1.19",
+     "1.20",
+     "1.21"
+    ],
+    "VELOCITY": [
+     "4.0.0",
+     "4.1.0",
+     "4.1.1"
+    ]
+   },
+   "mainPageContent": "![Geyser](https://geysermc.org/img/geyser-1760-860.png)\n\nGeyser is a program that allows Minecraft: Bedrock Edition clients to join Minecraft: Java Edition servers, allowing for true cross-platform between both editions of the game. It can ",
+   "memberNames": [
+    "tim203",
+    "geysermc",
+    "camotoy",
+    "redned",
+    "rtm516",
+    "amberichu"
+   ],
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/14.webp?v=1"
+  }
+ ]
+}
