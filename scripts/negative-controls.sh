@@ -310,6 +310,14 @@ control "the pre-stop check applies the archive limits" internal/backup/archive.
   'if err := tally.add(rel, size); err != nil {' \
   'if err := tally.add(rel, size); false && err != nil {' \
   ./internal/backup '^TestCheckRefusesWhatCreateRefuses$'
+control "a failed undo deletes neither copy of the world" internal/agent/backups.go \
+  'if perr := putBack(failedAt, cause); perr != nil {' \
+  'if perr := putBack(failedAt, cause); false && perr != nil {' \
+  ./internal/agent '^TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails$'
+control "a failed undo moves the restored world out of the stage" internal/agent/backups.go \
+  'if restoredAt == st.data && renameDir(st.data, failedAt) == nil {' \
+  'if false && restoredAt == st.data && renameDir(st.data, failedAt) == nil {' \
+  ./internal/agent '^TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
