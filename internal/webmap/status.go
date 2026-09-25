@@ -1,6 +1,7 @@
 package webmap
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,7 +9,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -165,6 +168,9 @@ func (m Map) scan(l Layout, s *Status) {
 		}
 		s.Worlds = append(s.Worlds, w)
 	}
+	slices.SortFunc(s.Worlds, func(a, b WorldStatus) int {
+		return cmp.Or(cmp.Compare(dimensionRank(a.Dimension), dimensionRank(b.Dimension)), strings.Compare(a.Name, b.Name))
+	})
 	if total.Total > 0 {
 		total.Percent = total.Done * 100 / total.Total
 		s.Progress = &total
