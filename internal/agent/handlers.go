@@ -151,6 +151,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Phase = api.PhaseDockerUnavailable
 		st.LastError = "Docker is not responding, so Playkeeper cannot see or control the server."
 		st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"
+		st.Refusal = refusal
 	case sc == nil:
 		st.Phase = api.PhaseNotCreated
 	case docker.IsNotFound(err):

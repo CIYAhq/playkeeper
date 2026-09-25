@@ -332,6 +332,15 @@ control "the agent reads no game file through a link" internal/gamefiles/gamefil
   'err = fileError(name, fi)' \
   'err = nil' \
   ./internal/agent '^TestGameFilesAreReadWithoutFollowingLinks$'
+control "a start that fails before the server's files keeps the refusal" internal/agent/gamefiles.go \
+  'if !refused && !pastFiles {' \
+  'if false {' \
+  ./internal/agent '^TestARefusalLastsUntilAStartGetsPastTheFiles$'
+control "the status keeps the refusal while Docker isn't answering" internal/agent/handlers.go \
+  'st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"
+		st.Refusal = refusal' \
+  'st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"' \
+  ./internal/agent '^TestARefusalLastsUntilAStartGetsPastTheFiles$'
 control "the jar is hashed only up to a size no Paper jar reaches" internal/agent/lifecycle.go \
   'const maxJarBytes = 256 << 20' \
   'const maxJarBytes = 1 << 62' \

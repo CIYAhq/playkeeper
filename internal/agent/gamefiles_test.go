@@ -167,6 +167,76 @@ func TestAPlantedPipeStopsTheStartAndTheStatusSaysWhy(t *testing.T) {
 	}
 }
 
+// A start that fails before it gets to the server's files keeps the refusal
+// of the start before it, since the planted file may still be there, and the
+// status carries it while Docker isn't answering. Only a start that gets past
+// the files clears it, even when that start fails later.
+func TestARefusalLastsUntilAStartGetsPastTheFiles(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	if op := e.act("stop"); op.Status != api.OpSucceeded {
+		t.Fatalf("stop: %+v", op)
+	}
+	at := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
+	if err := os.MkdirAll(filepath.Dir(at), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(at); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(e.hostFiles(), "panel.db"), at); err != nil {
+		t.Fatal(err)
+	}
+	down := func(prefix string) {
+		e.fd.mu.Lock()
+		e.fd.down = prefix
+		e.fd.mu.Unlock()
+	}
+	refused := func(when string) {
+		t.Helper()
+		if r := e.status().Refusal; r == nil || r.Code != "link" || r.Params["path"] != "plugins/bStats/config.yml" {
+			t.Fatalf("the refusal %s: %+v", when, r)
+		}
+	}
+	if op := e.act("start"); op.Status != api.OpFailed {
+		t.Fatalf("start with a link at bStats' setting: %+v", op)
+	}
+	refused("after the refused start")
+
+	down("/")
+	if st := e.status(); st.Phase != api.PhaseDockerUnavailable {
+		t.Fatalf("the phase while Docker isn't answering: %s", st.Phase)
+	}
+	refused("while Docker isn't answering")
+
+	down("/images/")
+	created := e.fd.called("POST /containers/create")
+	if op := e.act("start"); op.Status != api.OpFailed || e.fd.called("POST /containers/create") != created {
+		t.Fatalf("a start while Docker can't look up the image: %+v", op)
+	}
+	down("")
+	refused("after a start that failed before the server's files")
+
+	if err := os.Remove(at); err != nil {
+		t.Fatal(err)
+	}
+	e.fd.mu.Lock()
+	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+	e.fd.mu.Unlock()
+	if op := e.act("start"); op.Status != api.OpFailed {
+		t.Fatalf("a start with the port taken: %+v", op)
+	}
+	e.fd.mu.Lock()
+	e.fd.startErr = ""
+	e.fd.mu.Unlock()
+	if r := e.status().Refusal; r != nil {
+		t.Fatalf("the refusal after a start that got past the files and failed later: %+v", r)
+	}
+	if op := e.act("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start once the link is gone: %+v", op)
+	}
+}
+
 // The agent reads the allowlist, the operators, server.properties and the
 // server icon from the server's files. A link planted at any of them is not
 // followed, so the dashboard never shows what it leads to, and a named pipe

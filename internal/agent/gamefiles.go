@@ -38,12 +38,18 @@ func gameFileError(err error, couldNot string) error {
 	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: couldNot + " " + ge.Msg, Hint: ge.Hint, Err: ge}
 }
 
-// noteRefusal records the file that stopped a start, or clears the last one
-// when a start got past the server's files.
-func (s *server) noteRefusal(err error) {
-	var r *api.FileRefusal
+// noteRefusal records the file that stopped a start. A start that failed
+// before it checked the server's files (pulling the image, a download) keeps
+// the last one, since that file may still be there; a start that got past
+// them clears it.
+func (s *server) noteRefusal(err error, pastFiles bool) {
 	var ge *gamefiles.Error
-	if errors.As(err, &ge) {
+	refused := errors.As(err, &ge)
+	if !refused && !pastFiles {
+		return
+	}
+	var r *api.FileRefusal
+	if refused {
 		r = &api.FileRefusal{Code: string(ge.Kind), Params: maps.Clone(ge.Params), Message: ge.Msg, Hint: ge.Hint}
 	}
 	s.mu.Lock()

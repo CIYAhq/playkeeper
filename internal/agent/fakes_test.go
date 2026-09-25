@@ -39,6 +39,7 @@ type fakeDocker struct {
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
 	holdImages   bool          // image inspects wait until the caller gives up
+	down         string        // requests whose path starts with it fail, as when Docker stops answering
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
 	bootFailsOn string
@@ -186,7 +187,12 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	path = strings.TrimPrefix(path, "/v1.52")
 	fd.mu.Lock()
 	fd.calls = append(fd.calls, r.Method+" "+path)
+	down := fd.down != "" && strings.HasPrefix(path, fd.down)
 	fd.mu.Unlock()
+	if down {
+		jsonOut(w, 500, map[string]string{"message": "fake Docker is not answering"})
+		return
+	}
 	switch {
 	case r.Method == "GET" && strings.HasPrefix(path, "/images/") && strings.HasSuffix(path, "/json"):
 		ref := strings.TrimSuffix(strings.TrimPrefix(path, "/images/"), "/json")

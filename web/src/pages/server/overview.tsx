@@ -27,7 +27,7 @@ export function Overview({ server }: { server: ServerStatus }) {
   const ws = useWorkspace()
   if (ws.agentDown) return <AgentDownView />
   if (!ws.stale && isSettingUp(server)) return <SettingUpView server={server} />
-  if (!ws.stale && (server.phase === 'crashed' || server.refusal) && !server.operation) return <CrashedView server={server} />
+  if (!ws.stale && (server.phase === 'crashed' || (server.refusal && server.phase !== 'docker_unavailable')) && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }
 
