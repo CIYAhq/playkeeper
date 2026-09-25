@@ -215,8 +215,12 @@ func TestSignInWithAnAppCodeOnce(t *testing.T) {
 	if _, _, err := signIn(t, next, totp.Code(f.Secret, later.Add(30*time.Second)), later); err != nil {
 		t.Errorf("a phone 30 seconds fast must work: %v", err)
 	}
-	if slow, _, err := signIn(t, next, totp.Code(f.Secret, later.Add(-60*time.Second)), later); KindOf(err) != KindCodeWrong || slow.Failures != 1 {
+	slow, _, err := signIn(t, next, totp.Code(f.Secret, later.Add(-60*time.Second)), later)
+	if KindOf(err) != KindCodeWrong || slow.Failures != 1 {
 		t.Errorf("a phone a minute slow gives a wrong code, which counts: %v, %d failures", err, slow.Failures)
+	}
+	if _, res, err := signIn(t, slow, totp.Code(f.Secret, later), later); err != nil || !reflect.DeepEqual(res.Notices, []Notice{newNotice(NoticeFailedAttempts, 1)}) {
+		t.Errorf("the sign-in after one wrong code must mention it: %+v, %v", res.Notices, err)
 	}
 }
 
