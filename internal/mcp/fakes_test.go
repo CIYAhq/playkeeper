@@ -268,7 +268,7 @@ func fakeTools(f *fixture) []Tool {
 			Name: "slow", Description: "Waits until the test releases it.",
 			InputSchema: Schema{Type: "object"},
 			Effect:      ReadOnly, Scope: ScopeRead,
-			Handler:     f.gate.handler,
+			Handler: f.gate.handler,
 		},
 		{
 			Name: "restart_server", Title: "Restart server", Description: "Restarts a server.",
