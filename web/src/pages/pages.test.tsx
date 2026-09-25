@@ -3,11 +3,12 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, Candidate, InvitesResponse, JoinInfo, JoinPreview, JoinRequestView, MachineView, Me, Operation, PlayerProfile, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus, TeamResponse } from '@/api/types'
+import type { Action, Candidate, DiscordSettings, InvitesResponse, JoinInfo, JoinPreview, JoinRequestView, MachineView, Me, Operation, PlayerProfile, PlayersSummary, Preflight, ProjectRole, ServerConfig, ServerStatus, TeamResponse } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { formatDate, formatDuration } from '@/lib/format'
+import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
 import { JoinPage } from './join'
 import { Onboarding } from './onboarding'
@@ -561,6 +562,37 @@ describe('Team', () => {
     expect(text).toContain('tobi turned on two-factor sign-in.')
     await click(button('Confirm Admin rights'))
     expect(client.post).toHaveBeenCalledWith('/api/team/members/3/confirm-admin')
+  })
+})
+
+describe('Discord', () => {
+  const kinds = ['crash', 'recovered', 'low_disk', 'backup_failed', 'backup_succeeded', 'update_available', 'started', 'stopped', 'player_joined', 'player_left', 'join_requested']
+
+  it('connects with a pasted webhook link and doesn’t keep it on the page', async () => {
+    answer({ '/api/discord': { connected: false, alerts: [], liveStatus: false, delivery: {}, kinds } satisfies DiscordSettings })
+    const text = await render(<DiscordSettingsSection />)
+    expect(text).toContain('Alerts and live status in your Discord.')
+    expect(text).toContain('Keep the link private.')
+    expect(button('Connect').disabled).toBe(true)
+    const url = 'https://discord.com/api/webhooks/000000000000000000/redacted-for-tests'
+    await typeInto('input[type="url"]', url)
+    await click(button('Connect'))
+    expect(client.post).toHaveBeenCalledWith('/api/discord/connect', { webhookUrl: url })
+    expect(document.querySelector<HTMLInputElement>('input[type="url"]')?.value ?? '').toBe('')
+  })
+
+  it('shows the connection, the alert switches and the live status message', async () => {
+    const connected: DiscordSettings = { connected: true, webhookName: 'Playkeeper alerts', connectedAt: hoursAgo(1), alerts: ['crash', 'recovered', 'join_requested', 'backup_failed', 'low_disk', 'update_available'], liveStatus: true, delivery: { sent: hoursAgo(0.5) }, kinds }
+    answer({ '/api/discord': connected })
+    const text = await render(<DiscordSettingsSection />)
+    expect(text).toContain('Webhook “Playkeeper alerts” · connected 1 h ago')
+    for (const line of ['A server crashed or couldn’t start', 'Someone asks to join', 'Someone joined or left', 'Keep a live status message', 'How it looks in the channel']) expect(text).toContain(line)
+    expect(text).not.toContain('discord.com')
+    const row = [...document.querySelectorAll('li')].find((li) => li.textContent?.includes('Someone joined or left'))
+    const players = row?.querySelector<HTMLElement>('[role="switch"]')
+    if (!players) throw new Error('no switch for players joining')
+    await click(players)
+    expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true })
   })
 })
 
