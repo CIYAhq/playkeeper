@@ -41,8 +41,11 @@ type HubOptions struct {
 	// 15s), and HeartbeatTimeout how long it waits for the answer (10s).
 	Heartbeat        time.Duration
 	HeartbeatTimeout time.Duration
-	// HandshakeTimeout bounds a connection's TLS handshake and hello (10s).
+	// HandshakeTimeout bounds a connection's TLS handshake and hello
+	// (10s), and HelloTimeout how long the hello may take once the TLS
+	// handshake is done (3s).
 	HandshakeTimeout time.Duration
+	HelloTimeout     time.Duration
 	// RequestTimeout bounds a whole request that is not a stream (60s),
 	// and MaxResponseBytes the size of its answer (16 MiB).
 	RequestTimeout   time.Duration
@@ -50,8 +53,12 @@ type HubOptions struct {
 	// OfflineAfter is how long a machine may be away before its status
 	// shows a problem (2m).
 	OfflineAfter time.Duration
-	// MaxPending bounds the connections still in their handshake (64).
-	MaxPending int
+	// MaxPending bounds the connections still in their handshake (64),
+	// and MaxPendingPerSource those from one address, or one IPv6 /48
+	// (8). A connection past either limit closes an older one instead of
+	// being turned away.
+	MaxPending          int
+	MaxPendingPerSource int
 }
 
 // Hub is the dashboard's side: it hands out join codes, accepts machines'
@@ -66,7 +73,7 @@ type Hub struct {
 	codeKey []byte
 	guard   *guard
 	tlsConf *tls.Config
-	pending chan struct{}
+	pending *pendingConns
 	joinMu  sync.Mutex
 
 	mu        sync.Mutex
@@ -98,6 +105,7 @@ func NewHub(o HubOptions) (*Hub, error) {
 	setDefault(&o.Heartbeat, 15*time.Second)
 	setDefault(&o.HeartbeatTimeout, 10*time.Second)
 	setDefault(&o.HandshakeTimeout, 10*time.Second)
+	setDefault(&o.HelloTimeout, 3*time.Second)
 	setDefault(&o.RequestTimeout, time.Minute)
 	setDefault(&o.OfflineAfter, 2*time.Minute)
 	if o.MaxResponseBytes <= 0 {
@@ -105,6 +113,9 @@ func NewHub(o HubOptions) (*Hub, error) {
 	}
 	if o.MaxPending <= 0 {
 		o.MaxPending = 64
+	}
+	if o.MaxPendingPerSource <= 0 {
+		o.MaxPendingPerSource = 8
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -116,7 +127,7 @@ func NewHub(o HubOptions) (*Hub, error) {
 	return &Hub{
 		id: o.Identity, store: o.Store, allow: allow, opts: o, now: o.Now, log: o.Logger,
 		codeKey: key, guard: newGuard(o.Limits), tlsConf: serverTLS(o.Identity),
-		pending:  make(chan struct{}, o.MaxPending),
+		pending:  newPendingConns(o.MaxPending, o.MaxPendingPerSource, o.Now, o.Logger),
 		sessions: map[string]*session{}, revoked: map[string]bool{}, stats: map[string]*machineStats{},
 		conns: map[net.Conn]struct{}{}, listeners: map[net.Listener]struct{}{},
 	}, nil
@@ -284,14 +295,7 @@ func (h *Hub) serveConn(tc *tls.Conn) {
 		delete(h.conns, tc)
 		h.mu.Unlock()
 	}()
-	select {
-	case h.pending <- struct{}{}:
-	default:
-		h.log.Warn("too many machine connections waiting for their handshake; dropping one", "addr", remoteIP(tc.RemoteAddr().String()))
-		return
-	}
-	var once sync.Once
-	release := func() { once.Do(func() { <-h.pending }) }
+	release := h.pending.add(pendingSource(tc.RemoteAddr().String()), tc.NetConn())
 	defer release()
 
 	deadline := time.Now().Add(h.opts.HandshakeTimeout)
@@ -307,6 +311,9 @@ func (h *Hub) serveConn(tc *tls.Conn) {
 		return
 	}
 	remote := tc.RemoteAddr().String()
+	if d := time.Now().Add(h.opts.HelloTimeout); d.Before(deadline) {
+		tc.SetReadDeadline(d)
+	}
 	var hel hello
 	if err := readFrame(tc, &hel); err != nil {
 		switch {
