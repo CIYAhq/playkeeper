@@ -250,6 +250,9 @@ func (s *Server) Routes() []Route {
 		mg("/api/machines/{mid}/modpacks/{source}/{project}", "/v1/modpacks/{source}/{project}"),
 		mg("/api/machines/{mid}/modpacks/{source}/{project}/versions/{version}/preview", "/v1/modpacks/{source}/{project}/versions/{version}/preview"),
 		view("/api/machines/{mid}/modpacks/icon", s.hAddonIcon),
+		// Wave 4: templates.
+		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
+		{"POST", "/api/machines/{mid}/templates/plan", needSessionCSRF, actManageServers, s.rawUpload("/v1/templates/plan", "text/plain")},
 	}
 }
 
