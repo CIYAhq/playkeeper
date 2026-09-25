@@ -245,6 +245,11 @@ func (s *Server) Routes() []Route {
 		// Wave 4: every server type.
 		mg("/api/machines/{mid}/catalog/builds", "/v1/catalog/builds"),
 		sm("POST", "/api/servers/{id}/software/reinstall", "/v1/servers/{id}/software/reinstall"),
+		// Wave 4: modpacks.
+		mg("/api/machines/{mid}/modpacks", "/v1/modpacks"),
+		mg("/api/machines/{mid}/modpacks/{source}/{project}", "/v1/modpacks/{source}/{project}"),
+		mg("/api/machines/{mid}/modpacks/{source}/{project}/versions/{version}/preview", "/v1/modpacks/{source}/{project}/versions/{version}/preview"),
+		view("/api/machines/{mid}/modpacks/icon", s.hAddonIcon),
 	}
 }
 
@@ -670,7 +675,7 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 
 // --- agent proxy ---
 
-var pathKeys = []string{"id", "name", "bid", "rid", "op", "source", "project"}
+var pathKeys = []string{"id", "name", "bid", "rid", "op", "source", "project", "version"}
 
 func agentPath(pattern string, r *http.Request) string {
 	out := pattern
