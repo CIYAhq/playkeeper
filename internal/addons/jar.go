@@ -4,9 +4,10 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"io"
-	"os"
 	"regexp"
 	"strings"
+
+	"github.com/CIYAhq/playkeeper/internal/zipdir"
 )
 
 // JarMeta is what a plugin or mod jar says about itself.
@@ -36,8 +37,12 @@ func readJarMeta(r io.ReaderAt, size int64) JarMeta {
 	if size <= 0 || size > maxJarSize {
 		return JarMeta{}
 	}
-	zr, err := zip.NewReader(r, size)
+	n, err := zipdir.Check(r, size, zipdir.Metadata)
 	if err != nil {
+		return JarMeta{}
+	}
+	zr, err := zip.NewReader(r, size)
+	if err != nil || len(zr.File) != n {
 		return JarMeta{}
 	}
 	entries := map[string]*zip.File{}
@@ -130,17 +135,4 @@ func yamlTop(b []byte, key string) string {
 		return v
 	}
 	return ""
-}
-
-func metaOf(path string) JarMeta {
-	f, err := os.Open(path)
-	if err != nil {
-		return JarMeta{}
-	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		return JarMeta{}
-	}
-	return readJarMeta(f, fi.Size())
 }

@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+
+	"github.com/CIYAhq/playkeeper/internal/zipdir"
 )
 
 // Installed is the Chunky jar found on a server.
@@ -84,8 +86,12 @@ func chunkyVersion(root *os.Root, name string, p Platform) (string, bool) {
 	if err != nil || !st.Mode().IsRegular() || st.Size() > maxJarBytes {
 		return "", false
 	}
-	zr, err := zip.NewReader(f, st.Size())
+	n, err := zipdir.Check(f, st.Size(), zipdir.Metadata)
 	if err != nil {
+		return "", false
+	}
+	zr, err := zip.NewReader(f, st.Size())
+	if err != nil || len(zr.File) != n {
 		return "", false
 	}
 	read := func(entry string) ([]byte, bool) {

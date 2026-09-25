@@ -5,9 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/zipdir/zipdirtest"
 )
 
 // pipeOnOpen makes the next open of name find a named pipe in dir: the
@@ -209,5 +212,39 @@ func TestAScanStopsWithItsContext(t *testing.T) {
 	cancel()
 	if res, err := l.Scan(ctx, srv, installed, false); !errors.Is(err, context.Canceled) {
 		t.Errorf("scan with a cancelled context: %+v, %v", res, err)
+	}
+}
+
+// allocated is how many bytes fn allocates.
+func allocated(fn func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	fn()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// The game can put a jar in the add-on folder whose table of contents
+// archive/zip would hold in memory by the hundred megabytes.
+func TestJarsWithHugeTablesOfContentsAreNotRead(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		jar  []byte
+	}{
+		{"a count that wraps", zipdirtest.Bomb(300_000, false)},
+		{"more entries than metadata needs", zipdirtest.Bomb(200_000, true)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newServer(t, "paper", "1.21.4")
+			writeFile(t, filepath.Join(srv.Dir, "plugins", "EssentialsX.jar"), tc.jar)
+			var res *ScanResult
+			var err error
+			if n := allocated(func() { res, err = (&Library{}).Scan(context.Background(), srv, nil, false) }); n > 8<<20 {
+				t.Errorf("the scan allocated %d MiB", n>>20)
+			}
+			if err != nil || len(res.Entries) != 1 || res.Entries[0].Meta != (JarMeta{}) {
+				t.Fatalf("scan: %+v, %v", res, err)
+			}
+		})
 	}
 }

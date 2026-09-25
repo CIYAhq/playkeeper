@@ -399,6 +399,35 @@ control "data packs: a named pipe for the datapacks folder is not waited on" int
   'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
   'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
   ./internal/packs '^TestListDoesNotWaitOnAPipe$'
+control "add-on jars: the table of contents is checked before archive/zip reads it" internal/addons/jar.go \
+  'n, err := zipdir.Check(r, size, zipdir.Metadata)
+	if err != nil {' \
+  'n, err := zipdir.Check(r, size, zipdir.Metadata)
+	if false && err != nil {' \
+  ./internal/addons '^TestJarsWithHugeTablesOfContentsAreNotRead$'
+control "pre-generation: a jar's table of contents is checked before archive/zip reads it" internal/pregen/detect.go \
+  'n, err := zipdir.Check(f, st.Size(), zipdir.Metadata)
+	if err != nil {' \
+  'n, err := zipdir.Check(f, st.Size(), zipdir.Metadata)
+	if false && err != nil {' \
+  ./internal/pregen '^TestDetectDoesNotReadHugeTablesOfContents$'
+control "jar metadata: a table of contents is bounded to what metadata needs" internal/zipdir/zipdir.go \
+  'var Metadata = Limits{Bytes: 16 << 20, Entries: 100_000}' \
+  'var Metadata = Limits{Bytes: 1 << 40, Entries: 1 << 40}' \
+  ./internal/addons '^TestJarsWithHugeTablesOfContentsAreNotRead$'
+control "zip tables of contents: more entries than the limit are refused" internal/zipdir/zipdir.go \
+  'case records > uint64(max(lim.Entries, 0)):' \
+  'case false:' \
+  ./internal/zipdir '^TestCheck$'
+control "zip tables of contents: one larger than the limit is refused" internal/zipdir/zipdir.go \
+  'case dirSize > uint64(max(lim.Bytes, 0)):' \
+  'case false:' \
+  ./internal/zipdir '^TestCheck$'
+control "agent unit: its memory is capped" internal/install/units.go \
+  'MemoryMax=384M
+' \
+  '' \
+  ./internal/install '^TestAgentUnitCapsItsMemory$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
