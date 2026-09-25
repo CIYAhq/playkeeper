@@ -71,7 +71,9 @@ PrivateTmp=yes
 }
 
 // agentUnit runs the root agent with a read-only view of the host except its
-// own state directory and runtime socket directory.
+// own state directory and runtime socket directory. CAP_NET_BIND_SERVICE
+// lets it answer Let's Encrypt's checks on port 80 for the seconds a
+// certificate for an own domain is being issued.
 func agentUnit() string {
 	return `[Unit]
 Description=Playkeeper agent (local control of the Minecraft container)
@@ -105,7 +107,7 @@ RestrictNamespaces=yes
 LockPersonality=yes
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
