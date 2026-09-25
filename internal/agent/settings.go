@@ -265,34 +265,45 @@ func (s *server) hIconSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("The picture could not be read: %v", err))
 		return
 	}
-	sc, _ := s.serverConfig()
-	if sc == nil {
-		writeError(w, errNotCreated())
-		return
-	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.saveIcon(b); err != nil {
 		writeError(w, err)
 		return
+	}
+	s.audit(actor, "settings.changed", "server", "succeeded", "server icon")
+	writeJSON(w, http.StatusOK, s.Status(r.Context()))
+}
+
+// saveIcon installs the icon and records when. It holds the server's
+// operation lock, like a settings change, so no operation rewrites the
+// settings or moves the server's files meanwhile.
+func (s *server) saveIcon(b []byte) error {
+	release, ok := s.holdOpLock()
+	if !ok {
+		return s.busyError()
+	}
+	defer release()
+	sc, err := s.serverConfig()
+	if err != nil {
+		return err
+	}
+	if sc == nil {
+		return errNotCreated()
+	}
+	if err := s.ensureDirs(); err != nil {
+		return err
 	}
 	tmp := s.iconPath() + ".new"
 	if err := os.WriteFile(tmp, b, 0o640); err != nil {
-		writeError(w, err)
-		return
+		return err
 	}
 	if os.Geteuid() == 0 {
 		_ = os.Chown(tmp, s.cfg.GameUID, s.cfg.GameGID)
 	}
 	if err := os.Rename(tmp, s.iconPath()); err != nil {
 		os.Remove(tmp)
-		writeError(w, err)
-		return
+		return err
 	}
 	now := s.now().UTC()
 	sc.IconUpdatedAt = &now
-	if err := s.saveServerConfig(*sc); err != nil {
-		writeError(w, err)
-		return
-	}
-	s.audit(actor, "settings.changed", "server", "succeeded", "server icon")
-	writeJSON(w, http.StatusOK, s.Status(r.Context()))
+	return s.saveServerConfig(*sc)
 }

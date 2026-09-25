@@ -515,81 +515,10 @@ func (s *server) hSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	sc, _ := s.serverConfig()
-	if sc == nil {
-		writeError(w, errNotCreated())
-		return
-	}
-	if s.busy() {
-		writeError(w, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy; try again when the current task finishes.", Op: s.currentOp()})
-		return
-	}
-	var changed []string
-	if req.Name != nil {
-		name, err := validName(*req.Name)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if s.nameTaken(name, s.id) {
-			writeError(w, errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name."))
-			return
-		}
-		if old := s.name(); old != name {
-			if _, err := s.db.Exec(`UPDATE servers SET name = ? WHERE id = ?`, name, s.id); err != nil {
-				writeError(w, err)
-				return
-			}
-			changed = append(changed, fmt.Sprintf("name %q→%q", old, name))
-		}
-	}
-	if req.MemoryMB != nil {
-		if err := s.validMemory(*req.MemoryMB, s.id); err != nil {
-			writeError(w, err)
-			return
-		}
-		if sc.MemoryMB != *req.MemoryMB {
-			changed = append(changed, fmt.Sprintf("memoryMB %d→%d", sc.MemoryMB, *req.MemoryMB))
-		}
-		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapMB(*req.MemoryMB)
-	}
-	if req.MOTD != nil {
-		m, err := validMOTD(*req.MOTD)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if m != sc.MOTD {
-			changed = append(changed, "motd")
-		}
-		sc.MOTD = m
-	}
-	if req.MaxPlayers != nil {
-		n, err := validMaxPlayers(*req.MaxPlayers)
-		if err != nil || *req.MaxPlayers == 0 {
-			writeError(w, errInvalid("Max players must be between 1 and 100."))
-			return
-		}
-		if n != sc.MaxPlayers {
-			changed = append(changed, fmt.Sprintf("maxPlayers %d→%d", sc.MaxPlayers, n))
-		}
-		sc.MaxPlayers = n
-	}
-	if req.Gameplay != nil {
-		gp, err := validGameplay(*req.Gameplay, false)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		next := mergeGameplay(sc.Gameplay, gp)
-		changed = append(changed, gameplayChanges(effectiveGameplay(sc.Gameplay, readProperties(s.dataDir())), effectiveGameplay(next, nil), gp)...)
-		sc.Gameplay = next
-	}
-	if err := s.saveServerConfig(*sc); err != nil {
+	if err := s.applySettings(req, actor); err != nil {
 		writeError(w, err)
 		return
 	}
-	s.audit(actor, "settings.changed", "server", "succeeded", strings.Join(changed, ", "))
 	resp := api.SettingsResponse{}
 	if req.Restart {
 		if _, running, _ := s.containerRunning(r.Context()); running {
@@ -607,6 +536,92 @@ func (s *server) hSettings(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusAccepted
 	}
 	writeJSON(w, status, resp)
+}
+
+// applySettings checks a settings change in full, then saves it. It holds the
+// server's operation lock, so no operation rewrites the settings meanwhile,
+// and createMu, so a name or memory share is checked against the other
+// servers' current ones.
+func (s *server) applySettings(req api.SettingsRequest, actor string) error {
+	release, ok := s.holdOpLock()
+	if !ok {
+		return s.busyError()
+	}
+	defer release()
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	if s.busy() {
+		return s.busyError()
+	}
+	sc, err := s.serverConfig()
+	if err != nil {
+		return err
+	}
+	if sc == nil {
+		return errNotCreated()
+	}
+	var changed []string
+	old := s.name()
+	name := old
+	if req.Name != nil {
+		if name, err = validName(*req.Name); err != nil {
+			return err
+		}
+		if s.nameTaken(name, s.id) {
+			return errConflict(fmt.Sprintf("A server named %q already exists on this machine.", name), "Pick another name.")
+		}
+		if name != old {
+			changed = append(changed, fmt.Sprintf("name %q→%q", old, name))
+		}
+	}
+	if req.MemoryMB != nil {
+		if err := s.validMemory(*req.MemoryMB, s.id); err != nil {
+			return err
+		}
+		if sc.MemoryMB != *req.MemoryMB {
+			changed = append(changed, fmt.Sprintf("memoryMB %d→%d", sc.MemoryMB, *req.MemoryMB))
+		}
+		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapMB(*req.MemoryMB)
+	}
+	if req.MOTD != nil {
+		m, err := validMOTD(*req.MOTD)
+		if err != nil {
+			return err
+		}
+		if m != sc.MOTD {
+			changed = append(changed, "motd")
+		}
+		sc.MOTD = m
+	}
+	if req.MaxPlayers != nil {
+		n, err := validMaxPlayers(*req.MaxPlayers)
+		if err != nil || *req.MaxPlayers == 0 {
+			return errInvalid("Max players must be between 1 and 100.")
+		}
+		if n != sc.MaxPlayers {
+			changed = append(changed, fmt.Sprintf("maxPlayers %d→%d", sc.MaxPlayers, n))
+		}
+		sc.MaxPlayers = n
+	}
+	if req.Gameplay != nil {
+		gp, err := validGameplay(*req.Gameplay, false)
+		if err != nil {
+			return err
+		}
+		next := mergeGameplay(sc.Gameplay, gp)
+		changed = append(changed, gameplayChanges(effectiveGameplay(sc.Gameplay, readProperties(s.dataDir())), effectiveGameplay(next, nil), gp)...)
+		sc.Gameplay = next
+	}
+	if name != old {
+		if _, err := s.db.Exec(`UPDATE servers SET name = ? WHERE id = ?`, name, s.id); err != nil {
+			return err
+		}
+	}
+	if err := s.saveServerConfig(*sc); err != nil {
+		return err
+	}
+	s.audit(actor, "settings.changed", "server", "succeeded", strings.Join(changed, ", "))
+	return nil
 }
 
 func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {

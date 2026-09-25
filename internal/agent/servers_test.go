@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -363,6 +365,45 @@ func TestGameSettingsApplyWithARestart(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the audit log says what changed: %+v", audit)
+	}
+}
+
+// A settings change is checked in full before anything is saved, and neither
+// it nor a new icon is saved while an operation holds the server.
+func TestSettingsChangesAreWholeAndWaitForNoOperation(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	s := e.srv()
+	name := s.name()
+	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"name": "Renamed", "maxPlayers": 0, "actor": "admin"}); code != 400 {
+		t.Fatalf("an invalid change: %d %v", code, out)
+	}
+	if s.name() != name {
+		t.Fatalf("a refused change renamed the server to %q", s.name())
+	}
+
+	var icon bytes.Buffer
+	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
+		t.Fatal(err)
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		t.Fatal("the server is busy")
+	}
+	code, out := e.call("POST", e.sp("/settings"), map[string]any{"motd": "Changed meanwhile", "actor": "admin"})
+	iconCode, iconOut := e.uploadTo(e.sp("/icon"), icon.Bytes())
+	release()
+	if code != 409 || iconCode != 409 {
+		t.Fatalf("changes while an operation holds the server: settings %d %v, icon %d %v", code, out, iconCode, iconOut)
+	}
+	if sc, _ := s.serverConfig(); sc.MOTD == "Changed meanwhile" || sc.IconUpdatedAt != nil {
+		t.Fatalf("a refused change was saved: %+v", sc)
+	}
+	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"motd": "Changed after", "actor": "admin"}); code != 200 {
+		t.Fatalf("a change once the server is free: %d %v", code, out)
+	}
+	if code, out := e.uploadTo(e.sp("/icon"), icon.Bytes()); code != 200 {
+		t.Fatalf("an icon once the server is free: %d %v", code, out)
 	}
 }
 
