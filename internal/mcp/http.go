@@ -590,15 +590,21 @@ func (h *HTTPHandler) session(w http.ResponseWriter, r *http.Request, p Principa
 
 // legacy serves a message that belongs to a session started by initialize.
 func (h *HTTPHandler) legacy(w http.ResponseWriter, r *http.Request, p Principal, m *message) {
+	// An error refusing a response must have no id: the id there names one
+	// of the server's requests, not the client's.
+	id := m.id
+	if m.kind == kindResponse {
+		id = nil
+	}
 	if r.Header.Get(headerSessionID) == "" {
 		if m.kind == kindRequest && m.method == "ping" {
 			h.writeJSON(w, http.StatusOK, reply(m.id, map[string]any{}, nil))
 			return
 		}
-		h.fail(w, http.StatusBadRequest, m.id, errNoContext())
+		h.fail(w, http.StatusBadRequest, id, errNoContext())
 		return
 	}
-	s := h.session(w, r, p, m.id)
+	s := h.session(w, r, p, id)
 	if s == nil {
 		return
 	}
