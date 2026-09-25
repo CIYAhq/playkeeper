@@ -95,6 +95,17 @@ func TestCloudflareClientReadsTheZoneUsageAndEveryPage(t *testing.T) {
 	}
 }
 
+func TestCloudflareClientDecodesTheDocumentedAnswers(t *testing.T) {
+	c, _ := cannedClient(t, answer(http.StatusOK, string(readFixture(t, "usage.json"))))
+	if u, err := c.usage(context.Background()); err != nil || u.Quota == nil || *u.Quota != 200 || u.Usage != 18 {
+		t.Errorf("usage: %+v, %v", u, err)
+	}
+	c, _ = cannedClient(t, answer(http.StatusOK, string(readFixture(t, "delete.json"))))
+	if err := c.delete(context.Background(), seedApexA); err != nil {
+		t.Errorf("delete: %v", err)
+	}
+}
+
 func TestCloudflareListingsAreMergedWithoutDuplicates(t *testing.T) {
 	var queries []string
 	c, _ := cannedClient(t, func(w http.ResponseWriter, r *http.Request) {
