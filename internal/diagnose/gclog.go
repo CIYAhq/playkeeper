@@ -129,6 +129,12 @@ func (e GCEvent) forcedFull() bool {
 	return e.Kind == GCFull && !unforcedFull[e.Cause]
 }
 
+// clearsYoung reports whether the pause collected new objects, so that
+// AfterMB shows what the server keeps.
+func (e GCEvent) clearsYoung() bool {
+	return e.Kind == GCYoung || e.Kind == GCMixed || e.Kind == GCFull
+}
+
 // decoration reads the time and uptime decorations and ignores the rest
 // (level, tags, pid, tid).
 func decoration(s string, e *GCEvent) {
@@ -153,7 +159,10 @@ func decoration(s string, e *GCEvent) {
 }
 
 // GCWindow summarises the pauses of one period, so the agent can keep weeks
-// of history for AdviseMemory in a few rows.
+// of history for AdviseMemory in a few rows. MinAfterMB and MaxAfterMB only
+// come from pauses that clear out new objects (young, mixed and full): a
+// remark or cleanup pause leaves them in place, so the heap after it
+// overstates what the server keeps. Both are 0 when there was no such pause.
 type GCWindow struct {
 	Start              time.Time `json:"start"`
 	Collections        int       `json:"collections"`
@@ -168,10 +177,12 @@ type GCWindow struct {
 
 // Add folds one event into the window.
 func (w *GCWindow) Add(e GCEvent) {
-	if w.Collections == 0 || e.AfterMB < w.MinAfterMB {
-		w.MinAfterMB = e.AfterMB
+	if e.clearsYoung() {
+		if w.MaxAfterMB == 0 || e.AfterMB < w.MinAfterMB {
+			w.MinAfterMB = e.AfterMB
+		}
+		w.MaxAfterMB = max(w.MaxAfterMB, e.AfterMB)
 	}
-	w.MaxAfterMB = max(w.MaxAfterMB, e.AfterMB)
 	w.HeapMB = max(w.HeapMB, e.HeapMB)
 	w.Collections++
 	if e.forcedFull() {

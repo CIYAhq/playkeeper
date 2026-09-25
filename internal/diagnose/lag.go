@@ -296,7 +296,7 @@ func memoryCause(in LagInput) (Cause, bool) {
 		if !e.At.IsZero() && (e.At.Before(since) || e.At.After(in.Now)) {
 			continue
 		}
-		if e.HeapMB > 0 {
+		if e.HeapMB > 0 && e.clearsYoung() {
 			if pct := float64(e.AfterMB) / float64(e.HeapMB) * 100; pct < lowest {
 				lowest, lowestMB = pct, e.AfterMB
 			}

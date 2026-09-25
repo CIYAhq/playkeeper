@@ -103,6 +103,32 @@ func TestSummarizeGCKeepsTheLowestHeapAfterEachWindow(t *testing.T) {
 	}
 }
 
+func TestSummarizeGCTakesTheHeapAfterOnlyFromPausesThatClearNewObjects(t *testing.T) {
+	var events []GCEvent
+	for _, line := range []string{
+		"[2026-09-25T18:00:10.004+0000][info][gc] GC(40) Pause Young (Concurrent Start) (G1 Evacuation Pause) 3010M->1210M(4608M) 18.201ms",
+		"[2026-09-25T18:00:16.410+0000][info][gc] GC(41) Pause Remark 2790M->2702M(4608M) 11.336ms",
+		"[2026-09-25T18:00:16.522+0000][info][gc] GC(41) Pause Cleanup 2702M->2702M(4608M) 0.301ms",
+		"[2026-09-25T18:16:40.117+0000][info][gc] GC(42) Pause Remark 1990M->1950M(4608M) 9.112ms",
+	} {
+		e, ok := ParseGCLine(line, time.Time{})
+		if !ok {
+			t.Fatalf("%q did not parse", line)
+		}
+		events = append(events, e)
+	}
+	w := SummarizeGC(events, 15*time.Minute)
+	if len(w) != 2 {
+		t.Fatalf("got %d windows: %+v", len(w), w)
+	}
+	if w[0].Collections != 3 || w[0].MinAfterMB != 1210 || w[0].MaxAfterMB != 1210 || w[0].HeapMB != 4608 {
+		t.Errorf("remark and cleanup must not raise the heap after: %+v", w[0])
+	}
+	if w[1].Collections != 1 || w[1].MinAfterMB != 0 || w[1].MaxAfterMB != 0 || w[1].HeapMB != 4608 {
+		t.Errorf("a window with only a remark has no heap after: %+v", w[1])
+	}
+}
+
 func TestOnlyPausesAShortHeapForcedCountAsPressure(t *testing.T) {
 	events := parseGCFixture(t, "gc/g1_pinned_and_requested.txt", time.Time{})
 	var got []string
