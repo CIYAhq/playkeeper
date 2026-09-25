@@ -890,6 +890,9 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	s := h.session(t.id)
 	if s == nil {
+		if h.isRevoked(t.id) {
+			return fail(errRemoved(t.id, name))
+		}
 		return fail(errNotConnected(t.id, name))
 	}
 	parent := req.Context()
@@ -908,14 +911,19 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if actor != "" {
 		out.Header.Set(ActorHeader, actor)
 	}
+	var body *requestBody
 	if out.Body != nil && out.Body != http.NoBody {
-		out.Body = &onceCloser{ReadCloser: out.Body}
+		body = &requestBody{rc: out.Body}
+		out.Body = body
 	}
 	resp, err := s.cc.RoundTrip(out)
 	if err != nil {
 		cancel()
-		if out.Body != nil {
-			out.Body.Close()
+		if body != nil {
+			body.Close()
+			if rerr := body.readErr(); rerr != nil && errors.Is(err, rerr) {
+				return nil, err
+			}
 		}
 		return nil, t.mapErr(s, name, parent, ctx, err)
 	}
@@ -938,26 +946,52 @@ func (t *machineTransport) mapErr(s *session, name string, parent, ctx context.C
 	switch {
 	case parent.Err() != nil:
 		return parent.Err()
-	case ctx.Err() != nil:
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return errTimeout(name, t.hub.opts.RequestTimeout)
 	case s.isDone() && errors.Is(s.reason, errRevoked):
-		return errRemovedDuringRequest(t.id, name)
+		return errRemoved(t.id, name)
+	case !s.isDone() && s.cc.Err() == nil:
+		// The link is fine, so only this request failed: HTTP/2 marks a
+		// connection closed before it fails the requests on it.
+		return errBadReply(name, err)
 	default:
 		return errDropped(t.id, name, err)
 	}
 }
 
-// onceCloser lets RoundTrip close a request body that HTTP/2 may have
-// closed already: some of its errors leave the body open.
-type onceCloser struct {
-	io.ReadCloser
+// requestBody lets RoundTrip close a request body that HTTP/2 may have
+// closed already (some of its errors leave the body open), and tell the
+// body's own errors from the link's.
+type requestBody struct {
+	rc   io.ReadCloser
 	once sync.Once
-	err  error
+	cerr error
+
+	mu   sync.Mutex
+	rerr error
 }
 
-func (c *onceCloser) Close() error {
-	c.once.Do(func() { c.err = c.ReadCloser.Close() })
-	return c.err
+func (b *requestBody) Read(p []byte) (int, error) {
+	n, err := b.rc.Read(p)
+	if err != nil && err != io.EOF {
+		b.mu.Lock()
+		if b.rerr == nil {
+			b.rerr = err
+		}
+		b.mu.Unlock()
+	}
+	return n, err
+}
+
+func (b *requestBody) Close() error {
+	b.once.Do(func() { b.cerr = b.rc.Close() })
+	return b.cerr
+}
+
+func (b *requestBody) readErr() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.rerr
 }
 
 // limitedBody ends a reply that grows past its limit or outlives its

@@ -199,9 +199,16 @@ func errRedirect(name string) *Error {
 		Hint: "Update Playkeeper on it. If it keeps happening, the machine may be misbehaving."}
 }
 
-func errRemovedDuringRequest(id, name string) *Error {
+func errRemoved(id, name string) *Error {
 	return &Error{Code: CodeMachineRemoved, Params: map[string]string{"machineId": id, "name": name},
 		Msg: name + " was removed from the dashboard."}
+}
+
+func errBadReply(name string, err error) *Error {
+	return &Error{Code: CodeProtocol, Params: map[string]string{"name": name},
+		Msg:  "The reply from " + name + " broke off or was not valid.",
+		Hint: "Try again. If it keeps happening, update Playkeeper on both machines.",
+		Err:  err}
 }
 
 func errTimeout(name string, d time.Duration) *Error {
