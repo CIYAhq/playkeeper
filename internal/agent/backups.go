@@ -63,26 +63,32 @@ func allowlistedSize(dataDir string) int64 {
 }
 
 // createArchive writes a verified archive of the (stopped) server's data.
-func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*api.Backup, error) {
-	now := a.now().UTC()
+func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*api.Backup, error) {
+	now := s.now().UTC()
 	id := now.Format("20060102-150405") + "-" + randomSecret(3)
-	level := backup.LevelName(a.cfg.ServerDataDir())
-	fileName := fmt.Sprintf("playkeeper-%s-%s.tar.gz", sanitizeName(level), id)
-	tmp := a.backupPath("." + fileName + ".partial")
+	label := backup.LevelName(s.dataDir())
+	if s.layout != layoutV1 {
+		if row, err := s.row(); err == nil {
+			label = row.Slug
+		}
+	}
+	fileName := fmt.Sprintf("playkeeper-%s-%s.tar.gz", sanitizeName(label), id)
+	tmp := s.backupPath("." + fileName + ".partial")
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	h := sha256.New()
 	meta := backup.Manifest{
-		CreatedAt: now, PlaykeeperVersion: version.Version, SourceInstall: shortID(a.cfg.InstallID),
-		VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Image: minecraft.Image,
+		CreatedAt: now, PlaykeeperVersion: version.Version, SourceInstall: shortID(s.cfg.InstallID),
+		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Image: minecraft.Image,
 		Settings: map[string]string{
 			"motd": sc.MOTD, "maxPlayers": strconv.Itoa(sc.MaxPlayers), "memoryMB": strconv.Itoa(sc.MemoryMB), "whitelist": "true",
+			"name": s.name(),
 		},
 		Consistency: "server stopped during archive",
 	}
-	m, err := backup.Create(io.MultiWriter(f, h), a.cfg.ServerDataDir(), meta, backup.DefaultLimits())
+	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, backup.DefaultLimits())
 	if err == nil {
 		err = f.Sync()
 	}
@@ -98,7 +104,7 @@ func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*a
 		return nil, fmt.Errorf("writing the archive failed: %w", err)
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
-	final := a.backupPath(fileName)
+	final := s.backupPath(fileName)
 	if err := os.Rename(tmp, final); err != nil {
 		os.Remove(tmp)
 		return nil, err
@@ -106,12 +112,12 @@ func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*a
 	_ = os.WriteFile(final+".sha256", []byte(sum+"  "+fileName+"\n"), 0o600)
 	st, _ := os.Stat(final)
 	mj, _ := json.Marshal(m)
-	b := &api.Backup{ID: id, Kind: kind, CreatedAt: now, FileName: fileName, SizeBytes: st.Size(), SHA256: sum, Location: "on-host",
+	b := &api.Backup{ID: id, ServerID: s.id, Kind: kind, CreatedAt: now, FileName: fileName, SizeBytes: st.Size(), SHA256: sum, Location: "on-host",
 		MinecraftVersion: m.MinecraftVersion, LevelName: m.LevelName, FileCount: len(m.Files), CreatedBy: actor, Note: note}
 	// Downtime belongs to manual backups (set once the server is back); a
 	// rollback archive is part of a restore, which records its own downtime.
-	_, err = a.db.Exec(`INSERT INTO backups(id, kind, created_at, file_name, size_bytes, sha256, manifest, created_by, note, downtime_ms) VALUES(?,?,?,?,?,?,?,?,?,0)`,
-		id, kind, now.UnixMilli(), fileName, st.Size(), sum, string(mj), actor, note)
+	_, err = s.db.Exec(`INSERT INTO backups(id, server_id, kind, created_at, file_name, size_bytes, sha256, manifest, created_by, note, downtime_ms) VALUES(?,?,?,?,?,?,?,?,?,?,0)`,
+		id, s.id, kind, now.UnixMilli(), fileName, st.Size(), sum, string(mj), actor, note)
 	if err != nil {
 		return nil, err
 	}
@@ -120,14 +126,14 @@ func (a *Agent) createArchive(sc api.ServerConfig, kind, actor, note string) (*a
 
 // withRefusalHint adds what to do to an error from a backup the archive rules
 // refused: rename or remove the named file, or trim the world.
-func (a *Agent) withRefusalHint(err error) error {
+func (s *server) withRefusalHint(err error) error {
 	var refused *backup.RefusedError
 	if !errors.As(err, &refused) {
 		return err
 	}
-	hint := fmt.Sprintf("Rename or remove that file in %s, then try again.", a.cfg.ServerDataDir())
+	hint := fmt.Sprintf("Rename or remove that file in %s, then try again.", s.dataDir())
 	if refused.File == "" {
-		hint = fmt.Sprintf("Remove files the world does not need from %s, then try again.", a.cfg.ServerDataDir())
+		hint = fmt.Sprintf("Remove files the world does not need from %s, then try again.", s.dataDir())
 	}
 	msg := err.Error()
 	return &apiError{Msg: strings.ToUpper(msg[:1]) + msg[1:], Hint: hint}
@@ -155,13 +161,13 @@ func shortID(s string) string {
 
 // verifyBackup re-reads an archive: whole-file SHA-256 against the record,
 // then every file against the manifest.
-func (a *Agent) verifyBackup(id string) (*api.Backup, error) {
-	b, err := a.getBackup(id)
+func (s *server) verifyBackup(id string) (*api.Backup, error) {
+	b, err := s.getBackup(id)
 	if err != nil {
 		return nil, err
 	}
 	verr := func() error {
-		f, err := os.Open(a.backupPath(b.FileName))
+		f, err := os.Open(s.backupPath(b.FileName))
 		if err != nil {
 			return err
 		}
@@ -178,20 +184,20 @@ func (a *Agent) verifyBackup(id string) (*api.Backup, error) {
 		}
 		return nil
 	}()
-	now := a.now().UnixMilli()
+	now := s.now().UnixMilli()
 	msg := ""
 	if verr != nil {
 		msg = verr.Error()
 	}
-	_, _ = a.db.Exec(`UPDATE backups SET verified = ?, verified_at = ?, verify_error = ? WHERE id = ?`, boolInt(verr == nil), now, msg, id)
-	return a.getBackup(id)
+	_, _ = s.db.Exec(`UPDATE backups SET verified = ?, verified_at = ?, verify_error = ? WHERE id = ?`, boolInt(verr == nil), now, msg, id)
+	return s.getBackup(id)
 }
 
-func (a *Agent) getBackup(id string) (*api.Backup, error) {
+func (s *server) getBackup(id string) (*api.Backup, error) {
 	if err := validBackupID(id); err != nil {
 		return nil, err
 	}
-	list, err := a.listBackups(`WHERE id = ?`, id)
+	list, err := s.listBackups(`id = ?`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +207,18 @@ func (a *Agent) getBackup(id string) (*api.Backup, error) {
 	return &list[0], nil
 }
 
-func (a *Agent) listBackups(where string, args ...any) ([]api.Backup, error) {
-	rows, err := a.db.Query(`SELECT id, kind, created_at, file_name, size_bytes, sha256, manifest, verified, verified_at, verify_error, downtime_ms, created_by, downloaded_at, note
+// listBackups lists the server's backups, newest first, matching an optional
+// SQL condition.
+func (s *server) listBackups(cond string, args ...any) ([]api.Backup, error) {
+	where := `WHERE server_id = ?`
+	if cond != "" {
+		where += ` AND (` + cond + `)`
+	}
+	return s.queryBackups(where, append([]any{s.id}, args...)...)
+}
+
+func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
+	rows, err := a.db.Query(`SELECT id, server_id, kind, created_at, file_name, size_bytes, sha256, manifest, verified, verified_at, verify_error, downtime_ms, created_by, downloaded_at, note
 		FROM backups `+where+` ORDER BY created_at DESC`, args...)
 	if err != nil {
 		return nil, err
@@ -214,7 +230,7 @@ func (a *Agent) listBackups(where string, args ...any) ([]api.Backup, error) {
 		var created int64
 		var manifest string
 		var verified, verifiedAt, downloaded sql.NullInt64
-		if err := rows.Scan(&b.ID, &b.Kind, &created, &b.FileName, &b.SizeBytes, &b.SHA256, &manifest, &verified, &verifiedAt, &b.VerifyError, &b.DowntimeMs, &b.CreatedBy, &downloaded, &b.Note); err != nil {
+		if err := rows.Scan(&b.ID, &b.ServerID, &b.Kind, &created, &b.FileName, &b.SizeBytes, &b.SHA256, &manifest, &verified, &verifiedAt, &b.VerifyError, &b.DowntimeMs, &b.CreatedBy, &downloaded, &b.Note); err != nil {
 			return nil, err
 		}
 		b.CreatedAt = time.UnixMilli(created).UTC()
@@ -243,61 +259,62 @@ func (a *Agent) listBackups(where string, args ...any) ([]api.Backup, error) {
 // backupOp stops the server (saving first), archives, restarts it if it was
 // running, then verifies the archive. Downtime is measured from the stop
 // request until the server is online again.
-func (a *Agent) backupOp(ctx context.Context, h *opHandle, actor, note string) error {
-	sc, err := a.serverConfig()
+func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) error {
+	sc, err := s.serverConfig()
 	if err != nil {
 		return err
 	}
 	if sc == nil {
 		return errNotCreated()
 	}
-	need := allowlistedSize(a.cfg.ServerDataDir())
-	if free, _, err := a.opts.DiskUsage(a.cfg.BackupsDir()); err == nil && free < need+minFreeAfterBackup {
+	need := allowlistedSize(s.dataDir())
+	if free, _, err := s.opts.DiskUsage(s.cfg.BackupsDir()); err == nil && free < need+minFreeAfterBackup {
 		// Lets the UI drop this failure once enough space is free again.
 		h.set("neededBytes", need+minFreeAfterBackup)
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space for a backup: %s free, about %s needed.", humanBytes(free), humanBytes(need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
 	}
-	_, running, err := a.containerRunning(ctx)
+	_, running, err := s.containerRunning(ctx)
 	if err != nil {
 		return err
 	}
-	start := a.now()
+	start := s.now()
 	if running {
-		if err := a.stopServer(ctx, h); err != nil {
+		s.warnBeforeBackup(ctx)
+		if err := s.stopServer(ctx, h); err != nil {
 			return err
 		}
 	}
 	h.phase("archiving")
-	b, archiveErr := a.createArchive(*sc, "manual", actor, note)
+	b, archiveErr := s.createArchive(*sc, "manual", actor, note)
 	if running {
 		h.phase("restarting")
-		if err := a.startServer(ctx, h, *sc); err != nil {
+		if err := s.startServer(ctx, h, *sc); err != nil {
 			if archiveErr != nil {
-				return a.withRefusalHint(archiveErr)
+				return s.withRefusalHint(archiveErr)
 			}
 			return &apiError{Msg: "The backup was saved, but the server did not start again: " + err.Error(), Hint: "Press Start on the Overview."}
 		}
 	}
 	if archiveErr != nil {
-		return a.withRefusalHint(archiveErr)
+		return s.withRefusalHint(archiveErr)
 	}
 	downtime := int64(0)
 	if running {
-		downtime = a.now().Sub(start).Milliseconds()
-		_, _ = a.db.Exec(`UPDATE backups SET downtime_ms = ? WHERE id = ?`, downtime, b.ID)
+		downtime = s.now().Sub(start).Milliseconds()
+		_, _ = s.db.Exec(`UPDATE backups SET downtime_ms = ? WHERE id = ?`, downtime, b.ID)
 	}
 	h.set("backupId", b.ID)
 	h.set("downtimeMs", downtime)
 	h.phase("verifying")
-	vb, err := a.verifyBackup(b.ID)
+	vb, err := s.verifyBackup(b.ID)
 	if err != nil {
 		return err
 	}
 	if vb.Verified == nil || !*vb.Verified {
 		return &apiError{Msg: "The backup was written but failed verification: " + vb.VerifyError, Hint: "Try again; if it keeps failing, check the disk for errors."}
 	}
-	a.audit(actor, "backup.created", b.ID, "succeeded", fmt.Sprintf("%s sha256 %s downtime %dms", b.FileName, b.SHA256, downtime))
+	s.audit(actor, "backup.created", b.ID, "succeeded", fmt.Sprintf("%s sha256 %s downtime %dms", b.FileName, b.SHA256, downtime))
 	return nil
 }
 
@@ -312,6 +329,22 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// inWords says a wait the way a chat line does, rounded up to whole seconds:
+// "3 seconds", "1 minute".
+func inWords(d time.Duration) string {
+	n, unit := int((d+time.Second-1)/time.Second), "second"
+	if n < 1 {
+		n = 1
+	}
+	if n%60 == 0 {
+		n, unit = n/60, "minute"
+	}
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
 }
 
 // --- restore ---
@@ -342,8 +375,9 @@ func (a *Agent) pruneStages() {
 }
 
 // stageArchive copies an archive into staging, then verifies and extracts it
-// there. The live world is not touched; failures delete the staging dir.
-func (a *Agent) stageArchive(src io.Reader, source string, limit int64) (*api.RestorePreview, error) {
+// there, to replace target's world or, with no target, to make a new server.
+// No world is touched; failures delete the staging dir.
+func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *server) (*api.RestorePreview, error) {
 	id := randomSecret(8)
 	dir := a.stageDir(id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -382,7 +416,7 @@ func (a *Agent) stageArchive(src io.Reader, source string, limit int64) (*api.Re
 	if err != nil {
 		return fail(&apiError{Status: http.StatusUnprocessableEntity, Code: api.CodeInvalid, Msg: "This file cannot be restored: " + err.Error(), Hint: "Nothing was changed. Use an archive downloaded from Playkeeper's World page."})
 	}
-	p := a.buildPreview(id, source, n, hex.EncodeToString(h.Sum(nil)), m)
+	p := a.buildPreview(id, source, n, hex.EncodeToString(h.Sum(nil)), m, target)
 	pj, _ := json.Marshal(struct {
 		Preview  api.RestorePreview `json:"preview"`
 		Manifest backup.Manifest    `json:"manifest"`
@@ -393,9 +427,9 @@ func (a *Agent) stageArchive(src io.Reader, source string, limit int64) (*api.Re
 	return &p, nil
 }
 
-func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup.Manifest) api.RestorePreview {
+func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup.Manifest, target *server) api.RestorePreview {
 	p := api.RestorePreview{
-		ID: id, Source: source, ReceivedAt: a.now().UTC(), SizeBytes: size, SHA256: sum, Compatible: true,
+		ID: id, ServerID: serverIDOf(target), Source: source, ReceivedAt: a.now().UTC(), SizeBytes: size, SHA256: sum, Compatible: true,
 		Problems: []string{}, Warnings: []string{},
 		Manifest: &api.ManifestSummary{
 			CreatedAt: m.CreatedAt, PlaykeeperVersion: m.PlaykeeperVersion, MinecraftVersion: m.MinecraftVersion, PaperBuild: m.PaperBuild,
@@ -424,26 +458,27 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 	} else {
 		p.Warnings = append(p.Warnings, "This backup was made on a different Playkeeper host.")
 	}
-	host := a.opts.HostMemoryMB()
 	mem, _ := strconv.Atoi(m.Settings["memoryMB"])
-	if !minecraft.ValidBudget(mem, host) {
-		_, rec, _ := minecraft.MemoryOptions(host)
+	if err := a.validMemory(mem, serverIDOf(target)); err != nil {
+		_, rec, _ := a.memoryFor(serverIDOf(target))
 		if rec == 0 {
 			p.Compatible = false
-			p.Problems = append(p.Problems, "This host does not have enough memory to run a Minecraft server.")
+			p.Problems = append(p.Problems, "There is not enough memory left on this machine for another Minecraft server.")
 		} else {
-			p.Warnings = append(p.Warnings, fmt.Sprintf("The backup's memory budget (%d MB) does not fit this host; %d MB will be used.", mem, rec))
+			p.Warnings = append(p.Warnings, fmt.Sprintf("The backup's memory budget (%d MB) does not fit here next to the other servers; %d MB will be used.", mem, rec))
 		}
 		mem = rec
 	}
 	p.MemoryMB = mem
-	sc, _ := a.serverConfig()
-	p.NeedsEULA = sc == nil
+	p.NeedsEULA = target == nil
 	cw := api.CurrentWorld{}
-	if st, err := os.Stat(filepath.Join(a.cfg.ServerDataDir(), backup.LevelName(a.cfg.ServerDataDir()))); err == nil && st.IsDir() {
-		cw.Exists = true
-		cw.LevelName = backup.LevelName(a.cfg.ServerDataDir())
-		cw.SizeBytes = allowlistedSize(a.cfg.ServerDataDir())
+	if target != nil {
+		live := target.dataDir()
+		if st, err := os.Stat(filepath.Join(live, backup.LevelName(live))); err == nil && st.IsDir() {
+			cw.Exists = true
+			cw.LevelName = backup.LevelName(live)
+			cw.SizeBytes = allowlistedSize(live)
+		}
 	}
 	p.CurrentWorld = cw
 	p.WillCreateRollback = cw.Exists
@@ -465,7 +500,7 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 		}
 	}
 	if p.NeedsEULA {
-		p.Warnings = append(p.Warnings, "You must accept the Minecraft EULA on this host before restoring.")
+		p.Warnings = append(p.Warnings, "The restore creates a new server, so you must accept the Minecraft EULA first.")
 	}
 	return p
 }
@@ -492,9 +527,58 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 		return nil, err
 	}
 	st := &stage{dir: dir, archive: filepath.Join(dir, "archive.tar.gz"), data: filepath.Join(dir, "data"), manifest: s.Manifest}
-	st.preview = a.buildPreview(id, s.Preview.Source, s.Preview.SizeBytes, s.Preview.SHA256, s.Manifest)
+	var target *server
+	if s.Preview.ServerID != "" {
+		if target = a.serverByID(s.Preview.ServerID); target == nil {
+			return nil, errNotFound("The server this restore was for")
+		}
+	}
+	st.preview = a.buildPreview(id, s.Preview.Source, s.Preview.SizeBytes, s.Preview.SHA256, s.Manifest, target)
 	st.preview.ReceivedAt = s.Preview.ReceivedAt
 	return st, nil
+}
+
+// restoreAsNewServer records the server a restore creates, stopped and with
+// the backup's settings, and starts the restore that puts its world in place.
+func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name, actor string, restore func(s *server) func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+	m := st.manifest
+	entry, err := a.restoreBuild(a.ctx, m.MinecraftVersion, m.PaperBuild)
+	if err != nil {
+		return nil, errInvalid("This backup cannot be restored: %v.", err)
+	}
+	mem := st.preview.MemoryMB
+	if req.MemoryMB != 0 {
+		mem = req.MemoryMB
+	}
+	if name == "" {
+		if n, err := validName(m.Settings["name"]); err == nil {
+			name = a.uniqueName(n)
+		}
+	}
+	maxPlayers, _ := strconv.Atoi(m.Settings["maxPlayers"])
+	if maxPlayers < 1 || maxPlayers > 100 {
+		maxPlayers = 10
+	}
+	now := a.now().UTC()
+	sc := withBuild(api.ServerConfig{
+		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
+		MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
+	}, entry)
+	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
+	return op, err
+}
+
+// uniqueName is name, or name with a number after it if another server has it.
+func (a *Agent) uniqueName(name string) string {
+	for i := 1; ; i++ {
+		n := name
+		if i > 1 {
+			n = fmt.Sprintf("%s %d", name, i)
+		}
+		if !a.nameTaken(n, "") {
+			return n
+		}
+	}
 }
 
 // renameDir moves directories during a restore; tests replace it to make one
@@ -507,7 +591,7 @@ var renameDir = os.Rename
 // the live world is known to be good: the restore finished, nothing was
 // replaced, or the previous world is back. If putting it back fails, the
 // stage and the aside copy both stay and the error names them.
-func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.RestoreApplyRequest, actor string) error {
+func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.RestoreApplyRequest, actor string) error {
 	worldSafe := true
 	defer func() {
 		if worldSafe {
@@ -515,36 +599,40 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 		}
 	}()
 	m := st.manifest
-	entry, err := a.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+	h.set("stage", st.preview.ID)
+	entry, err := s.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
 	if err != nil {
 		return errInvalid("This backup cannot be restored: %v.", err)
 	}
-	prev, err := a.serverConfig()
+	prev, err := s.serverConfig()
 	if err != nil {
 		return err
 	}
-	start := a.now()
+	start := s.now()
 	var rollback *api.Backup
 	wasRunning := false
 	if prev != nil {
-		_, wasRunning, _ = a.containerRunning(ctx)
-		if err := a.stopServer(ctx, h); err != nil {
+		_, wasRunning, _ = s.containerRunning(ctx)
+		if err := s.stopServer(ctx, h); err != nil {
 			return err
 		}
 		if st.preview.CurrentWorld.Exists {
 			h.phase("saving_rollback")
-			rb, err := a.saveVerifiedRollback(*prev, actor, "Automatic rollback archive before restoring backup "+st.preview.SHA256[:12])
+			rb, err := s.saveVerifiedRollback(*prev, actor, "Automatic rollback archive before restoring backup "+st.preview.SHA256[:12])
 			if err != nil {
-				a.startPrevious(ctx, h, prev, wasRunning)
-				return a.withRefusalHint(fmt.Errorf("could not save a verified rollback archive of the current world, so nothing was replaced: %w", err))
+				s.startPrevious(ctx, h, prev, wasRunning)
+				return s.withRefusalHint(fmt.Errorf("could not save a verified rollback archive of the current world, so nothing was replaced: %w", err))
 			}
 			rollback = rb
 			h.set("rollbackBackupId", rb.ID)
 		}
 	}
 	h.phase("replacing_world")
-	live := a.cfg.ServerDataDir()
-	aside := live + ".replaced-" + a.now().UTC().Format("20060102-150405")
+	live := s.dataDir()
+	if err := os.MkdirAll(filepath.Dir(live), 0o755); err != nil {
+		return err
+	}
+	aside := live + ".replaced-" + s.now().UTC().Format("20060102-150405")
 	hadLive := false
 	if _, err := os.Stat(live); err == nil {
 		if err := renameDir(live, aside); err != nil {
@@ -555,7 +643,7 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	worldSafe = false
 	// A restored world that has to make way goes to failedAt, next to the live
 	// directory and outside the staging folder the agent clears at start.
-	failedAt := live + ".failed-restore-" + a.now().UTC().Format("20060102-150405")
+	failedAt := live + ".failed-restore-" + s.now().UTC().Format("20060102-150405")
 	// putBack moves the previous world back into place once the restored one
 	// is out of the way, at restoredAt. If that fails the live directory is
 	// missing: nothing is deleted, the restored copy leaves the stage, and the
@@ -581,8 +669,8 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 		}
 		return err
 	}
-	if err := chownTree(live, a.cfg.GameUID, a.cfg.GameGID); err != nil {
-		a.log.Warn("chown restored world", "err", err)
+	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+		s.log.Warn("chown restored world", "err", err)
 	}
 	mem := st.preview.MemoryMB
 	if req.MemoryMB != 0 {
@@ -592,16 +680,18 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	if maxPlayers < 1 || maxPlayers > 100 {
 		maxPlayers = 10
 	}
+	// The restored server.properties carries the backup's game settings, so
+	// none chosen since override them.
 	sc := withBuild(api.ServerConfig{
-		MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
-		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: a.now().UTC(),
+		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
+		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: s.now().UTC(),
 	}, entry)
 	if prev != nil {
-		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt
+		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
 	} else {
-		sc.EULAAcceptedAt, sc.EULAAcceptedBy = a.now().UTC(), actor
+		sc.EULAAcceptedAt, sc.EULAAcceptedBy = s.now().UTC(), actor
 	}
-	if err := a.saveServerConfig(sc); err != nil {
+	if err := s.saveServerConfig(sc); err != nil {
 		cause := fmt.Errorf("could not record the restored server's settings: %w", err)
 		if rerr := renameDir(live, failedAt); rerr != nil {
 			where := "there was no previous world"
@@ -614,25 +704,25 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 			return perr
 		}
 		os.RemoveAll(failedAt)
-		a.startPrevious(ctx, h, prev, wasRunning)
+		s.startPrevious(ctx, h, prev, wasRunning)
 		if !hadLive {
 			return fmt.Errorf("%v, so the restore was undone", cause)
 		}
 		return fmt.Errorf("could not record the restored server's settings, so the previous world was put back: %w", err)
 	}
-	_ = a.setDesired(api.DesiredRunning)
-	startErr := a.startServer(ctx, h, sc)
+	_ = s.setDesired(api.DesiredRunning)
+	startErr := s.startServer(ctx, h, sc)
 	if startErr != nil && hadLive && prev != nil {
 		h.phase("reverting")
-		_ = a.stopServer(ctx, h)
+		_ = s.stopServer(ctx, h)
 		if err := renameDir(live, failedAt); err != nil {
 			return fmt.Errorf("the restored world did not start (%v), and moving it aside failed (%v), so nothing was deleted: the restored world is at %s and the previous world at %s", startErr, err, live, aside)
 		}
 		if err := putBack(failedAt, fmt.Errorf("the restored world did not start: %w", startErr)); err != nil {
 			return err
 		}
-		_ = a.saveServerConfig(*prev)
-		if err := a.startServer(ctx, h, *prev); err != nil {
+		_ = s.saveServerConfig(*prev)
+		if err := s.startServer(ctx, h, *prev); err != nil {
 			return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. The failed restore was kept at " + failedAt + " for inspection."}
 		}
 		return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed restore was kept at " + failedAt + " for inspection."}
@@ -648,20 +738,20 @@ func (a *Agent) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.R
 	if rollback != nil {
 		detail += "; rollback archive " + rollback.ID
 	}
-	h.set("downtimeMs", a.now().Sub(start).Milliseconds())
-	a.recordEvent(a.now(), "world_restored", "", "playkeeper", detail)
-	a.audit(actor, "restore.applied", st.preview.SHA256[:12], "succeeded", detail)
+	h.set("downtimeMs", s.now().Sub(start).Milliseconds())
+	s.recordEvent(s.now(), "world_restored", "", "playkeeper", detail)
+	s.audit(actor, "restore.applied", st.preview.SHA256[:12], "succeeded", detail)
 	return nil
 }
 
 // saveVerifiedRollback archives the current world and reads the archive back.
 // A restore replaces the world only once this copy is known to be good.
-func (a *Agent) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (*api.Backup, error) {
-	rb, err := a.createArchive(sc, "rollback", actor, note)
+func (s *server) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (*api.Backup, error) {
+	rb, err := s.createArchive(sc, "rollback", actor, note)
 	if err != nil {
 		return nil, err
 	}
-	vb, err := a.verifyBackup(rb.ID)
+	vb, err := s.verifyBackup(rb.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -673,12 +763,12 @@ func (a *Agent) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (*
 
 // startPrevious brings the previous world back up after a restore gave up
 // before replacing it, if it was running when the restore began.
-func (a *Agent) startPrevious(ctx context.Context, h *opHandle, prev *api.ServerConfig, wasRunning bool) {
+func (s *server) startPrevious(ctx context.Context, h *opHandle, prev *api.ServerConfig, wasRunning bool) {
 	if prev == nil || !wasRunning {
 		return
 	}
-	if err := a.startServer(ctx, h, *prev); err != nil {
-		a.log.Warn("could not start the previous world again", "err", err)
+	if err := s.startServer(ctx, h, *prev); err != nil {
+		s.log.Warn("could not start the previous world again", "err", err)
 	}
 }
 
@@ -706,4 +796,28 @@ func validMOTDOr(s string) string {
 		return v
 	}
 	return defaultMOTD
+}
+
+// warnBeforeBackup tells players online that the server stops for a backup
+// and gives them a moment to read it.
+func (s *server) warnBeforeBackup(ctx context.Context) {
+	s.mu.Lock()
+	players := s.players
+	s.mu.Unlock()
+	if players == nil || players.Online == 0 {
+		return
+	}
+	if _, err := s.rconCommand("say " + backupWarning(s.opts.BackupWarnDelay)); err != nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(s.opts.BackupWarnDelay):
+	}
+}
+
+// backupWarning is the chat line before a backup: it names the wait before
+// the server stops, not a guess at how long the backup takes.
+func backupWarning(wait time.Duration) string {
+	return "Saving a backup: the server stops in " + inWords(wait) + " and is back soon."
 }

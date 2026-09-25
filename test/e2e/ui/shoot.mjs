@@ -17,12 +17,13 @@ for (const [vp, size] of [['desktop', { width: 1440, height: 900 }], ['narrow', 
   const page = await ctx.newPage()
   await page.goto(`${process.env.PK_URL}/login`)
   const form = page.getByRole('heading', { name: 'Sign in' })
-  await Promise.race([form.waitFor({ timeout: 20_000 }), page.locator('.sidebar, .wizard').first().waitFor({ timeout: 20_000 })]).catch(() => {})
+  const dashboard = page.getByRole('navigation', { name: 'Main' }).or(page.getByRole('navigation', { name: 'Server pages' })).or(page.getByRole('heading', { name: 'Home', level: 1 })).first()
+  await Promise.race([form.waitFor({ timeout: 20_000 }), dashboard.waitFor({ timeout: 20_000 })]).catch(() => {})
   if (process.env.PK_PASSWORD && (await form.isVisible())) {
     await page.getByLabel('Username').fill('admin')
-    await page.getByLabel('Password').fill(process.env.PK_PASSWORD)
+    await page.getByLabel('Password', { exact: true }).fill(process.env.PK_PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
-    await page.locator('.sidebar, .wizard').first().waitFor({ timeout: 20_000 })
+    await dashboard.waitFor({ timeout: 20_000 })
     fs.mkdirSync(path.dirname(sessionFile), { recursive: true })
     fs.writeFileSync(sessionFile, JSON.stringify(await ctx.cookies()))
   }
