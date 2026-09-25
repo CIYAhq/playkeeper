@@ -111,6 +111,7 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		if after := tree(t, host); !maps.Equal(after, before) {
 			t.Fatalf("the link at %s changed what it leads to:\n%v\nwas\n%v", c.at, after, before)
 		}
+		wantRefusal(t, e.status().Crash, c.at, "link")
 		if err := os.Remove(at); err != nil {
 			t.Fatal(err)
 		}
@@ -120,6 +121,40 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		if b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")); err != nil || !bStatsOff(b) {
 			t.Fatalf("bStats after the start: %q %v", b, err)
 		}
+		if st := e.status(); st.Crash != nil {
+			t.Fatalf("the refusal is still shown once %s is online: %+v", c.at, st.Crash)
+		}
+	}
+
+	if op := e.act("stop"); op.Status != api.OpSucceeded {
+		t.Fatalf("stop: %+v", op)
+	}
+	config := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
+	if err := os.Remove(config); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(config, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if f, err := os.OpenFile(config, os.O_RDWR|syscall.O_NONBLOCK, 0); err == nil {
+			os.Remove(config)
+			f.Close()
+		}
+	})
+	if op := e.act("start"); op.Status != api.OpFailed || !strings.Contains(op.Error, "is not a normal file (it is a named pipe)") {
+		t.Fatalf("start with a named pipe at the bStats settings: %+v", op)
+	}
+	wantRefusal(t, e.status().Crash, "plugins/bStats/config.yml", "special_file")
+}
+
+// wantRefusal checks that a start Playkeeper refused is shown as the crash
+// helper's refused_file kind, naming the file, with starting again as the fix.
+func wantRefusal(t *testing.T, c *api.Crash, path, reason string) {
+	t.Helper()
+	if c == nil || c.Kind != "refused_file" || !c.Start || !c.Certain || c.Params["path"] != path || c.Params["reason"] != reason ||
+		len(c.Fixes) != 1 || c.Fixes[0].Kind != "restart" || len(c.Lines) != 0 || !strings.Contains(c.Explanation, path+" in the server's files") {
+		t.Fatalf("the refusal of %s as the crash helper shows it: %+v", path, c)
 	}
 }
 

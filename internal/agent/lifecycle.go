@@ -540,9 +540,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		return err
 	}
 	if err := s.ensureServerSoftware(ctx, h, &sc); err != nil {
+		s.explainRefusal(err)
 		return err
 	}
 	if err := s.ensureTelemetryOff(); err != nil {
+		s.explainRefusal(err)
 		return err
 	}
 	name := s.containerName()
@@ -580,11 +582,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		// A container whose start failed (for example on a busy port) can keep
 		// broken network state; discard it so the next start creates it fresh.
 		_ = s.docker.ContainerRemove(context.Background(), id, true)
-		msg := err.Error()
-		if ae := (*docker.APIError)(nil); errors.As(err, &ae) {
-			msg = ae.Message
-		}
-		s.explainCrash("", docker.ContainerState{}, true, msg)
+		s.explainCrash("", docker.ContainerState{}, true, err)
 		return classifyStartError(err, s.gamePort)
 	}
 	s.mu.Lock()
@@ -626,7 +624,7 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 			if fin, ok := c.State.Finished(); ok {
 				s.markExitHandled(id, fin)
 			}
-			s.explainCrash(id, c.State, true, "")
+			s.explainCrash(id, c.State, true, nil)
 			msg := fmt.Sprintf("The server stopped while starting (exit code %d).", c.State.ExitCode)
 			if lastErr != "" {
 				msg += " " + lastErr
@@ -827,7 +825,7 @@ func (s *server) reconcile(ctx context.Context) {
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
 		s.recordCrash(fin, c.State)
-		s.explainCrash(c.ID, c.State, false, "")
+		s.explainCrash(c.ID, c.State, false, nil)
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
 			due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)

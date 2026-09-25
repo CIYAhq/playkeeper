@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path"
@@ -44,10 +45,11 @@ var (
 // explainCrash works out why the server's run ended unexpectedly, or why it
 // did not start, and keeps the answer until the server is online again or
 // someone stops or starts it. id is the container that ran, when it still
-// exists; dockerErr is Docker's error starting it. The log is read from
-// Docker, not the console buffer: diagnose needs the lines as the server
-// printed them, and redacts what it shows.
-func (s *server) explainCrash(id string, st docker.ContainerState, start bool, dockerErr string) {
+// exists; startErr is what stopped the start before the server ran: Docker's
+// error starting it, or a file internal/gamefiles refused. The log is read
+// from Docker, not the console buffer: diagnose needs the lines as the
+// server printed them, and redacts what it shows.
+func (s *server) explainCrash(id string, st docker.ContainerState, start bool, startErr error) {
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil {
 		return
@@ -58,12 +60,19 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, d
 	_, _, maxMB := s.memoryFor(s.id)
 	in := diagnose.CrashInput{
 		ServerType: serverTypeOf(*sc), MCVersion: sc.MinecraftVersion, JavaVersion: minecraft.ImageJava,
-		ExitCode: st.ExitCode, OOMKilled: st.OOMKilled, DockerError: dockerErr,
+		ExitCode: st.ExitCode, OOMKilled: st.OOMKilled, DockerError: st.Error,
 		BudgetMB: sc.MemoryMB, HeapMB: minecraft.HeapMB(sc.MemoryMB), HostMB: s.opts.HostMemoryMB(),
 		RoomMB: max(maxMB-sc.MemoryMB, 0), Port: s.gamePort,
 	}
-	if in.DockerError == "" {
-		in.DockerError = st.Error
+	var refused *gamefiles.Error
+	var dockerErr *docker.APIError
+	switch {
+	case errors.As(startErr, &refused):
+		in.Refused = &diagnose.RefusedFile{Path: refused.Params["path"], Reason: string(refused.Kind), Text: refused.Msg + " " + refused.Hint}
+	case errors.As(startErr, &dockerErr):
+		in.DockerError = dockerErr.Message
+	case startErr != nil:
+		in.DockerError = startErr.Error()
 	}
 	in.ViewDistance, _ = s.distances()
 	if id != "" {
@@ -122,6 +131,15 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, d
 	s.crash = c
 	s.mu.Unlock()
 	s.log.Info("crash explained", "server", s.id, "kind", d.Kind, "certain", d.Certain, "start", start)
+}
+
+// explainRefusal explains a start that stopped before the server ran
+// because internal/gamefiles refused a file the start had to check or
+// write. Other errors say enough on their own.
+func (s *server) explainRefusal(err error) {
+	if gamefiles.KindOf(err) != "" {
+		s.explainCrash("", docker.ContainerState{}, true, err)
+	}
 }
 
 // planFreeDisk names the oldest backups whose deletion frees enough space,

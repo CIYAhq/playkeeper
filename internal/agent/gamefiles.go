@@ -27,14 +27,15 @@ func (s *server) gameFiles() (*gamefiles.Dir, error) {
 }
 
 // gameFileError explains a file in the server's data directory that
-// Playkeeper refused, after the sentence saying what it could not do. Other
-// errors are returned as they are.
+// Playkeeper refused, after the sentence saying what it could not do, and
+// keeps the refusal for the crash helper. Other errors are returned as they
+// are.
 func gameFileError(err error, couldNot string) error {
 	var ge *gamefiles.Error
 	if !errors.As(err, &ge) {
 		return err
 	}
-	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: couldNot + " " + ge.Msg, Hint: ge.Hint}
+	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: couldNot + " " + ge.Msg, Hint: ge.Hint, cause: ge}
 }
 
 // readPlayerList reads whitelist.json or ops.json into v. A missing file
