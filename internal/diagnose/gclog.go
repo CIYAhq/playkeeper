@@ -14,6 +14,10 @@ import (
 // yet. That is the honest measure of how much memory the server needs; the
 // container's memory use is not, because Aikar's flags make the JVM touch
 // its whole heap at start.
+//
+// EvacuationFailure means G1 ran out of free heap while copying objects.
+// Since Java 22 it also fails evacuating regions that native code has pinned,
+// which says nothing about the heap's size; those alone don't set it.
 type GCEvent struct {
 	At                time.Time     `json:"at"` // zero when neither the log nor the caller gave a time
 	Uptime            time.Duration `json:"uptime,omitempty"`
@@ -43,6 +47,7 @@ var (
 	reGCDecoration  = regexp.MustCompile(`\[([^\[\]]*)\]`)
 	reGCPause       = regexp.MustCompile(`^GC\((\d{1,9})\) Pause (Young|Full|Remark|Cleanup)(.*) (\d{1,7})M->(\d{1,7})M\((\d{1,7})M\) (\d{1,7}(?:\.\d{1,6})?)ms$`)
 	reGCUptime      = regexp.MustCompile(`^(\d{1,9}(?:\.\d{1,9})?)(s|ms)$`)
+	reGCEvacFailure = regexp.MustCompile(` \(Evacuation Failure(?:: ([A-Za-z /]{1,40}))?\)`)
 )
 
 // g1YoungTypes are the first parenthesised word of a G1 young pause; other
@@ -81,9 +86,9 @@ func ParseGCLine(line string, jvmStart time.Time) (GCEvent, bool) {
 	ms, _ := strconv.ParseFloat(m[7], 64)
 	e.Pause = time.Duration(ms * float64(time.Millisecond))
 	rest := m[3]
-	if i := strings.Index(rest, " (Evacuation Failure"); i >= 0 {
-		e.EvacuationFailure = true
-		rest = rest[:i]
+	if f := reGCEvacFailure.FindStringSubmatchIndex(rest); f != nil {
+		e.EvacuationFailure = f[2] < 0 || rest[f[2]:f[3]] != "Pinned"
+		rest = rest[:f[0]]
 	}
 	switch m[2] {
 	case "Young":
@@ -107,6 +112,21 @@ func ParseGCLine(line string, jvmStart time.Time) (GCEvent, bool) {
 		e.At = jvmStart.Add(e.Uptime)
 	}
 	return e, true
+}
+
+// unforcedFull are causes of full collections that something asked for
+// (System.gc(), a heap dump or histogram, jcmd) or that free memory outside
+// the heap. They stop the game, but don't mean the heap was short.
+var unforcedFull = map[string]bool{
+	"System.gc()": true, "Diagnostic Command": true, "Heap Dump Initiated GC": true, "Heap Inspection Initiated GC": true,
+	"JvmtiEnv ForceGarbageCollection": true, "WhiteBox Initiated Full GC": true,
+	"Metadata GC Threshold": true, "Metadata GC Clear Soft References": true, "CodeCache GC Threshold": true, "CodeCache GC Aggressive": true,
+}
+
+// forcedFull reports whether the pause is a full collection the JVM had to
+// make because the heap ran out.
+func (e GCEvent) forcedFull() bool {
+	return e.Kind == GCFull && !unforcedFull[e.Cause]
 }
 
 // decoration reads the time and uptime decorations and ignores the rest
@@ -139,8 +159,8 @@ type GCWindow struct {
 	Collections        int       `json:"collections"`
 	MinAfterMB         int       `json:"min_after_mb"` // lowest heap in use after a pause
 	MaxAfterMB         int       `json:"max_after_mb"`
-	HeapMB             int       `json:"heap_mb"` // largest heap capacity seen
-	FullGCs            int       `json:"full_gcs"`
+	HeapMB             int       `json:"heap_mb"`  // largest heap capacity seen
+	FullGCs            int       `json:"full_gcs"` // only those a full heap forced, not System.gc() or heap dumps
 	EvacuationFailures int       `json:"evacuation_failures"`
 	PauseMS            float64   `json:"pause_ms"` // total
 	MaxPauseMS         float64   `json:"max_pause_ms"`
@@ -154,7 +174,7 @@ func (w *GCWindow) Add(e GCEvent) {
 	w.MaxAfterMB = max(w.MaxAfterMB, e.AfterMB)
 	w.HeapMB = max(w.HeapMB, e.HeapMB)
 	w.Collections++
-	if e.Kind == GCFull {
+	if e.forcedFull() {
 		w.FullGCs++
 	}
 	if e.EvacuationFailure {

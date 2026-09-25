@@ -1,6 +1,8 @@
 package diagnose
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -95,8 +97,31 @@ func TestSummarizeGCKeepsTheLowestHeapAfterEachWindow(t *testing.T) {
 		t.Errorf("first window: %+v", first)
 	}
 	if !second.Start.Equal(time.Date(2026, 9, 25, 14, 30, 0, 0, time.UTC)) || second.Collections != 4 || second.MinAfterMB != 2980 ||
-		second.MaxAfterMB != 4460 || second.FullGCs != 2 || second.EvacuationFailures != 1 || !near(second.MaxPauseMS, 2641.557) ||
+		second.MaxAfterMB != 4460 || second.FullGCs != 1 || second.EvacuationFailures != 1 || !near(second.MaxPauseMS, 2641.557) ||
 		!near(second.PauseMS, 118.402+2641.557+1904.22+30.112) {
 		t.Errorf("second window: %+v", second)
+	}
+}
+
+func TestOnlyPausesAShortHeapForcedCountAsPressure(t *testing.T) {
+	events := parseGCFixture(t, "gc/g1_pinned_and_requested.txt", time.Time{})
+	var got []string
+	for _, e := range events {
+		got = append(got, fmt.Sprintf("%s (%s) evacuation_failure=%v forced_full=%v", e.Kind, e.Cause, e.EvacuationFailure, e.forcedFull()))
+	}
+	want := []string{
+		"young (G1 Evacuation Pause) evacuation_failure=false forced_full=false",
+		"young (G1 Evacuation Pause) evacuation_failure=true forced_full=false",
+		"full (G1 Compaction Pause) evacuation_failure=false forced_full=true",
+		"full (Heap Inspection Initiated GC) evacuation_failure=false forced_full=false",
+		"full (Diagnostic Command) evacuation_failure=false forced_full=false",
+		"young (G1 Evacuation Pause) evacuation_failure=true forced_full=false",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	w := SummarizeGC(events, 15*time.Minute)
+	if len(w) != 1 || w[0].Collections != 6 || w[0].FullGCs != 1 || w[0].EvacuationFailures != 2 || w[0].MinAfterMB != 1104 {
+		t.Errorf("window: %+v", w)
 	}
 }

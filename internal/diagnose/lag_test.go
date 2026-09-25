@@ -181,6 +181,24 @@ func TestMemoryFixIsOnlyOfferedWhenTheMachineHasRoom(t *testing.T) {
 	}
 }
 
+func TestMemoryPressureIgnoresPausesAFullHeapDidNotForce(t *testing.T) {
+	pinned, ok1 := ParseGCLine("[2026-09-25T19:58:00.000+0000][info][gc] GC(212) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure: Pinned) 2710M->1104M(4608M) 21.337ms", time.Time{})
+	dump, ok2 := ParseGCLine("[2026-09-25T19:56:00.000+0000][info][gc] GC(215) Pause Full (Heap Inspection Initiated GC) 3120M->1480M(4608M) 1203.551ms", time.Time{})
+	if !ok1 || !ok2 {
+		t.Fatal("fixture lines did not parse")
+	}
+	in := LagInput{Now: lagNow, Ticks: paperTicks(14, 71), BudgetMB: 6144, HostMB: 16384, RoomMB: 4096, GC: []GCEvent{dump, pinned}}
+	for _, c := range ExplainLag(in).Causes {
+		if c.Kind == CauseMemoryPressure {
+			t.Errorf("a heap inspection and a pinned region are not a short heap: %+v", c)
+		}
+	}
+	in.GC[0].Cause = "G1 Compaction Pause"
+	if c := findCause(t, ExplainLag(in), CauseMemoryPressure); !strings.Contains(c.Explanation, "full clean-up 1 time") {
+		t.Errorf("a forced full collection counts: %s", c.Explanation)
+	}
+}
+
 func TestHostCPUCauseTellsOtherProgramsFromTheServerItself(t *testing.T) {
 	in := LagInput{Now: lagNow, Ticks: paperTicks(15, 66), HostCores: 4, HostCPU: &CPUUsage{BusyPercent: 96}}
 	in.ServerCPU = ptr(150.0)

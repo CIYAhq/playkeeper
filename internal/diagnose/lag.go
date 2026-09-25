@@ -296,6 +296,15 @@ func memoryCause(in LagInput) (Cause, bool) {
 		if !e.At.IsZero() && (e.At.Before(since) || e.At.After(in.Now)) {
 			continue
 		}
+		if e.HeapMB > 0 {
+			if pct := float64(e.AfterMB) / float64(e.HeapMB) * 100; pct < lowest {
+				lowest, lowestMB = pct, e.AfterMB
+			}
+			heap = max(heap, e.HeapMB)
+		}
+		if e.Kind == GCFull && !e.forcedFull() {
+			continue
+		}
 		if e.Kind == GCFull {
 			full++
 		}
@@ -304,12 +313,6 @@ func memoryCause(in LagInput) (Cause, bool) {
 		}
 		pauses += e.Pause
 		longest = max(longest, e.Pause)
-		if e.HeapMB > 0 {
-			if pct := float64(e.AfterMB) / float64(e.HeapMB) * 100; pct < lowest {
-				lowest, lowestMB = pct, e.AfterMB
-			}
-			heap = max(heap, e.HeapMB)
-		}
 	}
 	if heap == 0 {
 		return Cause{}, false
