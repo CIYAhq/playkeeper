@@ -1145,6 +1145,7 @@ export const en = {
   'machines.event.whyDropped': 'the network dropped',
   'machines.event.update': 'Update started from the dashboard',
   'machines.event.updateBy': '{actor} started an update',
+  'machines.event.dashboardUpdated': 'The dashboard updated to Playkeeper {version}',
   'machines.event.removed': 'Removed',
   'machines.event.removedBy': 'Removed by {actor}',
   'machines.event.left': 'It left the dashboard',

@@ -199,6 +199,8 @@ export function machineEventText(events: MachineEvent[], i: number): string {
     }
     case 'machine.update':
       return e.actor ? t('machines.event.updateBy', { actor: e.actor }) : t('machines.event.update')
+    case 'machine.dashboard_updated':
+      return t('machines.event.dashboardUpdated', { version: e.code ?? '' })
     case 'machine.removed':
       return e.actor ? t('machines.event.removedBy', { actor: e.actor }) : t('machines.event.removed')
     case 'machine.left':
