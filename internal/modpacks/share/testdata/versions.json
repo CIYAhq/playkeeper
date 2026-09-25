@@ -1,0 +1,1648 @@
+[
+ {
+  "id": "4Eotm6ov",
+  "project_id": "fALzjamp",
+  "name": "Chunky 1.5.3",
+  "version_number": "1.5.3",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-05-04T05:47:16.215347Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "fc1f2f374c5c82117599071ed18b6ef9bba2c7fb",
+     "sha512": "b83bfe7b218d0aa6232af977ae741dc1f82b10e50cd12bb759f65cf416b8b62beccb543e587ef0b9670abe03815660f8e091bc6823624d65cf07300571573516"
+    },
+    "url": "https://cdn.modrinth.com/data/fALzjamp/versions/4Eotm6ov/Chunky-Fabric-1.5.3.jar",
+    "filename": "Chunky-Fabric-1.5.3.jar",
+    "primary": true,
+    "size": 354095,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "561YnR5f",
+  "project_id": "xGdtZczs",
+  "name": "polymer-bundled 0.17.5+26.2",
+  "version_number": "0.17.5+26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "server_only_client_optional",
+  "date_published": "2026-09-01T20:34:44.919852Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "115afd5dc50584d1ac294fe71b5aeb4e9138e434",
+     "sha512": "bcf72922fba4a6a94cdce10c55018e616831be9d780345ddd010e0de35c6aa7e1e5863ac7afbb9738514b3a4ea4702779631c465e19c390c754b941687b42bcb"
+    },
+    "url": "https://cdn.modrinth.com/data/xGdtZczs/versions/561YnR5f/polymer-bundled-0.17.5%2B26.2.jar",
+    "filename": "polymer-bundled-0.17.5+26.2.jar",
+    "primary": true,
+    "size": 1408068,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "5WeL0Nkz",
+  "project_id": "fQEb0iXm",
+  "name": "Krypton 0.3.1",
+  "version_number": "0.3.1",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-07-14T22:10:35.227152Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "c83ed92c0f9f8523d7e6096151e74222fea91e96",
+     "sha512": "b8d9af34cd0050493afb8a6232cb8f785daa9d8887b7045f6e6a53c6bb9b5ffc4318fd9b0347a940eacfeba4773f10cb80ae0be1e79ce4c1888f96eda21e564e"
+    },
+    "url": "https://cdn.modrinth.com/data/fQEb0iXm/versions/5WeL0Nkz/krypton-0.3.1.jar",
+    "filename": "krypton-0.3.1.jar",
+    "primary": true,
+    "size": 268842,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "EKLUURiy",
+  "project_id": "Ps1zyz6x",
+  "name": "0.3.0-alpha.0.3 devbuild for fabric 26.2",
+  "version_number": "0.3.0-alpha.0.3+26.2",
+  "version_type": "alpha",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-07-09T12:25:09.283394Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "d3637cc2fe15761ca66070e5916f17c80f03ba51",
+     "sha512": "ea1551c8728a726f6ee82fed3040af52791943ef99f6b63428ed770797f60677e0160975ad59ad0f51bcd4a4ec2b5da39c6913ab2379f2e25d2397132d469a94"
+    },
+    "url": "https://cdn.modrinth.com/data/Ps1zyz6x/versions/EKLUURiy/ScalableLux-fabric-0.3.0-alpha.0.3-all.jar",
+    "filename": "ScalableLux-fabric-0.3.0-alpha.0.3-all.jar",
+    "primary": true,
+    "size": 193030,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "Ert0LmWj",
+  "project_id": "zvNzKfGF",
+  "name": "Async Logger 2.2.2+26.1.2-fabric",
+  "version_number": "2.2.2+26.1.2-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-08-12T08:59:31.683483Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "d1affbf48c50f60ae59e6b66fb78b1e6427bfddf",
+     "sha512": "2775a667b13ade2e2596a5de0662abef41c837c5cb33152b305beb59eacbfe671f2fc0853f50f86c162d96ff78b7f9f59cf4ba654e6a9d3685b6d73709b05253"
+    },
+    "url": "https://cdn.modrinth.com/data/zvNzKfGF/versions/Ert0LmWj/asynclogger-2.2.2%2B26.1.2-fabric.jar",
+    "filename": "asynclogger-2.2.2+26.1.2-fabric.jar",
+    "primary": true,
+    "size": 584150,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "HUacBshD",
+  "project_id": "LOpKHB2A",
+  "name": "26.2.0.12+fabric-26.2",
+  "version_number": "26.2.0.12+fabric-26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_and_server",
+  "date_published": "2026-09-08T13:19:32.821714Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "17bca5a638585cbcb4888745902829278edcae2e",
+     "sha512": "8df1076c6bfe80c058b19fe78d1a1dcdd14729656213d0d0573cfee416a9be4927610950e7d3f5990dae677f76e453d3c84549a8b96d54428f577cf0e466082a"
+    },
+    "url": "https://cdn.modrinth.com/data/LOpKHB2A/versions/HUacBshD/waystones-fabric-26.2-26.2.0.12.jar",
+    "filename": "waystones-fabric-26.2-26.2.0.12.jar",
+    "primary": true,
+    "size": 1220789,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "MBAkmtvl",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "bi4iCmsw",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "JwbecFqq",
+  "project_id": "ayPU0OHc",
+  "name": "Structure Layout Optimizer v1.1.4 (26.1 Fabric)",
+  "version_number": "1.1.4+26.1-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "server_only",
+  "date_published": "2026-03-25T00:23:46.303256Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "4a0fc84879fe358bdfd395af9238e14950dca748",
+     "sha512": "d0a443e5a71dc6a40f6345b49b73aee5290d5726f68a5b05d3b31b9ff71262dd2986518df8a560f2097e7584b944ff462d621499f5dede10afa624a34359e8cc"
+    },
+    "url": "https://cdn.modrinth.com/data/ayPU0OHc/versions/JwbecFqq/structure_layout_optimizer-1.1.4%2B26.1-fabric.jar",
+    "filename": "structure_layout_optimizer-1.1.4+26.1-fabric.jar",
+    "primary": true,
+    "size": 71476,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "M1953qlQ",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "LmKTn6Yc",
+  "project_id": "VSNURh3q",
+  "name": "0.4.2-alpha.0.52 devbuild for 26.2",
+  "version_number": "0.4.2-alpha.0.52+26.2",
+  "version_type": "alpha",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "server_only_client_optional",
+  "date_published": "2026-09-12T17:36:27.670078Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "994dcf809cbbf075a33b3f28c71331c845b415a2",
+     "sha512": "76a7c52ea9b22295c15d02be7f1ca4b68fc67368465f1bd3cffb47cd36bf3bf6b9dd925bca02ccb2c7cb2c26df1235538d98ddbac43f85985c39fd183c9f3468"
+    },
+    "url": "https://cdn.modrinth.com/data/VSNURh3q/versions/LmKTn6Yc/c2me-fabric-mc26.2-0.4.2-alpha.0.52.jar",
+    "filename": "c2me-fabric-mc26.2-0.4.2-alpha.0.52.jar",
+    "primary": true,
+    "size": 3842500,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "Ls232EsW",
+  "project_id": "9eGKb6K1",
+  "name": "Simple Voice Chat 2.6.24+26.2",
+  "version_number": "fabric-2.6.24+26.2",
+  "version_type": "beta",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-09-20T07:56:42.246960Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "216af39db149777f02b05ae6340a5379c21a5821",
+     "sha512": "592c66fafdf00d9b9b23f23da8dbfd8bb996c2f639b8d55c2028a9fd55d79a7df67f1d23e1ef11a52919baa6b946a65190f805f884f0d50492db10d8bcd83db0"
+    },
+    "url": "https://cdn.modrinth.com/data/9eGKb6K1/versions/Ls232EsW/voicechat-fabric-2.6.24%2B26.2.jar",
+    "filename": "voicechat-fabric-2.6.24+26.2.jar",
+    "primary": true,
+    "size": 5594023,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "Vebnzrzj",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "UL4bJFDY",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "9s6osm5g",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "qyVF9oeo",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "SRlzjEBS",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "mOgUt4GM",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "id": "NDqH16LT",
+  "project_id": "eXts2L7r",
+  "name": "3.1.0-beta.1+26.2",
+  "version_number": "3.1.0-beta.1+26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2-pre-1",
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server",
+  "date_published": "2026-05-27T20:57:38.795530Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "99b57ccc1d4323c4ef71887828dac25ce4ce2103",
+     "sha512": "07b6fc802559d54ec6577f6e2788926ef391d755206c2bfb0528280977885cae4bc0c517d8a53eb6f34092015ebe6c41210627d255aa6504662daefa8fb76397"
+    },
+    "url": "https://cdn.modrinth.com/data/eXts2L7r/versions/NDqH16LT/placeholder-api-3.1.0-beta.1%2B26.2.jar",
+    "filename": "placeholder-api-3.1.0-beta.1+26.2.jar",
+    "primary": true,
+    "size": 254973,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "Nv3xnWXd",
+  "project_id": "9s6osm5g",
+  "name": "[Fabric 26.2] v26.2.155",
+  "version_number": "26.2.155+fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-06-18T00:27:27.147096Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "babcf16dbd15e09d326e21ffe85ab3f7d843ef9e",
+     "sha512": "37b1e402f0df5a383656e21a38ee18cdd15cb4ba3fb62fbeba82ef4b959a4479fc32718ac0d9d154a7d9104c5f7315bfa67dbeced0b8ff240b8039d4848d5df1"
+    },
+    "url": "https://cdn.modrinth.com/data/9s6osm5g/versions/Nv3xnWXd/cloth-config-26.2.155.jar",
+    "filename": "cloth-config-26.2.155.jar",
+    "primary": true,
+    "size": 1135186,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "RWjup6Jf",
+  "project_id": "NNAgCjsB",
+  "name": "1.11.2-26.2 - Fabric",
+  "version_number": "1.11.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-09-21T19:47:05.814795Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "8a379bf40ab7125756afe7bbdf9501324bc37216",
+     "sha512": "4562dd16ce9213959c41fe58a3dd73a95c9ab9095a0fc7fbaa752b6ce3433fbef5063e7f5f2634b1ff34499261f48d31e878306dac8701425af1d50e726e53fd"
+    },
+    "url": "https://cdn.modrinth.com/data/NNAgCjsB/versions/RWjup6Jf/entityculling-fabric-1.11.2-mc26.2.jar",
+    "filename": "entityculling-fabric-1.11.2-mc26.2.jar",
+    "primary": true,
+    "size": 1508311,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "RqoPv70U",
+  "project_id": "M1953qlQ",
+  "name": "[Fabric] Resourceful Config 5.0.0",
+  "version_number": "5.0.0",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-06-18T03:50:08.539631Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "e605b530843171786da8f837b4fae728b4d8fb07",
+     "sha512": "c9834fbcb557d6f96b99ccafc69346f8da3887cdc4e26f780f9f4fe1c712071bab2e97362ecf69cd308aaafa76ea3cb98e7bee35b61d94addae2797788156457"
+    },
+    "url": "https://cdn.modrinth.com/data/M1953qlQ/versions/RqoPv70U/ResourcefulConfig-5.0.0.jar",
+    "filename": "ResourcefulConfig-5.0.0.jar",
+    "primary": true,
+    "size": 443979,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "RxI4fDfx",
+  "project_id": "OnlVIpq5",
+  "name": "Fast Noise 1.1.0-beta.6+26.2",
+  "version_number": "1.1.0-beta.6+26.2",
+  "version_type": "beta",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-09-06T18:38:42.794144Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "1c8e66ef04647320697c77fc99bb7d75e7400b7c",
+     "sha512": "3e4d78c668ff02d91aebf5a9f60755f0e4320d63f53fb2a0a625f5584defe47c88fa50f71b656cbd5306628be27466e6a47add19b0d14cbdcce069aa74496200"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/RxI4fDfx/zfastnoise-1.1.0-beta.6%2B26.2.jar",
+    "filename": "zfastnoise-1.1.0-beta.6+26.2.jar",
+    "primary": true,
+    "size": 52156,
+    "file_type": null
+   },
+   {
+    "hashes": {
+     "sha1": "47e3e33d2d9b53080566fceff5b2822ff007a4a2",
+     "sha512": "64c698ab509306529224a0319119a1700e45c92ab5d3e51acd11cfc2078469cf4fa32b8c399ca04d607992a1f9f05dfbe2134488acb6cd4a960c90627e9d7dc7"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/RxI4fDfx/zfastnoise-1.1.0-beta.6%2B26.2-sources.jar",
+    "filename": "zfastnoise-1.1.0-beta.6+26.2-sources.jar",
+    "primary": false,
+    "size": 26397,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "sml2FMaA",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "4qmvXRB9",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "KOHu7RCS",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "vnpqfrJN",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "FRSaEVFk",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "id": "Sr2VjbpG",
+  "project_id": "ONZm0H7Y",
+  "name": "Better Block Entities 1.3.8-beta.1+mc26.2",
+  "version_number": "1.3.8-beta.1+mc26.2",
+  "version_type": "beta",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-07-15T23:36:51.657210Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "ec08648cdda68dc05bf8866289c046ddfefb09a2",
+     "sha512": "c8b41ee9b3eac297d4e699cfb9b042bbc5895cc9e8fca2c1998743e4a59503ac079b5694704337a1d296e5ac3d418220649d6a50a740b15f21559eb7727b257c"
+    },
+    "url": "https://cdn.modrinth.com/data/ONZm0H7Y/versions/Sr2VjbpG/bbe-fabric-1.3.8-beta.1%2Bmc26.2.jar",
+    "filename": "bbe-fabric-1.3.8-beta.1+mc26.2.jar",
+    "primary": true,
+    "size": 206826,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "AANobbMI",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "TUWH6NZu",
+  "project_id": "TjSm1wrD",
+  "name": "ModernFix-mVUS 5.27.19-build.1",
+  "version_number": "5.27.19-build.1",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-07-03T10:06:52.216528Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "77b073d56b7be0d11cf915bd0e764463ee22dcea",
+     "sha512": "10588c52d75af917c06e26d81cd39f89be8b523925cea0a80588077b177aa8b2461aeaa102c390c9a3dca414b624ccc9adc87c3ab92360ab3af6e1430571d141"
+    },
+    "url": "https://cdn.modrinth.com/data/TjSm1wrD/versions/TUWH6NZu/modernfix-5.27.19-build.1.jar",
+    "filename": "modernfix-5.27.19-build.1.jar",
+    "primary": true,
+    "size": 1173963,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "VFv6uQKM",
+  "project_id": "RSeLon5O",
+  "name": "particle_core-0.3.3+26.2",
+  "version_number": "0.3.3+26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-07-08T00:39:26.924860Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "47c472f02c4f9eebc22e1590c02549b6be921292",
+     "sha512": "75467791b669b8cb0450b31766afd0ebfb734c0cdff020c0f1f9e95491440260823fa507d3515f347cb913143e4600feb88400174fc3d84b098ee3126fb91f48"
+    },
+    "url": "https://cdn.modrinth.com/data/RSeLon5O/versions/VFv6uQKM/particle_core-0.3.3%2B26.2.jar",
+    "filename": "particle_core-0.3.3+26.2.jar",
+    "primary": true,
+    "size": 141246,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "Ha28R6CL",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "hYykXjDp",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "W4C08wBC",
+  "project_id": "jlNms3Jp",
+  "name": "Config Manager 1.1.3 Fabric",
+  "version_number": "1.1.3",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "server_only",
+  "date_published": "2026-06-16T20:14:26.098032Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "ce2d31f3cb6815fe83c742326430af8dd9f6a479",
+     "sha512": "bfa70defff2530780f0f0aa0de1845dc256d9cab244123e4847a6b24db1f812c47585ed1ddc80b2de91671aada421027b72d44e8b748e2a70ae405af54d94de0"
+    },
+    "url": "https://cdn.modrinth.com/data/jlNms3Jp/versions/W4C08wBC/ConfigManager-fabric-26.1_26.2-1.1.3.jar",
+    "filename": "ConfigManager-fabric-26.1_26.2-1.1.3.jar",
+    "primary": true,
+    "size": 88871,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "mOgUt4GM",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "id": "WdLLrOzD",
+  "project_id": "mOgUt4GM",
+  "name": "v20.0.2 for 26.2",
+  "version_number": "20.0.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-09-11T00:48:28.292161Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "4e02b8bfb7f4eb693f22b611b02bc2b7385614a7",
+     "sha512": "9baebd229ff5a0a377a0269f2a8783dd9bde682b0773d9ce380dedf61b214676f1d13b9904e84403afb418c13d3ee23c3120e09032c53cb4c762091af1a4b0fb"
+    },
+    "url": "https://cdn.modrinth.com/data/mOgUt4GM/versions/WdLLrOzD/modmenu-20.0.2.jar",
+    "filename": "modmenu-20.0.2.jar",
+    "primary": true,
+    "size": 616610,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "eXts2L7r",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "WykVq5o6",
+  "project_id": "p8RJPJIC",
+  "name": "Ixeris 4.6.8+26.2-fabric",
+  "version_number": "4.6.8+26.2-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-09-21T13:04:01.875250Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "efa737f5ff00d5b7be7c60dd6e9493c49a7e09e5",
+     "sha512": "61b3a8436db5574b934692fafdf5731b1ece99b562c56269d593195efa825c3707223befb5ca38ba0ac18a629d2176c709c9415a7fe8d138e0bdb3ec3707505f"
+    },
+    "url": "https://cdn.modrinth.com/data/p8RJPJIC/versions/WykVq5o6/Ixeris-4.6.8%2B26.2-fabric.jar",
+    "filename": "Ixeris-4.6.8+26.2-fabric.jar",
+    "primary": true,
+    "size": 762557,
+    "file_type": null
+   },
+   {
+    "hashes": {
+     "sha1": "186cbbc378e048d57f144712e1dd3bbdfc43dea6",
+     "sha512": "a6ef918787fd82fcae5800f20b00fa21eb802bf9b68a00c9fdc45fc86f84da2dab506e8ed5d3720ce506998c5edf3d4350cb580d47f208554dc83dd397bd925d"
+    },
+    "url": "https://cdn.modrinth.com/data/p8RJPJIC/versions/WykVq5o6/Ixeris-4.6.8%2B26.2-fabric-api-sources.jar",
+    "filename": "Ixeris-4.6.8+26.2-fabric-api-sources.jar",
+    "primary": false,
+    "size": 3441,
+    "file_type": null
+   },
+   {
+    "hashes": {
+     "sha1": "02727bc53e7b296038c146a1402d8623883e78ad",
+     "sha512": "7bc09eca7211404fe0bd38869772a84b722b28c07a55c3de4bdc4459cb632c6b0b41b562486810fd8a431b33bc10c60c15370e3f132a3e84662cc072d2a671ca"
+    },
+    "url": "https://cdn.modrinth.com/data/p8RJPJIC/versions/WykVq5o6/Ixeris-4.6.8%2B26.2-fabric-api.jar",
+    "filename": "Ixeris-4.6.8+26.2-fabric-api.jar",
+    "primary": false,
+    "size": 4200,
+    "file_type": null
+   },
+   {
+    "hashes": {
+     "sha1": "7d055bc266869c73ac2b82026a0dedaade1c4156",
+     "sha512": "f00a1631cc47c036e8e9531efc58e861a2464f8ff8e1312883c1c35127b1ef55dd58ed64438c9ea806b7ec4289d9fc501d4529c767476973bcb248ab2eefdea0"
+    },
+    "url": "https://cdn.modrinth.com/data/p8RJPJIC/versions/WykVq5o6/Ixeris-4.6.8%2B26.2-fabric-sources.jar",
+    "filename": "Ixeris-4.6.8+26.2-fabric-sources.jar",
+    "primary": false,
+    "size": 75298,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "Yn9f9f9K",
+  "project_id": "Y8o1j1Sf",
+  "name": "better-fabric-console 2.0.1",
+  "version_number": "2.0.1",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1.2",
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "dedicated_server_only",
+  "date_published": "2026-09-20T19:07:28.695651Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "06a5c4890e26d2a8e68752e482e049ba792fe1dc",
+     "sha512": "f870bb3cc5fdf75c68c4daef1cef40240d793e7d59400956cc6fd3311fae14ca5c031023f760e6ba0de2e4e7a96dc1d9db15e8895731847d98dad5df41fd51d4"
+    },
+    "url": "https://cdn.modrinth.com/data/Y8o1j1Sf/versions/Yn9f9f9K/better-fabric-console-mc26.1.2-2.0.1.jar",
+    "filename": "better-fabric-console-mc26.1.2-2.0.1.jar",
+    "primary": true,
+    "size": 1630708,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "6gLXkYZq",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "9mnPo3ZV",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "O5VsIpQY",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "alR3tamq",
+  "project_id": "ix1qq8Ux",
+  "name": "CrashAssistant-fabric-26.2-26.3-1.11.14.jar",
+  "version_number": "1.11.14",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-09-20T21:20:35.332895Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "dea53a10e5fbfaacd18e212a0eb0fe328b3e9467",
+     "sha512": "eab56ff4773821ea74c16987a986032e0d41119078efed17f66e4d6f1e19ab43e1e465463b09386644c4ae73942909f29ff725736e2ea1ad6de9b8313080de31"
+    },
+    "url": "https://cdn.modrinth.com/data/ix1qq8Ux/versions/alR3tamq/CrashAssistant-fabric-26.2-26.3-1.11.14.jar",
+    "filename": "CrashAssistant-fabric-26.2-26.3-1.11.14.jar",
+    "primary": true,
+    "size": 3464190,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "d5ddUdiB",
+  "project_id": "uXXizFIs",
+  "name": "ferritecore-9.0.0-fabric",
+  "version_number": "9.0.0-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server",
+  "date_published": "2026-03-24T18:31:50.491773Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "eac76ff0f3753422c61b2c44487d0d195d88d4bc",
+     "sha512": "d81fa97e11784c19d42f89c2f433831d007603dd7193cee45fa177e4a6a9c52b384b198586e04a0f7f63cd996fed713322578bde9a8db57e1188854ae5cbe584"
+    },
+    "url": "https://cdn.modrinth.com/data/uXXizFIs/versions/d5ddUdiB/ferritecore-9.0.0-fabric.jar",
+    "filename": "ferritecore-9.0.0-fabric.jar",
+    "primary": true,
+    "size": 72677,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "d6FfpWFI",
+  "project_id": "wnEe9KBa",
+  "name": "0.2.0+beta.7.236 devbuild for 26.2",
+  "version_number": "0.2.0+beta.7.236+26.2",
+  "version_type": "alpha",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "server_only_client_optional",
+  "date_published": "2026-07-02T09:28:54.266380Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "dcf1295db267f7b519ecdd7d1c9499910c7e6fc0",
+     "sha512": "2e0fd87e66f35f00f634176d4072a6c6d1eee965d1817833709ad3ea73e4f2719fa152d5e95b5ab8216b064c7db124b7f13838ebea87d92f7a72df82839e9bd5"
+    },
+    "url": "https://cdn.modrinth.com/data/wnEe9KBa/versions/d6FfpWFI/vmp-fabric-mc26.2-0.2.0%2Bbeta.7.236-all.jar",
+    "filename": "vmp-fabric-mc26.2-0.2.0+beta.7.236-all.jar",
+    "primary": true,
+    "size": 412247,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "e3hsPc1o",
+  "project_id": "l6YH9Als",
+  "name": "1.10.187 (Fabric 26.x)",
+  "version_number": "1.10.187-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server",
+  "date_published": "2026-09-19T07:44:18.489950Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "0940b4089affdfca37d6b6d0ea5ecae4dbd8fe98",
+     "sha512": "c74bf5d5a16b2445ec6ea717eac756412b272a8015e91f91a7bf5a27e6f2f99c4a11878d434510f941f37b0344b3a7d1ba0dd6c34e80642762c48fb6e9a93894"
+    },
+    "url": "https://cdn.modrinth.com/data/l6YH9Als/versions/e3hsPc1o/spark-1.10.187-fabric.jar",
+    "filename": "spark-1.10.187-fabric.jar",
+    "primary": true,
+    "size": 3838499,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "eRRZzGMc",
+  "project_id": "Ha28R6CL",
+  "name": "Fabric Language Kotlin 1.14.1+kotlin.2.4.20",
+  "version_number": "1.14.1+kotlin.2.4.20",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "1.14",
+   "1.14.1",
+   "1.14.2",
+   "1.14.3",
+   "1.14.4",
+   "1.15",
+   "1.15.1",
+   "1.15.2",
+   "1.16",
+   "1.16.1",
+   "1.16.2",
+   "1.16.3",
+   "1.16.4",
+   "1.16.5",
+   "1.17",
+   "1.17.1",
+   "1.18",
+   "1.18.1",
+   "1.18.2",
+   "1.19",
+   "1.19.1",
+   "1.19.2",
+   "1.19.3",
+   "1.19.4",
+   "1.20",
+   "1.20.1",
+   "1.20.2",
+   "1.20.3",
+   "1.20.4",
+   "1.20.5",
+   "1.20.6",
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server",
+  "date_published": "2026-09-07T12:48:38.555893Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "62ae40a31b689b52fde399f2143d547a631e942c",
+     "sha512": "91404f87774466ce8604aafea791d8cc97b603bc310dce17c8188f94f7783cca6dc14fc726ce871ca317bfe9033c199d8d858d51284106a00754e952147703b8"
+    },
+    "url": "https://cdn.modrinth.com/data/Ha28R6CL/versions/eRRZzGMc/fabric-language-kotlin-1.14.1%2Bkotlin.2.4.20.jar",
+    "filename": "fabric-language-kotlin-1.14.1+kotlin.2.4.20.jar",
+    "primary": true,
+    "size": 8142858,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "edrtnY9v",
+  "project_id": "4WWQxlQP",
+  "name": "ServerCore Fabric 1.5.19+26.2",
+  "version_number": "1.5.19+26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "server_only",
+  "date_published": "2026-06-24T12:56:41.975609Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "43eda9e44e32e0e736ada0ff125f83cb87cbd59a",
+     "sha512": "aa4cfc93f8e02172910302444330e37713dfcf2047d28e55eb7323a3cd5d51493374a0959aa3e626ec2bf43fc707a755508b83454bb34b6d57d65c069929074b"
+    },
+    "url": "https://cdn.modrinth.com/data/4WWQxlQP/versions/edrtnY9v/servercore-fabric-1.5.19%2B26.2.jar",
+    "filename": "servercore-fabric-1.5.19+26.2.jar",
+    "primary": true,
+    "size": 909932,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "ewUK83HI",
+  "project_id": "P7dR8mSH",
+  "name": "[26.2] Fabric API 0.161.0+26.2",
+  "version_number": "0.161.0+26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-09-18T17:31:39.163063Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "332da34ebb72171e603a0c538de17f4c54ea9e29",
+     "sha512": "2502fa5ade78e9a120b3747bc1a9a2167d6671743bea45bf115d3174c94121aeda87c549446d1a604a9c11fb828de17a551e3514ce42f3e93069dd14bdaee55b"
+    },
+    "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/ewUK83HI/fabric-api-0.161.0%2B26.2.jar",
+    "filename": "fabric-api-0.161.0+26.2.jar",
+    "primary": true,
+    "size": 2566123,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "f7vZ0VWU",
+  "project_id": "gvQqBUqZ",
+  "name": "Lithium 0.25.3 for Fabric",
+  "version_number": "mc26.2-0.25.3-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-07-29T12:19:55.348704Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "435ad0289209bb72195e7a423756a03f5dfa5a9a",
+     "sha512": "148b638f3c6229fbaf487120a2344a0af5e411a5aa6533d5db9d75da0a8c0d8304f63eb4cca13f4d03b2c9b4c23d559dd74c1d832422ef8a3087bd005e62a8bd"
+    },
+    "url": "https://cdn.modrinth.com/data/gvQqBUqZ/versions/f7vZ0VWU/lithium-fabric-0.25.3%2Bmc26.2.jar",
+    "filename": "lithium-fabric-0.25.3+mc26.2.jar",
+    "primary": true,
+    "size": 912850,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "gPxVRSp3",
+  "project_id": "vnpqfrJN",
+  "name": "Material Rule Compiler 1.0.0-beta.7+26.2",
+  "version_number": "1.0.0-beta.7+26.2",
+  "version_type": "beta",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "server_only",
+  "date_published": "2026-09-20T06:12:58.380486Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "cbbf6b02f723aa2d624b747e5d0e8ce4c6c7e676",
+     "sha512": "240932426210bcb4e303e03adef3e1c83c107e29cc6e0caffa195e93c15219d834f36d8c4fc9ae74457a246c368f14dd99d801521d907df20197c111e2e4d221"
+    },
+    "url": "https://cdn.modrinth.com/data/vnpqfrJN/versions/gPxVRSp3/zmatcomp-1.0.0-beta.7%2B26.2.jar",
+    "filename": "zmatcomp-1.0.0-beta.7+26.2.jar",
+    "primary": true,
+    "size": 99652,
+    "file_type": null
+   },
+   {
+    "hashes": {
+     "sha1": "7a5aef762ba3ccf96a48d888535a921160ed191e",
+     "sha512": "01cd16af47c8024cd80f1ddb533aef2bc27262f4ea93a14a845480b9c765e8d12422f5ad0c6d8bdbf9938aa556081609d95f7136da711e7b29c9af802d984a48"
+    },
+    "url": "https://cdn.modrinth.com/data/vnpqfrJN/versions/gPxVRSp3/zmatcomp-1.0.0-beta.7%2B26.2-sources.jar",
+    "filename": "zmatcomp-1.0.0-beta.7+26.2-sources.jar",
+    "primary": false,
+    "size": 38047,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "4qmvXRB9",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "KOHu7RCS",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "OnlVIpq5",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "id": "jIEsEM7M",
+  "project_id": "alhWWxax",
+  "name": "Cull Fewer Leaves 1.1.2",
+  "version_number": "1.1.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-03-27T22:04:34.000317Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "0b603a240e2b1f424ef37562ebbe830b07008b30",
+     "sha512": "80e1763a3e0f2746aaa27da4d20837f62f5bea22fff326a6b7cecff43923ba1de91c6c5d4d8e5125bc263f35464cc858b556aa8ce8f1118e612677341d96d5d2"
+    },
+    "url": "https://cdn.modrinth.com/data/alhWWxax/versions/jIEsEM7M/cull-fewer-leaves-1.1.2%2B26.1-fabric.jar",
+    "filename": "cull-fewer-leaves-1.1.2+26.1-fabric.jar",
+    "primary": true,
+    "size": 409798,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "AANobbMI",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "pC2JjFw1",
+  "project_id": "LQ3K71Q1",
+  "name": "v3.11.9",
+  "version_number": "3.11.9",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-06-16T16:00:18.345659Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "e8cd9e4fbc6d42091faffc873b0801f1189ed6a5",
+     "sha512": "79b13548d7e9de9abfa23e062724a885e5341f371c500d6570056ecea7db00c2f7ace5a7288179ad8baec575b4aa992b91dccbc940c584cb5cddf0bc7aeb892f"
+    },
+    "url": "https://cdn.modrinth.com/data/LQ3K71Q1/versions/pC2JjFw1/dynamic-fps-3.11.9%2Bminecraft-26.2.0-fabric.jar",
+    "filename": "dynamic-fps-3.11.9+minecraft-26.2.0-fabric.jar",
+    "primary": true,
+    "size": 188740,
+    "file_type": null
+   },
+   {
+    "hashes": {
+     "sha1": "8a74a76b499e86a38b34a9360a52acc8f2f6890d",
+     "sha512": "c92fe5863eb7756bdefa29254d46f29fa35e662d0e82d297338ec28c707ce8d0eb05b7e05a2a36810676e78ec23ab336a45b356938bef9ab3dc853cb6a2fc418"
+    },
+    "url": "https://cdn.modrinth.com/data/LQ3K71Q1/versions/pC2JjFw1/dynamic-fps-3.11.9%2Bminecraft-26.2.0-fabric-sources.jar",
+    "filename": "dynamic-fps-3.11.9+minecraft-26.2.0-fabric-sources.jar",
+    "primary": false,
+    "size": 14303,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "mOgUt4GM",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "9s6osm5g",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "pMWERcSu",
+  "project_id": "5ZwdcRci",
+  "name": "ImmediatelyFast 1.16.5",
+  "version_number": "1.16.5+26.2-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-09-16T20:16:45.745998Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "0286260261591fe77ba0d332d5d5a2d2e868c2c6",
+     "sha512": "5836b089072c0fd796613d42c3bd01c7e401b6ad53de80328bb9d74d585de9be0ff0cfc4d6ffa1ed41008750573b0525eff8c064162a2f724ad16817a8fdaf22"
+    },
+    "url": "https://cdn.modrinth.com/data/5ZwdcRci/versions/pMWERcSu/ImmediatelyFast-Fabric-1.16.5%2B26.2.jar",
+    "filename": "ImmediatelyFast-Fabric-1.16.5+26.2.jar",
+    "primary": true,
+    "size": 100500,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "qLWYe5p7",
+  "project_id": "MBAkmtvl",
+  "name": "26.2.0.9+fabric-26.2",
+  "version_number": "26.2.0.9+fabric-26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server",
+  "date_published": "2026-09-25T05:57:12.663848Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "f46d8bc124a9e89d86ec14e8b8e8c6a0ab09e474",
+     "sha512": "a558ef7b432faf31e4dd35339d8d2b330343c0c84715ed3890eb1c2df5b7914c6f0beae919c8fc33ba8c2bbf6da4fb98c452c8efc5d90338d3051af70e4513a8"
+    },
+    "url": "https://cdn.modrinth.com/data/MBAkmtvl/versions/qLWYe5p7/balm-fabric-26.2-26.2.0.9.jar",
+    "filename": "balm-fabric-26.2-26.2.0.9.jar",
+    "primary": true,
+    "size": 1196564,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "tZ4vc79R",
+  "project_id": "hYykXjDp",
+  "name": "fzzy_config-0.7.7+26.2",
+  "version_number": "0.7.7+26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_and_server",
+  "date_published": "2026-09-15T02:45:18.126879Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "0edaa24407199f73895550a027455df6012c368b",
+     "sha512": "fb8f7f838eaf469e5e545132f264a9f6cdc36bb99a4a7e1ce77f9915a2aa7b7e630692103169a64f55dbe5e5c9a224e0b026a98a027c6c13a819727ef2dde57e"
+    },
+    "url": "https://cdn.modrinth.com/data/hYykXjDp/versions/tZ4vc79R/fzzy_config-0.7.7%2B26.2.jar",
+    "filename": "fzzy_config-0.7.7+26.2.jar",
+    "primary": true,
+    "size": 2395514,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "Ha28R6CL",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "tsgt79sG",
+  "project_id": "4qmvXRB9",
+  "name": "ZConfig 1.0.0+26.x",
+  "version_number": "1.0.0+26.x",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.1-snapshot-1",
+   "26.1-snapshot-2",
+   "26.1-snapshot-3",
+   "26.1-snapshot-4",
+   "26.1-snapshot-5",
+   "26.1-snapshot-6",
+   "26.1-snapshot-7",
+   "26.1-snapshot-8",
+   "26.1-snapshot-9",
+   "26.1-snapshot-10",
+   "26.1-snapshot-11",
+   "26.1-pre-1",
+   "26.1-pre-2",
+   "26.1-pre-3",
+   "26.1-rc-1",
+   "26.1-rc-2",
+   "26.1-rc-3",
+   "26.1",
+   "26.1.1-rc-1",
+   "26.1.1",
+   "26w14a",
+   "26.2-snapshot-1",
+   "26.1.2-rc-1",
+   "26.1.2",
+   "26.2-snapshot-2",
+   "26.2-snapshot-3",
+   "26.2-snapshot-4",
+   "26.2-snapshot-5",
+   "26.2-snapshot-6",
+   "26.2-snapshot-7",
+   "26.2-snapshot-8",
+   "26.2-pre-1",
+   "26.2-pre-2",
+   "26.2-pre-3",
+   "26.2-pre-4",
+   "26.2-pre-5",
+   "26.2-pre-6",
+   "26.2-rc-1",
+   "26.2-rc-2",
+   "26.2",
+   "26.3-snapshot-1",
+   "26.3-snapshot-2",
+   "26.3-snapshot-3",
+   "26.3-snapshot-4",
+   "26.3-snapshot-5",
+   "26.3-snapshot-6",
+   "26.3-snapshot-7",
+   "26.3-snapshot-8",
+   "26.3-snapshot-9",
+   "26.3-snapshot-10",
+   "26.3-pre-1",
+   "26.3-pre-2",
+   "26.3-pre-3",
+   "26.3-rc-1",
+   "26.3-rc-2",
+   "26.3-rc-3",
+   "26.3",
+   "26.4-snapshot-1"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server",
+  "date_published": "2026-08-03T14:24:03.721934Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "91dab4f25559cf79d493177fbe0a50c4083a27cb",
+     "sha512": "baf87ac023fd0297f531897f0dcdcac3b0b35960683090adb3350a2281a211c5134a5373730a10628300caf5711b912705f16b33a1d1a73a3a86f346bcd7c6f5"
+    },
+    "url": "https://cdn.modrinth.com/data/4qmvXRB9/versions/tsgt79sG/zconfig-1.0.0%2B26.x.jar",
+    "filename": "zconfig-1.0.0+26.x.jar",
+    "primary": true,
+    "size": 405423,
+    "file_type": null
+   },
+   {
+    "hashes": {
+     "sha1": "5a192ffd7e2bf2affbca248ee63c7a6ae0015c55",
+     "sha512": "a63c6b1692307df32a075dbc6834e3511149646a2c6885418cd0ad2fd1ce21e5f9eafd0647c469e3191473988a01d926dc3bb6820d67982a27c83607ae950510"
+    },
+    "url": "https://cdn.modrinth.com/data/4qmvXRB9/versions/tsgt79sG/zconfig-1.0.0%2B26.x-sources.jar",
+    "filename": "zconfig-1.0.0+26.x-sources.jar",
+    "primary": false,
+    "size": 8494,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "id": "wZdCqlCY",
+  "project_id": "bi4iCmsw",
+  "name": "26.2.0.7+fabric-26.2",
+  "version_number": "26.2.0.7+fabric-26.2",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "date_published": "2026-09-25T06:15:55.107120Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "2f0c2bd241533ca81e728a1299adc368a425a678",
+     "sha512": "61677659edf7c156cd21ef75fa2eda7b7a35c6ad401f9742696d678a6abf6654c7f98745801b5203b39bd6eb7b939a35cfcf44dda9c027d03c2bea407ac2f18c"
+    },
+    "url": "https://cdn.modrinth.com/data/bi4iCmsw/versions/wZdCqlCY/shogi-fabric-26.2-26.2.0.7.jar",
+    "filename": "shogi-fabric-26.2-26.2.0.7.jar",
+    "primary": true,
+    "size": 454666,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "id": "xJZxADzI",
+  "project_id": "AANobbMI",
+  "name": "Sodium 0.9.2 for Fabric 26.2",
+  "version_number": "mc26.2-0.9.2-fabric",
+  "version_type": "release",
+  "status": "listed",
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_only",
+  "date_published": "2026-09-11T18:08:28.513893Z",
+  "files": [
+   {
+    "hashes": {
+     "sha1": "62a70961a5b3e06938e06ab5f2dc4c5a51cf3323",
+     "sha512": "9b7a7aade8824543ce2a804fddfd04e37f57d1f91c00574e7dc87e554eb1835d888313ee6f715a7599bd729840cf01fd74e02aeae87b4e5a3c10c34a016e407c"
+    },
+    "url": "https://cdn.modrinth.com/data/AANobbMI/versions/xJZxADzI/sodium-fabric-0.9.2%2Bmc26.2.jar",
+    "filename": "sodium-fabric-0.9.2+mc26.2.jar",
+    "primary": true,
+    "size": 1885572,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ }
+]

@@ -1,0 +1,178 @@
+{
+  "formatVersion": 1,
+  "game": "minecraft",
+  "versionId": "6.0.0 Alpha f",
+  "name": "Create+",
+  "summary": "",
+  "dependencies": {
+    "minecraft": "1.21.1",
+    "neoforge": "21.1.233"
+  },
+  "files": [
+    {
+      "path": "mods/aeroencasedpipe-1.0.7.jar",
+      "hashes": {
+        "sha1": "94012ef7cb564267caa91e29a63d48c32be0b341",
+        "sha512": "d53004c07dc0778e369d8040f0dcba5ccb126f52caf9f0a2dfc4b555856085d44e7242307c4d0e6eda4cfc5bab03f2f17cf69b9781397f634986e7ef7a8bf090"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/DdAlVT8M/versions/pKFEfjEB/aeroencasedpipe-1.0.7.jar"
+      ],
+      "fileSize": 56483,
+      "env": {
+        "client": "required",
+        "server": "required"
+      }
+    },
+    {
+      "path": "mods/aileron-1.21.1-neoforge-1.1.4.jar",
+      "hashes": {
+        "sha1": "9fe97b808ccac3289644fc55ad364475434dfb2f",
+        "sha512": "65fdd62ab143a09a5b0049996f6a65361a4447646d41fa1f092af8df85e3106eb531de07e32ce10ac29c318d1ff03427dde143abcf2e616d8bd2bccfb2f575c3"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/b8kG1VGq/versions/XDz1C9KI/aileron-1.21.1-neoforge-1.1.4.jar"
+      ],
+      "fileSize": 269209,
+      "env": {
+        "client": "required",
+        "server": "required"
+      }
+    },
+    {
+      "path": "mods/alloyed-3.0.9+1.21.1-neoforge.jar",
+      "hashes": {
+        "sha1": "a196057e9c086e0303ec91c58362050bf9fc52da",
+        "sha512": "2ae034cf410896460d09dd109ae9799d118ef23f3984eafb9d4c4a06dae32674fd6b2ab40c9e87a4116d58f3e5e0af5a26414d89baf1f295d775db9d45463db7"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/KUInlTFo/versions/mhmFlajn/alloyed-3.0.9%2B1.21.1-neoforge.jar"
+      ],
+      "fileSize": 873568,
+      "env": {
+        "client": "required",
+        "server": "required"
+      }
+    },
+    {
+      "path": "mods/.connector/temp/enchancement-1.21-r14$tooltipfix-1.1.1-1.20.jar",
+      "hashes": {
+        "sha1": "de704792c691e3d19316c87c21c9ad2bee6c66c3",
+        "sha512": "75d85a093487ddd8c405cf7f8ce83cb3418ff7c2d3e6bf5aa38554d8bcf0ea45c87c88f3463a924e9cc8b5931d8b64f7be173efbd48ea7a0c150db95e1408f51"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/2RKFTmiB/versions/B2L4LeMV/tooltipfix-1.1.1-1.20.jar"
+      ],
+      "fileSize": 12432,
+      "env": {
+        "client": "required",
+        "server": "unsupported"
+      }
+    },
+    {
+      "path": "mods/asynclogger-1.1.4+1.21.1-neoforge.jar",
+      "hashes": {
+        "sha1": "b89a6aea55b79791f2d190f775cd3fda945a5f84",
+        "sha512": "5ff35d4ead4eae31958075ebaeb615a74ba9701ca3f8ab55a11e36406949c2a174482d8446ffceb980af19d56bb91f6cbad472b1811d407fac18dea0baeceefb"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/zvNzKfGF/versions/TtdaR17N/asynclogger-1.1.4%2B1.21.1-neoforge.jar"
+      ],
+      "fileSize": 570249,
+      "env": {
+        "client": "required",
+        "server": "unsupported"
+      }
+    },
+    {
+      "path": "mods/voicechat-neoforge-1.21.1-2.6.18.jar",
+      "hashes": {
+        "sha1": "c9e638f5c049fc143dc043c585b13e9078a3f71d",
+        "sha512": "9990a758a9c1044af1dce3b96feaf7eeab91a8180fbf9e77388c1ee9983c2c0919710d87b917eb815457d926f00e68557c6a85eb8193d895ac8fe78fd7abb4c1"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/9eGKb6K1/versions/eFhbQnrh/voicechat-neoforge-1.21.1-2.6.18.jar"
+      ],
+      "fileSize": 4902837,
+      "env": {
+        "client": "optional",
+        "server": "optional"
+      }
+    },
+    {
+      "path": "mods/lithium-neoforge-0.15.3+mc1.21.1.jar",
+      "hashes": {
+        "sha1": "9fd5fa9076044180ae7f51672de74669196ec72e",
+        "sha512": "65568e6c7e41684ad20e58db8766813840c0c8406eed9edc3f7a2514da7250ac46bde2bfb0936984cc5516c2782f86387ad0ed3d1b804b8bdddc7f7048759df4"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/gvQqBUqZ/versions/RXHf27Wv/lithium-neoforge-0.15.3%2Bmc1.21.1.jar"
+      ],
+      "fileSize": 774148,
+      "env": {
+        "client": "optional",
+        "server": "optional"
+      }
+    },
+    {
+      "path": "mods/emi-1.1.24+1.21.1+neoforge.jar",
+      "hashes": {
+        "sha1": "3fd494b37027dfbc7f78414d7cbf251c9eb6738a",
+        "sha512": "f4c45ed686fe617311d6debadcb6ace5963e66f8cfe0cfed398231f081f87407070efc7a73c8b695d158f1d87a97180737b9107a46771e77df2bc9a7dc715ebd"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/fRiHVvU7/versions/5sIPA1To/emi-1.1.24%2B1.21.1%2Bneoforge.jar"
+      ],
+      "fileSize": 1111538,
+      "env": {
+        "client": "required",
+        "server": "optional"
+      }
+    },
+    {
+      "path": "mods/AxesAreWeapons-1.10.2-neoforge-1.21.jar",
+      "hashes": {
+        "sha1": "8c2ea92279ccc6bfed5288854e7b6d568bd84160",
+        "sha512": "d4b635c4b764238b3324e6ee6fb3d7740ffdbcdbdf1bc0b7cdc5f82e33bcfe4f69dd627393465093bc8b685caecd791f510208489a1d375849b19aaf9fd6a551"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/1jvt7RTc/versions/2bqCbUXm/AxesAreWeapons-1.10.2-neoforge-1.21.jar"
+      ],
+      "fileSize": 36026,
+      "env": {
+        "client": "optional",
+        "server": "required"
+      }
+    },
+    {
+      "path": "mods/statuseffectbars-1.21.1-NeoForge-1.0.2.jar",
+      "hashes": {
+        "sha1": "bc2d624a831126bb00032d53ca0211d026e95682",
+        "sha512": "7d81eeb0e60fb304f0a26d696911b4aa0771553975275214750ae99511da17850ad196fb5268cb4362959c10221beb5c92e43ed1d965493c8a76354e76555540"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/TxIuhIFo/versions/PPVE16f7/statuseffectbars-1.21.1-NeoForge-1.0.2.jar"
+      ],
+      "fileSize": 25114,
+      "env": {
+        "client": "unknown",
+        "server": "unknown"
+      }
+    },
+    {
+      "path": "resourcepacks/FreshAnimations_v1.10.4.zip",
+      "hashes": {
+        "sha1": "73db740a6868e043c5e615c036fca2c912615b6e",
+        "sha512": "41258f9bea1a773d823f9a014d0c08206e9e7b339bc538e1538211fff28fadd06878a836d292cbb636ed6829cd2801a509368ae3eb3ad4bedf42190a0d5f7a90"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/50dA9Sha/versions/xN57JJts/FreshAnimations_v1.10.4.zip"
+      ],
+      "fileSize": 850941,
+      "env": {
+        "client": "required",
+        "server": "unsupported"
+      }
+    }
+  ]
+}
