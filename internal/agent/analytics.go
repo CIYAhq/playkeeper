@@ -381,6 +381,8 @@ var (
 	activityEvents = map[string]string{
 		"join": "joined", "server_crashed": "crashed", "server_created": "created", "world_restored": "restored",
 		"server_version_changed": "version", "server_stopped_externally": "stopped_outside",
+		// Wave 7 (0.4.0)
+		"server_fell_asleep": "fell_asleep", "server_woke_up": "woke_up",
 	}
 	activityAudit = map[string]string{
 		"whitelist.add": "allowlisted", "whitelist.remove": "unlisted", "operator.add": "operator", "operator.remove": "deoperator",

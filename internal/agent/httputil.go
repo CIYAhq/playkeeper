@@ -34,6 +34,11 @@ type apiError struct {
 	Msg    string
 	Hint   string
 	Op     *api.Operation
+	// Wave 7 (0.4.0): the form field at fault, a stable reason code and its
+	// values (see api.Error).
+	Field  string
+	Reason string
+	Params map[string]any
 }
 
 func (e *apiError) Error() string { return e.Msg }
@@ -57,7 +62,7 @@ func errNotFound(what string) *apiError {
 func writeError(w http.ResponseWriter, err error) {
 	var ae *apiError
 	if errors.As(err, &ae) {
-		writeJSON(w, ae.Status, api.Error{Error: ae.Msg, Code: ae.Code, Hint: ae.Hint, Operation: ae.Op})
+		writeJSON(w, ae.Status, api.Error{Error: ae.Msg, Code: ae.Code, Hint: ae.Hint, Operation: ae.Op, Field: ae.Field, Reason: ae.Reason, Params: ae.Params})
 		return
 	}
 	writeErr(w, http.StatusInternalServerError, api.CodeInternal, err.Error(), "")

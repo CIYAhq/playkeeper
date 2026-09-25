@@ -68,6 +68,8 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// Wave 7 (0.4.0): sleep when nobody's playing.
+	Sleep *SleepStatus `json:"sleep,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -122,6 +124,9 @@ type Machine struct {
 	UpdateAvailable  string `json:"updateAvailable,omitempty"`
 	UpdateInstalling string `json:"updateInstalling,omitempty"`
 	Servers          int    `json:"servers"`
+	// Wave 7 (0.4.0): SleepingMemoryMB is the part of ServersMemoryMB that
+	// sleeping servers gave back for now.
+	SleepingMemoryMB int `json:"sleepingMemoryMB"`
 }
 
 // UpdateInfo is what Playkeeper knows about its own updates.
@@ -509,7 +514,7 @@ type Event struct {
 type Backup struct {
 	ID               string     `json:"id"`
 	ServerID         string     `json:"serverId"`
-	Kind             string     `json:"kind"` // manual | rollback
+	Kind             string     `json:"kind"` // manual | scheduled | rollback
 	CreatedAt        time.Time  `json:"createdAt"`
 	FileName         string     `json:"fileName"`
 	SizeBytes        int64      `json:"sizeBytes"`
@@ -607,6 +612,12 @@ type Error struct {
 	Code      string     `json:"code"`
 	Hint      string     `json:"hint,omitempty"`
 	Operation *Operation `json:"operation,omitempty"`
+	// Wave 7 (0.4.0): Field is the form field at fault, Reason a stable code
+	// for the problem and Params its values, so the dashboard can show its
+	// own translation next to the field.
+	Field  string         `json:"field,omitempty"`
+	Reason string         `json:"reason,omitempty"`
+	Params map[string]any `json:"params,omitempty"`
 }
 
 const (

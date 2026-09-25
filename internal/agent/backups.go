@@ -286,7 +286,7 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 		}
 	}
 	h.phase("archiving")
-	b, archiveErr := s.createArchive(*sc, "manual", actor, note)
+	b, archiveErr := s.createArchive(*sc, backupKind(actor), actor, note)
 	if running {
 		h.phase("restarting")
 		if err := s.startServer(ctx, h, *sc); err != nil {
@@ -315,6 +315,7 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 		return &apiError{Msg: "The backup was written but failed verification: " + vb.VerifyError, Hint: "Try again; if it keeps failing, check the disk for errors."}
 	}
 	s.audit(actor, "backup.created", b.ID, "succeeded", fmt.Sprintf("%s sha256 %s downtime %dms", b.FileName, b.SHA256, downtime))
+	s.afterBackup(b)
 	return nil
 }
 

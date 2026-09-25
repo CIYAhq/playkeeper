@@ -145,6 +145,8 @@ type Agent struct {
 
 	upd     updateState
 	catalog catalogCache
+	// Wave 7 (0.4.0): the Disk space page's last scan.
+	disk diskCache
 }
 
 func New(opts Options) (*Agent, error) {
@@ -487,7 +489,7 @@ type Route struct {
 
 func (a *Agent) routeTable() []Route {
 	srv := a.withServer
-	return []Route{
+	return append([]Route{
 		{"GET", "/v1/health", a.hHealth},
 		{"GET", "/v1/machine", a.hMachine},
 		{"GET", "/v1/preflight", a.hPreflight},
@@ -533,7 +535,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
-	}
+	}, a.automationRoutes()...)
 }
 
 // Routes exposes the route table so tests can iterate every allowlisted verb.

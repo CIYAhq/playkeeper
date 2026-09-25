@@ -86,6 +86,9 @@ type server struct {
 	rconMu sync.Mutex
 	rcon   *minecraft.RCON
 	rconIP string
+
+	// Wave 7 (0.4.0): schedules, sleep and copies somewhere else.
+	auto automation
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -206,6 +209,7 @@ func (s *server) startLoops() {
 			fn(s.ctx)
 		}()
 	}
+	s.startAutomation()
 }
 
 func newServerID() string {
@@ -537,6 +541,9 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 		if _, err := tx.Exec(q, s.id); err != nil {
 			return err
 		}
+	}
+	if err := s.forgetAutomation(tx); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
