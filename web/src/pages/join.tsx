@@ -111,18 +111,18 @@ function JoinShell({ step, children }: { step?: number; children: ReactNode }) {
         {t('nav.skip')}
       </a>
       {!phone && (
-        <header className="flex h-14 shrink-0 items-center gap-4 px-6">
+        <header className={cn('flex h-14 shrink-0 items-center gap-4 px-6', step !== undefined && 'grid grid-cols-[1fr_minmax(0,420px)_1fr]')}>
           <span className="flex items-center gap-2 text-[15px] font-bold">
             <BrandMark size={24} />
             {t('brand.name')}
           </span>
-          {step !== undefined && <Stepper steps={setupSteps()} current={step} label={t('join.steps')} className="mx-auto w-full max-w-[420px]" />}
+          {step !== undefined && <Stepper steps={setupSteps()} current={step} label={t('join.steps')} />}
           <a
             href={t('onboarding.helpUrl')}
             target="_blank"
             rel="noreferrer"
             aria-label={t('common.external', { label: t('common.help') })}
-            className="ml-auto inline-flex min-h-11 items-center gap-1 rounded-lg px-1 text-[13px] text-muted-foreground hover:text-foreground"
+            className="ml-auto inline-flex min-h-11 items-center gap-1 justify-self-end rounded-lg px-1 text-[13px] text-muted-foreground hover:text-foreground"
           >
             {t('common.help')}
             <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
@@ -506,7 +506,7 @@ function AdminStep({ me, password, onSignedIn }: { me: Me; password: string; onS
         <div className="flex items-center gap-4 max-sm:gap-3.5">
           <Pip pose="hardhat" size={phone ? 48 : 52} />
           <div className="min-w-0">
-            <h1 className="text-lg leading-6 font-bold tracking-[-0.01em] max-sm:text-[17px] max-sm:leading-[22px]">{t('join.adminTitle')}</h1>
+            <h1 className="text-xl leading-7 font-bold tracking-[-0.01em] max-sm:text-[17px] max-sm:leading-[22px]">{t('join.adminTitle')}</h1>
             {!phone && <p className="mt-0.5 text-[13px] text-muted-foreground">{t('join.adminBody')}</p>}
           </div>
         </div>
