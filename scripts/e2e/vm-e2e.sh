@@ -154,7 +154,7 @@ players_online() { # IP COUNT — waits until the dashboard reports COUNT player
 }
 
 world_sums() { # IP — checksums of the live world and backups
-  lab_ssh "$1" 'sudo find /var/lib/playkeeper/server/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2'
+  lab_ssh "$1" 'sudo sh -c "find /var/lib/playkeeper/servers/*/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} +" | sort -k2'
 }
 
 host_a() {
@@ -232,15 +232,15 @@ echo "## panel user reaching the Docker socket:"; sudo -u playkeeper curl -sS --
 echo "## unprivileged user reaching the agent socket:"; curl -sS --unix-socket /run/playkeeper/agent.sock http://a/v1/health 2>&1 | head -1
 echo "## agent allowlist probes (as the panel user)"
 sudo -u playkeeper curl -sS -o /dev/null -w "POST /v1/rm -> %{http_code}\n" -X POST --unix-socket /run/playkeeper/agent.sock http://a/v1/rm
-sudo -u playkeeper curl -sS -w " <- extra argument\n" -X POST --unix-socket /run/playkeeper/agent.sock http://a/v1/server/start -d '{"actor":"probe","cmd":"id"}'
-sudo -u playkeeper curl -sS -w " <- traversal id\n" --unix-socket /run/playkeeper/agent.sock 'http://a/v1/backups/..%2F..%2Fetc%2Fpasswd/download'
-echo "## minecraft container"; sudo docker inspect playkeeper-minecraft --format 'Privileged={{.HostConfig.Privileged}} NetworkMode={{.HostConfig.NetworkMode}} PidMode={{.HostConfig.PidMode}} CapAdd={{.HostConfig.CapAdd}} CapDrop={{.HostConfig.CapDrop}} Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} User={{.Config.User}} Ports={{json .HostConfig.PortBindings}} Mounts={{range .Mounts}}{{.Source}}->{{.Destination}}({{.RW}}) {{end}}'
-sudo docker inspect playkeeper-minecraft --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(TYPE|VERSION|CUSTOM_SERVER|SKIP_DOWNLOAD_DEFAULTS|MEMORY|ONLINE_MODE|ENABLE_WHITELIST|LOG_IPS)='
-echo "## image"; sudo docker inspect playkeeper-minecraft --format '{{.Config.Image}}'
+sudo -u playkeeper curl -sS -w " <- extra argument\n" -X POST --unix-socket /run/playkeeper/agent.sock http://a/v1/servers/abcdefghjk/start -d '{"actor":"probe","cmd":"id"}'
+sudo -u playkeeper curl -sS -w " <- traversal id\n" --unix-socket /run/playkeeper/agent.sock 'http://a/v1/servers/abcdefghjk/backups/..%2F..%2Fetc%2Fpasswd/download'
+echo "## minecraft container"; sudo docker inspect $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) --format 'Privileged={{.HostConfig.Privileged}} NetworkMode={{.HostConfig.NetworkMode}} PidMode={{.HostConfig.PidMode}} CapAdd={{.HostConfig.CapAdd}} CapDrop={{.HostConfig.CapDrop}} Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} User={{.Config.User}} Ports={{json .HostConfig.PortBindings}} Mounts={{range .Mounts}}{{.Source}}->{{.Destination}}({{.RW}}) {{end}}'
+sudo docker inspect $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(TYPE|VERSION|CUSTOM_SERVER|SKIP_DOWNLOAD_DEFAULTS|MEMORY|ONLINE_MODE|ENABLE_WHITELIST|LOG_IPS)='
+echo "## image"; sudo docker inspect $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) --format '{{.Config.Image}}'
 echo "## JVM heap flags"; sudo tr '\0' ' ' </proc/"$(pgrep -f 'paper-26.1.2' | head -1)"/cmdline | grep -oE -- '-Xm[sx][0-9]+[MG]' | sort -u
-echo "## server.properties"; sudo grep -E '^(online-mode|white-list|enforce-whitelist|log-ips|enable-rcon|server-port)=' /var/lib/playkeeper/server/data/server.properties
-echo "## Paper bStats telemetry"; sudo grep -E '^enabled:' /var/lib/playkeeper/server/data/plugins/bStats/config.yml
-echo "## secret files"; sudo stat -c '%a %U %n' /var/lib/playkeeper/agent/rcon.secret /var/lib/playkeeper/panel/tls/key.pem /var/lib/playkeeper/panel/panel.db /var/lib/playkeeper/agent/agent.db
+echo "## server.properties"; sudo grep -E '^(online-mode|white-list|enforce-whitelist|log-ips|enable-rcon|server-port)=' $(sudo sh -c 'ls -d /var/lib/playkeeper/servers/*/data' | head -1)/server.properties
+echo "## Paper bStats telemetry"; sudo grep -E '^enabled:' $(sudo sh -c 'ls -d /var/lib/playkeeper/servers/*/data' | head -1)/plugins/bStats/config.yml
+echo "## secret files"; sudo stat -c '%a %U %n' $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1) /var/lib/playkeeper/panel/tls/key.pem /var/lib/playkeeper/panel/panel.db /var/lib/playkeeper/agent/agent.db
 echo "## IP addresses in databases"
 sudo python3 - <<'PY'
 import re, sqlite3
@@ -251,27 +251,27 @@ for db in ("/var/lib/playkeeper/agent/agent.db", "/var/lib/playkeeper/panel/pane
     print(db, "IPv4-like strings:", ips or "none")
 PY
 echo "## RCON password in logs or databases"
-pw=$(sudo cat /var/lib/playkeeper/agent/rcon.secret)
+pw=$(sudo cat $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1))
 echo "journal: $(sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager | grep -c "$pw")"
-echo "container log: $(sudo docker logs playkeeper-minecraft 2>&1 | grep -c "$pw")"
+echo "container log: $(sudo docker logs $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) 2>&1 | grep -c "$pw")"
 echo "databases: $(sudo cat /var/lib/playkeeper/agent/agent.db* /var/lib/playkeeper/panel/panel.db* | grep -ac "$pw")"
 echo "## established connections right now (the agent's RCON link to the container on the Docker bridge)"; sudo ss -tnp state established | grep -v ':22 ' | head -20
 EOF
 lab_ssh "$A" "sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager | grep -c '$PK_PASSWORD' || true" | sed 's/^/admin password occurrences in journal: /' | tee -a "$OUT/host-a-privileges.txt"
-pk "$A" call GET '/api/server/logs?limit=2000' | grep -c 'raw.githubusercontent.com' | sed 's/^/console lines mentioning raw.githubusercontent.com: /' | tee -a "$OUT/host-a-privileges.txt" || true
-lab_ssh "$A" 'sudo sha256sum /var/lib/playkeeper/agent/rcon.secret /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-a-secret-hashes"
+pk "$A" call GET '/api/servers/{server}/logs?limit=2000' | grep -c 'raw.githubusercontent.com' | sed 's/^/console lines mentioning raw.githubusercontent.com: /' | tee -a "$OUT/host-a-privileges.txt" || true
+lab_ssh "$A" 'sudo sha256sum $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1) /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-a-secret-hashes"
 
 phase "HOST A: overview numbers against ground truth"
 wait_online "$A"
 {
   pk "$A" call GET /api/server
-  lab_ssh "$A" 'sudo docker stats --no-stream --format "docker stats: cpu={{.CPUPerc}} mem={{.MemUsage}}" playkeeper-minecraft; sudo docker inspect -f "StartedAt={{.State.StartedAt}}" playkeeper-minecraft; df -B1 /var/lib/playkeeper | tail -1; sudo docker logs playkeeper-minecraft 2>&1 | grep -m1 "Starting minecraft server version"'
+  lab_ssh "$A" 'sudo docker stats --no-stream --format "docker stats: cpu={{.CPUPerc}} mem={{.MemUsage}}" $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1); sudo docker inspect -f "StartedAt={{.State.StartedAt}}" $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1); df -B1 /var/lib/playkeeper | tail -1; sudo docker logs $(sudo docker ps -aq --filter label=io.playkeeper.server | head -1) 2>&1 | grep -m1 "Starting minecraft server version"'
   pk "$A" command list
 } | tee "$OUT/host-a-ground-truth.txt"
 shoot "$A" ground-truth-overview /
 
 phase "HOST A: restarting the agent does not duplicate events or sessions"
-counts() { pk "$A" call GET '/api/events?limit=1000' | grep -c '"kind"'; pk "$A" call GET '/api/players/sessions?range=24h' | grep -c '"player"'; }
+counts() { pk "$A" call GET '/api/servers/{server}/events?limit=1000' | grep -c '"kind"'; pk "$A" call GET '/api/servers/{server}/players/sessions?range=24h' | grep -c '"player"'; }
 before=$(counts | paste -sd' ')
 lab_ssh "$A" 'sudo systemctl restart playkeeper-agent'
 wait_online "$A"
@@ -298,8 +298,8 @@ shoot "$A" state-crashed /
 wait_online "$A"
 wait "$botpid" || true
 tee -a "$OUT/host-a-crash.txt" <"$OUT/host-a-crash-bot.log"
-pk "$A" call GET '/api/events?limit=20' | tee -a "$OUT/host-a-crash.txt"
-pk "$A" call GET '/api/players/sessions?range=1h' | python3 -c '
+pk "$A" call GET '/api/servers/{server}/events?limit=20' | tee -a "$OUT/host-a-crash.txt"
+pk "$A" call GET '/api/servers/{server}/players/sessions?range=1h' | python3 -c '
 import json, sys
 s = [x for x in json.loads(sys.stdin.read().split("\n", 1)[1])["sessions"] if x["player"] == "PkBotFriend"][0]
 print("session of the player online during the crash:", {k: s.get(k) for k in ("start", "end", "endReason", "endUncertain")})
@@ -318,7 +318,7 @@ wait_online "$A"
 
 phase "HOST A: low disk space"
 lab_ssh "$A" 'free=$(df -B1 --output=avail /var/lib/playkeeper | tail -1); sudo fallocate -l $((free - 300*1024*1024)) /var/tmp/pk-fill && df -h /var/lib/playkeeper | tail -1'
-pk "$A" call POST /api/backups '{"note":"low disk test"}' | tee "$OUT/host-a-low-disk.txt"
+pk "$A" call POST '/api/servers/{server}/backups' '{"note":"low disk test"}' | tee "$OUT/host-a-low-disk.txt"
 sleep 3
 pk "$A" call GET /api/server | grep -E '"lastOperation"|"error"|"hint"' | tee -a "$OUT/host-a-low-disk.txt"
 shoot "$A" state-low-disk / /world
@@ -337,8 +337,8 @@ sleep 20
 lab_wait_ssh "$A"
 wait_online "$A"
 pk "$A" call GET /api/server | grep -E '"phase"|"desired"|"startedAt"' | tee "$OUT/host-a-reboot.txt"
-pk "$A" call GET '/api/metrics?range=1h' >"$OUT/host-a-metrics-after-reboot.json"
-pk "$A" call GET '/api/players/summary?days=1&tz=UTC' >"$OUT/host-a-summary-after-reboot.json"
+pk "$A" call GET '/api/servers/{server}/metrics?range=1h' >"$OUT/host-a-metrics-after-reboot.json"
+pk "$A" call GET '/api/servers/{server}/players/summary?days=1&tz=UTC' >"$OUT/host-a-summary-after-reboot.json"
 python3 - "$OUT/host-a-metrics-after-reboot.json" "$OUT/host-a-summary-after-reboot.json" <<'PY' | tee -a "$OUT/host-a-reboot.txt"
 import json, sys
 m = json.loads(open(sys.argv[1]).read().split("\n", 1)[1])
@@ -369,9 +369,9 @@ from pkclient import Client
 m = json.load(open(sys.argv[1]))
 c = Client(f"https://{sys.argv[2]}:8443", f"{sys.argv[3]}/cert-{sys.argv[2]}.pem", f"{sys.argv[3]}/state-{sys.argv[2]}.json")
 g = m["gold"]
-c.ok("POST", "/api/server/command", {"command": f"forceload add {g[0]} {g[2]}"}); time.sleep(2)
-print("after reinstall, marker check:", c.ok("POST", "/api/server/command", {"command": f"data get block {m['sign'][0]} {m['sign'][1]} {m['sign'][2]} front_text.messages"})["output"])
-c.ok("POST", "/api/server/command", {"command": f"forceload remove {g[0]} {g[2]}"})
+c.ok("POST", c.sp("/command"), {"command": f"forceload add {g[0]} {g[2]}"}); time.sleep(2)
+print("after reinstall, marker check:", c.ok("POST", c.sp("/command"), {"command": f"data get block {m['sign'][0]} {m['sign'][1]} {m['sign'][2]} front_text.messages"})["output"])
+c.ok("POST", c.sp("/command"), {"command": f"forceload remove {g[0]} {g[2]}"})
 PY
 lab_shutdown a
 }
@@ -417,7 +417,7 @@ curl -fsS --cacert "$OUT/cert-$B.pem" "https://$B:8443/healthz" >/dev/null && ec
 phase "HOST B: blocked outbound HTTPS gives actionable errors; after unblocking, Start recovers"
 pk "$B" setup "$code_b" admin "$PK_PASSWORD" >/dev/null
 lab_ssh "$B" 'for t in iptables ip6tables; do sudo $t -I OUTPUT 1 -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j REJECT --reject-with tcp-reset; done'
-pk "$B" call GET /api/preflight | python3 -c '
+pk "$B" call GET '/api/machines/{machine}/preflight' | python3 -c '
 import json, sys
 for c in json.loads(sys.stdin.read().split("\n", 1)[1])["checks"]:
     fix = " -> Fix: " + c["fix"] if c.get("fix") else ""
@@ -432,7 +432,7 @@ wait_online "$B" && echo "server online after the fix" | tee -a "$OUT/host-b-blo
 
 phase "HOST B: purge needs the typed phrase; existing services, container and firewall rules survive"
 lab_ssh "$B" "echo 'keep my worlds' | sudo playkeeper uninstall --yes --purge" 2>&1 | tail -2 | tee "$OUT/host-b-purge.txt" || true
-lab_ssh "$B" 'echo "after the refused purge: $(systemctl is-active playkeeper-agent playkeeper-panel | paste -sd" ") ; data dir present: $(sudo test -d /var/lib/playkeeper/server/data && echo yes)"' | tee -a "$OUT/host-b-purge.txt"
+lab_ssh "$B" 'echo "after the refused purge: $(systemctl is-active playkeeper-agent playkeeper-panel | paste -sd" ") ; data dir present: $(sudo sh -c "ls -d /var/lib/playkeeper/servers/*/data" >/dev/null && echo yes)"' | tee -a "$OUT/host-b-purge.txt"
 lab_ssh "$B" "echo 'delete my worlds' | sudo playkeeper uninstall --yes --purge" 2>&1 | tee -a "$OUT/host-b-purge.txt"
 lab_ssh "$B" 'bash -s' <<'EOF' | tee -a "$OUT/host-b-fixtures.txt"
 set +e
@@ -517,7 +517,7 @@ diff "$OUT/host-c-world-before-tamper.sums" "$OUT/host-c-world-after-tamper.sums
 pk "$C" action start --wait >/dev/null
 wait_online "$C"
 pk "$C" call GET /api/audit >"$OUT/host-c-audit.json"
-lab_ssh "$C" 'sudo sha256sum /var/lib/playkeeper/agent/rcon.secret /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-c-secret-hashes"
+lab_ssh "$C" 'sudo sha256sum $(sudo sh -c 'ls /var/lib/playkeeper/agent/servers/*/rcon.secret' | head -1) /var/lib/playkeeper/panel/tls/key.pem' | awk '{print $1}' >"$OUT/host-c-secret-hashes"
 if grep -qxFf "$OUT/host-a-secret-hashes" "$OUT/host-c-secret-hashes"; then
   echo "SECRETS REPEATED: host C shares an RCON password or TLS key with host A" | tee "$OUT/host-c-secrets.txt"
   exit 1
