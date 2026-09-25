@@ -297,6 +297,10 @@ control "a template decides the type, version and settings" internal/agent/handl
   'if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {' \
   'if false {' \
   ./internal/agent '^TestTemplateRequestsAreChecked$'
+control "packs cannot suggest operator or function permission levels" internal/modpacks/rules.go \
+  '"force-gamemode", "gamemode",' \
+  '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
+  ./internal/modpacks '^TestPacksCannotSuggestPermissionLevels$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

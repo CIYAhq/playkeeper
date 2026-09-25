@@ -70,14 +70,14 @@ func inWorld(p, world string) bool {
 }
 
 // suggestible are the server.properties settings a pack may suggest: how the
-// game plays, never how the server is reached, who may join or where the
-// world is.
+// game plays, never how the server is reached, who may join, what operators
+// and a pack's functions may run, or where the world is.
 var suggestible = []string{
 	"allow-flight", "allow-nether", "difficulty", "enable-command-block", "entity-broadcast-range-percentage",
-	"force-gamemode", "function-permission-level", "gamemode", "generate-structures", "generator-settings",
+	"force-gamemode", "gamemode", "generate-structures", "generator-settings",
 	"hardcore", "initial-disabled-packs", "initial-enabled-packs", "level-seed", "level-type",
 	"max-chained-neighbor-updates", "max-tick-time", "max-world-size", "network-compression-threshold",
-	"op-permission-level", "player-idle-timeout", "pvp", "rate-limit", "simulation-distance", "spawn-animals",
+	"player-idle-timeout", "pvp", "rate-limit", "simulation-distance", "spawn-animals",
 	"spawn-monsters", "spawn-npcs", "spawn-protection", "sync-chunk-writes", "view-distance",
 }
 
