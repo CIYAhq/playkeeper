@@ -1,14 +1,14 @@
 import { useState, type ReactNode } from 'react'
-import { CheckIcon, CopyIcon, DownloadIcon, ExternalLinkIcon, FileDownIcon } from 'lucide-react'
+import { DownloadIcon, ExternalLinkIcon, FileDownIcon } from 'lucide-react'
 import { usePackPage } from '@/api/packs'
 import type { PackLauncher, PackPage as PackPageData, ShareYourself } from '@/api/types'
 import { BrandMark, Emblem, Pip } from '@/components/app/art'
-import { copyText, CopyButton, Marker } from '@/components/app/bits'
+import { CopyButton, Marker } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
 import { loaderLabel } from '@/components/app/modpacks'
+import { CopyIconButton } from '@/components/app/pack-share'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes } from '@/lib/format'
 import { pageRows, shareText, siteLabel, yourselfLink, yourselfReason } from '@/lib/packs'
@@ -215,25 +215,8 @@ function JoinCard({ address, phone }: { address: string; phone: boolean }) {
         <div className="text-xs text-muted-foreground">{t('packPage.join')}</div>
         <div className="truncate text-lg font-semibold tracking-[-0.01em] max-sm:text-base">{address}</div>
       </div>
-      {phone ? <CopyIconButton text={address} label={t('packPage.copyAddress')} /> : <CopyButton text={address} variant="outline" />}
+      {phone ? <CopyIconButton text={address} label={t('packPage.copyAddress')} variant="outline" size="icon-xl" className="rounded-xl" /> : <CopyButton text={address} variant="outline" />}
     </div>
-  )
-}
-
-function CopyIconButton({ text, label }: { text: string; label: string }) {
-  const [done, setDone] = useState(false)
-  async function copy() {
-    if (!(await copyText(text))) {
-      toastManager.add({ title: t('toast.copyFailed'), type: 'error' })
-      return
-    }
-    setDone(true)
-    window.setTimeout(() => setDone(false), 1800)
-  }
-  return (
-    <Button variant="outline" size="icon-xl" className="rounded-xl" onClick={() => void copy()} aria-label={done ? t('common.copied') : label}>
-      {done ? <CheckIcon /> : <CopyIcon />}
-    </Button>
   )
 }
 
