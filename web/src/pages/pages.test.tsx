@@ -221,8 +221,7 @@ describe('Home', () => {
     expect(text).toContain('Paper 26.1.2')
     expect(text).toContain('3 playing')
     expect(text).toContain(window.location.hostname)
-    expect(text).toContain('1 server on my-vps')
-    expect(text).toContain('3 people playing right now')
+    expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
@@ -264,6 +263,7 @@ describe('Home for team members', () => {
     expect(link('Turn it on').getAttribute('href')).toBe('/account/two-factor')
     expect(text).not.toContain('Welcome, mara')
   })
+
   it('says who got in with an invite link, never the link’s id', async () => {
     answer({ '/activity': [
       { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'allowlisted', player: 'Lenn0x', actor: 'invite:ymckepm6wx' },
@@ -274,7 +274,6 @@ describe('Home for team members', () => {
     expect(text).toContain('siya added pixelpia to the allowlist')
     expect(text).not.toContain('invite:')
   })
-
 
   it('gives a viewer no Start button and a member no first steps', async () => {
     const stopped = [server({ phase: 'stopped', desired: 'stopped', startedAt: undefined })]

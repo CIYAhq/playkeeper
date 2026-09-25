@@ -172,7 +172,7 @@ export const en = {
   // Home
   'home.title': 'Home',
   'home.servers': { one: '{count} server on {machine}', other: '{count} servers on {machine}' },
-  'home.playing': { zero: 'nobody playing right now', one: '{count} person playing right now', other: '{count} people playing right now' },
+  'home.playing': { zero: 'nobody playing', one: '{count} playing', other: '{count} playing' },
   'home.emptySubtitle': 'Nothing running on {machine} yet',
   'home.emptyTitle': 'No servers yet',
   'home.emptyBody': 'Create a Minecraft server for your friends. It takes about 3 minutes, and you just pick how you’ll play.',
