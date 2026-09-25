@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { api, get, post } from '@/api/client'
@@ -77,12 +77,17 @@ function askedFor(): { memoryMB?: number; viewDistance?: number } {
   }
 }
 
-/** The section at the top of the screen, for the settings nav. */
+/**
+ * The section at the top of the screen, for the settings nav. The section in
+ * the address wins while it is near the top: near the end of the page it
+ * can't scroll all the way up, so the one above it is still in view.
+ */
 function useActiveSection(ids: readonly string[]): string | undefined {
-  const [active, setActive] = useState<string | undefined>(() => {
+  const asked = useCallback(() => {
     const hash = window.location.hash.slice(1)
-    return ids.includes(hash) ? hash : ids[0]
-  })
+    return ids.includes(hash) ? hash : undefined
+  }, [ids])
+  const [active, setActive] = useState<string | undefined>(() => asked() ?? ids[0])
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return
     const visible = new Set<string>()
@@ -92,8 +97,9 @@ function useActiveSection(ids: readonly string[]): string | undefined {
           if (e.isIntersecting) visible.add(e.target.id)
           else visible.delete(e.target.id)
         }
-        const first = ids.find((id) => visible.has(id))
-        if (first) setActive(first)
+        const want = asked()
+        const next = want && visible.has(want) ? want : ids.find((id) => visible.has(id))
+        if (next) setActive(next)
       },
       { rootMargin: '0px 0px -65% 0px' },
     )
@@ -101,8 +107,16 @@ function useActiveSection(ids: readonly string[]): string | undefined {
       const el = document.getElementById(id)
       if (el) io.observe(el)
     }
-    return () => io.disconnect()
-  }, [ids])
+    const onHash = () => {
+      const want = asked()
+      if (want) setActive(want)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => {
+      io.disconnect()
+      window.removeEventListener('hashchange', onHash)
+    }
+  }, [ids, asked])
   return active
 }
 

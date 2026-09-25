@@ -409,6 +409,41 @@ describe('Settings › Memory', () => {
     expect(document.querySelector('[role="img"]')).toBeNull()
   })
 
+  it('keeps the section in the address current in the nav while the one above it is still in view', async () => {
+    const observers: { cb: IntersectionObserverCallback; els: Element[] }[] = []
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        els: Element[] = []
+        constructor(cb: IntersectionObserverCallback) {
+          observers.push({ cb, els: this.els })
+        }
+        observe(el: Element) {
+          this.els.push(el)
+        }
+        disconnect() {}
+      },
+    )
+    at('/servers/survival/settings#memory')
+    answer({ '/memory': keep })
+    await render(<ServerSettingsPage server={server()} />)
+    const current = () => document.querySelector('nav [aria-current="location"]')?.textContent
+    const inView = async (...ids: string[]) => {
+      const o = observers.at(-1)
+      if (!o) throw new Error('no IntersectionObserver')
+      const entries = o.els.map((target) => ({ target, isIntersecting: ids.includes(target.id) }) as unknown as IntersectionObserverEntry)
+      await act(async () => o.cb(entries, {} as IntersectionObserver))
+    }
+    await inView('list', 'memory')
+    expect(current()).toBe('Memory')
+    await inView('game', 'list')
+    expect(current()).toBe('In the game')
+    at('/servers/survival/settings#version')
+    await act(async () => window.dispatchEvent(new HashChangeEvent('hashchange')))
+    expect(current()).toBe('Minecraft version')
+    vi.unstubAllGlobals()
+  })
+
   it('takes the fixes How it’s running links to as unsaved changes', async () => {
     at('/servers/survival/settings?memory=6144&view=10#memory')
     answer({ '/memory': { ...keep, verdict: 'raise', params: { budget_mb: 4096, heap_mb: 3072, days: 14, full_gcs: 2, to_mb: 6144 }, recommendedMB: 6144 } })
