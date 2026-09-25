@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -87,6 +88,9 @@ type addressRuntime struct {
 	recheck   time.Time
 	lastPoll  time.Time
 	serversUp bool
+	// claiming is the free name being claimed right now: the names service
+	// checks that a lapsed name's address answers before the claim does.
+	claiming string
 }
 
 type availEntry struct {
@@ -393,7 +397,9 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 			return a.namesError(err)
 		}
 	}
+	a.setClaiming(name)
 	n, err := c.Claim(ctx, name)
+	a.setClaiming("")
 	if err != nil {
 		if old != "" {
 			a.reclaim(ctx, c, st, old)
@@ -955,6 +961,39 @@ func freeView(f *freeState, now time.Time) *api.FreeAddress {
 func (a *Agent) hAddress(w http.ResponseWriter, r *http.Request) {
 	a.notePanelHost(r.URL.Query().Get("panelHost"))
 	writeJSON(w, http.StatusOK, a.addressView())
+}
+
+// hAddressAlive answers the names service's liveness check, which the panel
+// passes on from the internet with the check's Host header in host.
+func (a *Agent) hAddressAlive(w http.ResponseWriter, r *http.Request) {
+	r = r.Clone(r.Context())
+	r.Host = r.URL.Query().Get("host")
+	names.AliveHandler(names.DefaultBase, a.aliveKey).ServeHTTP(w, r)
+}
+
+// aliveKey is the machine's names key if the machine holds name or is
+// claiming it, else nil.
+func (a *Agent) aliveKey(name string) ed25519.PrivateKey {
+	st := a.address()
+	a.addr.mu.Lock()
+	claiming := a.addr.claiming
+	a.addr.mu.Unlock()
+	held := st.Kind == api.AddressPlaykeeper && st.Free != nil && st.Free.Name.Name == name && st.Free.Name.State != names.StateReleased
+	if !held && (claiming == "" || claiming != name) {
+		return nil
+	}
+	key, err := names.LoadOrCreateKey(filepath.Join(a.cfg.AgentDir(), "names.key"))
+	if err != nil {
+		a.log.Warn("could not read the key for the free address service's liveness check", "err", err)
+		return nil
+	}
+	return key
+}
+
+func (a *Agent) setClaiming(name string) {
+	a.addr.mu.Lock()
+	a.addr.claiming = name
+	a.addr.mu.Unlock()
 }
 
 func (a *Agent) hAddressAvailable(w http.ResponseWriter, r *http.Request) {

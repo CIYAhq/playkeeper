@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1075,5 +1077,75 @@ func TestPublicIPAndHostPort(t *testing.T) {
 		if got := hostPort(c.host, c.port); got != c.want {
 			t.Errorf("hostPort(%q, %d) = %q, want %q", c.host, c.port, got, c.want)
 		}
+	}
+}
+
+func TestLivenessCheckIsAnsweredOnlyForTheMachinesName(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	e.names.takenBy("steve")
+	const nonce = "dGVzdC1ub25jZS0yMi1jaGFycw"
+	ask := func(host string) (int, names.Alive) {
+		t.Helper()
+		var v names.Alive
+		code := e.callInto("GET", "/v1/address/alive/"+nonce+"?"+url.Values{"host": {host}}.Encode(), nil, &v)
+		return code, v
+	}
+	if code, _ := ask("alex.playkeeper.io:8443"); code != http.StatusNotFound {
+		t.Fatalf("before a claim: %d", code)
+	}
+	// The service checks a lapsed name's address before it answers the claim.
+	during := 0
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		if r.Method == "PUT" && r.URL.Path == "/v1/names/alex" {
+			during, _ = ask("alex.playkeeper.io:8443")
+		}
+		return nil
+	})
+	e.claim("alex")
+	e.names.setFail(nil)
+	if during != http.StatusOK {
+		t.Fatalf("during the claim: %d", during)
+	}
+	key, err := names.LoadOrCreateKey(filepath.Join(e.cfg.AgentDir(), "names.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := key.Public().(ed25519.PublicKey)
+	code, v := ask("Alex.playkeeper.io.:8443")
+	if code != http.StatusOK || v.Name != "alex" || !names.VerifyAlive(pub, names.DefaultBase, "alex", nonce, v.Signature) {
+		t.Fatalf("held name: %d %+v", code, v)
+	}
+	if names.VerifyAlive(pub, names.DefaultBase, "alex", nonce+"x", v.Signature) {
+		t.Fatal("the answer is not bound to the nonce")
+	}
+	for _, host := range []string{"bob.playkeeper.io:8443", "steve.playkeeper.io:8443", "alex.example.com:8443", "survival.alex.playkeeper.io:8443", "203.0.113.10:8443", ""} {
+		if code, v := ask(host); code != http.StatusNotFound || v.Signature != "" {
+			t.Errorf("%q: %d %+v", host, code, v)
+		}
+	}
+	if code, _ := e.call("GET", "/v1/address/alive/short?host=alex.playkeeper.io", nil); code != http.StatusBadRequest {
+		t.Errorf("bad nonce: %d", code)
+	}
+
+	// A name the service reports released is not held any more.
+	_ = e.a.updateAddress(func(st *addressState) {
+		f := *st.Free
+		f.Name.State = names.StateReleased
+		st.Free = &f
+	})
+	if code, _ := ask("alex.playkeeper.io:8443"); code != http.StatusNotFound {
+		t.Errorf("released in the service: %d", code)
+	}
+	_ = e.a.updateAddress(func(st *addressState) {
+		f := *st.Free
+		f.Name.State = names.StateActive
+		st.Free = &f
+	})
+	var a api.Address
+	if code := e.callInto("POST", "/v1/address/release", map[string]any{"actor": "admin"}, &a); code != http.StatusOK {
+		t.Fatalf("release: %d", code)
+	}
+	if code, _ := ask("alex.playkeeper.io:8443"); code != http.StatusNotFound {
+		t.Errorf("released: %d", code)
 	}
 }

@@ -684,6 +684,36 @@ control "a password change ends pending sign-ins" internal/panel/server.go \
   'DELETE FROM pending_logins WHERE 0 AND user_id = ?`, sess.User.ID)' \
   ./internal/panel '^TestSecondStepExpiresAndCanBeCancelled$'
 
+# Wave 2: the names service's liveness check.
+control "the liveness check answers only for the machine's name" internal/agent/address.go \
+  'st.Free != nil && st.Free.Name.Name == name && st.Free.Name.State' \
+  'st.Free != nil && st.Free.Name.State' \
+  ./internal/agent '^TestLivenessCheckIsAnsweredOnlyForTheMachinesName$'
+control "the liveness check does not answer for a released name" internal/agent/address.go \
+  ' && st.Free.Name.State != names.StateReleased' \
+  '' \
+  ./internal/agent '^TestLivenessCheckIsAnsweredOnlyForTheMachinesName$'
+control "the liveness check answers for the name being claimed" internal/agent/address.go \
+  'a.setClaiming(name)' \
+  'a.setClaiming("")' \
+  ./internal/agent '^TestLivenessCheckIsAnsweredOnlyForTheMachinesName$'
+control "the liveness check needs no sign-in" internal/panel/server.go \
+  '{"GET", names.AlivePath + "{nonce}", public, "", s.hNamesAlive}' \
+  '{"GET", names.AlivePath + "{nonce}", needSession, actView, s.hNamesAlive}' \
+  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$'
+control "the liveness check tells the agent the Host it asked" internal/panel/alive.go \
+  'url.Values{"host": {r.Host}}' \
+  'nil' \
+  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$'
+control "the port-8443 listener serves only the liveness check" internal/panel/alive.go \
+  'return s.securityHeaders(s.logRequests(mux))' \
+  'mux.Handle("/", s.Handler()); return s.securityHeaders(s.logRequests(mux))' \
+  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$'
+control "per-address liveness check limit" internal/panel/alive.go \
+  'if ok, wait := s.alive.allow(limitKey(clientIP(r))); !ok {' \
+  'if ok, wait := true, time.Duration(0); !ok {' \
+  ./internal/panel '^TestLivenessChecksAreLimitedPerAddress$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

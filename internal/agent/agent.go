@@ -580,6 +580,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/address", a.hAddress},
 		{"DELETE", "/v1/address", a.hAddressDelete},
 		{"GET", "/v1/address/available", a.hAddressAvailable},
+		{"GET", "/v1/address/alive/{nonce}", a.hAddressAlive},
 		{"GET", "/v1/address/plan", a.hAddressPlan},
 		{"POST", "/v1/address/claim", a.hAddressClaim},
 		{"POST", "/v1/address/refresh", a.hAddressRefresh},

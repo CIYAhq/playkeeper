@@ -30,6 +30,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/config"
+	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -57,6 +58,7 @@ type Server struct {
 	static  fs.FS
 	loginIP *limiter
 	control *limiter
+	alive   *limiter
 	locks   *lockout
 	heads   *headFetcher
 }
@@ -92,6 +94,7 @@ func New(opts Options) (*Server, error) {
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
 		loginIP: newLimiter(10, 15*time.Minute, opts.Now),
 		control: newLimiter(30, time.Minute, opts.Now),
+		alive:   newLimiter(20, time.Minute, opts.Now),
 		locks:   newLockout(opts.Now),
 		heads:   newHeadFetcher(src),
 	}
@@ -161,6 +164,7 @@ func (s *Server) Routes() []Route {
 	}
 	return []Route{
 		{"GET", "/api/health", public, "", s.hHealth},
+		{"GET", names.AlivePath + "{nonce}", public, "", s.hNamesAlive},
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
 		{"POST", "/api/setup", publicMutation, "", s.hSetup},
 		{"POST", "/api/auth/login", publicMutation, "", s.hLogin},
@@ -997,6 +1001,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 		defer cancel()
 		srv.Shutdown(c)
 	}()
+	s.serveAlive(ctx, tc)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	err = srv.ListenAndServeTLS("", "")
 	if errors.Is(err, http.ErrServerClosed) {
