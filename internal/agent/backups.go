@@ -362,16 +362,143 @@ func (a *Agent) stageDir(id string) string { return filepath.Join(a.cfg.StagingD
 // pruneStages deletes restore stages left by an earlier run of the agent (a
 // preview nobody applied or discarded, or an interrupted restore). Each holds
 // an archive copy and its extracted world, and nothing can be using them yet.
+// A restore that stopped in the middle of its world swap is settled first;
+// while that fails its stage is kept, as it may hold the restored world.
 func (a *Agent) pruneStages() {
 	entries, _ := os.ReadDir(a.cfg.StagingDir())
+	removed := 0
 	for _, e := range entries {
-		if err := os.RemoveAll(filepath.Join(a.cfg.StagingDir(), e.Name())); err != nil {
+		dir := filepath.Join(a.cfg.StagingDir(), e.Name())
+		if err := a.settleSwap(dir); err != nil {
+			a.log.Warn("could not settle an interrupted restore, so its stage is kept", "stage", e.Name(), "err", err)
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
 			a.log.Warn("could not remove a leftover restore stage", "stage", e.Name(), "err", err)
+			continue
+		}
+		removed++
+	}
+	if removed > 0 {
+		a.log.Info("removed leftover restore stages", "count", removed)
+	}
+}
+
+// swapJournal is written into the stage before a restore moves the live world
+// aside, so the next start can settle a swap the agent did not finish: the
+// live directory may be missing, or hold the restored world under the
+// previous settings.
+type swapJournal struct {
+	ServerID string `json:"serverId"`
+	// Stamp names the copies next to the live directory: data.replaced-<Stamp>
+	// is the previous world, data.failed-restore-<Stamp> a restored world that
+	// had to make way.
+	Stamp    string            `json:"stamp"`
+	Previous *api.ServerConfig `json:"previous,omitempty"`
+	// Committed is set once the restored world and its settings are in place,
+	// and cleared before they are undone.
+	Committed bool `json:"committed"`
+}
+
+const swapJournalFile = "swap.json"
+
+// reWorldCopy matches the copies a restore leaves next to a live world
+// directory named "data".
+var reWorldCopy = regexp.MustCompile(`^data\.(replaced|failed-restore)-([0-9]{8}-[0-9]{6})$`)
+
+func writeSwapJournal(stageDir string, j swapJournal) error {
+	b, err := json.Marshal(j)
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(stageDir, swapJournalFile+".new")
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(b)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, filepath.Join(stageDir, swapJournalFile))
+	}
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
+}
+
+// settleSwap finishes the world swap recorded in a stage's journal, if it has
+// one: a committed restore keeps the restored world, and anything else gets
+// the previous world and its settings back, with a restored world in the way
+// kept as a failed-restore copy.
+func (a *Agent) settleSwap(stageDir string) error {
+	b, err := os.ReadFile(filepath.Join(stageDir, swapJournalFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var j swapJournal
+	if err := json.Unmarshal(b, &j); err != nil {
+		return fmt.Errorf("unreadable swap journal: %w", err)
+	}
+	if !reWorldCopy.MatchString("data.replaced-" + j.Stamp) {
+		return fmt.Errorf("swap journal with an invalid stamp %q", j.Stamp)
+	}
+	s := a.serverByID(j.ServerID)
+	if s == nil {
+		return nil
+	}
+	live := s.dataDir()
+	aside, failedAt := live+".replaced-"+j.Stamp, live+".failed-restore-"+j.Stamp
+	if j.Committed && dirExists(live) {
+		return nil
+	}
+	if dirExists(aside) {
+		if dirExists(live) {
+			if err := renameDir(live, failedAt); err != nil {
+				return err
+			}
+		}
+		if err := renameDir(aside, live); err != nil {
+			return err
+		}
+		a.log.Info("put the previous world back after an interrupted restore", "server", s.id)
+	}
+	if !dirExists(live) {
+		return fmt.Errorf("the world directory %s is missing", live)
+	}
+	if j.Previous != nil {
+		return s.saveServerConfig(*j.Previous)
+	}
+	return nil
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// newestPreviousWorld is the newest previous world a restore moved aside
+// from the live directory, or "".
+func (s *server) newestPreviousWorld() string {
+	entries, _ := os.ReadDir(s.dir())
+	newest := ""
+	for _, e := range entries {
+		if m := reWorldCopy.FindStringSubmatch(e.Name()); m != nil && m[1] == "replaced" && e.Name() > newest {
+			newest = e.Name()
 		}
 	}
-	if len(entries) > 0 {
-		a.log.Info("removed leftover restore stages", "count", len(entries))
+	if newest == "" {
+		return ""
 	}
+	return filepath.Join(s.dir(), newest)
 }
 
 // stageArchive copies an archive into staging, then verifies and extracts it
@@ -590,7 +717,8 @@ var renameDir = os.Rename
 // fails to start is swapped back out automatically. The stage is deleted when
 // the live world is known to be good: the restore finished, nothing was
 // replaced, or the previous world is back. If putting it back fails, the
-// stage and the aside copy both stay and the error names them.
+// stage and the aside copy both stay and the error names them. The stage's
+// swap journal lets the next start settle a swap the agent did not finish.
 func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.RestoreApplyRequest, actor string) error {
 	worldSafe := true
 	defer func() {
@@ -632,9 +760,15 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	if err := os.MkdirAll(filepath.Dir(live), 0o755); err != nil {
 		return err
 	}
-	aside := live + ".replaced-" + s.now().UTC().Format("20060102-150405")
+	stamp := s.now().UTC().Format("20060102-150405")
+	aside := live + ".replaced-" + stamp
+	journal := swapJournal{ServerID: s.id, Stamp: stamp, Previous: prev}
 	hadLive := false
 	if _, err := os.Stat(live); err == nil {
+		if err := writeSwapJournal(st.dir, journal); err != nil {
+			s.startPrevious(ctx, h, prev, wasRunning)
+			return fmt.Errorf("could not save the restore's progress file, so nothing was replaced: %w", err)
+		}
 		if err := renameDir(live, aside); err != nil {
 			return err
 		}
@@ -643,7 +777,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	worldSafe = false
 	// A restored world that has to make way goes to failedAt, next to the live
 	// directory and outside the staging folder the agent clears at start.
-	failedAt := live + ".failed-restore-" + s.now().UTC().Format("20060102-150405")
+	failedAt := live + ".failed-restore-" + stamp
 	// putBack moves the previous world back into place once the restored one
 	// is out of the way, at restoredAt. If that fails the live directory is
 	// missing: nothing is deleted, the restored copy leaves the stage, and the
@@ -691,7 +825,14 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	} else {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy = s.now().UTC(), actor
 	}
-	if err := s.saveServerConfig(sc); err != nil {
+	err = s.saveServerConfig(sc)
+	if err == nil && hadLive {
+		journal.Committed = true
+		if err = writeSwapJournal(st.dir, journal); err != nil && prev != nil {
+			_ = s.saveServerConfig(*prev)
+		}
+	}
+	if err != nil {
 		cause := fmt.Errorf("could not record the restored server's settings: %w", err)
 		if rerr := renameDir(live, failedAt); rerr != nil {
 			where := "there was no previous world"
@@ -715,6 +856,10 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	if startErr != nil && hadLive && prev != nil {
 		h.phase("reverting")
 		_ = s.stopServer(ctx, h)
+		journal.Committed = false
+		if err := writeSwapJournal(st.dir, journal); err != nil {
+			return fmt.Errorf("the restored world did not start (%v), and saving the restore's progress file failed (%v), so nothing was moved: the restored world is at %s and the previous world at %s", startErr, err, live, aside)
+		}
 		if err := renameDir(live, failedAt); err != nil {
 			return fmt.Errorf("the restored world did not start (%v), and moving it aside failed (%v), so nothing was deleted: the restored world is at %s and the previous world at %s", startErr, err, live, aside)
 		}

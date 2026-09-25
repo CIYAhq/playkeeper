@@ -38,6 +38,8 @@ Follow the install steps in the [README](../README.md#install-on-your-vps). Open
 
 To restore over an existing world instead (the server's **World** tab → a backup's **…** menu → **Restore this backup…**, or drop a file under **Restore a world**), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
 
+If a restore is interrupted, for example by a power cut, Playkeeper puts the previous world and its settings back when it starts again. If it cannot, the server stays stopped and its error names the folder the previous world is in (`data.replaced-<time>`, next to the server's `data` folder): move that folder back to `data` and press **Start**.
+
 ## What is not restored
 
 - Playkeeper admin accounts and sessions (the new server keeps its own).

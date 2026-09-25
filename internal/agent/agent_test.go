@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1668,6 +1669,132 @@ func TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails(t *testing.T
 			copies()
 		})
 	}
+}
+
+// An agent that stops in the middle of a restore's world swap leaves the live
+// directory missing, or holding the restored world under the previous
+// settings. The next start puts the previous world and its settings back
+// before anything runs, and keeps the restored world as a failed-restore copy.
+func TestInterruptedRestoreIsSettledAtStart(t *testing.T) {
+	for _, when := range []string{"before its settings were saved", "while putting the previous world back"} {
+		t.Run(when, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			id, phrase := e.backupAndStage()
+			restored := worldHash(t, e.dataDir())
+			if err := os.WriteFile(filepath.Join(e.dataDir(), "world", "later.dat"), []byte("built after the backup"), 0o640); err != nil {
+				t.Fatal(err)
+			}
+			previous := worldHash(t, e.dataDir())
+			sc, err := e.srv().serverConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sc.MOTD = "Before the restore"
+			if err := e.srv().saveServerConfig(*sc); err != nil {
+				t.Fatal(err)
+			}
+			live, staged := e.dataDir(), filepath.Join(e.cfg.StagingDir(), id, "data")
+			reverting := when == "while putting the previous world back"
+			if reverting {
+				e.fd.mu.Lock()
+				e.fd.bootExit = 1
+				e.fd.mu.Unlock()
+			}
+			died := make(chan struct{})
+			renameDir = func(from, to string) error {
+				err := os.Rename(from, to)
+				if !reverting && from == staged && to == live || reverting && from == live && strings.HasPrefix(to, live+".failed-restore-") {
+					close(died)
+					runtime.Goexit()
+				}
+				return err
+			}
+			t.Cleanup(func() { renameDir = os.Rename })
+			code, out := e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": phrase, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("apply: %d %v", code, out)
+			}
+			select {
+			case <-died:
+			case <-time.After(20 * time.Second):
+				t.Fatal("the restore never reached the step where the agent stops")
+			}
+			e.stop()
+			renameDir = os.Rename
+			e.fd.mu.Lock()
+			e.fd.bootExit = 0
+			e.fd.mu.Unlock()
+			e.start()
+			if got := worldHash(t, live); got != previous {
+				t.Fatal("the previous world is not back in place")
+			}
+			failed, _ := filepath.Glob(live + ".failed-restore-*")
+			if len(failed) != 1 || worldHash(t, failed[0]) != restored {
+				t.Fatalf("want the restored world kept as one failed-restore copy, got %v", failed)
+			}
+			if left, _ := filepath.Glob(live + ".replaced-*"); len(left) != 0 {
+				t.Fatalf("the previous world's aside copy is left: %v", left)
+			}
+			if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
+				t.Fatalf("the settled restore's stage is left: %v", left)
+			}
+			if got, _ := e.srv().serverConfig(); got == nil || got.MOTD != "Before the restore" {
+				t.Fatalf("the previous settings are not back: %+v", got)
+			}
+			if op, _ := e.a.loadOperation(out["id"].(string)); op == nil || op.Status != api.OpFailed || !strings.Contains(op.Error, "Interrupted") {
+				t.Fatalf("the restore must be recorded as interrupted: %+v", op)
+			}
+			e.waitFor("the previous world running again", e.onlineIdle)
+			if got := worldHash(t, live); got != previous {
+				t.Fatal("starting again changed the previous world")
+			}
+		})
+	}
+}
+
+// When the restored world cannot leave the stage either, the stage holds it:
+// the stage is kept across restarts until the previous world is back, and
+// meanwhile no start may create an empty world in the missing directory.
+func TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	previous := worldHash(t, e.dataDir())
+	live, staged := e.dataDir(), filepath.Join(e.cfg.StagingDir(), id, "data")
+	renameDir = func(from, to string) error {
+		if to == live && (from == staged || strings.HasPrefix(from, live+".replaced-")) || from == staged && strings.HasPrefix(to, live+".failed-restore-") {
+			return errors.New("injected rename failure")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { renameDir = os.Rename })
+	if op := e.applyRestore(id, phrase); op.Status != api.OpFailed || !strings.Contains(op.Error, "the restored world at "+staged) {
+		t.Fatalf("the error must say the restored world is still in the stage: %+v", op)
+	}
+	e.stop()
+	e.start()
+	e.waitFor("the automatic start to refuse", func() bool { return e.opsOf("recover", api.OpFailed) > 0 })
+	if _, err := os.Stat(filepath.Join(staged, "world")); err != nil {
+		t.Fatalf("the stage holding the restored world was deleted at start: %v", err)
+	}
+	if _, err := os.Stat(live); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a start recreated the missing world directory: %v", err)
+	}
+	var refusal string
+	if err := e.a.db.QueryRow(`SELECT error FROM operations WHERE kind = 'recover' AND status = 'failed' LIMIT 1`).Scan(&refusal); err != nil || !strings.Contains(refusal, "world folder is missing") {
+		t.Fatalf("the refused start must say why: %q %v", refusal, err)
+	}
+	renameDir = os.Rename
+	e.stop()
+	e.start()
+	if got := worldHash(t, live); got != previous {
+		t.Fatal("the previous world is not back in place")
+	}
+	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
+		t.Fatalf("the stage is left after the previous world came back: %v", left)
+	}
+	e.waitFor("the previous world running again", e.onlineIdle)
 }
 
 func worldHash(t *testing.T, dir string) string {

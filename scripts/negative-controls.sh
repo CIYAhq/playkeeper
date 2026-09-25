@@ -273,6 +273,24 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
 
+# Follow-ups after 0.3.0.
+control "an interrupted restore gets the previous world back at start" internal/agent/backups.go \
+  'if dirExists(aside) {' \
+  'if false && dirExists(aside) {' \
+  ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
+control "an interrupted restore gets the previous settings back at start" internal/agent/backups.go \
+  'return s.saveServerConfig(*j.Previous)' \
+  'return nil' \
+  ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
+control "a restore stage is kept while its swap is not settled" internal/agent/backups.go \
+  'if err := a.settleSwap(dir); err != nil {' \
+  'if err := a.settleSwap(dir); false && err != nil {' \
+  ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+control "no start recreates a world directory a restore moved aside" internal/agent/lifecycle.go \
+  'if prev := s.newestPreviousWorld(); prev != "" {' \
+  'if prev := s.newestPreviousWorld(); false && prev != "" {' \
+  ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
