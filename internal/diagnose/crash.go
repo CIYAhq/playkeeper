@@ -69,7 +69,7 @@ type CrashInput struct {
 // Addon is an installed plugin or mod jar.
 type Addon struct {
 	File        string `json:"file"`                   // e.g. "EssentialsX-2.21.0.jar"
-	JavaVersion int    `json:"java_version,omitempty"` // Java its classes need (JarJavaVersion); 0 when unknown
+	JavaVersion int    `json:"java_version,omitempty"` // Java its classes need: the highest class file major version minus 44; 0 when unknown
 }
 
 // CrashDiagnosis says what stopped the server, the evidence for it and what
