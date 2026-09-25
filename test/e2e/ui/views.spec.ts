@@ -7,6 +7,8 @@ const viewports = [
   { name: 'narrow', width: 390, height: 844 },
 ]
 const prefix = process.env.PK_SHOT_PREFIX ?? 'view'
+// The server types with a Map tab, as in web/src/lib/map.ts.
+const mapTypes = ['paper', 'purpur', 'fabric', 'quilt', 'neoforge']
 
 async function axe(page: Page, where: string) {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
@@ -34,7 +36,8 @@ test('every page, desktop and narrow, with no serious accessibility violations',
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/servers/${s.slug}`)
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: new RegExp(`^${s.name}`) })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Server pages' }).getByRole('link')).toHaveText(['Overview', 'Console', 'Players', 'World', 'Settings'])
+  const tabs = ['Overview', 'Console', 'Players', 'World', ...(mapTypes.includes(s.type || 'paper') ? ['Map'] : []), 'Settings']
+  await expect(page.getByRole('navigation', { name: 'Server pages' }).getByRole('link')).toHaveText(tabs)
 
   for (const vp of viewports) {
     await page.setViewportSize({ width: vp.width, height: vp.height })

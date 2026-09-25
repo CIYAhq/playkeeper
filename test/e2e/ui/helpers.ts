@@ -57,6 +57,7 @@ export interface ServerInfo {
   id: string
   name: string
   slug: string
+  type?: string
 }
 
 /** The first server, as the dashboard's own API lists it. */
