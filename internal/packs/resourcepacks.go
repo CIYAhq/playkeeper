@@ -29,8 +29,8 @@ const (
 // Store keeps resource packs in a folder, each named by its SHA-1 hash, for
 // NewHandler to serve.
 type Store struct {
-	// Dir is the folder, created when missing. Its files are readable by
-	// all users, so that the unprivileged panel can serve them.
+	// Dir is the folder, created when missing. It and its files are
+	// readable by all users, so that the unprivileged panel can serve them.
 	Dir string
 	// Limits bound the packs Put accepts.
 	Limits Limits
@@ -45,6 +45,10 @@ func (s Store) Put(ctx context.Context, src io.ReaderAt, size int64) (Info, erro
 	}
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return Info{}, fileFailed("create the resource pack folder", err)
+	}
+	// The agent runs with umask 077, which would keep the panel out.
+	if err := os.Chmod(s.Dir, 0o755); err != nil {
+		return Info{}, fileFailed("make the resource pack folder readable", err)
 	}
 	root, err := os.OpenRoot(s.Dir)
 	if err != nil {
