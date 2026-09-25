@@ -1,0 +1,13 @@
+PaperMC logomark: terms of use
+
+Source: https://assets.papermc.io/brand/papermc_logo.min.svg
+Terms: https://docs.papermc.io/misc/assets (read 25 Sep 2026)
+
+PaperMC publishes its logos for representing its software, including in
+downloads, server selectors and similar places. Its terms ask that the logo
+is not altered (colours, proportions or transparency), not combined with
+other branding, not used to imply ownership or endorsement, and not sold as
+part of other products without PaperMC's explicit permission.
+
+Playkeeper shows the file unaltered, in its server type picker, to name
+Paper. The logo remains PaperMC's and is not covered by Playkeeper's licence.
