@@ -642,7 +642,7 @@ func (h *Hub) NewJoinCode(ctx context.Context, by string) (string, JoinCode, err
 			}
 		}
 	}
-	slices.SortFunc(waiting, func(a, b JoinCode) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	slices.SortStableFunc(waiting, func(a, b JoinCode) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	for len(waiting) >= MaxWaitingCodes {
 		if err := h.store.DeleteJoinCode(ctx, waiting[0].ID); err != nil && !errors.Is(err, ErrNotFound) {
 			return "", JoinCode{}, err
