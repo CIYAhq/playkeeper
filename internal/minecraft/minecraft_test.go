@@ -254,6 +254,40 @@ func TestRCONCommands(t *testing.T) {
 // A command is written at most once, and the caller learns whether it may
 // have run: resending save-on after a lost reply would read as saving turned
 // back on by someone else.
+// The connection's timeout can arrive a moment before its context reports
+// the deadline. It still counts as the deadline, while a timeout before the
+// deadline, or another error at it, stays what it is.
+func TestRCONTimeoutAtTheDeadlineCountsAsTheDeadline(t *testing.T) {
+	r := &RCON{}
+	passed := lateCtx{Context: context.Background(), d: time.Now().Add(-time.Millisecond)}
+	if err := r.ctxErr(passed, timeoutErr{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a timeout at the deadline: got %v", err)
+	}
+	ahead := lateCtx{Context: context.Background(), d: time.Now().Add(time.Hour)}
+	if err := r.ctxErr(ahead, timeoutErr{}); errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a timeout before the deadline: got %v", err)
+	}
+	if err := r.ctxErr(passed, io.EOF); !errors.Is(err, io.EOF) {
+		t.Fatalf("a closed connection at the deadline: got %v", err)
+	}
+}
+
+// lateCtx has a deadline but doesn't report itself done, like a context
+// whose timer hasn't fired yet.
+type lateCtx struct {
+	context.Context
+	d time.Time
+}
+
+func (c lateCtx) Deadline() (time.Time, bool) { return c.d, true }
+func (c lateCtx) Err() error                  { return nil }
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
+
 func TestRCONCommandContextNeverResendsAndHonoursTheContext(t *testing.T) {
 	var mu sync.Mutex
 	var got []string

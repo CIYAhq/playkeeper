@@ -178,10 +178,16 @@ func (r *RCON) bound(ctx context.Context) (stop func()) {
 }
 
 // ctxErr reports a cancelled or expired ctx instead of the I/O error it
-// caused.
+// caused. The connection's deadline is ctx's, and its timeout can arrive a
+// moment before ctx reports itself done, so a timeout at or after ctx's
+// deadline counts as the deadline too.
 func (r *RCON) ctxErr(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("rcon: no reply in time: %w", ctx.Err())
+	}
+	var ne net.Error
+	if d, ok := ctx.Deadline(); ok && errors.As(err, &ne) && ne.Timeout() && !time.Now().Before(d) {
+		return fmt.Errorf("rcon: no reply in time: %w", context.DeadlineExceeded)
 	}
 	return err
 }
