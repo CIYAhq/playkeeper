@@ -31,6 +31,8 @@ export const en = {
   'common.decrease': 'Less',
   'common.increase': 'More',
   'common.moreActions': 'More actions',
+  'common.showOptions': 'Show options',
+  'common.clear': 'Clear',
   'common.external': '{label} (opens in a new tab)',
   'common.dot': ' · ',
   'common.list': '{a} and {b}',

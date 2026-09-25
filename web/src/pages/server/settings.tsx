@@ -150,9 +150,9 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
           hint={t('settings.viewHint')}
           changed={changed('viewDistance')}
           control={
-            <div className="flex w-[240px] items-center gap-4">
-              <Slider value={v.viewDistance} onValueChange={(n) => set('viewDistance', Array.isArray(n) ? (n[0] ?? 10) : n)} min={3} max={32} step={1} aria-label={t('settings.view')} />
-              <span className="w-20 shrink-0 text-right text-[13px] font-semibold tabular-nums">{t('unit.chunks', { count: v.viewDistance })}</span>
+            <div className="flex w-[296px] items-center gap-4">
+              <Slider className="min-w-0 flex-1" value={v.viewDistance} onValueChange={(n) => set('viewDistance', Array.isArray(n) ? (n[0] ?? 10) : n)} min={3} max={32} step={1} aria-label={t('settings.view')} />
+              <span className="w-[76px] shrink-0 text-right text-[13px] font-semibold tabular-nums">{t('unit.chunks', { count: v.viewDistance })}</span>
             </div>
           }
         />
@@ -162,10 +162,10 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         hint={phone ? t('settings.maxPlayersHintShort') : t('settings.maxPlayersHint')}
         changed={changed('maxPlayers')}
         control={
-          <NumberField value={v.maxPlayers} onValueChange={(n) => n !== null && set('maxPlayers', n)} min={1} max={100} step={1} aria-label={t('settings.maxPlayers')}>
+          <NumberField value={v.maxPlayers} onValueChange={(n) => n !== null && set('maxPlayers', n)} min={1} max={100} step={1}>
             <NumberFieldGroup className="w-[132px]">
               <NumberFieldDecrement aria-label={t('common.decrease')} />
-              <NumberFieldInput className="text-center tabular-nums" />
+              <NumberFieldInput className="text-center tabular-nums" aria-label={t('settings.maxPlayers')} />
               <NumberFieldIncrement aria-label={t('common.increase')} />
             </NumberFieldGroup>
           </NumberField>
@@ -177,8 +177,9 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
 
   const list = (
     <>
-      <SettingRow label={t('settings.name')} hint={t('settings.nameHint')} changed={changed('name')} htmlFor="server-name" control={<Input id="server-name" value={v.name} onChange={(e) => set('name', e.target.value)} maxLength={32} className="w-[240px] max-sm:w-full" />} />
+      <SettingRow wide label={t('settings.name')} hint={t('settings.nameHint')} changed={changed('name')} htmlFor="server-name" control={<Input id="server-name" value={v.name} onChange={(e) => set('name', e.target.value)} maxLength={32} className="w-[240px] max-sm:w-full" />} />
       <SettingRow
+        wide
         label={t('settings.motd')}
         hint={t('settings.motdHint')}
         changed={changed('motd')}
@@ -191,7 +192,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
           </div>
         }
       />
-      <SettingRow label={t('settings.preview')} hint={t('settings.previewHint')} control={<ListPreview server={s} name={v.name} motd={v.motd} />} />
+      <SettingRow wide label={t('settings.preview')} hint={t('settings.previewHint')} control={<ListPreview server={s} name={v.name} motd={v.motd} />} />
       <IconRow server={s} />
     </>
   )

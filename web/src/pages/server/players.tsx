@@ -321,7 +321,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
             ]}
           />
         </div>
-        <div className="mt-3 overflow-x-auto rounded-2xl border border-border">
+        <div className="mt-3 overflow-x-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-labelledby="everyone">
           <table className="w-full min-w-[560px] text-[13px]">
             <thead className="bg-muted text-left text-xs text-muted-foreground">
               <tr className="h-9">

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
@@ -166,17 +166,12 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
   )
 }
 
-function MoreMenu({ server, phone }: { server: ServerStatus; phone?: boolean }) {
+function MoreMenu({ server }: { server: ServerStatus }) {
   const { stale } = useWorkspace()
   const c = controls(server)
-  const trigger = phone ? (
-    <Button variant="ghost" size="icon-lg" aria-label={t('common.moreActions')} />
-  ) : (
-    <Button variant="outline" size="icon" aria-label={t('common.moreActions')} />
-  )
   return (
     <Menu>
-      <MenuTrigger render={trigger}>
+      <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>
         <EllipsisIcon />
       </MenuTrigger>
       <MenuPopup align="end" className="min-w-52">
@@ -296,19 +291,23 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
 }
 
 function PhoneServerHeader({ server: s, tab }: { server: ServerStatus; tab: ServerTab }) {
-  const ws = useWorkspace()
   const shell = useShell()
   const [open, setOpen] = useState(false)
+  const hint = useId()
   return (
     <header className="flex items-start gap-2 pt-4 pb-3">
       <div className="min-w-0 flex-1">
-        <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label={t('nav.switchServerFrom', { server: s.name })} className="-ml-1 inline-flex max-w-full items-center gap-1 rounded-lg px-1 text-left">
-          <h1 className="truncate text-[22px] leading-7 font-bold tracking-[-0.015em]">{s.name}</h1>
-          <ChevronDownIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        </button>
+        <h1 className="text-[22px] leading-7 font-bold tracking-[-0.015em]">
+          <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-describedby={hint} className="-ml-1 inline-flex max-w-full items-center gap-1 rounded-lg px-1 text-left">
+            <span className="truncate">{s.name}</span>
+            <ChevronDownIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
+        </h1>
+        <span id={hint} className="sr-only">
+          {t('nav.switchServer')}
+        </span>
         <PhoneStatus server={s} />
       </div>
-      {tab === 'settings' ? null : !ws.stale && !isSettingUp(s) && <MoreMenu server={s} phone />}
       <Button variant="ghost" size="icon-lg" aria-label={t('nav.search')} onClick={shell.openPalette}>
         <SearchIcon className="size-5" />
       </Button>
@@ -321,7 +320,7 @@ function PhoneStatus({ server }: { server: ServerStatus }) {
   const ws = useWorkspace()
   return (
     <div className="mt-0.5 flex items-center">
-      <StatusPill server={server} agentDown={ws.stale} className="h-auto border-0 bg-transparent px-0 text-[13px] font-medium" />
+      <StatusPill server={server} agentDown={ws.stale} onChalk className="h-auto border-0 bg-transparent px-0 text-[13px] font-medium" />
     </div>
   )
 }

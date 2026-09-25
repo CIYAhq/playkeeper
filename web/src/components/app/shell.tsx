@@ -183,7 +183,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           >
             <ServerIcon className="size-3.5" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">{ws.machineName}</span>
-            <span className={cn('flex items-center gap-1.5 text-[11px] font-medium', healthy ? 'text-success-foreground' : 'text-warning-foreground')}>
+            <span className={cn('flex items-center gap-1.5 text-[11px] font-medium', healthy ? 'text-success-strong' : 'text-warning-strong')}>
               <span className={cn('size-1.5 rounded-full', healthy ? 'bg-success' : 'bg-warning')} aria-hidden="true" />
               {healthy ? t('nav.healthy') : ws.agentDown ? t('nav.notAnswering') : t('status.docker')}
             </span>
@@ -342,7 +342,7 @@ export function PhoneMoreButton() {
 export function PhoneBackHeader({ to, label, title }: { to: Route; label: string; title?: ReactNode }) {
   return (
     <header className="flex items-center gap-1 pt-2 pb-2">
-      <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-primary">
+      <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-success-strong">
         <ChevronLeftIcon className="size-5" aria-hidden="true" />
         {label}
       </a>

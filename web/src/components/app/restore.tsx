@@ -196,7 +196,7 @@ export function RestoreDialog({ preview, server, onClose }: { preview: RestorePr
                       <span>
                         {rich('eula.accept', {
                           link: (chunk) => (
-                            <a href={t('eula.url')} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline">
+                            <a href={t('eula.url')} target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">
                               {chunk}
                             </a>
                           ),

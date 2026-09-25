@@ -1,7 +1,7 @@
-import { getLocale, t } from '@/i18n'
+import { formatLocale, t } from '@/i18n'
 
 function num(v: number, digits = 0): string {
-  return new Intl.NumberFormat(getLocale(), { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v)
+  return new Intl.NumberFormat(formatLocale(), { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v)
 }
 
 /** A memory budget in MB, like "4 GB", "1.5 GB" or "768 MB". */
@@ -63,20 +63,20 @@ export function relativeTime(iso: string | undefined, now: number = Date.now()):
 }
 
 export function formatClock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(getLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
+  return new Date(iso).toLocaleTimeString(formatLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(getLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  return new Date(iso).toLocaleTimeString(formatLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(getLocale(), { day: 'numeric', month: 'short' })
+  return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short' })
 }
 
 export function formatDateTime(iso: string | undefined): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString(getLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+  return new Date(iso).toLocaleString(formatLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function sameDay(a: Date, b: Date): boolean {

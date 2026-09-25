@@ -526,7 +526,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
         {body}
         <p className="mt-6 text-[13px] text-muted-foreground">
           {summary}{' '}
-          <button type="button" className="font-semibold text-primary" onClick={() => setChanging(true)}>
+          <button type="button" className="font-semibold text-success-strong" onClick={() => setChanging(true)}>
             {t('common.change')}
           </button>
         </p>
@@ -689,7 +689,9 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
       <div className="mt-5 rounded-2xl border border-border bg-warm px-4 py-4">
         <div className="section-label">{t('onboarding.joinAddress')}</div>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
-          <span className="text-2xl font-extrabold tabular-nums">{address}</span>
+          <span className="text-2xl font-extrabold tabular-nums" data-testid="join-address">
+            {address}
+          </span>
           <CopyButton text={address} variant="default" size="sm" toast={t('toast.copied')} />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint', { port: s.gamePort })}</p>

@@ -137,7 +137,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
           {t('world.list')}
         </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">{t('world.listHint')}</p>
-        <div className="mt-3 overflow-x-auto rounded-2xl border border-border">
+        <div className="mt-3 overflow-x-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-labelledby="backups">
           <table className="w-full min-w-[680px] text-[13px]">
             <thead className="bg-muted text-left text-xs text-muted-foreground">
               <tr className="h-9">

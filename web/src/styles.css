@@ -12,6 +12,7 @@
   --popover-foreground: #1d211c;
   --primary: #15803d;
   --primary-foreground: #ffffff;
+  --primary-hover: #166534;
   --secondary: #f4f4ef;
   --secondary-foreground: #1d211c;
   --muted: #f4f4ef;
@@ -29,6 +30,9 @@
   --success-foreground: #15803d;
   --warning: #f59e0b;
   --warning-foreground: #a86400;
+  /* Small text on the chalk sidebar needs a little more contrast. */
+  --success-strong: #166534;
+  --warning-strong: #8a5200;
   --marigold: #ffc83d;
   --warm: #f8f7f2;
   --selected: #f6fbf7;
@@ -55,6 +59,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -72,6 +77,8 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-success-strong: var(--success-strong);
+  --color-warning-strong: var(--warning-strong);
   --color-marigold: var(--marigold);
   --color-warm: var(--warm);
   --color-selected: var(--selected);
@@ -154,7 +161,7 @@
 .skip-link {
   position: absolute;
   left: 8px;
-  top: -48px;
+  top: -120px;
   z-index: 100;
 }
 .skip-link:focus {

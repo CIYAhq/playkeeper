@@ -4,7 +4,7 @@ import type { MetricsResponse, ServerStatus } from '@/api/types'
 import { serverApi } from '@/api/workspace'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { Segmented } from '@/components/app/controls'
-import { getLocale, t, type MessageKey } from '@/i18n'
+import { formatLocale, t, type MessageKey } from '@/i18n'
 import { niceMax, regroup, ticks, type Bar } from '@/lib/chart'
 import { formatClock, formatDate, formatDateTime } from '@/lib/format'
 import { usePoll } from '@/lib/usePoll'
@@ -22,7 +22,7 @@ function label(bar: Bar, range: ChartRange, index: number, count: number): strin
     case '24h':
       return d.getHours() % 6 === 0 ? formatClock(bar.start) : undefined
     case '7d':
-      return d.getHours() < 3 ? new Intl.DateTimeFormat(getLocale(), { weekday: 'short' }).format(d) : undefined
+      return d.getHours() < 3 ? new Intl.DateTimeFormat(formatLocale(), { weekday: 'short' }).format(d) : undefined
     case '30d':
       return d.getHours() < 12 && d.getDate() % 7 === 1 ? formatDate(bar.start) : undefined
     default: {
@@ -54,7 +54,7 @@ export function PlayersChart({ server, className }: { server: ServerStatus; clas
   const [range, setRange] = useState<ChartRange>('24h')
   const [table, setTable] = useState(false)
   const m = usePoll(() => get<MetricsResponse>(serverApi(server.id, `/metrics?range=${range}`)), 60_000, `${server.id}:${range}`)
-  const bars = m.data ? regroup(m.data.buckets, factors[range]) : []
+  const bars = m.data ? regroup(m.data.buckets, factors[range], m.data.bucketSeconds) : []
   const top = ticks(niceMax(Math.max(1, ...bars.map((b) => b.players ?? 0))))
   const max = top[top.length - 1] ?? 1
   const titleKey: MessageKey = `overview.chartTitle.${range}`
@@ -78,7 +78,7 @@ export function PlayersChart({ server, className }: { server: ServerStatus; clas
         />
       </div>
       {table ? (
-        <div className="mt-4 max-h-[220px] overflow-y-auto rounded-2xl border border-border">
+        <div className="mt-4 max-h-[220px] overflow-y-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-label={t(titleKey)}>
           <table className="w-full text-[13px]">
             <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground">
               <tr>

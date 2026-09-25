@@ -190,7 +190,7 @@ function AuditCard() {
     <Card as="section" aria-labelledby="audit-title" id="audit" className="scroll-mt-4">
       <CardTitle id="audit-title">{t('global.audit')}</CardTitle>
       <CardHint>{t('global.auditHint')}</CardHint>
-      <div className="mt-4 max-h-[480px] overflow-auto rounded-2xl border border-border">
+      <div className="mt-4 max-h-[480px] overflow-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-labelledby="audit-title">
         <table className="w-full min-w-[640px] text-[13px]">
           <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground">
             <tr className="h-9">

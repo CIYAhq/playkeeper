@@ -4,7 +4,7 @@ import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
 import type { Operation, RestorePreview, ServerStatus } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
-import { Pip, TypeLogo } from '@/components/app/art'
+import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, Stepper, useIsPhone } from '@/components/app/controls'
 import { createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, type CreateChoices } from '@/components/app/create'
@@ -186,7 +186,7 @@ export function NewServerPage() {
                   <TypeLogo type={c.type} size={phone ? 28 : 22} />
                   {t('new.versions', { type: typeName(c.type) })}
                 </span>
-                <button type="button" onClick={() => setStep(0)} className="font-semibold text-primary hover:underline max-sm:text-[15px]">
+                <button type="button" onClick={() => setStep(0)} className="font-semibold text-primary hover:underline max-sm:text-[15px] max-sm:text-success-strong">
                   {t('new.changeType')}
                 </button>
               </div>
@@ -360,7 +360,7 @@ export function NewServerPage() {
           ))}
         </div>
         {body}
-        {step === 4 && <div className="mt-6">{restoreLink}</div>}
+        <div className="mt-6">{restoreLink}</div>
         <PhoneActions>
           <Button size="touch" onClick={next} disabled={!canContinue()} loading={busy}>
             {step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 ? t('new.continueVersion') : t('common.continue')}
@@ -429,7 +429,7 @@ function GameCard({ phone }: { phone?: boolean }) {
     <CardGroup value="java" onChange={() => undefined} label={t('new.game')}>
       <ChoiceCard value="java" className="items-center gap-3 p-3">
         <span className="flex items-center gap-3">
-          <TypeLogo type="vanilla" size={phone ? 44 : 40} />
+          <GameIcon size={phone ? 44 : 40} />
           <span>
             <span className="block text-sm font-semibold max-sm:text-base">{t('new.java')}</span>
             <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{phone ? t('new.javaHintPhone') : t('new.javaHint')}</span>

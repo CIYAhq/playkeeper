@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { CheckIcon, CircleArrowUpIcon, ExternalLinkIcon, XIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { UpdateInfo } from '@/api/types'
@@ -93,16 +93,19 @@ function StepMark({ state }: { state: StepState }) {
 
 /** A list of steps with a mark each; the running one gets a blue bar. */
 export function JobSteps({ steps }: { steps: { title: ReactNode; hint?: ReactNode; state: StepState; progress?: number }[] }) {
+  const id = useId()
   return (
     <ol className="flex flex-col gap-4">
       {steps.map((s, i) => (
         <li key={i} className="flex gap-3" aria-current={s.state === 'current' ? 'step' : undefined}>
           <StepMark state={s.state} />
           <div className="min-w-0 flex-1">
-            <div className={cn('text-sm font-semibold', s.state === 'todo' && 'font-medium text-muted-foreground', s.state === 'failed' && 'text-destructive-foreground')}>{s.title}</div>
+            <div id={`${id}-${i}`} className={cn('text-sm font-semibold', s.state === 'todo' && 'font-medium text-muted-foreground', s.state === 'failed' && 'text-destructive-foreground')}>
+              {s.title}
+            </div>
             {s.hint && <div className="mt-0.5 text-xs text-muted-foreground">{s.hint}</div>}
             {s.state === 'current' && s.progress !== undefined && (
-              <div className="mt-2 h-1.5 max-w-[280px] overflow-hidden rounded-full bg-foreground/8" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.progress)}>
+              <div className="mt-2 h-1.5 max-w-[280px] overflow-hidden rounded-full bg-foreground/8" role="progressbar" aria-labelledby={`${id}-${i}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.progress)}>
                 <div className="h-full rounded-full bg-info transition-[width]" style={{ width: `${s.progress}%` }} />
               </div>
             )}

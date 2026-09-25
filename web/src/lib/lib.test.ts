@@ -149,6 +149,15 @@ describe('players chart', () => {
     ])
   })
 
+  it('lines bars up with the clock', () => {
+    const at = (minute: number, players: number): MetricsBucket => ({ start: new Date(Date.UTC(2026, 8, 25, 12, minute)).toISOString(), playersMax: players, cpuAvg: null, memAvg: null, coverage: 1, state: 'online' })
+    const bars = regroup([at(30, 1), at(40, 2), at(50, 3), at(60, 4), at(70, 5)], 6, 600)
+    expect(bars.map((x) => [x.start.slice(11, 16), x.players])).toEqual([
+      ['12:30', 3],
+      ['13:00', 5],
+    ])
+  })
+
   it('keeps nobody online as a real zero', () => {
     expect(regroup([b('online', 0), b('offline')], 2)[0]).toMatchObject({ state: 'online', players: 0 })
   })

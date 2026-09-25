@@ -160,9 +160,9 @@ export function Segmented<T extends string>({ value, onChange, options, label, c
 }
 
 /** One setting: its name, a plain-language hint, and the control. */
-export function SettingRow({ label, hint, changed, control, htmlFor, className }: { label: ReactNode; hint?: ReactNode; changed?: boolean; control: ReactNode; htmlFor?: string; className?: string }) {
+export function SettingRow({ label, hint, changed, control, htmlFor, wide, className }: { label: ReactNode; hint?: ReactNode; changed?: boolean; control: ReactNode; htmlFor?: string; wide?: boolean; className?: string }) {
   return (
-    <div className={cn('flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-border py-3.5 last:border-b-0 max-sm:min-h-14', className)}>
+    <div className={cn('flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-border py-3.5 last:border-b-0 max-sm:min-h-14', wide && 'max-sm:flex-col max-sm:items-stretch', className)}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-sm font-semibold">
           {htmlFor ? <label htmlFor={htmlFor}>{label}</label> : label}
@@ -170,7 +170,7 @@ export function SettingRow({ label, hint, changed, control, htmlFor, className }
         </div>
         {hint && <div className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">{hint}</div>}
       </div>
-      <div className="shrink-0">{control}</div>
+      <div className={cn('shrink-0', wide && 'max-sm:w-full')}>{control}</div>
     </div>
   )
 }

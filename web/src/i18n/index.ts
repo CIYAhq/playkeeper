@@ -16,6 +16,15 @@ export function getLocale(): Locale {
   return locale
 }
 
+/**
+ * The locale for dates and numbers: the browser's regional variant of the
+ * UI language when it has one (en-GB writes "22 Sep"), else the language.
+ */
+export function formatLocale(): string {
+  const preferred = typeof navigator === 'undefined' ? [] : (navigator.languages ?? [navigator.language])
+  return preferred.find((l) => l === locale || l.startsWith(`${locale}-`)) ?? locale
+}
+
 /** Switches the language. Callers re-render from the root afterwards. */
 export function setLocale(next: Locale) {
   locale = next
@@ -51,7 +60,7 @@ export function interpolate(text: string, vars?: Vars): string {
     const v = vars[name]
     if (v === undefined) return whole
     if (typeof v !== 'number' || identifiers.has(name)) return String(v)
-    return new Intl.NumberFormat(locale).format(v)
+    return new Intl.NumberFormat(formatLocale()).format(v)
   })
 }
 

@@ -77,6 +77,16 @@ export function Emblem({ size = 44, stopped, icon, name, className }: { size?: n
   )
 }
 
+/** Minecraft: Java Edition, as a game to pick: the grass block in the logo tile. */
+export function GameIcon({ size = 40, className }: { size?: number; className?: string }) {
+  const scale = Math.max(1, Math.floor((size * 0.64) / 12))
+  return (
+    <span className={cn('inline-flex shrink-0 items-center justify-center overflow-hidden border border-border bg-white', className)} style={{ width: size, height: size, borderRadius: Math.round(size * 0.26) }}>
+      <img src={emblem} width={12 * scale} height={12 * scale} alt="" className="pixelated" draggable={false} />
+    </span>
+  )
+}
+
 const logos: Record<string, { src: string; pixel?: boolean }> = {
   paper: { src: paper },
   vanilla: { src: vanilla, pixel: true },

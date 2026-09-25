@@ -173,13 +173,13 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
       aria-label={t('console.log')}
       tabIndex={0}
     >
-      {truncated && <p className="px-2 pb-2 text-xs text-[#8b9185]">{t('console.truncated', { count: keep })}</p>}
+      {truncated && <p className="px-2 pb-2 text-xs text-[#a3a89c]">{t('console.truncated', { count: keep })}</p>}
       {shown.length === 0 ? (
-        <p className="px-2 py-1 text-[#8b9185]">{rows.length ? t('console.noMatch') : t('console.empty', { server: s.name })}</p>
+        <p className="px-2 py-1 text-[#a3a89c]">{rows.length ? t('console.noMatch') : t('console.empty', { server: s.name })}</p>
       ) : (
         shown.map((r) => (
           <div key={r.key} className={cn('flex gap-3 rounded-md px-2 py-0.5', r.level === 'WARN' && 'bg-[#f5b94a]/10', (r.level === 'ERROR' || r.level === 'FATAL') && 'bg-[#f87171]/10')}>
-            <span className="w-[4.5rem] shrink-0 text-[#8b9185] tabular-nums max-sm:w-11">{phone ? formatClock(r.ts) : formatTime(r.ts)}</span>
+            <span className="w-[4.5rem] shrink-0 text-[#a3a89c] tabular-nums max-sm:w-11">{phone ? formatClock(r.ts) : formatTime(r.ts)}</span>
             {!phone && <span className={cn('w-12 shrink-0 text-xs leading-5 font-semibold', r.level === 'WARN' ? 'text-[#f5b94a]' : 'text-[#f87171]')}>{r.level === 'WARN' ? t('console.warnTag') : r.level === 'ERROR' || r.level === 'FATAL' ? t('console.errorTag') : ''}</span>}
             <span className={cn('min-w-0 break-words whitespace-pre-wrap', r.kind === 'sent' && 'text-[#93b4f5]', r.level === 'WARN' && 'text-[#f5b94a]', (r.level === 'ERROR' || r.level === 'FATAL') && 'text-[#f87171]')}>{r.text}</span>
           </div>

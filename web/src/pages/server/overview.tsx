@@ -49,10 +49,12 @@ function Running({ server: s }: { server: ServerStatus }) {
         <Card>
           <CardTitle>{t('overview.activity')}</CardTitle>
           <ActivityList items={activity.data} servers={servers ?? []} here empty={t('overview.activityEmpty')} className="mt-3 flex-1" />
-          <a {...linkPath('/settings#audit')} className="mt-4 inline-flex items-center gap-1 self-start border-t border-border pt-3 text-xs font-medium text-primary hover:underline">
-            {t('home.auditLink')}
-            <ArrowRightIcon className="size-3.5" aria-hidden="true" />
-          </a>
+          <div className="mt-4 border-t border-border pt-3">
+            <a {...linkPath('/settings#audit')} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+              {t('home.auditLink')}
+              <ArrowRightIcon className="size-3.5" aria-hidden="true" />
+            </a>
+          </div>
         </Card>
       </div>
     </>
@@ -276,7 +278,7 @@ export function ConsoleTail({ lines, className }: { lines: string[]; className?:
         const p = parseLine(l)
         return (
           <div key={i} className="flex gap-3 truncate">
-            {p.time && <span className="shrink-0 text-[#8b9185]">{p.time}</span>}
+            {p.time && <span className="shrink-0 text-[#a3a89c]">{p.time}</span>}
             {p.level && p.level !== 'INFO' && <span className={cn('shrink-0 font-semibold', p.level === 'WARN' ? 'text-[#f5b94a]' : 'text-[#f87171]')}>{p.level}</span>}
             <span className={cn('truncate', p.level === 'WARN' && 'text-[#f5b94a]', (p.level === 'ERROR' || p.level === 'FATAL') && 'text-[#f87171]')}>{p.text}</span>
           </div>

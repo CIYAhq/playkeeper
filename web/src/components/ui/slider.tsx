@@ -11,6 +11,7 @@ export function Slider({
   min = 0,
   max = 100,
   getAriaValueText,
+  "aria-label": ariaLabel,
   ...props
 }: SliderPrimitive.Root.Props & {
   // Playkeeper: lets a slider over indexes read out the real value.
@@ -53,6 +54,7 @@ export function Slider({
             <SliderPrimitive.Thumb
               className="block size-5 shrink-0 select-none rounded-full border border-input bg-white not-dark:bg-clip-padding shadow-xs/5 outline-none transition-[box-shadow,scale] before:absolute before:inset-0 before:rounded-full before:shadow-[0_1px_--theme(--color-black/4%)] has-focus-visible:ring-[3px] has-focus-visible:ring-ring/24 data-dragging:scale-120 sm:size-[18px] dark:border-background dark:has-focus-visible:ring-ring/48 [:has(*:focus-visible),[data-dragging]]:shadow-none"
               data-slot="slider-thumb"
+              aria-label={ariaLabel}
               getAriaValueText={getAriaValueText}
               index={index}
               key={String(index)}

@@ -76,12 +76,13 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
   }
 }
 
-export function StatusPill({ server, agentDown = false, elapsed, showDetail = true, className }: { server: ServerStatus | undefined; agentDown?: boolean; elapsed?: string; showDetail?: boolean; className?: string }) {
+export function StatusPill({ server, agentDown = false, elapsed, showDetail = true, onChalk = false, className }: { server: ServerStatus | undefined; agentDown?: boolean; elapsed?: string; showDetail?: boolean; onChalk?: boolean; className?: string }) {
   const s = serverState(server, agentDown)
+  const labelClass = onChalk ? s.labelClass.replace('text-success-foreground', 'text-success-strong') : s.labelClass
   return (
     <span className={cn('inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full border border-border bg-white px-2.5 text-[13px] font-semibold', className)}>
       <Dot tone={s.tone} />
-      <span className={s.labelClass}>{s.label}</span>
+      <span className={labelClass}>{s.label}</span>
       {showDetail && s.detail && (
         <span className="font-normal text-muted-foreground">
           {t('common.dot')}

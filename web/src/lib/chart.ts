@@ -10,14 +10,23 @@ export interface Bar {
 }
 
 /**
- * Merges every `factor` buckets into one bar. A bar is "online" if the
- * server ran at any point in it, and then shows the most players seen;
- * otherwise it takes the state most of its buckets had.
+ * Merges buckets into bars `factor` buckets wide, lined up with the clock
+ * (a 1-hour bar starts on the hour). A bar is "online" if the server ran at
+ * any point in it, and then shows the most players seen; otherwise it takes
+ * the state most of its buckets had.
  */
-export function regroup(buckets: MetricsBucket[], factor: number): Bar[] {
+export function regroup(buckets: MetricsBucket[], factor: number, bucketSeconds = 0): Bar[] {
+  const groups: MetricsBucket[][] = []
+  const width = bucketSeconds * factor * 1000
+  let key: number | undefined
+  buckets.forEach((b, i) => {
+    const k = width ? Math.floor(Date.parse(b.start) / width) : Math.floor(i / factor)
+    if (k !== key) groups.push([])
+    key = k
+    groups[groups.length - 1]?.push(b)
+  })
   const out: Bar[] = []
-  for (let i = 0; i < buckets.length; i += factor) {
-    const group = buckets.slice(i, i + factor)
+  for (const group of groups) {
     const first = group[0]
     if (!first) continue
     const online = group.filter((b) => b.state === 'online')

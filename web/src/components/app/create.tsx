@@ -175,14 +175,14 @@ export function VersionPicker({ catalog, servers, value, onChange, acceptExperim
       )}
       {older.length > 0 &&
         (phone && !showOlder ? (
-          <button type="button" onClick={() => setShowOlder(true)} className="min-h-11 text-[15px] font-semibold text-primary">
+          <button type="button" onClick={() => setShowOlder(true)} className="min-h-11 text-[15px] font-semibold text-success-strong">
             {t('new.olderShow', { count: older.length })}
           </button>
         ) : (
-          <div className="mt-2">
+          <div className="mt-2 max-w-[320px] max-sm:max-w-none">
             <div className="mb-1.5 text-[13px] font-semibold">{t('new.older')}</div>
             <Combobox items={items} value={items.find((i) => i.value === value) ?? null} onValueChange={(i) => i && onChange((i as { value: string }).value)}>
-              <ComboboxInput placeholder={t('new.olderSearch', { count: older.length })} aria-label={t('new.older')} startAddon={<SearchIcon />} className="max-w-[300px] max-sm:max-w-none" />
+              <ComboboxInput placeholder={t('new.olderSearch', { count: older.length })} aria-label={t('new.older')} startAddon={<SearchIcon />} />
               <ComboboxPopup>
                 <ComboboxEmpty>{t('new.noMatch')}</ComboboxEmpty>
                 <ComboboxGroupLabel>{t('new.stable')}</ComboboxGroupLabel>
@@ -319,7 +319,7 @@ export function EulaCheck({ checked, onChange, short, className }: { checked: bo
             ? t('eula.acceptShort')
             : rich('eula.accept', {
                 link: (chunk) => (
-                  <a href={t('eula.url')} target="_blank" rel="noreferrer" className="text-primary hover:underline" onClick={(e) => e.stopPropagation()}>
+                  <a href={t('eula.url')} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2" onClick={(e) => e.stopPropagation()}>
                     {chunk}
                   </a>
                 ),
@@ -331,7 +331,7 @@ export function EulaCheck({ checked, onChange, short, className }: { checked: bo
   )
 }
 
-const segmentColor = { system: 'bg-[#6b7066] text-white', running: 'bg-primary text-white', stopped: 'bg-[#8fc29f] text-white', new: 'bg-marigold text-foreground', free: 'bg-muted' } as const
+const segmentColor = { system: 'bg-[#5f645a] text-white', running: 'bg-primary text-white', stopped: 'bg-[#8fc29f] text-foreground', new: 'bg-marigold text-foreground', free: 'bg-muted' } as const
 
 /** How the machine's memory is shared, with the new server in marigold. */
 export function MemoryBar({ catalog, memoryMB }: { catalog: Catalog; memoryMB: number }) {
@@ -353,7 +353,7 @@ export function MemoryBar({ catalog, memoryMB }: { catalog: Catalog; memoryMB: n
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="size-2 rounded-[2px] bg-[#6b7066]" aria-hidden="true" />
+          <span className="size-2 rounded-[2px] bg-[#5f645a]" aria-hidden="true" />
           {t('new.systemLegend', { memory: formatMB(catalog.systemReserveMB) })}
         </span>
         {catalog.servers.map((s) => (
