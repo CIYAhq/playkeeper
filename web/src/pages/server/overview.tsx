@@ -309,8 +309,11 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const pack = cfg?.modpack
   const addonsDone = Number(op?.detail?.addons ?? 0)
   const addonsTotal = Number(op?.detail?.addonsTotal ?? 0)
-  // A template's add-ons install on the first start; the detail stays once they're in.
-  const tpl = !pack && !!cfg?.template && (!!cfg.template.pending || addonsTotal > 0)
+  const packsDone = Number(op?.detail?.packs ?? 0)
+  const packsTotal = Number(op?.detail?.packsTotal ?? 0)
+  const onlyPacks = packsTotal > 0 && addonsTotal === 0
+  // A template's add-ons and data packs install on the first start; the detail stays once they're in.
+  const tpl = !pack && !!cfg?.template && (!!cfg.template.pending || addonsTotal > 0 || packsTotal > 0)
   // The pack's own steps only show in the operation's phase.
   const at = pack ? packStepOf(op?.phase ?? s.phase) : tpl ? templateStepOf(op?.phase ?? s.phase) : createStepOf(failed ? (op?.phase ?? '') : s.phase)
   const state = (i: number): StepState => (i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo')
@@ -331,16 +334,17 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const mods = addonKind(s.type) === 'mods'
   const skippedDetail = op?.detail?.skipped
   const skipped = Array.isArray(skippedDetail) ? (skippedDetail as AddonNotice[]).map((n) => n.params?.name ?? n.message) : []
-  const addonsHint = [addonsTotal ? t('creating.packFiles', { done: addonsDone, total: addonsTotal }) : '', skipped.length ? t('creating.templateSkipped', { count: skipped.length, names: skipped.join(', ') }) : ''].filter(Boolean).join(t('common.dot'))
+  const [fetched, fetching] = onlyPacks ? [packsDone, packsTotal] : [addonsDone, addonsTotal]
+  const addonsHint = [fetching ? t('creating.packFiles', { done: fetched, total: fetching }) : '', skipped.length ? t('creating.templateSkipped', { count: skipped.length, names: skipped.join(', ') }) : ''].filter(Boolean).join(t('common.dot'))
   const steps = tpl
     ? [
         { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
         { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: t('creating.downloadedDetail') },
         {
-          title: t(at > 2 ? (mods ? 'creating.templateModsDone' : 'creating.templatePluginsDone') : mods ? 'creating.templateMods' : 'creating.templatePlugins'),
+          title: t(at > 2 ? (onlyPacks ? 'creating.templatePacksDone' : mods ? 'creating.templateModsDone' : 'creating.templatePluginsDone') : onlyPacks ? 'creating.templatePacks' : mods ? 'creating.templateMods' : 'creating.templatePlugins'),
           hint: addonsHint || undefined,
           state: state(2),
-          progress: at === 2 && addonsTotal ? (addonsDone / addonsTotal) * 100 : undefined,
+          progress: at === 2 && fetching ? (fetched / fetching) * 100 : undefined,
         },
         starting(3),
         { title: t('creating.reachable', { port: s.gamePort }), state: state(4) },

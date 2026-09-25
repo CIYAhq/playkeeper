@@ -270,6 +270,21 @@ describe('Overview', () => {
     expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40')
   })
 
+  it('names a template’s data packs when it brings no plugins', async () => {
+    const at = new Date().toISOString()
+    const skipped = [{ kind: 'pack_hash_mismatch', params: { name: 'Terralith' }, message: 'The data pack Terralith doesn’t match the template’s checksum, so it wasn’t used.' }]
+    const s = server({
+      phase: 'downloading_server',
+      startedAt: undefined,
+      config: { ...config, template: { name: 'Survival with friends', pending: true } },
+      operation: { id: 'create-1', kind: 'create', status: 'running', phase: 'installing_addons', actor: 'siya', startedAt: at, detail: { packs: 1, packsTotal: 2, skipped } },
+    })
+    await render(<Overview server={s} />)
+    const steps = [...document.querySelectorAll('ol > li')].map((li) => li.textContent ?? '')
+    expect(steps[2]).toContain('Downloading the template’s data packs')
+    expect(steps[2]).toContain('1 of 2 files · each one checked · 1 skipped: Terralith')
+  })
+
   it('offers more memory after running out of it', async () => {
     answer({ '/logs': { epoch: 'e', lines: [{ seq: 1, ts: '2026-09-25T18:52:57Z', text: '[18:52:57 ERROR]: java.lang.OutOfMemoryError: Java heap space' }], next: 1, truncated: false }, '/catalog': { memoryOptionsMB: [2048, 3072, 4096, 6144, 8192], maxMemoryMB: 8192, versions: [], types: [], servers: [] } })
     const text = await render(<Overview server={server({ phase: 'crashed', crashCount: 2, exitCode: 1 })} />)

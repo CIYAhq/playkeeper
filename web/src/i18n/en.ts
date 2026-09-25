@@ -1245,5 +1245,7 @@ export const en = {
   'creating.templatePluginsDone': 'Downloaded the template’s plugins',
   'creating.templateMods': 'Downloading the template’s mods',
   'creating.templateModsDone': 'Downloaded the template’s mods',
+  'creating.templatePacks': 'Downloading the template’s data packs',
+  'creating.templatePacksDone': 'Downloaded the template’s data packs',
   'creating.templateSkipped': { one: '1 skipped: {names}', other: '{count} skipped: {names}' },
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>
