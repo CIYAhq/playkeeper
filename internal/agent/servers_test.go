@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -537,5 +538,50 @@ func TestWorldSizeIsMeasured(t *testing.T) {
 	s.measureWorld(time.Now().Add(time.Hour), "world")
 	if st := e.status(); st.WorldBytes == nil || *st.WorldBytes != 3250 {
 		t.Fatalf("world size = %v, want 3250", st.WorldBytes)
+	}
+}
+
+// Deleting a server moves its files aside before it deletes anything, so a
+// server whose files can't be moved keeps its backups.
+func TestDeleteKeepsBackupsWhenTheFilesCannotBeMoved(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("backup op: %+v", op)
+	}
+	s := e.srv()
+	backups, _ := s.listBackups("")
+	if len(backups) != 1 {
+		t.Fatalf("backups: %+v", backups)
+	}
+	renameDir = func(from, to string) error {
+		if strings.Contains(to, ".deleting-") {
+			return errors.New("injected rename failure")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { renameDir = os.Rename })
+	code, out = e.call("POST", e.sp("/delete"), map[string]any{"confirm": s.name(), "actor": "admin"})
+	if code != 202 {
+		t.Fatalf("delete: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("the delete must fail when the files can't be moved: %+v", op)
+	}
+	if e.a.serverByID(e.sid) == nil {
+		t.Fatal("the server must still be there")
+	}
+	left, _ := s.listBackups("")
+	if len(left) != 1 {
+		t.Fatalf("the backup record is gone: %+v", left)
+	}
+	for _, f := range []string{s.backupPath(left[0].FileName), s.backupPath(left[0].FileName) + ".sha256"} {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatalf("the backup file is gone: %v", err)
+		}
 	}
 }

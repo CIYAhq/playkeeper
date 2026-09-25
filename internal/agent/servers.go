@@ -488,13 +488,15 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	if err != nil {
 		return err
 	}
-	for _, b := range backups {
-		os.Remove(s.backupPath(b.FileName))
-		os.Remove(s.backupPath(b.FileName) + ".sha256")
-	}
+	// The world moves aside before anything is deleted, so a server whose
+	// files can't be moved keeps its backups.
 	trash := s.dir() + ".deleting-" + s.now().UTC().Format("20060102-150405")
 	if err := renameDir(s.dir(), trash); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	for _, b := range backups {
+		os.Remove(s.backupPath(b.FileName))
+		os.Remove(s.backupPath(b.FileName) + ".sha256")
 	}
 	if err := os.RemoveAll(trash); err != nil {
 		s.log.Warn("could not remove a deleted server's files", "path", trash, "err", err)
