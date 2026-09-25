@@ -114,10 +114,6 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       setDraft({})
       toastManager.add({ title: restart ? t('settings.savedRestartToast', { server: v.name }) : t('settings.savedToast'), type: 'success' })
       await ws.refresh()
-      if (body.name && v.name.trim() !== s.name) {
-        const fresh = (ws.servers ?? []).find((x) => x.id === s.id)
-        if (fresh && fresh.slug !== s.slug) navigate({ name: 'server', slug: fresh.slug, tab: 'settings' }, true)
-      }
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
