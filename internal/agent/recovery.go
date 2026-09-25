@@ -127,6 +127,7 @@ func (s *server) recoverRestore(ctx context.Context, h *opHandle, p *pendingRest
 			j.Why = "The restore could not be finished after the Playkeeper agent restarted (" + err.Error() + ")."
 			return s.revertRestore(h, p.stageDir, j)
 		}
+		restoreStep(ctx, "checking")
 		return s.finishRestore(ctx, h, p.stageDir, j)
 	case swapChecking:
 		return s.finishRestore(ctx, h, p.stageDir, j)

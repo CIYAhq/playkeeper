@@ -208,12 +208,21 @@ func TestRestoreInterruptedUnder030IsRecovered(t *testing.T) {
 	}
 }
 
-// An agent that stops while it works out how far a 0.3.0 restore got, here
-// while it looks up the Paper build the previous settings used, leaves the
-// restore for the next start instead of giving up on it.
+// An agent that stops while it works out how far a 0.3.0 restore got leaves
+// the restore for the next start instead of giving up on it. Here the server
+// was updated after the backup, so the settings from before the restore need
+// the newer Paper build looked up, and the agent stops during the lookup.
 func TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart(t *testing.T) {
 	e := newAgentEnv(t)
 	id, _, restored, _ := e.restoreScenario()
+	sc, err := e.srv().serverConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.VersionID, sc.MinecraftVersion, sc.PaperBuild = "paper-26.2", "26.2", 129
+	if err := e.srv().saveServerConfig(*sc); err != nil {
+		t.Fatal(err)
+	}
 	died := make(chan struct{})
 	crash030 = func(step string) bool {
 		if step != "settings_saved" {
@@ -252,6 +261,9 @@ func TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart(t *testing.T)
 	op := e.waitOp(opID)
 	if op.Status != api.OpSucceeded || worldHash(t, e.dataDir()) != restored {
 		t.Fatalf("the next start must finish the restore: %+v", op)
+	}
+	if sc, _ := e.srv().serverConfig(); sc == nil || sc.MinecraftVersion != "26.1.2" || sc.PaperBuild != 74 {
+		t.Fatalf("the restored world must run on the backup's Paper build: %+v", sc)
 	}
 	if asides, failed := restoreCopies(e.dataDir()); len(asides)+len(failed) != 0 {
 		t.Fatalf("the finished restore left world copies: %v %v", asides, failed)

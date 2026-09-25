@@ -164,6 +164,18 @@ func TestRestoreSurvivesTheAgentStopping(t *testing.T) {
 			e.fd.mu.Lock()
 			e.fd.holdImages, e.fd.bootDelay = false, 30*time.Millisecond
 			e.fd.mu.Unlock()
+			checked := make(chan string, 1)
+			setRestoreStep(t, func(_ context.Context, step string) {
+				if step != "checking" {
+					return
+				}
+				if sc, err := e.a.serverByID(e.sid).serverConfig(); err == nil && sc != nil {
+					select {
+					case checked <- sc.MOTD:
+					default:
+					}
+				}
+			})
 			if tc.step == "kept" {
 				// Once kept, the previous world's copy may be partly deleted, so
 				// the restored world stays even if it now crashes and fails to
@@ -196,6 +208,16 @@ func TestRestoreSurvivesTheAgentStopping(t *testing.T) {
 			}
 			if sc, _ := e.srv().serverConfig(); sc == nil || sc.MOTD == "Before the restore" {
 				t.Fatalf("the restored settings are not in place: %+v", sc)
+			}
+			if tc.step == "moved" && tc.stop == "" {
+				select {
+				case motd := <-checked:
+					if motd == "Before the restore" {
+						t.Fatal("the restored settings must be saved once the worlds are moved, before the restored world starts")
+					}
+				default:
+					t.Fatal("the next agent process did not finish moving the worlds")
+				}
 			}
 			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.applied' AND actor = 'admin' AND result = 'succeeded' AND detail LIKE '%; finished after the Playkeeper agent restarted'`); n != 1 {
 				t.Fatalf("want the restore audited once as finished after the restart, got %d", n)
