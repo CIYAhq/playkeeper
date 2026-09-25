@@ -159,14 +159,14 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
         </Button>
       </div>
       <div className="mt-3 overflow-x-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-labelledby="invite-links">
-        <table className="w-full min-w-[640px] text-[13px]">
+        <table className="w-full min-w-[720px] table-fixed text-[13px]">
           <thead className="bg-muted text-left text-xs text-muted-foreground">
             <tr className="h-9">
               <th className="px-3 font-medium">{t('invites.col.link')}</th>
-              <th className="px-3 text-right font-medium">{t('invites.col.used')}</th>
-              <th className="px-3 font-medium">{t('invites.col.runsOut')}</th>
-              <th className="px-3 font-medium">{t('invites.col.approval')}</th>
-              <th className="px-3 text-right font-medium">{t('invites.col.actions')}</th>
+              <th className="w-24 px-3 text-right font-medium">{t('invites.col.used')}</th>
+              <th className="w-40 px-3 font-medium">{t('invites.col.runsOut')}</th>
+              <th className="w-36 px-3 font-medium">{t('invites.col.approval')}</th>
+              <th className="w-36 px-3 text-right font-medium">{t('invites.col.actions')}</th>
             </tr>
           </thead>
           <tbody>
