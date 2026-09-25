@@ -2,10 +2,8 @@ package agent
 
 import (
 	"context"
-	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -85,11 +83,6 @@ func (f *fakeUpstream) hitCount(rawURL string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.hits[f.key(rawURL)]
-}
-
-func sha1Hex(b []byte) string {
-	s := sha1.Sum(b)
-	return hex.EncodeToString(s[:])
 }
 
 // fakeReleases are the Minecraft releases the fake Mojang lists, with the

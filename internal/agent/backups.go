@@ -699,11 +699,14 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
 		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: s.now().UTC(),
 	})
+	var prevPack *api.ResourcePackOffer
 	if prev != nil {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
+		prevPack = prev.ResourcePack
 	} else {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy = s.now().UTC(), actor
 	}
+	sc.ResourcePack = restoredPackOffer(prevPack, live)
 	if err := s.saveServerConfig(sc); err != nil {
 		cause := fmt.Errorf("could not record the restored server's settings: %w", err)
 		if rerr := renameDir(live, failedAt); rerr != nil {
@@ -724,6 +727,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		return fmt.Errorf("could not record the restored server's settings, so the previous world was put back: %w", err)
 	}
 	_ = s.setDesired(api.DesiredRunning)
+	s.holdRestoredPregen(sc)
 	startErr := s.startServer(ctx, h, sc)
 	if startErr != nil && hadLive && prev != nil {
 		h.phase("reverting")
@@ -741,6 +745,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed restore was kept at " + failedAt + " for inspection."}
 	}
 	worldSafe = true
+	s.forgetPregen()
 	if startErr != nil {
 		return startErr
 	}

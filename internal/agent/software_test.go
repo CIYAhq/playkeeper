@@ -24,7 +24,7 @@ func (e *agentEnv) runOp(method, path string) *api.Operation {
 	return e.waitOp(out["id"].(string))
 }
 
-func (e *agentEnv) containerEnv(key string) string {
+func (e *agentEnv) containerEnvVar(key string) string {
 	e.t.Helper()
 	e.fd.mu.Lock()
 	defer e.fd.mu.Unlock()
@@ -142,7 +142,7 @@ func TestVanillaInstallIsVerifiedAndCheckedBeforeEveryStart(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0o600 || strings.HasPrefix(e.srv().manifestPath(), e.dataDir()) {
 		t.Fatalf("the install's record stays out of the container's reach: %v %v", fi, err)
 	}
-	if e.containerEnv("TYPE") != "CUSTOM" || e.containerEnv("CUSTOM_SERVER") != "/data/minecraft_server.26.2.jar" || e.containerEnv("VERSION") != "26.2" {
+	if e.containerEnvVar("TYPE") != "CUSTOM" || e.containerEnvVar("CUSTOM_SERVER") != "/data/minecraft_server.26.2.jar" || e.containerEnvVar("VERSION") != "26.2" {
 		t.Fatal("the container runs the verified jar")
 	}
 	if _, err := os.Stat(filepath.Join(e.dataDir(), "plugins")); !errors.Is(err, fs.ErrNotExist) {
@@ -269,7 +269,7 @@ func TestVanillaVersionChange(t *testing.T) {
 		t.Fatalf("a backup first: %+v", backups)
 	}
 	e.waitFor("online on 26.2", func() bool { return e.status().Phase == api.PhaseOnline })
-	if e.containerEnv("CUSTOM_SERVER") != "/data/minecraft_server.26.2.jar" {
+	if e.containerEnvVar("CUSTOM_SERVER") != "/data/minecraft_server.26.2.jar" {
 		t.Fatal("the server runs the new jar")
 	}
 	if code, _ := e.changeVersion(map[string]any{"versionId": "paper-26.2"}); code != 400 {

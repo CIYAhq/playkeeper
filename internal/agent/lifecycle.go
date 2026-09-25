@@ -78,7 +78,7 @@ var opLabels = map[string]string{
 	"restart": "restarting", "backup": "a backup", "restore": "a restore", "recover": "an automatic restart",
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
-	"addon-install": "installing add-ons", "addon-update": "updating add-ons",
+	"addon-install": "installing add-ons", "addon-update": "updating add-ons", "pregen-start": "starting map pre-generation",
 	// Wave 4.
 	"reinstall": "reinstalling its server software",
 }
@@ -255,6 +255,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool)
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
+	env = append(env, resourcePackEnv(sc.ResourcePack)...)
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())

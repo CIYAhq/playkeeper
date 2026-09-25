@@ -54,6 +54,9 @@ type agentEnv struct {
 	stagedVersion string
 	// addons, when set, is the add-on library the agent uses.
 	addons *addons.Library
+	// pregenResumeAfter, when set, is how long the server must be empty
+	// before a task paused for players continues.
+	pregenResumeAfter time.Duration
 	// sid is the server most helpers act on: the one create made last.
 	sid string
 	// live is the running agent, for the fake RCON's password check.
@@ -137,7 +140,7 @@ func (e *agentEnv) start() {
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
-		Addons:         e.addons,
+		Addons: e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
 		UpstreamClient: e.up.client(),
 	})
 	if err != nil {

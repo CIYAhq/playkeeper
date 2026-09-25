@@ -697,7 +697,11 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		if err := s.setDesired(api.DesiredStopped); err != nil {
 			return err
 		}
-		return s.deleteServer(ctx, h, actor)
+		if err := s.deleteServer(ctx, h, actor); err != nil {
+			return err
+		}
+		s.prunePacks(s.Agent.ctx)
+		return nil
 	})
 	if err != nil {
 		writeError(w, err)

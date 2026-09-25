@@ -89,6 +89,7 @@ type server struct {
 	rconIP string
 
 	checks addonChecks
+	pg     pregenCache
 
 	// softwareChanged is set, under mu, when a start found the server's
 	// software changed since Playkeeper installed it; a reinstall clears it.
@@ -204,9 +205,10 @@ func (a *Agent) loadServers() error {
 	return rows.Err()
 }
 
-// startServerLoops runs the follower, collector and reconciler of a server.
+// startLoops runs the follower, collector, reconciler and map
+// pre-generation watcher of a server.
 func (s *server) startLoops() {
-	for _, fn := range []func(context.Context){s.followLoop, s.sampleLoop, s.reconcileLoop} {
+	for _, fn := range []func(context.Context){s.followLoop, s.sampleLoop, s.reconcileLoop, s.pregenLoop} {
 		fn := fn
 		s.wg.Add(1)
 		s.loops.Add(1)
@@ -542,7 +544,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	for _, q := range []string{
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
-		`DELETE FROM addons WHERE server_id = ?`,
+		`DELETE FROM addons WHERE server_id = ?`, `DELETE FROM pregen WHERE server_id = ?`,
 		`DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {

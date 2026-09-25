@@ -45,6 +45,9 @@ type fakeDocker struct {
 	// target names the container addLog, crash and the like act on when
 	// there is more than one server.
 	target string
+	// started and stopped, when set, hear of a server container starting
+	// or stopping cleanly, as a plugin would.
+	started, stopped func(c *fakeContainer)
 }
 
 type fakeLine struct {
@@ -303,7 +306,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		jsonOut(w, 200, map[string]any{
 			"Id": c.id, "Name": "/" + c.name, "Image": "sha256:img",
 			"State":           map[string]any{"Status": map[bool]string{true: "running", false: "exited"}[c.running], "Running": c.running, "ExitCode": c.exitCode, "OOMKilled": c.oom, "StartedAt": st, "FinishedAt": fin},
-			"Config":          map[string]any{"Image": c.cfg.Image, "Labels": c.cfg.Labels},
+			"Config":          map[string]any{"Image": c.cfg.Image, "Env": c.cfg.Env, "Labels": c.cfg.Labels},
 			"NetworkSettings": map[string]any{"Networks": map[string]any{networkName: map[string]string{"IPAddress": "127.0.0.1"}}},
 		})
 	case r.Method == "POST" && action == "start":
@@ -324,16 +327,24 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		setup := env(c.cfg, "SETUP_ONLY") == "TRUE"
 		fd.log(c, "[init] Running as uid=1000 gid=1000")
 		fd.log(c, "[init] Resolving type given PAPER")
+		started := fd.started
 		fd.mu.Unlock()
+		if started != nil && !setup {
+			started(c)
+		}
 		go fd.boot(c, setup)
 		w.WriteHeader(204)
 	case r.Method == "POST" && action == "stop":
 		fd.mu.Lock()
+		wasRunning, stopped := c.running, fd.stopped
 		if c.running {
 			fd.log(c, "[12:00:00 INFO]: Stopping server")
 			c.running, c.exitCode, c.finished = false, 0, time.Now().UTC()
 		}
 		fd.mu.Unlock()
+		if wasRunning && stopped != nil {
+			stopped(c)
+		}
 		w.WriteHeader(204)
 	case r.Method == "DELETE" && action == "":
 		fd.mu.Lock()

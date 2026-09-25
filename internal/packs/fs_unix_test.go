@@ -5,6 +5,7 @@ package packs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,6 +108,41 @@ func TestStoreFIFO(t *testing.T) {
 	}
 	if st, err := os.Lstat(name); err != nil || !st.Mode().IsRegular() {
 		t.Errorf("Put left %v, %v", st.Mode(), err)
+	}
+}
+
+func TestSummaryFIFO(t *testing.T) {
+	d := DataPacks{DataDir: t.TempDir(), Level: "world"}
+	folder := filepath.Join(d.DataDir, "world", "datapacks", "Loose")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"pack.mcmeta", "pack.png"} {
+		if err := syscall.Mkfifo(filepath.Join(folder, name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		s, err := d.Summary(context.Background(), "Loose")
+		if err == nil && s != (Summary{}) {
+			err = errors.New("summary of FIFOs isn't empty")
+		}
+		if err == nil {
+			_, err = d.Icon(context.Background(), "Loose")
+			if errors.Is(err, ErrNoIcon) {
+				err = nil
+			}
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Error(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Summary hangs on a FIFO")
 	}
 }
 
