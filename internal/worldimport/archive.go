@@ -166,6 +166,14 @@ func (ix *index) add(ctx context.Context, s Source, folder string, lim Limits, b
 	return nil
 }
 
+// CheckUploadName refuses, with an *Error, a file name Inspect would refuse
+// by name alone, such as one with a slash or a Bedrock world's extension, so
+// an upload can be refused before its bytes arrive.
+func CheckUploadName(name string) error {
+	_, err := checkName(name)
+	return err
+}
+
 // checkName validates the name of an uploaded file and returns the folder
 // its contents appear in.
 func checkName(name string) (string, error) {

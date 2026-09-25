@@ -260,6 +260,34 @@ func TestInspectChecksUploadNamesAndFormats(t *testing.T) {
 	}
 }
 
+func TestCheckUploadNameAgreesWithInspect(t *testing.T) {
+	cases := map[string]string{
+		"Survival-2024.zip":               "",
+		"world.tar.gz":                    "",
+		"world":                           "",
+		"saves/world.zip":                 KindArchiveName,
+		"world\x07.zip":                   KindArchiveName,
+		strings.Repeat("w", 252) + ".zip": KindArchiveName,
+		"":                                KindArchiveName,
+		"..":                              KindArchiveName,
+		"My World.mcworld":                KindBedrock,
+		"world.rar":                       KindArchiveFormat,
+		"world.tar.zst":                   KindArchiveFormat,
+	}
+	for name, want := range cases {
+		err := CheckUploadName(name)
+		if want == "" {
+			if err != nil {
+				t.Errorf("%q: %v", name, err)
+			}
+			continue
+		}
+		if got := refusalKind(t, err); got != want {
+			t.Errorf("%q: got %s, want %s", name, got, want)
+		}
+	}
+}
+
 func TestInspectLimitsArchiveCount(t *testing.T) {
 	lv := levelDat(t, legacyLevel("world", "1.21.4", 4189))
 	src := upload(t, "world.zip", zipBytes(t, []tf{f("level.dat", lv)}))
