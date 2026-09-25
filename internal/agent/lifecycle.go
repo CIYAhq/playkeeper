@@ -539,6 +539,11 @@ func (a *Agent) waitReady(ctx context.Context, h *opHandle, id string) error {
 		}
 		c, err := a.docker.ContainerInspect(ctx, id)
 		if err == nil && !c.State.Running {
+			// This start reports the exit; the reconcile loop must not count
+			// it a second time as a crash.
+			if fin, ok := c.State.Finished(); ok {
+				a.markExitHandled(id, fin)
+			}
 			msg := fmt.Sprintf("The server stopped while starting (exit code %d).", c.State.ExitCode)
 			if lastErr != "" {
 				msg += " " + lastErr
@@ -667,12 +672,11 @@ func (a *Agent) reconcile(ctx context.Context) {
 	if c.State.Running {
 		return
 	}
-	fin, ok := c.State.Finished()
-	if !ok {
-		return
-	}
+	// A container that never started has the zero finish time.
+	fin, _ := c.State.Finished()
 	a.mu.Lock()
-	handled := a.handledExit[c.ID].Equal(fin)
+	last, ok := a.handledExit[c.ID]
+	handled := ok && last.Equal(fin)
 	ended := a.followEnded[c.ID]
 	intentional := a.intentional[c.ID]
 	graceful := a.sawStopping
@@ -687,13 +691,43 @@ func (a *Agent) reconcile(ctx context.Context) {
 		}
 		return
 	}
-	if ended.Before(fin) && a.now().Sub(fin) < followerGrace {
-		return
+	// Decide only once the follower has read this container's log to its end,
+	// however long ago it exited, so the joins and leaves it logged are in
+	// before open sessions are closed. If the log cannot be read, decide
+	// anyway followerGrace after first seeing the exit.
+	if ended.Before(fin) {
+		a.mu.Lock()
+		seen := a.exitSeen[c.ID]
+		if !seen.fin.Equal(fin) {
+			seen = seenExit{fin: fin, at: a.now()}
+			a.exitSeen[c.ID] = seen
+		}
+		a.mu.Unlock()
+		if a.now().Sub(seen.at) < followerGrace {
+			return
+		}
 	}
-	a.mu.Lock()
-	a.handledExit[c.ID] = fin
-	a.mu.Unlock()
+	a.markExitHandled(c.ID, fin)
 	switch {
+	case fin.Before(a.started):
+		// The server stopped while the agent was not running (a host reboot or
+		// an agent restart), or its container never started. How it stopped is
+		// unknown, so it is not counted as a crash: sessions still open end at
+		// the exit, or now if there was none, uncertain, and a server that
+		// should be running is brought back. The restart policy lives in memory
+		// and starts over with each agent process, so a server it gave up on is
+		// tried again.
+		end := fin
+		if end.IsZero() {
+			end = a.now()
+		}
+		a.closeOpenSessions(end, "server_stopped", true)
+		a.mu.Lock()
+		due := len(a.crashes) < maxCrashes && a.now().After(a.nextAutoRestart)
+		a.mu.Unlock()
+		if desired == api.DesiredRunning && due {
+			a.autoStart("recover")
+		}
 	case intentional:
 		a.closeOpenSessions(fin, "server_stopped", false)
 	case graceful:
@@ -714,6 +748,16 @@ func (a *Agent) reconcile(ctx context.Context) {
 			}
 		}
 	}
+}
+
+type seenExit struct{ fin, at time.Time }
+
+// markExitHandled records that a container exit has been dealt with, so the
+// reconcile loop does not count it again.
+func (a *Agent) markExitHandled(id string, fin time.Time) {
+	a.mu.Lock()
+	a.handledExit[id] = fin
+	a.mu.Unlock()
 }
 
 func (a *Agent) recordCrash(fin time.Time, st docker.ContainerState) {
@@ -778,6 +822,9 @@ func (a *Agent) autoStartFailed(err error) {
 		}
 	}
 	a.crashes = append(recent, now)
+	// The reconcile loop retries after the backoff whether the failed
+	// container was removed or is still there with its exit already counted.
+	a.crashed = true
 	n := len(a.crashes)
 	if n >= maxCrashes {
 		a.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())

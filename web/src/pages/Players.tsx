@@ -85,7 +85,7 @@ export function PlayersPage({ status }: PageProps) {
                         <td className="num">{d.uniquePlayers}</td>
                         <td className="num">{d.sessions}</td>
                         <td className="num">
-                          {d.playtimeLowerBound ? '≥ ' : ''}
+                          {d.playtimeLowerBound && d.playtimeUpperBound ? '≈ ' : d.playtimeUpperBound ? '≤ ' : d.playtimeLowerBound ? '≥ ' : ''}
                           {formatDuration(d.playtimeSeconds)}
                         </td>
                         <td className="num">
@@ -102,7 +102,7 @@ export function PlayersPage({ status }: PageProps) {
           )}
           {summary.data && (
             <p className="provenance">
-              {summary.data.observedSessions} session(s) in range; {summary.data.uncertainSessions} with an uncertain start or end (marked ≥). Player sessions are kept for {summary.data.retentionDays} days. Player IP addresses are never stored.
+              {summary.data.observedSessions} session(s) in range; {summary.data.uncertainSessions} with an uncertain start or end. A day&apos;s playtime marked ≤ is at most that (a session ended in a crash), ≥ is at least that (a session&apos;s start was not seen), and ≈ is an estimate (both). Player sessions are kept for {summary.data.retentionDays} days. Player IP addresses are never stored.
             </p>
           )}
         </Card>

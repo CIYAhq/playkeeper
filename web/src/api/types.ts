@@ -94,6 +94,7 @@ export interface ServerStatus {
   gamePort: number
   lastError?: string
   lastErrorHint?: string
+  diskWarning?: PreflightCheck
   offlineModeTest: boolean
   operation?: Operation
   lastOperation?: Operation
@@ -209,6 +210,7 @@ export interface DailyActivity {
   sessions: number
   playtimeSeconds: number
   playtimeLowerBound: boolean
+  playtimeUpperBound: boolean
   coverage: number
 }
 

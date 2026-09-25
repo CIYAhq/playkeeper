@@ -53,6 +53,8 @@ func (a *Agent) followLoop(ctx context.Context) {
 		}
 		runStart, _ := c.State.Started()
 		a.attachRun(c, runStart)
+		fin, _ := c.State.Finished()
+		live := c.State.Running || fin.After(a.started)
 		cur := a.loadCursor()
 		since := time.Time{}
 		if cur.Container == c.ID {
@@ -79,7 +81,7 @@ func (a *Agent) followLoop(ctx context.Context) {
 			if err != nil {
 				break
 			}
-			a.ingest(c.ID, l, runStart)
+			a.ingest(c.ID, l, runStart, live)
 			if l.TS.After(last.TS) {
 				last.TS = l.TS
 			}
@@ -146,7 +148,9 @@ func dedupKey(container string, l docker.LogLine) string {
 	return hex.EncodeToString(h[:16])
 }
 
-func (a *Agent) ingest(container string, l docker.LogLine, runStart time.Time) {
+// ingest records a log line's events. live tells whether the run the follower
+// attached to was still going when the agent started.
+func (a *Agent) ingest(container string, l docker.LogLine, runStart time.Time, live bool) {
 	ts := l.TS
 	if ts.IsZero() {
 		ts = a.now()
@@ -159,7 +163,10 @@ func (a *Agent) ingest(container string, l docker.LogLine, runStart time.Time) {
 	if p.Kind == minecraft.EventNone {
 		return
 	}
-	current := !ts.Before(runStart)
+	// Only the current run's lines change the live phase and errors. The run
+	// the follower replays after a host reboot or an agent restart ended
+	// before the agent started: its lines are recorded, but they are history.
+	current := !ts.Before(runStart) && (live || !ts.Before(a.started))
 	key := dedupKey(container, l)
 	switch p.Kind {
 	case minecraft.EventUUID:

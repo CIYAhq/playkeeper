@@ -102,6 +102,7 @@ type Agent struct {
 	docker  *docker.Client
 	log     *slog.Logger
 	now     func() time.Time
+	started time.Time // when this agent process started
 	console *ring
 
 	ctx    context.Context
@@ -128,6 +129,7 @@ type Agent struct {
 	crashes         []time.Time
 	crashed         bool
 	handledExit     map[string]time.Time
+	exitSeen        map[string]seenExit
 	intentional     map[string]bool
 	followEnded     map[string]time.Time
 	listMissing     map[string]int
@@ -208,9 +210,11 @@ func New(opts Options) (*Agent, error) {
 		docker:      docker.New(cfg.DockerSocket),
 		log:         opts.Logger,
 		now:         opts.Now,
+		started:     opts.Now(),
 		console:     newRing(consoleCapacity),
 		opLock:      make(chan struct{}, 1),
 		handledExit: map[string]time.Time{},
+		exitSeen:    map[string]seenExit{},
 		intentional: map[string]bool{},
 		followEnded: map[string]time.Time{},
 		listMissing: map[string]int{},

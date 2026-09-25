@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,6 +38,12 @@ type agentEnv struct {
 	ts     *httptest.Server
 	jarSum string
 	mu     sync.Mutex
+	// clockOffset moves the agent's clock and crashBackoff, when set, replaces
+	// the zero backoff (both taken at start); diskFree, when set, is the free
+	// space the agent measures.
+	clockOffset  time.Duration
+	crashBackoff []time.Duration
+	diskFree     atomic.Int64
 }
 
 func newAgentEnv(t *testing.T) *agentEnv {
@@ -65,11 +72,21 @@ func (e *agentEnv) start() {
 		e.rcon = startFakeRCON(e.t, "")
 		e.slp = startFakeSLP(e.t, e.rcon)
 	}
+	offset := e.clockOffset
+	backoff := e.crashBackoff
+	if backoff == nil {
+		backoff = []time.Duration{0}
+	}
 	a, err := New(Options{
-		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: []time.Duration{0},
+		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
+		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
-		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) { return 50 << 30, 100 << 30, nil },
+		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
+			if free := e.diskFree.Load(); free > 0 {
+				return free, 100 << 30, nil
+			}
+			return 50 << 30, 100 << 30, nil
+		},
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
 		JarSHA256: func(string) string { return e.jarSum }, StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second,
 	})
@@ -169,6 +186,29 @@ func (e *agentEnv) create() {
 		e.t.Fatalf("create failed: %+v", op)
 	}
 	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+}
+
+// waitExitRead waits until the log follower has read the stopped container to
+// its end.
+func (e *agentEnv) waitExitRead() {
+	e.t.Helper()
+	e.waitFor("the follower to reach the exit", func() bool {
+		c, err := e.a.docker.ContainerInspect(context.Background(), containerName)
+		fin, ok := c.State.Finished()
+		e.a.mu.Lock()
+		defer e.a.mu.Unlock()
+		return err == nil && ok && !c.State.Running && !e.a.followEnded[c.ID].Before(fin)
+	})
+}
+
+func (e *agentEnv) onlineIdle() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() }
+
+func (e *agentEnv) crashEvents() int {
+	return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`)
+}
+
+func (e *agentEnv) opsOf(kind, status string) int {
+	return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = ? AND status = ?`, kind, status)
 }
 
 func (e *agentEnv) countRows(q string, args ...any) int {
@@ -634,6 +674,322 @@ func TestCrashIsDetectedSessionMarkedIncompleteAndRecovered(t *testing.T) {
 	}
 }
 
+// When the server stops while the agent is down, for example during a host
+// reboot, the agent does not know how it stopped, so it counts no crash. It
+// reads the log to its end first, however long ago the exit was, so a leave
+// logged meanwhile closes its session; a session still open ends at the exit,
+// uncertain. The server is brought back.
+func TestExitWhileTheAgentWasDownIsNotCounted(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		stop      func(fd *fakeDocker)
+		reason    string
+		uncertain int
+	}{
+		{"clean shutdown", func(fd *fakeDocker) {
+			fd.addLog("[12:02:00 INFO]: PkBotBuilder left the game")
+			fd.externalStop()
+		}, "left", 0},
+		{"crash", func(fd *fakeDocker) { fd.crash(137) }, "server_stopped", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+			e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
+			e.stop()
+			tc.stop(e.fd)
+			e.fd.mu.Lock()
+			e.fd.logDelay = 300 * time.Millisecond
+			e.fd.mu.Unlock()
+			e.clockOffset = time.Minute
+			e.start()
+			e.waitFor("the server brought back", e.onlineIdle)
+			if n := e.crashEvents(); n != 0 {
+				t.Fatalf("an exit while the agent was down was counted as %d crash(es)", n)
+			}
+			if n := e.opsOf("recover", api.OpSucceeded); n != 1 {
+				t.Fatalf("want one recover, got %d", n)
+			}
+			var reason string
+			var uncertain int
+			e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason, &uncertain)
+			if reason != tc.reason || uncertain != tc.uncertain {
+				t.Fatalf("session ended with reason %q, uncertain %d; want %q, %d", reason, uncertain, tc.reason, tc.uncertain)
+			}
+		})
+	}
+}
+
+// A start that fails because the server exits while starting is one failure:
+// the start reports it, and neither the reconcile loop nor an agent restart
+// counts the same exit again as a crash. So after a real crash the restart
+// policy gives up after maxCrashes real failures, not fewer.
+func TestFailedStartIsCountedOnce(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	crashes := func() int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) }
+	run := func(verb, want string) {
+		t.Helper()
+		code, out := e.call("POST", "/v1/server/"+verb, map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", verb, code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != want {
+			t.Fatalf("%s: %+v", verb, op)
+		}
+	}
+	// settled waits until the log follower has read the stopped container to
+	// its end, then gives the reconcile loop a few ticks to classify the exit.
+	settled := func() {
+		t.Helper()
+		e.waitExitRead()
+		time.Sleep(300 * time.Millisecond)
+	}
+	run("stop", api.OpSucceeded)
+	e.fd.mu.Lock()
+	e.fd.bootExit = 134
+	e.fd.mu.Unlock()
+	run("start", api.OpFailed)
+	settled()
+	if n, phase := crashes(), e.status().Phase; n != 0 || phase != api.PhaseStopped {
+		t.Fatalf("the failed start was counted again: %d crash event(s), phase %s", n, phase)
+	}
+	e.stop()
+	e.start()
+	settled()
+	if n := crashes(); n != 0 {
+		t.Fatalf("an agent restart counted the old exit again: %d crash event(s)", n)
+	}
+
+	e.fd.mu.Lock()
+	e.fd.bootExit = 0
+	e.fd.mu.Unlock()
+	run("start", api.OpSucceeded)
+	e.fd.mu.Lock()
+	e.fd.bootExit = 134
+	e.fd.mu.Unlock()
+	e.fd.crash(137)
+	e.waitFor("the restart policy to give up", func() bool {
+		return strings.Contains(e.status().LastError, "stopped trying to start") && !e.a.busy()
+	})
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'auto-restart'`); n != maxCrashes-1 {
+		t.Fatalf("want %d automatic restarts after the crash before giving up, got %d", maxCrashes-1, n)
+	}
+	if n := crashes(); n != 1 {
+		t.Fatalf("want the one real crash recorded, got %d", n)
+	}
+}
+
+// After an agent restart the restart policy starts over, so a server that
+// should be running is brought back: after a crash that was waiting out its
+// backoff, after a start the agent was stopped in the middle of, and after the
+// policy gave up. If the cause is still there, it gives up again and says why.
+func TestAgentRestartBringsBackAServerThatShouldBeRunning(t *testing.T) {
+	t.Run("a crash waiting out its backoff", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.stop()
+		e.crashBackoff = []time.Duration{time.Minute}
+		e.start()
+		e.create()
+		e.fd.crash(137)
+		e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == 1 && e.status().Phase == api.PhaseCrashed })
+		e.stop()
+		e.start()
+		e.waitFor("the server brought back", e.onlineIdle)
+		if n, c := e.opsOf("recover", api.OpSucceeded), e.crashEvents(); n != 1 || c != 1 {
+			t.Fatalf("want one recover and the crash counted once, got %d and %d", n, c)
+		}
+	})
+
+	t.Run("a recover the agent was stopped in", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		inspected := e.fd.called("GET /images/")
+		e.fd.mu.Lock()
+		e.fd.holdImages = true
+		e.fd.mu.Unlock()
+		e.fd.externalStop()
+		e.waitFor("the recover to be under way", func() bool {
+			op := e.a.currentOp()
+			return op != nil && op.Kind == "recover" && e.fd.called("GET /images/") > inspected
+		})
+		e.stop()
+		e.fd.mu.Lock()
+		e.fd.holdImages = false
+		e.fd.mu.Unlock()
+		e.start()
+		e.waitFor("the recover to be finished", e.onlineIdle)
+		if n := e.opsOf("recover", api.OpSucceeded); n != 1 {
+			t.Fatalf("want the recover finished once, got %d", n)
+		}
+		if n := e.status().CrashCount; n != 0 {
+			t.Fatalf("stopping the agent is not a failed start, but %d failure(s) were counted", n)
+		}
+	})
+
+	t.Run("a container created but never started", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		e.fd.addLog("[12:01:00 INFO]: PkBotBuilder joined the game")
+		e.waitFor("session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
+		e.stop()
+		// The agent was killed after creating the container and before starting it.
+		e.fd.mu.Lock()
+		c := e.fd.byName[containerName]
+		c.running, c.started, c.finished = false, time.Time{}, time.Time{}
+		e.fd.mu.Unlock()
+		e.start()
+		e.waitFor("the start to be finished", e.onlineIdle)
+		if n := e.opsOf("recover", api.OpSucceeded); n != 1 {
+			t.Fatalf("want one recover, got %d", n)
+		}
+		var reason string
+		var uncertain int
+		e.a.db.QueryRow(`SELECT end_reason, end_uncertain FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason, &uncertain)
+		if reason != "server_stopped" || uncertain != 1 {
+			t.Fatalf("the session left open ended with reason %q, uncertain %d; want it ended before the start, uncertain", reason, uncertain)
+		}
+	})
+
+	t.Run("a policy that gave up", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		for i := 1; i <= maxCrashes; i++ {
+			e.waitFor("online before the crash", e.onlineIdle)
+			e.fd.crash(1)
+			e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == i })
+		}
+		e.waitFor("the policy to give up", func() bool {
+			return strings.Contains(e.status().LastError, "stopped restarting") && !e.a.busy()
+		})
+		e.stop()
+		e.fd.mu.Lock()
+		e.fd.bootExit = 134
+		e.fd.mu.Unlock()
+		e.start()
+		e.waitFor("the policy to give up again", func() bool {
+			return strings.Contains(e.status().LastError, "stopped trying to start") && !e.a.busy()
+		})
+		if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart') AND status = 'failed'`); n != maxCrashes {
+			t.Fatalf("want %d failed automatic starts after the agent restart, got %d", maxCrashes, n)
+		}
+		if n := e.crashEvents(); n != maxCrashes {
+			t.Fatalf("the crashes from before the agent restart were counted again: %d crash events", n)
+		}
+	})
+}
+
+// Right after an agent restart the follower replays the previous run's log,
+// whose ready line is history. A start that begins meanwhile, by the reconcile
+// loop or by the user, succeeds only once the new run is ready.
+func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
+	slowReplay := func(e *agentEnv, bootExit int) {
+		e.fd.mu.Lock()
+		e.fd.logDelay = 150 * time.Millisecond
+		e.fd.bootExit = bootExit
+		e.fd.mu.Unlock()
+	}
+	userStart := func(e *agentEnv) *api.Operation {
+		code, out := e.call("POST", "/v1/server/start", map[string]any{"actor": "admin"})
+		if code != 202 {
+			e.t.Fatalf("start: %d %v", code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	// crashedAndStopped leaves a run that was ready, crashed, and was then
+	// stopped by the user, so nothing restarts it and its log ends with "Done".
+	crashedAndStopped := func(t *testing.T) *agentEnv {
+		e := newAgentEnv(t)
+		e.stop()
+		e.crashBackoff = []time.Duration{time.Minute}
+		e.start()
+		e.create()
+		e.fd.crash(137)
+		e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == 1 })
+		if code, out := e.call("POST", "/v1/server/stop", map[string]any{"actor": "admin"}); code != 200 {
+			t.Fatalf("stop: %d %v", code, out)
+		}
+		return e
+	}
+
+	t.Run("an automatic start whose new run fails", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		inspected := e.fd.called("GET /images/")
+		e.fd.mu.Lock()
+		e.fd.holdImages = true
+		e.fd.mu.Unlock()
+		e.fd.crash(137)
+		e.waitFor("the automatic restart to be under way", func() bool {
+			op := e.a.currentOp()
+			return op != nil && op.Kind == "auto-restart" && e.fd.called("GET /images/") > inspected
+		})
+		e.stop()
+		e.fd.mu.Lock()
+		e.fd.holdImages = false
+		e.fd.mu.Unlock()
+		slowReplay(e, 134)
+		e.start()
+		e.waitFor("the automatic starts to stop", func() bool {
+			return strings.Contains(e.status().LastError, "stopped") && !e.a.busy()
+		})
+		if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind IN ('recover', 'auto-restart') AND status = 'succeeded'`); n != 0 {
+			t.Fatalf("%d automatic start(s) succeeded although every new run failed", n)
+		}
+		if st := e.status(); !strings.Contains(st.LastError, "stopped trying to start") {
+			t.Fatalf("want the failed starts given up, got %q", st.LastError)
+		}
+	})
+
+	t.Run("a start the user asks for whose new run fails", func(t *testing.T) {
+		e := crashedAndStopped(t)
+		e.stop()
+		slowReplay(e, 134)
+		e.start()
+		if op := userStart(e); op.Status != api.OpFailed {
+			t.Fatalf("the start succeeded although the new run failed: %+v", op)
+		}
+	})
+
+	t.Run("a start the user asks for that comes up", func(t *testing.T) {
+		e := crashedAndStopped(t)
+		e.stop()
+		slowReplay(e, 0)
+		e.start()
+		if op := userStart(e); op.Status != api.OpSucceeded {
+			t.Fatalf("start: %+v", op)
+		}
+		e.waitFor("online", e.onlineIdle)
+	})
+}
+
+// The Overview warns about low disk space with the preflight's thresholds and
+// advice, and a backup refused for space records how much it needed, so its
+// failure can be dropped once that much is free again.
+func TestStatusWarnsAboutLowDiskWithThePreflightAdvice(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	if w := e.status().DiskWarning; w != nil {
+		t.Fatalf("50 GB free needs no warning: %+v", w)
+	}
+	e.diskFree.Store(4 << 30)
+	if w := e.status().DiskWarning; w == nil || w.Status != "warn" || !strings.Contains(w.Fix, "Keep at least 5 GB free") {
+		t.Fatalf("4 GB free: %+v", w)
+	}
+	e.diskFree.Store(1 << 20)
+	if w := e.status().DiskWarning; w == nil || w.Status != "fail" || !strings.Contains(w.Fix, "Free at least 5 GB") {
+		t.Fatalf("1 MB free: %+v", w)
+	}
+	code, out := e.call("POST", "/v1/backups", map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || op.Detail["neededBytes"] == nil {
+		t.Fatalf("a backup refused for space must record how much it needed: %+v", op)
+	}
+}
+
 func TestExternalCleanStopIsRestored(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
@@ -818,15 +1174,21 @@ func TestDailySummaryFlagsIncompleteSessions(t *testing.T) {
 	e.a.kvSet(kvCollectingSince, now.Add(-48*time.Hour).Format(time.RFC3339Nano))
 	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, source) VALUES('A', ?, ?, 'left', 'server_log')`, now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli())
 	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, end_uncertain, source) VALUES('B', ?, ?, 'server_crashed', 1, 'server_log')`, now.Add(-3*time.Hour).UnixMilli(), now.Add(-150*time.Minute).UnixMilli())
+	e.a.db.Exec(`INSERT INTO sessions(player, start_ts, end_ts, end_reason, start_uncertain, source) VALUES('C', ?, ?, 'left', 1, 'player_list')`, now.Add(-26*time.Hour).UnixMilli(), now.Add(-25*time.Hour).UnixMilli())
 	s, err := e.a.Summary(2, "UTC", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	today := s.Days[len(s.Days)-1]
-	if today.UniquePlayers != 2 || today.PlaytimeSeconds != 3600+1800 || !today.PlaytimeLowerBound {
-		t.Fatalf("today: %+v", today)
+	// A session that ended in a crash makes the day's total an upper bound; one
+	// whose start was not seen makes it a lower bound.
+	today, yesterday := s.Days[len(s.Days)-1], s.Days[len(s.Days)-2]
+	if today.UniquePlayers != 2 || today.PlaytimeSeconds != 3600+1800 || !today.PlaytimeUpperBound || today.PlaytimeLowerBound {
+		t.Fatalf("today, with a crash-ended session, must be an upper bound: %+v", today)
 	}
-	if s.UncertainSessions != 1 || today.Coverage >= 1 {
+	if !yesterday.PlaytimeLowerBound || yesterday.PlaytimeUpperBound {
+		t.Fatalf("yesterday, with a session whose start was not seen, must be a lower bound: %+v", yesterday)
+	}
+	if s.UncertainSessions != 2 || today.Coverage >= 1 {
 		t.Fatalf("summary must flag uncertainty and incomplete coverage: %+v", s)
 	}
 	if _, err := e.a.Summary(7, "Not/AZone", now); err == nil {

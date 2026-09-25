@@ -34,4 +34,4 @@ Implementation constraints: authenticated HTTPS management, fail-closed authoriz
 - The RCON password is also present in `server.properties` inside the world directory (readable by the game user and root), because the Minecraft server reads it from there.
 - `PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1` lets anyone join under any name. It exists only for automated protocol-bot tests; the installer never sets it and the UI shows a permanent red warning when it is on.
 - Backups never contain the Paper jar, so a restore downloads it again: restoring needs outbound HTTPS to PaperMC and Mojang.
-- Automatic restarts give up after three failures in 15 minutes (crashes or failed starts) and say why; a start the user asked for that fails is not retried until they press Start again.
+- Automatic restarts give up after three failures in 15 minutes (crashes or failed starts) and say why; a start the user asked for that fails is not retried until they press Start again. The count starts over when the agent restarts, for example after a reboot: a server that should be running is tried again, and if the cause is still there, Playkeeper gives up again and says why.

@@ -10,6 +10,22 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
+// diskCheck rates the free space for the world and its backups. Preflight and
+// the Overview's low-disk warning use the same thresholds and advice.
+func diskCheck(free int64) api.PreflightCheck {
+	gb := float64(free) / (1 << 30)
+	c := api.PreflightCheck{ID: "disk", Label: "Disk space"}
+	switch {
+	case free < 2<<30:
+		c.Status, c.Detail, c.Fix = "fail", fmt.Sprintf("Only %.1f GB free.", gb), "Free at least 5 GB of disk space (old logs, unused Docker images: sudo docker image prune), then check again."
+	case free < 5<<30:
+		c.Status, c.Detail, c.Fix = "warn", fmt.Sprintf("%.1f GB free. Worlds and backups grow over time.", gb), "Keep at least 5 GB free for the world and its backups."
+	default:
+		c.Status, c.Detail = "pass", fmt.Sprintf("%.1f GB free.", gb)
+	}
+	return c
+}
+
 // Preflight reports whether this host can run the Minecraft server, with an
 // actionable fix for every problem.
 func (a *Agent) Preflight(ctx context.Context) api.Preflight {
@@ -35,15 +51,7 @@ func (a *Agent) Preflight(ctx context.Context) api.Preflight {
 	if free, _, err := a.opts.DiskUsage(a.cfg.DataDir); err != nil {
 		add("disk", "Disk space", "warn", "Could not measure free space: "+err.Error(), "")
 	} else {
-		gb := float64(free) / (1 << 30)
-		switch {
-		case free < 2<<30:
-			add("disk", "Disk space", "fail", fmt.Sprintf("Only %.1f GB free.", gb), "Free at least 5 GB of disk space (old logs, unused Docker images: sudo docker image prune), then check again.")
-		case free < 5<<30:
-			add("disk", "Disk space", "warn", fmt.Sprintf("%.1f GB free. Worlds and backups grow over time.", gb), "Keep at least 5 GB free for the world and its backups.")
-		default:
-			add("disk", "Disk space", "pass", fmt.Sprintf("%.1f GB free.", gb), "")
-		}
+		checks = append(checks, diskCheck(free))
 	}
 	ours := false
 	if dockerOK {

@@ -276,8 +276,11 @@ func (a *Agent) Summary(days int, tzName string, now time.Time) (api.PlayersSumm
 			players[s.Player] = true
 			act.Sessions++
 			act.PlaytimeSeconds += int64(hi.Sub(lo).Seconds())
-			if s.EndUncertain || s.StartUncertain {
+			if s.StartUncertain {
 				act.PlaytimeLowerBound = true
+			}
+			if s.EndUncertain {
+				act.PlaytimeUpperBound = true
 			}
 		}
 		act.UniquePlayers = len(players)
