@@ -176,19 +176,19 @@ func (c *sftpClient) free(s *session) (int64, bool) {
 	return int64(v.Bavail * bs), true
 }
 
-func (c *sftpClient) fullError(name string, need, free int64) *Error {
-	return &Error{Kind: KindStorageFull, Op: opUpload, Name: name, Need: need, Free: free,
+func (c *sftpClient) fullError(op, name string, need, free int64) *Error {
+	return &Error{Kind: KindStorageFull, Op: op, Name: name, Need: need, Free: free,
 		Msg:  fmt.Sprintf("The other machine's disk has no room for %s: it needs %s, and %s is free.", name, humanBytes(need), humanBytes(free)),
 		Hint: "Free space on the other machine, or keep fewer copies there."}
 }
 
 // writeFailed looks for a full disk behind a write the other machine
 // refused, which SFTP reports only as a failure.
-func (c *sftpClient) writeFailed(s *session, name string, need int64, err error) error {
+func (c *sftpClient) writeFailed(s *session, op, name string, need int64, err error) error {
 	var st *sftp.StatusError
 	if errors.As(err, &st) && st.FxCode() == sftp.ErrSSHFxFailure {
 		if free, ok := c.free(s); ok && free < need {
-			return c.fullError(name, need, free)
+			return c.fullError(op, name, need, free)
 		}
 	}
 	return err
@@ -273,7 +273,7 @@ func (c *sftpClient) send(ctx context.Context, s *session, o object, st *UploadS
 	}
 	start := min(st.SFTP.Written, fi.Size())
 	if free, ok := c.free(s); ok && free < o.Size-start {
-		return Copy{}, c.fullError(o.Name, o.Size-start, free)
+		return Copy{}, c.fullError(opUpload, o.Name, o.Size-start, free)
 	}
 	if err := f.Truncate(start); err != nil {
 		return Copy{}, err
@@ -297,7 +297,7 @@ func (c *sftpClient) send(ctx context.Context, s *session, o object, st *UploadS
 				return Copy{}, &Error{Kind: KindUnexpected, Op: opUpload, Name: o.Name, Err: m.err,
 					Msg: fmt.Sprintf("Playkeeper couldn't read the encrypted copy %s on this machine.", o.Name), Hint: "Check the disk for errors."}
 			}
-			return Copy{}, c.writeFailed(s, o.Name, o.Size-off, err)
+			return Copy{}, c.writeFailed(s, opUpload, o.Name, o.Size-off, err)
 		}
 		if m.n != n {
 			return Copy{}, changedError(o.Name, true)
@@ -624,7 +624,7 @@ func (c *sftpClient) testWrite(s *session, name, p string, body []byte) error {
 	}
 	if _, err := f.Write(body); err != nil {
 		f.Close()
-		return c.writeFailed(s, name, int64(len(body)), err)
+		return c.writeFailed(s, opTest, name, int64(len(body)), err)
 	}
 	return f.Close()
 }
