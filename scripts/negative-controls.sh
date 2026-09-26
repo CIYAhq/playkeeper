@@ -348,11 +348,29 @@ control "the jar is hashed only up to a size no Paper jar reaches" internal/agen
   'const maxJarBytes = 1 << 62' \
   ./internal/agent '^TestAHugeSparseJarDoesNotHoldUpTheStart$'
 control "a backup reads the level name without following a link or waiting on a pipe" internal/backup/archive.go \
-  'func LevelName(dataDir string) string {
+  'func levelName(dataDir string) (string, error) {
 	b, err := readProperties(dataDir)' \
-  'func LevelName(dataDir string) string {
+  'func levelName(dataDir string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
   ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "a backup refuses a server.properties Playkeeper won't read" internal/backup/archive.go \
+  'return "world", nil
+	}
+	if err != nil {
+		return "", err
+	}' \
+  'return "world", nil
+	}
+	if err != nil {
+		return "world", nil
+	}' \
+  ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "the check before a backup stops for a file Playkeeper won't read" internal/agent/backups.go \
+  'case gamefiles.KindOf(err) != "":
+		err = gameFileError(err, notBackedUp)' \
+  'case gamefiles.KindOf(err) != "" && false:
+		err = gameFileError(err, notBackedUp)' \
+  ./internal/agent '^TestBackupRefusesAServerPropertiesItWontReadBeforeStopping$'
 control "a restored world is given to the game without following links" internal/agent/backups.go \
   'if d.Type()&fs.ModeSymlink != 0 {' \
   'if false {' \
@@ -384,10 +402,10 @@ control "no world copy is discarded while the live world folder is missing" inte
   'if false && !dirExists(s.dataDir()) {' \
   ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
 control "a world a restore would refuse is refused before the server stops" internal/agent/backups.go \
-  'err := backup.Check(s.dataDir(), archiveLimits())
-	if !errors.As(err, &refused) {' \
-  'err := backup.Check(s.dataDir(), archiveLimits())
-	if !errors.As(err, &refused) || true {' \
+  'case errors.As(err, &refused):
+		err = s.withRefusalHint(err)' \
+  'case errors.As(err, &refused) && false:
+		err = s.withRefusalHint(err)' \
   ./internal/agent '^(TestBackupRefusesAWorldARestoreWouldRefuse|TestBackupRefusesAWholeWorldOverALimitBeforeStopping|TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping)$'
 control "an update refuses such a world before the server stops" internal/agent/versions.go \
   'if err := s.archiveRefusal("Nothing was changed."); err != nil {' \
