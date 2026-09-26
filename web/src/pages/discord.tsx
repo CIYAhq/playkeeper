@@ -80,10 +80,13 @@ export function DiscordSettingsSection() {
   }
   if (!s) {
     return (
-      <Card aria-busy="true">
-        <Skeleton className="h-4 w-20" />
-        <Skeleton className="mt-2 h-3 w-64" />
-        <Skeleton className="mt-5 h-8 w-full" />
+      <Card aria-labelledby="discord-title" aria-busy="true">
+        <CardTitle id="discord-title" className="max-sm:sr-only">
+          {t('discord.title')}
+        </CardTitle>
+        <CardHint>{t('discord.lead')}</CardHint>
+        <Skeleton className="mt-4 h-3 w-64" />
+        <Skeleton className="mt-4 h-8 w-full max-sm:h-11" />
       </Card>
     )
   }
@@ -122,7 +125,9 @@ function ConnectCard({ onConnected }: { onConnected: (s: DiscordSettings) => Pro
 
   return (
     <Card aria-labelledby="discord-title">
-      <CardTitle id="discord-title">{t('discord.title')}</CardTitle>
+      <CardTitle id="discord-title" className="max-sm:sr-only">
+        {t('discord.title')}
+      </CardTitle>
       <CardHint>{t('discord.lead')}</CardHint>
       <ol className="mt-4 flex flex-col gap-1.5 text-[13px]">
         {steps.map((k, i) => (
@@ -132,7 +137,7 @@ function ConnectCard({ onConnected }: { onConnected: (s: DiscordSettings) => Pro
           </li>
         ))}
       </ol>
-      <form onSubmit={connect} className="mt-4 flex gap-2 max-sm:flex-col" noValidate>
+      <form onSubmit={connect} className="mt-2.5 flex gap-2 max-sm:flex-col" noValidate>
         <InputGroup className="max-sm:h-11 sm:flex-1">
           <InputGroupAddon>
             <LinkIcon aria-hidden="true" />
@@ -154,12 +159,12 @@ function ConnectCard({ onConnected }: { onConnected: (s: DiscordSettings) => Pro
         </Button>
       </form>
       {error ? (
-        <p className="mt-2 text-xs text-destructive-foreground" role="alert">
+        <p className="mt-4 text-xs text-destructive-foreground" role="alert">
           {error.msg}
           {error.hint && <span className="text-muted-foreground"> {error.hint}</span>}
         </p>
       ) : (
-        <p className="mt-2 text-xs text-muted-foreground">{t('discord.private')}</p>
+        <p className="mt-4 text-xs text-muted-foreground">{t('discord.private')}</p>
       )}
     </Card>
   )
