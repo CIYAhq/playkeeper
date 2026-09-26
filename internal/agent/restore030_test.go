@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -209,66 +210,169 @@ func TestRestoreInterruptedUnder030IsRecovered(t *testing.T) {
 }
 
 // An agent that stops while it works out how far a 0.3.0 restore got leaves
-// the restore for the next start instead of giving up on it. Here the server
-// was updated after the backup, so the settings from before the restore need
-// the newer Paper build looked up, and the agent stops during the lookup.
+// the restore for the next start instead of giving up on it or undoing it.
+// It stops while looking up the backup's Paper build to check the restored
+// settings. If the server was updated after the backup, the next start also
+// looks up the newer build for the settings from before the restore.
 func TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart(t *testing.T) {
-	e := newAgentEnv(t)
-	id, _, restored, _ := e.restoreScenario()
-	sc, err := e.srv().serverConfig()
-	if err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		name    string
+		updated bool
+	}{
+		{name: "the server was updated after the backup", updated: true},
+		{name: "the server has the backup's settings"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			id, _, restored, _ := e.worldRestoreScenario()
+			if tc.updated {
+				sc, err := e.srv().serverConfig()
+				if err != nil {
+					t.Fatal(err)
+				}
+				sc.VersionID, sc.MinecraftVersion, sc.PaperBuild = "paper-26.2", "26.2", 129
+				if err := e.srv().saveServerConfig(*sc); err != nil {
+					t.Fatal(err)
+				}
+			}
+			died := make(chan struct{})
+			crash030 = func(step string) bool {
+				if step != "settings_saved" {
+					return false
+				}
+				close(died)
+				return true
+			}
+			t.Cleanup(func() { crash030 = func(string) bool { return false } })
+			opID := e.apply030(id)
+			waitClosed(t, died, "the 0.3.0 restore to save the restored settings")
+			e.stop()
+			crash030 = func(string) bool { return false }
+			lookups := func() int {
+				e.fill.mu.Lock()
+				defer e.fill.mu.Unlock()
+				return e.fill.requests
+			}
+			before := lookups()
+			e.fill.mu.Lock()
+			e.fill.hold = true
+			e.fill.mu.Unlock()
+			e.start()
+			e.waitFor("the Paper build lookup to hang", func() bool { return lookups() > before })
+			e.stop()
+			e.fill.mu.Lock()
+			e.fill.hold = false
+			e.fill.mu.Unlock()
+			if op := e.opAtRest(opID); op.Status != api.OpRunning || op.Error != "" {
+				t.Fatalf("the restore must be left for the next start: %+v", op)
+			}
+			if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 1 {
+				t.Fatalf("the restore's stage must be kept: %v", left)
+			}
+			e.start()
+			op := e.waitOp(opID)
+			if op.Status != api.OpSucceeded || worldHash(t, e.dataDir()) != restored {
+				t.Fatalf("the next start must finish the restore: %+v", op)
+			}
+			if sc, _ := e.srv().serverConfig(); sc == nil || sc.MinecraftVersion != "26.1.2" || sc.PaperBuild != 74 {
+				t.Fatalf("the restored world must run on the backup's Paper build: %+v", sc)
+			}
+			if asides, failed := restoreCopies(e.dataDir()); len(asides)+len(failed) != 0 {
+				t.Fatalf("the finished restore left world copies: %v %v", asides, failed)
+			}
+			e.waitFor("the restored world online", e.onlineIdle)
+		})
 	}
-	sc.VersionID, sc.MinecraftVersion, sc.PaperBuild = "paper-26.2", "26.2", 129
-	if err := e.srv().saveServerConfig(*sc); err != nil {
-		t.Fatal(err)
+}
+
+// A 0.3.0 restore that had not saved its settings is undone even when the
+// backup's level, version, MOTD and max players are the server's, as they are
+// for a backup of the same server. Only settings that are the backup's in
+// every field 0.3.0 saved, memory and build included, keep the restore, and
+// the restored world runs with them.
+func TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name, step string
+		// memory gives the server another memory budget after the backup,
+		// as well as another Paper build.
+		memory, kept bool
+	}{
+		{name: "dies before the save with memory and build changed", step: "moved_in", memory: true},
+		{name: "dies before the save with only the build changed", step: "moved_in"},
+		{name: "dies after the save with memory and build changed", step: "settings_saved", memory: true, kept: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.fill.set("", []fillVersionSpec{
+				{"26.3", "SUPPORTED", []fillBuildSpec{{41, "ALPHA"}}},
+				{"26.2", "SUPPORTED", []fillBuildSpec{{129, "STABLE"}}},
+				{"26.1.2", "UNSUPPORTED", []fillBuildSpec{{73, "STABLE"}, {74, "STABLE"}}},
+			})
+			id, _, restored, previous := e.worldRestoreScenario()
+			live := e.dataDir()
+			backupSettings, err := e.srv().serverConfig()
+			if err != nil || backupSettings == nil {
+				t.Fatal(err)
+			}
+			prev := *backupSettings
+			prev.PaperBuild = 73
+			if tc.memory {
+				opts, _, _ := e.srv().memoryFor(e.srv().id)
+				for _, mb := range opts {
+					if mb != prev.MemoryMB {
+						prev.MemoryMB, prev.HeapMB = mb, minecraft.HeapMB(mb)
+						break
+					}
+				}
+				if prev.MemoryMB == backupSettings.MemoryMB {
+					t.Fatalf("no other memory budget fits here: %v", opts)
+				}
+			}
+			if err := e.srv().saveServerConfig(prev); err != nil {
+				t.Fatal(err)
+			}
+			died := make(chan struct{})
+			crash030 = func(step string) bool {
+				if step != tc.step {
+					return false
+				}
+				close(died)
+				return true
+			}
+			t.Cleanup(func() { crash030 = func(string) bool { return false } })
+			opID := e.apply030(id)
+			waitClosed(t, died, "the 0.3.0 restore to reach "+tc.step)
+			e.stop()
+			crash030 = func(string) bool { return false }
+			e.start()
+			op := e.waitOp(opID)
+			sc, err := e.srv().serverConfig()
+			if err != nil || sc == nil {
+				t.Fatal(err)
+			}
+			asides, failed := restoreCopies(live)
+			if tc.kept {
+				if op.Status != api.OpSucceeded || worldHash(t, live) != restored || len(asides)+len(failed) != 0 {
+					t.Fatalf("the restore must be kept: %+v (world copies %v %v)", op, asides, failed)
+				}
+				if sc.MemoryMB != backupSettings.MemoryMB || sc.PaperBuild != 74 {
+					t.Fatalf("the restored world must run with the backup's memory and build: %+v", sc)
+				}
+			} else {
+				if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The Playkeeper agent stopped before the restored world's settings were saved.") {
+					t.Fatalf("the restore must be undone: %+v", op)
+				}
+				if worldHash(t, live) != previous || len(asides) != 0 || len(failed) != 1 || worldHash(t, failed[0]) != restored {
+					t.Fatalf("the previous world must be back, and the restored one kept as a copy: %v %v", asides, failed)
+				}
+				sc.JarVerifiedAt, prev.JarVerifiedAt = nil, nil
+				if !reflect.DeepEqual(*sc, prev) {
+					t.Fatalf("the previous settings must be back:\n got %+v\nwant %+v", *sc, prev)
+				}
+			}
+			e.waitFor("the server online", e.onlineIdle)
+		})
 	}
-	died := make(chan struct{})
-	crash030 = func(step string) bool {
-		if step != "settings_saved" {
-			return false
-		}
-		close(died)
-		return true
-	}
-	t.Cleanup(func() { crash030 = func(string) bool { return false } })
-	opID := e.apply030(id)
-	waitClosed(t, died, "the 0.3.0 restore to save the restored settings")
-	e.stop()
-	crash030 = func(string) bool { return false }
-	lookups := func() int {
-		e.fill.mu.Lock()
-		defer e.fill.mu.Unlock()
-		return e.fill.requests
-	}
-	before := lookups()
-	e.fill.mu.Lock()
-	e.fill.hold = true
-	e.fill.mu.Unlock()
-	e.start()
-	e.waitFor("the Paper build lookup to hang", func() bool { return lookups() > before })
-	e.stop()
-	e.fill.mu.Lock()
-	e.fill.hold = false
-	e.fill.mu.Unlock()
-	if op := e.opAtRest(opID); op.Status != api.OpRunning || op.Error != "" {
-		t.Fatalf("the restore must be left for the next start: %+v", op)
-	}
-	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 1 {
-		t.Fatalf("the restore's stage must be kept: %v", left)
-	}
-	e.start()
-	op := e.waitOp(opID)
-	if op.Status != api.OpSucceeded || worldHash(t, e.dataDir()) != restored {
-		t.Fatalf("the next start must finish the restore: %+v", op)
-	}
-	if sc, _ := e.srv().serverConfig(); sc == nil || sc.MinecraftVersion != "26.1.2" || sc.PaperBuild != 74 {
-		t.Fatalf("the restored world must run on the backup's Paper build: %+v", sc)
-	}
-	if asides, failed := restoreCopies(e.dataDir()); len(asides)+len(failed) != 0 {
-		t.Fatalf("the finished restore left world copies: %v %v", asides, failed)
-	}
-	e.waitFor("the restored world online", e.onlineIdle)
 }
 
 // Playkeeper 0.3.0 undid a restore when its agent stopped while the restored

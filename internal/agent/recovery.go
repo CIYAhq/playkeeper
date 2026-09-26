@@ -211,7 +211,10 @@ func (s *server) adoptRestore(ctx context.Context, p *pendingRestore) (*swapJour
 		j.HadLive = true
 		return save(swapReverting, why)
 	}
-	restored := restoredFrom(*cur, m)
+	restored, err := s.restoredSettings030(ctx, *cur, m)
+	if err != nil && s.stopping() {
+		return nil, err
+	}
 	switch {
 	case hasFailed || p.op.Phase == "reverting":
 		if hasAside || hasFailed && hasLive {
@@ -267,6 +270,30 @@ func restoredFrom(sc api.ServerConfig, m backup.Manifest) bool {
 	}
 	return level(sc.LevelName) == level(m.LevelName) && sc.MinecraftVersion == m.MinecraftVersion &&
 		sc.MOTD == validMOTDOr(m.Settings["motd"]) && sc.MaxPlayers == manifestMaxPlayers(m)
+}
+
+// restoredSettings030 is true if sc are, in every field Playkeeper 0.3.0's
+// restore saved, what it saved for the backup with manifest m: the backup's
+// settings on the build restoreBuild picks, with the memory the restore
+// preview suggests (0.3.0's dashboard offered no other), keeping only the
+// EULA, creation time and play style. The start after the save may have
+// verified the jar since. Settings that match without having been saved are
+// the backup's all the same. If they cannot be checked, they do not count.
+func (s *server) restoredSettings030(ctx context.Context, sc api.ServerConfig, m backup.Manifest) (bool, error) {
+	mem, _ := strconv.Atoi(m.Settings["memoryMB"])
+	if s.validMemory(mem, s.id) != nil {
+		_, mem, _ = s.memoryFor(s.id)
+	}
+	if !restoredFrom(sc, m) || sc.MemoryMB != mem {
+		return false, nil
+	}
+	entry, err := s.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+	if err != nil {
+		return false, err
+	}
+	want := s.restoredConfig(m, entry, mem, &sc, sc.EULAAcceptedBy)
+	sc.JarVerifiedAt = nil
+	return sc == want, nil
 }
 
 // previousConfig is the server's settings from before a restore Playkeeper

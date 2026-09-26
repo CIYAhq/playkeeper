@@ -616,9 +616,21 @@ control "a 0.3.0 restore that moved the live world aside is undone" internal/age
   'case false:' \
   ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_with_the_live_world_moved_aside$'
 control "a 0.3.0 restore counts as having saved its settings only if they are the backup's" internal/agent/recovery.go \
+  'return sc == want, nil' \
+  'return sc == want || true, nil' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings$/^dies_before_the_save_with_only_the_build_changed$'
+control "a 0.3.0 restore whose settings only look like the backup's is undone" internal/agent/recovery.go \
+  'restored, err := s.restoredSettings030(ctx, *cur, m)' \
+  'restored, err := restoredFrom(*cur, m), error(nil)' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings$/^dies_before_the_save_with_memory_and_build_changed$'
+control "a 0.3.0 restore the agent stops in while checking its settings is left for the next start" internal/agent/recovery.go \
+  'if err != nil && s.stopping() {' \
+  'if false && err != nil && s.stopping() {' \
+  ./internal/agent '^TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart$/^the_server_has_the_backup.s_settings$'
+control "an undone 0.3.0 restore tells the previous MOTD from the backup's" internal/agent/recovery.go \
   'sc.MOTD == validMOTDOr(m.Settings["motd"])' \
   'true' \
-  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_with_the_restored_world_moved_in$'
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/restored_world_does_not_start$'
 control "an undone 0.3.0 restore gets the settings from its rollback archive back" internal/agent/recovery.go \
   'if rollbackID == "" || !restoredFrom(cur, restored) {' \
   'if true {' \
