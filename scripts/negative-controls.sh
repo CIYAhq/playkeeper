@@ -673,9 +673,27 @@ control "removing voice chat closes its port" internal/agent/addons.go \
   'if false && slices.ContainsFunc(drop, voiceChat) {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "voice chat gets a UDP port nothing on the machine uses" internal/agent/curated.go \
-  'return func(p int) bool { return used[p] || s.opts.UDPPortInUse(p) }' \
+  'return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }' \
   'return func(p int) bool { return used[p] }' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
+control "voice chat that comes with a template gets its UDP port" internal/agent/curated.go \
+  'h.phase("opening_port")
+	return s.setUpVoiceChat(h, sc, srv, h.op.Actor)' \
+  '_ = srv
+	return nil' \
+  ./internal/agent '^TestTemplateVoiceChatGetsItsPort$'
+control "a backup records voice chat's UDP port" internal/agent/backups.go \
+  'meta.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
+  '_ = sc.VoiceChatPort' \
+  ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "a restore gives voice chat back its UDP port" internal/agent/backups.go \
+  'if err := s.restoredVoiceChat(&j.Restored, prev, m, st.data); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "a setup container still running when its output ends fails" internal/agent/software.go \
+  'if c.State.Running {' \
+  'if false && c.State.Running {' \
+  ./internal/agent '^TestSetupStillRunningWhenItsOutputEndsFails$'
 control "server software is written inside the data directory's root" internal/minecraft/software/files.go \
   'f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'f, err := os.OpenFile(root.Name()+"/"+tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
@@ -684,6 +702,10 @@ control "template data packs never connect to a private address" internal/templa
   'if err != nil || !allowed(ap) {' \
   'if false && (err != nil || !allowed(ap)) {' \
   ./internal/templates '^TestPackClientRefusesPrivateAddresses$'
+control "template data packs never download through a proxy" internal/templates/fetch.go \
+  'tr := &http.Transport{' \
+  'tr := &http.Transport{Proxy: http.ProxyFromEnvironment,' \
+  ./internal/templates '^TestPackClientUsesNoProxy$'
 control "template data packs download over HTTPS only" internal/templates/fetch.go \
   'if r.URL.Scheme != "https" {' \
   'if false {' \
