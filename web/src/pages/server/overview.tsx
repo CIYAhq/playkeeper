@@ -584,7 +584,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
         </Card>
         <section aria-labelledby="crash-fix">
           <SectionLabel className="px-4">
-            <span id="crash-fix">{t('crash.fix')}</span>
+            <h2 id="crash-fix">{t('crash.fix')}</h2>
           </SectionLabel>
           <CardGroup value={choice?.id ?? ''} onChange={setPicked} label={t('crash.fix')} className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
             {options.map((o) => (
@@ -601,8 +601,8 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
             ))}
           </CardGroup>
           {choice?.footnote && <p className="mt-3 px-4 text-[13px] text-muted-foreground">{choice.footnote}</p>}
+          <div className="fixed inset-x-4 bottom-[calc(80px+env(safe-area-inset-bottom))] z-20">{button}</div>
         </section>
-        <div className="fixed inset-x-4 bottom-[calc(80px+env(safe-area-inset-bottom))] z-20">{button}</div>
         {dialog}
       </div>
     )
