@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -700,6 +702,95 @@ func TestAPacksPreviewNamesVoiceChatsPort(t *testing.T) {
 			e.decode("GET", path, &p)
 			if !p.Ready || !slices.Equal(p.Ports, tc.want) {
 				t.Fatalf("want ports %v in the preview: %+v", tc.want, p)
+			}
+		})
+	}
+}
+
+// A pack's preview, kept or worked out again, picks voice chat's port with
+// the held ports locked while other servers take and give them back: an
+// unlocked read of them crashes the whole agent (run with -race). The port it
+// names is never one another server holds.
+func TestAPacksPreviewReadsHeldVoicePortsUnderTheirLock(t *testing.T) {
+	path := "/v1/modpacks/modrinth/" + fakePackID + "/versions/" + fakePackVersion + "/preview"
+	for _, tc := range []struct {
+		name   string
+		cached bool
+	}{
+		{"a kept preview", true},
+		{"a preview worked out again", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.up.servePackOf(fakePackSpec{mc: "26.2", loader: "fabric-loader", loaderVersion: "0.17.2", voiceChat: true})
+			// Ports are checked while a port is picked; a pick that can take the
+			// lock itself is one made without it.
+			var unlocked atomic.Int64
+			e.a.opts.UDPPortInUse = func(int) bool {
+				if e.a.voicePorts.mu.TryLock() {
+					e.a.voicePorts.mu.Unlock()
+					unlocked.Add(1)
+				}
+				return false
+			}
+			preview := func() []api.AddonPort {
+				t.Helper()
+				if !tc.cached {
+					e.a.packPreviews.clear()
+				}
+				var p api.ModpackPreview
+				e.decode("GET", path, &p)
+				return p.Ports
+			}
+			_, releaseA, err := e.a.holdVoicePort("a", curated.VoiceChatPort)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer releaseA()
+			if got := preview(); !slices.Equal(got, []api.AddonPort{{Protocol: "udp", Port: curated.VoiceChatPort + 1}}) || unlocked.Load() != 0 {
+				t.Fatalf("the preview names the port after the one server A holds, picked under the lock: %v, %d picks without it", got, unlocked.Load())
+			}
+
+			// Server B takes the next port and gives it back, over and over,
+			// while the preview is asked for.
+			var cycles atomic.Int64
+			stop, stopped := make(chan struct{}), make(chan error, 1)
+			go func() {
+				for {
+					select {
+					case <-stop:
+						stopped <- nil
+						return
+					default:
+					}
+					_, release, err := e.a.holdVoicePort("b", curated.VoiceChatPort)
+					if err != nil {
+						stopped <- err
+						return
+					}
+					release()
+					cycles.Add(1)
+				}
+			}()
+			halt := sync.OnceFunc(func() { close(stop) })
+			defer halt()
+			for n := 0; n < 20 || cycles.Load() < 2000; n++ {
+				got := preview()
+				if len(got) != 1 || (got[0].Port != curated.VoiceChatPort+1 && got[0].Port != curated.VoiceChatPort+2) {
+					t.Fatalf("preview %d names %v: never server A's port, and the next free one", n, got)
+				}
+				select {
+				case err := <-stopped:
+					t.Fatalf("server B stopped taking ports: %v", err)
+				default:
+				}
+			}
+			halt()
+			if err := <-stopped; err != nil {
+				t.Fatal(err)
+			}
+			if n := unlocked.Load(); n != 0 {
+				t.Fatalf("%d of the preview's picks read the held ports without their lock", n)
 			}
 		})
 	}

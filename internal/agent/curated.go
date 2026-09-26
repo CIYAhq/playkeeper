@@ -355,7 +355,7 @@ func voiceChatInPack(pl *modpacks.Plan) bool {
 func (a *Agent) withPackPorts(p packPreview) *api.ModpackPreview {
 	out := *p.preview
 	if p.voiceChat {
-		if port, err := curated.PickPort(curated.VoiceChatPort, a.voicePortTaken("")); err == nil {
+		if port, err := a.freeVoicePort("", curated.VoiceChatPort); err == nil {
 			out.Ports = []api.AddonPort{{Protocol: "udp", Port: port}}
 		}
 	}
