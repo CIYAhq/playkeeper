@@ -29,11 +29,12 @@
   }
 
   // The header's Install goes to the landing page's install command. While
-  // this page shows its own, it scrolls there instead, without touching the
-  // address: what's after # is the template, and a new one is read again.
+  // this page shows its own, under No dashboard yet?, it scrolls there
+  // instead, without touching the address: what's after # is the template,
+  // and a new one is read again.
   document.addEventListener('click', function (e) {
     var link = e.target.closest && e.target.closest('[data-install-link]');
-    var own = document.getElementById('install');
+    var own = document.getElementById('no-dash');
     if (!link || !own || own.closest('[hidden]') || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
