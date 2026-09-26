@@ -426,6 +426,7 @@ type fakeDest struct {
 	names   []string
 	resumes []*offsite.UploadState
 	deleted []string
+	aborted []*offsite.UploadState
 	fail    error
 	stored  map[string]offsite.Copy
 }
@@ -459,7 +460,18 @@ func (d *fakeDest) Delete(_ context.Context, name string) error {
 	return nil
 }
 
-func (d *fakeDest) Abort(context.Context, *offsite.UploadState) error { return nil }
+func (d *fakeDest) Abort(_ context.Context, st *offsite.UploadState) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.aborted = append(d.aborted, st)
+	return nil
+}
+
+func (d *fakeDest) abortedStates() []*offsite.UploadState {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]*offsite.UploadState(nil), d.aborted...)
+}
 
 func (d *fakeDest) AbortStale(context.Context, time.Time, []*offsite.UploadState) (int, error) {
 	return 0, nil
@@ -695,6 +707,61 @@ func TestACopyTheAgentStoppedInResumesFromItsSavedPart(t *testing.T) {
 	dest.mu.Unlock()
 	if len(resumes) != 2 || resumes[1] == nil || resumes[1].S3 == nil || resumes[1].S3.UploadID != "u1" || len(resumes[1].S3.Parts) != 1 {
 		t.Fatalf("after the restart the copy didn't carry on from the stored part: %+v", resumes)
+	}
+}
+
+// A copy whose archive is no longer on this machine leaves the queue, and
+// what an earlier try left at the destination, an S3 multipart upload or an
+// SFTP partial file, is discarded with it.
+func TestACopyWhoseArchiveIsGoneDiscardsWhatItLeftAtTheDestination(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup map[string]any
+		state *offsite.UploadState
+	}{
+		{"S3", map[string]any{"config": map[string]any{"type": "s3", "s3": map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}},
+			"secretKey": "wJalrXUtnFEMI-example-secret"},
+			&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, S3: &offsite.S3Upload{Key: "k", UploadID: "u1", PartSize: 5 << 20, Parts: []offsite.Part{{Number: 1, Size: 400}}}}},
+		{"SFTP", map[string]any{"config": map[string]any{"type": "sftp", "sftp": map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "backups/survival"}},
+			"sftpAuth": "password", "password": "an example password"},
+			&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, SFTP: &offsite.SFTPUpload{Partial: "backups/survival/x.tar.gz.age.partial", Written: 400}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			prev := openOffsite
+			openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.create()
+			id := e.backup()
+			b, err := e.srv().getBackup(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := json.Marshal(c.state)
+			if _, err := e.a.db.Exec(`INSERT INTO offsite_uploads(server_id, backup_id, state, created_at) VALUES(?, ?, ?, ?)`, e.sid, id, string(raw), time.Now().UnixMilli()); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(e.a.backupPath(b.FileName)); err != nil {
+				t.Fatal(err)
+			}
+			body := map[string]any{"actor": "admin", "enabled": true}
+			for k, v := range c.setup {
+				body[k] = v
+			}
+			if code, out := e.call("POST", e.sp("/offsite"), body); code != 200 {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+			e.waitFor("the unfinished copy to be discarded", func() bool { return len(dest.abortedStates()) > 0 })
+			aborted := dest.abortedStates()
+			got, _ := json.Marshal(aborted[0])
+			if len(aborted) != 1 || string(got) != string(raw) {
+				t.Fatalf("discarded %d unfinished copies, the first %s, not %s", len(aborted), got, raw)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ?`, id); n != 0 || dest.uploads() != 0 {
+				t.Fatalf("the copy of a missing archive: %d queued, %d uploads", n, dest.uploads())
+			}
+		})
 	}
 }
 

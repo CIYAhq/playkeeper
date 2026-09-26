@@ -1494,6 +1494,9 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, 
 	f, err := os.Open(s.backupPath(b.FileName))
 	if err != nil {
 		s.dropUpload(job.backupID)
+		if job.state != nil {
+			s.abandon(ctx, dest, []*offsite.UploadState{job.state})
+		}
 		return true
 	}
 	defer f.Close()
