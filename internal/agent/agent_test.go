@@ -556,7 +556,7 @@ func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
 	e := newAgentEnv(t)
 	e.addIdleServer()
 	sc := api.ServerConfig{VersionID: "paper-26.1.2", MinecraftVersion: "26.1.2", PaperBuild: 74, MemoryMB: 1536, MaxPlayers: 10, LevelName: "world"}
-	setup, _ := e.srv().containerSpec(sc, true)
+	setup, _ := e.srv().containerSpec(sc, true, nil)
 	for k, want := range map[string]string{"TYPE": "PAPER", "VERSION": "26.1.2", "PAPER_BUILD": "74", "SETUP_ONLY": "TRUE", "SKIP_DOWNLOAD_DEFAULTS": "TRUE"} {
 		if got := env(setup, k); got != want {
 			t.Errorf("setup container %s=%q, want %q", k, got, want)

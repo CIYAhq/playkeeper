@@ -167,7 +167,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		if t, ok := c.State.Started(); ok {
 			st.StartedAt = &t
 		}
-		_, hash := s.containerSpec(*sc, false)
+		_, hash := s.containerSpec(*sc, false, c.Config.Env)
 		st.PendingRestart = c.Config.Labels[labelSpec] != hash
 	default:
 		st.Phase = api.PhaseStopped

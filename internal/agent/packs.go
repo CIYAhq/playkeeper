@@ -411,22 +411,49 @@ func (s *server) hDataPackIcon(w http.ResponseWriter, r *http.Request) {
 // resourcePackEnv is the image's environment for the server's resource
 // pack. It is empty until Playkeeper first offers one, so the server's
 // definition stays as it was; once it has, an offer without a pack sets the
-// variables to empty, which clears them from server.properties.
-func resourcePackEnv(o *api.ResourcePackOffer) []string {
+// variables to empty, which clears them from server.properties. It fails
+// for a stored offer whose settings can't be built.
+func resourcePackEnv(o *api.ResourcePackOffer) ([]string, error) {
 	if o == nil {
-		return nil
+		return nil, nil
 	}
 	settings := packs.ClearSettings()
 	if o.SHA1 != "" {
-		if set, err := offerOf(o).Settings(); err == nil {
-			settings = set
+		set, err := offerOf(o).Settings()
+		if err != nil {
+			return nil, err
 		}
+		settings = set
 	}
 	env := make([]string, len(settings))
 	for i, st := range settings {
 		env[i] = st.Env + "=" + st.Value
 	}
-	return env
+	return env, nil
+}
+
+// keptPackEnv is the resource pack part of a container's environment, in
+// the order resourcePackEnv writes it.
+func keptPackEnv(env []string) []string {
+	kept := packEnv(env)
+	var out []string
+	for _, st := range packs.ClearSettings() {
+		if v, ok := kept[st.Env]; ok {
+			out = append(out, st.Env+"="+v)
+		}
+	}
+	return out
+}
+
+// offerProblem is why a stored offer's settings can't be built, and how
+// the owner fixes it.
+func offerProblem(err error) string {
+	fix := "Upload the pack again, or remove it."
+	var e *packs.Error
+	if errors.As(err, &e) && e.Code == packs.CodeInvalidPrompt {
+		fix = "Change the message players see, or remove the pack."
+	}
+	return err.Error() + " " + fix
 }
 
 func offerOf(o *api.ResourcePackOffer) packs.Offer {
@@ -472,15 +499,22 @@ func (s *server) hResourcePack(w http.ResponseWriter, r *http.Request) {
 }
 
 // resourcePackView is the pack the server offers, and whether the running
-// server offers something else until it restarts.
+// server offers something else until it restarts. An offer whose settings
+// can't be built is a problem instead: the server keeps what it offered,
+// and a restart doesn't change that.
 func (s *server) resourcePackView(ctx context.Context, sc *api.ServerConfig) api.ResourcePack {
 	var out api.ResourcePack
 	if o := sc.ResourcePack; o != nil && o.SHA1 != "" {
 		offer := *o
 		out.Offer = &offer
 	}
+	env, err := resourcePackEnv(sc.ResourcePack)
+	if err != nil {
+		out.Problem = offerProblem(err)
+		return out
+	}
 	if c, running, err := s.containerRunning(ctx); err == nil && running {
-		out.Pending = !maps.Equal(packEnv(c.Config.Env), packEnv(resourcePackEnv(sc.ResourcePack)))
+		out.Pending = !maps.Equal(packEnv(c.Config.Env), packEnv(env))
 	}
 	return out
 }

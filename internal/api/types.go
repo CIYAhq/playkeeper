@@ -978,6 +978,9 @@ type ResourcePack struct {
 	// Pending is set while the running server offers something else: a
 	// restart applies the change.
 	Pending bool `json:"pending"`
+	// Problem says why the server can't offer the stored pack, and how to
+	// fix it. Until then the server keeps offering what it did.
+	Problem string `json:"problem,omitempty"`
 }
 
 type ResourcePackSettingsRequest struct {
