@@ -348,7 +348,9 @@ function ResourcePackCard({ server: s, rp, res }: PacksProps) {
   const view = rp.data ? (offer?.sha1 ?? 'empty') : rp.error ? 'error' : 'loading'
   return (
     <Card>
-      <CardTitle>{t('packs.resourcePack')}</CardTitle>
+      <div className="flex min-h-7 items-center">
+        <CardTitle>{t('packs.resourcePack')}</CardTitle>
+      </div>
       <div key={view} className="flex animate-fade flex-col">
         {view === 'loading' && (
           <>
@@ -460,7 +462,7 @@ function DataPacksCard({ server: s, dp, data }: PacksProps) {
           </ul>
         )}
         {view === 'empty' && (
-          <div className="flex flex-1 items-center justify-center gap-4 py-6">
+          <div className="flex items-center gap-4 pt-4">
             <Pip pose="box" size={56} />
             <div>
               <p className="text-sm font-semibold">{t('packs.noData')}</p>
@@ -518,6 +520,8 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
   const packs = shownPacks(dp, data)
   const rows = useListPresence(packs, (p) => p.name)
   const live = dp.data ? dp.data.live : s.phase === 'online'
+  // The usual timing rides in the section labels; a footnote only shows for anything else.
+  const resourceTiming = rp.data?.problem || rp.data?.pending ? undefined : t('packs.labelNextJoin')
   const prompt = res.draft?.prompt ?? offer?.prompt ?? ''
   const row = 'flex w-full items-center gap-3 px-4 text-left active:bg-accent/60 disabled:opacity-64 [&>svg]:size-5 [&>svg]:shrink-0'
   const card = 'mt-2 overflow-hidden rounded-3xl border border-border bg-white'
@@ -531,10 +535,11 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
   )
 
   return (
-    <div className="flex flex-col gap-5 pt-1">
+    <div className="flex flex-col gap-5">
       <section aria-labelledby="packs-resource">
         <SectionLabel className="px-4">
           <span id="packs-resource">{t('packs.resourcePack')}</span>
+          {resourceTiming && t('common.dot') + resourceTiming}
         </SectionLabel>
         {!rp.data ? (
           rp.error ? (
@@ -560,7 +565,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
                 </li>
                 <li>
                   <label className={cn(row, 'min-h-[52px] cursor-pointer')} title={gate.blocked}>
-                    <span className="min-w-0 flex-1 text-base">{t('packs.mustAccept')}</span>
+                    <span className="min-w-0 flex-1 text-base">{t('packs.mustAcceptShort')}</span>
                     <Switch checked={res.draft?.required ?? offer.required} onCheckedChange={(on) => res.change(offer, { required: on })} disabled={!!gate.blocked} />
                   </label>
                 </li>
@@ -596,14 +601,17 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
         )}
         <OfferProblem server={s} problem={rp.data?.problem} className="px-4 pt-2" />
         {gate.local && rp.data && <p className="px-4 pt-2 text-[13px] text-warning-foreground">{gate.local}</p>}
-        <Footnote server={s} className="px-4 pt-2 text-[13px] text-muted-foreground">
-          {resourceFootnote(s, rp.data)}
-        </Footnote>
+        {(s.operation || !resourceTiming) && (
+          <Footnote server={s} className="px-4 pt-2 text-[13px] text-muted-foreground">
+            {resourceFootnote(s, rp.data)}
+          </Footnote>
+        )}
       </section>
 
       <section aria-labelledby="packs-data">
         <SectionLabel className="px-4">
           <span id="packs-data">{t('packs.dataPacks')}</span>
+          {live && t('common.dot') + t('packs.labelRightAway')}
         </SectionLabel>
         {!packs ? (
           dp.error ? (
@@ -628,9 +636,11 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
             </div>
           </div>
         )}
-        <Footnote server={s} className="px-4 pt-2 text-[13px] text-muted-foreground">
-          {live ? t('packs.appliesNow') : t('packs.appliesOnStart', { server: s.name })}
-        </Footnote>
+        {(s.operation || !live) && (
+          <Footnote server={s} className="px-4 pt-2 text-[13px] text-muted-foreground">
+            {live ? t('packs.appliesNow') : t('packs.appliesOnStart', { server: s.name })}
+          </Footnote>
+        )}
       </section>
 
       <PhoneActionBar>

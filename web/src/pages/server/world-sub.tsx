@@ -18,7 +18,7 @@ export function WorldSubHeader({ server, title }: { server: ServerStatus; title:
   const back = linkProps({ name: 'server', slug: server.slug, tab: 'world' })
   if (phone) {
     return (
-      <header className="grid grid-cols-[1fr_auto_1fr] items-center pt-2 pb-1">
+      <header className="-mb-2 grid grid-cols-[1fr_auto_1fr] items-center pt-2">
         <a {...back} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[17px] text-success-strong transition-opacity active:opacity-60">
           <ChevronLeftIcon className="size-5" aria-hidden="true" />
           {t('tab.world')}
@@ -110,7 +110,7 @@ export function PhoneActionBar({ children }: { children: ReactNode }) {
   return (
     <>
       <div className="h-20 shrink-0" aria-hidden="true" />
-      {createPortal(<div className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex animate-page gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur">{children}</div>, document.body)}
+      {createPortal(<div className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex animate-fade gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur">{children}</div>, document.body)}
     </>
   )
 }

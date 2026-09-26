@@ -191,7 +191,7 @@ function PregenSkeleton() {
   const phone = useIsPhone()
   if (phone) {
     return (
-      <div className="flex flex-col gap-3 pt-1">
+      <div className="flex flex-col gap-3">
         <p className="px-1 text-[15px] leading-5 text-muted-foreground">{t('pregen.hint')}</p>
         <section>
           <SectionLabel className="px-4">{t('pregen.howFar')}</SectionLabel>
@@ -275,7 +275,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   )
   const failed = pg.error && <Notice tone="error" title={t('pregen.failed')}>{pg.error}</Notice>
   const startButton = (
-    <Button size={phone ? 'touch' : 'default'} className={phone ? 'w-full' : undefined} onClick={start} loading={busy} disabledReason={blocked}>
+    <Button size={phone ? 'touch' : 'lg'} className={phone ? 'w-full' : undefined} onClick={start} loading={busy} disabledReason={blocked}>
       <PlayIcon />
       {t('pregen.start')}
     </Button>
@@ -296,11 +296,11 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
         {failed}
         <section aria-labelledby="pregen-far">
           <SectionLabel className="px-4">
-            <span id="pregen-far">{t('pregen.howFar')}</span>
+            <span id="pregen-far">{t('pregen.howFarShort')}</span>
           </SectionLabel>
           <CardGroup value={preset} onChange={setPreset} label={t('pregen.howFar')} className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
             {pg.presets.map((p) => (
-              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60" title={p.fits ? undefined : t('pregen.noRoom')}>
+              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2 last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60" title={p.fits ? undefined : t('pregen.noRoom')}>
                 <span className="min-w-0 flex-1">
                   {name(p)}
                   <span className="block text-[13px] text-muted-foreground">{[t('pregen.blocks', { radius: p.radius }), estimate(p)].join(t('common.dot'))}</span>
@@ -311,7 +311,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
           </CardGroup>
         </section>
         <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-3xl border border-border bg-white px-4">
-          <span className="min-w-0 flex-1 text-base">{t('pregen.pauseForPlayers')}</span>
+          <span className="min-w-0 flex-1 text-base">{t('pregen.pauseForPlayersShort')}</span>
           <Switch checked={pause} onCheckedChange={setPause} />
         </label>
         {chunky}
