@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
 
 var vanilla262 = map[string]any{"type": "vanilla", "versionId": "vanilla-26.2", "memoryMB": 1536}
@@ -330,5 +331,31 @@ func TestSlowVersionListHoldsUpOnlyItsOwnCallers(t *testing.T) {
 	unblock()
 	if err := <-fabric; err != nil {
 		t.Fatalf("Fabric's list, once it came: %v", err)
+	}
+}
+
+// A caller that waits for another's fetch of the same build list gets what
+// that fetch found, not what the cache holds by then: another list's fetch
+// may have replaced the cache meanwhile.
+func TestBuildListWaitersGetWhatTheFetchFound(t *testing.T) {
+	e := newAgentEnv(t)
+	c := &e.a.software
+	f := &flight[[]software.Build]{done: make(chan struct{})}
+	c.mu.Lock()
+	c.buildFlights = map[string]*flight[[]software.Build]{"fabric@26.2": f}
+	c.mu.Unlock()
+	type result struct {
+		builds []software.Build
+		err    error
+	}
+	got := make(chan result, 1)
+	go func() {
+		bs, _, err := e.a.typeBuilds(context.Background(), "fabric", "26.2")
+		got <- result{bs, err}
+	}()
+	f.val, f.at = []software.Build{{Version: "0.17.2", Channel: software.Stable, Recommended: true}}, time.Now()
+	close(f.done)
+	if r := <-got; r.err != nil || len(r.builds) != 1 || r.builds[0].Version != "0.17.2" {
+		t.Fatalf("a caller that waited got %+v, %v; want the list the fetch found", r.builds, r.err)
 	}
 }
