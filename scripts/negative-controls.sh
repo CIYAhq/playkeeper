@@ -606,7 +606,7 @@ control "remove_addon asks which when two add-ons match" internal/mcptools/addon
 			return match, nil
 		}
 		return api.Addon{}, &mcp.ToolError{Kind: "addon_ambiguous"' \
-  '		default:
+  '		case 1, 2:
 			return match, nil
 		}
 		return api.Addon{}, &mcp.ToolError{Kind: "addon_ambiguous"' \
