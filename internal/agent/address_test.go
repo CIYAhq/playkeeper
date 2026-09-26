@@ -974,7 +974,7 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 		}
 		return nil
 	})
-	claimsBack := e.names.count("PUT /v1/names/alex")
+	claimsBack := e.names.requests("PUT /v1/names/alex")
 	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 500 {
 		t.Fatalf("a change that can't be saved or undone: %d %v", code, out)
 	}
@@ -983,7 +983,7 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	if n, _ := e.names.name("bob"); n.State != names.StateActive {
 		t.Fatalf("bob after a release that failed: %+v", n)
 	}
-	if e.names.count("PUT /v1/names/alex") != claimsBack {
+	if e.names.requests("PUT /v1/names/alex") != claimsBack {
 		t.Fatal("alex was claimed back while bob was still held")
 	}
 	if v := e.address(); v.Host != "alex.playkeeper.io" || e.a.loadCertificate("alex.playkeeper.io") == nil {
