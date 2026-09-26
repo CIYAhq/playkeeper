@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, AddonSources, Catalog, CuratedAddons, DataPacks, LogsResponse, MemoryAdvice, PackShare, Pregen, ResourcePack, Running, ServerStatus, SoftwareBuilds, TwoFactorStatus } from '@/api/types'
 import { addonIconOf, faceOf, library, samplePlayers } from './data'
+import { upgradeTargets } from '@/lib/versions'
 import { answer, resetDemo } from './engine'
 import { faceCount } from './faces'
 import { iconCount, iconSvg } from './icons'
@@ -286,7 +287,7 @@ it('says how each server runs and what memory it needs', async () => {
 
 it('crashed Cobblemon out of memory, and giving it 6 GB starts it again', async () => {
   const before = await server('cobblemon')
-  expect(before).toMatchObject({ type: 'fabric', phase: 'crashed', crash: { kind: 'heap_out_of_memory', roomMB: 3584 } })
+  expect(before).toMatchObject({ type: 'fabric', phase: 'crashed', crash: { kind: 'heap_out_of_memory', roomMB: 11776 } })
   expect(before.crash?.fixes.map((f) => f.kind)).toEqual(['raise_memory', 'restart'])
   await ask('POST', `/api/servers/${before.id}/settings`, { memoryMB: 6144 })
   await ask('POST', `/api/servers/${before.id}/start`)
@@ -338,4 +339,38 @@ it('offers every server type, with its builds, and makes a Fabric server as aske
   const version = fabric.versions.find((v) => v.recommended)
   await ask('POST', `/api/machines/${m?.id}/servers`, { name: 'Skyblock', type: 'fabric', versionId: version?.id, memoryMB: 2048 })
   expect(await server('skyblock')).toMatchObject({ type: 'fabric', config: { software: { type: 'fabric' } } })
+})
+
+it('has room for New server’s suggested memory, so its default creates a server', async () => {
+  const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
+  const catalog = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog`)
+  expect(catalog.recommendedMemoryMB).toBeLessThanOrEqual(catalog.memoryFreeMB)
+  const largest = Math.max(...(catalog.sizing?.suggestions ?? []).filter((x) => x.players <= 10).map((x) => x.memoryMB))
+  expect(largest).toBeLessThanOrEqual(catalog.memoryFreeMB)
+  await ask('POST', `/api/machines/${m?.id}/servers`, { name: 'Skyblock', versionId: catalog.versions.find((v) => v.recommended)?.id, memoryMB: catalog.recommendedMemoryMB })
+  expect(await server('skyblock')).toMatchObject({ type: 'paper', config: { memoryMB: catalog.recommendedMemoryMB } })
+})
+
+it('keeps a Fabric server on Fabric: its versions, its upgrades and a version change', async () => {
+  const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
+  const cobblemon = await server('cobblemon')
+  expect(cobblemon.config).toMatchObject({ type: 'fabric', versionId: 'fabric-26.1.2', paperBuild: 0 })
+  const catalog = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog?server=${cobblemon.id}`)
+  expect(catalog.type).toBe('fabric')
+  expect(upgradeTargets(cobblemon.config!, catalog.versions).map((v) => v.id)).toEqual(['fabric-26.2.1'])
+  await expect(ask('POST', `/api/servers/${cobblemon.id}/version`, { versionId: 'paper-26.2.1' })).rejects.toMatchObject({ status: 400 })
+  await ask('POST', `/api/servers/${cobblemon.id}/version`, { versionId: 'fabric-26.2.1' })
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect((await server('cobblemon')).config).toMatchObject({ type: 'fabric', versionId: 'fabric-26.2.1', minecraftVersion: '26.2.1', software: { type: 'fabric' } })
+})
+
+it('gives Quilt and NeoForge servers mods, not plugins', async () => {
+  const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
+  for (const type of ['quilt', 'neoforge']) {
+    await ask('POST', `/api/machines/${m?.id}/servers`, { name: `A ${type} world`, type, memoryMB: 2048 })
+    const { id } = await server(`a-${type}-world`)
+    expect((await ask<Addons>('GET', `/api/servers/${id}/addons`)).target.kind).toBe('mod')
+    expect((await ask<AddonBrowse>('GET', `/api/servers/${id}/addons/search`)).cards.every((c) => ['Fabric API', 'Cobblemon', 'Lithium'].includes(c.name))).toBe(true)
+  }
+  expect((await ask<PackShare>('GET', `/api/servers/${(await server('a-quilt-world')).id}/mods/share`)).loaderName).toBe('Quilt')
 })

@@ -65,6 +65,8 @@ import type {
   WhitelistEntry,
 } from '@/api/types'
 import { t } from '@/i18n'
+import { typeName } from '@/lib/servers'
+import { addonKind } from '@/lib/software'
 import { faceCount, faceIndex } from './faces'
 
 /** Bump when DemoState changes shape, so sessions saved by an older demo start over. */
@@ -241,10 +243,11 @@ const freeName = 'demo'
 const machineIP = '203.0.113.10'
 
 export function config(over: Partial<ServerConfig> & Pick<ServerConfig, 'minecraftVersion' | 'memoryMB' | 'motd' | 'createdAt'>): ServerConfig {
+  const type = over.type ?? 'paper'
   return {
-    type: 'paper',
-    versionId: `paper-${over.minecraftVersion}`,
-    paperBuild: 74,
+    type,
+    versionId: `${type}-${over.minecraftVersion}`,
+    paperBuild: type === 'paper' ? 74 : 0,
     jarSha256: fakeSha(over.memoryMB),
     heapMB: Math.round(over.memoryMB * 0.75),
     levelName: 'world',
@@ -380,6 +383,7 @@ export function sample(now: number): DemoState {
       motd: 'Catch them with friends',
       createdAt: iso(cobblemonCreated),
       playStyle: 'friends',
+      type: 'fabric',
       software: { type: 'fabric', minecraftVersion: '26.1.2', fabricLoader: '0.19.3' },
     }),
     gameplay: { difficulty: 'normal', pvp: false, gameMode: 'survival', hardcore: false, viewDistance: 10, levelType: 'normal' },
@@ -409,10 +413,10 @@ export function sample(now: number): DemoState {
         arch: 'amd64',
         cpus: 4,
         cpuPercent: 22,
-        memoryTotalMB: 16384,
+        memoryTotalMB: 24576,
         systemReserveMB: 1536,
         serversMemoryMB: 11264,
-        memoryFreeMB: 3584,
+        memoryFreeMB: 11776,
         diskFreeBytes: 41 * gb,
         diskTotalBytes: 80 * gb,
         docker: true,
@@ -534,7 +538,7 @@ function outOfMemory(at: number): Crash {
       { time: clock(at - 2_000), level: 'ERROR', text: 'Encountered an unexpected exception' },
       { time: clock(at), level: 'FATAL', text: 'java.lang.OutOfMemoryError: Java heap space' },
     ],
-    roomMB: 3584,
+    roomMB: 11776,
   }
 }
 
@@ -702,9 +706,10 @@ function builds(_s: DemoState, r: Request): SoftwareBuilds {
 }
 
 function catalog(s: DemoState, r: Request): Catalog {
-  const type = serverTypes.some((x) => x.id === r.query.get('type')) ? (r.query.get('type') ?? 'paper') : 'paper'
+  const asked = s.servers.find((x) => x.id === r.query.get('server'))?.type ?? r.query.get('type')
+  const type = asked && serverTypes.some((x) => x.id === asked) ? asked : 'paper'
   const live = s.machine.live
-  const total = live?.memoryTotalMB ?? 16384
+  const total = live?.memoryTotalMB ?? 24576
   const reserve = live?.systemReserveMB ?? 1536
   const used = s.servers.reduce((n, x) => n + (x.config?.memoryMB ?? 0), 0)
   const ports = new Set(s.servers.map((x) => x.gamePort))
@@ -747,7 +752,7 @@ function preflight(s: DemoState): Preflight {
     checks: [
       { id: 'os', label: 'System', status: 'pass', detail: live?.os ?? '' },
       { id: 'docker', label: 'Docker', status: 'pass', detail: `Docker ${live?.dockerVersion ?? ''} is running` },
-      { id: 'memory', label: 'Memory', status: 'pass', detail: '16 GB, 3.5 GB not given to a server' },
+      { id: 'memory', label: 'Memory', status: 'pass', detail: '24 GB, 11.5 GB not given to a server' },
       { id: 'disk', label: 'Disk', status: 'pass', detail: '41 GB free' },
     ],
   }
@@ -865,8 +870,8 @@ function card(a: LibraryAddon, now: number, installed: boolean): AddonCard {
   return { source: a.source, projectId: a.projectId, slug: a.slug, name: a.name, author: a.author, summary: a.summary, categories: a.categories, license: a.license, downloads: a.downloads, iconUrl: iconUrlOf(a), updated: iso(now - a.daysOld * day), pageUrl, installed }
 }
 
-/** Whether a server takes mods (Fabric) or plugins (Paper). */
-const takesMods = (srv: ServerStatus) => srv.type === 'fabric'
+/** Whether a server takes mods (Fabric, Quilt, NeoForge) or plugins (Paper, Purpur). */
+const takesMods = (srv: ServerStatus) => addonKind(srv.type) === 'mods'
 
 /** The library's plugins or mods, whichever the server takes. */
 const libraryFor = (srv: ServerStatus) => library.filter((a) => !!a.mod === takesMods(srv))
@@ -1043,7 +1048,7 @@ function memoryAdvice(s: DemoState, r: Request): MemoryAdvice {
   const budgetMB = srv.config?.memoryMB ?? 4096
   const live = s.machine.live
   const used = s.servers.reduce((n, x) => n + (x.config?.memoryMB ?? 0), 0)
-  const room = (live?.memoryTotalMB ?? 16384) - (live?.systemReserveMB ?? 1536) - used + budgetMB
+  const room = (live?.memoryTotalMB ?? 24576) - (live?.systemReserveMB ?? 1536) - used + budgetMB
   const heap = (mb: number) => Math.round(mb * 0.75)
   // What each budget would be for the server, from the most it needed.
   const peakMB = srv.id === cobblemonId ? 4400 : srv.id === creativeId ? 1400 : 2560
@@ -1066,6 +1071,8 @@ function curated(s: DemoState, r: Request): CuratedAddons {
   return { picks: picks.map((a) => ({ id: a.pick ?? a.slug, card: card(a, r.now, mine.has(a)) })) }
 }
 
+const loaderVersion = (srv: ServerStatus) => srv.config?.software?.fabricLoader ?? srv.config?.software?.quiltLoader ?? srv.config?.software?.neoforgeVersion ?? ''
+
 const needText: Record<ShareNeed, string> = { required: 'Friends need it', optional: 'Optional for friends', server_only: 'Server only', unknown: 'Unknown' }
 
 function modsShare(s: DemoState, r: Request): PackShare {
@@ -1086,8 +1093,8 @@ function modsShare(s: DemoState, r: Request): PackShare {
     public: false,
     file: `${srv.slug}.mrpack`,
     size: 4_096,
-    loaderName: 'Fabric',
-    share: { server: srv.name, type: srv.type ?? 'fabric', minecraftVersion: srv.config?.minecraftVersion ?? '', loaderVersion: srv.config?.software?.fabricLoader ?? '', notice, mods },
+    loaderName: typeName(srv.type),
+    share: { server: srv.name, type: srv.type ?? 'fabric', minecraftVersion: srv.config?.minecraftVersion ?? '', loaderVersion: loaderVersion(srv), notice, mods },
   }
 }
 

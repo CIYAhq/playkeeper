@@ -8,7 +8,7 @@ import { ApiError } from '@/api/client'
 import type { Activity, ActivityKind, ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
 import { t } from '@/i18n'
 import { opLabel } from '@/lib/phase'
-import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versions, versionsOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
+import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versionsOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
 import { demoMarker } from './marker'
 import { dt } from './messages'
 import { demoToast, type DemoAction } from './toast'
@@ -97,7 +97,7 @@ function leave(s: DemoState, srv: ServerStatus, live: Live, name: string, at: nu
 // through; the last step finishes it.
 function plan(kind: JobKind, srv: ServerStatus, args: Record<string, string>): Step[] {
   const online = srv.phase === 'online'
-  const target = versions.find((v) => v.id === args.versionId)
+  const target = versionsOf(srv.type ?? 'paper').find((v) => v.id === args.versionId)
   const version = target?.minecraftVersion ?? srv.config?.minecraftVersion ?? ''
   const build = target?.paperBuild ?? srv.config?.paperBuild ?? 0
   const stopping: Step[] = [
@@ -220,9 +220,9 @@ function finish(s: DemoState, srv: ServerStatus, live: Live, job: Job, at: numbe
       break
     }
     case 'update-version': {
-      const v = versions.find((x) => x.id === job.args.versionId)
+      const v = versionsOf(srv.type ?? 'paper').find((x) => x.id === job.args.versionId)
       const from = srv.config?.minecraftVersion ?? ''
-      if (v && srv.config) Object.assign(srv.config, { versionId: v.id, minecraftVersion: v.minecraftVersion, paperBuild: v.paperBuild, jarSha256: v.jarSha256, jarVerifiedAt: iso(at) })
+      if (v && srv.config) Object.assign(srv.config, { versionId: v.id, minecraftVersion: v.minecraftVersion, paperBuild: v.paperBuild, software: v.software ?? srv.config.software, jarSha256: v.jarSha256, jarVerifiedAt: iso(at) })
       if (srv.phase === 'online') up(srv, live, at)
       note(s, at, srv.id, 'version', { ...actor, detail: `${from} → ${v?.minecraftVersion ?? from}` })
       audit(s, at, 'server.version', srv, undefined, `${from} → ${v?.minecraftVersion ?? from}`)
@@ -410,7 +410,7 @@ function create(s: DemoState, r: Request): Operation {
     desired: 'running',
     phase: 'pulling_image',
     reachable: false,
-    config: config({ versionId: v?.id, minecraftVersion: v?.minecraftVersion ?? '', paperBuild: v?.paperBuild || undefined, software: v?.software, jarSha256: v?.jarSha256, memoryMB, motd: b.motd || name, createdAt: created, maxPlayers: b.maxPlayers ?? 10, playStyle: b.playStyle ?? '' }),
+    config: config({ type, versionId: v?.id, minecraftVersion: v?.minecraftVersion ?? '', software: v?.software, jarSha256: v?.jarSha256, memoryMB, motd: b.motd || name, createdAt: created, maxPlayers: b.maxPlayers ?? 10, playStyle: b.playStyle ?? '' }),
     gameplay: { difficulty: 'normal', pvp: true, gameMode: 'survival', hardcore: false, viewDistance: 10, levelType: 'normal', ...b.gameplay },
     gamePort: port,
     offlineModeTest: false,
@@ -509,7 +509,7 @@ function restorePreview(s: DemoState, r: Request): RestorePreview {
     receivedAt: iso(r.now),
     sizeBytes: b.sizeBytes,
     sha256: b.sha256,
-    manifest: { createdAt: b.createdAt, playkeeperVersion: demoVersion, minecraftVersion: b.minecraftVersion, paperBuild: srv.config?.paperBuild ?? 0, versionId: `paper-${b.minecraftVersion}`, levelName: b.levelName, fileCount: b.fileCount, totalBytes: Math.round(b.sizeBytes * 2.4), sourceInstall: s.machine.name, settings: {} },
+    manifest: { createdAt: b.createdAt, playkeeperVersion: demoVersion, minecraftVersion: b.minecraftVersion, paperBuild: srv.config?.paperBuild ?? 0, versionId: `${srv.type ?? 'paper'}-${b.minecraftVersion}`, levelName: b.levelName, fileCount: b.fileCount, totalBytes: Math.round(b.sizeBytes * 2.4), sourceInstall: s.machine.name, settings: {} },
     compatible: true,
     problems: [],
     warnings: [],
@@ -591,7 +591,7 @@ const writes: Routes = {
   'POST /api/servers/:id/settings': settings,
   'POST /api/servers/:id/version': (s, r) => {
     const srv = serverOf(s, r)
-    const v = versions.find((x) => x.id === (r.body as { versionId?: string } | undefined)?.versionId)
+    const v = versionsOf(srv.type ?? 'paper').find((x) => x.id === (r.body as { versionId?: string } | undefined)?.versionId)
     if (!v) throw new ApiError(400, { error: dt('demo.noData'), code: 'bad_version' })
     return begin(s, srv, 'update-version', r.now, { versionId: v.id })
   },

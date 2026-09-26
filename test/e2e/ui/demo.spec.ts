@@ -199,6 +199,28 @@ test('the live demo’s address, two-factor, health, crash help, server types an
   expect(problems).toEqual([])
 })
 
+test('the live demo’s New server, to the end on its defaults, and a Fabric server’s versions', async ({ page }) => {
+  const problems = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${demoUrl}servers/new`)
+  for (const step of ['Continue to version', 'Continue to play style', 'Continue to memory', 'Continue to name']) await page.getByRole('button', { name: step }).click()
+  await page.getByLabel('Name', { exact: true }).fill('Skyblock')
+  await page.getByRole('checkbox', { name: /I accept the Minecraft/ }).check()
+  await page.getByRole('button', { name: 'Create and start Skyblock' }).click()
+  await expect(page).toHaveURL(`${demoUrl}servers/skyblock`, { timeout: 30_000 })
+  await expect(page.getByRole('heading', { name: 'Skyblock', level: 1 })).toBeVisible()
+
+  await page.goto(`${demoUrl}servers/cobblemon/settings#version`)
+  const version = page.locator('#version')
+  await expect(version).toContainText('Fabric 26.1.2')
+  await expect(version).toContainText('This is the newest version Fabric offers.')
+  await version.getByRole('button', { name: 'Choose a version…' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('26.2.1')
+  await expect(dialog).not.toContainText('Paper')
+  expect(problems).toEqual([])
+})
+
 test('the live demo’s plugins on a phone', async ({ page }) => {
   const problems = watch(page)
   await page.setViewportSize({ width: 390, height: 844 })
