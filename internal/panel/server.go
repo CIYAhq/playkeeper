@@ -83,7 +83,9 @@ type Server struct {
 	static  fs.FS
 	loginIP *limiter
 	control *limiter
-	locks   *lockout
+	// previews is previewRoutes' bucket, apart from control's.
+	previews *limiter
+	locks    *lockout
 	// loginUser counts failed sign-ins per account from every address, so
 	// guesses spread over many addresses stay slow. One address can't use
 	// it up before its own lockout stops it.
@@ -154,6 +156,7 @@ func New(opts Options) (*Server, error) {
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
 		loginIP:     newLimiter(10, 15*time.Minute, opts.Now),
 		control:     newLimiter(30, time.Minute, opts.Now),
+		previews:    newLimiter(120, time.Minute, opts.Now),
 		locks:       newLockout(opts.Now),
 		loginUser:   newLimiter(30, time.Hour, opts.Now),
 		heads:       newHeadFetcher(src, mc),
@@ -223,6 +226,14 @@ func (rt Route) Mutating() bool {
 
 // NeedsSession reports whether the route requires a signed-in admin.
 func (rt Route) NeedsSession() bool { return rt.Level == needSession || rt.Level == needSessionCSRF }
+
+// previewRoutes only work out what a change would do. Their dialogs ask
+// them while people type, so they count against a larger bucket of their
+// own, and the change itself never finds the 30 actions a minute used up.
+var previewRoutes = map[string]bool{
+	"POST /api/servers/{id}/schedules/preview":     true,
+	"POST /api/servers/{id}/backup-rules/estimate": true,
+}
 
 func (s *Server) Routes() []Route {
 	view := func(p string, h func(http.ResponseWriter, *http.Request, *session)) Route {
@@ -545,7 +556,11 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 					writeErr(w, http.StatusForbidden, api.CodeForbidden, "Security token missing or invalid. Reload the page and try again.", "")
 					return
 				}
-				if ok, wait := s.control.allow("session:" + sess.IDHash); !ok {
+				bucket := s.control
+				if previewRoutes[rt.Method+" "+rt.Pattern] {
+					bucket = s.previews
+				}
+				if ok, wait := bucket.allow("session:" + sess.IDHash); !ok {
 					w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 					writeErr(w, http.StatusTooManyRequests, api.CodeRateLimited, "Too many actions in a short time. Wait a moment.", "")
 					return
