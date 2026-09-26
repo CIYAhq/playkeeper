@@ -829,3 +829,12 @@ describe('address', () => {
     expect(recordFor(srv, servers, true)).toBe('Creative')
   })
 })
+
+// Found checking the restore path on a real server.
+describe('a restore that didn’t finish', () => {
+  it('won’t start a server whose world folder a restore left missing, and says why', () => {
+    const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), 'start', false)).toBe('Its world folder is missing. Move the previous world back first.')
+    expect(whyNot(server({ phase: 'stopped' }), 'start', false)).toBeUndefined()
+  })
+})

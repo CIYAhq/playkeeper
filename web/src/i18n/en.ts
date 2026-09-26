@@ -99,6 +99,7 @@ export const en = {
   'reason.running': '{server} is already running.',
   'reason.stopped': '{server} is already stopped.',
   'reason.startFirst': 'Start {server} first.',
+  'reason.worldMissing': 'Its world folder is missing. Move the previous world back first.',
   'reason.fillIn': 'Fill in the fields above first.',
   'reason.passwordShort': 'Passwords need at least 10 characters.',
   'reason.nameFirst': 'Give the server a name first.',
@@ -1647,6 +1648,8 @@ export const en = {
   'world.leftoverDiscardTitle': 'Discard this world copy?',
   'world.leftoverDiscardBody': 'The copy from {time} is removed from this VPS. Your world and backups aren’t affected.',
   'world.leftoverDiscardConfirm': 'Discard copy',
+  'world.missingTitle': 'A restore didn’t finish, so {server} has no world folder',
+  'world.missingBody': 'Your previous world is safe in {previous}. Move it back to {data}, then press Start.',
   'restore.eulaWarning': 'The restore creates a new server, so you must accept the Minecraft EULA first.',
 
   // Plugins and mods

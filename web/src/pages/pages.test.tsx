@@ -1929,3 +1929,47 @@ describe('Backup upload', () => {
     toast.mockRestore()
   })
 })
+
+// Found checking the restore path on a real server.
+describe('A restore that didn’t finish', () => {
+  const missing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+  const copies = [
+    { name: 'data.failed-restore-20260926-103028', kind: 'failed_restore', createdAt: '2026-09-26T10:30:28Z', sizeBytes: 70 * 2 ** 20 },
+    { name: 'data.replaced-20260926-103028', kind: 'previous', createdAt: '2026-09-26T10:30:28Z', sizeBytes: 16 * 2 ** 20 },
+  ]
+  const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+
+  it('says where the previous world is while the world folder is missing, long after the restore failed', async () => {
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString()
+    const restore: Operation = { ...failed('restore', 'reverting', 'The restored world did not start. Putting the previous world back failed.'), startedAt: hourAgo, finishedAt: hourAgo }
+    const s = server({ phase: 'stopped', worldMissing: missing, lastOperation: restore })
+    const overview = await render(<Overview server={s} />)
+    expect(overview).toContain('A restore didn’t finish, so Survival has no world folder')
+    expect(overview).toContain(`Your previous world is safe in ${missing.previous}. Move it back to ${missing.dataDir}, then press Start.`)
+    answer({ '/world-copies': copies, '/backups': [] })
+    const world = await render(<WorldPage server={s} />)
+    expect(world).toContain('A restore didn’t finish, so Survival has no world folder')
+    expect(world).not.toContain('A restored world that didn’t start is still on this VPS')
+  })
+
+  it('drops a start or a backup refused for the missing world folder once the world is back', async () => {
+    const refused = failed('backup', '', `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`, { errorKind: 'world_missing' })
+    answer({ '/world-copies': copies, '/backups': [] })
+    expect(await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing, lastOperation: refused })} />)).toContain('A restore didn’t finish, so Survival has no world folder')
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [] })
+    const back = await render(<WorldPage server={server({ phase: 'stopped', lastOperation: refused })} />)
+    expect(back).not.toContain('Backing up Survival failed')
+    expect(back).toContain('A restored world that didn’t start is still on this VPS')
+    const start = failed('start', '', 'The world folder is missing because a restore did not finish.', { errorKind: 'world_missing' })
+    expect(await render(<Overview server={server({ phase: 'stopped', lastOperation: start })} />)).not.toContain('Starting Survival failed')
+  })
+
+  it('keeps a world copy’s Discard under a backup that just failed', async () => {
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [] })
+    const text = await render(<WorldPage server={server({ lastOperation: failed('backup', '', 'Not enough disk space for a backup.', { neededBytes: 2 ** 40 }) })} />)
+    expect(text).toContain('Backing up Survival failed')
+    expect(text).toContain('A restored world that didn’t start is still on this VPS')
+    expect(button('Discard')).toBeDefined()
+  })
+
+})

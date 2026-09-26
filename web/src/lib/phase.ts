@@ -122,6 +122,7 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): 
   switch (action) {
     case 'start':
       if (st.softwareChanged) return t('reason.softwareChanged')
+      if (st.worldMissing) return t('reason.worldMissing')
       return c.canStart ? undefined : (settling ?? t('reason.running', { server: st.name }))
     case 'stop':
       return c.canStop ? undefined : (settling ?? t('reason.stopped', { server: st.name }))
@@ -170,6 +171,9 @@ const recentMs = 15 * 60_000
 
 /** Whether what a failed job wanted has happened since, so its notice can go. */
 function recovered(s: ServerStatus, op: Operation): boolean {
+  // Refused because a restore left the world folder missing: its own notice
+  // says so until the world is back, and then the refusal is over.
+  if (op.detail?.errorKind === 'world_missing') return !s.worldMissing
   if (['create', 'start', 'restart', 'recover', 'auto-restart'].includes(op.kind)) return s.phase === 'online'
   if (op.kind !== 'backup') return false
   const needed = op.detail?.neededBytes

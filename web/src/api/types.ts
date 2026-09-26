@@ -162,6 +162,8 @@ export interface ServerStatus {
   lastBackup?: Backup
   /** The world's size on disk, measured every few minutes. */
   worldBytes?: number
+  /** Set for as long as the world folder is missing because a restore didn't finish. */
+  worldMissing?: WorldMissing
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
@@ -867,6 +869,15 @@ export interface WorldCopy {
   kind: 'previous' | 'failed_restore'
   createdAt: string
   sizeBytes: number
+}
+
+/** Where a server's world is while its world folder is missing because a restore didn't finish. */
+export interface WorldMissing {
+  /** The folder the restore set the previous world aside in. */
+  previous: string
+  /** The world folder it goes back to. */
+  dataDir: string
+  setAsideAt: string
 }
 
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.
