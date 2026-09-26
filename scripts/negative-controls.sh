@@ -3146,7 +3146,7 @@ control "a restore from a recovery key holds no server" internal/agent/recover.g
   'op, err := a.beginMachineOp("offsite-recover", actor, func(' \
   ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
 control "what waits for a restore from a recovery key says what for" internal/agent/lifecycle.go \
-  '	"offsite-recover": "restoring from a recovery key",
+  '	"offsite-recover": "restoring a server from a recovery key",
 ' \
   '' \
   ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'

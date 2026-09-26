@@ -266,7 +266,7 @@ func TestARestoreFromARecoveryKeyHoldsNoServer(t *testing.T) {
 
 	// Freeing disk space waits for it.
 	code, out = e.call("POST", "/v1/disk/clean", map[string]any{"actor": "owner", "ways": []string{"old_logs"}})
-	if code != http.StatusConflict || out["code"] != api.CodeBusy || out["error"] != "Playkeeper is busy with restoring from a recovery key." {
+	if code != http.StatusConflict || out["code"] != api.CodeBusy || out["error"] != "Playkeeper is busy with restoring a server from a recovery key." {
 		t.Fatalf("freeing disk space during the download: %d %v", code, out)
 	}
 
