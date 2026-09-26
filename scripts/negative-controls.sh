@@ -140,6 +140,22 @@ control "the reconciler turns saving back on" internal/agent/backups.go \
   'due := !s.now().Before(s.nextResume)' \
   'due := false && !s.now().Before(s.nextResume)' \
   ./internal/agent '^TestReconcilerTurnsSavingBackOn$'
+control "the reconciler's save-on refuses no action" internal/agent/backups.go \
+  'release, ok := s.trySavingLock()' \
+  'release, ok := s.holdOpLock()' \
+  ./internal/agent '^TestSaveOnRetryRefusesNoAction$'
+control "a save-on without an answer holds a backup up for seconds only" internal/agent/backups.go \
+  'const resumeWait = 5 * time.Second' \
+  'const resumeWait = 30 * time.Second' \
+  ./internal/agent '^TestSaveOnRetryRefusesNoAction$'
+control "an online backup waits for a save-on before it pauses saving" internal/agent/backups.go \
+  'if o.Console != nil {' \
+  'if false && o.Console != nil {' \
+  ./internal/agent '^TestSavingLockKeepsSaveOnOutOfABackup$'
+control "the reconciler's save-on waits for an online backup" internal/agent/backups.go \
+  'release, ok := s.trySavingLock()' \
+  'release, ok := func() {}, true' \
+  ./internal/agent '^TestSavingLockKeepsSaveOnOutOfABackup$'
 control "the GC log flag stays out of the container definition's hash" internal/agent/lifecycle.go \
   'b, _ := json.Marshal(cfg)' \
   'cfg.Env = append(cfg.Env, "JVM_OPTS="+gcLogFlag)
