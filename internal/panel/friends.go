@@ -320,18 +320,38 @@ func (s *Server) hInviteCreate(w http.ResponseWriter, r *http.Request, sess *ses
 		uses = fmt.Sprintf("%d friends", c.Invite.MaxUses)
 	}
 	s.audit(sess.User.Username, "invite.create", c.Invite.Actor(), "succeeded",
-		fmt.Sprintf("friend invite for %s; %s; %s; %s", st.Name, expiryText(req.Expiry), uses, c.Invite.Approval))
+		fmt.Sprintf("friend invite for %s; %s; %s; %s", st.Name, expiryText(req.Expiry), uses, approvalText(c.Invite.Approval)))
 	writeJSON(w, http.StatusCreated, c.Invite.Summarize(s.now()))
 }
 
+// expiryText and approvalText word an invite for the audit log, which people read.
 func expiryText(e invites.Expiry) string {
 	if e == "" {
 		e = invites.DefaultExpiry
 	}
-	if e == invites.ExpiryUntilTurnedOff {
+	switch e {
+	case invites.ExpiryOneDay:
+		return "works 1 day"
+	case invites.ExpirySevenDays:
+		return "works 7 days"
+	case invites.ExpiryThirtyDays:
+		return "works 30 days"
+	case invites.ExpiryUntilTurnedOff:
 		return "until turned off"
+	default:
+		return "works " + string(e)
 	}
-	return "works " + string(e)
+}
+
+func approvalText(a invites.Approval) string {
+	switch a {
+	case invites.RightAway:
+		return "right away"
+	case invites.AfterYes:
+		return "after you say yes"
+	default:
+		return string(a)
+	}
 }
 
 // hInviteRevoke turns a friend invite off and declines what it let people
