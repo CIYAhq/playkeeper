@@ -164,8 +164,8 @@ export interface ServerStatus {
   worldBytes?: number
   /** Set for as long as the world folder is missing because a restore didn't finish. */
   worldMissing?: WorldMissing
-  /** A restore that didn't finish keeps its journal until an agent start settles it; no other restore starts meanwhile. */
-  restoreUnsettled?: boolean
+  /** A restore that didn't finish keeps its journal until the agent settles it, once the world folder is back and the server is stopped, or first thing on Start; no other restore starts meanwhile. */
+  restoreUnsettled?: RestoreUnsettled
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
@@ -882,6 +882,11 @@ export interface WorldMissing {
   /** The world folder it goes back to. */
   dataDir: string
   setAsideAt: string
+}
+
+export interface RestoreUnsettled {
+  /** Why the agent can't settle it by itself, as a sentence: a journal it can't read, or why its last try failed. */
+  problem?: string
 }
 
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.

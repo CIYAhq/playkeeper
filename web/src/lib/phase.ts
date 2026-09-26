@@ -113,6 +113,12 @@ export function worldMissingReason(st: ServerStatus): string | undefined {
   return st.worldMissing ? t('reason.worldMissing') : undefined
 }
 
+/** "A restore isn’t finished…" while a restore that didn't finish keeps its journal; undefined otherwise. */
+export function restoreUnsettledReason(st: ServerStatus): string | undefined {
+  if (!st.restoreUnsettled) return undefined
+  return st.restoreUnsettled.problem ? t('reason.restoreStuck') : t('reason.restoreUnsettled')
+}
+
 export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change' | 'backup' | 'pregen' | 'restore'
 
 /** Why an action can't run on a server right now, in a few plain words; undefined when it can. */
@@ -140,7 +146,7 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): 
     case 'pregen':
       return worldMissingReason(st)
     case 'restore':
-      return worldMissingReason(st) ?? (st.restoreUnsettled ? t('reason.restoreUnsettled') : undefined)
+      return worldMissingReason(st) ?? restoreUnsettledReason(st)
     default: {
       const unreachable: never = action
       return unreachable
@@ -181,9 +187,11 @@ const recentMs = 15 * 60_000
 
 /** Whether what a failed job wanted has happened since, so its notice can go. */
 function recovered(s: ServerStatus, op: Operation): boolean {
-  // Refused because a restore left the world folder missing: its own notice
-  // says so until the world is back, and then the refusal is over.
+  // Refused because a restore left the world folder missing, or isn't
+  // settled: its own notice says so until that's over, and then so is the
+  // refusal.
   if (op.detail?.errorKind === 'world_missing') return !s.worldMissing
+  if (op.detail?.errorKind === 'restore_unsettled') return !s.restoreUnsettled
   if (['create', 'start', 'restart', 'recover', 'auto-restart'].includes(op.kind)) return s.phase === 'online'
   if (op.kind !== 'backup') return false
   const needed = op.detail?.neededBytes

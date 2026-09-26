@@ -1769,13 +1769,13 @@ describe('World backups with copies', () => {
   })
 
   it('stops offering restores in the phone’s sheet once a restore isn’t finished, and says why', async () => {
-    const why = 'A restore isn’t finished. With the server stopped, restart the Playkeeper agent first.'
+    const why = 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'
     const phone = onPhone()
     answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
     await render(<WorldPage server={server({ phase: 'stopped' })} />)
     await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore a world')?.click())
     await act(async () => {})
-    await rerender(server({ phase: 'stopped', restoreUnsettled: true }))
+    await rerender(server({ phase: 'stopped', restoreUnsettled: {} }))
     const sheet = document.querySelector('[role="dialog"]')
     const choose = [...(sheet?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'choose a file')
     expect(choose?.disabled).toBe(true)
@@ -2008,6 +2008,12 @@ describe('A restore that didn’t finish', () => {
     expect(await render(<Overview server={server({ phase: 'stopped', lastOperation: start })} />)).not.toContain('Starting Survival failed')
   })
 
+  it('drops a start refused while a restore wasn’t finished once it is', async () => {
+    const start = failed('start', '', "A restore isn't finished, so Survival can't start until it is.", { errorKind: 'restore_unsettled' })
+    expect(await render(<Overview server={server({ phase: 'stopped', restoreUnsettled: {}, lastOperation: start })} />)).toContain('Starting Survival failed')
+    expect(await render(<Overview server={server({ phase: 'stopped', lastOperation: start })} />)).not.toContain('Starting Survival failed')
+  })
+
   it('keeps a world copy’s Discard under a backup that just failed', async () => {
     answer({ '/world-copies': copies.slice(0, 1), '/backups': [] })
     const text = await render(<WorldPage server={server({ lastOperation: failed('backup', '', 'Not enough disk space for a backup.', { neededBytes: 2 ** 40 }) })} />)
@@ -2075,11 +2081,11 @@ describe('A restore that didn’t finish', () => {
   })
 
   it('doesn’t offer a restore while another isn’t finished, and says why', async () => {
-    const why = 'A restore isn’t finished. With the server stopped, restart the Playkeeper agent first.'
+    const why = 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'
     const at = '2026-09-26T10:28:00Z'
     const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
     answer({ '/world-copies': copies.slice(0, 1), '/backups': [made] })
-    await render(<WorldPage server={server({ phase: 'stopped', restoreUnsettled: true })} />)
+    await render(<WorldPage server={server({ phase: 'stopped', restoreUnsettled: {} })} />)
     expect(button('choose a file')?.disabled).toBe(true)
     expect(button('choose a file')?.title).toBe(why)
     expect(button('Back up now')?.disabled).toBe(false)

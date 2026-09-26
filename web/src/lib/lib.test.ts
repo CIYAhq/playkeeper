@@ -853,9 +853,10 @@ describe('a restore that didn’t finish', () => {
 
   it('won’t restore while another restore isn’t finished, and says why', () => {
     const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
-    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: true }), 'restore', false)).toBe('A restore isn’t finished. With the server stopped, restart the Playkeeper agent first.')
-    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: true, worldMissing: missing }), 'restore', false)).toBe('Its world folder is missing. Move the previous world back first.')
-    for (const action of ['start', 'backup', 'pregen'] as const) expect(whyNot(server({ phase: 'stopped', restoreUnsettled: true }), action, false)).toBeUndefined()
+    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: {} }), 'restore', false)).toBe('A restore isn’t finished. Playkeeper finishes it once the server is stopped.')
+    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: { problem: 'Saving the settings failed: disk I/O error.' } }), 'restore', false)).toBe('A restore isn’t finished, and Playkeeper couldn’t finish it.')
+    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: {}, worldMissing: missing }), 'restore', false)).toBe('Its world folder is missing. Move the previous world back first.')
+    for (const action of ['start', 'backup', 'pregen'] as const) expect(whyNot(server({ phase: 'stopped', restoreUnsettled: {} }), action, false)).toBeUndefined()
   })
 
   it('won’t pre-generate or restore while a restore left the world folder missing, and says why', () => {
