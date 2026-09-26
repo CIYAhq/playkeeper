@@ -799,12 +799,40 @@ function stopped(s: Json): Json {
   return { ...s, desired: 'stopped', phase: 'stopped', phaseDetail: undefined, reachable: false, reachableAt: undefined, startedAt: undefined, stoppedAt: ago(20 * 60), players: undefined, resources: undefined, operation: undefined, pendingRestart: false }
 }
 
+/**
+ * The agent's explanation of an out-of-memory kill, as the crash screen gets
+ * it: a running server has none of its own, since the agent clears it once
+ * the server is up again.
+ */
+function memoryCrash(s: Json): Json {
+  const budget = Number((s.config as Json | undefined)?.memoryMB ?? 1536)
+  return {
+    at: ago(90),
+    start: false,
+    kind: 'container_memory_limit',
+    params: { budget_mb: budget },
+    certain: true,
+    title: `${String(s.name ?? 'The server')} ran out of memory`,
+    explanation: `Docker stopped the server because it reached its memory limit of ${budget} MB.`,
+    evidence: [
+      { kind: 'oom_killed', params: { limit_mb: budget }, text: 'Docker reports that the server was killed for going over its memory limit.' },
+      { kind: 'exit_code', params: { code: 137 }, text: 'The server exited with code 137.' },
+    ],
+    fixes: [
+      { kind: 'raise_memory', params: { from_mb: budget, to_mb: budget + 1024 }, title: 'Give it more memory', recommended: true },
+      { kind: 'restart', params: {}, title: 'Start the server again', recommended: false },
+    ],
+    lines: [],
+    roomMB: 2048,
+  }
+}
+
 function server(view: View, s: Json): Json {
   switch (view) {
     case 'stopped':
       return stopped(s)
     case 'crashed':
-      return { ...stopped(s), desired: 'running', phase: 'crashed', stoppedAt: ago(90), exitCode: 137, crashCount: 3, lastError: 'Java ran out of memory.', lastErrorHint: 'Choose a larger memory budget in Settings.' }
+      return { ...stopped(s), desired: 'running', phase: 'crashed', stoppedAt: ago(90), exitCode: 137, crashCount: 3, lastError: 'Java ran out of memory.', lastErrorHint: 'Choose a larger memory budget in Settings.', crash: memoryCrash(s) }
     case 'busy':
       return { ...s, operation: { id: 'fake-op-busy', serverId: s.id, kind: 'backup', status: 'running', phase: 'copying', actor: 'admin', startedAt: ago(20) } }
     case 'empty lists':
