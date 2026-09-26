@@ -34,6 +34,7 @@ type automation struct {
 	falling  bool
 
 	kick   chan struct{}
+	claim  *uploadClaim
 	upload *uploadProgress
 }
 

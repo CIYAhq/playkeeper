@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -827,7 +828,12 @@ type fakeDest struct {
 	stored  map[string]offsite.Copy
 }
 
-func (d *fakeDest) Upload(_ context.Context, up offsite.Upload) (offsite.Copy, error) {
+func (d *fakeDest) Upload(ctx context.Context, up offsite.Upload) (offsite.Copy, error) {
+	// As at a real destination, an upload stopped before it starts sends
+	// nothing.
+	if err := ctx.Err(); err != nil {
+		return offsite.Copy{}, err
+	}
 	d.mu.Lock()
 	d.names = append(d.names, up.Name)
 	d.resumes = append(d.resumes, up.Resume)
@@ -1223,6 +1229,130 @@ func TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination(t *testi
 				t.Fatal("a backup still waiting lost where its copy stopped")
 			}
 			e.waitFor("the new backup's copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1 })
+		})
+	}
+}
+
+// The copy the uploader picked stays queued until the uploader is done with
+// it. A backup that joins the full queue meanwhile drops only the oldest of
+// the others and discards what that one left at the destination; the picked
+// copy then carries on from where its last try stopped. Turning copies off
+// once the next copy is picked stops it before it sends anything.
+func TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue(t *testing.T) {
+	for _, c := range unfinishedCopies {
+		t.Run(c.name, func(t *testing.T) {
+			// The uploader waits right after claiming the held backup's
+			// copy, until the test lets it go or the claim is cancelled.
+			var holding atomic.Pointer[string]
+			claimed, release := make(chan string, 1), make(chan struct{}, 1)
+			prevHook := uploadClaimed
+			uploadClaimed = func(job uploadJob) {
+				if id := holding.Load(); id != nil && *id == job.backupID && holding.CompareAndSwap(id, nil) {
+					claimed <- job.backupID
+					select {
+					case <-release:
+					case <-job.ctx.Done():
+					}
+				}
+			}
+			t.Cleanup(func() { uploadClaimed = prevHook })
+			hold := func(id string) { holding.Store(&id) }
+			waitClaim := func(id string) {
+				t.Helper()
+				select {
+				case <-claimed:
+				case <-time.After(15 * time.Second):
+					t.Fatalf("the uploader never picked the copy of %s", id)
+				}
+			}
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			prev := openOffsite
+			openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.create()
+			body := map[string]any{"actor": "admin", "enabled": true}
+			for k, v := range c.setup {
+				body[k] = v
+			}
+			if code, out := e.call("POST", e.sp("/offsite"), body); code != 200 {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+
+			// The first try of a backup's copy stops part way.
+			saved, _ := json.Marshal(c.state)
+			dest.mu.Lock()
+			dest.fail = &offsite.Error{Kind: offsite.KindNetwork, Msg: "The storage stopped answering.", Resume: c.state}
+			dest.mu.Unlock()
+			id := e.backup()
+			e.waitFor("the first try to stop part way", func() bool {
+				return e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ? AND attempts = 1 AND state = ?`, id, string(saved)) == 1
+			})
+
+			// Twelve other backups wait for their copy, the oldest with a
+			// part stored. The backup's copy, second oldest, is due again
+			// and the uploader picks it.
+			old := *c.state
+			old.Archive, old.Name = "w.tar.gz", "w.tar.gz.age"
+			dropped, _ := json.Marshal(old)
+			now := e.srv().now()
+			for i := range offsiteMaxQueue {
+				state := ""
+				if i == 0 {
+					state = string(dropped)
+				}
+				if _, err := e.a.db.Exec(`INSERT INTO offsite_uploads(server_id, backup_id, state, next_attempt, created_at) VALUES(?, ?, ?, ?, ?)`,
+					e.sid, fmt.Sprintf("waiting-%02d", i), state, now.Add(time.Hour).UnixMilli(), now.Add(time.Duration(i-14)*time.Hour).UnixMilli()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			hold(id)
+			if _, err := e.a.db.Exec(`UPDATE offsite_uploads SET next_attempt = 0, created_at = ? WHERE backup_id = ?`, now.Add(-13*time.Hour-30*time.Minute).UnixMilli(), id); err != nil {
+				t.Fatal(err)
+			}
+			e.srv().kickOffsite()
+			waitClaim(id)
+
+			// A backup joins the queue: the oldest waiting backup leaves it,
+			// and the picked copy stays with where its last try stopped.
+			joined := e.backup()
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ? AND state = ?`, id, string(saved)); n != 1 {
+				t.Fatal("the queue dropped the copy being made, or where its last try stopped")
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = 'waiting-00'`); n != 0 {
+				t.Fatal("the oldest backup still waits for its copy")
+			}
+			e.waitFor("the dropped copy to be discarded", func() bool { return len(dest.abortedStates()) > 0 })
+
+			// The picked copy carries on from its stored part and finishes.
+			hold(joined)
+			release <- struct{}{}
+			waitClaim(joined)
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id); n != 1 {
+				t.Fatal("the copy being made didn't finish")
+			}
+			dest.mu.Lock()
+			resumes := append([]*offsite.UploadState(nil), dest.resumes...)
+			dest.mu.Unlock()
+			if len(resumes) != 2 {
+				t.Fatalf("%d tries of the copy, not 2", len(resumes))
+			}
+			if got, _ := json.Marshal(resumes[1]); string(got) != string(saved) {
+				t.Fatalf("the copy carried on from %s, not %s", got, saved)
+			}
+			if got, _ := json.Marshal(dest.abortedStates()); string(got) != "["+string(dropped)+"]" {
+				t.Fatalf("discarded %s, not only %s", got, dropped)
+			}
+
+			// Copies are turned off once the joined backup's copy is picked.
+			if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": false}); code != 200 {
+				t.Fatalf("turn off: %d %v", code, out)
+			}
+			release <- struct{}{}
+			e.waitFor("the queue to empty", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_uploads`) == 0 })
+			if n := dest.uploads(); n != 2 {
+				t.Fatalf("the copy of %s went ahead after copies were turned off: %d tries in all", joined, n)
+			}
 		})
 	}
 }
