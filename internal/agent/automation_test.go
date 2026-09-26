@@ -669,6 +669,16 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 				e.t.Fatalf("wake: %+v", o)
 			}
 		}, want: asleep},
+		{name: "a wake that finds the server software changed", steps: func(e *agentEnv) {
+			s := e.srv()
+			sc, _ := s.serverConfig()
+			if err := os.WriteFile(s.jarPath(*sc), []byte("tampered"), 0o644); err != nil {
+				e.t.Fatal(err)
+			}
+			if o := wake(e); o.Status != api.OpFailed || !strings.Contains(o.Error, "doesn't match what Playkeeper installed") {
+				e.t.Fatalf("wake: %+v", o)
+			}
+		}, want: state{api.DesiredStopped, false, true, api.PhaseCrashed}},
 		{name: "a player wakes it during a backup", steps: func(e *agentEnv) {
 			release := e.holdOp("backup")
 			began := make(chan struct{})

@@ -311,8 +311,12 @@ func (s *server) wakeOp(player string) func(ctx context.Context, h *opHandle) er
 		if err != nil {
 			// After a failed wake the stand-in is back on the game port, so
 			// the server sleeps again unless its container is known to be
-			// running. If Docker can't say, the sleep loop looks again.
-			if _, running, rerr := s.containerRunning(context.WithoutCancel(ctx)); rerr != nil || !running {
+			// running. If Docker can't say, the sleep loop looks again. A
+			// start that stopped the server for good, as when its software
+			// changed, leaves it stopped, with nothing answering for it.
+			if s.desired() != api.DesiredRunning {
+				s.leaveSleep()
+			} else if _, running, rerr := s.containerRunning(context.WithoutCancel(ctx)); rerr != nil || !running {
 				_ = s.setDesired(api.DesiredSleeping)
 				s.startSleepPeriod(s.now().UTC())
 			}
