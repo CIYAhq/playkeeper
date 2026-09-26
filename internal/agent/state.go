@@ -186,6 +186,14 @@ func (a *Agent) scanOperation(row *sql.Row) (*api.Operation, error) {
 	return &op, nil
 }
 
+// A restore from a copy that the agent stopped in had only downloaded, so it
+// changed nothing, and the start deletes its download with the rest of
+// staging.
+const (
+	interruptedDownload     = "Interrupted: the Playkeeper agent restarted before the copy was ready to restore, so nothing was restored and the download was deleted."
+	interruptedDownloadHint = "Restore the copy again."
+)
+
 // markInterruptedOperations fails operations left "running" by a previous
 // agent process (crash or reboot mid-operation) so the UI never shows a
 // phantom in-progress task. An update the updater is still installing keeps
@@ -198,11 +206,13 @@ func (a *Agent) markInterruptedOperations(resumed ...string) {
 		keep = a.upd.opID
 	}
 	a.upd.mu.Unlock()
-	args := []any{a.now().UnixMilli(), keep}
+	args := []any{a.now().UnixMilli(), interruptedDownload, interruptedDownloadHint, keep}
 	for _, id := range resumed {
 		args = append(args, id)
 	}
-	_, err := a.db.Exec(`UPDATE operations SET status = 'failed', finished_at = ?, error = 'Interrupted: the Playkeeper agent restarted while this was running.'
+	_, err := a.db.Exec(`UPDATE operations SET status = 'failed', finished_at = ?,
+		error = CASE WHEN kind IN ('offsite-restore', 'offsite-recover') THEN ? ELSE 'Interrupted: the Playkeeper agent restarted while this was running.' END,
+		hint = CASE WHEN kind IN ('offsite-restore', 'offsite-recover') THEN ? ELSE hint END
 		WHERE status = 'running' AND id NOT IN (?`+strings.Repeat(", ?", len(resumed))+`)`, args...)
 	if err != nil {
 		a.log.Error("mark interrupted operations", "err", err)

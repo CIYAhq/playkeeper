@@ -1990,10 +1990,18 @@ control "Discord hears a server come online" internal/agent/collector.go \
   '} else if false && fresh {' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
 control "Discord hears Playkeeper stop a server, restarts too" internal/agent/lifecycle.go \
-  '	s.alert(discord.Stopped())
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}
 	return nil' \
   '	return nil' \
-  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart)$/^every_alert$'
+  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart|a_scheduled_restart)$/^every_alert$'
+control "Discord doesn't hear of a server falling asleep" internal/agent/lifecycle.go \
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}' \
+  '	s.alert(discord.Stopped())' \
+  ./internal/agent '^TestDiscordAlertSequences$/^falling_asleep$/^every_alert$'
 control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle.go \
   '		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 		s.recordEvent(fin, "server_stopped_externally"' \
@@ -2035,8 +2043,8 @@ control "a profile shows a player online only from a fresh sample" internal/agen
   ./internal/agent '^TestProfileShowsOnlineOnlyFromAFreshSample$'
 control "Discord hears a manual backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
-	return nil' \
-  '	return nil' \
+	s.afterBackup(b)' \
+  '	s.afterBackup(b)' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$/backup$'
 control "Discord hears an automatic backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
@@ -2400,6 +2408,252 @@ control "a restart put off is dropped once squaremap is loaded" internal/agent/m
   'if false && !rec.pendingRestart(l) {' \
   ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
 
+# Wave 7: who may change where backup copies go and hold the recovery key.
+control "an admin needs two-factor on to hold backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin)' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "an admin with two-factor on holds backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner()' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestWaveSevenRoutesFollowTheTeamTable)$'
+control "bringing servers back from copies needs every server" internal/panel/workspace.go \
+  'if act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  'if false && act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestMachineWideActionsNeedEveryServer)$'
+control "changing where copies go is a backup key action" internal/panel/server.go \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies,' \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "the recovery key is a backup key action" internal/panel/server.go \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actRecoveryKey,' \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "restoring from a recovery key is a backup key action" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),' \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actManageMachine),' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "refused recovery key requests are audited" internal/panel/server.go \
+  's.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "refused recoveries from copies are audited" internal/panel/server.go \
+  's.audit(sess.User.Username, "offsite.recover", r.PathValue("mid"), "refused", "not allowed to bring servers back from copies")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "the Disk space page needs every server to look at" internal/panel/server.go \
+  'actView, everyServer(s.machineProxy("GET", "/v1/disk"))},' \
+  'actView, s.machineProxy("GET", "/v1/disk")},' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "the panel never caches the recovery key" internal/panel/automation.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/panel '^TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt$'
+control "the agent never caches the recovery key" internal/agent/offsite.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads name who took them" internal/agent/offsite.go \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if err != nil {' \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if false && err != nil {' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads are audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.recovery_key.downloaded", "server", "succeeded", f.Name)' \
+  '_, _ = actor, f.Name' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+
+# Wave 7 in #15's restore: a restore that isn't over keeps what it may need.
+control "a restore from a copy the agent stops in is left to the next start" internal/agent/offsite.go \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return downloadStopped(s.stopping(), h, err)' \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return err' \
+  ./internal/agent '^TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart$'
+control "the rules keep the rollback archive of a restore that isn't over" internal/agent/backuprules.go \
+  'needed[id] = "restore"' \
+  '_ = id' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "the Disk space page leaves a restore that isn't over alone" internal/agent/disk.go \
+  'l.ActiveStages = append(l.ActiveStages, stage)
+		journals = append(journals, j)' \
+  '_, _ = stage, j' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "a swap journal that can't be read may be any server's" internal/agent/backuprules.go \
+  'return j == nil || j.ServerID == serverID' \
+  'return j != nil && j.ServerID == serverID' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the Disk space page counts every server busy for an unreadable swap journal" internal/agent/disk.go \
+  'return j.concerns(s.id)' \
+  'return j != nil && j.concerns(s.id)' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the World tab keeps the world copies of a restore that isn't over" internal/agent/backups.go \
+  'if s.restoreUnsettled() {' \
+  'if false && s.restoreUnsettled() {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
+control "the World tab keeps every server's world copies for an unreadable swap journal" internal/agent/backuprules.go \
+  'if j.concerns(s.id) {' \
+  'if j != nil && j.concerns(s.id) {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
+control "a swap journal whose restore is gone keeps every rollback archive" internal/agent/backuprules.go \
+  'if op != nil {
+			add(op)
+			continue
+		}' \
+  'if j != nil {
+			if op != nil {
+				add(op)
+			}
+			continue
+		}' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+
+# Wave 7: sleeping and waking leave the desired state, the stand-in and the
+# sleep setting agreeing.
+control "a failed wake sleeps again when the server didn't start" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr != nil || false && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_whose_start_fails$'
+control "a failed wake sleeps again when Docker can't say whether the server runs" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr == nil && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_fails_while_Docker_can.t_say_whether_the_server_runs$'
+control "a wake waits for a backup to end" internal/agent/sleeping.go \
+  'ae.Code != api.CodeBusy || time.Now().After(deadline)' \
+  'ae.Code == api.CodeBusy || time.Now().After(deadline)' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
+control "turning sleep off changes nothing while the server is busy" internal/agent/sleeping.go \
+  '		if err != nil {
+			writeError(w, err)
+			return
+		}
+		resp["operation"] = op' \
+  '		if err == nil {
+			resp["operation"] = op
+		}' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off_during_a_backup$'
+control "turning sleep off lets go of the game port when the server can't start" internal/agent/sleeping.go \
+  '				s.leaveSleep()
+				s.startFailed(ctx)' \
+  '				s.startFailed(ctx)' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
+
+# Wave 7 after the real-world restore check: the copies at the old place, the
+# recovery key's folder, who removed a backup here, the first copy, and
+# scheduled backups refused because saving couldn't be paused.
+control "a new place asks before forgetting the copies at the old one" internal/agent/offsite.go \
+  'if len(forgotten) > 0 && !req.ForgetCopies {' \
+  'if false && len(forgotten) > 0 && !req.ForgetCopies {' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "the question counts the backups whose only copy is at the old place" internal/agent/offsite.go \
+  '		if !c.OnHost {
+			n++' \
+  '		if c.OnHost {
+			n++' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "forgetting the copies at the old place is audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))' \
+  '_ = forgotten' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "a recovery key file naming another folder asks to be downloaded again" internal/agent/offsite.go \
+  'if r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  'if false && r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "downloading the recovery key records the folder the file names" internal/agent/offsite.go \
+  's.now().UnixMilli(), f.Folder, s.id)' \
+  's.now().UnixMilli(), "", s.id)' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "looking for copies says the key file's folder isn't there" internal/agent/recover.go \
+  'writeError(w, automationError(keyFileFolder(err, req)))' \
+  'writeError(w, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a restore says the key file's folder isn't there" internal/agent/recover.go \
+  'h, automationError(keyFileFolder(err, req)))' \
+  'h, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a folder the user typed isn't blamed on the key file" internal/agent/recover.go \
+  'strings.TrimSpace(req.Config.SFTP.Folder) != "" || ' \
+  '' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "looking for copies in a missing folder doesn't say to create it" internal/offsite/sftp.go \
+  'if op == opList {' \
+  'if false && op == opList {' \
+  ./internal/offsite '^TestSFTPList$'
+control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
+  'case removedBy == retentionActor:' \
+  'case false:' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "the rules note on a copy that they removed its backup" internal/agent/backuprules.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "deleting a backup by hand is noted on its copy" internal/agent/handlers.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "only the first copy to a place is called the first" internal/agent/offsite.go \
+  'v.FirstCopy = v.LastCopy != nil && r.copiesMade == 1' \
+  'v.FirstCopy = v.LastCopy != nil && v.Copies == 1' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "each finished copy is counted" internal/agent/offsite.go \
+  'copies_made = copies_made + 1 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a new place counts its copies from none" internal/agent/offsite.go \
+  'copies_made = 0 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
+  's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "only backups refused for want of a pause count as refused" internal/agent/schedules.go \
+  'case pauseRefusals[backup.ErrorKind(ae.Code)]:' \
+  'case ae.Code != "":' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a scheduled backup refused while the server starts counts" internal/agent/schedules.go \
+  'case ae.Reason == refusedNotOnline:' \
+  'case false:' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup refused while the server starts says so" internal/agent/backups.go \
+  'e.Reason = refusedNotOnline' \
+  '_ = refusedNotOnline' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "refused scheduled backups in a row count from the first" internal/agent/schedules.go \
+  'r.Since, r.Count = prev.Since, prev.Count+1' \
+  '_ = prev' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal names its operation, so the World tab shows it once" internal/agent/schedules.go \
+  'ScheduleID: scheduleID, OperationID: opID}' \
+  'ScheduleID: scheduleID}' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal keeps the backup's hint" internal/agent/schedules.go \
+  'r.Hint = ae.Hint' \
+  '_ = ae' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup gets a line in the recent activity" internal/agent/schedules.go \
+  's.recordEvent(now, "backup_refused", "", "playkeeper", why)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "the recent activity lists refused scheduled backups" internal/agent/analytics.go \
+  ', "backup_refused": "backup_refused",' \
+  ',' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a server's status carries its refused scheduled backups" internal/agent/automation.go \
+  'st.BackupRefused = s.backupRefusal()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup that succeeds clears the refused scheduled backups" internal/agent/backuprules.go \
+  's.clearBackupRefused()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup sends the backup-failed alert" internal/agent/lifecycle.go \
+  'if kind == "backup" && done.Status == api.OpFailed {' \
+  'if false && kind == "backup" && done.Status == api.OpFailed {' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
 # Wave 9: a modpack with only betas has its own line, whatever path its notice takes.
 control "a pack's only-pre-release notice has the pack's own line" internal/agent/addons.go \
   'if n.Params["pack"] != "" {' \

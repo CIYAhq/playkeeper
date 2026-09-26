@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
-import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MemoryStickIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveXIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MemoryStickIcon, MoonIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
 import { Skeleton } from '@/components/ui/skeleton'
-import { t } from '@/i18n'
+import { t, type MessageKey } from '@/i18n'
 import { projectRoles, roleName } from '@/lib/access'
 import { relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -49,6 +49,12 @@ function icon(kind: ActivityKind): ReactNode {
       return <SlidersHorizontalIcon />
     case 'team_joined':
       return <UserPlusIcon />
+    case 'fell_asleep':
+      return <MoonIcon />
+    case 'woke_up':
+      return <SunIcon />
+    case 'backup_refused':
+      return <ArchiveXIcon />
     default: {
       const unreachable: never = kind
       return unreachable
@@ -56,9 +62,34 @@ function icon(kind: ActivityKind): ReactNode {
   }
 }
 
+const refusalReasons: Record<string, MessageKey> = {
+  not_online: 'activity.refused.not_online',
+  console_unavailable: 'activity.refused.console_unavailable',
+  save_timeout: 'activity.refused.save_timeout',
+  unexpected_reply: 'activity.refused.unexpected_reply',
+  saving_resumed: 'activity.refused.saving_resumed',
+  saving_paused: 'activity.refused.saving_paused',
+  file_changing: 'activity.refused.file_changing',
+}
+
+/** Why a scheduled backup was refused, from the reason the agent recorded. */
+function refusalReason(kind: string | undefined): string {
+  return t(refusalReasons[kind ?? ''] ?? 'activity.refused.other')
+}
+
+/** Who did something: you, a person, or Playkeeper on its own (a schedule, a join that woke the server). */
+function actorText(actor: string | undefined, me: string): string {
+  if (!actor || actor === me) return t('activity.you')
+  if (actor.startsWith('schedule:')) return t('activity.aSchedule')
+  if (actor.startsWith('wake:')) return actor.slice('wake:'.length)
+  if (actor === 'sleep' || actor === 'playkeeper') return t('brand.name')
+  if (actor === 'backup rules') return t('activity.backupRules')
+  return actor
+}
+
 /** One activity entry as a sentence. `here` drops the server's name where it's obvious. */
 export function activityText(a: Activity, server: string, me: string, here = false): string {
-  const actor = !a.actor || a.actor === me ? t('activity.you') : a.actor
+  const actor = actorText(a.actor, me)
   const player = a.player ?? ''
   switch (a.kind) {
     case 'joined':
@@ -101,6 +132,12 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       const role = projectRoles.find((r): r is ProjectRole => r === a.detail)
       return t('activity.teamJoined', { name: a.actor ?? '', role: role ? roleName(role) : (a.detail ?? '') })
     }
+    case 'fell_asleep':
+      return a.detail ? t('activity.fellAsleep', { server, minutes: Number(a.detail) }) : t('activity.fellAsleepPlain', { server })
+    case 'woke_up':
+      return player ? t('activity.wokeUp', { server, player }) : t('activity.wokeUpPlain', { server })
+    case 'backup_refused':
+      return t('activity.backupRefused', { server, reason: refusalReason(a.detail) })
     default: {
       const unreachable: never = a.kind
       return unreachable

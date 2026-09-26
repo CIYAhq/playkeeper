@@ -829,7 +829,7 @@ func (fr *fakeRCON) handle(c net.Conn) {
 					fr.letGo(name)
 					out = "Kicked " + name + ": " + reason
 				}
-			case strings.HasPrefix(body, "say "):
+			case strings.HasPrefix(body, "say "), strings.HasPrefix(body, "tellraw "):
 			default:
 				out = "Unknown or incomplete command. See below for error\n" + body + "<--[HERE]"
 			}
