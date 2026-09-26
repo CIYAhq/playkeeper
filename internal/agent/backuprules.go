@@ -32,19 +32,25 @@ type backupRulesDoc struct {
 	TimeZone string             `json:"timeZone,omitempty"`
 }
 
-// backupRules returns the saved rules, or the defaults, and the time zone
-// they count days in.
-func (s *server) backupRules() (retention.Settings, *time.Location, bool) {
+// backupRules returns the saved rules, or the defaults when none were saved,
+// and the time zone they count days in. Saved rules that can't be read are
+// an error, never the defaults, which could delete what the rules keep.
+func (s *server) backupRules() (retention.Settings, *time.Location, bool, error) {
 	var raw string
-	_ = s.db.QueryRow(`SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw)
+	if err := s.db.QueryRow(`SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw); err != nil {
+		return retention.Settings{}, nil, false, fmt.Errorf("the backup rules could not be read: %w", err)
+	}
+	if raw == "" {
+		return retention.DefaultSettings(), s.scheduleTimeZone(context.Background()), false, nil
+	}
 	var doc backupRulesDoc
-	if raw == "" || json.Unmarshal([]byte(raw), &doc) != nil {
-		return retention.DefaultSettings(), s.scheduleTimeZone(context.Background()), false
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		return retention.Settings{}, nil, false, fmt.Errorf("the saved backup rules are not valid: %w", err)
 	}
 	if loc, err := time.LoadLocation(doc.TimeZone); err == nil && doc.TimeZone != "" {
-		return doc.Settings, loc, true
+		return doc.Settings, loc, true, nil
 	}
-	return doc.Settings, s.scheduleTimeZone(context.Background()), true
+	return doc.Settings, s.scheduleTimeZone(context.Background()), true, nil
 }
 
 // unsettledSwaps reads the swap journals in the restore stages, by stage
@@ -147,22 +153,17 @@ func (s *server) rollbacksNeeded(list []api.Backup) map[string]string {
 }
 
 // retentionBackups lists the server's backups for the rules: those on this
-// machine, and the copies somewhere else.
+// machine, and the copies somewhere else. A backup waiting for its copy is
+// pinned, so a copy queue that can't be read is an error.
 func (s *server) retentionBackups() ([]retention.Backup, error) {
 	list, err := s.listBackups("")
 	if err != nil {
 		return nil, err
 	}
 	needed := s.rollbacksNeeded(list)
-	queued := map[string]bool{}
-	if rows, err := s.db.Query(`SELECT backup_id FROM offsite_uploads WHERE server_id = ?`, s.id); err == nil {
-		for rows.Next() {
-			var id string
-			if rows.Scan(&id) == nil {
-				queued[id] = true
-			}
-		}
-		rows.Close()
+	queued, err := s.queuedCopies()
+	if err != nil {
+		return nil, err
 	}
 	var out []retention.Backup
 	index := map[string]int{}
@@ -192,9 +193,31 @@ func (s *server) retentionBackups() ([]retention.Backup, error) {
 	return out, rows.Err()
 }
 
-// retentionPlan is what the rules would do now.
+// queuedCopies names the server's backups waiting for their copy.
+func (s *server) queuedCopies() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT backup_id FROM offsite_uploads WHERE server_id = ?`, s.id)
+	if err != nil {
+		return nil, fmt.Errorf("the copy queue could not be read: %w", err)
+	}
+	defer rows.Close()
+	queued := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("the copy queue could not be read: %w", err)
+		}
+		queued[id] = true
+	}
+	return queued, rows.Err()
+}
+
+// retentionPlan is what the rules would do now. It fails when the rules or
+// the backups can't be read, and then nothing may be deleted by the rules.
 func (s *server) retentionPlan() (retention.Result, error) {
-	set, loc, _ := s.backupRules()
+	set, loc, _, err := s.backupRules()
+	if err != nil {
+		return retention.Result{}, err
+	}
 	backups, err := s.retentionBackups()
 	if err != nil {
 		return retention.Result{}, err
@@ -344,19 +367,28 @@ func (s *server) backupPace(ctx context.Context, tz string, loc *time.Location, 
 	return pace
 }
 
-func (s *server) backupRulesView(ctx context.Context, tz string) backupRulesView {
-	set, loc, custom := s.backupRules()
+func (s *server) backupRulesView(ctx context.Context, tz string) (backupRulesView, error) {
+	set, loc, custom, err := s.backupRules()
+	if err != nil {
+		return backupRulesView{}, &apiError{Msg: "Playkeeper couldn't read this server's backup rules, so they delete nothing until it can (" + err.Error() + ").",
+			Hint: "Try again in a moment. If it keeps happening, sudo journalctl -u playkeeper-agent says why."}
+	}
 	auto := s.automaticBackups(ctx)
 	pace := s.backupPace(ctx, tz, loc, auto)
 	return backupRulesView{
 		Automatic: auto, Rules: set, Custom: custom, Describe: set.Describe(),
 		OnHost: set.Estimate(retention.OnHost, pace), OffSite: set.Estimate(retention.OffSite, pace),
 		Limits: map[string]int{"hours": retention.MaxHours, "last": retention.MaxLast, "daily": retention.MaxDaily, "weekly": retention.MaxWeekly, "monthly": retention.MaxMonthly},
-	}
+	}, nil
 }
 
 func (s *server) hBackupRules(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.backupRulesView(r.Context(), r.URL.Query().Get("tz")))
+	view, err := s.backupRulesView(r.Context(), r.URL.Query().Get("tz"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // hBackupRulesEstimate is what rules not saved yet would keep, for the
@@ -379,7 +411,10 @@ func (s *server) hBackupRulesEstimate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, automationError(err))
 		return
 	}
-	_, loc, _ := s.backupRules()
+	_, loc, _, err := s.backupRules()
+	if err != nil {
+		loc = s.scheduleTimeZone(r.Context())
+	}
 	pace := s.backupPace(r.Context(), strings.TrimSpace(req.TimeZone), loc, s.automaticBackups(r.Context()))
 	writeJSON(w, http.StatusOK, map[string]retention.Estimate{
 		"onHost": req.Rules.Estimate(retention.OnHost, pace), "offSite": req.Rules.Estimate(retention.OffSite, pace),
@@ -432,7 +467,9 @@ func (s *server) hBackupRulesSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Rules != nil {
-		_, _, custom := s.backupRules()
+		// Saved rules that can't be read have no time zone to keep; these
+		// replace them.
+		_, _, custom, _ := s.backupRules()
 		doc := backupRulesDoc{Settings: *req.Rules, TimeZone: tz}
 		if tz == "" && custom {
 			var raw string
@@ -453,7 +490,12 @@ func (s *server) hBackupRulesSet(w http.ResponseWriter, r *http.Request) {
 		}
 		s.audit(actor, "backup_rules.changed", "server", "succeeded", strings.Join(texts, " "))
 	}
-	writeJSON(w, http.StatusOK, s.backupRulesView(r.Context(), tz))
+	view, err := s.backupRulesView(r.Context(), tz)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // setAutomaticBackups turns automatic backups on or off through the server's

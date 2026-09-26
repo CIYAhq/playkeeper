@@ -233,6 +233,113 @@ func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
 	}
 }
 
+// When the backup rules or the copy queue can't be read, the rules delete
+// nothing, on this machine or where copies go, rather than act on the
+// defaults or on a queue they take for empty. Only rules nobody saved fall
+// back to the defaults.
+func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
+	keepAll := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	newestOnly := map[string]any{"onHost": map[string]any{"last": 1}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	exec := func(q string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() {
+			if _, err := e.a.db.Exec(q); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {}
+		}
+	}
+	rename := func(q, back string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() {
+			if _, err := e.a.db.Exec(q); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {
+				if _, err := e.a.db.Exec(back); err != nil {
+					e.t.Fatal(err)
+				}
+			}
+		}
+	}
+	cases := []struct {
+		name  string
+		rules map[string]any
+		// breaks makes a read fail, and returns what undoes it.
+		breaks func(e *agentEnv) func()
+		// deletes is whether the rules delete backups here.
+		deletes bool
+	}{
+		{name: "rules saved", rules: keepAll},
+		{name: "no rules saved", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = ''`), deletes: true},
+		{name: "rules that don't parse", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = '{"settings":'`)},
+		{name: "the rules can't be read", rules: keepAll,
+			breaks: rename(`ALTER TABLE servers RENAME COLUMN backup_rules TO backup_rules_gone`, `ALTER TABLE servers RENAME COLUMN backup_rules_gone TO backup_rules`)},
+		{name: "rules that keep only the newest", rules: newestOnly, deletes: true},
+		{name: "the copy queue can't be read", rules: newestOnly,
+			breaks: rename(`ALTER TABLE offsite_uploads RENAME TO offsite_uploads_gone`, `ALTER TABLE offsite_uploads_gone RENAME TO offsite_uploads`)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			e, first, _ := withCopies(t, dest)
+			ids := []string{first}
+			for range 2 {
+				id := e.backup()
+				e.waitFor("its copy", func() bool {
+					return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+				})
+				ids = append(ids, id)
+			}
+			// Three backups, all copied: two made on one day 100 days ago,
+			// which the defaults no longer keep here, and the newest.
+			old := time.Now().Add(-100 * 24 * time.Hour)
+			for i, id := range ids[:2] {
+				at := old.Add(time.Duration(i) * time.Hour).UnixMilli()
+				if _, err := e.a.db.Exec(`UPDATE backups SET created_at = ? WHERE id = ?`, at, id); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.a.db.Exec(`UPDATE offsite_copies SET backup_created_at = ? WHERE backup_id = ?`, at, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := e.a.db.Exec(`UPDATE backups SET kind = 'scheduled'`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.a.db.Exec(`UPDATE offsite_copies SET kind = 'scheduled'`); err != nil {
+				t.Fatal(err)
+			}
+			if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": c.rules}); code != http.StatusOK {
+				t.Fatalf("rules: %d %v", code, out)
+			}
+			undo := func() {}
+			if c.breaks != nil {
+				undo = c.breaks(e)
+			}
+			s := e.srv()
+			release, ok := s.holdOpLock()
+			if !ok {
+				t.Fatal("the server is busy")
+			}
+			s.applyRetention()
+			release()
+			s.pruneOffsite(context.Background(), dest)
+			undo()
+			here, there := e.countRows(`SELECT COUNT(*) FROM backups`), e.countRows(`SELECT COUNT(*) FROM offsite_copies`)
+			dest.mu.Lock()
+			deleted := len(dest.deleted)
+			dest.mu.Unlock()
+			if c.deletes {
+				if here == 3 {
+					t.Fatal("the rules deleted nothing here")
+				}
+				return
+			}
+			if here != 3 || there != 3 || deleted != 0 {
+				t.Fatalf("the rules deleted: %d of 3 backups left here, %d of 3 copies recorded, %d deleted where copies go", here, there, deleted)
+			}
+		})
+	}
+}
+
 // The card calls the last copy the first only when it's the first made to
 // the place copies go to, not whenever one copy is recorded.
 func TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst(t *testing.T) {
