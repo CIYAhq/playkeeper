@@ -287,24 +287,28 @@ type automaticBackups struct {
 var automaticEvery = []int{1, 2, 3, 4, 6, 8, 12, 24}
 
 // automaticSchedule is the server's first backup schedule that runs every
-// few hours or every day.
-func (s *server) automaticSchedule(ctx context.Context) (scheduleRow, bool) {
+// few hours or every day. Schedules that can't be read are an error, never
+// none: a save would make a second one.
+func (s *server) automaticSchedule(ctx context.Context) (scheduleRow, bool, error) {
 	rows, err := s.scheduleRows(ctx, `kind = 'backup'`)
 	if err != nil {
-		return scheduleRow{}, false
+		return scheduleRow{}, false, fmt.Errorf("the backup schedules could not be read: %w", err)
 	}
 	for _, r := range rows {
 		if r.Timing.Kind == schedule.Interval || r.Timing.Kind == schedule.Daily {
-			return r, true
+			return r, true, nil
 		}
 	}
-	return scheduleRow{}, false
+	return scheduleRow{}, false, nil
 }
 
-func (s *server) automaticBackups(ctx context.Context) automaticBackups {
-	row, ok := s.automaticSchedule(ctx)
+func (s *server) automaticBackups(ctx context.Context) (automaticBackups, error) {
+	row, ok, err := s.automaticSchedule(ctx)
+	if err != nil {
+		return automaticBackups{}, err
+	}
 	if !ok {
-		return automaticBackups{EveryHours: 24, OnlyIfPlayed: true}
+		return automaticBackups{EveryHours: 24, OnlyIfPlayed: true}, nil
 	}
 	a := automaticBackups{Enabled: row.Enabled, EveryHours: row.Timing.EveryHours, OnlyIfPlayed: row.Payload.OnlyIfPlayed, ScheduleID: row.ID}
 	if row.Timing.Kind == schedule.Daily {
@@ -313,7 +317,14 @@ func (s *server) automaticBackups(ctx context.Context) automaticBackups {
 	if t := schedule.NextRun(row.Schedule, s.now()); !t.IsZero() && row.Enabled {
 		a.NextRun = &t
 	}
-	return a
+	return a, nil
+}
+
+// errAutomaticUnread is the answer while the automatic backups can't be read.
+func errAutomaticUnread(err error) error {
+	return &apiError{Status: http.StatusInternalServerError, Code: api.CodeInternal,
+		Msg:  "Playkeeper couldn't read this server's automatic backups, so they can't be shown or changed until it can (" + err.Error() + ").",
+		Hint: "Try again in a moment. If it keeps happening, sudo journalctl -u playkeeper-agent says why."}
 }
 
 func sameJSON(a, b any) bool {
@@ -375,7 +386,10 @@ func (s *server) backupRulesView(ctx context.Context, tz string) (backupRulesVie
 		return backupRulesView{}, &apiError{Msg: "Playkeeper couldn't read this server's backup rules, so they delete nothing until it can (" + err.Error() + ").",
 			Hint: "Try again in a moment. If it keeps happening, sudo journalctl -u playkeeper-agent says why."}
 	}
-	auto := s.automaticBackups(ctx)
+	auto, err := s.automaticBackups(ctx)
+	if err != nil {
+		return backupRulesView{}, errAutomaticUnread(err)
+	}
 	pace := s.backupPace(ctx, tz, loc, auto)
 	return backupRulesView{
 		Automatic: auto, Rules: set, Custom: custom, Describe: set.Describe(),
@@ -417,7 +431,12 @@ func (s *server) hBackupRulesEstimate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		loc = s.scheduleTimeZone(r.Context())
 	}
-	pace := s.backupPace(r.Context(), strings.TrimSpace(req.TimeZone), loc, s.automaticBackups(r.Context()))
+	auto, err := s.automaticBackups(r.Context())
+	if err != nil {
+		writeError(w, errAutomaticUnread(err))
+		return
+	}
+	pace := s.backupPace(r.Context(), strings.TrimSpace(req.TimeZone), loc, auto)
 	writeJSON(w, http.StatusOK, map[string]retention.Estimate{
 		"onHost": req.Rules.Estimate(retention.OnHost, pace), "offSite": req.Rules.Estimate(retention.OffSite, pace),
 	})
@@ -507,7 +526,10 @@ func (s *server) setAutomaticBackups(ctx context.Context, req automaticBackupsRe
 		return &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Field: "automatic.everyHours", Reason: "every_hours_invalid",
 			Msg: fmt.Sprintf("Automatic backups can run every 1, 2, 3, 4, 6, 8 or 12 hours, or once a day, not every %d hours.", req.EveryHours)}
 	}
-	row, ok := s.automaticSchedule(ctx)
+	row, ok, err := s.automaticSchedule(ctx)
+	if err != nil {
+		return errAutomaticUnread(err)
+	}
 	if !ok {
 		if !req.Enabled {
 			return nil
@@ -529,6 +551,6 @@ func (s *server) setAutomaticBackups(ctx context.Context, req automaticBackupsRe
 		_, err := s.updateSchedule(ctx, row.ID, scheduleRequest{Enabled: &enabled}, actor)
 		return err
 	}
-	_, err := s.updateSchedule(ctx, row.ID, scheduleRequest{Timing: &timing, Payload: &payload, Enabled: &enabled}, actor)
+	_, err = s.updateSchedule(ctx, row.ID, scheduleRequest{Timing: &timing, Payload: &payload, Enabled: &enabled}, actor)
 	return err
 }

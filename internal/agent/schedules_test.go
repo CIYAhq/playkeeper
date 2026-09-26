@@ -141,12 +141,12 @@ func TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime(t *testing.T) {
 			}
 		}
 		set(true, ny)
-		before, ok := e.srv().automaticSchedule(context.Background())
-		if !ok || !sameJSON(before.Timing, daily("04:00", ny)) {
-			t.Fatalf("automatic backups made from New York: %+v", before.Timing)
+		before, ok, err := e.srv().automaticSchedule(context.Background())
+		if err != nil || !ok || !sameJSON(before.Timing, daily("04:00", ny)) {
+			t.Fatalf("automatic backups made from New York: %+v (%v)", before.Timing, err)
 		}
 		set(false, tokyo)
-		after, _ := e.srv().automaticSchedule(context.Background())
+		after, _, _ := e.srv().automaticSchedule(context.Background())
 		now := e.a.now()
 		if !sameJSON(after.Timing, before.Timing) || after.Payload.OnlyIfPlayed || !schedule.NextRun(after.Schedule, now).Equal(schedule.NextRun(before.Schedule, now)) {
 			t.Fatalf("after a change from Tokyo: %+v %+v, next run %v, was %+v next %v", after.Timing, after.Payload,
