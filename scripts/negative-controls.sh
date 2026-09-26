@@ -3442,9 +3442,9 @@ control "a server made while a listing was on its way keeps its record" internal
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "a removed machine's server goes to no machine, not the dashboard's own" internal/panel/workspace.go \
   'case recorded:
-		return machine{}, errNotFound' \
+		return machine{}, errUnknownServer' \
   'case false && recorded:
-		return machine{}, errNotFound' \
+		return machine{}, errUnknownServer' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
   'case owner != m.ID && !ownerActive:' \
