@@ -815,9 +815,11 @@ control "the pre-stop check sizes server.properties without following a link or 
 		b, err := os.ReadFile(filepath.Join(dataDir, rel))' \
   ./internal/backup '^TestArchivedSizeDoesNotFollowALinkOrWaitOnAPipe$'
 shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
-  local name=$1 file=$2 test=$5
+  local name=$1 file=$2 test=$5 shell=sh
+  # A bash script is parsed by bash, a POSIX one by sh.
+  case $(head -n1 "$file") in *bash*) shell=bash ;; esac
   FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if ! sh -n "$file" 2>/dev/null; then
+  if ! "$shell" -n "$file" 2>/dev/null; then
     echo "INVALID  $name: the mutated script does not parse"
     bad=1
   elif bash "$test" >/tmp/negative-control.out 2>&1; then
@@ -843,6 +845,11 @@ shcontrol "get.sh says a download curl stopped is too large" packaging/get.sh \
   '[ "$rc" = 63 ] || ' \
   '' \
   packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "package.sh builds CURSEFORGE_API_KEY into the binary" scripts/package.sh \
+  'ldflags+=" -X $curseforge.BuildKey=$CURSEFORGE_API_KEY"' \
+  ':' \
+  scripts/package_test.sh
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

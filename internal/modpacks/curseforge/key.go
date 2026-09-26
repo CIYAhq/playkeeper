@@ -9,8 +9,9 @@ import (
 	"strings"
 )
 
-// BuildKey is the API key a release build carries. The release workflow sets
-// it from a CI secret with
+// BuildKey is the API key a release build carries. On tag pushes the release
+// workflow passes the CURSEFORGE_API_KEY repository secret to
+// scripts/package.sh, which builds with
 //
 //	-ldflags "-X github.com/CIYAhq/playkeeper/internal/modpacks/curseforge.BuildKey=$CURSEFORGE_API_KEY"
 //
