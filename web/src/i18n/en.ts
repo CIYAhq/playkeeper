@@ -3220,6 +3220,7 @@ export const en = {
   'offsite.nothingCopied': 'Nothing was copied.',
   'offsite.clockBehind': '{machine}’s clock is {time} behind',
   'offsite.clockAhead': '{machine}’s clock is {time} ahead',
+  'offsite.lowSpaceHint': 'Copies may not fit.',
   'offsite.clockHint': 'At 15 minutes, copies start failing.',
   'offsite.hostKey.title': 'Is this really {host}?',
   'offsite.hostKey.body': 'Check its fingerprint once. Nothing is sent before you confirm.',

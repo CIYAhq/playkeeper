@@ -160,8 +160,8 @@ func (c *sftpClient) noFolder(op, name string) *Error {
 		hint = "Check the folder's name."
 	}
 	return &Error{Kind: KindNoSuchFolder, Op: op, Name: name, Field: "folder", User: c.cfg.User, Folder: c.cfg.Folder,
-		Msg:  fmt.Sprintf("There is no folder %s on the other machine.", c.cfg.Folder),
-		Hint: hint + " A folder without a leading slash is inside the home folder of the user Playkeeper signs in as."}
+		Msg:  fmt.Sprintf("No folder %s on %s", c.cfg.Folder, c.cfg.Host),
+		Hint: fmt.Sprintf("%s Without a leading slash, it's inside %s's home folder.", hint, c.cfg.User)}
 }
 
 // free is how many bytes the other machine can still write in the
@@ -617,7 +617,7 @@ func (c *sftpClient) testFolder(s *session, res *TestResult) error {
 			Msg: fmt.Sprintf("%s on the other machine is a file, not a folder.", c.cfg.Folder), Hint: "Choose a folder for the copies."}
 	}
 	if free, ok := c.free(s); ok && free < 1<<30 {
-		res.Warning = fmt.Sprintf("The other machine has only %s free in that folder, which may not be enough for the copies.", humanBytes(free))
+		res.Warning = fmt.Sprintf("Only %s free on %s", humanBytes(free), c.cfg.Host)
 	}
 	return nil
 }

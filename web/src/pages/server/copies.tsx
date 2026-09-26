@@ -650,10 +650,13 @@ function TestWarning({ result, machine, phone }: { result: OffsiteTestResult; ma
   }
   if (!result.warning) return null
   return (
-    <p role="status" className="flex items-start gap-2 text-[13px] font-semibold text-warning-foreground">
-      <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-      {result.warning}
-    </p>
+    <div role="status">
+      <p className="flex items-start gap-2 text-[13px] font-semibold text-warning-foreground">
+        <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        {result.warning}
+      </p>
+      <p className="ms-6 text-xs text-muted-foreground">{t('offsite.lowSpaceHint')}</p>
+    </div>
   )
 }
 
