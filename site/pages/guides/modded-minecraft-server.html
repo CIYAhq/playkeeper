@@ -15,7 +15,7 @@ updated: 2026-09-26
 schema: article
 */}}
 
-{{define "short"}}Pick a loader ({{loaders "or"}}), run the same loader, version and mods on the server and on every player's game, and give a big pack about 8 GB of memory. With Playkeeper, a modpack installs in one click and friends get the same mods from one link.{{end}}
+{{define "short"}}Pick a loader ({{loaders "or"}}), run the same loader, version and mods on the server and on every player's game, and give a big pack about {{sizing.ModpackWorldGB}} GB of memory. With Playkeeper, a modpack installs in one click and friends get the same mods from one link.{{end}}
 
 {{define "closing-title"}}Your modded server is one command away.{{end}}
 {{define "closing-sub"}}Free and open source. Pick a pack, then send friends the link.{{end}}
@@ -52,7 +52,7 @@ schema: article
     (dict "Title" "Run the loader's server installer" "Text" "It fetches Minecraft's server and the loader.")
     (dict "Title" "Accept the EULA" "Text" "Set eula=true in eula.txt.")
     (dict "Title" "Add the mods" "Text" "The pack's server files, or your own mods, go in the mods folder.")
-    (dict "Title" "Give it memory and open the port" "Text" "About 8 GB for a big pack, and TCP 25565 in your firewall.")
+    (dict "Title" "Give it memory and open the port" "Text" (printf "About %d GB for a big pack, and TCP 25565 in your firewall." sizing.ModpackWorldGB))
     (dict "Title" "Start it" "Text" "Every player needs the same loader, version and mods.")
   ))}}
   <div class="codeblock">

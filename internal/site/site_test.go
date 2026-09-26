@@ -2,6 +2,7 @@ package site
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/sizing"
 )
 
 // build builds the site from this repository, as site/Dockerfile does.
@@ -524,6 +526,93 @@ func TestGuideContents(t *testing.T) {
 	for _, want := range []string{`<a href="#manual">The manual way</a>`, `<a href="#memory">How much memory</a>`, `<a href="#questions">Questions</a>`} {
 		if !strings.Contains(toc, want) {
 			t.Errorf("the guide's contents lack %s", want)
+		}
+	}
+}
+
+// The sizing guide's table works without JavaScript: a row for each number of
+// friends at once, a column for each thing they run, and each size as
+// internal/sizing works it out.
+func TestSizingTableFollowsTheSizingGuide(t *testing.T) {
+	page := pages(build(t, Default))["/sizing"]
+	for _, w := range sizing.Workloads() {
+		if !strings.Contains(page, `<th scope="col">`+template.HTMLEscapeString(w.Label())+`</th>`) {
+			t.Errorf("the table has no column for %s", w.Label())
+		}
+	}
+	for _, r := range sizing.Table() {
+		id := "size-" + r.Band.Key() + "-" + string(r.Workload)
+		want := fmt.Sprintf(`<td id="%s"><span class="mem">%d GB<span class="visually-hidden">,</span></span> <span class="more"><span class="part">%d cores</span>`, id, r.MemoryGB, r.Cores)
+		if !strings.Contains(page, want) {
+			t.Errorf("the table's %s isn't %d GB and %d cores", id, r.MemoryGB, r.Cores)
+		}
+		if !strings.Contains(page, fmt.Sprintf("%d GB disk</span>", r.DiskGB)) {
+			t.Errorf("the table has no %d GB disk for %s", r.DiskGB, id)
+		}
+	}
+	first, err := sizing.Recommend(sizingWorkload, sizingPlayers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`id="answer-long">` + first.Title + `<`,
+		fmt.Sprintf("Playkeeper itself needs at least %d CPU cores, %d GB of memory and %d GB of free disk.", sizing.MinCores, sizing.MinMemoryGB, sizing.MinFreeDiskGB),
+		fmt.Sprintf("a VPS with %d GB of memory", first.MemoryGB),
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("/sizing doesn't say %q", want)
+		}
+	}
+}
+
+// sizing-data.js has every answer the table has, as internal/sizing words it,
+// with each provider's plans, in ASCII whatever the page is served as.
+func TestSizingDataHasEveryAnswer(t *testing.T) {
+	o := build(t, Default)
+	var js string
+	for name, b := range o.Files {
+		if strings.HasPrefix(name, "assets/js/sizing-data.") {
+			js = string(b)
+		}
+	}
+	for i := 0; i < len(js); i++ {
+		if js[i] >= 0x80 {
+			t.Fatalf("sizing-data.js has a byte past ASCII at %d", i)
+		}
+	}
+	_, body, ok := strings.Cut(js, "window.playkeeperSizing = ")
+	if !ok {
+		t.Fatal("sizing-data.js doesn't set window.playkeeperSizing")
+	}
+	var data struct {
+		Answers map[string]map[string]SizingAnswer
+		Plans   map[string][]sizingPlan
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSuffix(strings.TrimSpace(body), ";")), &data); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range sizing.Table() {
+		a, ok := data.Answers[r.Band.Key()][string(r.Workload)]
+		if !ok {
+			t.Errorf("no answer for %s friends on %s", r.Band.Key(), r.Workload)
+			continue
+		}
+		if a.Title != r.Title || a.Summary != r.Summary || a.MemoryGB != r.MemoryGB || a.Cores != r.Cores || len(a.Reasons) != len(r.Reasons) {
+			t.Errorf("%s/%s: the answer %+v doesn't match %+v", r.Band.Key(), r.Workload, a, r)
+			continue
+		}
+		for i, x := range r.Reasons {
+			if a.Reasons[i] != (SizingReason{Label: x.Topic.Label(), Value: x.Value, Text: x.Text}) {
+				t.Errorf("%s/%s: reason %+v, want %+v", r.Band.Key(), r.Workload, a.Reasons[i], x)
+			}
+		}
+	}
+	if fit := data.Answers["11-20"]["modpack"].Fit; fit != "Fits your answer, 11–20 friends on a big modpack: 24 GB of memory, 6 fast cores" {
+		t.Errorf("the providers' line for 11–20 friends on a big modpack is %q", fit)
+	}
+	for _, p := range providers {
+		if len(data.Plans[p.Name]) != len(p.Plans) {
+			t.Errorf("sizing-data.js has %d of %s's %d plans", len(data.Plans[p.Name]), p.Name, len(p.Plans))
 		}
 	}
 }

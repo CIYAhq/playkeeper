@@ -6,7 +6,9 @@ label: Playkeeper
 layout: landing
 og: landing
 schema: software
-scripts: js/landing.js
+styles: css/sizing.css
+noscript: css/sizing-nojs.css
+scripts: js/landing.js, js/sizing-data.js, js/sizing.js
 preload: loop-overview
 */}}
 
@@ -52,7 +54,7 @@ preload: loop-overview
       <div class="step-card reveal">
         <div class="step-card-art">{{template "cardshot" (dict "Name" "step-size" "Alt" "The sizing guide's answer: a VPS with 6 GB of memory, 2 fast cores and 40 GB of disk for 5 to 10 friends on Vanilla or Paper.")}}</div>
         <h3><span class="num">1</span>Rent a VPS</h3>
-        <p>Ubuntu 24.04 with at least 3 GB of memory.</p>
+        <p>Ubuntu 24.04 with at least {{sizing.Min.MemoryGB}} GB of memory.</p>
         <a class="link-arrow" href="/sizing">Which VPS?{{template "icon" "arrow-right"}}</a>
       </div>
       <div class="step-card reveal">
@@ -178,7 +180,7 @@ preload: loop-overview
       <p class="section-sub reveal"><span class="wide-only">Answer two questions and get a size, with the reasons.</span><span class="phone-only">Answer two questions and get a size.</span></p>
       <a class="link-arrow reveal" href="/sizing">Open the sizing guide{{template "icon" "arrow-right"}}</a>
     </div>
-    <div class="reveal">{{template "size-picker" .}}</div>
+    <div class="reveal">{{template "sizing-guide" (dict "Compact" true)}}</div>
   </div>
 </section>
 
@@ -203,7 +205,7 @@ preload: loop-overview
   <div class="container">
     {{template "faq" (dict "ID" "questions" "Aside" (printf "Anything else? %s." .Settings.Community.Ask) "AsideLink" (list .Settings.Community.URL "Ask a question") "Items" (list
       (qa "Is it free?" "Yes. Playkeeper is free and open source (AGPL-3.0). You only pay for your VPS.")
-      (qa "Which VPS do I need?" `Ubuntu 24.04 on x86_64, with at least 2 CPU cores, 3 GB of memory and 5 GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.`)
+      (qa "Which VPS do I need?" (printf `Ubuntu 24.04 on x86_64, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
       (qa "Java or Bedrock?" "Minecraft: Java Edition only. Bedrock players can't join.")
       (qa "Can I bring my Aternos or Realms world?" "Yes. New server › A world takes your singleplayer world, or one from Aternos, Minehut, Realms or another host, with steps for getting it out. It shows what's inside before anything changes.")
       (qa "Do friends need a port number?" "Not with a free yourname.playkeeper.io name: from three days after you claim it, each server joins at its own address without a port. On the IP address, the first server needs no port and the others add theirs.")

@@ -11,14 +11,52 @@ crumb: Guides
 og: sizing
 updated: 2026-09-26
 closing: sizing
+styles: css/sizing.css
+noscript: css/sizing-nojs.css
+scripts: js/sizing-data.js, js/sizing.js
 */}}
 
-{{define "main"}}
-<section class="band-chalk page-hero page-hero-center" aria-labelledby="page-title">
+{{define "main"}}{{$g := sizing}}
+<section class="band-chalk page-hero page-hero-center sizing-hero" aria-labelledby="page-title">
   <div class="container">
     {{template "crumbs" .}}
     <h1 id="page-title" class="h1-page hero-rise">How much RAM does a Minecraft server need? (calculator)</h1>
-    <p class="lead hero-after">The calculator arrives with the sizing guide's merge.</p>
+    <p class="lead hero-after">For {{$g.FirstBand}} friends on {{$g.FirstRun}}, a VPS with {{$g.Answer.MemoryGB}} GB of memory: {{$g.FirstWorldGB}} GB for the world and {{$g.SystemGB}} GB for the system. A big modpack needs {{$g.ModpackMinGB}} to {{$g.ModpackMaxGB}} GB.</p>
+    <p class="meta hero-after">Updated {{day .Page.Updated}}</p>
+    <p class="sizing-nojs">Turn on JavaScript to answer the two questions, or find your size in the table below.</p>
+    <div class="hero-after">{{template "sizing-guide" (dict "Compact" false)}}</div>
   </div>
 </section>
+
+<section class="band band-white" aria-labelledby="fit-title">
+  <div class="container">
+    <h2 id="fit-title" class="section-title reveal">VPS that fit</h2>
+    <p class="section-sub reveal">Three providers with fast cores and many regions. The size follows your answer.</p>
+    {{template "providers" (dict "Label" $g.Answer.Fit "MemoryGB" $g.Answer.MemoryGB "Cores" $g.Answer.Cores)}}
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="sizes-title">
+  <div class="container">
+    <h2 id="sizes-title" class="section-title reveal">Every size at a glance</h2>
+    <p class="section-sub reveal">Memory for the whole VPS. Your answer is marked.</p>
+    <div class="reveal">{{template "sizing-table" .}}</div>
+    <h2 id="several-title" class="section-title sizing-several reveal">More than one server on the VPS?</h2>
+    <p class="section-sub reveal">They add up, stopped servers too.</p>
+    <div class="reveal">{{template "sizing-several" .}}</div>
+  </div>
+</section>
+
+<section class="band band-white">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "What are the minimum requirements?" (printf "Ubuntu 24.04 on x86_64, with %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper. Each server needs more on top, as the calculator shows." $g.Min.Cores $g.Min.MemoryGB $g.Min.DiskGB))
+      (qa "Which Java version does a server need?" "The one its Minecraft version was made for: Java 25 from 26.1, 21 for 1.20.5 to 1.21.11, 17 for 1.18 to 1.20.4, 16 for 1.17 and 8 for 1.16.5 and older. Playkeeper runs each server on the right one, so you don't install Java.")
+      (qa "What matters more, CPU or RAM?" "Memory first: a server that runs out of it crashes. Then the speed of each core: Minecraft runs the world on one core, so a fast core beats many slow ones.")
+      (qa "Why isn't more memory always better?" "Memory the world doesn't use sits idle, and Java takes longer to clear out a very large heap, which players feel as short pauses. Start with the calculator's size; once a server runs, its Settings suggests memory from real use.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/guides/minecraft-server-cost" "/guides/modded-minecraft-server" "/alternatives/aternos" "/features/mods-and-modpacks")}}
 {{end}}

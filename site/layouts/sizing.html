@@ -1,16 +1,105 @@
-{{/* The sizing guide's picker, on the landing page and /sizing. */}}
-{{define "size-picker"}}{{template "cardshot" (dict "Name" "size-picker" "Alt" "The sizing guide's two questions and its answer: a VPS with 6 GB of memory for 5 to 10 friends on Vanilla or Paper.")}}{{end}}
+{{/* The sizing guide, from internal/sizing (internal/site/sizing.go). */}}
 
-{{/* How much memory modpacks need, from the sizing guide's table. */}}
-{{define "modded-memory"}}
-<p>A few mods run on a 6 to 8 GB VPS. A big pack like All the Mods 10 wants 12 GB for a few friends, and 24 GB for more.</p>
+{{/* sizing-guide: the calculator, the two questions and the answer with its
+     reasons. sizing.js answers each choice from sizing-data.js and keeps it
+     in the address; without JavaScript, /sizing shows the table of every size
+     instead (sizing-nojs.css). Compact is the landing page's: its choice
+     stays out of the address. */}}
+{{define "sizing-guide"}}{{$g := sizing}}
+<div class="sizing" data-sizing{{if .Compact}} data-sizing-compact{{end}}>
+  <div class="guide">
+    <div class="card questions">
+      <fieldset class="friends">
+        <legend><span class="wide-only">How many friends play at the same time?</span><span class="phone-only">Friends at the same time</span></legend>
+        <div class="segments">
+          {{- range $g.Bands}}
+          <input type="radio" name="friends" id="friends-{{.Key}}" value="{{.Key}}"{{if .Checked}} checked{{end}}><label for="friends-{{.Key}}">{{.Label}}</label>
+          {{- end}}
+        </div>
+      </fieldset>
+      <fieldset class="run" id="run">
+        <legend id="run-legend">What will you run?</legend>
+        <button type="button" class="run-button" id="run-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="run-options" aria-labelledby="run-legend run-current">
+          <span id="run-current">{{$g.RunLabel}}</span>{{template "icon" "chevrons-up-down"}}
+        </button>
+        <div class="run-options" id="run-options">
+          <span class="grabber" aria-hidden="true"></span>
+          <div class="sheet-head">
+            <p class="sheet-title" id="sheet-title" aria-hidden="true">What will you run?</p>
+            <button type="button" class="sheet-close" id="sheet-close">{{template "icon" "x"}}<span class="visually-hidden">Close</span></button>
+          </div>
+          <div class="run-list">
+            {{- range $g.Workloads}}
+            <input type="radio" name="run" id="run-{{.Key}}" value="{{.Key}}"{{if .Checked}} checked{{end}}>
+            <label for="run-{{.Key}}"><span class="name">{{.Label}}</span> <span class="desc">{{.Description}}</span>{{template "icon" "check"}}</label>
+            {{- end}}
+          </div>
+        </div>
+      </fieldset>
+      <p class="card-foot">These are starting points.</p>
+    </div>
+    <section class="card answer" aria-labelledby="answer-title">
+      <div class="answer-head">
+        <img src="{{asset "app/pip/pip-wave.svg"}}" alt="" width="72" height="72">
+        <div>
+          <h2 id="answer-title"><span class="wide-only" id="answer-long">{{$g.Answer.Title}}</span><span class="phone-only" id="answer-short">{{$g.Answer.Short}}</span></h2>
+          <p class="summary" id="answer-summary">{{$g.Answer.Summary}}</p>
+          <p class="specs" id="answer-specs" aria-hidden="true">{{$g.Answer.Specs}}</p>
+        </div>
+      </div>
+      <dl class="reasons">
+        {{- range $g.Answer.Reasons}}
+        <div class="reason"><dt>{{.Label}}</dt><dd><strong>{{.Value}}</strong> <span class="reason-text">{{.Text}}</span></dd></div>
+        {{- end}}
+      </dl>
+      <p class="card-foot">Already running? Settings suggests memory from real use.</p>
+    </section>
+  </div>
+  <p class="visually-hidden" role="status" id="answer-status"></p>
+  <div class="sizing-backdrop" id="backdrop"></div>
+</div>
+{{end}}
+
+{{/* sizing-table: every size at a glance, which works without JavaScript;
+     the script marks the answer on show. */}}
+{{define "sizing-table"}}{{$g := sizing}}
+<div class="sizing-table card table-scroll" tabindex="0">
+  <table>
+    <caption class="visually-hidden">Memory, CPU cores and disk for each number of friends at once and what they run</caption>
+    <thead>
+      <tr><th scope="col">Friends at once</th>{{range $g.Workloads}}<th scope="col">{{.Label}}</th>{{end}}</tr>
+    </thead>
+    <tbody>
+      {{- range $g.Rows}}
+      <tr><th scope="row">{{.Band}}</th>{{range .Cells}}<td id="{{.ID}}"><span class="mem">{{.Memory}}<span class="visually-hidden">,</span></span> <span class="more"><span class="part">{{.Cores}}</span><span class="visually-hidden">,</span><span class="dot" aria-hidden="true"> · </span><span class="part">{{.Disk}}</span></span></td>{{end}}</tr>
+      {{- end}}
+    </tbody>
+  </table>
+</div>
+<p class="fine">Playkeeper itself needs at least {{$g.Min.Cores}} CPU cores, {{$g.Min.MemoryGB}} GB of memory and {{$g.Min.DiskGB}} GB of free disk. Sizes are memory for the whole VPS. More than {{$g.Most}} friends at once? Start with the biggest size and watch the Overview.</p>
+{{end}}
+
+{{/* sizing-several: several servers on one VPS add up. */}}
+{{define "sizing-several"}}{{$g := sizing}}
+<dl class="rules">
+  <div><dt>Memory</dt><dd>Add up what each server gets for the world, then {{$g.SystemGB}} GB for Ubuntu, Docker and Playkeeper once, and pick the next size up.</dd></div>
+  <div><dt>CPU</dt><dd>The busiest server's cores, plus one for each other server.</dd></div>
+  <div><dt>Disk</dt><dd>Add up each server's.</dd></div>
+</dl>
+<p class="rules-example">{{$g.Example}}</p>
+{{end}}
+
+{{/* modded-memory: how much memory mods and modpacks need, from the sizing
+     guide's table, for the modded server guide. */}}
+{{define "modded-memory"}}{{$g := sizing}}{{$few := index $g.Modded 0}}
+<p>A few mods run on a {{$few.AddOns.MemoryGB}} to {{(index $g.Modded 1).AddOns.MemoryGB}} GB VPS. A big pack like All the Mods 10 wants {{$g.ModpackMinGB}} GB for a few friends, and {{$g.ModpackMaxGB}} GB for more.</p>
 <div class="table-scroll" tabindex="0">
   <table class="data">
     <thead><tr><td></td><th scope="col">A few mods</th><th scope="col">A big modpack</th></tr></thead>
     <tbody>
-      <tr><th scope="row">1–4 friends</th><td>6 GB · 2 cores</td><td>12 GB · 4 cores</td></tr>
-      <tr><th scope="row">5–10 friends</th><td>8 GB · 4 cores</td><td>24 GB · 4 cores</td></tr>
-      <tr><th scope="row">11–20 friends</th><td>12 GB · 4 cores</td><td>24 GB · 6 cores</td></tr>
+      {{- range $i, $r := $g.Modded}}{{if lt $i 3}}
+      <tr><th scope="row">{{$r.Band}} friends</th><td>{{$r.AddOns.MemoryGB}} GB · {{$r.AddOns.Cores}} cores</td><td>{{$r.Modpack.MemoryGB}} GB · {{$r.Modpack.Cores}} cores</td></tr>
+      {{- end}}{{end}}
     </tbody>
   </table>
 </div>

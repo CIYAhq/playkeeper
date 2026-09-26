@@ -92,7 +92,7 @@ og: aternos
   <div class="container">
     <h2 id="cost-title" class="section-title reveal">What it costs</h2>
     <p class="section-sub reveal">Playkeeper is free. You rent a VPS, sized for your group.</p>
-    {{template "providers" (dict "Label" "Fits 5–10 friends on Vanilla or Paper: 6 GB of memory, 2 fast cores" "MemoryGB" 6 "Cores" 2)}}
+    {{$g := sizing}}{{template "providers" (dict "Label" (printf "Fits %s friends on %s: %d GB of memory, %d fast cores" $g.FirstBand $g.FirstRun $g.Answer.MemoryGB $g.Answer.Cores) "MemoryGB" $g.Answer.MemoryGB "Cores" $g.Answer.Cores)}}
     <a class="link-arrow reveal cost-link" href="/sizing">Work out your size{{template "icon" "arrow-right"}}</a>
   </div>
 </section>

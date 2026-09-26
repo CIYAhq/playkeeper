@@ -52,6 +52,7 @@ type Site struct {
 	cards   map[string]*TemplateCard
 	docs    *docsBuild
 	posts   []*Page
+	sizing  SizingGuide
 	root    *template.Template
 }
 
@@ -93,6 +94,9 @@ func Build(o Options) (*Output, error) {
 	}
 	sort.SliceStable(s.posts, func(i, j int) bool { return s.posts[i].Published > s.posts[j].Published })
 	if err := s.addSearchIndex(); err != nil {
+		return nil, err
+	}
+	if err := s.addSizing(); err != nil {
 		return nil, err
 	}
 	if s.root, err = s.parseLayouts(); err != nil {
@@ -162,6 +166,26 @@ func (s *Site) expand(v string) (string, error) {
 		return "", err
 	}
 	return b.String(), nil
+}
+
+// addSizing works out the sizing guide's calculator and publishes its
+// answers as a script, sizing-data.js.
+func (s *Site) addSizing() error {
+	g, answers, err := buildSizing()
+	if err != nil {
+		return fmt.Errorf("the sizing guide: %w", err)
+	}
+	s.sizing = g
+	b, err := sizingData(answers)
+	if err != nil {
+		return err
+	}
+	x, err := newAsset("js/sizing-data.js", b)
+	if err != nil {
+		return err
+	}
+	s.assets["js/sizing-data.js"] = x
+	return nil
 }
 
 // addSearchIndex publishes the docs search's index as a script.
@@ -533,6 +557,7 @@ func (s *Site) funcs() template.FuncMap {
 			return c, nil
 		},
 		"providers": func() []Provider { return providers },
+		"sizing":    func() SizingGuide { return s.sizing },
 		"referral":  anyReferral,
 		"checked":   func() string { return Day(checkedProviders) },
 		"posts":     func() []*Page { return s.posts },

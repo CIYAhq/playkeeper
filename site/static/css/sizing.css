@@ -1,0 +1,181 @@
+/* The sizing guide's calculator, table and rules (layouts/sizing.html), as
+   the approved sizing guide drew them, on /sizing and the landing page. */
+.sizing, .sizing-table, .rules {
+  --sz-card: #fff;
+  --sz-text: #1d211c;
+  --sz-muted: #5c6157;
+  --sz-border: #e6e6df;
+  --sz-input: #d9dad1;
+  --sz-track: #f4f4ef;
+  --sz-track-border: #ecece7;
+  --sz-primary: #15803d;
+  --sz-selected: #f6fbf7;
+  --sz-selected-border: rgba(21, 128, 61, .55);
+  --sz-shadow: 0 1px 2px rgba(29, 33, 28, .04);
+  --sz-shadow-outline: 0 1px 2px rgba(29, 33, 28, .05);
+  --sz-shadow-selected: 0 0 0 3px rgba(21, 128, 61, .1);
+  --sz-sheet: 0 -12px 40px -12px rgba(29, 33, 28, .35);
+  /* The dashboard's motion. */
+  --sz-fast: 120ms;
+  --sz-standard: 200ms;
+  --sz-ease: cubic-bezier(0.2, 0, 0, 1);
+  --sz-enter: cubic-bezier(0, 0, 0.2, 1);
+  --sz-exit: cubic-bezier(0.4, 0, 1, 1);
+  --sz-press: .98;
+  color: var(--sz-text);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+}
+.sizing .phone-only, .sizing .specs, .sizing .run-button, .sizing .grabber, .sizing .sheet-head, .sizing .run-list .icon-check { display: none; }
+.sizing .segments label, .sizing .run-options label, .sizing .run-button, .sizing .sheet-close {
+  transition-property: color, background-color, border-color, box-shadow, scale;
+  transition-duration: var(--sz-fast);
+  transition-timing-function: var(--sz-ease);
+}
+.sizing .segments label:active, .sizing .run-button:active, .sizing .sheet-close:active { scale: var(--sz-press); }
+
+/* The two questions and the answer */
+.sizing .guide { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 20px; }
+.sizing .card { padding: 20px; background: var(--sz-card); border: 1px solid var(--sz-border); border-radius: 16px; box-shadow: var(--sz-shadow); }
+.sizing .questions, .sizing .answer { display: flex; flex-direction: column; }
+.sizing .card-foot { margin: auto 0 0; padding-top: 14px; border-top: 1px solid var(--sz-border); color: var(--sz-muted); font-size: 12px; line-height: 16px; }
+.sizing fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.sizing legend { margin-bottom: 8px; padding: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.sizing .segments, .sizing .run-options { position: relative; }
+.sizing .segments input, .sizing .run-options input { position: absolute; top: 0; left: 0; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.sizing .segments { display: flex; padding: 2px; background: var(--sz-track); border: 1px solid var(--sz-track-border); border-radius: 10px; }
+.sizing .segments label { display: flex; align-items: center; justify-content: center; min-width: 58px; min-height: 28px; padding: 0 10px; border-radius: 8px; color: var(--sz-muted); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.sizing .segments label:hover { color: var(--sz-text); }
+.sizing .segments input:checked + label { background: var(--sz-card); color: var(--sz-text); font-weight: 600; box-shadow: 0 1px 2px rgba(29, 33, 28, .1), 0 0 0 1px rgba(29, 33, 28, .04); }
+.sizing .segments input:focus-visible + label, .sizing .run-options input:focus-visible + label { outline: 2px solid var(--sz-primary); outline-offset: 1px; }
+.sizing .run { margin: 20px 0; }
+.sizing .run-options label { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 11px; margin-top: 8px; padding: 11px 13px; background: var(--sz-card); border: 1px solid var(--sz-border); border-radius: 12px; cursor: pointer; }
+.sizing .run-options label:first-of-type { margin-top: 0; }
+.sizing .run-options label:hover { border-color: #c4c6ba; }
+.sizing .run-options label::before { content: ""; box-sizing: border-box; grid-row: 1 / span 2; width: 18px; height: 18px; border: 1.5px solid var(--sz-input); border-radius: 50%; background: var(--sz-card); }
+.sizing .run-options input:checked + label { background: var(--sz-selected); border-color: var(--sz-selected-border); box-shadow: var(--sz-shadow-selected); }
+.sizing .run-options input:checked + label::before { border: 0; box-shadow: inset 0 0 0 6px var(--sz-primary); }
+.sizing .name { grid-column: 2; font-weight: 600; }
+.sizing .desc { grid-column: 2; color: var(--sz-muted); font-size: 13px; line-height: 18px; }
+
+.sizing .answer-head { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.sizing .answer-head img { flex: none; display: block; width: 72px; height: 72px; }
+.sizing .answer h2 { margin: 0; font-size: 24px; line-height: 30px; font-weight: 800; letter-spacing: -0.02em; }
+.sizing .summary { margin: 2px 0 0; color: var(--sz-muted); font-size: 15px; line-height: 20px; }
+.sizing .reasons { margin: 0 0 39px; }
+.sizing .reason { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--sz-border); }
+.sizing .reason:last-child { border-bottom: 0; }
+.sizing .reason dt { align-self: center; font-weight: 500; }
+.sizing .reason dd { margin: 0; }
+.sizing .reason strong { display: block; font-weight: 600; }
+.sizing .reason-text { display: block; color: var(--sz-muted); font-size: 13px; line-height: 18px; }
+/* The sheet's backdrop stays shown while it fades out; @starting-style fades it in. */
+.sizing-backdrop {
+  position: fixed; inset: 0; z-index: 90; display: none; background: rgba(29, 33, 28, .4); opacity: 0;
+  transition: opacity 120ms cubic-bezier(0.4, 0, 1, 1), display 120ms allow-discrete;
+}
+.sizing-backdrop.open { display: block; opacity: 1; transition-duration: 200ms; transition-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+@starting-style { .sizing-backdrop.open { opacity: 0; } }
+
+/* Every size at a glance */
+.sizing-table { overflow: hidden; background: var(--sz-card); border: 1px solid var(--sz-border); border-radius: 16px; box-shadow: var(--sz-shadow); }
+.sizing-table table { width: 100%; border-collapse: collapse; }
+.sizing-table th, .sizing-table td { padding: 13px 18px; border-top: 1px solid var(--sz-border); text-align: left; vertical-align: top; }
+.sizing-table thead th { padding-top: 8px; padding-bottom: 8px; border-top: 0; background: var(--sz-track); color: var(--sz-muted); font-size: 13px; font-weight: 400; line-height: 19px; }
+.sizing-table thead th:first-child { width: 40%; }
+.sizing-table thead th + th { width: 20%; }
+.sizing-table tbody th { font-weight: 400; }
+.sizing-table td.current { background: var(--sz-selected); box-shadow: inset 0 0 0 1px var(--sz-selected-border); }
+.sizing-table .mem, .sizing-table .more { display: block; }
+.sizing-table .more { color: var(--sz-muted); font-size: 13px; line-height: 18px; }
+.sizing-table .part { white-space: nowrap; }
+.sizing-table + .fine { margin: 10px 0 0; color: var(--sage); font-size: 12px; line-height: 16px; }
+
+/* More than one server */
+.rules { max-width: 760px; margin: 0 0 10px; }
+.rules div { display: grid; grid-template-columns: 90px minmax(0, 1fr); column-gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--sz-border); }
+.rules div:last-child { border-bottom: 0; }
+.rules dt { font-weight: 600; }
+.rules dd { margin: 0; }
+.rules-example { max-width: 760px; font-size: 14px; }
+
+/* The landing page's: the two cards side by side, a little smaller. */
+.sizing[data-sizing-compact] .guide { grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 0; padding: 0; overflow: hidden; background: var(--sz-card); border: 1px solid var(--sz-border); border-radius: 18px; box-shadow: var(--shadow-lg); }
+.sizing[data-sizing-compact] .card { border: 0; border-radius: 0; box-shadow: none; }
+.sizing[data-sizing-compact] .questions { background: var(--sz-track); }
+
+/* Tablets: the answer goes under the questions. */
+@media (max-width: 900px) {
+  .sizing .guide, .sizing[data-sizing-compact] .guide { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Phones: one column, and a sheet for "What will you run?" */
+@media (max-width: 640px) {
+  .sizing .wide-only { display: none; }
+  .sizing .phone-only { display: inline; }
+  .sizing .guide { display: flex; flex-direction: column; gap: 0; }
+  .sizing .questions { display: contents; }
+  .sizing .questions .card-foot { order: 1; margin: 16px 4px 0; padding: 0; border: 0; }
+  .sizing legend { font-size: 14px; line-height: 20px; }
+  .sizing .segments { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; border-radius: 12px; }
+  .sizing .segments label { min-width: 0; min-height: 40px; padding: 0; border-radius: 10px; font-size: 15px; }
+  .sizing .run { margin: 14px 0; }
+  .sizing .run-button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 0 12px 0 11px; color: var(--sz-text); background: var(--sz-card); border: 1px solid var(--sz-input); border-radius: 10px; box-shadow: var(--sz-shadow-outline); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+  .sizing .run-button .icon { flex: none; width: 18px; height: 18px; color: var(--sz-muted); }
+  .sizing .run-options {
+    position: fixed; right: 0; bottom: 0; left: 0; z-index: 100; display: none; max-height: 85vh; overflow-y: auto; padding-bottom: calc(16px + env(safe-area-inset-bottom)); background: var(--sz-card); border-radius: 22px 22px 0 0; box-shadow: var(--sz-sheet);
+    opacity: 0; translate: 0 32px;
+    transition: opacity var(--sz-fast) var(--sz-exit), translate var(--sz-fast) var(--sz-exit), display var(--sz-fast) allow-discrete;
+  }
+  .sizing .run.open .run-options { display: block; opacity: 1; translate: none; transition-duration: var(--sz-standard); transition-timing-function: var(--sz-enter); }
+  @starting-style { .sizing .run.open .run-options { opacity: 0; translate: 0 32px; } }
+  .sizing .grabber { display: block; width: 40px; height: 5px; margin: 8px auto 0; border-radius: 9999px; background: var(--sz-input); }
+  .sizing .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 8px 4px 20px; }
+  .sizing .sheet-title { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; }
+  .sizing .sheet-close { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; color: var(--sz-muted); background: none; border: 0; border-radius: 10px; cursor: pointer; }
+  .sizing .sheet-close .icon { width: 20px; height: 20px; }
+  .sizing .run-list { margin: 0 20px; border: 1px solid var(--sz-border); border-radius: 16px; overflow: hidden; }
+  .sizing .run-options label { grid-template-columns: minmax(0, 1fr) 20px; gap: 0 8px; align-content: center; min-height: 64px; margin: 0; padding: 8px 16px; background: none; border: 0; border-bottom: 1px solid var(--sz-border); border-radius: 0; }
+  .sizing .run-options label:first-of-type { border-radius: 15px 15px 0 0; }
+  .sizing .run-options label:last-of-type { border-bottom: 0; border-radius: 0 0 15px 15px; }
+  .sizing .run-options label::before { display: none; }
+  .sizing .run-options label:hover, .sizing .run-options input:checked + label { background: none; border-color: var(--sz-border); box-shadow: none; }
+  .sizing .run-options input:focus-visible + label { outline-offset: -2px; }
+  .sizing .name, .sizing .desc { grid-column: 1; }
+  .sizing .name { font-size: 16px; line-height: 22px; font-weight: 400; }
+  .sizing .desc { font-size: 13px; line-height: 18px; }
+  .sizing .run-list .icon-check { display: block; grid-column: 2; grid-row: 1 / span 2; align-self: center; width: 20px; height: 20px; color: var(--sz-primary); visibility: hidden; }
+  .sizing input:checked + label .icon-check { visibility: visible; }
+  .sizing .answer { padding: 16px; }
+  .sizing .answer-head { gap: 13px; margin-bottom: 10px; }
+  .sizing .answer-head img { width: 56px; height: 56px; }
+  .sizing .answer h2 { font-size: 22px; line-height: 28px; }
+  .sizing .summary, .sizing .answer .card-foot { display: none; }
+  .sizing .specs { display: block; margin: 2px 0 0; color: var(--sz-muted); font-size: 14px; }
+  .sizing .reasons { margin: 0; color: var(--sz-muted); font-size: 14px; line-height: 20px; }
+  .sizing .reason, .sizing .reason dd { display: inline; padding: 0; border: 0; }
+  .sizing .reason dt, .sizing .reason strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .sizing .reason-text { display: inline; font-size: inherit; line-height: inherit; }
+  .sizing .reason-text::after { content: " "; }
+  /* On phones the paragraph keeps the memory and CPU reasons; screen readers still get disk's and network's values. */
+  .sizing .reason:nth-child(n + 3) .reason-text { display: none; }
+  .sizing[data-sizing-compact] .guide { overflow: visible; background: none; border: 0; box-shadow: none; }
+  .sizing[data-sizing-compact] .card { border: 1px solid var(--sz-border); border-radius: 16px; }
+  .sizing-table thead th:first-child { width: 22%; }
+  .sizing-table thead th + th { width: 26%; }
+  .sizing-table th, .sizing-table td { padding: 10px 8px; }
+  .sizing-table thead th { font-size: 11px; line-height: 15px; }
+  .sizing-table .more { font-size: 12px; line-height: 17px; }
+  .sizing-table .more .part { display: block; white-space: normal; }
+  .sizing-table .more .dot { display: none; }
+  .rules div { grid-template-columns: 64px minmax(0, 1fr); }
+}
+.sizing-nojs { display: none; }
+.section-title.sizing-several { margin-top: 88px; }
+@media (max-width: 640px) { .section-title.sizing-several { margin-top: 56px; } }
+@media (min-width: 1024px) { .sizing[data-sizing-compact] { zoom: 0.84; } }
+@media (prefers-reduced-motion: reduce) {
+  .sizing, .sizing-backdrop { --sz-press: 1; }
+  .sizing *, .sizing *::before, .sizing *::after, .sizing-backdrop { transition-duration: .01ms !important; }
+}

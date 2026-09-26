@@ -39,8 +39,11 @@ type Page struct {
 	NoIndex bool
 	// Closing picks the closing band: default, guide, sizing or none.
 	Closing string
-	// Scripts are the page's own scripts, after site.js.
-	Scripts []string
+	// Scripts are the page's own scripts, after site.js; Styles its own
+	// stylesheets, after site.css; NoScript a stylesheet for when scripts
+	// don't run.
+	Scripts, Styles []string
+	NoScript        string
 	// Preload is an image the page shows first, fetched early.
 	Preload string
 	// Blog posts: Tags, Author, Summary and Cover.
@@ -181,6 +184,10 @@ func parsePage(src string) (*Page, error) {
 			p.Closing = value
 		case "scripts":
 			p.Scripts = fields(value)
+		case "styles":
+			p.Styles = fields(value)
+		case "noscript":
+			p.NoScript = value
 		case "preload":
 			p.Preload = value
 		case "tags":

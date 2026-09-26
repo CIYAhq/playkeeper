@@ -1,0 +1,6 @@
+/* /sizing without JavaScript: the questions can't answer, so the page says
+   so and the table of every size stands in; the landing page's calculator
+   shows its example answer without asking. */
+.sizing:not([data-sizing-compact]) .guide { display: none; }
+.sizing-nojs { display: block; }
+.sizing[data-sizing-compact] .questions { pointer-events: none; }
