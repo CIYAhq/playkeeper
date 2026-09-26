@@ -883,7 +883,7 @@ control "template data packs never connect to a private address" internal/templa
 control "template data packs never download through a proxy" internal/templates/fetch.go \
   'Proxy:                 nil,' \
   'Proxy:                 http.ProxyFromEnvironment,' \
-  ./internal/templates '^TestPackClientUsesNoProxy$'
+  ./internal/templates '^TestPackClientIgnoresProxyVariables$'
 control "template data packs download over HTTPS only" internal/templates/fetch.go \
   'if r.URL.Scheme != "https" {' \
   'if false {' \
