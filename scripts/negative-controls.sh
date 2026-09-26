@@ -95,8 +95,10 @@ control "extraction stays inside its destination" internal/backup/archive.go \
   'if false && !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {' \
   ./internal/backup '^TestExtractFileStaysInsideDestination$'
 control "backup creation applies the restore rules" internal/backup/archive.go \
-  'if err := tally.add(rel, size); err != nil {' \
-  'if err := tally.add(rel, size); false && err != nil {' \
+  'if err := tally.add(rel, size); err != nil {
+		return FileEntry{}, refusal(rel, err)' \
+  'if err := tally.add(rel, size); false && err != nil {
+		return FileEntry{}, refusal(rel, err)' \
   ./internal/backup '^(TestCreateRefusesNamesARestoreRefuses|TestCreateAndVerifyAgreeOnLimits)$'
 control "backup check compares the whole-archive SHA-256" internal/agent/backups.go \
   'if got := hex.EncodeToString(h.Sum(nil)); got != b.SHA256 {' \
