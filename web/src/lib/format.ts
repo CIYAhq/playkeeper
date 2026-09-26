@@ -107,18 +107,21 @@ export function formatTime(iso: string): string {
   return clock(iso, true)
 }
 
+// en-GB's short month for September is "Sept" in newer ICU data; every other month is three letters.
+const sep = (date: string) => date.replace(/\bSept\b/, 'Sep')
+
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short' })
+  return sep(new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short' }))
 }
 
 /** A date with its year, like "24 Dec 2026". */
 export function formatLongDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: 'numeric' })
+  return sep(new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: 'numeric' }))
 }
 
 export function formatDateTime(iso: string | undefined): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString(formatLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+  return sep(new Date(iso).toLocaleString(formatLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }))
 }
 
 export function sameDay(a: Date, b: Date): boolean {
