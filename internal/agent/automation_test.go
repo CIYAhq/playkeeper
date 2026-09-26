@@ -10,11 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -802,6 +806,51 @@ func TestAFailedStartLeavesNothingAnsweringForTheServer(t *testing.T) {
 				t.Fatalf("after the failed start (%s): desired %s, stand-in listening %v, %d sleep periods open; want it stopped with nothing answering", op.Error, desired, listening, open)
 			}
 		})
+	}
+}
+
+// Every operation the agent starts has a label for the busy message, so
+// "Playkeeper is busy with …" never ends in nothing.
+func TestEveryOperationHasABusyLabel(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	kinds := map[string]string{}
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "beginOp" && sel.Sel.Name != "beginMachineOp" && sel.Sel.Name != "startOp") {
+				return true
+			}
+			if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				kind, _ := strconv.Unquote(lit.Value)
+				kinds[kind] = fset.Position(lit.Pos()).String()
+			}
+			return true
+		})
+	}
+	for _, kind := range []string{"backup", "sleep", "offsite-restore", "offsite-recover", "disk-cleanup"} {
+		if kinds[kind] == "" {
+			t.Fatalf("found no %s operation among %v", kind, kinds)
+		}
+	}
+	for kind, at := range kinds {
+		if opLabels[kind] == "" {
+			t.Errorf("%s: the %s operation has no busy label", at, kind)
+		}
 	}
 }
 
