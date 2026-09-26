@@ -62,6 +62,7 @@ func (a *Agent) Machine(ctx context.Context) api.Machine {
 		m.CPUPercent = &v
 	}
 	a.mu.Unlock()
+	a.machineAutomation(&m)
 	return m
 }
 
@@ -227,7 +228,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		t := reachableAt
 		st.ReachableAt = &t
 	}
-	if list, err := s.listBackups(`verified = 1 AND kind = 'manual'`); err == nil && len(list) > 0 {
+	if list, err := s.listBackups(`verified = 1 AND kind IN ('manual', 'scheduled')`); err == nil && len(list) > 0 {
 		st.LastBackup = &list[0]
 	} else if list, err := s.listBackups(`verified = 1`); err == nil && len(list) > 0 {
 		st.LastBackup = &list[0]
@@ -243,6 +244,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 			st.Crash = crash
 		}
 	}
+	s.automationStatus(&st)
 	return st
 }
 
@@ -298,7 +300,7 @@ func (s *server) firstSteps() api.FirstSteps {
 		fs.FriendJoined, fs.FriendJoinedAt = player, &t
 	}
 	var n, dl int
-	_ = s.db.QueryRow(`SELECT COUNT(*), COUNT(downloaded_at) FROM backups WHERE server_id = ? AND kind = 'manual' AND verified = 1`, s.id).Scan(&n, &dl)
+	_ = s.db.QueryRow(`SELECT COUNT(*), COUNT(downloaded_at) FROM backups WHERE server_id = ? AND kind IN ('manual', 'scheduled') AND verified = 1`, s.id).Scan(&n, &dl)
 	fs.BackedUp, fs.Downloaded = n > 0, dl > 0
 	return fs
 }
@@ -582,6 +584,7 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.crashed, s.runCrashed, s.crash = false, false, nil
 		s.mu.Unlock()
+		s.leaveSleep()
 	}
 	release()
 	if err != nil {
@@ -786,6 +789,11 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Type the server's name, %q, to delete it.", name))
 		return
 	}
+	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {
+		s.audit(actor, "server.deleted", s.id, "refused", "its recovery key was never downloaded")
+		writeError(w, err)
+		return
+	}
 	op, err := s.beginOp("delete", actor, func(ctx context.Context, h *opHandle) error {
 		if err := s.setDesired(api.DesiredStopped); err != nil {
 			return err
@@ -883,6 +891,10 @@ func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cur := a.machineOp(); cur != nil && cur.ID == id {
+		writeJSON(w, http.StatusOK, cur)
+		return
+	}
+	if cur := a.stagingOp(); cur != nil && cur.ID == id {
 		writeJSON(w, http.StatusOK, cur)
 		return
 	}
@@ -1134,6 +1146,7 @@ func (s *server) hBackupDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.noteRemoved(b.ID, actor)
 	s.audit(actor, "backup.deleted", b.ID, "succeeded", b.FileName)
 	w.WriteHeader(http.StatusNoContent)
 }

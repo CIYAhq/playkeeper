@@ -8,6 +8,8 @@ import type {
   AddonSources,
   Address,
   Backup,
+  BackupRefusal,
+  BackupRulesView,
   Candidate,
   Catalog,
   Crash,
@@ -23,12 +25,16 @@ import type {
   MetricsResponse,
   ModpackDetail,
   ModpackResults,
+  OffsiteCopy,
+  OffsiteTestResult,
+  OffsiteView,
   Operation,
   PlayerProfile,
   PlayersSummary,
   Preflight,
   ProjectRole,
   RestorePreview,
+  RetentionEstimate,
   Running,
   ServerConfig,
   ServerStatus,
@@ -55,11 +61,15 @@ import { JoinPage } from './join'
 import { MachinePage } from './machine'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
+import { RecoverPage } from './recover'
+import { BackupRulesPage } from './server/backups'
+import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 import { PlayerProfilePage } from './server/profile'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
+import { AsleepCard } from './server/sleep'
 import { WorldPage } from './server/world'
 import { GlobalSettingsPage } from './settings'
 import { TeamSection } from './team'
@@ -73,7 +83,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   del: vi.fn(() => Promise.resolve(undefined)),
 }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -376,6 +386,18 @@ describe('Home for team members', () => {
     expect(text).toContain('Lenn0x joined with an invite link')
     expect(text).toContain('siya added pixelpia to the allowlist')
     expect(text).not.toContain('invite:')
+  })
+
+  it('says why a scheduled backup was refused', async () => {
+    answer({ '/activity': [
+      { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'unexpected_reply' },
+      { ts: hoursAgo(2), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'not_online' },
+      { ts: hoursAgo(3), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'something_newer' },
+    ] })
+    const text = await render(<HomePage />, workspace({ servers: both() }))
+    expect(text).toContain('Scheduled backup of Survival refused · the server gave an unexpected reply')
+    expect(text).toContain('Scheduled backup of Survival refused · the server was starting or stopping')
+    expect(text).toContain('Scheduled backup of Survival refused · world saving couldn’t be paused')
   })
 
   it('gives a viewer no Start button and a member no first steps', async () => {
@@ -771,7 +793,7 @@ describe('Settings › Memory', () => {
     expect(chart?.querySelectorAll('[title]')).toHaveLength(14)
     expect(chart?.textContent).toContain('14 days agoPeak each daytoday')
     expect(text).not.toContain('How much of my-vps')
-    expect(text).toContain('Stops it when empty, wakes it on join.')
+    expect(text).toContain('Frees its memory while empty. Wakes when a friend joins.')
     expect(text).not.toContain('unsaved change')
   })
 
@@ -939,6 +961,73 @@ describe('Backups with players online', () => {
     const text = await render(<WorldPage server={server({ lastOperation: space, resources: { diskFreeBytes: 400 * 2 ** 20, at: new Date().toISOString() } })} />)
     expect(text).toContain('Backing up Survival failed')
     expect(text).not.toContain('Stop and back up')
+  })
+
+  const unexpected = 'The server gave an unexpected reply to "save-off": "Unknown command". No backup was made.'
+  const refusal = (over: Partial<BackupRefusal> = {}): BackupRefusal => ({
+    at: hoursAgo(2),
+    since: hoursAgo(26),
+    count: 2,
+    kind: 'unexpected_reply',
+    error: unexpected,
+    hint: 'A plugin or mod may have changed this command. Back up with the server stopped instead.',
+    scheduleId: 'qrstuvwxyz',
+    operationId: 'backup-1',
+    ...over,
+  })
+  const refusedNotice = () => [...document.querySelectorAll('[role="status"]')].find((n) => n.textContent?.includes('refused'))
+  /** The refusal notice's "Back up now", not the backup card's. */
+  function backUpFromNotice(): HTMLButtonElement {
+    const b = refusedNotice()?.querySelector('button')
+    if (!b) throw new Error('no Back up now in the refusal notice')
+    return b
+  }
+
+  it('keeps refused scheduled backups on the World tab, and stops the server for a backup only after saying so', async () => {
+    vi.mocked(client.post).mockClear()
+    answer({ '/backups': [backup()] })
+    const refused = failed('backup', 'saving', unexpected, { errorKind: 'unexpected_reply' })
+    const text = await render(<WorldPage server={server({ backupRefused: refusal(), lastOperation: refused, lastBackup: backup({ createdAt: '2026-09-01T10:00:00Z' }) })} />)
+    expect(text).toContain('2 scheduled backups in a row were refused')
+    expect(text).toContain(`${unexpected} Scheduled backups never stop the server. The last backup is from ${formatDate('2026-09-01T10:00:00Z')}.`)
+    expect(text).not.toContain('Backing up Survival failed')
+    await click(backUpFromNotice())
+    expect(posts()).toEqual([])
+    expect(page()).toContain('Stop Survival for a backup?')
+    expect(page()).toContain('Survival stops for the backup and starts again once it’s made, so anyone playing is disconnected until then.')
+    await press('Stop and back up')
+    expect(posts()).toEqual([['/backups', { stopped: true }]])
+  })
+
+  it('backs up a server that isn’t running as it is, and still shows a later failure', async () => {
+    vi.mocked(client.post).mockClear()
+    answer({ '/backups': [] })
+    const stopped = server({ phase: 'stopped', desired: 'stopped', startedAt: undefined, backupRefused: refusal({ count: 1, kind: 'not_online', error: 'Survival is starting or stopping, so it can’t be backed up right now.' }) })
+    const text = await render(<WorldPage server={stopped} />)
+    expect(text).toContain('A scheduled backup was refused')
+    expect(text).toContain('Survival was starting or stopping, so no backup was made. Scheduled backups never stop the server, and there’s no backup of this world yet.')
+    expect(text).not.toContain('right now')
+    await click(backUpFromNotice())
+    expect(posts()).toEqual([['/backups', {}]])
+    expect(page()).not.toContain('for a backup?')
+    const space = { ...failed('backup', '', 'Not enough disk space for a backup.', { errorKind: 'insufficient_space' }), id: 'backup-2' }
+    const later = await render(<WorldPage server={{ ...stopped, lastOperation: space }} />)
+    expect(later).toContain('A scheduled backup was refused')
+    expect(later).toContain('Backing up Survival failed: Not enough disk space for a backup.')
+  })
+
+  it('shows refused backups beside world saving paused, waits for a starting server, and gives no button without backup rights', async () => {
+    answer({ '/backups': [backup()] })
+    const paused = await render(<WorldPage server={server({ backupRefused: refusal(), savingPausedSince: since.toISOString() })} />)
+    expect(paused).toContain('World saving is paused')
+    expect(paused).toContain('2 scheduled backups in a row were refused')
+    await render(<WorldPage server={server({ phase: 'starting', backupRefused: refusal() })} />)
+    expect([backUpFromNotice().disabled, backUpFromNotice().title]).toEqual([true, 'Starting Survival. Try again when it’s done.'])
+    const viewer = await render(<WorldPage server={server({ backupRefused: refusal() })} />, workspace({ me: member('viewer', ['view', 'account.manage']) }))
+    expect(viewer).toContain('2 scheduled backups in a row were refused')
+    expect(refusedNotice()?.querySelector('button')).toBeNull()
+    const cleared = await render(<WorldPage server={server()} />)
+    expect(cleared).not.toContain('refused')
   })
 
   it('puts world saving paused first on the Overview, and drops its failure once saving is back on', async () => {
@@ -2125,6 +2214,489 @@ describe('Player profile', () => {
   it('says when there is no such player', async () => {
     answer({ '/players/profile': new client.ApiError(404, { error: 'No player called Nobody.', code: 'player_not_found' }) })
     expect(await render(<PlayerProfilePage server={server()} name="Nobody" />)).toContain('No player called Nobody on Survival.')
+  })
+})
+
+describe('Copies somewhere else', () => {
+  const sftp: OffsiteView = {
+    enabled: false,
+    configured: true,
+    type: 'sftp',
+    place: 'vault.example.net',
+    sftp: { host: 'vault.example.net', port: 22, user: 'playkeeper', folder: 'backups/survival', auth: 'key' },
+    sshKey: { publicKey: 'ssh-ed25519 AAAA', authorizedKey: 'restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGm4bWJpbmFyeWtleWJ5dGVzZm9yYXRlc3Q1q7Rk playkeeper-survival', fingerprint: 'SHA256:x' },
+    copies: 0,
+    copiesBytes: 0,
+    queued: 0,
+    providers: [],
+  }
+  const hostKey = { key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey', type: 'ssh-ed25519', fingerprint: 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA' }
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))
+    if (!button) throw new Error(`no button "${label}"`)
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+
+  it('confirms a new host key, saves it and tests again before turning copies on', async () => {
+    answer({ '/offsite': sftp })
+    const unknown: OffsiteTestResult = { ok: false, skew: 0, hostKey, checks: [{ step: 'connect', ok: false, msg: 'Playkeeper has not seen this host key yet.', kind: 'host_key_unknown' }] }
+    const passed: OffsiteTestResult = { ok: true, skew: 0, checks: ['connect', 'folder', 'write', 'rename', 'read', 'list', 'delete'].map((step) => ({ step, ok: true, msg: '' })) }
+    const tests = [unknown, passed]
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/test') ? tests.shift() : sftp)) as typeof client.post)
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Encrypted before they leave. Copies start once the test passes.')
+    await click('Test connection')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
+    expect(document.body.textContent).not.toContain('A check failed')
+    expect(document.body.textContent).toContain(hostKey.fingerprint)
+    expect(document.body.textContent).toContain('ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub')
+    await click('It matches, confirm')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite', { hostKey: hostKey.key })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('All checks passed')
+    expect(text).toContain('Connected and signed in as playkeeper')
+    expect(text).toContain('Turn on copies')
+  })
+
+  const pinned = 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA'
+  const now = 'SHA256:Zx81bQe4Wn7cHs2LmP0vA9tYd6KfR3gJuN5oE1iXwTk'
+  const stopped: OffsiteView = {
+    ...sftp,
+    enabled: true,
+    key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt' },
+    pending: { backupId: 'b1', fileName: 'b1.tar.zst', uploading: false, sent: 0, total: 1, attempts: 1, error: 'The key changed.', errorKind: 'host_key_changed', params: { fingerprint: now, pinnedFingerprint: pinned } },
+  }
+
+  it('stops copies when the host key changed and shows both fingerprints', async () => {
+    answer({ '/offsite': stopped })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Stopped')
+    expect(document.body.textContent).toContain('Copies stopped: vault.example.net’s key changed')
+    expect(document.body.textContent).toContain('Downloaded')
+    await click('Review')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('vault.example.net’s key changed')
+    expect(text).toContain(pinned)
+    expect(text).toContain(now)
+    expect(text).toContain('Check the new key')
+  })
+
+  it('keeps Test connection while copies are stopped, so the owner can check the new key', async () => {
+    answer({ '/offsite': stopped })
+    const changed: OffsiteTestResult = { ok: false, skew: 0, hostKey: { ...hostKey, fingerprint: now }, checks: [{ step: 'connect', ok: false, msg: 'The host key changed.', kind: 'host_key_changed', params: { pinnedFingerprint: pinned } }] }
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/test') ? changed : stopped)) as typeof client.post)
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Copies stopped: vault.example.net’s key changed')
+    await click('Test connection')
+    expect(vi.mocked(client.post).mock.calls.map(([path]) => path)).toContain('/api/servers/abcdefghjk/offsite/test')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('vault.example.net’s key changed')
+    expect(text).toContain(pinned)
+    expect(text).toContain(now)
+    await click('Check the new key')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
+  })
+
+  it('lets only those who may hold backup keys change where copies go or download the key', async () => {
+    answer({ '/offsite': { ...sftp, enabled: true, key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, fileName: 'playkeeper-recovery-key-survival.txt' } } })
+    const download = () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Download')
+    // An admin without two-factor sign-in has a moderator's rights.
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />, workspace({ me: member('admin', moderatorCan) }))
+    expect(document.body.textContent).toContain('Only the owner, or an admin with two-factor sign-in, can change where copies go.')
+    expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(true)
+    expect(download()?.disabled).toBe(true)
+    expect(download()?.title).toBe('Only the owner, or an admin with two-factor sign-in, can hold the recovery key.')
+    const test = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Test connection')
+    expect(test?.title).toBe('Only the owner, or an admin with two-factor sign-in, can change where copies go.')
+
+    const keys: Action[] = ['backups.copies.manage', 'backups.recovery_key']
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />, workspace({ me: member('admin', [...moderatorCan, 'backups.restore', 'servers.manage', ...keys], { twoFactor: true }) }))
+    expect(document.body.textContent).not.toContain('Only the owner')
+    expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(false)
+    expect(download()?.disabled).toBe(false)
+  })
+
+  describe('a new place while copies are recorded at the old one', () => {
+    const on: OffsiteView = { ...sftp, enabled: true, copies: 2, key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt' } }
+    const copy = (backupId: string, createdAt: string, sizeBytes: number, onHost: boolean): OffsiteCopy => ({
+      backupId,
+      kind: 'scheduled',
+      createdAt,
+      fileName: `${backupId}.tar.gz`,
+      name: `${backupId}.tar.gz.age`,
+      sizeBytes,
+      copySizeBytes: sizeBytes + 200,
+      minecraftVersion: '26.1.2',
+      levelName: 'world',
+      copiedAt: createdAt,
+      checked: 'size',
+      onHost,
+    })
+    const passed: OffsiteTestResult = { ok: true, skew: 0, checks: ['connect', 'folder', 'write', 'rename', 'read', 'list', 'delete'].map((step) => ({ step, ok: true, msg: '' })) }
+    const refusal = new client.ApiError(409, {
+      code: 'conflict',
+      error: 'Changing where copies go forgets the 2 copies on vault.example.net.',
+      reason: 'copies_recorded',
+      params: { place: 'vault.example.net', copies: 2, onlyThere: 1 },
+    })
+    let saves: Record<string, unknown>[] = []
+    const dialog = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+
+    async function saveNewFolder() {
+      saves = []
+      answer({ '/offsite/copies': { copies: [copy('b2', '2026-09-24T10:19:00Z', 7.3 * 2 ** 20, true), copy('b1', '2026-09-22T10:07:00Z', 4.5 * 2 ** 20, false)] }, '/offsite': on })
+      answerPosts({
+        '/offsite/test': passed,
+        '/offsite': (body: Record<string, unknown>) => {
+          saves.push(body)
+          return body.forgetCopies ? { ...on, sftp: { ...sftp.sftp, folder: 'copies' }, copies: 0 } : refusal
+        },
+      })
+      await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+      await typeInto('#offsite-folder', 'copies')
+      await click('Test connection')
+      await click('Save changes')
+    }
+
+    it('asks first, naming the backups whose only copy is there, and saves once agreed', async () => {
+      await saveNewFolder()
+      expect(dialog()).toContain('Forget the copies on vault.example.net?')
+      expect(dialog()).toContain('The 2 copies stay on vault.example.net, but Playkeeper stops listing them once copies go somewhere else.')
+      expect(dialog()).toContain('This backup has no other copy')
+      expect(dialog()).toContain('4.5 MB')
+      expect(dialog()).not.toContain('7.3 MB')
+      expect(saves).toHaveLength(1)
+      await click('Change where copies go')
+      expect(saves).toHaveLength(2)
+      expect(saves[1]).toMatchObject({ forgetCopies: true, config: { type: 'sftp', sftp: { folder: 'copies' } } })
+      expect(dialog()).toBe('')
+      expect(page()).not.toContain(refusal.message)
+    })
+
+    it('changes nothing when the user keeps the copies', async () => {
+      await saveNewFolder()
+      await click('Cancel')
+      expect(dialog()).toBe('')
+      expect(saves).toHaveLength(1)
+      expect(document.querySelector<HTMLInputElement>('#offsite-folder')?.value).toBe('copies')
+      expect(page()).toContain('Save changes')
+    })
+  })
+
+  it('calls the last copy the first only when it is', async () => {
+    const last: OffsiteCopy = { backupId: 'b9', kind: 'scheduled', createdAt: '2026-09-24T10:50:00Z', fileName: 'b9.tar.gz', name: 'b9.tar.gz.age', sizeBytes: 4.5 * 2 ** 20, copySizeBytes: 4.6 * 2 ** 20, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: '2026-09-24T10:50:00Z', checked: 'sha256', onHost: true }
+    const pruned: OffsiteView = { ...sftp, enabled: true, copies: 1, lastCopy: last }
+    answer({ '/offsite': pruned })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(page()).toContain('Last copy:')
+    expect(page()).not.toContain('First copy:')
+    answer({ '/offsite': { ...pruned, firstCopy: true } })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(page()).toContain('First copy:')
+  })
+
+  describe('the recovery key file after copies go to another folder', () => {
+    const key = { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt', folder: 'backups/survival' }
+    const on: OffsiteView = { ...sftp, enabled: true, key }
+    const moved: OffsiteView = { ...on, sftp: { host: 'vault.example.net', port: 22, user: 'playkeeper', folder: 'copies', auth: 'key' }, key: { ...key, folder: 'copies', stale: true, savedFolder: 'backups/survival' } }
+    const passed: OffsiteTestResult = { ok: true, skew: 0, checks: ['connect', 'folder', 'write', 'rename', 'read', 'list', 'delete'].map((step) => ({ step, ok: true, msg: '' })) }
+    const dialog = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+    const hint = 'The file you have says copies are in backups/survival. They go to copies now.'
+
+    async function saveChange(field: string, value: string, saved: OffsiteView) {
+      answer({ '/offsite': on })
+      answerPosts({
+        '/offsite/test': passed,
+        '/offsite': () => {
+          answer({ '/offsite': saved })
+          return saved
+        },
+      })
+      await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+      await typeInto(field, value)
+      await click('Test connection')
+      await click('Save changes')
+    }
+
+    it('asks for the file again once saved, naming both folders, and keeps saying so until it’s downloaded', async () => {
+      await saveChange('#offsite-folder', 'copies', moved)
+      expect(dialog()).toContain('Download the recovery key again')
+      expect(dialog()).toContain(hint)
+      expect(dialog()).toContain('Same key, new folder · keep it private')
+      await click('Later')
+      expect(dialog()).toBe('')
+      expect(page()).toContain('Recovery key file out of date')
+      expect(page()).toContain(hint)
+      expect(page()).not.toContain('Downloaded')
+    })
+
+    it('doesn’t ask when the file still names the folder copies go to', async () => {
+      await saveChange('#offsite-user', 'backup', on)
+      expect(dialog()).toBe('')
+      expect(page()).not.toContain('Recovery key file out of date')
+      expect(page()).toContain('Downloaded')
+    })
+  })
+})
+
+describe('World backups with copies', () => {
+  const b2: OffsiteView = {
+    enabled: true,
+    configured: true,
+    type: 's3',
+    place: 'Backblaze B2',
+    copies: 2,
+    copiesBytes: 0,
+    queued: 0,
+    providers: [],
+    pending: { backupId: 'b3', fileName: 'survival-3.tar.zst', uploading: true, sent: 62, total: 100, attempts: 1 },
+  }
+  const backup = (id: string, createdAt: string): Backup => ({ id, serverId: 'abcdefghjk', kind: 'scheduled', createdAt, fileName: `survival-${id}.tar.zst`, sizeBytes: 311e6, sha256: 'a'.repeat(64), location: '', verified: true, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 2110, createdBy: 'playkeeper' })
+  const copy = (backupId: string, createdAt: string, onHost: boolean): OffsiteCopy => ({ backupId, kind: 'scheduled', createdAt, fileName: `survival-${backupId}.tar.zst`, name: `survival-${backupId}.tar.zst.age`, sizeBytes: 305e6, copySizeBytes: 318e6, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: createdAt, checked: 'sha256', onHost })
+  const started: Operation = { id: 'op-copy', kind: 'offsite-restore', status: 'running', phase: 'downloading', actor: 'siya', startedAt: '2026-09-25T18:50:00Z', detail: { name: 'survival-b1.tar.zst.age' } }
+  const rerender = async (s: ServerStatus) => {
+    await act(async () => root?.render(<WorkspaceContext.Provider value={workspace()}>{<WorldPage server={s} />}</WorkspaceContext.Provider>))
+    await act(async () => {})
+  }
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+
+  async function restoreOldCopy() {
+    answer({ '/offsite/copies': { copies: [copy('b2', '2026-09-25T12:47:00Z', true), { ...copy('b1', '2026-09-20T18:47:00Z', false), removed: 'rules' }] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z'), backup('b2', '2026-09-25T12:47:00Z')] })
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/restore') ? started : {})) as typeof client.post)
+    await render(<WorldPage server={server()} />)
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore…')
+    if (!button) throw new Error('no Restore… button')
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+
+  it('says where each backup is and fetches one that is only in the copies', async () => {
+    await restoreOldCopy()
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Stored here and on Backblaze B2.')
+    expect(text).toContain('Backup rules')
+    expect(text).toContain('Here · copying')
+    expect(text).toContain('62% to Backblaze B2')
+    expect(text).toContain('Here and on Backblaze B2')
+    expect(text).toContain('Only on Backblaze B2')
+    expect(text).toContain('Removed here by your rules')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/restore', { name: 'survival-b1.tar.zst.age' })
+    expect(text).toContain('The encrypted copy from Backblaze B2')
+    expect(text).toContain('You can close this. Progress stays in the top bar.')
+
+    await rerender(server({ lastOperation: { ...started, status: 'succeeded', phase: 'checking', detail: { name: 'survival-b1.tar.zst.age', restoreId: 'r1' } } }))
+    expect(document.body.textContent).toContain('Decrypted and checked')
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/machines/m2345abcde/restore/r1')
+  })
+
+  it('says the rules removed a backup here only when they did', async () => {
+    const copies = [{ ...copy('b1', '2026-09-20T18:47:00Z', false), removed: 'rules' }, { ...copy('b0', '2026-09-19T18:47:00Z', false), removed: 'person', removedBy: 'mara_k' }, copy('a9', '2026-09-18T18:47:00Z', false)]
+    answer({ '/offsite/copies': { copies }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server()} />)
+    const rows = [...document.querySelectorAll('tr')].filter((r) => r.textContent?.includes('Only on Backblaze B2')).map((r) => r.textContent ?? '')
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toContain('Removed here by your rules')
+    expect(rows[1]).toContain('Deleted here by mara_k')
+    expect(rows[1]).not.toContain('your rules')
+    expect(rows[2]).not.toContain('your rules')
+    expect(rows[2]).not.toContain('Deleted here')
+  })
+
+  it('says why a copy could not be fetched', async () => {
+    await restoreOldCopy()
+    await rerender(server({ lastOperation: { ...started, status: 'failed', error: 'That copy is no longer there.', hint: 'Restore another copy.' } }))
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('The copy couldn’t be restored')
+    expect(text).toContain('That copy is no longer there.')
+    expect(text).toContain('Restore another copy.')
+    expect([...document.querySelectorAll('[role="dialog"] button')].map((b) => b.textContent)).toContain('Close')
+  })
+
+  it('cancels a restore from a copy while it runs and says nothing was changed', async () => {
+    const toast = vi.spyOn(toastManager, 'add')
+    await restoreOldCopy()
+    const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+    expect(buttons().map((b) => b.textContent)).not.toContain('Close')
+    await act(async () => buttons().find((b) => b.textContent === 'Cancel')?.click())
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/restore/cancel', { operationId: 'op-copy' })
+
+    await rerender(server({ lastOperation: { ...started, status: 'cancelled', finishedAt: '2026-09-25T18:51:00Z' } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
+    expect(toast).toHaveBeenCalledWith({ title: 'Restore cancelled', description: 'Nothing was changed. What was already downloaded is deleted.' })
+    toast.mockRestore()
+  })
+
+  async function openCopyMenu(onlyThere: OffsiteCopy, ws = workspace()) {
+    answer({ '/offsite/copies': { copies: [onlyThere] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server()} />, ws)
+    const row = [...document.querySelectorAll('tr')].find((r) => r.textContent?.includes('Only on Backblaze B2'))
+    const trigger = row?.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')
+    if (!row || !trigger) throw new Error('no menu on the row kept only on Backblaze B2')
+    await act(async () => trigger.click())
+    await act(async () => {})
+    return { row, item: (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.includes(label)) }
+  }
+
+  it('gives a backup kept only somewhere else a menu to restore, check, copy its checksum or delete it', async () => {
+    const onlyThere = { ...copy('b1', '2026-09-20T18:47:00Z', false), sha256: 'c'.repeat(58) + 'd00d42', checkError: 'The copy doesn’t match the backup it was made from.' }
+    const { row, item } = await openCopyMenu(onlyThere)
+    const failed = [...row.querySelectorAll('td')].find((td) => td.textContent === 'Failed check')
+    expect(failed?.title).toBe('The copy doesn’t match the backup it was made from.')
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent)).toEqual(['Restore this backup…Your current world is saved first', 'Check it again', 'Copy checksumSHA-256 cccccc…0d42', 'Delete backup'])
+
+    await act(async () => item('Check it again')?.click())
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/copies/survival-b1.tar.zst.age/check')
+
+    const trigger = row.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')
+    await act(async () => trigger?.click())
+    await act(async () => item('Delete backup')?.click())
+    await act(async () => {})
+    expect(document.body.textContent).toContain('is deleted from Backblaze B2. It isn’t on this VPS any more, so it can’t be brought back.')
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'Delete backup')
+    await act(async () => confirm?.click())
+    expect(vi.mocked(client.del)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/copies/survival-b1.tar.zst.age')
+  })
+
+  it('shows each role only the backup controls it may use', async () => {
+    const viewer = member('viewer', ['view', 'account.manage'])
+    const { row, item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: viewer }))
+    expect(document.body.textContent).not.toContain('Back up now')
+    expect(row.textContent).not.toContain('Restore…')
+    expect(item('Restore this backup')).toBeUndefined()
+    expect(item('Check it again')).toBeUndefined()
+    expect(item('Delete backup')?.getAttribute('aria-disabled')).toBe('true')
+
+    const estimate: RetentionEstimate = { where: 'on-host', rows: [], count: 7, bytes: 2e9, summary: { code: 'keeps', text: '' } }
+    const rules: BackupRulesView = { automatic: { enabled: true, everyHours: 6, onlyIfPlayed: true }, rules: { onHost: { daily: 7 }, offSite: { daily: 7 } }, custom: false, describe: [], onHost: estimate, offSite: { ...estimate, where: 'off-site' }, limits: { hours: 48, last: 50, daily: 31, weekly: 26, monthly: 24 } }
+    answer({ '/backup-rules': rules })
+    const text = await render(<BackupRulesPage server={server()} />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(text).toContain('Only admins can change the backup rules.')
+    expect(document.querySelector('[role="switch"][aria-label="Automatic backups"]')?.hasAttribute('data-disabled')).toBe(true)
+    expect(text).not.toContain('Change rules')
+    await render(<BackupRulesPage server={server()} />)
+    expect(document.body.textContent).toContain('Change rules')
+    expect(document.querySelector('[role="switch"][aria-label="Automatic backups"]')?.hasAttribute('data-disabled')).toBe(false)
+
+    const asleep = server({ phase: 'asleep', desired: 'sleeping', sleep: { enabled: true, idleMinutes: 15, listening: true } })
+    expect(await render(<AsleepCard server={asleep} />, workspace({ me: viewer }))).not.toContain('Wake up now')
+    const moderator = await render(<AsleepCard server={asleep} />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(moderator).toContain('Wake up now')
+    expect(moderator).not.toContain('Sleep settings')
+  })
+
+  it('says why a copy’s checksum or deleting it is out of reach', async () => {
+    const { item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: member('admin', [...moderatorCan, 'backups.restore', 'servers.manage']) }))
+    for (const [label, reason] of [
+      ['Copy checksum', 'This copy’s checksum wasn’t recorded.'],
+      ['Delete backup', 'Only the owner, or an admin with two-factor sign-in, can delete copies kept on Backblaze B2.'],
+    ] as const) {
+      expect(item(label)?.getAttribute('aria-disabled')).toBe('true')
+      expect(item(label)?.title).toBe(reason)
+    }
+    expect(item('Check it again')?.getAttribute('aria-disabled')).not.toBe('true')
+  })
+
+  it('stays closed once the restore that follows takes over the status', async () => {
+    await restoreOldCopy()
+    const preview: RestorePreview = { id: 'r1', serverId: 'abcdefghjk', source: 'copy survival-b1.tar.zst.age', receivedAt: '2026-09-25T18:51:00Z', sizeBytes: 305e6, sha256: 'b'.repeat(64), compatible: true, problems: [], warnings: [], currentWorld: { exists: true, levelName: 'world', sizeBytes: 311e6 }, willCreateRollback: true, needsEula: false, memoryMB: 2048, confirmPhrase: 'replace world', steps: [], notRestored: [] }
+    answer({ '/restore/r1': preview, '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await rerender(server({ lastOperation: { ...started, status: 'succeeded', phase: 'checking', detail: { name: 'survival-b1.tar.zst.age', restoreId: 'r1' } } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
+    await rerender(server({ lastOperation: { id: 'op-restore', kind: 'restore', status: 'succeeded', phase: 'starting', actor: 'siya', startedAt: '2026-09-25T18:52:00Z' } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
+  })
+})
+
+describe('Restore from a recovery key', () => {
+  const keyText = ['# Playkeeper recovery key for Survival', '#', '# Made 2026-09-24 18:47 UTC. The newest key comes first.', '', '# public key: age1new', 'AGE-SECRET-KEY-1NEWKEY', '', '# public key: age1old', 'AGE-SECRET-KEY-1OLDKEY', ''].join('\n')
+  const copies = Array.from({ length: 5 }, (_, i) => ({ name: `survival-2026092${5 - i}-184700-abcd.tar.gz.age`, sizeBytes: (318 - i) * 2 ** 20, createdAt: `2026-09-2${5 - i}T18:47:00Z` }))
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+  const typeInto = async (id: string, value: string) => {
+    const el = document.getElementById(id) as HTMLInputElement
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    await act(async () => {
+      setValue?.call(el, value)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))
+    if (!button) throw new Error(`no button "${label}"`)
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+  async function pickKeyFile() {
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no file input')
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File([keyText], 'playkeeper-recovery-key-survival.txt', { type: 'text/plain' })] })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await act(async () => {})
+  }
+
+  it('reads the key file, finds the copies and fetches the one picked', async () => {
+    vi.mocked(client.post).mockImplementation(((path: string) =>
+      Promise.resolve(path.endsWith('/recover/restore') ? { id: 'op-recover', kind: 'offsite-recover', status: 'running', phase: 'listing', actor: 'siya', startedAt: '2026-09-25T19:00:00Z', detail: {} } : { server: 'Survival', keys: 2, place: 'Backblaze B2', copies })) as typeof client.post)
+    await render(<RecoverPage />, workspace({ servers: [] }))
+    expect(document.body.textContent).toContain('Choose the recovery key file')
+    await pickKeyFile()
+    expect(document.body.textContent).toContain('playkeeper-recovery-key-survival.txt')
+    expect(document.body.textContent).toContain('Survival · 2 keys')
+    await typeInto('recover-endpoint', 's3.eu-central-003.backblazeb2.com')
+    await typeInto('recover-bucket', 'siya-minecraft')
+    await typeInto('recover-keyid', '003a8f91c2')
+    await typeInto('recover-secret', 'not-a-real-secret')
+    await click('Find the copies')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/offsite/recover', {
+      recoveryKey: keyText,
+      config: { type: 's3', s3: { endpoint: 's3.eu-central-003.backblazeb2.com', bucket: 'siya-minecraft', accessKeyId: '003a8f91c2' } },
+      secretKey: 'not-a-real-secret',
+    })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Connected · 5 copies of Survival found')
+    expect(text).toContain('Show all 5')
+    expect(text).toContain('318 MB · encrypted')
+    await click('Next: check what’s inside')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/machines/m2345abcde/offsite/recover/restore', expect.objectContaining({ recoveryKey: keyText, name: copies[0]?.name }))
+    expect(document.body.textContent).toContain('Keep this page open until it’s done.')
+  })
+
+  it('asks before trusting an SFTP host key it has not seen', async () => {
+    const refusal = new client.ApiError(400, { error: 'Playkeeper has not seen this host key yet.', code: 'invalid', reason: 'host_key_unknown', params: { hostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey', keyType: 'ssh-ed25519', fingerprint: 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA' } })
+    const answers: (() => Promise<unknown>)[] = [() => Promise.reject(refusal), () => Promise.resolve({ server: 'Survival', keys: 2, place: 'vault.example.net', copies })]
+    vi.mocked(client.post).mockImplementation((() => answers.shift()?.()) as typeof client.post)
+    await render(<RecoverPage />, workspace({ servers: [] }))
+    await pickKeyFile()
+    const sftp = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Another machine over SFTP'))
+    await act(async () => sftp?.click())
+    await typeInto('recover-host', 'vault.example.net')
+    await typeInto('recover-user', 'playkeeper')
+    await typeInto('recover-password', 'not-a-real-password')
+    await click('Find the copies')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
+    expect(document.body.textContent).toContain('SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA')
+    await click('It matches, confirm')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/machines/m2345abcde/offsite/recover', expect.objectContaining({ password: 'not-a-real-password', hostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey' }))
+    expect(document.body.textContent).toContain('Connected · 5 copies of Survival found')
+  })
+
+  it('is for those who may hold backup keys and use every server', async () => {
+    const keys: Action[] = ['backups.copies.manage', 'backups.recovery_key']
+    const text = await render(<RecoverPage />, workspace({ servers: [], me: member('admin', [...moderatorCan, ...keys], { twoFactor: true }) }))
+    expect(text).toContain('Only the owner, or an admin of every server with two-factor sign-in, can restore from a recovery key.')
+    expect(document.querySelector('input[type=file]')).toBeNull()
+    await render(<RecoverPage />, workspace({ servers: [], me: member('admin', [...moderatorCan, ...keys, 'backups.recover'], { twoFactor: true, servers: { all: true } }) }))
+    expect(document.querySelector('input[type=file]')).not.toBeNull()
   })
 })
 

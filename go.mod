@@ -3,14 +3,18 @@ module github.com/CIYAhq/playkeeper
 go 1.26.0
 
 require (
+	filippo.io/age v1.3.2
 	github.com/makiuchi-d/gozxing v0.1.1
+	github.com/pkg/sftp v1.13.11
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.59.0
 )
 
 require (
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

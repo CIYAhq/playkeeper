@@ -32,6 +32,36 @@ type opHandle struct {
 	// process (an update handed to the updater, or a restore the next agent
 	// process finishes): it stays running until its result is recorded.
 	continues bool
+	// cancel ends the operation's context. cancellable is set by an operation
+	// that can stop without changing anything, until it commits; cancelled
+	// records that it was asked to. The caller holds mu for both.
+	cancel      context.CancelFunc
+	cancellable bool
+	cancelled   bool
+}
+
+// allowCancel lets the operation be cancelled until it commits.
+func (h *opHandle) allowCancel() {
+	unlock := h.mu()
+	h.cancellable = true
+	unlock()
+}
+
+// commit ends the part of the operation that can be cancelled. It is false
+// when a cancel came first; the operation then undoes what it did.
+func (h *opHandle) commit() bool {
+	unlock := h.mu()
+	defer unlock()
+	h.cancellable = false
+	return !h.cancelled
+}
+
+// callOff ends the operation as cancelled: before changing anything, it
+// found it had nothing to do.
+func (h *opHandle) callOff() {
+	unlock := h.mu()
+	h.cancelled = true
+	unlock()
 }
 
 func (h *opHandle) phase(p string) {
@@ -97,7 +127,10 @@ var opLabels = map[string]string{
 	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
 	"remove-addon": "removing a plugin or mod",
 	// Wave 4.
-	"reinstall": "reinstalling its server software",
+	"reinstall": "reinstalling its server software", "template-retry": "installing its template's add-ons",
+	// Wave 7 (0.4.0)
+	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy", "offsite-check": "checking a copy",
+	"offsite-recover": "restoring a server from a recovery key",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -158,6 +191,23 @@ func (s *server) startOp(kind, actor string, fn func(ctx context.Context, h *opH
 	return s.launchOp(&api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}, fn)
 }
 
+// opTimeout is how long an operation may run, but for those in noDeadline.
+var opTimeout = 45 * time.Minute
+
+// noDeadline are the operations a fixed deadline would cut short: a copy
+// can take hours to download over a slow link. The download's stall timeout
+// stops them when the copy stops coming, and a restore from a copy can be
+// cancelled.
+var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}
+
+// opContext is the context an operation of kind runs in.
+func opContext(parent context.Context, kind string) (context.Context, context.CancelFunc) {
+	if noDeadline[kind] {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, opTimeout)
+}
+
 // launchOp runs fn as op, a new operation or one a previous agent process
 // left running, like startOp.
 func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
@@ -165,32 +215,48 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		op.Detail = map[string]any{}
 	}
 	kind := op.Kind
+	ctx, cancel := opContext(s.ctx, kind)
+	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }, cancel: cancel}
 	s.opMu.Lock()
-	s.op = op
+	s.op, s.opH = op, h
 	snap := copyOp(op)
 	s.opMu.Unlock()
 	s.saveOperation(snap)
-	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		defer func() { <-s.opLock }()
-		ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
 		defer cancel()
 		err := runOp(ctx, h, fn)
 		s.opMu.Lock()
 		done := finishOp(op, h, err, s.now().UTC())
-		s.op = nil
+		s.op, s.opH = nil, nil
 		s.opMu.Unlock()
 		s.finishOperation(s.id, "server", &done)
 		if kind == "backup" && done.Status == api.OpFailed {
 			s.alert(discord.BackupFailed(done.Error))
 		}
-		if err != nil {
+		if done.Status == api.OpFailed {
 			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
 		}
 	}()
 	return snap
+}
+
+// cancelOp cancels the running operation id, of the given kind, while it can
+// still stop without changing anything.
+func (s *server) cancelOp(kind, id string) (*api.Operation, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	if s.op == nil || s.op.ID != id || s.op.Kind != kind {
+		return nil, errConflict("That isn't running any more.", "")
+	}
+	if !s.opH.cancellable {
+		return nil, errConflict("It's too late to cancel: it's nearly done.", "Wait a moment for it to finish.")
+	}
+	s.opH.cancelled = true
+	s.opH.cancel()
+	return copyOp(s.op), nil
 }
 
 func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opHandle) error) (err error) {
@@ -205,6 +271,9 @@ func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opH
 // finishOp records how an operation ended; the caller holds its mutex.
 func finishOp(op *api.Operation, h *opHandle, err error, fin time.Time) api.Operation {
 	switch {
+	case h.cancelled:
+		op.FinishedAt = &fin
+		op.Status = api.OpCancelled
 	case err != nil:
 		op.FinishedAt = &fin
 		op.Status = api.OpFailed
@@ -678,6 +747,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return s.dockerErr(err)
 		}
 	}
+	s.leaveSleep()
 	h.phase(string(api.PhaseStartingContainer))
 	s.resetRun(api.PhaseStartingContainer)
 	s.resetRCON()
@@ -784,8 +854,12 @@ func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) erro
 	}
 	s.resetRCON()
 	// Said here rather than when the reconcile loop sees the exit: a restart
-	// or an update starts the server again before it looks.
-	s.alert(discord.Stopped())
+	// or an update starts the server again before it looks. A server falling
+	// asleep isn't news: it does so whenever it's empty, and wakes when
+	// someone joins.
+	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}
 	return nil
 }
 
@@ -1077,9 +1151,11 @@ func (s *server) countFailedStart(err error) bool {
 // startFailed is called when a start the user asked for did not bring the
 // server up. The error's hint tells them to fix the cause and press Start, so
 // nothing retries in the background; a container that is still running (a
-// slow start that timed out) keeps the desired state running.
+// slow start that timed out) keeps the desired state running. Either way the
+// server isn't asleep, so the stand-in stops answering in its place.
 func (s *server) startFailed(ctx context.Context) {
 	if _, running, err := s.containerRunning(ctx); err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 	}
+	s.leaveSleep()
 }

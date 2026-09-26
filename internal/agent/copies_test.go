@@ -1,0 +1,1231 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"maps"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/diskusage"
+	"github.com/CIYAhq/playkeeper/internal/offsite"
+)
+
+// fetchDest is a destination whose downloads each step of a test decides.
+type fetchDest struct {
+	fakeDest
+	dl       sync.Mutex
+	download func(context.Context, offsite.Download) (offsite.Archive, error)
+}
+
+func (d *fetchDest) Download(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+	d.dl.Lock()
+	fn := d.download
+	d.dl.Unlock()
+	return fn(ctx, dl)
+}
+
+func (d *fetchDest) answer(fn func(context.Context, offsite.Download) (offsite.Archive, error)) {
+	d.dl.Lock()
+	d.download = fn
+	d.dl.Unlock()
+}
+
+func failWith(err error) func(context.Context, offsite.Download) (offsite.Archive, error) {
+	return func(context.Context, offsite.Download) (offsite.Archive, error) { return offsite.Archive{}, err }
+}
+
+// fromBackup answers a download with the backup at path, as a copy that
+// decrypted and matched its record.
+func fromBackup(path string) func(context.Context, offsite.Download) (offsite.Archive, error) {
+	return func(_ context.Context, dl offsite.Download) (offsite.Archive, error) {
+		archive := strings.TrimSuffix(dl.Name, ".age")
+		in, err := os.Open(path)
+		if err != nil {
+			return offsite.Archive{}, err
+		}
+		defer in.Close()
+		out := filepath.Join(dl.Dir, archive)
+		f, err := os.Create(out)
+		if err != nil {
+			return offsite.Archive{}, err
+		}
+		defer f.Close()
+		if _, err := io.Copy(f, in); err != nil {
+			return offsite.Archive{}, err
+		}
+		return offsite.Archive{Name: archive, Path: out, Matched: dl.ArchiveSHA256 != ""}, nil
+	}
+}
+
+// withCopies starts a server with one backup, copied to dest.
+func withCopies(t *testing.T, dest offsiteDest) (e *agentEnv, backupID, file string) {
+	t.Helper()
+	prev := openOffsite
+	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+	t.Cleanup(func() { openOffsite = prev })
+	e = newAgentEnv(t)
+	e.create()
+	backupID = e.backup()
+	if err := e.a.db.QueryRow(`SELECT file_name FROM backups WHERE id = ?`, backupID).Scan(&file); err != nil {
+		t.Fatal(err)
+	}
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
+	code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "wJalrXUtnFEMI-example-secret"})
+	if code != http.StatusOK {
+		t.Fatalf("turn copies on: %d %v", code, out)
+	}
+	e.waitFor("the copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, backupID) == 1
+	})
+	return e, backupID, file
+}
+
+// Changing where copies go asks first while copies are recorded at the old
+// place, saying how many there are and how many are a backup's only copy,
+// and forgets them only once that's confirmed.
+func TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies(t *testing.T) {
+	e, first, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	for range 2 {
+		id := e.backup()
+		e.waitFor("another copy", func() bool {
+			return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+		})
+	}
+	if code, _ := e.call("DELETE", e.sp("/backups/"+first)+"?actor=admin", nil); code != http.StatusNoContent {
+		t.Fatalf("delete the first backup here: %d", code)
+	}
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "another-example-secret"}); code != http.StatusOK {
+		t.Fatalf("a new secret key for the same place: %d %v", code, out)
+	}
+
+	elsewhere := maps.Clone(s3)
+	elsewhere["bucket"] = "worlds-2"
+	move := map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": elsewhere}}
+	code, out := e.call("POST", e.sp("/offsite"), move)
+	params, _ := out["params"].(map[string]any)
+	if code != http.StatusConflict || out["reason"] != "copies_recorded" || params["copies"] != float64(3) || params["onlyThere"] != float64(1) || params["place"] == "" {
+		t.Fatalf("moving while copies are recorded: %d %v", code, out)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if out["s3"].(map[string]any)["bucket"] != "worlds" || out["copies"] != float64(3) {
+		t.Fatalf("a refused move changed the settings or the copies: %v", out)
+	}
+
+	move["forgetCopies"] = true
+	if code, out := e.call("POST", e.sp("/offsite"), move); code != http.StatusOK || out["s3"].(map[string]any)["bucket"] != "worlds-2" {
+		t.Fatalf("the confirmed move: %d %v", code, out)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first); n != 0 {
+		t.Fatal("the copy at the old place is still listed")
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copies_forgotten' AND actor = 'admin' AND detail LIKE '3 copies on % · 1 only there'`); n != 1 {
+		t.Fatalf("audited forgetting the copies %d times", n)
+	}
+}
+
+// recoveryKey downloads the recovery key file as the owner.
+func (e *agentEnv) recoveryKey() string {
+	e.t.Helper()
+	req, _ := http.NewRequest("GET", e.ts.URL+e.sp("/offsite/recovery-key"), nil)
+	req.Header.Set("X-Playkeeper-Actor", "owner")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		e.t.Fatalf("recovery key: %d %s", resp.StatusCode, body)
+	}
+	return string(body)
+}
+
+// The recovery key file names the folder copies go to. Once they go to
+// another folder, the downloaded file is out of date until it's downloaded
+// again; a new place with the same folder leaves it as it is.
+func TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder(t *testing.T) {
+	e, _, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	key := func(out map[string]any) map[string]any {
+		t.Helper()
+		k, _ := out["key"].(map[string]any)
+		if k == nil {
+			t.Fatalf("no key: %v", out)
+		}
+		return k
+	}
+	_, out := e.call("GET", e.sp("/offsite"), nil)
+	prefix, _ := key(out)["folder"].(string)
+	if !strings.HasPrefix(prefix, "playkeeper/") {
+		t.Fatalf("the key names %q", prefix)
+	}
+	if file := e.recoveryKey(); !strings.Contains(file, "# folder: "+prefix+"\n") {
+		t.Fatalf("the file doesn't name %s:\n%s", prefix, file)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if k := key(out); k["savedAt"] == nil || k["stale"] != nil || k["savedFolder"] != nil {
+		t.Fatalf("just downloaded: %v", k)
+	}
+
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds-2", "accessKeyId": "PKEXAMPLE"}
+	code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "another-example-secret", "forgetCopies": true})
+	if k := key(out); code != http.StatusOK || k["stale"] != nil || k["folder"] != prefix {
+		t.Fatalf("another bucket, the same folder: %d %v", code, k)
+	}
+
+	sftp := map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "/copies"}
+	code, out = e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "sftp", "sftp": sftp}, "sftpAuth": "password", "password": "an example password", "forgetCopies": true})
+	if k := key(out); code != http.StatusOK || k["stale"] != true || k["savedFolder"] != prefix || k["folder"] != "/copies" || k["savedAt"] == nil {
+		t.Fatalf("another folder: %d %v", code, k)
+	}
+	if file := e.recoveryKey(); !strings.Contains(file, "# folder: /copies\n") {
+		t.Fatalf("the new file doesn't name /copies:\n%s", file)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if k := key(out); k["stale"] != nil || k["savedFolder"] != nil {
+		t.Fatalf("downloaded again: %v", k)
+	}
+}
+
+// A copy whose backup is gone from this machine says who removed the
+// backup: the backup rules, or the person who deleted it.
+func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
+	e, first, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	rules := map[string]any{"onHost": map[string]any{"last": 1}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+		t.Fatalf("rules: %d %v", code, out)
+	}
+	second := e.backup()
+	e.waitFor("the second copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if n := e.countRows(`SELECT COUNT(*) FROM backups WHERE id = ?`, first); n != 0 {
+		t.Fatal("the rules kept the first backup here")
+	}
+	removed := func() map[string]string {
+		t.Helper()
+		_, out := e.call("GET", e.sp("/offsite/copies"), nil)
+		got := map[string]string{}
+		for _, c := range out["copies"].([]any) {
+			m := c.(map[string]any)
+			got[m["backupId"].(string)] = fmt.Sprintf("%v %v", m["removed"], m["removedBy"])
+		}
+		return got
+	}
+	if got := removed(); got[first] != "rules <nil>" || got[second] != "<nil> <nil>" {
+		t.Fatalf("after the rules removed the first backup here: %v", got)
+	}
+	if code, _ := e.call("DELETE", e.sp("/backups/"+second)+"?actor=admin", nil); code != http.StatusNoContent {
+		t.Fatalf("delete the second backup here: %d", code)
+	}
+	if got := removed(); got[first] != "rules <nil>" || got[second] != "person admin" {
+		t.Fatalf("after deleting the second backup by hand: %v", got)
+	}
+}
+
+// While a copy is being downloaded, as a restore does, the backup rules
+// delete no copies where copies go, so a copy they no longer keep isn't
+// deleted from under the download. The next copy's pruning deletes it.
+func TestPruningLeavesACopyThatIsBeingDownloaded(t *testing.T) {
+	cases := []struct {
+		name string
+		// download starts downloading the copy name, and returns what ends
+		// the download.
+		download func(e *agentEnv, dest *fetchDest, name string) (end func())
+	}{
+		{name: "nothing is downloading"},
+		{name: "a restore is downloading it", download: func(e *agentEnv, dest *fetchDest, name string) func() {
+			downloading := make(chan struct{}, 1)
+			dest.answer(func(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+				downloading <- struct{}{}
+				<-ctx.Done()
+				return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
+			})
+			code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+			if code != http.StatusAccepted {
+				e.t.Fatalf("restore: %d %v", code, out)
+			}
+			id := out["id"].(string)
+			select {
+			case <-downloading:
+			case <-time.After(10 * time.Second):
+				e.t.Fatal("the download never started")
+			}
+			return func() {
+				if code, out := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusAccepted {
+					e.t.Fatalf("cancel: %d %v", code, out)
+				}
+				e.waitOp(id)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// The uploader waits after it picks the next copy, until let go.
+			var hold atomic.Bool
+			picked, letGo := make(chan struct{}, 1), make(chan struct{})
+			prev := uploadClaimed
+			uploadClaimed = func(job uploadJob) {
+				if hold.CompareAndSwap(true, false) {
+					picked <- struct{}{}
+					select {
+					case <-letGo:
+					case <-job.ctx.Done():
+					}
+				}
+			}
+			t.Cleanup(func() { uploadClaimed = prev })
+			dest := &fetchDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}
+			e, first, file := withCopies(t, dest)
+			rules := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"last": 1}, "includeManual": true}
+			if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+				t.Fatalf("rules: %d %v", code, out)
+			}
+			name := offsite.CopyName(file)
+			stored := func() bool {
+				dest.mu.Lock()
+				defer dest.mu.Unlock()
+				_, ok := dest.stored[name]
+				return ok
+			}
+			copied := func(id string) {
+				t.Helper()
+				e.waitFor("the copy of "+id, func() bool {
+					return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+				})
+			}
+			hold.Store(true)
+			second := e.backup()
+			select {
+			case <-picked:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the uploader never picked the second copy")
+			}
+			end := func() {}
+			if c.download != nil {
+				end = c.download(e, dest, name)
+			}
+			close(letGo)
+			copied(second)
+			if c.download == nil {
+				e.waitFor("the rules to delete the first copy", func() bool { return !stored() })
+				return
+			}
+			time.Sleep(300 * time.Millisecond)
+			if !stored() || e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first) != 1 {
+				t.Fatal("the rules deleted the copy being downloaded")
+			}
+			end()
+			copied(e.backup())
+			e.waitFor("the rules to delete the first copy once the download ended", func() bool { return !stored() })
+		})
+	}
+}
+
+// When the backup rules or the copy queue can't be read, the rules delete
+// nothing, on this machine or where copies go, rather than act on the
+// defaults or on a queue they take for empty. Only rules nobody saved fall
+// back to the defaults.
+func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
+	keepAll := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	newestOnly := map[string]any{"onHost": map[string]any{"last": 1}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	exec := func(q string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() {
+			if _, err := e.a.db.Exec(q); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {}
+		}
+	}
+	rename := func(q, back string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() {
+			if _, err := e.a.db.Exec(q); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {
+				if _, err := e.a.db.Exec(back); err != nil {
+					e.t.Fatal(err)
+				}
+			}
+		}
+	}
+	cases := []struct {
+		name  string
+		rules map[string]any
+		// breaks makes a read fail, and returns what undoes it.
+		breaks func(e *agentEnv) func()
+		// deletes is whether the rules delete backups here.
+		deletes bool
+	}{
+		{name: "rules saved", rules: keepAll},
+		{name: "no rules saved", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = ''`), deletes: true},
+		{name: "rules that don't parse", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = '{"settings":'`)},
+		{name: "the rules can't be read", rules: keepAll,
+			breaks: rename(`ALTER TABLE servers RENAME COLUMN backup_rules TO backup_rules_gone`, `ALTER TABLE servers RENAME COLUMN backup_rules_gone TO backup_rules`)},
+		{name: "rules that keep only the newest", rules: newestOnly, deletes: true},
+		{name: "the copy queue can't be read", rules: newestOnly,
+			breaks: rename(`ALTER TABLE offsite_uploads RENAME TO offsite_uploads_gone`, `ALTER TABLE offsite_uploads_gone RENAME TO offsite_uploads`)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			e, first, _ := withCopies(t, dest)
+			ids := []string{first}
+			for range 2 {
+				id := e.backup()
+				e.waitFor("its copy", func() bool {
+					return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+				})
+				ids = append(ids, id)
+			}
+			// Three backups, all copied: two made on one day 100 days ago,
+			// which the defaults no longer keep here, and the newest.
+			old := time.Now().Add(-100 * 24 * time.Hour)
+			for i, id := range ids[:2] {
+				at := old.Add(time.Duration(i) * time.Hour).UnixMilli()
+				if _, err := e.a.db.Exec(`UPDATE backups SET created_at = ? WHERE id = ?`, at, id); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.a.db.Exec(`UPDATE offsite_copies SET backup_created_at = ? WHERE backup_id = ?`, at, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := e.a.db.Exec(`UPDATE backups SET kind = 'scheduled'`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.a.db.Exec(`UPDATE offsite_copies SET kind = 'scheduled'`); err != nil {
+				t.Fatal(err)
+			}
+			if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": c.rules}); code != http.StatusOK {
+				t.Fatalf("rules: %d %v", code, out)
+			}
+			undo := func() {}
+			if c.breaks != nil {
+				undo = c.breaks(e)
+			}
+			s := e.srv()
+			release, ok := s.holdOpLock()
+			if !ok {
+				t.Fatal("the server is busy")
+			}
+			s.applyRetention()
+			release()
+			s.pruneOffsite(context.Background(), dest)
+			undo()
+			here, there := e.countRows(`SELECT COUNT(*) FROM backups`), e.countRows(`SELECT COUNT(*) FROM offsite_copies`)
+			dest.mu.Lock()
+			deleted := len(dest.deleted)
+			dest.mu.Unlock()
+			if c.deletes {
+				if here == 3 {
+					t.Fatal("the rules deleted nothing here")
+				}
+				return
+			}
+			if here != 3 || there != 3 || deleted != 0 {
+				t.Fatalf("the rules deleted: %d of 3 backups left here, %d of 3 copies recorded, %d deleted where copies go", here, there, deleted)
+			}
+		})
+	}
+}
+
+// The card calls the last copy the first only when it's the first made to
+// the place copies go to, not whenever one copy is recorded.
+func TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst(t *testing.T) {
+	e, _, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	view := func() map[string]any {
+		t.Helper()
+		_, out := e.call("GET", e.sp("/offsite"), nil)
+		return out
+	}
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != true {
+		t.Fatalf("after the first copy: %v", v)
+	}
+	rules := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"last": 1}, "includeManual": true}
+	if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+		t.Fatalf("rules: %d %v", code, out)
+	}
+	second := e.backup()
+	e.waitFor("the rules to keep only the second copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies`) == 1 && e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != nil {
+		t.Fatalf("one copy left of two: %v", v)
+	}
+
+	// A new place gets the newest backup straight away.
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds-2", "accessKeyId": "PKEXAMPLE"}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "forgetCopies": true}); code != http.StatusOK || out["firstCopy"] != nil {
+		t.Fatalf("another bucket: %d %v", code, out)
+	}
+	e.waitFor("the first copy in the other bucket", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != true {
+		t.Fatalf("after the first copy to another bucket: %v", v)
+	}
+}
+
+func (e *agentEnv) staged() []string {
+	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
+	var names []string
+	for _, en := range entries {
+		names = append(names, en.Name())
+	}
+	return names
+}
+
+func TestACopyIsCheckedAgainOrDeletedFromItsRow(t *testing.T) {
+	dest := &fetchDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}
+	e, backupID, file := withCopies(t, dest)
+	name := offsite.CopyName(file)
+	var sum string
+	if err := e.a.db.QueryRow(`SELECT sha256 FROM backups WHERE id = ?`, backupID).Scan(&sum); err != nil {
+		t.Fatal(err)
+	}
+	row := func() map[string]any {
+		t.Helper()
+		code, out := e.call("GET", e.sp("/offsite/copies"), nil)
+		if code != http.StatusOK {
+			t.Fatalf("copies: %d %v", code, out)
+		}
+		for _, c := range out["copies"].([]any) {
+			if c := c.(map[string]any); c["name"] == name {
+				return c
+			}
+		}
+		return nil
+	}
+	check := func() *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", e.sp("/offsite/copies/"+url.PathEscape(name)+"/check"), map[string]any{"actor": "admin"})
+		if code != http.StatusAccepted {
+			t.Fatalf("check: %d %v", code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	if c := row(); c == nil || c["sha256"] != sum || c["checkError"] != nil || c["checked"] != offsite.CheckedSize {
+		t.Fatalf("the copy's row: %v", c)
+	}
+
+	const damaged = "The copy doesn't match the backup it was made from."
+	dest.answer(failWith(&offsite.Error{Kind: offsite.KindVerifyFailed, Msg: damaged}))
+	if op := check(); op.Status != api.OpFailed || op.Kind != "offsite-check" || op.Detail["name"] != name {
+		t.Fatalf("checking a damaged copy: %+v", op)
+	}
+	if c := row(); c["checkError"] != damaged || c["checked"] != offsite.CheckedSize {
+		t.Fatalf("a damaged copy's row: %v", c)
+	}
+
+	// Not reaching the storage says nothing about the copy itself.
+	dest.answer(failWith(&offsite.Error{Kind: offsite.KindNetwork, Msg: "Couldn't reach the storage.", Retry: true}))
+	if op := check(); op.Status != api.OpFailed || op.Error != "Couldn't reach the storage." {
+		t.Fatalf("checking without the storage: %+v", op)
+	}
+	if c := row(); c["checkError"] != damaged {
+		t.Fatalf("a check that never reached the copy changed its row: %v", c)
+	}
+
+	dest.answer(fromBackup(e.a.backupPath(file)))
+	if op := check(); op.Status != api.OpSucceeded {
+		t.Fatalf("checking a good copy: %+v", op)
+	}
+	if c := row(); c["checked"] != offsite.CheckedDecrypted || c["checkError"] != nil {
+		t.Fatalf("a good copy's row: %v", c)
+	}
+	if left := e.staged(); len(left) != 0 {
+		t.Fatalf("checks left %v behind", left)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copy_checked' AND actor = 'admin' AND target = ?`, backupID); n != 2 {
+		t.Fatalf("audited %d checks of the copy, want the damaged one and the good one", n)
+	}
+
+	copyPath := e.sp("/offsite/copies/" + url.PathEscape(name))
+	if code, _ := e.call("DELETE", copyPath, nil); code != http.StatusBadRequest {
+		t.Fatalf("deleting a copy with nobody named: %d", code)
+	}
+	if code, _ := e.call("DELETE", e.sp("/offsite/copies/"+url.PathEscape(file))+"?actor=admin", nil); code != http.StatusBadRequest {
+		t.Fatalf("deleting something that isn't a copy: %d", code)
+	}
+	code, out := e.call("DELETE", copyPath+"?actor=admin", nil)
+	if code != http.StatusOK || out["deleted"] != name {
+		t.Fatalf("delete: %d %v", code, out)
+	}
+	dest.mu.Lock()
+	deleted := append([]string(nil), dest.deleted...)
+	dest.mu.Unlock()
+	if len(deleted) != 1 || deleted[0] != name {
+		t.Fatalf("deleted %q where copies are kept, want %s", deleted, name)
+	}
+	if c := row(); c != nil {
+		t.Fatalf("the deleted copy is still listed: %v", c)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copy_deleted' AND actor = 'admin' AND target = ? AND result = 'succeeded'`, backupID); n != 1 {
+		t.Fatalf("audited the deletion %d times", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups WHERE id = ?`, backupID); n != 1 {
+		t.Fatal("deleting the copy deleted the backup on this machine")
+	}
+	if code, _ := e.call("DELETE", copyPath+"?actor=admin", nil); code != http.StatusNotFound {
+		t.Fatalf("deleting it again: %d", code)
+	}
+	if code, _ := e.call("POST", copyPath+"/check", map[string]any{"actor": "admin"}); code != http.StatusNotFound {
+		t.Fatalf("checking a deleted copy: %d", code)
+	}
+}
+
+func TestCancellingARestoreFromACopyLeavesTheServerAsItWas(t *testing.T) {
+	dest := &fetchDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}
+	e, _, file := withCopies(t, dest)
+	name := offsite.CopyName(file)
+	e.waitFor("the server to be online and idle", e.onlineIdle)
+	container := func() string {
+		e.fd.mu.Lock()
+		defer e.fd.mu.Unlock()
+		c := e.fd.byName[e.cname()]
+		return fmt.Sprintf("%s running=%v started=%v", c.id, c.running, c.started)
+	}
+	files, box, backups := tree(t, e.dataDir()), container(), e.countRows(`SELECT COUNT(*) FROM backups`)
+
+	// The download stops halfway, leaving what it fetched so far.
+	downloading := make(chan string, 1)
+	dest.answer(func(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+		part := filepath.Join(dl.Dir, dl.Name+".part")
+		if err := os.WriteFile(part, make([]byte, 1<<20), 0o600); err != nil {
+			return offsite.Archive{}, err
+		}
+		downloading <- part
+		<-ctx.Done()
+		return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
+	})
+	code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore: %d %v", code, out)
+	}
+	id := out["id"].(string)
+	var part string
+	select {
+	case part = <-downloading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the download never started")
+	}
+
+	if code, _ := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": "qrstuvwxyz"}); code != http.StatusConflict {
+		t.Fatalf("cancelling an operation that isn't running: %d", code)
+	}
+	if code, _ := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"operationId": id}); code != http.StatusBadRequest {
+		t.Fatalf("cancelling with nobody named: %d", code)
+	}
+	code, out = e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": id})
+	if code != http.StatusAccepted || out["id"] != id {
+		t.Fatalf("cancel: %d %v", code, out)
+	}
+	if op := e.waitOp(id); op.Status != api.OpCancelled || op.Error != "" || op.Detail["restoreId"] != nil {
+		t.Fatalf("the cancelled restore: %+v", op)
+	}
+
+	if _, err := os.Stat(part); !os.IsNotExist(err) {
+		t.Fatalf("the partial download is still there: %v", err)
+	}
+	if left := e.staged(); len(left) != 0 {
+		t.Fatalf("staging still holds %v", left)
+	}
+	if !maps.Equal(tree(t, e.dataDir()), files) {
+		t.Fatal("cancelling touched the server's files")
+	}
+	if got := container(); got != box {
+		t.Fatalf("the container went from %s to %s", box, got)
+	}
+	if st := e.status(); st.Phase != api.PhaseOnline || st.Operation != nil {
+		t.Fatalf("after cancelling: %s, %+v", st.Phase, st.Operation)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != backups {
+		t.Fatalf("%d backups, there were %d", n, backups)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.restore_cancelled' AND actor = 'admin' AND detail = ?`, name); n != 1 {
+		t.Fatalf("audited the cancel %d times", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite-restore' AND result = 'cancelled'`); n != 1 {
+		t.Fatalf("audited %d cancelled restores", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.staged'`); n != 0 {
+		t.Fatalf("audited %d staged restores", n)
+	}
+
+	// It left no swap journal, so the next start has nothing to finish or undo.
+	e.stop()
+	e.start()
+	e.waitFor("the server to be online and idle", e.onlineIdle)
+	if op := e.waitOp(id); op.Status != api.OpCancelled || op.Error != "" {
+		t.Fatalf("after a restart, the cancelled restore: %+v", op)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restore'`); n != 0 {
+		t.Fatalf("the restart ran %d restores", n)
+	}
+	if previous, failed := restoreCopies(e.dataDir()); len(previous)+len(failed) != 0 || !maps.Equal(tree(t, e.dataDir()), files) || container() != box {
+		t.Fatalf("the restart after cancelling touched the server (world copies %v %v)", previous, failed)
+	}
+
+	// The next restore runs to the end; once it has, there's nothing to cancel.
+	dest.answer(fromBackup(e.a.backupPath(file)))
+	code, out = e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore again: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded || op.Detail["restoreId"] == nil {
+		t.Fatalf("the second restore: %+v", op)
+	}
+	if code, _ := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": op.ID}); code != http.StatusConflict {
+		t.Fatalf("cancelling a finished restore: %d", code)
+	}
+}
+
+// A restore from a copy that the agent stops in while it downloads is settled
+// at the next start: it staged nothing and wrote no swap journal, so the
+// start records it as interrupted and deletes the download, even one a crash
+// left. Restoring the copy again then goes the way every restore goes, the
+// rollback archive first.
+func TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart(t *testing.T) {
+	dest := &fetchDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}
+	e, _, file := withCopies(t, dest)
+	name := offsite.CopyName(file)
+	e.waitFor("the server to be online and idle", e.onlineIdle)
+	restored := worldHash(t, e.dataDir())
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "world", "later.dat"), []byte("built after the backup"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	files := tree(t, e.dataDir())
+
+	downloading := make(chan string, 1)
+	dest.answer(func(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+		if err := os.WriteFile(filepath.Join(dl.Dir, dl.Name+".part"), make([]byte, 1<<20), 0o600); err != nil {
+			return offsite.Archive{}, err
+		}
+		downloading <- dl.Dir
+		<-ctx.Done()
+		return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
+	})
+	code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore: %d %v", code, out)
+	}
+	id := out["id"].(string)
+	var dir string
+	select {
+	case dir = <-downloading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the download never started")
+	}
+	e.stop()
+	if op := e.opAtRest(id); op.Status != api.OpRunning {
+		t.Fatalf("the agent stopped during the download, and the restore was recorded as %s: %+v", op.Status, op)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".part"), make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	e.start()
+	op := e.waitOp(id)
+	if op.Status != api.OpFailed || op.Error != interruptedDownload || op.Hint != interruptedDownloadHint || op.Detail["restoreId"] != nil {
+		t.Fatalf("the interrupted restore at the next start: %+v", op)
+	}
+	if left := e.staged(); len(left) != 0 {
+		t.Fatalf("staging still holds %v", left)
+	}
+	if !maps.Equal(tree(t, e.dataDir()), files) {
+		t.Fatal("the interrupted restore changed the server's files")
+	}
+	if previous, failed := restoreCopies(e.dataDir()); len(previous)+len(failed) != 0 || e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restore'`) != 0 {
+		t.Fatalf("the next start restored something (world copies %v %v)", previous, failed)
+	}
+
+	dest.answer(fromBackup(e.a.backupPath(file)))
+	code, out = e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore again: %d %v", code, out)
+	}
+	fetched := e.waitOp(out["id"].(string))
+	stage, _ := fetched.Detail["restoreId"].(string)
+	if fetched.Status != api.OpSucceeded || stage == "" {
+		t.Fatalf("fetching the copy again: %+v", fetched)
+	}
+	code, preview := e.call("GET", "/v1/restore/"+stage, nil)
+	if code != http.StatusOK {
+		t.Fatalf("preview: %d %v", code, preview)
+	}
+	applied := e.applyRestore(stage, preview["confirmPhrase"].(string))
+	rollback, _ := applied.Detail["rollbackBackupId"].(string)
+	if applied.Status != api.OpSucceeded || rollback == "" || e.countRows(`SELECT COUNT(*) FROM backups WHERE id = ? AND kind = 'rollback'`, rollback) != 1 {
+		t.Fatalf("the restore of the copy: %+v", applied)
+	}
+	if worldHash(t, e.dataDir()) != restored {
+		t.Fatal("the copy's world was not restored")
+	}
+	if left := e.staged(); len(left) != 0 {
+		t.Fatalf("the restore left %v in staging", left)
+	}
+}
+
+// keptFor is the unfinished restore or update the rules keep a backup on
+// this machine for, if any.
+func keptFor(t *testing.T, s *server, id string) string {
+	t.Helper()
+	res, err := s.retentionPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range res.OnHost.Decisions {
+		for _, r := range d.Reasons {
+			if d.ID == id && r.Code == "needed" {
+				return r.Params["by"]
+			}
+		}
+	}
+	return ""
+}
+
+// serverBusy says whether the Disk space page counts the server as busy.
+func serverBusy(t *testing.T, l diskusage.Layout, id string) bool {
+	t.Helper()
+	for _, sv := range l.Servers {
+		if sv.ID == id {
+			return sv.Busy
+		}
+	}
+	t.Fatalf("the layout has no server %s", id)
+	return false
+}
+
+// diskOffered is the paths the Disk space page offers to delete.
+func (e *agentEnv) diskOffered() map[string]bool {
+	e.t.Helper()
+	rep, err := diskusage.Scan(context.Background(), e.a.diskLayout(context.Background()), e.a.diskOptions(time.UTC))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, c := range rep.Candidates {
+		out[c.Path] = true
+	}
+	return out
+}
+
+// Until a restore is over, whether it is running or its stage keeps the swap
+// journal of a swap it couldn't settle, the rules keep its rollback archive
+// and the Disk space page offers nothing of its server, nor the stage.
+func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
+	e := newAgentEnv(t)
+	id, phrase, _, _ := e.restoreScenario()
+	s := e.srv()
+	busy := func(l diskusage.Layout) bool { return serverBusy(t, l, s.id) }
+
+	reached, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	let := func() { releaseOnce.Do(func() { close(release) }) }
+	// A failed check must not leave the restore waiting while the agent stops.
+	t.Cleanup(let)
+	setRestoreStep(t, func(_ context.Context, step string) {
+		if step == "checking" {
+			close(reached)
+			<-release
+		}
+	})
+	opID := e.startRestore(id, phrase)
+	waitClosed(t, reached, "the restored world to be in place")
+	rollback, _ := e.a.currentOp().Detail["rollbackBackupId"].(string)
+	if rollback == "" {
+		t.Fatal("the restore recorded no rollback archive")
+	}
+	if by := keptFor(t, s, rollback); by != "restore" {
+		t.Fatalf("while the restore runs, the rules keep its rollback archive for %q", by)
+	}
+	if l := e.a.diskLayout(context.Background()); !busy(l) || !slices.Equal(l.ActiveStages, []string{id}) {
+		t.Fatalf("while the restore runs: busy %v, active stages %v", busy(l), l.ActiveStages)
+	}
+	let()
+	if op := e.waitOp(opID); op.Status != api.OpSucceeded {
+		t.Fatalf("the restore: %+v", op)
+	}
+	if by := keptFor(t, s, rollback); by != "" {
+		t.Fatalf("once the restore is kept, the rules still keep its rollback archive for %q", by)
+	}
+
+	// A restore that couldn't put the previous world back keeps its stage and
+	// journal, and the previous world's copy, until the next start settles it.
+	stage := "0123456789abcdef"
+	dir := e.a.stageDir(stage)
+	stamp := time.Now().UTC().Add(-48 * time.Hour).Format("20060102-150405")
+	aside := filepath.Join(s.dir(), "data.replaced-"+stamp)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(aside, "world"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := s.serverConfig()
+	j := &swapJournal{ServerID: s.id, OpID: opID, Actor: "admin", Aside: filepath.Base(aside), Failed: "data.failed-restore-" + stamp, HadLive: true,
+		StartedAt: time.Now().Add(-48 * time.Hour), Previous: sc, Restored: *sc, State: swapReverting}
+	if err := writeSwapJournal(dir, j); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	age := func() {
+		t.Helper()
+		for _, p := range []string{filepath.Join(dir, swapJournalFile), dir} {
+			if err := os.Chtimes(p, old, old); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+		}
+	}
+	age()
+	offered := func() (stageOffered, copyOffered bool) {
+		t.Helper()
+		o := e.diskOffered()
+		return o[dir], o[aside]
+	}
+	if by := keptFor(t, s, rollback); by != "restore" {
+		t.Fatalf("with its journal left, the rules keep the rollback archive for %q", by)
+	}
+	if l := e.a.diskLayout(context.Background()); !busy(l) || !slices.Equal(l.ActiveStages, []string{stage}) {
+		t.Fatalf("with its journal left: busy %v, active stages %v", busy(l), l.ActiveStages)
+	}
+	if st, cp := offered(); st || cp {
+		t.Fatalf("the Disk space page offers the unsettled restore's stage (%v) or the previous world's copy (%v)", st, cp)
+	}
+
+	if err := os.Remove(filepath.Join(dir, swapJournalFile)); err != nil {
+		t.Fatal(err)
+	}
+	age()
+	if by := keptFor(t, s, rollback); by != "" {
+		t.Fatalf("without the journal, the rules keep the rollback archive for %q", by)
+	}
+	if st, cp := offered(); !st || !cp {
+		t.Fatalf("once nothing needs them, the stage (%v) and the copy (%v) are offered", st, cp)
+	}
+}
+
+// A swap journal that can't be read may be any server's, and one whose
+// restore is no longer on record may be any of its server's restores. Until
+// it is settled, the rules keep every rollback archive it may need, the Disk
+// space page counts every server it may be as busy and offers neither the
+// stage nor a set-aside world, and the agent logs, once, a journal it can't
+// read.
+func TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed(t *testing.T) {
+	e := newAgentEnv(t)
+	id, phrase, _, _ := e.restoreScenario()
+	s := e.srv()
+	op := e.waitOp(e.startRestore(id, phrase))
+	rollback, _ := op.Detail["rollbackBackupId"].(string)
+	if op.Status != api.OpSucceeded || rollback == "" {
+		t.Fatalf("the restore: %+v", op)
+	}
+	e.createWith(map[string]any{"name": "Creative"})
+	other := e.srv()
+
+	old := time.Now().Add(-48 * time.Hour)
+	stamp := old.UTC().Format("20060102-150405")
+	aside := filepath.Join(s.dir(), "data.replaced-"+stamp)
+	if err := os.MkdirAll(filepath.Join(aside, "world"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	stage := "0123456789abcdef"
+	dir := e.a.stageDir(stage)
+	journal := filepath.Join(dir, swapJournalFile)
+	age := func() {
+		t.Helper()
+		for _, p := range []string{journal, dir} {
+			if err := os.Chtimes(p, old, old); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+		}
+	}
+	sc, _ := s.serverConfig()
+	for _, c := range []struct {
+		name  string
+		write func() error
+		// unreadable is a journal that may be any server's.
+		unreadable bool
+	}{
+		{"cut short", func() error { return os.WriteFile(journal, []byte(`{"serverId":"`+s.id+`","opId":`), 0o600) }, true},
+		{"not a file", func() error { return os.Mkdir(journal, 0o700) }, true},
+		{"for a restore no longer on record", func() error {
+			return writeSwapJournal(dir, &swapJournal{ServerID: s.id, OpID: "0000000000000000", Actor: "admin", Aside: filepath.Base(aside),
+				Failed: "data.failed-restore-" + stamp, HadLive: true, StartedAt: old, Previous: sc, Restored: *sc, State: swapReverting})
+		}, false},
+	} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.write(); err != nil {
+			t.Fatal(err)
+		}
+		age()
+		logged := strings.Count(e.warnings.String(), "stage="+stage)
+		if by := keptFor(t, s, rollback); by != "restore" {
+			t.Fatalf("%s: the rules keep the rollback archive for %q", c.name, by)
+		}
+		l := e.a.diskLayout(context.Background())
+		if !serverBusy(t, l, s.id) || serverBusy(t, l, other.id) != c.unreadable || !slices.Equal(l.ActiveStages, []string{stage}) {
+			t.Fatalf("%s: busy %v, %s busy %v, active stages %v", c.name, serverBusy(t, l, s.id), other.name(), serverBusy(t, l, other.id), l.ActiveStages)
+		}
+		if o := e.diskOffered(); o[dir] || o[aside] {
+			t.Fatalf("%s: the Disk space page offers the stage (%v) or the set-aside world (%v)", c.name, o[dir], o[aside])
+		}
+		want := 0
+		if c.unreadable {
+			want = 1
+		}
+		if n := strings.Count(e.warnings.String(), "stage="+stage) - logged; n != want {
+			t.Fatalf("%s: the agent logged the journal %d times, not %d:\n%s", c.name, n, want, e.warnings.String())
+		}
+		if err := os.RemoveAll(journal); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	age()
+	if by := keptFor(t, s, rollback); by != "" {
+		t.Fatalf("without the journal, the rules keep the rollback archive for %q", by)
+	}
+	if l := e.a.diskLayout(context.Background()); serverBusy(t, l, s.id) || serverBusy(t, l, other.id) {
+		t.Fatal("without the journal, a server still counts as busy")
+	}
+	if o := e.diskOffered(); !o[dir] || !o[aside] {
+		t.Fatalf("once nothing needs them, the stage (%v) and the set-aside world (%v) are offered", o[dir], o[aside])
+	}
+}
+
+// While a restore of a server isn't over, a stage keeping a swap journal that
+// may be the server's, the World tab discards none of the server's world
+// copies: the restore may still put one back. A journal that can't be read
+// may be any server's; a server no journal is about can discard.
+func TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	e.createWith(map[string]any{"name": "Creative"})
+	other := e.srv()
+
+	old := time.Now().Add(-48 * time.Hour)
+	stamp := old.UTC().Format("20060102-150405")
+	name := "data.replaced-" + stamp
+	discard := func(sv *server) (int, map[string]any) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(sv.dir(), name, "world"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		return e.call("DELETE", "/v1/servers/"+sv.id+"/world-copies/"+name+"?actor=admin", nil)
+	}
+	refused := func(what string, sv *server) {
+		t.Helper()
+		code, out := discard(sv)
+		if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "restore isn't finished") || !strings.Contains(fmt.Sprint(out["hint"]), "systemctl restart playkeeper-agent") {
+			t.Fatalf("%s: discarding %s's world copy: %d %v", what, sv.name(), code, out)
+		}
+		if !dirExists(filepath.Join(sv.dir(), name)) {
+			t.Fatalf("%s: %s's world copy is gone", what, sv.name())
+		}
+	}
+	discarded := func(what string, sv *server) {
+		t.Helper()
+		if code, out := discard(sv); code != http.StatusNoContent || dirExists(filepath.Join(sv.dir(), name)) {
+			t.Fatalf("%s: discarding %s's world copy: %d %v", what, sv.name(), code, out)
+		}
+	}
+
+	dir := e.a.stageDir("0123456789abcdef")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := s.serverConfig()
+	j := &swapJournal{ServerID: s.id, OpID: "0000000000000000", Actor: "admin", Aside: name, Failed: "data.failed-restore-" + stamp, HadLive: true,
+		StartedAt: old, Previous: sc, Restored: *sc, State: swapReverting}
+	if err := writeSwapJournal(dir, j); err != nil {
+		t.Fatal(err)
+	}
+	refused("with its swap journal", s)
+	discarded("with another server's swap journal", other)
+
+	journal := filepath.Join(dir, swapJournalFile)
+	if err := os.WriteFile(journal, []byte(`{"serverId":"`+s.id+`","opId":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refused("with a swap journal that can't be read", s)
+	refused("with a swap journal that can't be read", other)
+
+	if err := os.Remove(journal); err != nil {
+		t.Fatal(err)
+	}
+	discarded("without a swap journal", s)
+}
+
+// A staging folder that can't be read may hold any server's swap journal, as
+// a journal that can't be read may be any server's. Until it can be read,
+// each of the three that delete what a restore may need keeps it and says
+// why: the backup rules keep every rollback archive, the Disk space page
+// counts every server as busy and offers no set-aside world, and the World
+// tab discards no world copy. The agent logs it once each time.
+func TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed(t *testing.T) {
+	type restored struct {
+		e         *agentEnv
+		s, other  *server
+		rollback  string
+		copyName  string
+		stagingAt string
+	}
+	ways := []struct {
+		name string
+		// unreadable makes dir unreadable, or is nil when it can't.
+		unreadable func(t *testing.T, dir string) (undo func())
+	}{
+		{"without permission", func(t *testing.T, dir string) func() {
+			if os.Geteuid() == 0 {
+				return nil
+			}
+			if err := os.Chmod(dir, 0); err != nil {
+				t.Fatal(err)
+			}
+			return func() { os.Chmod(dir, 0o700) }
+		}},
+		{"not a folder", func(t *testing.T, dir string) func() {
+			if err := os.Rename(dir, dir+".away"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(dir, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return func() {
+				os.Remove(dir)
+				os.Rename(dir+".away", dir)
+			}
+		}},
+	}
+	discard := func(r restored, sv *server) (int, map[string]any) {
+		r.e.t.Helper()
+		if err := os.MkdirAll(filepath.Join(sv.dir(), r.copyName, "world"), 0o750); err != nil {
+			r.e.t.Fatal(err)
+		}
+		return r.e.call("DELETE", "/v1/servers/"+sv.id+"/world-copies/"+r.copyName+"?actor=admin", nil)
+	}
+	restoresUnknown := func(r restored) string {
+		r.e.t.Helper()
+		code, out := r.e.call("GET", "/v1/disk?fresh=1", nil)
+		if code != http.StatusOK {
+			r.e.t.Fatalf("the Disk space page: %d %v", code, out)
+		}
+		problems, _ := out["problems"].([]any)
+		for _, p := range problems {
+			if p, _ := p.(map[string]any); p["code"] == diskusage.CodeRestoresUnknown {
+				return fmt.Sprint(p["text"])
+			}
+		}
+		return ""
+	}
+	callers := []struct {
+		name string
+		// keeps checks that what a restore may need is kept, and why said.
+		keeps func(t *testing.T, r restored)
+		// lets checks it can go once the folder can be read.
+		lets func(t *testing.T, r restored)
+	}{
+		{name: "backup rules", keeps: func(t *testing.T, r restored) {
+			if by := keptFor(t, r.s, r.rollback); by != "restore" {
+				t.Fatalf("the rules keep the rollback archive for %q", by)
+			}
+		}, lets: func(t *testing.T, r restored) {
+			if by := keptFor(t, r.s, r.rollback); by != "" {
+				t.Fatalf("the rules still keep the rollback archive for %q", by)
+			}
+		}},
+		{name: "Disk space", keeps: func(t *testing.T, r restored) {
+			l := r.e.a.diskLayout(context.Background())
+			if !serverBusy(t, l, r.s.id) || !serverBusy(t, l, r.other.id) {
+				t.Fatalf("busy: %v, %s %v", serverBusy(t, l, r.s.id), r.other.name(), serverBusy(t, l, r.other.id))
+			}
+			if o := r.e.diskOffered(); o[filepath.Join(r.s.dir(), r.copyName)] {
+				t.Fatal("the Disk space page offers the set-aside world")
+			}
+			if why := restoresUnknown(r); !strings.Contains(why, "can't read its restore staging folder") || !strings.Contains(why, r.stagingAt) || !strings.Contains(why, "Nothing of any server is offered") {
+				t.Fatalf("the Disk space page says %q", why)
+			}
+		}, lets: func(t *testing.T, r restored) {
+			l := r.e.a.diskLayout(context.Background())
+			if serverBusy(t, l, r.s.id) || serverBusy(t, l, r.other.id) {
+				t.Fatal("a server still counts as busy")
+			}
+			if o := r.e.diskOffered(); !o[filepath.Join(r.s.dir(), r.copyName)] {
+				t.Fatal("the set-aside world isn't offered")
+			}
+			if why := restoresUnknown(r); why != "" {
+				t.Fatalf("the Disk space page still says %q", why)
+			}
+		}},
+		{name: "World tab", keeps: func(t *testing.T, r restored) {
+			for _, sv := range []*server{r.s, r.other} {
+				code, out := discard(r, sv)
+				if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "can't read its restore staging folder") || !strings.Contains(fmt.Sprint(out["hint"]), r.stagingAt) {
+					t.Fatalf("discarding %s's world copy: %d %v", sv.name(), code, out)
+				}
+				if !dirExists(filepath.Join(sv.dir(), r.copyName)) {
+					t.Fatalf("%s's world copy is gone", sv.name())
+				}
+			}
+		}, lets: func(t *testing.T, r restored) {
+			if code, out := discard(r, r.s); code != http.StatusNoContent || dirExists(filepath.Join(r.s.dir(), r.copyName)) {
+				t.Fatalf("discarding the world copy: %d %v", code, out)
+			}
+		}},
+	}
+	for _, c := range callers {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			id, phrase, _, _ := e.restoreScenario()
+			s := e.srv()
+			op := e.waitOp(e.startRestore(id, phrase))
+			rollback, _ := op.Detail["rollbackBackupId"].(string)
+			if op.Status != api.OpSucceeded || rollback == "" {
+				t.Fatalf("the restore: %+v", op)
+			}
+			e.createWith(map[string]any{"name": "Creative"})
+			r := restored{e: e, s: s, other: e.srv(), rollback: rollback, stagingAt: e.a.cfg.StagingDir(),
+				copyName: "data.replaced-" + time.Now().UTC().Add(-48*time.Hour).Format("20060102-150405")}
+			if err := os.MkdirAll(filepath.Join(s.dir(), r.copyName, "world"), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			c.lets(t, r)
+			for _, w := range ways {
+				undo := w.unreadable(t, r.stagingAt)
+				if undo == nil {
+					t.Logf("%s: skipped, root reads folders without permission", w.name)
+					continue
+				}
+				var once sync.Once
+				t.Cleanup(func() { once.Do(undo) })
+				logged := strings.Count(e.warnings.String(), "restore staging folder can't be read")
+				c.keeps(t, r)
+				c.keeps(t, r)
+				if n := strings.Count(e.warnings.String(), "restore staging folder can't be read") - logged; n != 1 {
+					t.Fatalf("%s: the agent logged the staging folder %d times, not once:\n%s", w.name, n, e.warnings.String())
+				}
+				once.Do(undo)
+				c.lets(t, r)
+			}
+		})
+	}
+}

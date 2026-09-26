@@ -7,11 +7,16 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$PATH" CGO_ENABLED=0
+export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
 wt="$(mktemp -d)/playkeeper"
 git -C "$root" worktree add --detach -q "$wt" HEAD
 trap 'git -C "$root" worktree remove --force "$wt"' EXIT
 cd "$wt"
+# The web controls run vitest with the checkout's own dependencies, which
+# scripts/setup.sh installs.
+if [ -d "$root/web/node_modules" ]; then
+  ln -s "$root/web/node_modules" web/node_modules
+fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
@@ -26,6 +31,34 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
     bad=1
   else
     echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
+  fi
+  git checkout -q -- "$file"
+}
+
+# webcontrol is the one web control: TEST-FILE is under web/, written with or
+# without that prefix, and TESTS, when given, picks tests by name. Vitest
+# decides, not the type checker, since a mutation may leave a name unused.
+webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
+  local name=$1 file=$2 testfile=${5#web/} tests=${6:-}
+  local only=()
+  if [ -n "$tests" ]; then only=(-t "$tests"); fi
+  if [ ! -e web/node_modules ] && [ -d "$root/web/node_modules" ]; then
+    ln -s "$root/web/node_modules" web/node_modules
+  fi
+  if [ ! -d web/node_modules ]; then
+    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    bad=1
+    return
+  fi
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
+    echo "MISSED   $name: ${tests:-$testfile} still passes without the guard"
+    bad=1
+  elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
+    echo "INVALID  $name: no test ran to fail"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): |^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
   git checkout -q -- "$file"
 }
@@ -48,6 +81,22 @@ control "per-address sign-in and setup rate limit" internal/panel/server.go \
   'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); !ok {' \
   'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); false && !ok {' \
   ./internal/panel '^TestSignInAndSetupAreRateLimitedPerAddress$'
+control "previews don't spend the actions' rate limit" internal/panel/server.go \
+  'bucket = s.previews' \
+  'bucket = s.control' \
+  ./internal/panel '^TestPreviewsHaveTheirOwnRateLimit$'
+control "previews have a rate limit of their own" internal/panel/server.go \
+  'newLimiter(120, time.Minute, opts.Now)' \
+  'newLimiter(1000, time.Minute, opts.Now)' \
+  ./internal/panel '^TestPreviewsHaveTheirOwnRateLimit$'
+control "every preview bucket entry is a route" internal/panel/server.go \
+  '"POST /api/servers/{id}/backup-rules/estimate": true,' \
+  '"POST /api/servers/{id}/backup-rules/estimates": true,' \
+  ./internal/panel '^TestEveryPreviewRouteIsACheckedRoute$'
+webcontrol "a schedule preview that was refused leaves Save on" web/src/pages/server/schedules.tsx \
+  'if (!cancelled) setPreview(undefined)' \
+  "if (!cancelled) setPreview({ valid: false, nextRuns: [], error: { error: 'refused', code: 'rate_limited' } })" \
+  web/src/pages/server/schedules.test.tsx 'leaves Save on for a preview over the rate limit'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
   'if false && (err != nil || !a.allowed[uid]) {' \
@@ -2420,10 +2469,18 @@ control "Discord hears a server come online" internal/agent/collector.go \
   '} else if false && fresh {' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
 control "Discord hears Playkeeper stop a server, restarts too" internal/agent/lifecycle.go \
-  '	s.alert(discord.Stopped())
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}
 	return nil' \
   '	return nil' \
-  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart)$/^every_alert$'
+  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart|a_scheduled_restart)$/^every_alert$'
+control "Discord doesn't hear of a server falling asleep" internal/agent/lifecycle.go \
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}' \
+  '	s.alert(discord.Stopped())' \
+  ./internal/agent '^TestDiscordAlertSequences$/^falling_asleep$/^every_alert$'
 control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle.go \
   '		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 		s.recordEvent(fin, "server_stopped_externally"' \
@@ -2465,8 +2522,8 @@ control "a profile shows a player online only from a fresh sample" internal/agen
   ./internal/agent '^TestProfileShowsOnlineOnlyFromAFreshSample$'
 control "Discord hears a manual backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
-	return nil' \
-  '	return nil' \
+	s.afterBackup(b)' \
+  '	s.afterBackup(b)' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$/backup$'
 control "Discord hears an automatic backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
@@ -2853,22 +2910,6 @@ control "an import leaves squaremap's folder alone while the map is off" interna
 	}
 	for _, rel := range' \
   ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
-webcontrol() { # NAME FILE FROM TO TEST-FILE
-  local name=$1 file=$2 test=$5
-  ln -sfn "$root/web/node_modules" web/node_modules
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if ! (cd web && npx tsc --noEmit -p . >/dev/null 2>&1); then
-    echo "INVALID  $name: the mutated code does not type-check"
-    bad=1
-  elif (cd web && npx vitest run "${test#web/}" >/tmp/negative-control.out 2>&1); then
-    echo "MISSED   $name: $test still passes without the guard"
-    bad=1
-  else
-    echo "caught   $name: $(grep -m1 -E '^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
-  fi
-  git checkout -q -- "$file"
-  rm web/node_modules
-}
 webcontrol "leaving the page cancels the upload" web/src/components/app/world-import.tsx \
   "window.addEventListener('pagehide', leave)" \
   "window.addEventListener('pageshow', leave)" \
@@ -2896,6 +2937,614 @@ webcontrol "Try again carries on with the upload as the machine last described i
   '          j.upload ??= imp
         },' \
   web/src/pages/new-server.test.tsx
+
+# Wave 7: who may change where backup copies go and hold the recovery key.
+control "an admin needs two-factor on to hold backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin)' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "an admin with two-factor on holds backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner()' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestWaveSevenRoutesFollowTheTeamTable)$'
+control "bringing servers back from copies needs every server" internal/panel/workspace.go \
+  'if act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  'if false && act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestMachineWideActionsNeedEveryServer)$'
+control "changing where copies go is a backup key action" internal/panel/server.go \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies,' \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "the recovery key is a backup key action" internal/panel/server.go \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actRecoveryKey,' \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "restoring from a recovery key is a backup key action" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),' \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actManageMachine),' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "refused recovery key requests are audited" internal/panel/server.go \
+  's.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "refused recoveries from copies are audited" internal/panel/server.go \
+  's.audit(sess.User.Username, "offsite.recover", r.PathValue("mid"), "refused", "not allowed to bring servers back from copies")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "the Disk space page needs every server to look at" internal/panel/server.go \
+  'actView, everyServer(s.machineProxy("GET", "/v1/disk"))},' \
+  'actView, s.machineProxy("GET", "/v1/disk")},' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "the panel never caches the recovery key" internal/panel/automation.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/panel '^TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt$'
+control "the agent never caches the recovery key" internal/agent/offsite.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads name who took them" internal/agent/offsite.go \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if err != nil {' \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if false && err != nil {' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads are audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.recovery_key.downloaded", "server", "succeeded", f.Name)' \
+  '_, _ = actor, f.Name' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+
+# Wave 7 in #15's restore: a restore that isn't over keeps what it may need.
+control "a restore from a copy the agent stops in is left to the next start" internal/agent/offsite.go \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return downloadStopped(s.stopping(), h, err)' \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return err' \
+  ./internal/agent '^TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart$'
+control "the rules keep the rollback archive of a restore that isn't over" internal/agent/backuprules.go \
+  'needed[id] = "restore"' \
+  '_ = id' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "the Disk space page leaves a restore that isn't over alone" internal/agent/disk.go \
+  'l.ActiveStages = append(l.ActiveStages, stage)
+		journals = append(journals, j)' \
+  '_, _ = stage, j' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "a swap journal that can't be read may be any server's" internal/agent/backuprules.go \
+  'return j == nil || j.ServerID == serverID' \
+  'return j != nil && j.ServerID == serverID' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the Disk space page counts every server busy for an unreadable swap journal" internal/agent/disk.go \
+  'return j.concerns(s.id)' \
+  'return j != nil && j.concerns(s.id)' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the World tab keeps the world copies of a restore that isn't over" internal/agent/backups.go \
+  '} else if unsettled {' \
+  '} else if false && unsettled {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
+control "the World tab keeps every server's world copies for an unreadable swap journal" internal/agent/backuprules.go \
+  'if j.concerns(s.id) {' \
+  'if j != nil && j.concerns(s.id) {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
+control "a swap journal whose restore is gone keeps every rollback archive" internal/agent/backuprules.go \
+  'if op != nil {
+			add(op)
+			continue
+		}' \
+  'if j != nil {
+			if op != nil {
+				add(op)
+			}
+			continue
+		}' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+
+# Wave 7: sleeping and waking leave the desired state, the stand-in and the
+# sleep setting agreeing.
+control "a failed wake sleeps again when the server didn't start" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr != nil || false && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_whose_start_fails$'
+control "a failed wake sleeps again when Docker can't say whether the server runs" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr == nil && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_fails_while_Docker_can.t_say_whether_the_server_runs$'
+control "a wake waits for a backup to end" internal/agent/sleeping.go \
+  'ae.Code != api.CodeBusy {' \
+  'ae.Code == api.CodeBusy {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
+control "turning sleep off lets go of the game port when the server can't start" internal/agent/lifecycle.go \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}
+	s.leaveSleep()' \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
+
+# Wave 7 after the real-world restore check: the copies at the old place, the
+# recovery key's folder, who removed a backup here, the first copy, and
+# scheduled backups refused because saving couldn't be paused.
+control "a new place asks before forgetting the copies at the old one" internal/agent/offsite.go \
+  'if len(forgotten) > 0 && !req.ForgetCopies {' \
+  'if false && len(forgotten) > 0 && !req.ForgetCopies {' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "the question counts the backups whose only copy is at the old place" internal/agent/offsite.go \
+  '		if !c.OnHost {
+			n++' \
+  '		if c.OnHost {
+			n++' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "forgetting the copies at the old place is audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))' \
+  '_ = forgotten' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "a recovery key file naming another folder asks to be downloaded again" internal/agent/offsite.go \
+  'if r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  'if false && r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "downloading the recovery key records the folder the file names" internal/agent/offsite.go \
+  's.now().UnixMilli(), f.Folder, s.id)' \
+  's.now().UnixMilli(), "", s.id)' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "looking for copies says the key file's folder isn't there" internal/agent/recover.go \
+  'writeError(w, automationError(keyFileFolder(err, req)))' \
+  'writeError(w, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a restore says the key file's folder isn't there" internal/agent/recover.go \
+  'h, automationError(keyFileFolder(err, req)))' \
+  'h, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a folder the user typed isn't blamed on the key file" internal/agent/recover.go \
+  'strings.TrimSpace(req.Config.SFTP.Folder) != "" || ' \
+  '' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "looking for copies in a missing folder doesn't say to create it" internal/offsite/sftp.go \
+  'if op == opList {' \
+  'if false && op == opList {' \
+  ./internal/offsite '^TestSFTPList$'
+control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
+  'case removedBy == retentionActor:' \
+  'case false:' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "the rules note on a copy that they removed its backup" internal/agent/backuprules.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "deleting a backup by hand is noted on its copy" internal/agent/handlers.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "only the first copy to a place is called the first" internal/agent/offsite.go \
+  'v.FirstCopy = v.LastCopy != nil && r.copiesMade == 1' \
+  'v.FirstCopy = v.LastCopy != nil && v.Copies == 1' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "each finished copy is counted" internal/agent/offsite.go \
+  'copies_made = copies_made + 1 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a new place counts its copies from none" internal/agent/offsite.go \
+  'copies_made = 0 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
+  's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "only backups refused for want of a pause count as refused" internal/agent/schedules.go \
+  'case pauseRefusals[backup.ErrorKind(ae.Code)]:' \
+  'case ae.Code != "":' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a scheduled backup refused while the server starts counts" internal/agent/schedules.go \
+  'case ae.Reason == refusedNotOnline:' \
+  'case false:' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup refused while the server starts says so" internal/agent/backups.go \
+  'e.Reason = refusedNotOnline' \
+  '_ = refusedNotOnline' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "refused scheduled backups in a row count from the first" internal/agent/schedules.go \
+  'r.Since, r.Count = prev.Since, prev.Count+1' \
+  '_ = prev' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal names its operation, so the World tab shows it once" internal/agent/schedules.go \
+  'ScheduleID: scheduleID, OperationID: opID}' \
+  'ScheduleID: scheduleID}' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal keeps the backup's hint" internal/agent/schedules.go \
+  'r.Hint = ae.Hint' \
+  '_ = ae' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup gets a line in the recent activity" internal/agent/schedules.go \
+  's.recordEvent(now, "backup_refused", "", "playkeeper", why)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "the recent activity lists refused scheduled backups" internal/agent/analytics.go \
+  ', "backup_refused": "backup_refused",' \
+  ',' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a server's status carries its refused scheduled backups" internal/agent/automation.go \
+  'st.BackupRefused = s.backupRefusal()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup that succeeds clears the refused scheduled backups" internal/agent/backuprules.go \
+  's.clearBackupRefused()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup sends the backup-failed alert" internal/agent/lifecycle.go \
+  'if kind == "backup" && done.Status == api.OpFailed {' \
+  'if false && kind == "backup" && done.Status == api.OpFailed {' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+
+# Wave 7 after Bugbot's findings on d825c69: a running map pre-generation keeps
+# an empty server awake, and a backup dropped from a full copy queue discards
+# what it left at the destination.
+control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
+  'Busy: s.busy() || s.scheduleWorking(),' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
+control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
+  'return st == pregen.StateRunning' \
+  '_ = st' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused_from_the_console$'
+control "until Chunky reports, a running task keeps the server awake" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return false' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running,_before_Chunky_reports$'
+control "until Chunky reports, a paused task lets the server sleep" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return true' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused,_before_Chunky_reports$'
+control "a finished map pre-generation lets the server sleep" internal/agent/pregen.go \
+  '	if !task.unfinished() {
+		return false
+	}
+	if st, ok := s.pg.lastState(); ok {' \
+  '	if st, ok := s.pg.lastState(); ok {' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^finished$'
+control "a backup dropped from a full copy queue discards what it left at the destination" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  '_ = dropped' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$'
+control "only the dropped backups' unfinished copies are discarded" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  's.discardUploads(append(s.queuedStates(), dropped...))' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$/^S3$'
+
+# Wave 7 after Bugbot's finding on ee0e519: the uploader claims the copy it
+# picks as it picks it, the queue trim leaves the claimed copy alone, and
+# turning copies off between the pick and the upload stops the copy.
+control "the queue trim leaves the copy the uploader claimed alone" internal/agent/offsite.go \
+  'claimed = c.backupID' \
+  '_ = c' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$'
+control "the uploader's claim names the copy it picked" internal/agent/offsite.go \
+  's.auto.claim = &uploadClaim{backupID: j.backupID, cancel: cancel}' \
+  's.auto.claim = &uploadClaim{cancel: cancel}' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^SFTP$'
+control "a claimed copy uploads under the claim's cancel" internal/agent/offsite.go \
+  'cp, err := dest.Upload(job.ctx,' \
+  'cp, err := dest.Upload(ctx,' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+control "turning copies off stops the copy the uploader claimed" internal/agent/offsite.go \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	c := s.auto.claim' \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	var c *uploadClaim' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+
+# Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
+# players exactly while the runner plans it.
+control "every change to a schedule drops its retry, as the planner does" internal/agent/schedules.go \
+  'if sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  'if !onlySwitch && sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  ./internal/agent '^TestAScheduleListsItsRetryOnlyWhileTheRunnerPlansIt$'
+webcontrol "the schedule list promises a retry only while it is the next run" web/src/pages/server/schedules.tsx \
+  'if (!at || !s.nextRun || new Date(s.nextRun).getTime() !== new Date(at).getTime()) return undefined' \
+  'if (!at) return undefined' \
+  web/src/pages/server/schedules.test.tsx 'list a retry the agent no longer plans'
+
+# Wave 7 before Bugbot: a schedule changed from a dashboard in another time
+# zone keeps its moments.
+control "the automatic backups keep their time zone while they keep their time" internal/agent/backuprules.go \
+  '	} else if tz != "" {' \
+  '	}
+	if tz != "" {' \
+  ./internal/agent '^TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime$'
+webcontrol "the schedule dialog keeps the saved time zone while the time and days stay" web/src/pages/server/schedules.tsx \
+  'const kept = existing && opened && opened.often === form.often && opened.at === form.at ? existing.timing : undefined' \
+  'const kept = undefined' \
+  web/src/pages/server/schedules.test.tsx 'every day, in another zone'
+webcontrol "the schedule dialog shows the time on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const here = shownIn(s.timing, timeZone)' \
+  "const here = { at: s.timing.at ?? '', days: s.timing.days }" \
+  web/src/pages/server/schedules.test.tsx 'saves a new time in the viewer'
+webcontrol "the schedule list names the days on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const days = weekdays.filter((d) => here.days?.includes(d))' \
+  'const days = weekdays.filter((d) => timing.days?.includes(d))' \
+  web/src/pages/server/schedules.test.tsx 'days that fall on others'
+
+# Wave 7 before Bugbot: a new key reaches the copy being made and the copies
+# waiting, and stopping a copy for it isn't a failed try.
+control "a new key stops the copy being made" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy,_with_another_backup_waiting$'
+control "a new key starts the uploader again" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.stopUpload()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+control "a copy picked after a new key isn't encrypted to the old one" internal/agent/offsite.go \
+  'if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  'if row, err := s.loadOffsite(); err != nil || false && row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^while_the_next_copy_is_picked$'
+control "a copy stopped for a new key isn't a failed try" internal/agent/offsite.go \
+  's.uploadFailed(job.ctx, b, job, err)' \
+  's.uploadFailed(ctx, b, job, err)' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+
+# Wave 7 before Bugbot: restoring a copy takes as long as the copy takes to
+# come, and every other operation keeps its deadline.
+control "a restore of a copy has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-recover": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_a_copy$'
+control "a restore from a recovery key has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-restore": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_from_a_recovery_key$'
+control "a server's other operations keep their deadline" internal/agent/lifecycle.go \
+  '	if noDeadline[kind] {' \
+  '	if true || noDeadline[kind] {' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_backup$'
+control "machine operations keep their deadline" internal/agent/agent.go \
+  'ctx, cancel := opContext(a.ctx, kind)' \
+  'ctx, cancel := context.WithCancel(a.ctx)' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_machine_operation$'
+
+# Wave 7 before Bugbot: restoring from a recovery key holds no server.
+control "a restore from a recovery key holds no server" internal/agent/agent.go \
+  '	if stagingOps[kind] {' \
+  '	if false && stagingOps[kind] {' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+control "what waits for a restore from a recovery key says what for" internal/agent/lifecycle.go \
+  '	"offsite-recover": "restoring a server from a recovery key",
+' \
+  '' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+
+# Wave 7 before Bugbot: deleting a server asks before it deletes the only key
+# to its copies somewhere else.
+control "a delete that deletes the only key to the copies is refused" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); false && err != nil && !req.ForgetKey {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded$'
+control "a confirmed delete goes ahead without the key" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); err != nil {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded,_and_the_delete_confirmed$'
+control "copies still being made count for the key" internal/agent/automation.go \
+  '	if copies == 0 && !row.enabled {' \
+  '	if copies == 0 {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^copies_on_but_none_made_yet'
+control "a downloaded key lets the delete go ahead" internal/agent/automation.go \
+  'if err != nil || !row.hasKeys || row.keySavedAt != nil {' \
+  'if err != nil || !row.hasKeys {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_downloaded$'
+webcontrol "the delete dialog warns while the recovery key was never downloaded" web/src/pages/server/settings.tsx \
+  'return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)' \
+  'return false' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog waits for the box before deleting without the key" web/src/pages/server/settings.tsx \
+  ": keyRisk && !withoutKey ? t('settings.deleteKeyFirst') : undefined}" \
+  ': undefined}' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog confirms deleting without the key" web/src/pages/server/settings.tsx \
+  "keyRisk && withoutKey ? { confirm: typed.trim(), forgetKey: true } : { confirm: typed.trim() }" \
+  '{ confirm: typed.trim() }' \
+  web/src/pages/server/settings.test.tsx 'refusal when the page didn'
+
+# Wave 7 after Bugbot's finding on d0492a3a: a copy that was made is recorded
+# when the settings can't be read after it.
+control "a made copy is recorded when the settings can't be read after it" internal/agent/offsite.go \
+  'if lerr == nil && (!row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config)) {' \
+  'if lerr != nil || !row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config) {' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings says where it was made" internal/agent/offsite.go \
+  '		row = at
+	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  '	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings is logged" internal/agent/offsite.go \
+  "s.log.Warn(\"the settings for copies somewhere else can't be read; the copy just made is recorded with those it was made with\", \"server\", s.id, \"backup\", b.ID, \"err\", lerr)" \
+  '_ = lerr' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_keys_can't_be_read_once_it_is_made$"
+
+# Wave 7 after Bugbot's finding on d0492a3a: saving the settings for copies
+# never puts an old encryption key back.
+control "saving the settings for copies never writes the keys" internal/agent/offsite.go \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli())' \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at, keys = ?`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli(), encodeKeys(r.keys))' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^a_save_of_the_settings_racing_a_new_key$'
+control "the first keys are stored only while there are none" internal/agent/offsite.go \
+  "UPDATE offsite SET keys = ? WHERE server_id = ? AND keys = ''" \
+  'UPDATE offsite SET keys = ? WHERE server_id = ?' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^first_keys_stored_while_another_request_stored_its_own$'
+
+# Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
+# keeps an empty server awake, and with the allowlist off anyone who isn't
+# banned wakes a sleeping server by joining.
+control "a scheduled restart's countdown keeps an empty server awake" internal/agent/sleeping.go \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
+  'Busy: s.busy() || s.pregenRunning(),' \
+  ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
+control "a restart schedule counts as working while it counts down" internal/agent/schedules.go \
+  'return ok && (act.Job.Schedule.Kind == schedule.KindRestart || act.Job.Schedule.Kind == schedule.KindBackup)' \
+  'return ok && act.Job.Schedule.Kind == schedule.KindBackup' \
+  ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
+control "with the allowlist off, anyone who isn't banned wakes a sleeping server" internal/agent/sleeping.go \
+  'if allowlistOff(readProperties(s.dataDir())) {' \
+  'if false && allowlistOff(readProperties(s.dataDir())) {' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_off$'
+control "a banned player doesn't wake a server whose allowlist is off" internal/agent/sleeping.go \
+  'if strings.EqualFold(name, player) {' \
+  'if false && strings.EqualFold(name, player) {' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_off$'
+control "white-list=true turns the allowlist on in any case" internal/agent/sleeping.go \
+  '!strings.EqualFold(props["white-list"], "true")' \
+  'props["white-list"] != "true"' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_on,_in_capitals$'
+control "a server.properties that can't be read keeps the allowlist rule" internal/agent/sleeping.go \
+  'return props != nil && !strings.EqualFold' \
+  'return !strings.EqualFold' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^no_server.properties$'
+
+# Wave 7: the sleep operation looks again right before it stops the server,
+# and saving the sleep setting takes the operation lock.
+control "a sleep decided with another setting is called off" internal/agent/sleeping.go \
+  's.desired() != api.DesiredRunning || s.sleepSettings() != set' \
+  's.desired() != api.DesiredRunning' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$'
+control "a sleep is called off when someone joined since it decided" internal/agent/sleeping.go \
+  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
+  'if false {' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined_as_it_looks_again$'
+# The same lock refuses turning sleep off during a backup; that test can't be
+# the control, because the start begun without the lock hangs its cleanup.
+control "saving the sleep setting takes the operation lock" internal/agent/sleeping.go \
+  'release, ok := s.holdOpLock()
+	if !ok {
+		return nil, s.busyError()' \
+  'release, ok := func() {}, true
+	if !ok {
+		return nil, s.busyError()' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^sleep_turned_off_while_it_runs$'
+
+# Wave 7: a staging folder that can't be read may hold any server's swap
+# journal, so each caller keeps what a restore may need and says why.
+control "a staging folder that can't be read may hold any server's swap journal" internal/agent/backuprules.go \
+  'if err != nil && !errors.Is(err, fs.ErrNotExist) {' \
+  'if err != nil && !errors.Is(err, fs.ErrNotExist) && false {' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$'
+control "the rules keep every rollback archive while the staging folder can't be read" internal/agent/backuprules.go \
+  'swaps = map[string]*swapJournal{"": nil}' \
+  'swaps = nil' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^backup_rules$'
+control "the Disk space page counts every server busy while the staging folder can't be read" internal/agent/disk.go \
+  '		journals = append(journals, nil)
+' \
+  '' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
+control "the Disk space page says the staging folder can't be read" internal/agent/disk.go \
+  'diskusage.Problem{Code: diskusage.CodeRestoresUnknown' \
+  'diskusage.Problem{Code: "other"' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
+control "the World tab keeps every world copy while the staging folder can't be read" internal/agent/backuprules.go \
+  'if err != nil {
+		return true, err
+	}' \
+  'if err != nil {
+		return false, nil
+	}' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^World_tab$'
+control "the World tab says the staging folder can't be read" internal/agent/backups.go \
+  'if unsettled, err := s.restoreUnsettled(); err != nil {' \
+  'if unsettled, err := s.restoreUnsettled(); err != nil && false {' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^World_tab$'
+
+# Wave 7, from the bug hunt: failed starts and wakes leave nothing answering
+# for a server that isn't asleep, bans hold with the allowlist on, every
+# operation has a busy label, and unreadable backup rules delete nothing.
+control "a failed start closes the stand-in" internal/agent/lifecycle.go \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}
+	s.leaveSleep()' \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}' \
+  ./internal/agent '^TestAFailedStartLeavesNothingAnsweringForTheServer$'
+control "a sleeping server started outside Playkeeper lets go of the stand-in" internal/agent/sleeping.go \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.leaveSleep()
+		return' \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.endSleepPeriod(s.now().UTC(), "")
+		return' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^started_outside_Playkeeper$'
+control "pruning leaves the copies alone while one is being downloaded" internal/agent/offsite.go \
+  '	if !s.copyReads.TryLock() {
+		s.log.Info("a copy is being downloaded, so the backup rules delete copies after the next one", "server", s.id)
+		return
+	}
+	defer s.copyReads.Unlock()
+' \
+  '' \
+  ./internal/agent '^TestPruningLeavesACopyThatIsBeingDownloaded$/^a_restore_is_downloading_it$'
+control "a restore from a copy holds the copy downloads' lock" internal/agent/offsite.go \
+  '	s.copyReads.RLock()
+	got, err := dest.Download(ctx, dl)
+	s.copyReads.RUnlock()' \
+  '	got, err := dest.Download(ctx, dl)' \
+  ./internal/agent '^TestPruningLeavesACopyThatIsBeingDownloaded$/^a_restore_is_downloading_it$'
+control "a join's wake waits for the operation however long it runs" internal/agent/sleeping.go \
+  '	for {
+		if s.ctx.Err() != nil || s.desired() != api.DesiredSleeping {
+			return
+		}
+		_, err := s.beginOp("wake"' \
+  '	giveUp := time.Now().Add(wakeRetry)
+	for {
+		if s.ctx.Err() != nil || s.desired() != api.DesiredSleeping || time.Now().After(giveUp) {
+			return
+		}
+		_, err := s.beginOp("wake"' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup_that_outlasts_its_retries$'
+control "one join's wake waits at a time" internal/agent/sleeping.go \
+  '	if s.auto.wakePending {' \
+  '	if false && s.auto.wakePending {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup_that_outlasts_its_retries$'
+control "a wake whose start stopped the server leaves it stopped" internal/agent/sleeping.go \
+  'if d := s.desired(); d != api.DesiredRunning && d != api.DesiredSleeping {
+				s.leaveSleep()' \
+  'if d := s.desired(); false && d != api.DesiredRunning && d != api.DesiredSleeping {
+				s.leaveSleep()' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_finds_the_server_software_changed$'
+control "a banned player doesn't wake a server whose allowlist is on" internal/agent/sleeping.go \
+  'if strings.EqualFold(name, player) {' \
+  'if false && strings.EqualFold(name, player) {' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_on,_banned_though_listed_or_an_operator$'
+control "restoring from a recovery key has a busy label" internal/agent/lifecycle.go \
+  '"offsite-recover": "restoring a server from a recovery key",' \
+  '' \
+  ./internal/agent '^TestEveryOperationHasABusyLabel$'
+control "backup rules that can't be read are an error, not the defaults" internal/agent/backuprules.go \
+  'SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw); err != nil {' \
+  'SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw); false && err != nil {' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_rules_can.t_be_read$'
+control "saved backup rules that don't parse are an error" internal/agent/backuprules.go \
+  'return retention.Settings{}, nil, false, fmt.Errorf("the saved backup rules are not valid: %w", err)' \
+  'return retention.DefaultSettings(), time.UTC, false, nil' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^rules_that_don.t_parse$'
+control "a copy queue that can't be read is an error" internal/agent/backuprules.go \
+  'return nil, fmt.Errorf("the copy queue could not be read: %w", err)
+	}
+	defer rows.Close()' \
+  'return map[string]bool{}, nil
+	}
+	defer rows.Close()' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_copy_queue_can.t_be_read$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -90,6 +90,10 @@ type ServerStatus struct {
 	// SoftwareChanged is set when the server's software no longer matches
 	// what Playkeeper installed, so it was not started.
 	SoftwareChanged *SoftwareChange `json:"softwareChanged,omitempty"`
+	// Wave 7 (0.4.0): sleep when nobody's playing, and the scheduled backups
+	// refused since the last backup that succeeded.
+	Sleep         *SleepStatus   `json:"sleep,omitempty"`
+	BackupRefused *BackupRefusal `json:"backupRefused,omitempty"`
 }
 
 // FileRefusal is a file in the server's folder that Playkeeper would not
@@ -191,6 +195,9 @@ type Machine struct {
 	UpdateAvailable  string `json:"updateAvailable,omitempty"`
 	UpdateInstalling string `json:"updateInstalling,omitempty"`
 	Servers          int    `json:"servers"`
+	// Wave 7 (0.4.0): SleepingMemoryMB is the part of ServersMemoryMB that
+	// sleeping servers gave back for now.
+	SleepingMemoryMB int `json:"sleepingMemoryMB"`
 }
 
 // UpdateInfo is what Playkeeper knows about its own updates.
@@ -369,6 +376,11 @@ type SettingsResponse struct {
 type DeleteServerRequest struct {
 	Confirm string `json:"confirm"`
 	Actor   string `json:"actor"`
+	// ForgetKey confirms deleting the server, and its recovery key with
+	// it, while copies only that key opens are kept somewhere else and it
+	// was never downloaded, as the refusal with reason
+	// recovery_key_not_saved asked.
+	ForgetKey bool `json:"forgetKey,omitempty"`
 }
 
 type OperatorEntry struct {
@@ -417,6 +429,8 @@ const (
 	OpRunning   = "running"
 	OpSucceeded = "succeeded"
 	OpFailed    = "failed"
+	// OpCancelled is an operation stopped on request before it changed anything.
+	OpCancelled = "cancelled"
 )
 
 type CatalogEntry struct {
@@ -717,7 +731,7 @@ type Event struct {
 type Backup struct {
 	ID          string     `json:"id"`
 	ServerID    string     `json:"serverId"`
-	Kind        string     `json:"kind"` // manual | rollback
+	Kind        string     `json:"kind"` // manual | scheduled | rollback
 	CreatedAt   time.Time  `json:"createdAt"`
 	FileName    string     `json:"fileName"`
 	SizeBytes   int64      `json:"sizeBytes"`
@@ -1293,6 +1307,11 @@ type Error struct {
 	// Params carries the values a translated message needs, such as
 	// retryAfterSeconds.
 	Params map[string]any `json:"params,omitempty"`
+	// Wave 7 (0.4.0): Field is the form field at fault and Reason a stable
+	// code for the problem, with its values in Params, so the dashboard can
+	// show its own translation next to the field.
+	Field  string `json:"field,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 const (

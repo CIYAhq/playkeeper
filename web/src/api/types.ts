@@ -12,6 +12,8 @@ export type Phase =
   | 'stopping'
   | 'crashed'
   | 'docker_unavailable'
+  // Wave 7: stopped because nobody played; the first join wakes it.
+  | 'asleep'
 
 export interface PlayerSnapshot {
   online: number
@@ -87,7 +89,7 @@ export interface Operation {
   id: string
   serverId?: string
   kind: string
-  status: 'running' | 'succeeded' | 'failed'
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled'
   phase: string
   actor: string
   startedAt: string
@@ -100,7 +102,7 @@ export interface Operation {
 export interface Backup {
   id: string
   serverId: string
-  kind: 'manual' | 'rollback'
+  kind: 'manual' | 'scheduled' | 'rollback'
   createdAt: string
   fileName: string
   sizeBytes: number
@@ -140,7 +142,7 @@ export interface ServerStatus {
   createdAt: string
   machineId?: string
   exists: boolean
-  desired: 'running' | 'stopped'
+  desired: 'running' | 'stopped' | 'sleeping'
   phase: Phase
   phaseDetail?: string
   reachable: boolean
@@ -175,6 +177,10 @@ export interface ServerStatus {
   crash?: Crash
   /** Set when the server's software no longer matches what Playkeeper installed. */
   softwareChanged?: SoftwareChange
+  // Wave 7: sleep when nobody's playing.
+  sleep?: SleepStatus
+  /** The scheduled backups refused since the last backup that succeeded. */
+  backupRefused?: BackupRefusal
 }
 
 /** A file in the server's folder that Playkeeper would not follow or change. */
@@ -355,6 +361,8 @@ export interface Machine {
   updateAvailable?: string
   updateInstalling?: string
   servers: number
+  /** Wave 7: the part of serversMemoryMB that sleeping servers gave back for now. */
+  sleepingMemoryMB?: number
 }
 
 export interface ApiErrorBody {
@@ -364,6 +372,9 @@ export interface ApiErrorBody {
   operation?: Operation
   /** Values a translated message needs, such as retryAfterSeconds. */
   params?: Record<string, unknown>
+  // Wave 7: the form field at fault and a stable reason code, with its values in params.
+  field?: string
+  reason?: string
 }
 
 /** A machine the panel manages, with what its agent reports now. */
@@ -579,6 +590,11 @@ export type ActivityKind =
   | 'settings'
   // Wave 5: someone joined the team with a team invite; detail is their role.
   | 'team_joined'
+  // Wave 7
+  | 'fell_asleep'
+  | 'woke_up'
+  // A scheduled backup refused because world saving couldn't be paused; detail is why.
+  | 'backup_refused'
 
 export interface Activity {
   ts: string
@@ -1461,6 +1477,9 @@ export type Action =
   | 'team.manage'
   | 'machine.manage'
   | 'audit.view'
+  | 'backups.copies.manage'
+  | 'backups.recovery_key'
+  | 'backups.recover'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
@@ -1879,4 +1898,362 @@ export interface WorldImportPreview {
   versionId: string
   keepsOriginal: boolean
   memoryMB?: number
+}
+
+// --- Wave 7 (0.4.0): schedules, sleep, backup rules, copies somewhere else, disk space ---
+
+export interface SleepStatus {
+  enabled: boolean
+  idleMinutes: number
+  asleepSince?: string
+  listening: boolean
+  sleepAt?: string
+}
+
+/**
+ * Scheduled backups never stop a running server, so a run is refused when
+ * world saving can't be paused. `kind` is why the last one was: a backup
+ * error's kind, or `not_online` while the server was starting or stopping.
+ */
+export interface BackupRefusal {
+  at: string
+  since: string
+  count: number
+  kind: string
+  error: string
+  hint?: string
+  scheduleId?: string
+  operationId?: string
+}
+
+export interface SleepView extends SleepStatus {
+  defaultIdleMinutes: number
+  minIdleMinutes: number
+  maxIdleMinutes: number
+  today: { count: number; seconds: number }
+}
+
+export type ScheduleKind = 'restart' | 'backup' | 'announcement' | 'command'
+export type TimingKind = 'daily' | 'weekly' | 'interval' | 'once' | 'cron'
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+export interface ScheduleTiming {
+  kind: TimingKind
+  timeZone: string
+  at?: string
+  days?: Weekday[]
+  everyHours?: number
+  date?: string
+  cron?: string
+  graceMinutes?: number
+}
+
+export interface SchedulePayload {
+  warnSeconds?: number[]
+  message?: string
+  ifEmpty?: '' | 'skip' | 'now'
+  command?: string
+  note?: string
+  skipIfPlaying?: boolean
+  onlyIfPlayed?: boolean
+}
+
+export type RunResult = 'running' | 'succeeded' | 'failed' | 'skipped' | 'missed'
+
+export interface ScheduleLastRun {
+  due: string
+  started?: string
+  finished?: string
+  result: RunResult
+  reason?: string
+  detail?: string
+  operationId?: string
+  players?: number
+  retryAt?: string
+}
+
+export interface Schedule {
+  id: string
+  serverId: string
+  name?: string
+  kind: ScheduleKind
+  timing: ScheduleTiming
+  payload: SchedulePayload
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+  updatedBy: string
+  lastRun?: ScheduleLastRun
+  nextRun?: string
+  summary: string
+}
+
+export interface SchedulesResponse {
+  schedules: Schedule[]
+  current?: { scheduleId: string; kind: ScheduleKind; due: string; restartAt?: string }
+}
+
+export interface SchedulePreview {
+  valid: boolean
+  nextRuns: string[]
+  summary?: string
+  error?: ApiErrorBody
+}
+
+export interface ScheduleRun {
+  scheduleId: string
+  kind: ScheduleKind
+  due: string
+  startedAt?: string
+  finishedAt?: string
+  result: RunResult
+  reason?: string
+  detail?: string
+  operationId?: string
+  players?: number
+  backup?: { id: string; sizeBytes: number; verified: boolean; downtimeMs: number }
+}
+
+export interface RetentionRules {
+  keepAll?: boolean
+  hours?: number
+  last?: number
+  daily?: number
+  weekly?: number
+  monthly?: number
+}
+
+export interface RetentionSettings {
+  onHost: RetentionRules
+  offSite: RetentionRules
+  includeManual?: boolean
+  deleteOnlyCopies?: boolean
+}
+
+/** A plain English sentence with a stable code and its values. */
+export interface RetentionText {
+  code: string
+  params?: Record<string, string>
+  text: string
+}
+
+export type RetentionRule = 'keep_all' | 'hours' | 'last' | 'daily' | 'weekly' | 'monthly' | 'manual'
+
+export interface RetentionEstimate {
+  where: 'on-host' | 'off-site'
+  rows: { rule: RetentionRule; n: number; count: number; upTo: boolean; text: RetentionText }[]
+  /** The most backups kept at once; -1 when every backup is kept. */
+  count: number
+  bytes: number
+  summary: RetentionText
+}
+
+export interface AutomaticBackups {
+  enabled: boolean
+  everyHours: number
+  onlyIfPlayed: boolean
+  scheduleId?: string
+  nextRun?: string
+}
+
+export interface BackupRulesView {
+  automatic: AutomaticBackups
+  rules: RetentionSettings
+  custom: boolean
+  describe: RetentionText[]
+  onHost: RetentionEstimate
+  offSite: RetentionEstimate
+  limits: Record<'hours' | 'last' | 'daily' | 'weekly' | 'monthly', number>
+}
+
+export interface OffsiteProvider {
+  id: string
+  name: string
+  endpoint: string
+  region: string
+  pathStyle: boolean
+  hint: string
+}
+
+export interface OffsiteS3 {
+  provider: string
+  endpoint: string
+  region: string
+  bucket: string
+  prefix: string
+  accessKeyId: string
+  pathStyle: boolean
+  secretKeySet?: boolean
+}
+
+export interface OffsiteSFTP {
+  host: string
+  port: number
+  user: string
+  folder: string
+  hostKey?: string
+  auth?: 'key' | 'password'
+  passwordSet?: boolean
+  hostKeyType?: string
+  hostKeyFingerprint?: string
+}
+
+export interface OffsiteCopy {
+  backupId: string
+  kind: string
+  createdAt: string
+  fileName: string
+  name: string
+  sizeBytes: number
+  copySizeBytes: number
+  minecraftVersion: string
+  levelName: string
+  copiedAt: string
+  checked: string
+  onHost: boolean
+  /** The backup's SHA-256, as recorded when it was copied. */
+  sha256?: string
+  /** Why the last check found the copy missing or damaged. */
+  checkError?: string
+  /** Who removed the backup from this machine, once only the copy is left, if known. */
+  removed?: 'rules' | 'person'
+  /** The person's name, when a person removed it. */
+  removedBy?: string
+}
+
+export interface OffsitePending {
+  backupId: string
+  fileName: string
+  uploading: boolean
+  sent: number
+  total: number
+  bytesPerSec?: number
+  attempts: number
+  nextAttempt?: string
+  error?: string
+  hint?: string
+  errorKind?: string
+  params?: Record<string, string>
+  backupCreatedAt?: string
+}
+
+export interface OffsiteView {
+  enabled: boolean
+  configured: boolean
+  type: '' | 's3' | 'sftp'
+  place: string
+  s3?: OffsiteS3
+  sftp?: OffsiteSFTP
+  sshKey?: { publicKey: string; authorizedKey: string; fingerprint: string }
+  key?: {
+    recipient: string
+    createdAt: string
+    oldKeys: number
+    savedAt?: string
+    fileName: string
+    /** The folder a file downloaded now names, if any. */
+    folder?: string
+    /** Copies went to another folder since the file was downloaded. */
+    stale?: boolean
+    /** The folder the downloaded file names, when stale. */
+    savedFolder?: string
+  }
+  lastCopy?: OffsiteCopy
+  /** lastCopy is the first copy made to this place. */
+  firstCopy?: boolean
+  copies: number
+  copiesBytes: number
+  pending?: OffsitePending
+  queued: number
+  providers: OffsiteProvider[]
+}
+
+export interface OffsiteCheck {
+  step: string
+  ok: boolean
+  msg: string
+  hint?: string
+  kind?: string
+  params?: Record<string, string>
+}
+
+export interface OffsiteTestResult {
+  ok: boolean
+  checks: OffsiteCheck[]
+  skew: number
+  hostKey?: { key: string; type: string; fingerprint: string }
+  warning?: string
+}
+
+export interface OffsiteNewKey {
+  rotation: { recipient: string; oldRecipient: string; oldKeys: number; code: string; msg: string; hint: string }
+  offsite: OffsiteView
+}
+
+/** A server's copies, as a new machine finds them with its recovery key file. */
+export interface RecoverView {
+  server: string
+  keys: number
+  madeAt?: string
+  place: string
+  copies: { name: string; sizeBytes: number; createdAt: string }[]
+}
+
+export type DiskGroup = 'backups' | 'worlds' | 'server_files' | 'logs' | 'other' | 'free'
+export type DiskWayID = 'old_backups' | 'old_logs' | 'old_crash_reports' | 'unused_software' | 'downloads' | 'set_aside' | 'unfinished'
+
+export interface DiskCandidate {
+  id: string
+  serverId?: string
+  kind: string
+  reason: string
+  risk: string
+  path: string
+  backupId?: string
+  bytes: number
+  files: number
+  modifiedAt: string
+  params?: Record<string, string>
+  text: string
+}
+
+export interface DiskWay {
+  id: DiskWayID
+  action: 'review' | 'delete' | 'clear'
+  bytes: number
+  candidateIds: string[]
+  serverIds?: string[]
+  everyServer?: boolean
+  versions?: { software: string; version: string; build?: string }[]
+  params?: Record<string, string>
+  title: string
+  text: string
+}
+
+export interface DiskUsage {
+  bytes: number
+  files: number
+}
+
+export interface DiskServer {
+  id: string
+  name: string
+  total: DiskUsage
+  kinds: (DiskUsage & { kind: string })[]
+  groups: { group: DiskGroup; bytes: number }[]
+}
+
+export interface DiskReport {
+  scannedAt: string
+  disk: { dir: string; total: number; free: number; used: number; bar: { group: DiskGroup; bytes: number }[] } | null
+  servers: DiskServer[]
+  machine: (DiskUsage & { kind: string })[]
+  total: DiskUsage
+  candidates: DiskCandidate[]
+  ways: DiskWay[]
+  freeable: number
+  truncated: boolean
+  problems?: { code: string; path: string; text: string }[]
+  moreProblems?: number
 }

@@ -7,41 +7,25 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/CIYAhq/playkeeper/internal/api/apitest"
+	"github.com/CIYAhq/playkeeper/internal/backup/retention"
 	"github.com/CIYAhq/playkeeper/internal/certs"
+	"github.com/CIYAhq/playkeeper/internal/diskusage"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/names"
+	"github.com/CIYAhq/playkeeper/internal/offsite"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/twofactor"
 	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
 
 const webSrc = "../../web/src"
-
-func jsonNames(t reflect.Type) map[string]bool {
-	names := map[string]bool{}
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		switch {
-		case f.Anonymous && name == "" && f.Type.Kind() == reflect.Struct:
-			for n := range jsonNames(f.Type) {
-				names[n] = true
-			}
-		case !f.IsExported() || name == "-":
-		case name == "":
-			names[f.Name] = true
-		default:
-			names[name] = true
-		}
-	}
-	return names
-}
 
 // A field the dashboard declares that the API never sends is always
 // undefined in the browser.
@@ -50,6 +34,9 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The agent's own types, and those of packages that import this one, are
+	// checked by TestTheDashboardDeclaresOnlyFieldsTheAgentSends in
+	// internal/agent.
 	sent := map[string]any{
 		"Activity": Activity{}, "AuditEntry": AuditEntry{}, "Backup": Backup{}, "Catalog": Catalog{}, "CatalogEntry": CatalogEntry{},
 		"DailyActivity": DailyActivity{}, "FirstSteps": FirstSteps{}, "Gameplay": Gameplay{}, "Gap": Gap{}, "LogLine": LogLine{},
@@ -83,36 +70,49 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"MapInfo": MapInfo{}, "MapProgress": MapProgress{}, "PublicMap": PublicMap{}, "WorldImport": WorldImport{}, "WorldImportFile": WorldImportFile{},
 		"WorldImportPreview": WorldImportPreview{}, "WorldImportVersion": WorldImportVersion{}, "ImportMessage": worldimport.Message{},
 		"ImportLevel": worldimport.Level{}, "ImportWorld": worldimport.World{}, "ImportPreview": worldimport.Preview{},
+		"SleepStatus": SleepStatus{}, "BackupRefusal": BackupRefusal{}, "RetentionEstimate": retention.Estimate{}, "RetentionRules": retention.Rules{},
+		"RetentionSettings": retention.Settings{}, "RetentionText": retention.Text{}, "OffsiteCheck": offsite.Check{}, "OffsiteProvider": offsite.Provider{},
+		"OffsiteTestResult": offsite.TestResult{}, "DiskCandidate": diskusage.Candidate{}, "DiskReport": diskusage.Report{},
+		"DiskServer": diskusage.ServerUsage{}, "DiskUsage": diskusage.Usage{}, "DiskWay": diskusage.Way{},
 	}
 	addedByPanel := map[string]bool{"ServerStatus.machineId": true, "AuditEntry.source": true}
 	CheckDashboardFields(t, string(src), sent, addedByPanel)
 }
 
-// CheckDashboardFields checks that each field of the interfaces of
-// web/src/api/types.ts named in sent is a JSON field of the Go value sent
-// has for it, or listed in addedByPanel as "Interface.field". It is also
-// used by the external test for types whose packages import this one.
+// CheckDashboardFields reports each field of web/src/api/types.ts that
+// apitest.Undeclared finds the API doesn't send. It is also used by the
+// external test for types whose packages import this one.
 func CheckDashboardFields(t *testing.T, src string, sent map[string]any, addedByPanel map[string]bool) {
 	t.Helper()
-	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)
-	// An interface may be declared more than once: TypeScript merges the
-	// declarations, and each one's fields are checked.
-	found := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?ms)^export interface (\w+)(?: extends [\w, ]+)? \{\n(.*?)^\}`).FindAllStringSubmatch(string(src), -1) {
-		v, ok := sent[m[1]]
-		if !ok {
-			continue
-		}
-		found[m[1]] = true
-		names := jsonNames(reflect.TypeOf(v))
-		for _, f := range field.FindAllStringSubmatch(m[2], -1) {
-			if !names[f[1]] && !addedByPanel[m[1]+"."+f[1]] {
-				t.Errorf("web/src/api/types.ts: %s.%s is not a JSON field of %s", m[1], f[1], reflect.TypeOf(v))
-			}
-		}
+	for _, p := range apitest.Undeclared(src, sent, addedByPanel) {
+		t.Error(p)
 	}
-	if len(found) != len(sent) {
-		t.Fatalf("found %d of the %d interfaces in web/src/api/types.ts", len(found), len(sent))
+}
+
+// The dashboard shows an operation by its status, so it must know each one
+// the API sends, a cancelled operation too.
+func TestTheDashboardKnowsEveryOperationStatus(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(webSrc, "api", "types.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := regexp.MustCompile(`(?ms)^export interface Operation \{\n(.*?)^\}`).FindSubmatch(src)
+	if op == nil {
+		t.Fatal("web/src/api/types.ts has no interface Operation")
+	}
+	status := regexp.MustCompile(`(?m)^  status: (.*)$`).FindSubmatch(op[1])
+	if status == nil {
+		t.Fatal("web/src/api/types.ts: Operation has no status")
+	}
+	var declared []string
+	for _, m := range regexp.MustCompile(`'(\w+)'`).FindAllSubmatch(status[1], -1) {
+		declared = append(declared, string(m[1]))
+	}
+	sent := []string{OpRunning, OpSucceeded, OpFailed, OpCancelled}
+	slices.Sort(declared)
+	slices.Sort(sent)
+	if !slices.Equal(declared, sent) {
+		t.Errorf("web/src/api/types.ts: Operation.status is %s, but the API sends %q", status[1], sent)
 	}
 }
 
@@ -120,7 +120,8 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
 	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
-		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed}
+		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed,
+		diskusage.CodeDiskSpace, diskusage.CodeRestoresUnknown, retention.CodeEstimateOff}
 	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName} {
 		sent = append(sent, string(k))
 	}

@@ -60,8 +60,13 @@ describe('router', () => {
       { name: 'server', slug: 'survival', tab: 'world', sub: 'pregen' },
       { name: 'server', slug: 'survival', tab: 'world', sub: 'packs' },
       { name: 'server', slug: 'survival', tab: 'overview', page: 'running' },
+      { name: 'server', slug: 'survival', tab: 'world', sub: 'backup-rules' },
+      { name: 'server', slug: 'survival', tab: 'world', sub: 'backup-copies' },
+      { name: 'server', slug: 'survival', tab: 'settings', sub: 'schedules' },
       { name: 'machine', id: 'm2345abcde' },
       { name: 'machine-settings', id: 'm2345abcde' },
+      { name: 'machine', id: 'm2345abcde', sub: 'disk' },
+      { name: 'recover' },
       { name: 'settings' },
       { name: 'account' },
       { name: 'account', section: 'two-factor' },
@@ -79,9 +84,12 @@ describe('router', () => {
     expect(parse('/servers/survival/overview/pregen')).toEqual({ name: 'home' })
     expect(parse('/servers/survival/world/pregen/more')).toEqual({ name: 'home' })
     expect(parse('/servers/survival/running/more')).toEqual({ name: 'home' })
+    expect(parse('/servers/survival/world/backup-rules/copies')).toEqual({ name: 'server', slug: 'survival', tab: 'world', sub: 'backup-copies' })
+    expect(parse('/servers/survival/world/schedules')).toEqual({ name: 'home' })
     expect(parse('/servers/Bad Slug')).toEqual({ name: 'home' })
     expect(parse('/account/nope')).toEqual({ name: 'account' })
     expect(parse('/machines/m2345abcde/settings/more')).toEqual({ name: 'home' })
+    expect(parse('/machines/m2345abcde/disk/more')).toEqual({ name: 'home' })
     expect(parse('/machines/m2345abcde/nope')).toEqual({ name: 'home' })
     expect(parse('/whatever')).toEqual({ name: 'home' })
   })

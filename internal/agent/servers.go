@@ -58,6 +58,7 @@ type server struct {
 	opLock chan struct{}
 	opMu   sync.Mutex
 	op     *api.Operation
+	opH    *opHandle
 	// savingLock is held by an online backup while it may pause world saving
 	// and by whatever sends save-on to end a pause, so a save-on can't land in
 	// the middle of a backup's copy. Unlike opLock it refuses no one.
@@ -118,6 +119,9 @@ type server struct {
 	// than Paper), also under mu.
 	softwareChanged *api.SoftwareChange
 	manifest        *software.Manifest
+
+	// Wave 7 (0.4.0): schedules, sleep and copies somewhere else.
+	auto automation
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -241,6 +245,7 @@ func (s *server) startLoops() {
 			fn(s.ctx)
 		}()
 	}
+	s.startAutomation()
 }
 
 func newServerID() string {
@@ -594,6 +599,9 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 		}
 	}
 	if _, err := tx.Exec(`DELETE FROM maps WHERE server_id = ?`, s.id); err != nil {
+		return err
+	}
+	if err := s.forgetAutomation(tx); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
