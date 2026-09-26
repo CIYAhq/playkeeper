@@ -2298,6 +2298,16 @@ control "a server's state change reaches the live status message within seconds"
   'case states != n.shownStates:' \
   'case false && states != n.shownStates:' \
   ./internal/discord '^TestStateChangesReachTheStatusMessageWithinSeconds$'
+control "a failed let in declines a request whose link was turned off meanwhile" internal/panel/friends.go \
+  'SELECT EXISTS (SELECT 1 FROM invites WHERE id = ? AND revoked_at = 0)' \
+  'SELECT EXISTS (SELECT 1 FROM invites WHERE id = ?)' \
+  ./internal/panel '^TestAFailedApprovePutsBackOnlyTheRequestItLeft$'
+control "a failed let in puts back only a request still as it left it" internal/panel/friends.go \
+  'address = ?
+				WHERE id = ? AND state = '"'"'approved'"'"' AND decided_at = ? AND decided_by = ?' \
+  'address = ?
+				WHERE id = ?' \
+  ./internal/panel '^TestAFailedApprovePutsBackOnlyTheRequestItLeft$'
 control "the burst guard on live status updates" internal/discord/notifier.go \
   'due = later(due, later(n.statusAt.Add(n.gap), n.burstEnds()))' \
   'due = later(due, n.statusAt.Add(n.gap))' \

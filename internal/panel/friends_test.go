@@ -149,6 +149,31 @@ func codeBody(code string, fields ...string) string {
 	return b + "}"
 }
 
+// beforeAgentReply runs f while the panel waits for the agent's answer to
+// method path.
+func (e *env) beforeAgentReply(method, path string, f func()) {
+	e.agent.mu.Lock()
+	defer e.agent.mu.Unlock()
+	e.agent.before[method+" "+path] = f
+}
+
+// doAside is do for a goroutine other than the test's: it gives the status,
+// or 0 when the request didn't go through.
+func (e *env) doAside(method, path, body string, hdr map[string]string) int {
+	req, _ := http.NewRequest(method, e.ts.URL+path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", e.ts.URL)
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	r, err := e.ts.Client().Do(req)
+	if err != nil {
+		return 0
+	}
+	r.Body.Close()
+	return r.StatusCode
+}
+
 func (e *env) hitCount(key string) int {
 	n := 0
 	for _, h := range e.agentHits() {
@@ -363,6 +388,78 @@ func TestJoinRequestsWaitForAYes(t *testing.T) {
 	}
 	if strings.Contains(e.log.String(), code) {
 		t.Fatal("the invite code is in the log")
+	}
+}
+
+// A "Let in" the agent couldn't carry out puts the request back only as the
+// approve left it. When its link was turned off meanwhile, by a revoke or by
+// removing the member who made it, or the request was decided another way,
+// it stays decided, and the friend can't be let in through the dead link.
+func TestAFailedApprovePutsBackOnlyTheRequestItLeft(t *testing.T) {
+	whitelist := "/v1/servers/" + sampleServer + "/whitelist"
+	for _, c := range []struct {
+		name string
+		// meanwhile runs while the panel waits for the agent to add the
+		// friend, and gives the status of what it did.
+		meanwhile func(e joinEnv, own, mod member, inviteID, requestID string) int
+		want      string
+	}{
+		{name: "nothing else happens", want: "pending"},
+		{name: "the link is turned off", want: "declined", meanwhile: func(e joinEnv, own, _ member, inviteID, _ string) int {
+			return e.doAside("DELETE", "/api/servers/"+sampleServer+"/invites/"+inviteID, "", own.auth())
+		}},
+		{name: "the member who made the link is removed", want: "declined", meanwhile: func(e joinEnv, own, mod member, _, _ string) int {
+			return e.doAside("DELETE", mod.path(), "", own.auth())
+		}},
+		{name: "the request is decided another way", want: "declined", meanwhile: func(e joinEnv, _, _ member, _, requestID string) int {
+			if _, err := e.srv.db.Exec(`UPDATE join_requests SET state = 'declined' WHERE id = ?`, requestID); err != nil {
+				return 0
+			}
+			return http.StatusOK
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newJoinEnv(t)
+			own := owner(t, e.env)
+			mod := addMember(t, e.env, "mo", invites.RoleModerator, sampleServer)
+			inviteID, code := friendInvite(t, e.env, mod, `{"label":"Crew","expiry":"30d","maxUses":3,"approval":"after_yes"}`)
+			if r := e.public(t, "redeem", codeBody(code, "name", "PixelPia")); r.status != 200 || r.body["waiting"] != true {
+				t.Fatalf("asking to join: %d %v", r.status, r.body)
+			}
+			var reqs []requestView
+			if st := e.get(t, "/api/servers/"+sampleServer+"/join-requests", own.cookie, &reqs); st != 200 || len(reqs) != 1 {
+				t.Fatalf("the request: %d %+v", st, reqs)
+			}
+			id := reqs[0].Request.ID
+			e.replyStatus("POST", whitelist, http.StatusInternalServerError, `{"error":"Docker is not responding."}`)
+			var meanwhile atomic.Int32
+			if c.meanwhile != nil {
+				e.beforeAgentReply("POST", whitelist, func() { meanwhile.Store(int32(c.meanwhile(e, own, mod, inviteID, id))) })
+			}
+			approve := "/api/servers/" + sampleServer + "/join-requests/" + id + "/approve"
+			if r := e.do(t, "POST", approve, `{}`, own.auth()); r.status < 500 {
+				t.Fatalf("let in, with the agent failing: %d %v", r.status, r.body)
+			}
+			if st := meanwhile.Load(); c.meanwhile != nil && (st < 200 || st > 299) {
+				t.Fatalf("what happened meanwhile failed: %d", st)
+			}
+			var state string
+			if err := e.srv.db.QueryRow(`SELECT state FROM join_requests WHERE id = ?`, id).Scan(&state); err != nil {
+				t.Fatal(err)
+			}
+			if state != c.want {
+				t.Fatalf("after the failed let in, the request is %s, want %s", state, c.want)
+			}
+			if c.want == "pending" {
+				return
+			}
+			if r := e.do(t, "POST", approve, `{}`, own.auth()); r.status != http.StatusConflict || r.body["code"] != invites.CodeRequestDecided {
+				t.Fatalf("letting the friend in afterwards: %d %v", r.status, r.body)
+			}
+			if n := e.hitCount("POST " + whitelist); n != 1 {
+				t.Fatalf("the agent was asked to add the friend %d times, want the one that failed", n)
+			}
+		})
 	}
 }
 

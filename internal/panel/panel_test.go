@@ -46,6 +46,9 @@ type fakeAgent struct {
 	// statuses are the replies' HTTP statuses by "METHOD /path"; others
 	// are 200.
 	statuses map[string]int
+	// before run, by "METHOD /path", ahead of the reply: a test's way to act
+	// while the panel waits for the agent.
+	before map[string]func()
 }
 
 type agentRequest struct {
@@ -61,7 +64,7 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}}
+	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, before: map[string]func(){}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var body map[string]any
@@ -75,7 +78,11 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 		fa.reqs = append(fa.reqs, agentRequest{r.Method, r.URL.Path, r.URL.Query(), body})
 		reply, ok := fa.replies[key]
 		status := fa.statuses[key]
+		hook := fa.before[key]
 		fa.mu.Unlock()
+		if hook != nil {
+			hook()
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if !ok {
 			reply = `{"ok":true}`
