@@ -2306,6 +2306,18 @@ control "deleting a backup by hand is noted on its copy" internal/agent/handlers
   's.noteRemoved(b.ID, actor)' \
   '' \
   ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "only the first copy to a place is called the first" internal/agent/offsite.go \
+  'v.FirstCopy = v.LastCopy != nil && r.copiesMade == 1' \
+  'v.FirstCopy = v.LastCopy != nil && v.Copies == 1' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "each finished copy is counted" internal/agent/offsite.go \
+  'copies_made = copies_made + 1 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a new place counts its copies from none" internal/agent/offsite.go \
+  'copies_made = 0 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

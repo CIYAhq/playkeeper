@@ -233,6 +233,43 @@ func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
 	}
 }
 
+// The card calls the last copy the first only when it's the first made to
+// the place copies go to, not whenever one copy is recorded.
+func TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst(t *testing.T) {
+	e, _, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	view := func() map[string]any {
+		t.Helper()
+		_, out := e.call("GET", e.sp("/offsite"), nil)
+		return out
+	}
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != true {
+		t.Fatalf("after the first copy: %v", v)
+	}
+	rules := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"last": 1}, "includeManual": true}
+	if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+		t.Fatalf("rules: %d %v", code, out)
+	}
+	second := e.backup()
+	e.waitFor("the rules to keep only the second copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies`) == 1 && e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != nil {
+		t.Fatalf("one copy left of two: %v", v)
+	}
+
+	// A new place gets the newest backup straight away.
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds-2", "accessKeyId": "PKEXAMPLE"}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "forgetCopies": true}); code != http.StatusOK || out["firstCopy"] != nil {
+		t.Fatalf("another bucket: %d %v", code, out)
+	}
+	e.waitFor("the first copy in the other bucket", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != true {
+		t.Fatalf("after the first copy to another bucket: %v", v)
+	}
+}
+
 func (e *agentEnv) staged() []string {
 	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
 	var names []string

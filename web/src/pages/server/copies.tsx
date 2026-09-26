@@ -670,7 +670,7 @@ function CopyStatus({ state, v, c, machine, onChangeRules, phone }: { state: Cop
     case 'idle': {
       const last = v.lastCopy
       if (!last) return <p className="text-xs text-muted-foreground">{t('offsite.noCopyYet')}</p>
-      const line = t(v.copies === 1 ? 'offsite.firstCopy' : 'offsite.lastCopy', { when: whenPhrase(last.copiedAt), size: formatBytes(last.sizeBytes) })
+      const line = t(v.firstCopy ? 'offsite.firstCopy' : 'offsite.lastCopy', { when: whenPhrase(last.copiedAt), size: formatBytes(last.sizeBytes) })
       return <p className={cn('font-medium text-success-foreground', phone ? 'text-[15px]' : 'text-xs')}>{last.checked ? `${line} · ${t('offsite.checked')}` : line}</p>
     }
     case 'copying': {

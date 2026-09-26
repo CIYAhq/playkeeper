@@ -131,6 +131,7 @@ type offsiteRow struct {
 	// keySavedFolder is the folder the downloaded recovery key file names,
 	// nil when not known.
 	keySavedFolder *string
+	copiesMade     int // to the place copies go to now
 }
 
 func (r offsiteRow) configured() bool { return r.cfg.Type != "" }
@@ -157,8 +158,8 @@ func (s *server) loadOffsite() (offsiteRow, error) {
 	var config, keys string
 	var saved sql.NullInt64
 	var savedFolder sql.NullString
-	err := s.db.QueryRow(`SELECT enabled, config, secret, password, private_key, ssh_public, keys, key_saved_at, key_saved_folder FROM offsite WHERE server_id = ?`, s.id).
-		Scan(&enabled, &config, &r.secret, &r.password, &r.privateKey, &r.sshPublic, &keys, &saved, &savedFolder)
+	err := s.db.QueryRow(`SELECT enabled, config, secret, password, private_key, ssh_public, keys, key_saved_at, key_saved_folder, copies_made FROM offsite WHERE server_id = ?`, s.id).
+		Scan(&enabled, &config, &r.secret, &r.password, &r.privateKey, &r.sshPublic, &keys, &saved, &savedFolder, &r.copiesMade)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, nil
 	}
@@ -481,6 +482,7 @@ type offsiteView struct {
 	SSHKey      *sshKeyView        `json:"sshKey,omitempty"`
 	Key         *keyView           `json:"key,omitempty"`
 	LastCopy    *offsiteCopy       `json:"lastCopy,omitempty"`
+	FirstCopy   bool               `json:"firstCopy,omitempty"` // LastCopy is the first made to this place
 	Copies      int                `json:"copies"`
 	CopiesBytes int64              `json:"copiesBytes"`
 	Pending     *pendingView       `json:"pending,omitempty"`
@@ -521,6 +523,7 @@ func (s *server) offsiteView(r offsiteRow) offsiteView {
 			v.LastCopy = &copies[i]
 		}
 	}
+	v.FirstCopy = v.LastCopy != nil && r.copiesMade == 1
 	v.Pending, v.Queued = s.pendingUpload()
 	return v
 }
@@ -850,6 +853,8 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 		// The recorded copies stay where they were; the rules no longer
 		// reach them from here.
 		_, _ = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ?`, s.id)
+		_, _ = s.db.Exec(`UPDATE offsite SET copies_made = 0 WHERE server_id = ?`, s.id)
+		next.copiesMade = 0
 		if len(forgotten) > 0 {
 			s.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))
 		}
@@ -1678,6 +1683,7 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 		s.log.Warn("a finished copy could not be recorded", "server", s.id, "backup", b.ID, "err", err)
 		return
 	}
+	_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
 	s.dropUpload(b.ID)
 	s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+offsitePlace(row.cfg.Config))
 	s.pruneOffsite(ctx, dest)

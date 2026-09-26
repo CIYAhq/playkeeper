@@ -399,4 +399,9 @@ ALTER TABLE offsite ADD COLUMN key_saved_folder TEXT;
 	`
 ALTER TABLE offsite_copies ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
 `,
+	// Wave 7 (0.4.0): how many copies were made to the place copies go to
+	// now, so the card calls only the first one the first.
+	`
+ALTER TABLE offsite ADD COLUMN copies_made INTEGER NOT NULL DEFAULT 0;
+`,
 }

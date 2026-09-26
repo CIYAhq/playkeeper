@@ -2136,6 +2136,8 @@ export interface OffsiteView {
     savedFolder?: string
   }
   lastCopy?: OffsiteCopy
+  /** lastCopy is the first copy made to this place. */
+  firstCopy?: boolean
   copies: number
   copiesBytes: number
   pending?: OffsitePending

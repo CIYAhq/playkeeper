@@ -2295,6 +2295,18 @@ describe('Copies somewhere else', () => {
     })
   })
 
+  it('calls the last copy the first only when it is', async () => {
+    const last: OffsiteCopy = { backupId: 'b9', kind: 'scheduled', createdAt: '2026-09-24T10:50:00Z', fileName: 'b9.tar.gz', name: 'b9.tar.gz.age', sizeBytes: 4.5 * 2 ** 20, copySizeBytes: 4.6 * 2 ** 20, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: '2026-09-24T10:50:00Z', checked: 'sha256', onHost: true }
+    const pruned: OffsiteView = { ...sftp, enabled: true, copies: 1, lastCopy: last }
+    answer({ '/offsite': pruned })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(page()).toContain('Last copy:')
+    expect(page()).not.toContain('First copy:')
+    answer({ '/offsite': { ...pruned, firstCopy: true } })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(page()).toContain('First copy:')
+  })
+
   describe('the recovery key file after copies go to another folder', () => {
     const key = { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt', folder: 'backups/survival' }
     const on: OffsiteView = { ...sftp, enabled: true, key }
