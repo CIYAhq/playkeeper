@@ -108,6 +108,7 @@ interface Crawl {
 function fakedCrawls(live: string[], phone: boolean): Crawl[] {
   const first = live.find((r) => /^\/servers\/(?!new$)[^/]+$/.test(r))
   const plugins = live.find((r) => /^\/servers\/[^/]+\/plugins$/.test(r))
+  const map = live.find((r) => /^\/servers\/[^/]+\/map$/.test(r))
   const byView: [View, string[]][] = [
     ['stopped', first ? ['/', first, `${first}/console`, `${first}/settings`] : []],
     ['crashed', first ? ['/', first] : []],
@@ -118,6 +119,9 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['update available', phone ? ['/settings', '/more'] : ['/settings']],
     ['in use', [...(plugins ? [plugins] : []), ...(first ? [`${first}/world`, `${first}/world/packs`, `${first}/world/pregen`] : [])]],
     ['paused', first ? [`${first}/world/pregen`] : []],
+    ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord']],
+    ['map on', map ? [map] : []],
+    ['map restart', map ? [map] : []],
   ]
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }
@@ -162,6 +166,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/world/packs (in use)': 6,
     '/servers/*/world/pregen (in use)': 2,
     '/servers/*/world/pregen (paused)': 1,
+    '/servers/*/players (friends and team)': 5,
+    '/settings/team (friends and team)': 10,
+    '/settings/discord (friends and team)': 5,
+    '/servers/*/map (map on)': 6,
     '/ (stopped)': 3,
     '/servers/* (stopped)': 1,
     '/servers/*/console (stopped)': 3,
@@ -199,6 +207,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/world/packs (in use)': 6,
     '/servers/*/world/pregen (in use)': 2,
     '/servers/*/world/pregen (paused)': 1,
+    '/servers/*/players (friends and team)': 5,
+    '/settings/team (friends and team)': 10,
+    '/settings/discord (friends and team)': 5,
+    '/servers/*/map (map on)': 6,
     '/ (stopped)': 1,
     '/servers/* (stopped)': 2,
     '/servers/*/console (stopped)': 3,
@@ -259,6 +271,15 @@ const places: Place[] = [
   { what: 'pausing pre-generation', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Pause"/ },
   { what: 'resuming pre-generation', sizes: ['desktop', 'phone'], view: 'paused', key: /^button "Resume"/ },
   { what: 'starting pre-generation (the phone’s action bar)', sizes: ['phone'], key: /^button "Start"$/ },
+  { what: 'letting a friend in from a join request', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^button "Let in"$/ },
+  { what: 'turning off a friend link', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^menuitem "Turn off" in menu ""$/ },
+  { what: 'turning off an unused team invite', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^(menuitem|button) "Turn off link"/ },
+  { what: 'saving a team member’s role and servers', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^button "Save" in dialog "alex’s role and servers"/ },
+  { what: 'Discord’s test message', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^button "Send test message"/ },
+  { what: 'sharing the map with a link', sizes: ['desktop', 'phone'], view: 'map on', key: /^switch "Share with a link"/ },
+  { what: 'another world on the map', sizes: ['desktop', 'phone'], view: 'map on', key: /^button "Nether" in group "Worlds"$/ },
+  { what: 'a player’s marker on the map', sizes: ['desktop', 'phone'], view: 'map on', key: /^button "Show Pixel_Pia on the map"$/ },
+  { what: 'the restart that starts the map', sizes: ['desktop', 'phone'], view: 'map restart', key: /^button "Restart now" in "One restart/ },
 ]
 
 /** Views crawled signed out, with a crawler of their own. */

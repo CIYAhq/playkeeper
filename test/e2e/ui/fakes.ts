@@ -784,10 +784,12 @@ const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous',
  * update to; a panel that still needs its admin account; a server that's
  * been in use (plugins with an update, a changed file, one added by hand and
  * one gone, data packs, a resource pack and the map being pre-generated); or
- * its pre-generation paused while people play; or, signed out, an account
- * with two-factor sign-in, whose right password leads to the second step.
+ * its pre-generation paused while people play; friends invited to it, one
+ * waiting for a yes, a team and Discord connected; its map being drawn and
+ * shared, or waiting for a restart to start; or, signed out, an account with
+ * two-factor sign-in, whose right password leads to the second step.
  */
-export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'first run' | 'in use' | 'paused' | 'second step'
+export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'first run' | 'in use' | 'paused' | 'friends and team' | 'map on' | 'map restart' | 'second step'
 
 type Json = Record<string, unknown>
 
@@ -813,6 +815,9 @@ function server(view: View, s: Json): Json {
     case 'first run':
     case 'in use':
     case 'paused':
+    case 'friends and team':
+    case 'map on':
+    case 'map restart':
     case 'second step':
       return s
     default: {
@@ -933,9 +938,76 @@ function secondStep(body: unknown): Reply {
   return { status: 200, body: { secondFactor: { methods: ['app_code', 'recovery_code'], appCodesBlocked: false }, user: { username }, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() } }
 }
 
+const later = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString()
+
+/** A friend link on the Players tab. Ids and codes have the panel's shapes, so the fakes of turning one off accept them. */
+function friendLink(serverId: string, id: string, label: string, code: string, over: Json = {}): Json {
+  return { id, kind: 'player', projectId: 'default', serverId, approval: 'right_away', label, createdBy: 1, createdAt: ago(2 * 86_400), expiresAt: later(5 * 86_400), maxUses: 5, uses: 2, usesLeft: 3, status: 'active', path: `/join/${code}`, ...over }
+}
+
+/** Wave 5's reads in the 'friends and team' view: links friends joined by, one waiting for a yes, a team of three with an unused invite, and Discord connected. */
+function friendsRead(path: string, body: Json): unknown {
+  const links = /^\/api\/servers\/(\w+)\/invites$/.exec(path)
+  if (links?.[1]) {
+    const id = links[1]
+    return {
+      ...body,
+      invites: [
+        friendLink(id, 'fridaycrew', 'Friday crew', 'Fk7Friday0Crew0Link0Ab'),
+        friendLink(id, 'weekendfun', 'Weekend crew', 'Fk7Weekend0Crew0Link0A', { approval: 'after_yes', maxUses: 0, uses: 1, usesLeft: undefined, expiresAt: undefined }),
+        friendLink(id, 'kickstarts', 'Launch night', 'Fk7Launch0Night0Link0A', { status: 'used_up', uses: 5, usesLeft: 0, path: undefined }),
+      ],
+    }
+  }
+  const asking = /^\/api\/servers\/(\w+)\/join-requests$/.exec(path)
+  if (asking?.[1]) {
+    const request = { id: 'pixpiawait', inviteId: 'weekendfun', serverId: asking[1], playerName: 'Pixel_Pia', playerUuid: '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f', state: 'pending', createdAt: ago(120) }
+    return [{ request, notice: { title: { key: 'joinRequest.title', params: { player: 'Pixel_Pia' }, text: 'Pixel_Pia wants to join' }, detail: { key: 'joinRequest.detail', params: { link: 'Weekend crew' }, text: 'Through the link “Weekend crew”, 2 min ago' } } }]
+  }
+  if (path === '/api/team') {
+    const all = (body.servers ?? []) as { id: string }[]
+    const members = [
+      ...((body.members ?? []) as Json[]),
+      { id: 7, username: 'alex', owner: false, you: false, role: 'moderator', servers: { servers: all.slice(0, 1).map((x) => x.id) }, twoFactor: false, addedAt: ago(9 * 86_400), canEdit: true },
+      { id: 8, username: 'sam', owner: false, you: false, role: 'viewer', servers: { all: true }, twoFactor: true, addedAt: ago(20 * 86_400), canEdit: true },
+    ]
+    const invite = { id: 'jamiejumps', kind: 'member', projectId: 'default', role: 'moderator', servers: { all: true }, label: 'Jamie', createdBy: 1, createdAt: ago(3600), expiresAt: later(6 * 86_400), maxUses: 1, uses: 0, usesLeft: 1, status: 'active', canEdit: true }
+    return { ...body, members, invites: [invite] }
+  }
+  if (path === '/api/discord') {
+    const kinds = (body.kinds ?? []) as string[]
+    return { ...body, connected: true, webhookName: 'Playkeeper alerts', connectedAt: ago(3 * 86_400), alerts: kinds.filter((k) => k !== 'player_joined' && k !== 'player_left'), liveStatus: true, delivery: { sent: ago(3600) } }
+  }
+  return undefined
+}
+
+/** Wave 6's map in the 'map on' view (drawn, shared, with a player out exploring) or the 'map restart' view (installed, waiting for a restart). */
+function mapRead(view: 'map on' | 'map restart', body: Json): Json {
+  const on = { ...body, supported: true, enabled: true, missing: false, hint: undefined, restartWhenEmpty: false }
+  if (view === 'map restart') return { ...on, state: 'needs_restart', message: 'The map starts drawing when Survival restarts.', progress: undefined, public: false, publicPlayers: false, path: '' }
+  return { ...on, state: 'ready', message: 'The map is up to date', progress: undefined, areas: 4800, bytes: 190_000_000, lastDrawn: ago(10 * 60), public: true, publicPlayers: true, path: '/map/Fk3dEf6hIj9lMn2pQr5tUv', link: undefined }
+}
+
+/** The map's worlds, players and tiles in the 'map on' view, which the real panel refuses while its map is off. */
+function mapAnswer(path: string): Reply | undefined {
+  if (/^\/api\/servers\/\w+\/map\/worlds$/.test(path)) {
+    const world = (name: string, dimension: string, label: string) => ({ name, dimension, label, spawn: { x: 0, z: 0 }, zoom: { max: 3, default: 2, extra: 1 }, refreshSeconds: 60 })
+    return { status: 200, body: { worlds: [world('world', 'overworld', 'Overworld'), world('world_nether', 'nether', 'Nether'), world('world_the_end', 'end', 'The End')], tileSize: 256 } }
+  }
+  if (/^\/api\/servers\/\w+\/map\/players$/.test(path)) {
+    // Far from spawn, so finding them moves the map onto tiles it hasn't loaded.
+    return { status: 200, body: { players: [{ name: 'Pixel_Pia', uuid: '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f', world: 'world', dimension: 'overworld', x: 3200, z: -2100, place: { kind: 'exploring', text: 'Exploring' } }], updatedAt: new Date().toISOString() } }
+  }
+  // Nothing is drawn yet: a tile nobody has explored is a 404 the map leaves blank.
+  if (/^\/api\/servers\/\w+\/map\/tiles\//.test(path)) return { status: 404, body: { error: 'Not drawn yet.', code: 'not_found' }, expected: true }
+  return undefined
+}
+
 /** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
 function lay(view: View, path: string, body: unknown, host: string): unknown {
   if (view === 'live' || body === undefined) return undefined
+  if ((view === 'map on' || view === 'map restart') && /^\/api\/servers\/\w+\/map$/.test(path)) return mapRead(view, body as Json)
+  if (view === 'friends and team') return friendsRead(path, body as Json)
   if ((view === 'in use' || view === 'paused') && /^\/api\/servers\/\w+\/pregen$/.test(path)) return pregenIn(view, body as Json)
   if (view === 'in use') return inUseRead(path, body as Json, host)
   if (view === 'first run') return path === '/api/setup/status' ? { needsSetup: true } : undefined
@@ -1034,9 +1106,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     // Planning changes nothing, so the real panel answers.
     const planning = method === 'POST' && plans.some((re) => re.test(path))
     if (method === 'GET' || method === 'HEAD' || planning) {
-      const made = view() === 'in use' ? inUseAnswer(method, path, planning ? request.postDataJSON() : undefined) : undefined
+      const made = view() === 'in use' ? inUseAnswer(method, path, planning ? request.postDataJSON() : undefined) : view() === 'map on' && method === 'GET' ? mapAnswer(path) : undefined
       if (made) {
-        calls.push({ method, path, status: made.status, faked: true, at })
+        calls.push({ method, path, status: made.status, faked: true, expected: made.expected, at })
         await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
         return
       }
@@ -1084,6 +1156,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
         if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
+        if (path === '/api/discord') state.discord = laid as Record<string, unknown>
+        const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
+        if (laidMap?.[1]) state.maps.set(laidMap[1], laid as Record<string, unknown>)
         await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
       }
