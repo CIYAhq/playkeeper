@@ -155,15 +155,13 @@ webcontrol "a start or backup refused for a missing world folder goes once the w
   "if (op.detail?.errorKind === 'never') return !s.worldMissing" \
   web/src/pages/pages.test.tsx 'once the world is back'
 webcontrol "a backup that just failed never hides a world copy's Discard" web/src/pages/server/world.tsx \
-  "  return (
-    <>
-      <RestoreUnsettledNotice server={s} className={className} />
-      {failed?.kind === 'backup' && dismissed !== failed.id && <FailedJobNotice" \
-  "  if (failed?.kind === 'backup' && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />
+  "  const failed = failedJob(s)
   return (
-    <>
-      <RestoreUnsettledNotice server={s} className={className} />
-      {failed?.kind === 'backup' && dismissed !== failed.id && <FailedJobNotice" \
+" \
+  "  const failed = failedJob(s)
+  if (failed?.kind === 'backup' && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />
+  return (
+" \
   web/src/pages/pages.test.tsx 'Discard under a backup'
 webcontrol "Start says it waits for the missing world folder" web/src/lib/phase.ts \
   "if (st.worldMissing) return t('reason.worldMissing')" \
