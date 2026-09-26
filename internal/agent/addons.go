@@ -652,6 +652,11 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 			d = other
 		}
 	}
+	if d.Notice != nil {
+		// The library names a newest version with a notice only when it's a
+		// pre-release, which installs and updates here never take.
+		d.Latest, d.Notes = nil, ""
+	}
 	out := api.AddonDetails{Card: apiCard(d.Card, installed), Latest: apiVersion(d.Latest), Notes: d.Notes}
 	if d.Notice != nil {
 		n := apiNotice(*d.Notice)

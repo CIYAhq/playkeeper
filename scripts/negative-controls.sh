@@ -565,6 +565,14 @@ control "add-on updates: only the confirmed plan is carried out" internal/agent/
   'Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress' \
   'Changed: req.Changed, OnProgress: progress' \
   ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "add-on details: a pre-release is never offered to install or update to" internal/agent/addons.go \
+  'd.Latest, d.Notes = nil, ""' \
+  'd.Notes = ""' \
+  ./internal/agent '^TestAddonDetailsOfferNoPrerelease$'
+control "add-on notices: only pre-releases doesn't say to allow them" internal/agent/addons.go \
+  'hint = onlyPrereleaseHint' \
+  'hint = n.Hint' \
+  ./internal/agent '^TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo$'
 control "add-on plans: the order Hangar lists dependencies in does not change the plan" internal/addons/resolve.go \
   'c.deps = append(c.deps, dd)
 	}

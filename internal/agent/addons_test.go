@@ -34,6 +34,43 @@ func TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo(t *testing.T) {
 	}
 }
 
+// An add-on with only pre-releases for the server's Minecraft version offers
+// no version to install or update to, whether or not it's installed.
+func TestAddonDetailsOfferNoPrerelease(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	e.addIdleServer()
+	onlyPrerelease := func(what string, d api.AddonDetails) {
+		t.Helper()
+		if d.Latest != nil || d.Notes != "" || d.UpdateAvailable || d.Plan != nil || d.PlanError != nil ||
+			d.Notice == nil || d.Notice.Kind != string(addons.KindOnlyPrerelease) || d.Notice.Hint != onlyPrereleaseHint {
+			t.Fatalf("%s: %+v, want no version offered and the only-pre-release notice", what, d)
+		}
+	}
+
+	f.addProject(&fakeProject{id: "fastnois", slug: "fast-noise", title: "Fast Noise", summary: "Faster terrain noise.", downloads: 1000})
+	f.publish("fastnois", "fn-b1", "1.1.0-beta.5", time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC))
+	f.change("fn-b1", func(v *fakeVersion) { v.channel = "beta" })
+	var d api.AddonDetails
+	e.decode("GET", e.sp("/addons/project/modrinth/fastnois"), &d)
+	onlyPrerelease("not installed", d)
+
+	name, data := f.jar("chunky-v1")
+	writeTestFile(t, filepath.Join(e.dataDir(), "plugins", name), data, time.Time{})
+	if code, out := e.call("POST", e.sp("/addons/adopt"), map[string]any{"fileName": name, "actor": "admin"}); code != 200 {
+		t.Fatalf("adopting Chunky: %d %v", code, out)
+	}
+	f.change("chunky-v1", func(v *fakeVersion) { v.unlisted = true })
+	f.publish("fALzjamp", "chunky-b2", "1.5.0-beta", time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC))
+	f.change("chunky-b2", func(v *fakeVersion) { v.channel = "beta" })
+	d = api.AddonDetails{}
+	e.decode("GET", e.sp("/addons/project/modrinth/fALzjamp"), &d)
+	if d.Installed == nil || d.Installed.VersionNumber != "1.4.40" {
+		t.Fatalf("Chunky after adopting it: %+v", d)
+	}
+	onlyPrerelease("installed", d)
+}
+
 // withSources restarts the agent with an add-on library that reaches only
 // the fake sources.
 func (e *agentEnv) withSources() *fakeSources {
