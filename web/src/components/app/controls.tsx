@@ -22,7 +22,8 @@ export function useIsPhone(): boolean {
 
 /**
  * A select: a popup list on desktop, a bottom sheet with large rows on
- * phones. Each option can carry a second line.
+ * phones. Each option can carry a second line. Like Button, a
+ * `disabledReason` disables it and says why.
  */
 export function ChoiceSelect<T extends string>({
   value,
@@ -30,7 +31,8 @@ export function ChoiceSelect<T extends string>({
   options,
   label,
   className,
-  disabled,
+  disabled: disabledProp,
+  disabledReason,
   id,
 }: {
   value: T
@@ -39,11 +41,13 @@ export function ChoiceSelect<T extends string>({
   label: string
   className?: string
   disabled?: boolean
+  disabledReason?: string
   id?: string
 }) {
   const phone = useIsPhone()
   const [open, setOpen] = useState(false)
   const current = options.find((o) => o.value === value)
+  const disabled = !!disabledProp || !!disabledReason
   if (phone) {
     return (
       <>
@@ -51,10 +55,11 @@ export function ChoiceSelect<T extends string>({
           type="button"
           id={id}
           disabled={disabled}
+          title={disabledReason}
           aria-label={label}
           aria-haspopup="dialog"
           onClick={() => setOpen(true)}
-          className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-[15px] text-foreground disabled:opacity-60', className)}
+          className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-[15px] text-foreground disabled:opacity-60', disabledReason && 'disabled:cursor-not-allowed', className)}
         >
           <span className="truncate">{current?.label}</span>
           <ChevronsUpDownIcon className="size-4 opacity-70" aria-hidden="true" />
@@ -93,7 +98,7 @@ export function ChoiceSelect<T extends string>({
   }
   return (
     <Select value={value} onValueChange={(v) => v !== null && onChange(v as T)} items={options.map((o) => ({ value: o.value, label: o.label }))} disabled={disabled}>
-      <SelectTrigger id={id} aria-label={label} className={cn('w-auto min-w-48', className)}>
+      <SelectTrigger id={id} aria-label={label} title={disabledReason} className={cn('w-auto min-w-48', disabledReason && 'data-disabled:pointer-events-auto data-disabled:cursor-not-allowed', className)}>
         <SelectValue />
       </SelectTrigger>
       <SelectPopup alignItemWithTrigger={false}>
@@ -145,20 +150,25 @@ export function ChoiceCard<T extends string>({ value, disabled, reason, classNam
   )
 }
 
-/** A small segmented control on a muted track. */
-export function Segmented<T extends string>({ value, onChange, options, label, className }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string }) {
+/** A small segmented control on a muted track; a `disabledReason` disables it and says why. */
+export function Segmented<T extends string>({ value, onChange, options, label, className, disabledReason }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string; disabledReason?: string }) {
   return (
     <ToggleGroup
       value={[value]}
       onValueChange={(v) => v[0] && onChange(v[0] as T)}
       aria-label={label}
+      disabled={!!disabledReason}
       className={cn('gap-0.5 rounded-[9px] bg-muted p-0.5', className)}
     >
       {options.map((o) => (
         <ToggleGroupItem
           key={o.value}
           value={o.value}
-          className="h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline"
+          title={disabledReason}
+          className={cn(
+            'h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline',
+            disabledReason && 'disabled:pointer-events-auto disabled:cursor-not-allowed',
+          )}
         >
           {o.label}
         </ToggleGroupItem>
