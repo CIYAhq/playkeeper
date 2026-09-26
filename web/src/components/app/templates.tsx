@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { CopyIcon, DownloadIcon, FileIcon, FileUpIcon, LinkIcon, RefreshCwIcon, Share2Icon } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { planTemplate, useTemplateExport } from '@/api/templates'
@@ -7,6 +7,7 @@ import { errorText } from '@/api/workspace'
 import { Emblem, GameIcon, TypeLogo } from '@/components/app/art'
 import { copyText, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard } from '@/components/app/controls'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -40,13 +41,17 @@ function download(name: string, text: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+/** A part of the template to include. A row that can't be changed says why in its detail line, which describes its checkbox. */
 function IncludedRow({ label, detail, checked, disabled, onChange }: { label: string; detail: ReactNode; checked: boolean; disabled?: boolean; onChange?: (v: boolean) => void }) {
+  const detailId = useId()
   return (
     <label className={cn('flex items-start gap-3 py-1.5', !disabled && 'cursor-pointer')}>
-      <Checkbox checked={checked} disabled={disabled} onCheckedChange={(c) => onChange?.(c === true)} className="mt-0.5" />
+      <Checkbox checked={checked} disabled={disabled} aria-describedby={disabled ? detailId : undefined} onCheckedChange={(c) => onChange?.(c === true)} className="mt-0.5" />
       <span className="min-w-0">
         <span className="block text-sm font-semibold">{label}</span>
-        <span className="block text-xs text-muted-foreground">{detail}</span>
+        <span id={detailId} className="block text-xs text-muted-foreground">
+          {detail}
+        </span>
       </span>
     </label>
   )
@@ -97,7 +102,8 @@ export function TemplateDialog({ server, open, onOpenChange }: { server: ServerS
               {exp.error}
             </Notice>
           ) : !x || !all ? (
-            <div className="flex flex-col gap-3" aria-busy="true">
+            <div className="flex flex-col gap-3">
+              <LoadingLabel />
               <Skeleton className="h-4 w-28" />
               {[0, 1, 2].map((i) => (
                 <Skeleton key={i} className="h-9 rounded-lg" />
@@ -106,7 +112,7 @@ export function TemplateDialog({ server, open, onOpenChange }: { server: ServerS
               <Skeleton className="mt-2 h-9 rounded-lg" />
             </div>
           ) : (
-            <>
+            <div className="flex animate-fade flex-col gap-5">
               <section>
                 <h3 className="text-[13px] font-semibold">{t('template.included')}</h3>
                 <div className="mt-1.5">
@@ -155,13 +161,13 @@ export function TemplateDialog({ server, open, onOpenChange }: { server: ServerS
                 )}
                 <p className="mt-1.5 text-xs text-muted-foreground">{t('template.namesOnly')}</p>
                 {long && (
-                  <div className="mt-3" role="status">
+                  <div className="mt-3 animate-enter" role="status">
                     <p className="text-[13px] font-semibold text-warning-foreground">{x.link ? t('template.longLink', { count: x.link.length }) : t('template.noLink')}</p>
                     <p className="text-xs text-muted-foreground">{t('template.sendFile')}</p>
                   </div>
                 )}
               </section>
-            </>
+            </div>
           )}
           <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
             {x ? (
@@ -284,7 +290,8 @@ export function TemplatePicker({
 
   if (busy) {
     return (
-      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4" aria-busy="true">
+      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
+        <LoadingLabel label={t('template.reading')} />
         <div className="flex items-center gap-3">
           <Skeleton className="size-10 rounded-lg" />
           <div className="flex flex-1 flex-col gap-1.5">
@@ -295,7 +302,6 @@ export function TemplatePicker({
         {[0, 1, 2, 3].map((i) => (
           <Skeleton key={i} className="h-9 rounded-lg" />
         ))}
-        <span className="sr-only">{t('template.reading')}</span>
       </div>
     )
   }
@@ -319,7 +325,7 @@ export function TemplatePicker({
             setOver(false)
             void take(e.dataTransfer.files[0])
           }}
-          className={cn('flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 py-8 text-center transition-colors', over && 'border-primary bg-selected')}
+          className={cn('flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 py-8 text-center transition-colors duration-(--motion-fast) ease-standard', over && 'border-primary bg-selected')}
         >
           <FileUpIcon className="size-5 text-primary" aria-hidden="true" />
           <p className="mt-3 text-sm font-semibold">{t('template.drop')}</p>
@@ -344,7 +350,7 @@ export function TemplatePicker({
   const names = c.addons.map((a) => a.name)
   const summary = settingsSummary(c.settings)
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex animate-enter flex-col gap-3">
       {problem && (
         <Notice tone="warning" title={problem}>
           {t('template.checkAgain')}

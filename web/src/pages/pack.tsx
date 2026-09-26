@@ -7,6 +7,7 @@ import { CopyButton, Marker } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
 import { loaderLabel } from '@/components/app/modpacks'
 import { CopyIconButton } from '@/components/app/pack-share'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
@@ -14,7 +15,6 @@ import { formatBytes } from '@/lib/format'
 import { pageRows, shareText, siteLabel, yourselfLink, yourselfReason } from '@/lib/packs'
 import { cn } from '@/lib/utils'
 
-const enter = 'animate-in fade-in-0 duration-200 ease-out'
 
 /**
  * The public friends' pack page at /packs/<token>. It needs no sign-in and
@@ -89,7 +89,7 @@ function SharedPack({ page, token }: { page: PackPageData; token: string }) {
   )
   return (
     <PackFrame header={header}>
-      <div className={cn('mx-auto flex w-full max-w-[760px] flex-col gap-4 max-sm:gap-3', enter)}>
+      <div className="mx-auto flex w-full max-w-[760px] animate-page flex-col gap-4 max-sm:gap-3">
         <div>
           <h1 className="text-[28px] leading-9 font-bold tracking-[-0.02em] max-sm:text-[22px] max-sm:leading-7">{t('packPage.title', { server: page.server })}</h1>
           <p className="mt-1 text-[15px] text-muted-foreground">{t('packPage.lead', { notice: shareText(page.notice) })}</p>
@@ -247,7 +247,8 @@ function YourselfLink({ y }: { y: ShareYourself }) {
 
 function PageSkeleton() {
   return (
-    <div className="mx-auto mt-24 flex w-full max-w-[760px] flex-col gap-4 max-sm:mt-20" aria-busy="true" aria-label={t('common.loading')}>
+    <div className="mx-auto mt-24 flex w-full max-w-[760px] flex-col gap-4 max-sm:mt-20">
+      <LoadingLabel />
       <Skeleton className="h-9 w-3/5" />
       <Skeleton className="h-5 w-2/5" />
       <Skeleton className="mt-2 h-[70px] w-full rounded-2xl" />

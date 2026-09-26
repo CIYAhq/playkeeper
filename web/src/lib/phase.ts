@@ -100,6 +100,7 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): 
   const settling = phaseTone(st.phase) === 'busy' ? t('reason.busy', { what: t(st.phase === 'stopping' ? 'op.stop' : 'op.start', { server: st.name }) }) : undefined
   switch (action) {
     case 'start':
+      if (st.softwareChanged) return t('reason.softwareChanged')
       return c.canStart ? undefined : (settling ?? t('reason.running', { server: st.name }))
     case 'stop':
       return c.canStop ? undefined : (settling ?? t('reason.stopped', { server: st.name }))

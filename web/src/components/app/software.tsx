@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip, TypeLogo } from '@/components/app/art'
 import { Card, CardTitle } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone, type Choice } from '@/components/app/controls'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
@@ -13,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatClock, formatDate } from '@/lib/format'
+import { busyReason } from '@/lib/phase'
 import { typeName } from '@/lib/servers'
 import { addonKind, buildLabel, checkMarker, configBuild, serverTypeIds, shortHash, typeTexts, type AddonKind } from '@/lib/software'
 import { cn } from '@/lib/utils'
@@ -147,7 +149,10 @@ export function BuildSelect({ type, builds, loading, error, onRetry, value, onCh
           </Button>
         </div>
       ) : loading || !builds ? (
-        <Skeleton className="h-9 w-48 rounded-lg" />
+        <span className="flex">
+          <LoadingLabel />
+          <Skeleton className="h-9 w-48 rounded-lg" />
+        </span>
       ) : (
         <ChoiceSelect value={chosen} onChange={onChange} options={options} label={label} className="min-w-[220px] max-sm:w-full" />
       )}
@@ -218,7 +223,7 @@ export function SoftwareChangedView({ server: s, change }: { server: ServerStatu
 
   const action = (
     <>
-      <Button className="w-full" size={phone ? 'touch' : 'lg'} loading={busy} onClick={reinstall} disabled={!!s.operation}>
+      <Button className="w-full" size={phone ? 'touch' : 'lg'} loading={busy} onClick={reinstall} disabledReason={busyReason(s)}>
         <RefreshCwIcon />
         {t('changed.action', { server: s.name })}
       </Button>

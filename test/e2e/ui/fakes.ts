@@ -140,6 +140,18 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
+  // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
+  ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
+  ['POST', /^\/api\/servers\/(\w+)\/template\/retry$/, (r, state) => op(state, 'template-retry', r.params[0])],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/mods\/share$/,
+    ({ body }) => {
+      const on = (body as { public?: unknown } | null)?.public
+      if (typeof on !== 'boolean') return invalid('Say whether to share the pack.')
+      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
+    },
+  ],
 ]
 
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */

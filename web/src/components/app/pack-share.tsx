@@ -7,6 +7,7 @@ import { Emblem } from '@/components/app/art'
 import { copyText, CopyButton, Notice } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PackIcon } from '@/components/app/modpacks'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -32,7 +33,8 @@ export function PackShareNotice({ server }: { server: ServerStatus }) {
   if (pack.unsupported) return null
   if (pack.loading) {
     return (
-      <div className={cn('flex flex-col gap-2', phone ? 'rounded-2xl bg-card p-4 shadow-card' : 'px-1 py-0.5')} aria-busy="true" aria-label={t('common.loading')}>
+      <div className={cn('flex flex-col gap-2', phone ? 'rounded-2xl bg-card p-4 shadow-card' : 'px-1 py-0.5')}>
+        <LoadingLabel />
         <Skeleton className="h-4 w-64 max-w-full" />
         <Skeleton className="h-3.5 w-48 max-w-full" />
       </div>
@@ -55,13 +57,13 @@ export function PackShareNotice({ server }: { server: ServerStatus }) {
   return (
     <>
       {phone ? (
-        <div className="rounded-2xl bg-card p-4 shadow-card">
+        <div className="animate-fade rounded-2xl bg-card p-4 shadow-card">
           <p className="text-[15px] leading-5 font-semibold">{title}</p>
           <p className="mt-1 text-[13px] text-muted-foreground">{t('packShare.noticeBodyPhone')}</p>
           <div className="mt-3">{openButton}</div>
         </div>
       ) : (
-        <div className="flex items-center gap-4 px-1">
+        <div className="flex animate-fade items-center gap-4 px-1">
           <div className="min-w-0 flex-1">
             <p className="text-[13px] leading-5 font-semibold">{title}</p>
             <p className="text-xs text-muted-foreground">{t('packShare.noticeBody')}</p>
@@ -104,7 +106,11 @@ export function PackShareSheet({ server, pack, open, onOpenChange }: { server: S
       {t('packShare.download')}
     </Button>
   )
-  const body = link ? <SharedBody ps={ps} server={server} link={link} phone={phone} /> : <OffBody server={server} />
+  const body = (
+    <div key={link ? 'shared' : 'off'} className="flex animate-fade flex-col gap-4">
+      {link ? <SharedBody ps={ps} server={server} link={link} phone={phone} /> : <OffBody server={server} />}
+    </div>
+  )
 
   if (phone) {
     return (
@@ -288,7 +294,7 @@ export function CopyIconButton({ text, label, variant = 'ghost', size = 'icon-lg
   }
   return (
     <Button variant={variant} size={size} className={className} onClick={() => void copy()} aria-label={done ? t('common.copied') : label}>
-      {done ? <CheckIcon /> : <CopyIcon />}
+      {done ? <CheckIcon className="animate-fade" /> : <CopyIcon />}
     </Button>
   )
 }

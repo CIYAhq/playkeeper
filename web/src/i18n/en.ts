@@ -1473,4 +1473,5 @@ export const en = {
   'templateSkipped.title': { one: '{names} from the template isn’t installed', other: '{names} from the template aren’t installed' },
   'templateSkipped.body': 'Playkeeper couldn’t install them when the server was set up.',
   'op.templateRetry': 'Installing {server}’s template add-ons',
+  'reason.softwareChanged': 'Reinstall the server software first.',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

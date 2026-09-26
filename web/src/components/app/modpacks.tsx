@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { ArrowUpRightIcon, PackageIcon, RefreshCwIcon, SearchIcon } from 'lucide-react'
 import { modpackIcon, useModpackDetail, useModpackPreview, useModpacks, type ModpackSort } from '@/api/modpacks'
 import type { ModpackCard, ModpackDetail, ModpackSource } from '@/api/types'
 import { TypeLogo } from '@/components/app/art'
 import { Notice } from '@/components/app/bits'
 import { ChoiceSelect } from '@/components/app/controls'
+import { InlineSkeleton, ListSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
@@ -126,15 +127,11 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
           {list.error}
         </Notice>
       ) : list.loading ? (
-        <div className="flex flex-col gap-2" aria-busy="true">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className={cn('rounded-2xl', phone ? 'h-[62px]' : 'h-[70px]')} />
-          ))}
-        </div>
+        <ListSkeleton rows={4} className="flex flex-col gap-2" rowClassName={cn('flex items-center gap-3 rounded-2xl border border-border bg-card pr-4 pl-3', phone ? 'h-[62px]' : 'h-[70px]')} face={cn('rounded-xl', phone ? 'size-10' : 'size-11')} />
       ) : cards.length === 0 ? (
-        <p className="py-6 text-center text-[13px] text-muted-foreground">{t('modpacks.empty', { query })}</p>
+        <p className="animate-fade py-6 text-center text-[13px] text-muted-foreground">{t('modpacks.empty', { query })}</p>
       ) : (
-        <div role="radiogroup" aria-label={t('new.from.modpack')} className="flex flex-col gap-2">
+        <div key={`${query}\n${sort}`} role="radiogroup" aria-label={t('new.from.modpack')} className="flex animate-fade flex-col gap-2">
           {cards.map((card) => (
             <PackRow
               key={`${card.source}:${card.projectId}`}
@@ -178,6 +175,7 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
 }
 
 function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machineId: string; card: ModpackCard; selected: boolean; phone: boolean; onPick: () => void; onOpen: () => void }) {
+  const lineId = useId()
   const type = card.types[0] ?? ''
   const version = card.minecraftVersions[0] ?? ''
   const memory = card.memoryMB ? formatMB(card.memoryMB) : ''
@@ -198,7 +196,9 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
                 <span aria-hidden="true">·</span>
               </>
             )}
-            <span className="truncate">{card.unavailable ? card.unavailable.message : facts.filter(Boolean).join(t('common.dot'))}</span>
+            <span id={lineId} className="truncate">
+              {card.unavailable ? card.unavailable.message : facts.filter(Boolean).join(t('common.dot'))}
+            </span>
           </span>
         </span>
         {!phone && (
@@ -214,10 +214,12 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
         aria-checked={selected}
         aria-label={t('modpacks.pick', { name: card.name })}
         disabled={!!card.unavailable}
+        title={card.unavailable?.message}
+        aria-describedby={card.unavailable ? lineId : undefined}
         onClick={onPick}
-        className="flex size-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex size-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
       >
-        <span className={cn('flex size-[18px] items-center justify-center rounded-full border', selected ? 'border-primary bg-primary' : 'border-input bg-white')}>{selected && <span className="size-1.5 rounded-full bg-white" />}</span>
+        <span className={cn('flex size-[18px] items-center justify-center rounded-full border transition-colors duration-(--motion-fast) ease-standard', selected ? 'border-primary bg-primary' : 'border-input bg-white')}>{selected && <span className="size-1.5 animate-fade rounded-full bg-white" />}</span>
       </button>
     </div>
   )
@@ -236,10 +238,11 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
   const fact = (label: string, value: string | undefined, loading?: boolean, detail?: string) => (
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-sm font-semibold">{loading ? <Skeleton className="h-5 w-24" /> : value || '—'}</dd>
-      {detail && !loading && <dd className="text-xs text-muted-foreground">{detail}</dd>}
+      <dd className="mt-0.5 text-sm font-semibold">{loading ? <Skeleton className="h-5 w-24" /> : <span className="animate-fade">{value || '—'}</span>}</dd>
+      {detail && !loading && <dd className="animate-fade text-xs text-muted-foreground">{detail}</dd>}
     </div>
   )
+  const why = !d ? t('common.loading') : (unavailable ?? blocker)?.message
   return (
     <Sheet open={!!card} onOpenChange={(o) => !o && onClose()}>
       <SheetPopup side={phone ? 'bottom' : 'right'} variant="inset" showCloseButton className={phone ? undefined : 'w-[420px] max-w-full'}>
@@ -254,12 +257,13 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
                 </div>
               </div>
               <p className="text-sm leading-5">{card.summary}</p>
+              {!d && !detail.error && <LoadingLabel />}
               {detail.error ? (
                 <Notice tone="error" title={t('modpacks.error')} action={<Button variant="outline" size="sm" onClick={detail.reload}>{t('common.tryAgain')}</Button>}>
                   {detail.error}
                 </Notice>
               ) : (
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-b border-border pb-5">
+                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-b border-border pb-5" aria-busy={!d || (!p && !preview.error)}>
                   {fact(t('modpacks.fact.minecraft'), p?.minecraftVersion || newest?.minecraftVersion, !d)}
                   {fact(t('modpacks.fact.runsOn'), p ? loaderLabel(p.type, p.loaderVersion) : preview.error ? loaderLabel(newest?.type ?? '') : undefined, !p && !preview.error, p?.java ? t('modpacks.java', { java: p.java, version: p.minecraftVersion }) : undefined)}
                   {fact(t('modpacks.fact.mods'), mods ? String(mods) : undefined, !d)}
@@ -276,7 +280,7 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
               )}
               <section>
                 <h3 className="text-sm font-semibold">{t('modpacks.inside')}</h3>
-                <p className="mt-1 text-[13px] text-muted-foreground">{!d ? <Skeleton className="h-4 w-48" /> : d.headline && mods > 1 ? t('modpacks.insideHeadline', { headline: d.headline, count: mods - 1 }) : t('modpacks.insideCount', { count: mods })}</p>
+                <p className="mt-1 text-[13px] text-muted-foreground">{!d ? <InlineSkeleton className="w-48" /> : d.headline && mods > 1 ? t('modpacks.insideHeadline', { headline: d.headline, count: mods - 1 }) : t('modpacks.insideCount', { count: mods })}</p>
               </section>
               <section>
                 <h3 className="text-sm font-semibold">{t('modpacks.friends')}</h3>
@@ -288,7 +292,7 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
               </a>
             </SheetPanel>
             <div className="px-6 pt-4 pb-5">
-              <Button className="w-full" size={phone ? 'touch' : 'default'} disabled={!d || !!unavailable || !!blocker} onClick={() => onUse(choiceOf(card, d))}>
+              <Button className="w-full" size={phone ? 'touch' : 'default'} disabledReason={why} onClick={() => onUse(choiceOf(card, d))}>
                 {t('modpacks.use')}
               </Button>
               <p className="mt-2 text-center text-xs text-muted-foreground">{t('modpacks.checked', { source })}</p>

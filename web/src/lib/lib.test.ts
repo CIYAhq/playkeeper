@@ -196,6 +196,11 @@ describe('server state', () => {
     expect(isSettingUp(server({ phase: 'online', startedAt: at, lastOperation: { id: '1', kind: 'create', status: 'succeeded', phase: '', actor: 'a', startedAt: at } }))).toBe(false)
   })
 
+  it('says to reinstall first when a server’s software changed', () => {
+    const change = { file: 'paper-26.1.2-74.jar', algorithm: 'sha256', recorded: 'a'.repeat(64), found: 'b'.repeat(64), detectedAt: '2026-09-25T10:00:00Z', software: 'Paper 26.1.2 build 74' }
+    expect(whyNot(server({ phase: 'crashed', softwareChanged: change }), 'start', false)).toBe('Reinstall the server software first.')
+  })
+
   it('calls a server creating only while its create runs', () => {
     const at = '2026-09-25T10:00:00Z'
     expect(isCreating(server({ operation: { id: '1', kind: 'create', status: 'running', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(true)

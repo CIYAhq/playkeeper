@@ -295,7 +295,7 @@ export function NewServerPage() {
                   </p>
                 </div>
               )}
-              <div className={phone && from === 'type' ? '' : 'mt-3'}>
+              <div key={from} className={cn('animate-fade', phone && from === 'type' ? '' : 'mt-3')}>
                 {from === 'modpack' && ws.machine ? (
                   <ModpackPicker machineId={ws.machine.id} value={pack} onChange={setPack} onUse={startWithPack} phone={phone} />
                 ) : from === 'template' && ws.machine ? (
@@ -543,7 +543,9 @@ export function NewServerPage() {
             <span key={s} className={cn('h-1 flex-1 rounded-full', i <= step ? 'bg-primary' : 'bg-foreground/10')} />
           ))}
         </div>
-        {body}
+        <div key={step} className="animate-fade">
+          {body}
+        </div>
         <div className="mt-6">{restoreLink}</div>
         <PhoneActions>
           <Button size="touch" onClick={next} disabledReason={blocked()} loading={busy}>
@@ -581,7 +583,9 @@ export function NewServerPage() {
         <Stepper steps={stepTitles} current={step} label={t('new.steps')} />
         <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
           <div className="flex min-w-0 flex-col">
-            {body}
+            <div key={step} className="animate-fade">
+              {body}
+            </div>
             <div className="mt-6 flex items-center gap-3 border-t border-border pt-4">
               {step > 0 && (
                 <Button variant="ghost" onClick={back}>

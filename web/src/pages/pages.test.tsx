@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Backup, Catalog, MachineView, Me, ModpackResults, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
+import type { Backup, Catalog, MachineView, Me, ModpackDetail, ModpackResults, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -476,6 +476,23 @@ describe('Modpacks', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('says why a pack can’t be used, on the button and above it', async () => {
+    const card = results.cards[0]
+    if (!card) throw new Error('no card')
+    const detail: ModpackDetail = { ...card, versions: [{ id: 'SMV00012', number: '1.2', channel: 'release', published: '2026-09-01T00:00:00Z', size: 16_000_000, type: 'fabric', minecraftVersion: '26.2', mods: 17 }], newest: 'SMV00012' }
+    const blocker = { kind: 'file_too_large', message: 'Smooth Server has a file larger than Playkeeper accepts.' }
+    answer({ '/preview': { type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', files: 17, downloadSize: 16_000_000, ready: false, blockers: [blocker], warnings: [], manual: [] }, '/modpacks/modrinth/SMTH0001': detail, '/modpacks?': results })
+    await render(<ModpackPicker machineId="m2345abcde" onChange={() => {}} onUse={() => {}} phone={false} />)
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Smooth Server'))
+    await act(async () => row?.click())
+    await act(async () => {})
+    await act(async () => {})
+    const use = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Use this modpack')
+    expect(use?.disabled).toBe(true)
+    expect(use?.title).toBe(blocker.message)
+    expect(document.body.textContent).toContain('Playkeeper can’t set up this pack')
   })
 
   it('says what a pack’s server downloads, not Paper', () => {

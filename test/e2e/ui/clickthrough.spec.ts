@@ -55,6 +55,8 @@ for (const [name, size] of Object.entries(sizes)) {
     const outCrawler = new Crawler(outPage, name, base, log)
     await outCrawler.init()
     await outCrawler.crawl('/login')
+    // A friends' pack link that opens nothing: the page every unavailable link gets.
+    await outCrawler.crawl('/packs/Pk0Unknown0Link0Abcdef')
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
     await signedOut.close()
