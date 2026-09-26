@@ -93,7 +93,7 @@ og: pterodactyl
 </section>
 
 <section class="band band-chalk" aria-labelledby="adds-title">
-  <div class="container move-row">
+  <div class="container move-row adds-row">
     <div>
       <h2 id="adds-title" class="section-title reveal">What Playkeeper adds</h2>
       <ul class="adds">
@@ -127,11 +127,9 @@ og: pterodactyl
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Is Playkeeper a Pterodactyl fork?" "No. It's its own project, built for Minecraft: Java Edition on one VPS or a few.")
       (qa "Can it run next to Pterodactyl?" "Give it its own VPS. Playkeeper never takes over another panel's servers, and both want the machine's Minecraft ports.")
-      (qa "Does it run other games?" "No. Playkeeper runs Minecraft: Java Edition servers only.")
+      (qa "Does it run other games?" "No. Playkeeper runs Minecraft: Java Edition servers only, with <a href=\"/features/mods-and-modpacks\">plugins, mods and modpacks</a> one click each.")
       (qa "Is Playkeeper free?" "Yes: free and open source (AGPL-3.0). You pay only for the VPS.")
     ))}}
   </div>
 </section>
-
-{{template "related" (related 3 "/compare/minecraft-server-panels" "/alternatives/aternos" "/features/mods-and-modpacks" "/guides/modded-minecraft-server")}}
 {{end}}

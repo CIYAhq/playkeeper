@@ -25,7 +25,7 @@ for (const [name, viewport] of sizes) {
       window.scrollTo(0, 0)
     })
     await page.waitForTimeout(900)
-    const slug = p === '/' ? 'landing' : p.replace(/^\//, '').replace(/[/#?=&]+/g, '-').replace(/-$/, '')
+    const slug = p === '/' ? 'landing' : p.replace(/#.*/, '-template').replace(/^\//, '').replace(/[/?=&]+/g, '-').replace(/-$/, '')
     const file = path.join(out, `${slug}-${name}.png`)
     await page.screenshot({ path: file, fullPage: true })
     console.log(file)

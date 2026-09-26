@@ -605,19 +605,21 @@ main:focus { outline: none; }
 
 /* ---------- Comparison ---------- */
 
-.alt-hero-row { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 48px; align-items: center; }
-.alt-hero-row .h1-page { margin: 0 0 18px; }
+.alt-hero-row { display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 1fr); gap: 40px; align-items: center; }
+.alt-hero-row .h1-page { margin: 0 0 18px; font-size: 52px; }
 .alt-hero-row .lead { margin-bottom: 24px; }
 .alt-hero-row .link-arrow { margin-top: 20px; }
 .alt-art { position: relative; min-height: 360px; }
 @media (max-width: 1023.98px) { .alt-hero-row { grid-template-columns: 1fr; } }
 
 .compare { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--twine); border-radius: var(--radius); background: var(--white); overflow: hidden; font-size: 15px; }
-.compare th, .compare td { padding: 16px 18px; border-bottom: 1px solid var(--twine); text-align: left; vertical-align: middle; }
+.compare th, .compare td { padding: 14px 18px; border-bottom: 1px solid var(--twine); text-align: left; vertical-align: middle; }
 .compare tr:last-child th, .compare tr:last-child td { border-bottom: 0; }
 .compare thead th { font-weight: 600; font-size: 15px; }
 .compare tbody th { width: 22%; font-weight: 600; }
 .compare td { color: var(--sage); }
+.compare td a { color: inherit; text-decoration: underline; text-decoration-color: var(--twine); text-underline-offset: 3px; }
+.compare td a:hover { text-decoration-color: currentColor; }
 .compare .us { background: var(--green-soft); color: var(--ink); font-weight: 600; }
 .compare thead .us { font-weight: 700; }
 .compare caption { caption-side: bottom; padding-top: 12px; font-size: 13px; color: var(--sage); text-align: left; }
@@ -648,6 +650,7 @@ main:focus { outline: none; }
 .steps-lg .step-title { font-size: 18px; }
 
 .move-row { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 72px; align-items: center; }
+.adds-row { grid-template-columns: minmax(0, 470px) minmax(0, 1fr); gap: 56px; }
 @media (max-width: 1023.98px) { .move-row { grid-template-columns: 1fr; gap: 28px; } }
 
 .providers-fit { margin: 0 0 12px; font-size: 15px; }

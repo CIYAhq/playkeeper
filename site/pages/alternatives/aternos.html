@@ -49,7 +49,7 @@ og: aternos
           <tr><th scope="row">Cost</th><td>Free, with ads</td><td class="us">Free software, plus your VPS</td></tr>
           <tr><th scope="row">Queue</th><td>At busy times, with a confirmation step</td><td class="us">None</td></tr>
           <tr><th scope="row">Always on</th><td>Stops when everyone leaves</td><td class="us">Yes, unless you turn on sleep</td></tr>
-          <tr><th scope="row">Mods and modpacks</th><td>Yes</td><td class="us">Modrinth and CurseForge, one click each</td></tr>
+          <tr><th scope="row">Mods and modpacks</th><td>Yes</td><td class="us"><a href="/features/mods-and-modpacks">Modrinth and CurseForge, one click each</a></td></tr>
           <tr><th scope="row">Memory</th><td>Assigned for you, can't be bought</td><td class="us">Whatever your VPS has</td></tr>
           <tr><th scope="row">Storage</th><td>4 GB</td><td class="us">Your VPS's disk</td></tr>
           <tr><th scope="row">Backups</th><td>To your Google Drive, once you link it</td><td class="us">Live, checked, and copies off the server</td></tr>
@@ -102,10 +102,8 @@ og: aternos
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Is Aternos safe?" "Yes. It's a long-running, popular free host. The trade-offs are the queue, the memory you're given and servers that stop when empty.")
       (qa "Is Playkeeper free?" "Yes: free and open source (AGPL-3.0). You pay only for the VPS.")
-      (qa "Can I keep my plugins?" "The world comes over; plugins and mods stay behind. Add them again from the Plugins tab, where one search covers Modrinth and Hangar.")
+      (qa "Can I keep my plugins?" "The world comes over; plugins and mods stay behind. Add them again from the Plugins tab, where <a href=\"/features/mods-and-modpacks\">one search covers Modrinth and Hangar</a>. For a modded world, the <a href=\"/guides/modded-minecraft-server\">modded server guide</a> goes step by step.")
     ))}}
   </div>
 </section>
-
-{{template "related" (related 3 "/guides/minecraft-server-cost" "/alternatives/pterodactyl" "/guides/modded-minecraft-server" "/features/mods-and-modpacks")}}
 {{end}}
