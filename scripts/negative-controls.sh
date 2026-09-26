@@ -2195,6 +2195,20 @@ control "an import refused over a linked world folder starts the previous world 
 	if err != nil {' \
   ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
 
+# Wave 9: a mod loader's heap is sized at a start that defines the container, not while it runs.
+control "a running server isn't stopped to size its heap" internal/agent/lifecycle.go \
+  'err != nil || !c.State.Running || c.Config.Labels[labelSpec] != was {' \
+  'true || err != nil || !c.State.Running || c.Config.Labels[labelSpec] != was {' \
+  ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
+control "an unchanged memory budget keeps the heap" internal/agent/handlers.go \
+  '			memoryChanged = true
+			sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))
+		}' \
+  '			memoryChanged = true
+		}
+		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))' \
+  ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

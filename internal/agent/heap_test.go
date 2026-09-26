@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -80,6 +81,27 @@ func TestModLoaderHeapLeavesRoomForItsMods(t *testing.T) {
 	}
 	if st := e.status(); st.PendingRestart {
 		t.Fatal("a mod added while the server runs changed its container's definition")
+	}
+	// Starting a server that runs as defined leaves it alone; the HTTP Start
+	// answers "already running" before this, but a start from anywhere else
+	// mustn't stop it to size the heap for the mod added since.
+	running := e.containerID()
+	sc, err := e.srv().serverConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &opHandle{save: func(*api.Operation) {}, op: &api.Operation{Actor: "admin", Detail: map[string]any{}}, mu: func() func() { return func() {} }}
+	if err := e.srv().startServer(context.Background(), h, *sc); err != nil {
+		t.Fatalf("start while running: %v", err)
+	}
+	if id := e.containerID(); id != running {
+		t.Fatal("a start of the running server stopped it to size the heap for the mod added since")
+	}
+	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": 2048, "actor": "admin"}); code != 200 {
+		t.Fatalf("settings: %d %v", code, out)
+	}
+	if sc, _ := e.srv().serverConfig(); sc.HeapMB != want || e.status().PendingRestart {
+		t.Fatalf("a save with the same memory resized the heap to %d (restart pending: %v)", sc.HeapMB, e.status().PendingRestart)
 	}
 	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": 3072, "actor": "admin"}); code != 200 {
 		t.Fatalf("settings: %d %v", code, out)
