@@ -1751,6 +1751,21 @@ describe('Command palette', () => {
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
   })
+
+  it('offers each server the tabs its tab bar shows', async () => {
+    const servers = [server(), server({ id: 'bcdefghjkm', name: 'Modded', slug: 'modded', type: 'fabric' })]
+    const palette = (who: Me) => render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />, workspace({ me: who, servers }))
+    const moderator = await palette(member('moderator', moderatorCan))
+    expect(moderator).toContain('Survival › Console')
+    expect(moderator).toContain('Modded › World')
+    for (const page of ['Survival › Settings', 'Survival › Plugins', 'Modded › Settings', 'Modded › Mods']) expect(moderator).not.toContain(page)
+    const viewer = await palette(member('viewer', ['view', 'account.manage']))
+    expect(viewer).toContain('Survival › Players')
+    expect(viewer).not.toContain('› Settings')
+    const admin = await palette(me)
+    for (const page of ['Survival › Plugins', 'Survival › Settings', 'Modded › Mods', 'Modded › Settings']) expect(admin).toContain(page)
+    for (const page of ['Survival › Mods', 'Modded › Plugins']) expect(admin).not.toContain(page)
+  })
 })
 
 describe('Invite page', () => {

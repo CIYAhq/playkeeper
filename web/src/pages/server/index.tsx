@@ -1,11 +1,12 @@
 import { useId, useState, type ReactNode } from 'react'
-import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, PuzzleIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
+import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, HouseIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SquareIcon, Trash2Icon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
@@ -14,11 +15,10 @@ import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
-import { t, type MessageKey } from '@/i18n'
+import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
-import { addonTab } from '@/lib/addons'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -32,16 +32,6 @@ import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
 import { PacksPage } from './world-packs'
 import { PregenPage } from './world-pregen'
-
-const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
-  { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
-  { tab: 'console', key: 'tab.console', icon: <SquareTerminalIcon /> },
-  { tab: 'players', key: 'tab.players', icon: <UsersIcon /> },
-  { tab: 'world', key: 'tab.world', icon: <GlobeIcon /> },
-  { tab: 'plugins', key: 'tab.plugins', icon: <PuzzleIcon /> },
-  { tab: 'mods', key: 'tab.mods', icon: <PuzzleIcon /> },
-  { tab: 'settings', key: 'tab.settings', icon: <SlidersHorizontalIcon /> },
-]
 
 export async function serverAction(server: ServerStatus, action: 'start' | 'stop' | 'restart' | 'backups', body: unknown = {}): Promise<boolean> {
   try {
@@ -311,10 +301,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
-        {tabs
-          .filter((x) => (x.tab !== 'settings' && x.tab !== 'plugins' && x.tab !== 'mods') || can(ws.me, 'servers.manage'))
-          .filter((x) => (x.tab !== 'plugins' && x.tab !== 'mods') || x.tab === addonTab(s.type))
-          .map((x) => {
+        {serverTabsFor(ws.me, s).map((x) => {
           const active = x.tab === tab
           const cls = cn(
             'inline-flex h-10 shrink-0 items-center gap-2 border-b-2 text-sm font-medium outline-none [&_svg]:size-4',
