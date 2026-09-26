@@ -146,6 +146,9 @@ func packClient(allowed func(netip.AddrPort) bool) *http.Client {
 		return refuseAddr(address, allowed)
 	}}
 	tr := &http.Transport{
+		// No proxy, whatever HTTPS_PROXY says: through one, the dial check
+		// would see the proxy's address instead of the pack host's.
+		Proxy:                 nil,
 		DialContext:           d.DialContext,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,

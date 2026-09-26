@@ -4,13 +4,19 @@ import (
 	"context"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -88,13 +94,67 @@ func TestPackClientRefusesPrivateAddresses(t *testing.T) {
 	}
 }
 
+const (
+	proxyChildURL = "PLAYKEEPER_TEST_PACK_URL"
+	proxyChildCA  = "PLAYKEEPER_TEST_PACK_CA"
+)
+
 // Through a proxy, the dialer would check the proxy's address instead of
-// the pack host's. A Transport's nil Proxy means none, whatever
-// HTTPS_PROXY says.
-func TestPackClientUsesNoProxy(t *testing.T) {
-	tr, ok := PackClient().Transport.(httpsOnly).rt.(*http.Transport)
-	if !ok || tr.Proxy != nil {
-		t.Fatalf("the pack client's transport must not use a proxy: %+v", tr)
+// the pack host's. net/http reads the proxy variables once per process, so a
+// child copy of this test binary fetches with all four set, pointing at a
+// listener that counts connections. The child asks for localhost. with a
+// trailing dot: Go never proxies localhost or a loopback address, but it
+// would proxy that name, which still reaches the test server.
+func TestPackClientIgnoresProxyVariables(t *testing.T) {
+	if u := os.Getenv(proxyChildURL); u != "" {
+		ca, err := os.ReadFile(os.Getenv(proxyChildCA))
+		roots := x509.NewCertPool()
+		if err != nil || !roots.AppendCertsFromPEM(ca) {
+			t.Fatalf("the test server's certificate: %v", err)
+		}
+		hc := packClient(func(netip.AddrPort) bool { return true })
+		hc.Transport.(httpsOnly).rt.(*http.Transport).TLSClientConfig = &tls.Config{RootCAs: roots, ServerName: "example.com"}
+		resp, err := hc.Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if b, _ := io.ReadAll(resp.Body); resp.StatusCode != http.StatusOK || string(b) != "pack" {
+			t.Fatalf("the pack server answered %d %q", resp.StatusCode, b)
+		}
+		return
+	}
+
+	var hits, conns atomic.Int32
+	srv := httptest.NewTLSServer(counting(&hits))
+	defer srv.Close()
+	proxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+	go func() {
+		for {
+			c, err := proxy.Accept()
+			if err != nil {
+				return
+			}
+			conns.Add(1)
+			c.Close()
+		}
+	}()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	via := "http://" + proxy.Addr().String()
+	child := exec.Command(os.Args[0], "-test.run=^TestPackClientIgnoresProxyVariables$")
+	child.Env = append(os.Environ(), proxyChildURL+"=https://localhost.:"+port+"/pack.zip", proxyChildCA+"="+ca,
+		"HTTPS_PROXY="+via, "HTTP_PROXY="+via, "https_proxy="+via, "http_proxy="+via, "NO_PROXY=", "no_proxy=")
+	out, err := child.CombinedOutput()
+	if err != nil || hits.Load() != 1 || conns.Load() != 0 {
+		t.Fatalf("with the proxy variables set, the pack server answered %d times and the proxy saw %d connections (%v):\n%s", hits.Load(), conns.Load(), err, out)
 	}
 }
 

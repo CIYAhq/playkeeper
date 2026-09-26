@@ -945,9 +945,9 @@ control "template data packs never connect to a private address" internal/templa
   'if false && (err != nil || !allowed(ap)) {' \
   ./internal/templates '^TestPackClientRefusesPrivateAddresses$'
 control "template data packs never download through a proxy" internal/templates/fetch.go \
-  'tr := &http.Transport{' \
-  'tr := &http.Transport{Proxy: http.ProxyFromEnvironment,' \
-  ./internal/templates '^TestPackClientUsesNoProxy$'
+  'Proxy:                 nil,' \
+  'Proxy:                 http.ProxyFromEnvironment,' \
+  ./internal/templates '^TestPackClientIgnoresProxyVariables$'
 control "template data packs download over HTTPS only" internal/templates/fetch.go \
   'if r.URL.Scheme != "https" {' \
   'if false {' \
@@ -1633,6 +1633,10 @@ control "own domain: removing it keeps the released free name claimable" interna
   'if err := a.setAddress(addressState{IP: st.IP, Released: st.Released}); err != nil {' \
   'if err := a.setAddress(addressState{IP: st.IP}); err != nil {' \
   ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "own domain: a certificate attempt that finds the name wrong brings the next look forward" internal/agent/certificates.go \
+  'if !saved || ready {' \
+  'if true || !saved || ready {' \
+  ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
