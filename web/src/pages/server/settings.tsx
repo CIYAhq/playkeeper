@@ -488,7 +488,7 @@ function IconRow({ server: s }: { server: ServerStatus }) {
     } catch (e) {
       setPreview(undefined)
       if (e instanceof ApiError && e.code === 'icon_invalid') setProblem(t('settings.iconRefused'))
-      else toastManager.add({ title: errorText(e), type: 'error' })
+      else toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })
     } finally {
       setBusy(false)
     }

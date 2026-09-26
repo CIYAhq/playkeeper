@@ -2040,6 +2040,28 @@ describe('A restore that didn’t finish', () => {
     expect(button('choose a file')?.disabled).toBe(false)
   })
 
+  it('says what to do when a new icon is refused for the missing world folder', async () => {
+    const message = `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`
+    const hint = `Move that folder back to ${missing.dataDir}, then upload the icon again.`
+    vi.mocked(client.api).mockImplementation(((_method: string, path: string) => (path.endsWith('/icon') ? Promise.reject(new client.ApiError(409, { error: message, code: 'world_missing', hint })) : new Promise(() => {}))) as typeof client.api)
+    // happy-dom has no images or canvas, so the picture comes out of stand-ins as a 64 × 64 PNG header.
+    const png = new Blob([Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 64, 0, 0, 0, 64)], { type: 'image/png' })
+    vi.stubGlobal('createImageBitmap', async () => ({ width: 64, height: 64 }))
+    const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => ({ drawImage: () => {} })) as unknown as HTMLCanvasElement['getContext'])
+    const dataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,')
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((done: BlobCallback) => done(png))
+    const toast = vi.spyOn(toastManager, 'add')
+    await render(<ServerSettingsPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    const input = document.querySelector<HTMLInputElement>('input[type=file][aria-label="Upload picture"]')
+    if (!input) throw new Error('no icon upload')
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'icon.png', { type: 'image/png' })], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await act(async () => {})
+    expect(toast).toHaveBeenCalledWith({ title: message, description: hint, type: 'error' })
+    for (const spy of [toast, toBlob, dataURL, context]) spy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
   it('shortens a long activity line instead of widening the page', async () => {
     answer({ '/activity': [{ ts: new Date().toISOString(), serverId: 'abcdefghjk', kind: 'restored_after_restart' }] })
     await render(<HomePage />)
