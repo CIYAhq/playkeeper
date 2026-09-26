@@ -853,6 +853,9 @@ function sessions(s: DemoState, r: Request): SessionsResponse {
       list.push({ id: 10 + i, player, start: iso(start), end: iso(start + mins * minute), endReason: 'left', startUncertain: false, endUncertain: false, durationSeconds: mins * 60, source: 'rcon list' })
     })
   }
+  // PixelPia's late build session on Creative, which ended half an hour before it fell asleep.
+  const left = srv.id === creativeId && srv.sleep?.asleepSince ? Date.parse(srv.sleep.asleepSince) - 30 * minute : NaN
+  if (r.now - left < day) list.push({ id: 30, player: 'PixelPia', start: iso(left - 95 * minute), end: iso(left), endReason: 'left', startUncertain: false, endUncertain: false, durationSeconds: 95 * 60, source: 'rcon list' })
   return { from: iso(r.now - day), to: iso(r.now), sessions: list }
 }
 
