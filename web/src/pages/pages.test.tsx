@@ -1287,13 +1287,15 @@ describe('Templates', () => {
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
   })
 
-  it('says who made a template and when, when it says both', async () => {
+  it('says on which day a template was made, and never who made it', async () => {
     window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
     vi.mocked(client.api).mockResolvedValue({ ...plan, contents: { ...contents, author: 'siya', created: '2026-09-25' } })
     answer({ '/catalog': catalog })
     await render(<NewServerPage />)
     await act(async () => {})
-    expect(document.body.textContent).toMatch(/Survival with friendsFrom a link · from siya · made (25 Sep|Sep 25)/)
+    const text = document.body.textContent ?? ''
+    expect(text).toMatch(/Survival with friendsFrom a link · made (25 Sep|Sep 25)/)
+    expect(text).not.toContain('siya')
   })
 
   it('shows the new plan when the machine no longer has the one the user saw', async () => {

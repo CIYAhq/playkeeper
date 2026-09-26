@@ -21,6 +21,9 @@ type pendingRestore struct {
 	op       *api.Operation
 	stageDir string
 	journal  *swapJournal
+	// releasePort lets go of voice chat's port, held for a restore that
+	// stopped before it saved the restored settings.
+	releasePort func()
 }
 
 // findInterruptedRestores finds the restores a previous agent process left
@@ -60,7 +63,13 @@ func (a *Agent) findInterruptedRestores() []string {
 			a.log.Warn("an interrupted restore's journal is unreadable or not its own, so it is not finished", "server", s.id, "operation", op.ID, "err", err)
 			continue
 		}
-		s.recovery = &pendingRestore{op: op, stageDir: dir, journal: j}
+		p := &pendingRestore{op: op, stageDir: dir, journal: j, releasePort: func() {}}
+		if j != nil && j.State == swapMoving && j.Restored.VoiceChatPort > 0 {
+			a.voicePorts.mu.Lock()
+			p.releasePort = a.voicePorts.hold(j.Restored.VoiceChatPort, s.id)
+			a.voicePorts.mu.Unlock()
+		}
+		s.recovery = p
 		found = append(found, op.ID)
 	}
 	return found
@@ -88,7 +97,10 @@ func (s *server) recoverAtStart() {
 		return
 	}
 	s.opLock <- struct{}{}
-	s.launchOp(p.op, func(ctx context.Context, h *opHandle) error { return s.recoverRestore(ctx, h, p) })
+	s.launchOp(p.op, func(ctx context.Context, h *opHandle) error {
+		defer p.releasePort()
+		return s.recoverRestore(ctx, h, p)
+	})
 }
 
 // recoverRestore finishes a restore a previous agent process was in the

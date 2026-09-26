@@ -10,6 +10,7 @@
   var STORE = 'playkeeper.dashboard';
   var HANDOFF = ['ready', 'newer', 'nopreview'];
   var TYPES = { paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge' };
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   var form = document.getElementById('open');
   var input = document.getElementById('dashboard');
@@ -38,6 +39,19 @@
       throw new Error('not template text');
     }
     return s;
+  }
+
+  // day returns the day a template was made as "25 Sep 2026", or '' when it
+  // doesn't say. A day internal/templates refuses makes the template
+  // damaged. Who made it is never shown: a template can name anyone.
+  function day(s) {
+    var v = text(s, 10);
+    if (!v) return '';
+    var d = new Date(v + 'T00:00:00Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v || d.getUTCFullYear() < 2020) {
+      throw new Error('not a day');
+    }
+    return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
   }
 
   function list(names) {
@@ -104,8 +118,11 @@
       return text(p.name, 64) + (p.kind === 'resource' ? ' (resource pack)' : ' (data pack)');
     });
     var modpack = t.modpack ? text(t.modpack.name, 64) : '';
+    var made = day(t.created);
     put('t-name', name);
     put('t-description', text(t.description, 280));
+    put('t-made', made ? 'Made ' + made : '');
+    document.getElementById('t-made').hidden = !made;
     put('t-server', (TYPES.hasOwnProperty(type) ? TYPES[type] : type) + ', Minecraft ' + version);
     put('t-modpack', modpack);
     put('t-addons', addons.length ? list(addons) : 'None');

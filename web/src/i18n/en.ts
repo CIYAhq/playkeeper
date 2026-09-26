@@ -2070,7 +2070,6 @@ export const en = {
   'template.readError': 'Couldn’t read this template',
   'template.checkAgain': 'Check it again, then continue.',
   'template.fromLink': 'From a link',
-  'template.from': 'from {author}',
   'template.made': 'made {date}',
   'template.chooseAnother': 'Choose another file',
   'template.newest': 'Newest version',
