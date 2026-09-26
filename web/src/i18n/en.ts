@@ -1165,6 +1165,7 @@ export const en = {
   'profile.listedOp': 'On the allowlist · operator',
   'profile.listedSince': 'On the allowlist since {date}',
   'profile.listedOpSince': 'On the allowlist since {date} · operator',
+  'profile.banned': 'Banned',
   'profile.onlineFor': 'Online now · on {server} for {duration}',
   'profile.onlineShort': 'Online · {duration}',
   'profile.neverPlayed': 'Hasn’t played yet',

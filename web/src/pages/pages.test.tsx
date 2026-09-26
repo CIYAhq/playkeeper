@@ -739,10 +739,18 @@ describe('Player profile', () => {
     expect(buttons('Kick')).toHaveLength(0)
   })
 
-  it('says since when a player is on the allowlist on a phone, where the line is short', async () => {
+  async function onPhone(check: () => Promise<void>) {
     const happy = (window as unknown as { happyDOM: { setViewport(size: { width: number; height: number }): void } }).happyDOM
     happy.setViewport({ width: 390, height: 844 })
     try {
+      await check()
+    } finally {
+      happy.setViewport({ width: 1024, height: 768 })
+    }
+  }
+
+  it('says since when a player is on the allowlist on a phone, where the line is short', async () => {
+    await onPhone(async () => {
       answer({ '/players/profile': maraProfile() })
       const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
       expect(text).toContain(`On the allowlist since ${formatDate('2026-09-20T18:00:00Z')}`)
@@ -750,9 +758,20 @@ describe('Player profile', () => {
       expect(buttons('Message')).toHaveLength(1)
       answer({ '/players/profile': { ...maraProfile(), joined: undefined, operator: true } })
       expect(await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))).toContain('On the allowlist · operator')
-    } finally {
-      happy.setViewport({ width: 1024, height: 768 })
-    }
+    })
+  })
+
+  it('says a banned player is banned, and offers no second ban', async () => {
+    answer({ '/players/profile': { ...maraProfile(), online: false, onlineSince: undefined, banned: true } })
+    const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(text).toContain('Banned')
+    expect(text).not.toContain('On the allowlist')
+    await onPhone(async () => {
+      const phone = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+      expect(phone).toContain('Banned')
+      expect(phone).toContain('Make operator')
+      expect(phone).not.toContain('Ban from Survival')
+    })
   })
 
   it('says when there is no such player', async () => {

@@ -674,6 +674,8 @@ type PlayerProfile struct {
 	OnlineSince *time.Time `json:"onlineSince,omitempty"`
 	Allowlisted bool       `json:"allowlisted"`
 	Operator    bool       `json:"operator"`
+	// Banned is true while they are on the server's ban list.
+	Banned bool `json:"banned,omitempty"`
 	// FirstSeen is their first session Playkeeper still remembers.
 	FirstSeen         *time.Time `json:"firstSeen,omitempty"`
 	Sessions          int        `json:"sessions"`

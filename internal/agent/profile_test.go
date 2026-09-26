@@ -86,8 +86,21 @@ func TestProfileSumsAPlayersSessions(t *testing.T) {
 	os.WriteFile(filepath.Join(e.dataDir(), "whitelist.json"), []byte(`[{"uuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5", "name": "tobi2009"}]`), 0o640)
 	os.WriteFile(filepath.Join(e.dataDir(), "ops.json"), []byte(`[{"uuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5", "name": "tobi2009", "level": 4}]`), 0o640)
 	code, out = e.call("GET", e.sp("/players/profile?name=Tobi2009&tz=UTC"), nil)
-	if code != 200 || out["name"] != "tobi2009" || out["allowlisted"] != true || out["operator"] != true || out["sessions"] != float64(0) || out["uuid"] != "069a79f4-44e9-4726-a5be-fca90e38aaf5" {
+	if code != 200 || out["name"] != "tobi2009" || out["allowlisted"] != true || out["operator"] != true || out["sessions"] != float64(0) || out["uuid"] != "069a79f4-44e9-4726-a5be-fca90e38aaf5" || out["banned"] != nil {
 		t.Fatalf("allowlisted player: %d %v", code, out)
+	}
+
+	// The server's ban list says who is banned; someone only on it has a page too.
+	os.WriteFile(filepath.Join(e.dataDir(), "banned-players.json"), []byte(`[
+		{"uuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5", "name": "tobi2009", "created": "2026-09-25 23:00:00 +0000", "source": "Server", "expires": "forever", "reason": "Banned from the Playkeeper dashboard"},
+		{"uuid": "5e1f0a3b-2c4d-4e6f-8a9b-0c1d2e3f4a5b", "name": "Griefer99", "created": "2026-09-25 23:00:00 +0000", "source": "Server", "expires": "forever", "reason": "Banned by an operator"}]`), 0o640)
+	for _, name := range []string{"Tobi2009", "griefer99"} {
+		if code, out := e.call("GET", e.sp("/players/profile?name="+name+"&tz=UTC"), nil); code != 200 || out["banned"] != true {
+			t.Fatalf("banned %s: %d %v", name, code, out)
+		}
+	}
+	if _, out := e.call("GET", e.sp("/players/profile?name=mara_k&tz=UTC"), nil); out["banned"] != nil {
+		t.Fatalf("mara_k isn't banned: %v", out)
 	}
 	for _, c := range []struct {
 		query string

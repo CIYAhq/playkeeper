@@ -111,6 +111,9 @@ func (s *server) Profile(name, tzName string, now time.Time) (api.PlayerProfile,
 			}
 		}
 	}
+	if banned, err := s.bannedNames(); err == nil && slices.ContainsFunc(banned, func(n string) bool { return strings.EqualFold(n, name) }) {
+		known, p.Banned = true, true
+	}
 	s.mu.Lock()
 	if s.players != nil {
 		for _, n := range s.players.Names {
@@ -270,6 +273,28 @@ func (s *server) hBan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.letGo(r.Context(), req.Name)
 	writeJSON(w, http.StatusOK, map[string]any{"message": out})
+}
+
+// bannedNames reads the ban list the server keeps in banned-players.json.
+func (s *server) bannedNames() ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(s.dataDir(), "banned-players.json"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var entries []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(b, &entries); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	return names, nil
 }
 
 // leaveWait bounds how long a kick or ban waits for the server log to show

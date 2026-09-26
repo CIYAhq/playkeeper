@@ -71,7 +71,8 @@ function summary(p: PlayerProfile): string {
   return t('profile.summary', { time: formatDuration(avg), part: partText(p.mostly) })
 }
 
-function listedText(p: PlayerProfile): { text: string; tone: 'green' | 'muted' } {
+function listedText(p: PlayerProfile): { text: string; tone: 'green' | 'muted' | 'red' } {
+  if (p.banned) return { text: t('profile.banned'), tone: 'red' }
   if (p.allowlisted) return { text: p.operator ? t('profile.listedOp') : t('profile.listed'), tone: 'green' }
   if (p.operator) return { text: t('players.access.operator'), tone: 'green' }
   return { text: t('players.access.none'), tone: 'muted' }
@@ -79,7 +80,7 @@ function listedText(p: PlayerProfile): { text: string; tone: 'green' | 'muted' }
 
 /** The phone's one line under the status: "On the allowlist since 22 Sep", or the marker alone. */
 function listedSinceText(p: PlayerProfile): string {
-  if (!p.allowlisted || !p.joined?.at) return listedText(p).text
+  if (p.banned || !p.allowlisted || !p.joined?.at) return listedText(p).text
   const date = formatDate(p.joined.at)
   return p.operator ? t('profile.listedOpSince', { date }) : t('profile.listedSince', { date })
 }
@@ -195,7 +196,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
         </section>
         {manage && (
           <ul className="overflow-hidden rounded-3xl border border-border bg-white">
-            <li className="border-b border-border">
+            <li className={cn(!p.banned && 'border-b border-border')}>
               <button type="button" onClick={opToggle} disabled={!up} className="flex min-h-16 w-full items-center gap-3 px-4 py-2 text-left disabled:opacity-50">
                 <span className="min-w-0 flex-1">
                   <span className="block text-base">{p.operator ? t('players.removeOp') : t('players.makeOp')}</span>
@@ -204,11 +205,13 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
                 <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
               </button>
             </li>
-            <li>
-              <button type="button" onClick={() => setBanning(true)} disabled={!up} className="flex min-h-14 w-full items-center px-4 py-2 text-left text-base text-destructive-foreground disabled:opacity-50">
-                {t('profile.ban', { server: s.name })}
-              </button>
-            </li>
+            {!p.banned && (
+              <li>
+                <button type="button" onClick={() => setBanning(true)} disabled={!up} className="flex min-h-14 w-full items-center px-4 py-2 text-left text-base text-destructive-foreground disabled:opacity-50">
+                  {t('profile.ban', { server: s.name })}
+                </button>
+              </li>
+            )}
           </ul>
         )}
         {dialogs}
@@ -260,11 +263,13 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
                     <span className="block text-xs text-muted-foreground">{p.operator ? t('players.removeOpHint') : t('players.makeOpHint')}</span>
                   </span>
                 </MenuItem>
-                <MenuSeparator />
-                <MenuItem variant="destructive" onClick={() => setBanning(true)}>
-                  <BanIcon />
-                  {t('profile.ban', { server: s.name })}
-                </MenuItem>
+                {(!p.banned || p.allowlisted) && <MenuSeparator />}
+                {!p.banned && (
+                  <MenuItem variant="destructive" onClick={() => setBanning(true)}>
+                    <BanIcon />
+                    {t('profile.ban', { server: s.name })}
+                  </MenuItem>
+                )}
                 {p.allowlisted && (
                   <MenuItem variant="destructive" onClick={unlist}>
                     <UserMinusIcon />

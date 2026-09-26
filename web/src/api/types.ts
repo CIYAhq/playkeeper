@@ -593,6 +593,8 @@ export interface PlayerProfile {
   onlineSince?: string
   allowlisted: boolean
   operator: boolean
+  /** On the server's ban list. */
+  banned?: boolean
   firstSeen?: string
   sessions: number
   playtimeSeconds: number
