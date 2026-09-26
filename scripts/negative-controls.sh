@@ -2200,6 +2200,16 @@ control "an import refused over a linked world folder starts the previous world 
   '	folders, err := worldimport.WorldFolders(live, level)
 	if err != nil {' \
   ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
+control "each start waits for squaremap afresh before the first render" internal/agent/maps.go \
+  '	if prev := ms.rendering[s.id]; prev != nil {
+		prev.stop()
+	}' \
+  '	if prev := ms.rendering[s.id]; prev != nil {
+		ms.mu.Unlock()
+		stop()
+		return
+	}' \
+  ./internal/agent '^TestAStartDuringTheFirstRenderWaitWaitsAgain$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

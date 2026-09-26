@@ -54,8 +54,12 @@ type mapState struct {
 	mu        sync.Mutex
 	live      map[string]mapLive
 	progress  map[string]progressMark
-	rendering map[string]bool
+	rendering map[string]*renderWait
 }
+
+// renderWait is a start's wait for squaremap to answer before the first
+// render; stop ends it.
+type renderWait struct{ stop context.CancelFunc }
 
 // mapLive is what the agent last saw of a server's container.
 type mapLive struct {
@@ -428,7 +432,10 @@ func (s *server) writeMapConfig() error {
 }
 
 // mapStarted runs after every successful start: a restart put off until
-// nobody plays is done, and a map that was never drawn gets drawn.
+// nobody plays is done, and a map that was never drawn gets drawn. Each
+// start waits for squaremap afresh and ends the wait of the start before
+// it, which may give up on that run, or run out of time, before squaremap
+// answers in this one.
 func (s *server) mapStarted() {
 	rec, err := s.activeMap()
 	if err != nil || rec == nil {
@@ -441,26 +448,30 @@ func (s *server) mapStarted() {
 	if rec.firstRenderAt != nil {
 		return
 	}
+	ctx, stop := context.WithCancel(s.ctx)
+	wait := &renderWait{stop: stop}
 	ms := &s.maps
 	ms.mu.Lock()
-	if ms.rendering[s.id] {
-		ms.mu.Unlock()
-		return
+	if prev := ms.rendering[s.id]; prev != nil {
+		prev.stop()
 	}
 	if ms.rendering == nil {
-		ms.rendering = map[string]bool{}
+		ms.rendering = map[string]*renderWait{}
 	}
-	ms.rendering[s.id] = true
+	ms.rendering[s.id] = wait
 	ms.mu.Unlock()
 	s.loops.Add(1)
 	go func() {
 		defer s.loops.Done()
 		defer func() {
 			ms.mu.Lock()
-			delete(ms.rendering, s.id)
+			if ms.rendering[s.id] == wait {
+				delete(ms.rendering, s.id)
+			}
 			ms.mu.Unlock()
+			stop()
 		}()
-		s.firstRender(s.ctx)
+		s.firstRender(ctx)
 	}()
 }
 
@@ -487,6 +498,9 @@ func (s *server) firstRender(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	if err := webmap.StartDrawing(ctx, rconConsole{s}); err != nil {
 		s.log.Warn("could not ask squaremap to draw the map", "server", s.id, "err", err)
