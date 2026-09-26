@@ -34,7 +34,7 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     { route: `/servers/${s.slug}/settings`, name: 'server-settings', heading: s.name },
     { route: '/servers/new', name: 'new-server', heading: 'New server' },
     { route: `/machines/${machine?.id}`, name: 'machine', heading: machine?.name ?? '' },
-    { route: '/settings', name: 'settings', heading: 'Settings' },
+    { route: '/settings', name: 'settings', heading: 'Settings', phone: 'Playkeeper' },
     // Waves 1 to 4.
     { route: `/servers/${s.slug}/plugins/browse`, name: 'plugins-browse', heading: s.name, phone: 'Browse' },
     { route: `/servers/${s.slug}/world/pregen`, name: 'world-pregen', heading: s.name, phone: 'Pre-generate' },

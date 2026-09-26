@@ -1602,12 +1602,21 @@ describe('Add-on sources', () => {
     answer({ '/addon-sources': none })
     await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />)
     const nav = document.querySelector('nav[aria-label="Settings sections"]')
-    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines'])
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines', 'Playkeeper'])
     expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/addon-sources')
     expect(document.getElementById('addon-sources')).not.toBeNull()
     const moderator = await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />, workspace({ me: member('moderator', moderatorCan) }))
     expect(moderator).not.toContain('CurseForge')
     window.history.replaceState(null, '', '/')
+  })
+
+  it('lists the general page as Playkeeper, last in the Settings sections', async () => {
+    await render(<GlobalSettingsPage page={{ name: 'settings' }} />)
+    const nav = document.querySelector('nav[aria-label="Settings sections"]')
+    const current = nav?.querySelector('[aria-current="page"]')
+    expect(current?.textContent).toBe('Playkeeper')
+    expect(current?.getAttribute('href')).toBe('/settings')
+    expect(document.querySelector('h1')?.textContent).toBe('Settings')
   })
 
   it('lands on its own section, with Modrinth and Hangar built in and CurseForge asking for a key', async () => {

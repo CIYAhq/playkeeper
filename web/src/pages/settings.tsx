@@ -73,19 +73,21 @@ export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
 }
 
 /** A Settings section: the sections list beside it on desktop, a back link on phones (to More, where the sections are listed, unless phoneBack says where). */
-function SettingsSection({ current, phoneBack, children }: { current: SettingsSectionName; phoneBack?: { to: Route; label: string }; children: ReactNode }) {
+function SettingsSection({ current, phoneBack, children }: { current: SettingsSectionName | 'settings'; phoneBack?: { to: Route; label: string }; children: ReactNode }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const sections = settingsSections.filter((s) => can(ws.me, s.act))
+  const general = current === 'settings'
   const here = sections.find((s) => s.route.name === current)
   useEffect(() => {
-    if (!here) navigate(settingsHome(ws.me), true)
-  }, [here, ws.me])
-  if (!here) return null
+    if (!general && !here) navigate(settingsHome(ws.me), true)
+  }, [general, here, ws.me])
+  if (!general && !here) return null
+  const item = (active: boolean) => cn('flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active && 'bg-muted text-foreground')
   if (phone) {
     return (
       <>
-        <PhoneBackHeader to={phoneBack?.to ?? { name: 'more' }} label={phoneBack?.label ?? t('nav.more')} title={phoneBack ? undefined : t(here.label)} />
+        <PhoneBackHeader to={phoneBack?.to ?? { name: 'more' }} label={phoneBack?.label ?? t('nav.more')} title={phoneBack ? undefined : here ? t(here.label) : t('global.playkeeper')} />
         <div className="flex flex-col gap-4 pt-2 pb-6">{children}</div>
       </>
     )
@@ -96,18 +98,13 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
       <PageBody className="grid max-w-[1240px] grid-cols-[200px_minmax(0,1fr)] items-start gap-7">
         <nav aria-label={t('global.nav.label')} className="flex flex-col gap-0.5">
           {sections.map((s) => (
-            <a
-              key={s.route.name}
-              {...linkProps(s.route)}
-              aria-current={s === here ? 'page' : undefined}
-              className={cn(
-                'flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
-                s === here && 'bg-muted text-foreground',
-              )}
-            >
+            <a key={s.route.name} {...linkProps(s.route)} aria-current={s === here ? 'page' : undefined} className={item(s === here)}>
               {t(s.label)}
             </a>
           ))}
+          <a {...linkProps({ name: 'settings' })} aria-current={general ? 'page' : undefined} className={item(general)}>
+            {t('global.playkeeper')}
+          </a>
         </nav>
         <div key={current} className="flex min-w-0 animate-page flex-col gap-4">
           {children}
@@ -127,23 +124,20 @@ function GeneralSettings() {
     document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
   }, [hash])
   return (
-    <>
-      {phone ? <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('global.title')} /> : <PageHeader title={t('global.title')} />}
-      <PageBody className="flex max-w-[860px] flex-col gap-4">
-        <PlaykeeperCard />
-        {can(ws.me, 'audit.view') && <AuditCard phone={phone} />}
-        <Card as="section" aria-labelledby="about-title">
-          <CardTitle id="about-title">{t('global.about')}</CardTitle>
-          <p className="mt-1 text-[13px] text-muted-foreground">{t('global.aboutBody')}</p>
-          {/* Desktop pages carry this line in the footer; phones have none. */}
-          {phone && <p className="mt-3 text-xs text-muted-foreground">{t('footer.notOfficial')}</p>}
-          <a href={t('global.noticesUrl')} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
-            {t('global.notices')}
-            <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-          </a>
-        </Card>
-      </PageBody>
-    </>
+    <SettingsSection current="settings">
+      <PlaykeeperCard />
+      {can(ws.me, 'audit.view') && <AuditCard phone={phone} />}
+      <Card as="section" aria-labelledby="about-title">
+        <CardTitle id="about-title">{t('global.about')}</CardTitle>
+        <p className="mt-1 text-[13px] text-muted-foreground">{t('global.aboutBody')}</p>
+        {/* Desktop pages carry this line in the footer; phones have none. */}
+        {phone && <p className="mt-3 text-xs text-muted-foreground">{t('footer.notOfficial')}</p>}
+        <a href={t('global.noticesUrl')} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
+          {t('global.notices')}
+          <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+        </a>
+      </Card>
+    </SettingsSection>
   )
 }
 
