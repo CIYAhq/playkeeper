@@ -3096,6 +3096,31 @@ webcontrol "the schedule list names the days on the viewer's clock" web/src/page
   'const days = weekdays.filter((d) => timing.days?.includes(d))' \
   web/src/pages/server/schedules.test.tsx 'days that fall on others'
 
+# Wave 7 before Bugbot: a new key reaches the copy being made and the copies
+# waiting, and stopping a copy for it isn't a failed try.
+control "a new key stops the copy being made" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy,_with_another_backup_waiting$'
+control "a new key starts the uploader again" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.stopUpload()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+control "a copy picked after a new key isn't encrypted to the old one" internal/agent/offsite.go \
+  'if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != recipient {' \
+  'if row, err := s.loadOffsite(); err != nil || false && row.keys.Current.Recipient != recipient {' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^while_the_next_copy_is_picked$'
+control "a copy stopped for a new key isn't a failed try" internal/agent/offsite.go \
+  's.uploadFailed(job.ctx, b, job, err)' \
+  's.uploadFailed(ctx, b, job, err)' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.

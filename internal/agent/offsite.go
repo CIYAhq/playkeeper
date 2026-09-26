@@ -1056,6 +1056,10 @@ func (s *server) hOffsiteNewKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row.keys, row.keySavedAt, row.keySavedFolder = keys, nil, nil
+	// The copy being made is encrypted to the old key: it starts over with
+	// the new one, and so does the rest of the queue.
+	s.stopUpload()
+	s.kickOffsite()
 	s.audit(actor, "offsite.key_rotated", "server", "succeeded", "new key "+rot.Recipient)
 	writeJSON(w, http.StatusOK, offsiteNewKey{Rotation: rot, Offsite: s.offsiteView(row)})
 }
@@ -1544,7 +1548,8 @@ func (s *server) offsiteLoop(ctx context.Context) {
 	}
 }
 
-// offsiteRound uploads what is due. When the destination changed or copies
+// offsiteRound uploads what is due, encrypted to the key current as it
+// starts: a new key ends the round. When the destination changed or copies
 // were turned off, it first discards what the old destination holds of
 // unfinished uploads.
 func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent string, tidied map[string]bool) (offsiteDest, string) {
@@ -1586,7 +1591,7 @@ func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent s
 	}
 	for ctx.Err() == nil {
 		job, ok := s.claimUpload(ctx)
-		if !ok || !s.uploadOne(ctx, dest, ident, job) {
+		if !ok || !s.uploadOne(ctx, dest, ident, row.keys.Current.Recipient, job) {
 			break
 		}
 	}
@@ -1647,12 +1652,18 @@ func (s *server) dropUpload(backupID string) {
 	_, _ = s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, backupID)
 }
 
-// uploadOne copies the backup of an upload the uploader claimed, and lets go
-// of the claim once it is done with the upload's row. It reports whether the
-// next one can go.
-func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, job uploadJob) bool {
+// uploadOne copies the backup of an upload the uploader claimed to dest,
+// which encrypts to recipient, and lets go of the claim once it is done with
+// the upload's row. It reports whether the next one can go.
+//
+// A new key saved before the claim is seen here; one saved after it stops
+// the claim. Either way nothing more is encrypted to the old key.
+func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident, recipient string, job uploadJob) bool {
 	defer s.releaseUpload()
 	uploadClaimed(job)
+	if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != recipient {
+		return false
+	}
 	b, err := s.getBackup(job.backupID)
 	if err != nil || b.Verified == nil || !*b.Verified {
 		s.dropUpload(job.backupID)
@@ -1696,7 +1707,7 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, 
 		return false
 	}
 	if err != nil {
-		s.uploadFailed(ctx, b, job, err)
+		s.uploadFailed(job.ctx, b, job, err)
 		return false
 	}
 	s.copyDone(ctx, dest, row, b, cp)
@@ -1715,7 +1726,9 @@ func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob,
 		}
 	}
 	if ctx.Err() != nil {
-		// Playkeeper is stopping: the upload carries on next time.
+		// Playkeeper is stopping, or stopUpload stopped the upload for new
+		// settings or a new key: it isn't a failed try, and goes on, or
+		// starts over, next time.
 		_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state) WHERE server_id = ? AND backup_id = ?`, state, s.id, b.ID)
 		return
 	}
