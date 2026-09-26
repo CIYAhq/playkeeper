@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
+import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
-import { Card, CardHint, CardTitle, copyText, SectionLabel } from '@/components/app/bits'
+import { Card, CardHint, CardTitle, copyText, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
@@ -17,11 +17,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
-import { whyNot } from '@/lib/phase'
+import { busyReason, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkPath } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
 
 function downloadURL(s: ServerStatus, b: Backup): string {
   return serverApi(s.id, `/backups/${b.id}/download`)
@@ -62,6 +63,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   if (backups.data && list.length === 0) {
     return (
       <>
+        <LeftoverCopy server={s} />
         <EmptyBackups server={s} phone={phone} />
         {dialog}
       </>
@@ -71,6 +73,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   if (phone) {
     return (
       <div className="flex flex-col gap-4">
+        <LeftoverCopy server={s} />
         <MakeBackup server={s} phone onDone={refresh} />
         <section aria-labelledby="backups">
           <SectionLabel className="px-4">
@@ -95,11 +98,16 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             <ListSkeleton rowClassName="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0" className="mt-2 overflow-hidden rounded-3xl border border-border bg-white" trailing={<Skeleton className="h-10 w-28 shrink-0 rounded-lg" />} />
           )}
         </section>
-        <button type="button" onClick={() => setRestoreSheet(true)} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 text-left">
-          <RotateCcwIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-          <span className="min-w-0 flex-1 text-base font-medium">{t('world.restorePhone')}</span>
-          <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-        </button>
+        <ul className="overflow-hidden rounded-3xl border border-border bg-white">
+          <li className="border-b border-border">
+            <button type="button" onClick={() => setRestoreSheet(true)} className={phoneRow}>
+              <RotateCcwIcon aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-base">{t('world.restorePhone')}</span>
+              <ChevronRightIcon aria-hidden="true" />
+            </button>
+          </li>
+          <PhoneWorldLinks server={s} />
+        </ul>
         <Sheet open={restoreSheet} onOpenChange={setRestoreSheet}>
           <SheetPopup side="bottom">
             <div className="px-5 pt-3">
@@ -144,6 +152,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
 
   return (
     <>
+      <LeftoverCopy server={s} />
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
         <MakeBackup server={s} onDone={refresh} />
         <WorldInfo server={s} backups={backups.data} />
@@ -248,11 +257,6 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
 }
 
 function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] | undefined }) {
-  const later: { icon: ReactNode; title: string; hint: string; to?: string }[] = [
-    { icon: <MapIcon />, title: t('world.pregen'), hint: t('world.pregenHint') },
-    { icon: <PackageIcon />, title: t('world.packs'), hint: t('world.packsHint') },
-    { icon: <UploadIcon />, title: t('world.ownWorld'), hint: t('world.ownWorldHint'), to: '/servers/new#world' },
-  ]
   return (
     <Card>
       <CardTitle>{t('world.info')}</CardTitle>
@@ -271,31 +275,21 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
           <dd className="mt-0.5 text-lg font-bold tabular-nums">{backups ? backups.length : <InlineSkeleton className="h-5 w-6" />}</dd>
         </div>
       </dl>
-      <ul className="mt-1 flex flex-col">
-        {later.map((l) => {
-          const row = (
-            <>
-              {l.icon}
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium">{l.title}</span>
-                <span className="block text-xs text-muted-foreground">{l.hint}</span>
-              </span>
-              {l.to ? <ChevronRightIcon /> : <span className="text-xs text-muted-foreground">{t('common.later')}</span>}
-            </>
-          )
-          const rowClass = 'flex items-center gap-3 py-2.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground'
-          return (
-            <li key={l.title}>
-              {l.to ? (
-                <a {...linkPath(l.to)} className={cn(rowClass, '-mx-2 rounded-lg px-2 hover:bg-muted/60')}>
-                  {row}
-                </a>
-              ) : (
-                <div className={rowClass}>{row}</div>
-              )}
-            </li>
-          )
-        })}
+      <ul className="mt-3 flex flex-col">
+        <WorldLinks server={s} />
+        <li>
+          <a
+            {...linkPath('/servers/new#world')}
+            className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+          >
+            <UploadIcon />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-semibold">{t('world.ownWorld')}</span>
+              <span className="block text-xs text-muted-foreground">{t('world.ownWorldHint')}</span>
+            </span>
+            <ChevronRightIcon className="transition-transform duration-(--motion-fast) ease-standard group-hover:translate-x-0.5" aria-hidden="true" />
+          </a>
+        </li>
       </ul>
     </Card>
   )
@@ -470,6 +464,87 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
           </li>
         ))}
       </ol>
+      <WorldTools server={s} phone={phone} className="mt-6" />
+    </div>
+  )
+}
+
+function leftoverTitle(c: WorldCopy): string {
+  switch (c.kind) {
+    case 'previous':
+      return t('world.leftoverPrevious')
+    case 'failed_restore':
+      return t('world.leftoverFailed')
+    default: {
+      const unreachable: never = c.kind
+      return unreachable
+    }
+  }
+}
+
+/** The newest world folder a restore left next to the live one, until it's discarded. */
+function LeftoverCopy({ server: s }: { server: ServerStatus }) {
+  const ws = useWorkspace()
+  const copies = usePoll(() => get<WorldCopy[]>(serverApi(s.id, '/world-copies')), 30_000, s.id)
+  const newest = useListPresence(copies.data?.slice(0, 1), (c) => c.name)
+  if (ws.stale) return null
+  return (
+    <>
+      {newest.map(({ key, item, state }) => (
+        <LeftoverNotice key={key} server={s} copy={item} state={state} onDiscarded={copies.refresh} />
+      ))}
+    </>
+  )
+}
+
+function LeftoverNotice({ server: s, copy: c, state, onDiscarded }: { server: ServerStatus; copy: WorldCopy; state: Presence; onDiscarded: () => Promise<void> }) {
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const when = formatDay(c.createdAt)
+
+  async function discard() {
+    setBusy(true)
+    try {
+      await del(serverApi(s.id, `/world-copies/${encodeURIComponent(c.name)}`))
+      setConfirm(false)
+      await onDiscarded()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div {...presenceProps(state)}>
+      <Notice
+        title={leftoverTitle(c)}
+        action={
+          <Button variant="outline" size="sm" disabledReason={busyReason(s)} onClick={() => setConfirm(true)}>
+            <Trash2Icon />
+            {t('world.leftoverDiscard')}
+          </Button>
+        }
+      >
+        {t('world.leftoverBody', { time: when, size: formatBytes(c.sizeBytes) })}
+      </Notice>
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogPopup className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">{t('world.leftoverDiscardTitle')}</DialogTitle>
+            <DialogDescription>{t('world.leftoverDiscardBody', { time: when })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter variant="bare" className="border-t border-border pt-4">
+            <Button variant="ghost" onClick={() => setConfirm(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={discard} loading={busy}>
+              <Trash2Icon />
+              {t('world.leftoverDiscardConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </div>
   )
 }

@@ -51,6 +51,7 @@ type SearchQuery struct {
 	Query    string
 	Platform string
 	Version  string // a platform version, e.g. a Minecraft version for PAPER
+	Category string // e.g. admin_tools or world_management
 	Sort     string
 	Offset   int
 	Limit    int // 1 to MaxLimit
@@ -127,6 +128,8 @@ type Version struct {
 	Downloads            map[string]Download           `json:"downloads"`
 	PluginDependencies   map[string][]PluginDependency `json:"pluginDependencies"`
 	PlatformDependencies map[string][]string           `json:"platformDependencies"`
+	// Description is the author's Markdown notes for the version.
+	Description string `json:"description"`
 }
 
 // Channel groups versions; projects start with a "Release" channel and add
@@ -178,9 +181,11 @@ type VersionList struct {
 type VersionFilter struct {
 	Platform        string
 	PlatformVersion string
-	Channel         string
-	Offset          int
-	Limit           int // 1 to MaxLimit
+	// Channel is a channel's name, which Hangar matches ignoring case. It
+	// filters for one channel only; Hangar ignores a second.
+	Channel string
+	Offset  int
+	Limit   int // 1 to MaxLimit
 }
 
 // Search runs a project search.
@@ -189,6 +194,7 @@ func (c *Client) Search(ctx context.Context, q SearchQuery) (*SearchResult, erro
 	set(v, "query", q.Query)
 	set(v, "platform", q.Platform)
 	set(v, "version", q.Version)
+	set(v, "category", q.Category)
 	set(v, "sort", q.Sort)
 	page(v, q.Offset, q.Limit)
 	var r SearchResult

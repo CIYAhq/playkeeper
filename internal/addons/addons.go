@@ -69,6 +69,7 @@ type Installed struct {
 	ProjectID     string    `json:"projectId"`
 	Slug          string    `json:"slug"`
 	Name          string    `json:"name"`
+	Summary       string    `json:"summary,omitempty"`
 	IconURL       string    `json:"iconUrl,omitempty"`
 	VersionID     string    `json:"versionId"`
 	VersionNumber string    `json:"versionNumber"`

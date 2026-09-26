@@ -16,9 +16,11 @@ import (
 type Query struct {
 	Source Source `json:"source"`
 	Text   string `json:"text"`
-	Sort   string `json:"sort"`   // relevance (default), downloads, updated or newest
-	Offset int    `json:"offset"` // at most 10000
-	Limit  int    `json:"limit"`  // 1 to 25; 20 when zero
+	// Category is one of Categories; empty means every category.
+	Category string `json:"category,omitempty"`
+	Sort     string `json:"sort"`   // relevance (default), downloads, updated or newest
+	Offset   int    `json:"offset"` // at most 10000
+	Limit    int    `json:"limit"`  // 1 to 25; 20 when zero
 }
 
 // Card is one add-on in search results, with what the UI shows on its card.
@@ -74,6 +76,16 @@ func (l *Library) Search(ctx context.Context, srv Server, q Query) (*Results, er
 	if q.Limit == 0 {
 		q.Limit = 20
 	}
+	if q.Category != "" {
+		c, ok := findCategory(q.Category)
+		if !ok {
+			return nil, fail(KindInvalid, kv("field", "category"), "That is not one of the library's categories.", "")
+		}
+		if c.in(q.Source) == "" {
+			return &Results{Cards: []Card{}, Offset: q.Offset, Limit: q.Limit}, nil
+		}
+		q.Category = c.in(q.Source)
+	}
 	if q.Source == Hangar {
 		return l.searchHangar(ctx, srv, t, q)
 	}
@@ -85,14 +97,18 @@ func (l *Library) searchModrinth(ctx context.Context, srv Server, t Target, q Qu
 	if index == "" {
 		index = "relevance"
 	}
+	facets := [][]string{
+		modrinth.Facet("categories", t.Loaders...),
+		modrinth.Facet("versions", srv.MinecraftVersion),
+		modrinth.Facet("project_type", t.Kind),
+		modrinth.Facet("server_side", "required", "optional"),
+	}
+	if q.Category != "" {
+		facets = append(facets, modrinth.Facet("categories", q.Category))
+	}
 	res, err := l.Modrinth.Search(ctx, modrinth.SearchQuery{
-		Query: q.Text,
-		Facets: [][]string{
-			modrinth.Facet("categories", t.Loaders...),
-			modrinth.Facet("versions", srv.MinecraftVersion),
-			modrinth.Facet("project_type", t.Kind),
-			modrinth.Facet("server_side", "required", "optional"),
-		},
+		Query:  q.Text,
+		Facets: facets,
 		Index:  index,
 		Offset: q.Offset,
 		Limit:  q.Limit,
@@ -132,7 +148,7 @@ func (l *Library) searchHangar(ctx context.Context, srv Server, t Target, q Quer
 	if sort == "" && q.Text == "" {
 		sort = "-downloads"
 	}
-	res, err := l.Hangar.Search(ctx, hangar.SearchQuery{Query: q.Text, Platform: t.HangarPlatform, Version: srv.MinecraftVersion, Sort: sort, Offset: q.Offset, Limit: q.Limit})
+	res, err := l.Hangar.Search(ctx, hangar.SearchQuery{Query: q.Text, Platform: t.HangarPlatform, Version: srv.MinecraftVersion, Category: q.Category, Sort: sort, Offset: q.Offset, Limit: q.Limit})
 	if err != nil {
 		return nil, upstream(Hangar, err)
 	}

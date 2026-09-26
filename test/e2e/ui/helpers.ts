@@ -7,13 +7,28 @@ export const outDir = process.env.PK_OUT ?? path.resolve('out')
 export const password = process.env.PK_PASSWORD ?? ''
 
 /**
- * Saves a screenshot. Chromium's full-page capture briefly takes focus from
- * the page, so a screenshot of an open dialog that keyboard steps follow
- * uses `fullPage: false`.
+ * Saves a screenshot. A full-page one stretches the viewport to the page's
+ * height for the capture: Chromium's own full-page capture shrinks the
+ * viewport to 1×1 for a moment, which crosses the phone breakpoint, remounts
+ * the page and restarts its fade-in, and briefly takes focus from the page.
+ * A screenshot of an open dialog that keyboard steps follow still uses
+ * `fullPage: false`.
  */
 export async function shot(page: Page, name: string, { fullPage = true } = {}) {
   fs.mkdirSync(shotsDir, { recursive: true })
-  await page.screenshot({ path: path.join(shotsDir, `${name}.png`), fullPage })
+  const file = path.join(shotsDir, `${name}.png`)
+  const viewport = page.viewportSize()
+  const height = fullPage && viewport ? await page.evaluate(() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)) : 0
+  if (!viewport || height <= viewport.height) {
+    await page.screenshot({ path: file })
+    return
+  }
+  await page.setViewportSize({ width: viewport.width, height })
+  try {
+    await page.screenshot({ path: file })
+  } finally {
+    await page.setViewportSize(viewport)
+  }
 }
 
 /** Presses Tab until `target` has focus, like a keyboard-only user. */

@@ -1,6 +1,7 @@
 package addons
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,8 +27,12 @@ type InstallRequest struct {
 	// versions when no release fits.
 	AllowPrerelease bool `json:"allowPrerelease,omitempty"`
 	// Fingerprint is the Plan.Fingerprint the user confirmed. Install
-	// refuses when the plan has changed since; empty skips the check.
+	// refuses when the plan has changed since; empty skips the check, so
+	// every install or update a user asks for, through the agent or an MCP
+	// tool, must carry one.
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// OnProgress, when set, follows Install as it downloads.
+	OnProgress func(Progress) `json:"-"`
 }
 
 // Action is what a step does to the server's folder.
@@ -45,6 +50,7 @@ type Step struct {
 	ProjectID     string    `json:"projectId"`
 	Slug          string    `json:"slug"`
 	Name          string    `json:"name"`
+	Summary       string    `json:"summary,omitempty"`
 	IconURL       string    `json:"iconUrl,omitempty"`
 	VersionID     string    `json:"versionId"`
 	VersionNumber string    `json:"versionNumber"`
@@ -64,13 +70,16 @@ type Step struct {
 	// url is unexported so that a plan which went through JSON cannot be
 	// carried out: Install and Update always plan again.
 	url string
+	// replaceChanged lets the step replace a file that changed since it
+	// was installed, because the user said so.
+	replaceChanged bool
 }
 
 func (s Step) key() Key { return Key{s.Source, s.ProjectID} }
 
 func (s Step) record(now time.Time) Installed {
 	return Installed{
-		Source: s.Source, ProjectID: s.ProjectID, Slug: s.Slug, Name: s.Name, IconURL: s.IconURL,
+		Source: s.Source, ProjectID: s.ProjectID, Slug: s.Slug, Name: s.Name, Summary: s.Summary, IconURL: s.IconURL,
 		VersionID: s.VersionID, VersionNumber: s.VersionNumber, Channel: s.Channel, Published: s.Published,
 		FileName: s.FileName, HashAlgo: s.HashAlgo, Hash: strings.ToLower(s.Hash), Size: s.Size,
 		DependencyOf: s.DependencyOf, Requires: s.Requires, InstalledAt: now,
@@ -121,12 +130,26 @@ type Plan struct {
 }
 
 func (p *Plan) fingerprint() string {
+	// An author rewording a description does not change what the plan does,
+	// and neither does the order it lists the files and dependencies in.
+	steps := slices.Clone(p.Steps)
+	for i := range steps {
+		steps[i].Summary = ""
+		steps[i].Requires = slices.Sorted(slices.Values(steps[i].Requires))
+	}
+	slices.SortStableFunc(steps, func(a, b Step) int {
+		return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ProjectID, b.ProjectID))
+	})
+	satisfied := slices.Clone(p.Satisfied)
+	slices.SortStableFunc(satisfied, func(a, b Satisfied) int {
+		return cmp.Or(cmp.Compare(a.For, b.For), cmp.Compare(a.Name, b.Name), cmp.Compare(a.FileName, b.FileName))
+	})
 	b, _ := json.Marshal(struct {
 		Steps     []Step
 		Satisfied []Satisfied
 		Manual    []ManualStep
 		Blockers  []Notice
-	}{p.Steps, p.Satisfied, p.Manual, p.Blockers})
+	}{steps, satisfied, p.Manual, p.Blockers})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:16])
 }
@@ -180,7 +203,10 @@ type resolver struct {
 	t        Target
 	inv      *inventory
 	allowPre bool
-	plan     *Plan
+	// replaceChanged lets updates replace files that changed since they
+	// were installed.
+	replaceChanged bool
+	plan           *Plan
 
 	planned   map[Key]int // index into plan.Steps
 	deps      [][]dep     // per step
@@ -242,7 +268,7 @@ func (r *resolver) add(c candidate, a Action, parent *Step, replaces *Installed)
 			fmt.Sprintf("%s %s is a %s version and may be unstable.", c.Name, c.Number, c.Channel), ""))
 	}
 	s := Step{
-		Action: a, Source: c.Source, ProjectID: c.ProjectID(), Slug: c.Slug, Name: c.Name, IconURL: c.IconURL,
+		Action: a, Source: c.Source, ProjectID: c.ProjectID(), Slug: c.Slug, Name: c.Name, Summary: c.Summary, IconURL: c.IconURL,
 		VersionID: c.VersionID, VersionNumber: c.Number, Channel: c.Channel, Published: c.Published,
 		FileName: c.FileName, Size: c.Size, HashAlgo: c.HashAlgo, Hash: c.Hash, Replaces: replaces, url: c.URL,
 	}
@@ -420,7 +446,7 @@ func (r *resolver) version(ctx context.Context, parent Step, p *project, pinned 
 			return c, nil, nil
 		}
 	}
-	cands, err := r.l.candidates(ctx, r.t, mc, p)
+	cands, err := r.l.candidates(ctx, r.t, mc, p, true)
 	if err != nil {
 		return candidate{}, nil, err
 	}
@@ -584,7 +610,7 @@ func (r *resolver) finish() *Plan {
 		}
 	}
 	seen := map[string]bool{}
-	for _, s := range p.Steps {
+	for i, s := range p.Steps {
 		switch {
 		case !validFileName(s.FileName):
 			r.block(badFileName(s).Notice)
@@ -609,6 +635,10 @@ func (r *resolver) finish() *Plan {
 			case lf == nil:
 				r.warn(notice(KindNotFound, kv("name", old.Name, "file", old.FileName),
 					fmt.Sprintf("%s is missing from the %s folder, so this installs it again.", old.FileName, r.t.Folder), ""))
+			case lf.modified && r.replaceChanged:
+				p.Steps[i].replaceChanged = true
+				r.warn(notice(KindModified, kv("name", old.Name, "file", old.FileName),
+					fmt.Sprintf("%s has changed since Playkeeper installed it; this replaces it as you asked.", old.FileName), ""))
 			case lf.modified:
 				r.block(modified(*old, "replace"))
 			}
@@ -702,11 +732,11 @@ func external(c candidate, parent *Step, t Target) ManualStep {
 		}
 		return ManualStep{Notice: notice(KindExternal, kv("name", c.Name, "version", c.Number, "host", host, "folder", t.Folder),
 			fmt.Sprintf("%s is only offered on %s, so Playkeeper cannot install it for you.", label, host),
-			fmt.Sprintf("Download it from that page and upload it to the %s folder.", t.Folder)), URL: link}
+			fmt.Sprintf("Download it from that page, then put it in the server's %s folder.", t.Folder)), URL: link}
 	}
 	return ManualStep{Notice: notice(KindDepExternal, kv("name", parent.Name, "dependency", c.Name, "host", host, "folder", t.Folder),
 		fmt.Sprintf("%s needs %s, which is only offered on %s.", parent.Name, c.Name, host),
-		fmt.Sprintf("Download it from that page and upload it to the %s folder.", t.Folder)), URL: link}
+		fmt.Sprintf("Download it from that page, then put it in the server's %s folder.", t.Folder)), URL: link}
 }
 
 // unlisted is a required dependency that is not a project on the source.
@@ -716,7 +746,7 @@ func unlisted(s Step, d dep, t Target) ManualStep {
 		link := safeLink(d.external)
 		return ManualStep{Notice: notice(KindDepExternal, kv("name", s.Name, "dependency", name, "folder", t.Folder),
 			fmt.Sprintf("%s needs %s, which is not on Hangar.", s.Name, name),
-			fmt.Sprintf("Download %s yourself and upload it to the %s folder.", name, t.Folder)), URL: link}
+			fmt.Sprintf("Download %s yourself, then put it in the server's %s folder.", name, t.Folder)), URL: link}
 	}
 	link := ""
 	if validRef(s.Slug) {
@@ -724,5 +754,5 @@ func unlisted(s Step, d dep, t Target) ManualStep {
 	}
 	return ManualStep{Notice: notice(KindDepUnlisted, kv("name", s.Name, "file", name, "folder", t.Folder),
 		fmt.Sprintf("%s needs the file %s, which is not on Modrinth.", s.Name, name),
-		fmt.Sprintf("Look on %s's page for where to get it, then upload it to the %s folder.", s.Name, t.Folder)), URL: link}
+		fmt.Sprintf("Look on %s's page for where to get it, then put it in the server's %s folder.", s.Name, t.Folder)), URL: link}
 }

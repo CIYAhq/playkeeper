@@ -19,7 +19,7 @@ func TestUninstallKeepsSettingsUnlessAsked(t *testing.T) {
 
 	installed := mustInstall(t, l, srv, nil, InstallRequest{Source: Modrinth, Project: "chunky"})
 	writeFile(t, settings, []byte("radius: 5000\n"))
-	rm, err := l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{})
+	rm, err := l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestUninstallKeepsSettingsUnlessAsked(t *testing.T) {
 	}
 
 	installed = mustInstall(t, l, srv, nil, InstallRequest{Source: Modrinth, Project: "chunky"})
-	rm, err = l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
+	rm, err = l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestUninstallLeavesALinkedSettingsFolderAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rm, err := l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
+	rm, err := l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestUninstallHangar(t *testing.T) {
 	installed := mustInstall(t, l, srv, nil, InstallRequest{Source: Hangar, Project: "ViaBackwards"})
 	writeFile(t, filepath.Join(srv.Dir, "plugins", "ViaBackwards", "config.yml"), []byte("enabled: true\n"))
 
-	rm, err := l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
+	rm, err := l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestUninstallOffersLeftoverDependencies(t *testing.T) {
 		{backwards, []Installed{via}},
 		{via, []Installed{}},
 	} {
-		rm, err := l.Uninstall(srv, left, step.rec.Key(), UninstallOptions{})
+		rm, err := l.Uninstall(context.Background(), srv, left, step.rec.Key(), UninstallOptions{})
 		if err != nil {
 			t.Fatalf("removing %s: %v", step.rec.Name, err)
 		}
@@ -122,7 +122,7 @@ func TestUninstallRefusesWhatOthersNeed(t *testing.T) {
 	all := mustInstall(t, l, srv, nil, InstallRequest{Source: Modrinth, Project: "viarewind"})
 	backwards, via := all[1], all[2]
 
-	_, err := l.Uninstall(srv, all, via.Key(), UninstallOptions{})
+	_, err := l.Uninstall(context.Background(), srv, all, via.Key(), UninstallOptions{})
 	e := wantKind(t, err, KindNeededBy)
 	if e.Msg != "ViaVersion is needed by ViaRewind and ViaBackwards." || e.Hint != "Remove ViaRewind and ViaBackwards first, or remove ViaVersion anyway." {
 		t.Errorf("message %q, hint %q", e.Msg, e.Hint)
@@ -134,7 +134,7 @@ func TestUninstallRefusesWhatOthersNeed(t *testing.T) {
 	// What counts is what the installed versions require, not what an
 	// add-on was first installed for.
 	all[0].Requires = []string{via.ProjectID}
-	rm, err := l.Uninstall(srv, all, backwards.Key(), UninstallOptions{})
+	rm, err := l.Uninstall(context.Background(), srv, all, backwards.Key(), UninstallOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestUninstallRefusesWhatOthersNeed(t *testing.T) {
 		t.Errorf("orphans %+v", rm.Orphans)
 	}
 
-	rm, err = l.Uninstall(srv, []Installed{all[0], via}, via.Key(), UninstallOptions{Force: true})
+	rm, err = l.Uninstall(context.Background(), srv, []Installed{all[0], via}, via.Key(), UninstallOptions{Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestUninstallRefusesChangedFiles(t *testing.T) {
 			}
 
 			for _, force := range []bool{false, true} {
-				_, err := l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{Force: force})
+				_, err := l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{Force: force})
 				e := wantKind(t, err, KindModified)
 				if e.Msg != "Chunky-Bukkit-1.5.3.jar has changed since Playkeeper installed it, so Playkeeper will not delete it." {
 					t.Errorf("message %q", e.Msg)
@@ -215,7 +215,7 @@ func TestUninstallRefusals(t *testing.T) {
 	writeFile(t, filepath.Join(srv.Dir, "server.properties"), props)
 	writeFile(t, filepath.Join(srv.Dir, "plugins", "ViaVersion.jar"), f.mfile("FaishMnD").data)
 
-	_, err := l.Uninstall(srv, installed, Key{Modrinth, "P1OZGk5p"}, UninstallOptions{Force: true})
+	_, err := l.Uninstall(context.Background(), srv, installed, Key{Modrinth, "P1OZGk5p"}, UninstallOptions{Force: true})
 	if e := wantKind(t, err, KindNotManaged); e.Msg != "Playkeeper did not install this add-on, so it will not delete it." {
 		t.Errorf("message %q", e.Msg)
 	}
@@ -223,14 +223,14 @@ func TestUninstallRefusals(t *testing.T) {
 	for _, name := range []string{"../server.properties", "../server.properties.jar", "server.properties", ".Chunky.jar", "a/b.jar", ""} {
 		rec := installed[0]
 		rec.FileName, rec.Hash, rec.Size = name, sha512hex(props), int64(len(props))
-		_, err := l.Uninstall(srv, []Installed{rec}, rec.Key(), UninstallOptions{Force: true})
+		_, err := l.Uninstall(context.Background(), srv, []Installed{rec}, rec.Key(), UninstallOptions{Force: true})
 		e := wantKind(t, err, KindBadFileName)
 		if name == "../server.properties" && e.Msg != `The record of Chunky names the file "../server.properties", which Playkeeper will not touch.` {
 			t.Errorf("message %q", e.Msg)
 		}
 	}
 
-	_, err = l.Uninstall(Server{Dir: srv.Dir, Type: "velocity"}, installed, installed[0].Key(), UninstallOptions{})
+	_, err = l.Uninstall(context.Background(), Server{Dir: srv.Dir, Type: "velocity"}, installed, installed[0].Key(), UninstallOptions{})
 	wantKind(t, err, KindUnknownServerType)
 
 	if string(readFile(t, filepath.Join(srv.Dir, "server.properties"))) != string(props) {
@@ -257,7 +257,7 @@ func TestUninstallWhenTheFileIsGone(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		rm, err := l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
+		rm, err := l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{RemoveConfig: true})
 		if err != nil {
 			t.Fatalf("without the %s: %v", what, err)
 		}
@@ -282,7 +282,7 @@ func TestUninstallRefusesALinkedFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := l.Uninstall(srv, installed, installed[0].Key(), UninstallOptions{})
+	_, err := l.Uninstall(context.Background(), srv, installed, installed[0].Key(), UninstallOptions{})
 	if e := wantKind(t, err, KindFolderUnusable); e.Msg != "Playkeeper cannot use the server's plugins folder: it is not a folder." {
 		t.Errorf("message %q", e.Msg)
 	}

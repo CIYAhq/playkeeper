@@ -28,22 +28,24 @@ const sizes = {
   phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
 } as const
 
+// The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
+const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
+
 // A well-formed share link that no map has, for the "isn't available" page.
 const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'
 
 /** The pages to open signed in, and the ones anyone can open without signing in. */
 async function routes(page: Page, phone: boolean): Promise<{ signedIn: string[]; signedOut: string[] }> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
   const shared: string[] = []
   for (const s of servers) {
-    const tabs = ['', '/console', '/players', '/world', '/settings']
     const res = await page.request.get(`/api/servers/${s.id}/map`)
     const map = (res.ok() ? await res.json() : {}) as { supported?: boolean; public?: boolean; path?: string }
-    if (map.supported) tabs.push('/map')
     if (map.public && map.path) shared.push(map.path)
-    for (const tab of tabs) out.push(`/servers/${s.slug}${tab}`)
+    const addons = addonTabs[s.type ?? '']
+    for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
   }
   out.push('/servers/new', '/servers/new#world')
   for (const m of machines) out.push(`/machines/${m.id}`)

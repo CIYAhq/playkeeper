@@ -131,13 +131,6 @@ func (m *mapRecord) sharePath() string {
 }
 
 // serverType is the server software, with the pre-0.3.0 default.
-func (s *server) serverType() string {
-	if r, err := s.row(); err == nil && r.Type != "" {
-		return r.Type
-	}
-	return api.TypePaper
-}
-
 func (s *server) gameOwned() bool { return os.Geteuid() == 0 }
 
 func (s *server) webMap(typ, addr string) webmap.Map {
@@ -227,7 +220,7 @@ func (s *server) mapLink(rec *mapRecord) string {
 }
 
 func (s *server) mapInfo(ctx context.Context) (api.MapInfo, error) {
-	typ := s.serverType()
+	typ := s.serverType(nil)
 	info := api.MapInfo{Plugin: webmap.PluginName, EstimatedMinutes: webmap.EstimatedMinutes, EstimatedMegabytes: webmap.EstimatedMegabytes}
 	_, lerr := webmap.LayoutFor(typ)
 	info.Supported = lerr == nil
@@ -323,7 +316,7 @@ func (s *server) writeMapConfig() error {
 	if _, err := webmap.Config(set); err != nil {
 		set.Link = ""
 	}
-	if err := s.webMap(s.serverType(), "").WriteConfig(set); err != nil {
+	if err := s.webMap(s.serverType(nil), "").WriteConfig(set); err != nil {
 		return mapErr(err, http.StatusInternalServerError)
 	}
 	return nil
@@ -372,7 +365,7 @@ func (s *server) mapStarted() {
 func (s *server) firstRender(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, firstRenderWait)
 	defer cancel()
-	typ := s.serverType()
+	typ := s.serverType(nil)
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	for {
@@ -448,7 +441,7 @@ func (s *server) hMapProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	l := s.mapLive(r.Context(), false)
-	http.StripPrefix("/v1/servers/"+s.id+"/map", s.webMap(s.serverType(), l.addr)).ServeHTTP(w, r)
+	http.StripPrefix("/v1/servers/"+s.id+"/map", s.webMap(s.serverType(nil), l.addr)).ServeHTTP(w, r)
 }
 
 func (s *server) hMapEnable(w http.ResponseWriter, r *http.Request) {
@@ -466,7 +459,7 @@ func (s *server) hMapEnable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotCreated())
 		return
 	}
-	typ := s.serverType()
+	typ := s.serverType(nil)
 	l, err := webmap.LayoutFor(typ)
 	if err != nil {
 		writeError(w, mapErr(err, http.StatusBadRequest))
@@ -506,14 +499,14 @@ func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webma
 	}
 	h.phase("installing")
 	srv := s.addonServer(typ, *sc)
-	res, err := s.addonLib.Install(ctx, srv, nil, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
+	res, err := s.lib().Install(ctx, srv, nil, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
 	if err != nil {
 		return addonErr(err)
 	}
 	now := s.now().UTC()
 	rec := &mapRecord{addons: res.Installed, installedAt: now}
 	if err := s.saveMap(rec); err != nil {
-		if rerr := s.removeMapAddons(srv, res.Installed, false); rerr != nil {
+		if rerr := s.removeMapAddons(ctx, srv, res.Installed, false); rerr != nil {
 			s.log.Warn("could not remove squaremap after failing to record it", "server", s.id, "err", rerr)
 		}
 		return err
@@ -581,10 +574,10 @@ func (s *server) disableMap(ctx context.Context, h *opHandle, deleteMap bool) er
 	if sc == nil {
 		return errNotCreated()
 	}
-	typ := s.serverType()
+	typ := s.serverType(nil)
 	h.phase("removing")
 	srv := s.addonServer(typ, *sc)
-	if err := s.removeMapAddons(srv, rec.addons, deleteMap); err != nil {
+	if err := s.removeMapAddons(ctx, srv, rec.addons, deleteMap); err != nil {
 		return err
 	}
 	if deleteMap {
@@ -621,7 +614,7 @@ func (s *server) disableMap(ctx context.Context, h *opHandle, deleteMap bool) er
 
 // removeMapAddons uninstalls squaremap first, then what was installed for
 // it. removeConfig also deletes squaremap's plugin folder.
-func (s *server) removeMapAddons(srv addons.Server, recs []addons.Installed, removeConfig bool) error {
+func (s *server) removeMapAddons(ctx context.Context, srv addons.Server, recs []addons.Installed, removeConfig bool) error {
 	left := slices.Clone(recs)
 	slices.SortStableFunc(left, func(a, b addons.Installed) int {
 		switch {
@@ -634,7 +627,7 @@ func (s *server) removeMapAddons(srv addons.Server, recs []addons.Installed, rem
 	})
 	for len(left) > 0 {
 		rec := left[0]
-		if _, err := s.addonLib.Uninstall(srv, left, rec.Key(), addons.UninstallOptions{RemoveConfig: removeConfig && rec.DependencyOf == "", Force: true}); err != nil {
+		if _, err := s.lib().Uninstall(ctx, srv, left, rec.Key(), addons.UninstallOptions{RemoveConfig: removeConfig && rec.DependencyOf == "", Force: true}); err != nil {
 			return addonErr(err)
 		}
 		left = left[1:]
@@ -812,7 +805,7 @@ func (a *Agent) hPublicMapProxy(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write(b)
 	default:
-		http.StripPrefix("/v1/public-maps/"+token, s.webMap(s.serverType(), l.addr)).ServeHTTP(w, r)
+		http.StripPrefix("/v1/public-maps/"+token, s.webMap(s.serverType(nil), l.addr)).ServeHTTP(w, r)
 	}
 }
 

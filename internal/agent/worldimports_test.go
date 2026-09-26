@@ -209,16 +209,6 @@ func (e *agentEnv) importPreview(imp string, body map[string]any) api.WorldImpor
 	return decodeAs[api.WorldImportPreview](e.t, out)
 }
 
-func decodeAs[T any](t *testing.T, m map[string]any) T {
-	t.Helper()
-	var v T
-	b, _ := json.Marshal(m)
-	if err := json.Unmarshal(b, &v); err != nil {
-		t.Fatal(err)
-	}
-	return v
-}
-
 func (e *agentEnv) auditHas(action, result, detail string) bool {
 	e.t.Helper()
 	list, err := e.a.listAudit(100)

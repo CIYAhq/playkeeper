@@ -160,7 +160,7 @@ func newMapEnv(t *testing.T) (*agentEnv, *fakeMapSource, *fakeSquaremapWeb) {
 	t.Helper()
 	e := newAgentEnv(t)
 	src, sq := startFakeMapSource(t), startFakeSquaremapWeb(t)
-	e.a.addonLib = src.library(t)
+	e.a.opts.Addons = src.library(t)
 	addr := sq.srv.Listener.Addr().String()
 	e.a.opts.MapAddr = func(string) string { return addr }
 	return e, src, sq

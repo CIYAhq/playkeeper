@@ -126,6 +126,55 @@ INSERT INTO samples_v2(server_id, ts, state, players_online, players_max, cpu_pc
 DROP TABLE samples;
 ALTER TABLE samples_v2 RENAME TO samples;
 `,
+	// Plugins and mods Playkeeper installed, one row per add-on and server,
+	// and the map pre-generation Playkeeper started last on each server:
+	// ended is '' until it is 'finished' or 'cancelled', and rate (chunks a
+	// second) is kept for the next task's estimates. addons_changed_at is
+	// when a server's add-on files last changed, so a running server that
+	// hasn't loaded the change shows it needs a restart.
+	`
+CREATE TABLE addons (
+  server_id      TEXT NOT NULL,
+  source         TEXT NOT NULL,
+  project_id     TEXT NOT NULL,
+  slug           TEXT NOT NULL DEFAULT '',
+  name           TEXT NOT NULL,
+  summary        TEXT NOT NULL DEFAULT '',
+  icon_url       TEXT NOT NULL DEFAULT '',
+  version_id     TEXT NOT NULL,
+  version_number TEXT NOT NULL DEFAULT '',
+  channel        TEXT NOT NULL DEFAULT 'release',
+  published      INTEGER NOT NULL DEFAULT 0,
+  file_name      TEXT NOT NULL,
+  hash_algo      TEXT NOT NULL,
+  hash           TEXT NOT NULL,
+  size_bytes     INTEGER NOT NULL DEFAULT 0,
+  dependency_of  TEXT NOT NULL DEFAULT '',
+  requires       TEXT NOT NULL DEFAULT '[]',
+  installed_at   INTEGER NOT NULL,
+  PRIMARY KEY (server_id, source, project_id)
+);
+CREATE TABLE pregen (
+  server_id          TEXT PRIMARY KEY,
+  world              TEXT NOT NULL,
+  preset             TEXT NOT NULL DEFAULT '',
+  radius             INTEGER NOT NULL DEFAULT 0,
+  pause_for_players  INTEGER NOT NULL DEFAULT 1,
+  paused_by_user     INTEGER NOT NULL DEFAULT 0,
+  paused_by_policy   INTEGER NOT NULL DEFAULT 0,
+  paused_for         TEXT NOT NULL DEFAULT '',
+  started_at         INTEGER NOT NULL,
+  ended              TEXT NOT NULL DEFAULT '',
+  ended_at           INTEGER,
+  world_bytes_before INTEGER,
+  world_bytes_after  INTEGER,
+  chunks             INTEGER NOT NULL DEFAULT 0,
+  total              INTEGER NOT NULL DEFAULT 0,
+  elapsed_secs       INTEGER NOT NULL DEFAULT 0,
+  rate               REAL NOT NULL DEFAULT 0
+);
+ALTER TABLE servers ADD COLUMN addons_changed_at INTEGER;
+`,
 	// Wave 6: each server's map. A row exists while the map is turned on. It
 	// keeps the add-on records of squaremap (and anything it needed) as JSON,
 	// the two sharing switches, when the first full drawing was asked for,

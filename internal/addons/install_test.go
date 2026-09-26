@@ -45,6 +45,7 @@ func TestInstallModrinth(t *testing.T) {
 	}
 	sameJSON(t, "ViaRewind's record", res.Installed[0], Installed{
 		Source: Modrinth, ProjectID: "TbHIxhx5", Slug: "viarewind", Name: "ViaRewind",
+		Summary:   "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
 		IconURL:   "https://cdn.modrinth.com/data/TbHIxhx5/f59ffe031387b06a9b1efa736dbbb4db44284574_96.webp",
 		VersionID: "EPLCoxMK", VersionNumber: "4.2.0", Channel: "release", Published: time.Date(2026, 9, 18, 15, 8, 24, 612555000, time.UTC),
 		FileName: "ViaRewind-4.2.0.jar", HashAlgo: "sha512", Hash: sha512hex(rewind.data), Size: int64(len(rewind.data)),
@@ -99,6 +100,7 @@ func TestInstallHangar(t *testing.T) {
 	rewind := f.hfile("30418")
 	sameJSON(t, "ViaRewind's record", res.Installed[0], Installed{
 		Source: Hangar, ProjectID: "112", Slug: "ViaRewind", Name: "ViaRewind", IconURL: "https://hangarcdn.papermc.io/avatars/project/112.webp?v=1",
+		Summary:   "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
 		VersionID: "30418", VersionNumber: "4.2.0", Channel: "release", Published: time.Date(2026, 9, 18, 15, 8, 16, 539019000, time.UTC),
 		FileName: "ViaRewind-4.2.0.jar", HashAlgo: "sha256", Hash: sha256hex(rewind.data), Size: int64(len(rewind.data)),
 		Requires: []string{"12", "31"}, InstalledAt: testNow,
@@ -245,6 +247,143 @@ func TestInstallRefusesAChangedPlan(t *testing.T) {
 	}
 }
 
+// Hangar's version list gives a version's dependencies in a new order on
+// each request. The plan an install was confirmed with and the one it
+// carries out must still match, and read the same.
+func TestInstallHangarWhateverOrderItListsDependenciesIn(t *testing.T) {
+	f := newFakes(t)
+	f.onHangarList(func(v obj) {
+		if num(v["id"]) == "30418" {
+			slices.Reverse(list(v["pluginDependencies"].(obj)["PAPER"]))
+		}
+	})
+	l := f.library()
+	srv := newServer(t, "paper", "26.2")
+	req := InstallRequest{Source: Hangar, Project: "ViaRewind"}
+	confirmed, again := mustPlan(t, l, srv, nil, req), mustPlan(t, l, srv, nil, req)
+	for _, p := range []*Plan{confirmed, again} {
+		wantSteps(t, p, "ViaRewind 4.2.0 30418, ViaBackwards 5.12.0 30417, ViaVersion 5.12.0 30415")
+	}
+	if confirmed.Fingerprint != again.Fingerprint {
+		t.Errorf("fingerprints %q and %q", confirmed.Fingerprint, again.Fingerprint)
+	}
+	req.Fingerprint = confirmed.Fingerprint
+	if _, err := l.Install(context.Background(), srv, nil, req); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.sentTo("hangar", "/api/v1/projects/112/versions")); n != 3 {
+		t.Errorf("ViaRewind's versions were listed %d times, want once for each plan", n)
+	}
+}
+
+// Hangar lists versions newest first, and a project that publishes a build a
+// day fills its first pages with snapshots. Details, install and the update
+// check still find the newest release: through Hangar's filter for the
+// Release channel however far back it is, or for a release channel named
+// otherwise, on a later page, reading no further once it is found.
+func TestHangarReleaseBehindPagesOfSnapshots(t *testing.T) {
+	for _, tc := range []struct {
+		name, channel string
+		newer, older  int
+		lookup        []string
+	}{
+		{"in the Release channel", "Release", 200, 0, []string{"offset 0", "channel Release"}},
+		{"in a channel named Stable", "Stable", 30, 60, []string{"offset 0", "channel Release", "offset 25"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakes(t)
+			f.hangarSnapshots("ViaVersion", tc.newer, tc.older)
+			f.patchHangarVersion("30415", func(v obj) { v["channel"] = obj{"name": tc.channel, "flags": []any{}} })
+			l := f.library()
+			srv := newServer(t, "paper", "26.2")
+			ctx := context.Background()
+
+			d, err := l.Details(ctx, srv, Hangar, "ViaVersion")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d.Latest == nil || d.Latest.VersionID != "30415" || d.Notice != nil {
+				t.Errorf("details show %+v, notice %+v", d.Latest, d.Notice)
+			}
+			if got := f.hangarVersionRequests("31"); !slices.Equal(got, tc.lookup) {
+				t.Errorf("Details asked Hangar for %q, want %q", got, tc.lookup)
+			}
+			vs, err := l.Versions(ctx, srv, Hangar, "ViaVersion")
+			if err != nil || !slices.ContainsFunc(vs, func(v VersionInfo) bool { return v.VersionID == "30415" }) {
+				t.Errorf("the version list leaves out the release (%v)", err)
+			}
+			installed := mustInstall(t, l, srv, nil, InstallRequest{Source: Hangar, Project: "ViaVersion"})
+			if len(installed) != 1 || installed[0].VersionID != "30415" {
+				t.Fatalf("installed %+v", installed)
+			}
+
+			old := installed[0]
+			old.VersionID, old.VersionNumber, old.Published = "27000", "5.11.0", old.Published.AddDate(0, -2, 0)
+			before := len(f.hangarVersionRequests("31"))
+			sts, err := l.CheckUpdates(ctx, srv, []Installed{old})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !sts[0].Available || sts[0].Latest == nil || sts[0].Latest.VersionID != "30415" {
+				t.Errorf("update status %+v", sts[0])
+			}
+			if got := f.hangarVersionRequests("31")[before:]; !slices.Equal(got, tc.lookup) {
+				t.Errorf("the update check asked Hangar for %q, want %q", got, tc.lookup)
+			}
+		})
+	}
+}
+
+// A project with only snapshots for the server still shows as pre-release
+// only, whether its versions end within the pages read or run on past them:
+// reading stops at hangarPages pages.
+func TestHangarOnlySnapshotsStayPreRelease(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		newer  int
+		lookup []string
+	}{
+		{"all read", 40, []string{"offset 0", "channel Release", "offset 25"}},
+		{"more than the pages read", 500, []string{"offset 0", "channel Release", "offset 25", "offset 50", "offset 75"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakes(t)
+			f.hangarSnapshots("ViaVersion", tc.newer, 0)
+			f.patchHangarVersion("30415", func(v obj) { v["channel"] = obj{"name": "Snapshot", "flags": []any{}} })
+			l := f.library()
+			srv := newServer(t, "paper", "26.2")
+			ctx := context.Background()
+
+			d, err := l.Details(ctx, srv, Hangar, "ViaVersion")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d.Notice == nil || d.Notice.Kind != KindOnlyPrerelease || d.Latest == nil || d.Latest.Channel == release {
+				t.Errorf("details show %+v, notice %+v", d.Latest, d.Notice)
+			}
+			if got := f.hangarVersionRequests("31"); !slices.Equal(got, tc.lookup) {
+				t.Errorf("Details asked Hangar for %q, want %q", got, tc.lookup)
+			}
+			_, err = l.PlanInstall(ctx, srv, nil, InstallRequest{Source: Hangar, Project: "ViaVersion"})
+			wantKind(t, err, KindOnlyPrerelease)
+
+			rec := Installed{Source: Hangar, ProjectID: "31", Name: "ViaVersion", VersionID: "27000", VersionNumber: "5.11.0", Channel: release,
+				FileName: "ViaVersion-5.11.0.jar", HashAlgo: "sha256", Hash: sha256hex([]byte("old"))}
+			before := len(f.hangarVersionRequests("31"))
+			sts, err := l.CheckUpdates(ctx, srv, []Installed{rec})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sts[0].Available || sts[0].Notice == nil || sts[0].Notice.Kind != KindOnlyPrerelease {
+				t.Errorf("update status %+v", sts[0])
+			}
+			if got := f.hangarVersionRequests("31")[before:]; !slices.Equal(got, tc.lookup) {
+				t.Errorf("the update check asked Hangar for %q, want %q", got, tc.lookup)
+			}
+		})
+	}
+}
+
 // txn replaces files by name and puts everything back when a later file
 // cannot be placed.
 func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
@@ -270,7 +409,7 @@ func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
 
 	t.Run("rollback", func(t *testing.T) {
 		dir, tx, staged := setup(t)
-		err := tx.run([]Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "B", FileName: "b.jar"}}, staged)
+		err := tx.run(context.Background(), []Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "B", FileName: "b.jar"}}, staged)
 		wantKind(t, err, KindFileExists)
 		tx.rollback()
 		if got := ls(t, dir); !slices.Equal(got, []string{"a-1.0.jar", "b.jar"}) {
@@ -282,7 +421,7 @@ func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
 	})
 	t.Run("commit", func(t *testing.T) {
 		dir, tx, staged := setup(t)
-		if err := tx.run([]Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "C", FileName: "c.jar"}}, staged); err != nil {
+		if err := tx.run(context.Background(), []Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}, {Name: "C", FileName: "c.jar"}}, staged); err != nil {
 			t.Fatal(err)
 		}
 		tx.commit()
@@ -296,7 +435,7 @@ func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
 	t.Run("changed file is not replaced", func(t *testing.T) {
 		dir, tx, staged := setup(t)
 		writeFile(t, filepath.Join(dir, "a-1.0.jar"), []byte("edited by hand"))
-		err := tx.run([]Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}}, staged[:1])
+		err := tx.run(context.Background(), []Step{{Name: "A", FileName: "a-2.0.jar", Replaces: replaces}}, staged[:1])
 		wantKind(t, err, KindModified)
 		tx.rollback()
 		if got := ls(t, dir); !slices.Equal(got, []string{"a-1.0.jar", "b.jar"}) {

@@ -306,8 +306,16 @@ func TestUninstallRemovesTheDockerGroupAndDirsItsInstallCreated(t *testing.T) {
 	if !groupExists(sys, "docker") {
 		t.Fatal("the fake docker.io install did not create the docker group; the test proves nothing")
 	}
-	if err := Uninstall(context.Background(), sys, UninstallOptions{Yes: true, In: strings.NewReader(""), Out: &bytes.Buffer{}}); err != nil {
+	m, _ := readManifest(t, h)
+	if len(m.DockerDirsCreated) == 0 {
+		t.Fatal("the install recorded no Docker folders; the test proves nothing")
+	}
+	out := &bytes.Buffer{}
+	if err := Uninstall(context.Background(), sys, UninstallOptions{Yes: true, In: strings.NewReader(""), Out: out}); err != nil {
 		t.Fatal(err)
+	}
+	if want := "folders installing Docker created, with everything in them: " + strings.Join(m.DockerDirsCreated, ", ") + "\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("the uninstall plan must name the Docker folders it removes (%q):\n%s", want, out)
 	}
 	if groupExists(sys, "docker") {
 		t.Error("uninstall left the docker group")
@@ -398,6 +406,9 @@ func TestUninstallKeepsItsManifestUntilDockerIsRemoved(t *testing.T) {
 	out := &bytes.Buffer{}
 	if err := Uninstall(context.Background(), sys, UninstallOptions{Yes: true, In: strings.NewReader(""), Out: out}); err != nil {
 		t.Fatalf("second uninstall: %v\n%s", err, out)
+	}
+	if plan := out.String(); strings.Contains(plan, "services:") || !strings.Contains(plan, "packages Playkeeper installed: containerd docker.io pigz runc") || !strings.Contains(plan, "folders installing Docker created") {
+		t.Fatalf("the second run's plan must list only what is left:\n%s", plan)
 	}
 	if _, ok := readManifest(t, h); ok || h.dockerPresent {
 		t.Fatal("the second run must remove Docker and then the manifest")

@@ -167,7 +167,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		if t, ok := c.State.Started(); ok {
 			st.StartedAt = &t
 		}
-		_, hash := s.containerSpec(*sc, false)
+		_, hash := s.containerSpec(*sc, false, c.Config.Env)
 		st.PendingRestart = c.Config.Labels[labelSpec] != hash
 	default:
 		st.Phase = api.PhaseStopped
@@ -647,7 +647,11 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		if err := s.setDesired(api.DesiredStopped); err != nil {
 			return err
 		}
-		return s.deleteServer(ctx, h, actor)
+		if err := s.deleteServer(ctx, h, actor); err != nil {
+			return err
+		}
+		s.prunePacks(s.Agent.ctx)
+		return nil
 	})
 	if err != nil {
 		writeError(w, err)

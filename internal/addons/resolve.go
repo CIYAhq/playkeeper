@@ -1,6 +1,7 @@
 package addons
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -29,9 +30,9 @@ type VersionInfo struct {
 
 // project is what resolving needs to know about a project.
 type project struct {
-	Source                  Source
-	ID, Slug, Name, IconURL string
-	clientOnly              bool
+	Source                           Source
+	ID, Slug, Name, Summary, IconURL string
+	clientOnly                       bool
 }
 
 // candidate is one version of a project that fits the server: a file to
@@ -49,6 +50,7 @@ type candidate struct {
 	Size      int64
 	External  string
 	deps      []dep
+	notes     string // the author's Markdown notes for the version
 }
 
 func (c candidate) key() Key { return Key{c.Source, c.ProjectID()} }
@@ -84,7 +86,7 @@ func (l *Library) Versions(ctx context.Context, srv Server, src Source, ref stri
 	if p.clientOnly {
 		return nil, clientOnly(p)
 	}
-	cands, err := l.candidates(ctx, t, srv.MinecraftVersion, p)
+	cands, err := l.candidates(ctx, t, srv.MinecraftVersion, p, true)
 	if err != nil {
 		return nil, err
 	}
@@ -129,11 +131,18 @@ func validRef(s string) bool {
 }
 
 func (l *Library) project(ctx context.Context, src Source, ref string) (*project, error) {
+	p, _, err := l.projectCard(ctx, Target{}, src, ref)
+	return p, err
+}
+
+// projectCard is project with the card the library shows for it; t only
+// shapes the card's page address.
+func (l *Library) projectCard(ctx context.Context, t Target, src Source, ref string) (*project, *Card, error) {
 	switch src {
 	case Modrinth:
 		p, err := l.Modrinth.Project(ctx, ref)
 		if err != nil {
-			return nil, lookupError(src, ref, err)
+			return nil, nil, lookupError(src, ref, err)
 		}
 		// Modrinth's v2 API calls plugins "mod" too.
 		if p.ProjectType != "" && p.ProjectType != "mod" && p.ProjectType != "plugin" {
@@ -141,22 +150,28 @@ func (l *Library) project(ctx context.Context, src Source, ref string) (*project
 			if what == "" {
 				what = "different kind of project"
 			}
-			return nil, fail(KindNotAddon, kv("name", p.Title, "type", p.ProjectType),
+			return nil, nil, fail(KindNotAddon, kv("name", p.Title, "type", p.ProjectType),
 				fmt.Sprintf("%s is a %s, not a plugin or mod.", p.Title, what), "Playkeeper's library installs plugins and mods only.")
 		}
-		return modrinthProject(p), nil
+		card := &Card{
+			Source: Modrinth, ProjectID: p.ID, Slug: p.Slug, Name: p.Title, Summary: p.Description,
+			Categories: categories(p.Categories), License: modrinthLicense(p.License.ID), Downloads: p.Downloads,
+			IconURL: p.IconURL, Updated: p.Updated, PageURL: modrinthPage(t, p.Slug),
+		}
+		return modrinthProject(p), card, nil
 	case Hangar:
 		p, err := l.Hangar.Project(ctx, ref)
 		if err != nil {
-			return nil, lookupError(src, ref, err)
+			return nil, nil, lookupError(src, ref, err)
 		}
-		return &project{Source: Hangar, ID: strconv.FormatInt(p.ID, 10), Slug: p.Namespace.Slug, Name: p.Name, IconURL: p.AvatarURL}, nil
+		card := hangarCard(p)
+		return &project{Source: Hangar, ID: strconv.FormatInt(p.ID, 10), Slug: p.Namespace.Slug, Name: p.Name, Summary: p.Description, IconURL: p.AvatarURL}, &card, nil
 	}
-	return nil, fail(KindInvalid, kv("field", "source"), "Add-ons come from Modrinth or Hangar.", "")
+	return nil, nil, fail(KindInvalid, kv("field", "source"), "Add-ons come from Modrinth or Hangar.", "")
 }
 
 func modrinthProject(p *modrinth.Project) *project {
-	return &project{Source: Modrinth, ID: p.ID, Slug: p.Slug, Name: p.Title, IconURL: p.IconURL, clientOnly: !p.RunsOnServer()}
+	return &project{Source: Modrinth, ID: p.ID, Slug: p.Slug, Name: p.Title, Summary: p.Description, IconURL: p.IconURL, clientOnly: !p.RunsOnServer()}
 }
 
 func lookupError(src Source, ref string, err error) error {
@@ -173,8 +188,9 @@ func clientOnly(p *project) *Error {
 }
 
 // candidates lists the versions of p that fit the target and Minecraft
-// version, newest first.
-func (l *Library) candidates(ctx context.Context, t Target, mc string, p *project) ([]candidate, error) {
+// version, newest first. With findRelease they reach back to the newest
+// release that fits, where the source lists versions a page at a time.
+func (l *Library) candidates(ctx context.Context, t Target, mc string, p *project, findRelease bool) ([]candidate, error) {
 	var out []candidate
 	switch p.Source {
 	case Modrinth:
@@ -188,17 +204,65 @@ func (l *Library) candidates(ctx context.Context, t Target, mc string, p *projec
 			}
 		}
 	case Hangar:
-		vl, err := l.Hangar.Versions(ctx, p.ID, hangar.VersionFilter{Platform: t.HangarPlatform, PlatformVersion: mc, Limit: hangar.MaxLimit})
-		if err != nil {
+		var err error
+		if out, err = l.hangarCandidates(ctx, t, mc, p, findRelease); err != nil {
 			return nil, lookupError(Hangar, p.ID, err)
-		}
-		for i := range vl.Result {
-			if c, ok := hangarCandidate(p, &vl.Result[i], t, mc); ok {
-				out = append(out, c)
-			}
 		}
 	}
 	slices.SortStableFunc(out, func(a, b candidate) int { return b.Published.Compare(a.Published) })
+	return out, nil
+}
+
+// hangarPages is the most pages of a project's version list the library
+// reads looking for a release that fits.
+const hangarPages = 4
+
+// hangarCandidates lists the versions of p that fit on Hangar's newest page.
+// Hangar lists versions newest first, and a project that publishes a build
+// a day fills its first pages with snapshots. So with findRelease, when the
+// newest page has no release that fits, the Release channel every Hangar
+// project starts with is asked for, and then, for a release channel named
+// otherwise, the pages after the first, up to hangarPages in all.
+func (l *Library) hangarCandidates(ctx context.Context, t Target, mc string, p *project, findRelease bool) ([]candidate, error) {
+	var out []candidate
+	seen, found := map[string]bool{}, false
+	add := func(vl *hangar.VersionList) {
+		for i := range vl.Result {
+			c, ok := hangarCandidate(p, &vl.Result[i], t, mc)
+			if !ok || seen[c.VersionID] {
+				continue
+			}
+			seen[c.VersionID] = true
+			found = found || c.Channel == release
+			out = append(out, c)
+		}
+	}
+	all := hangar.VersionFilter{Platform: t.HangarPlatform, PlatformVersion: mc, Limit: hangar.MaxLimit}
+	vl, err := l.Hangar.Versions(ctx, p.ID, all)
+	if err != nil {
+		return nil, err
+	}
+	add(vl)
+	all.Offset = len(vl.Result)
+	more := len(vl.Result) > 0 && all.Offset < vl.Pagination.Count
+	if !findRelease || found || !more {
+		return out, nil
+	}
+	releases := all
+	releases.Offset, releases.Channel = 0, "Release"
+	rl, err := l.Hangar.Versions(ctx, p.ID, releases)
+	if err != nil {
+		return nil, err
+	}
+	add(rl)
+	for page := 1; page < hangarPages && more && !found; page++ {
+		if vl, err = l.Hangar.Versions(ctx, p.ID, all); err != nil {
+			return nil, err
+		}
+		add(vl)
+		all.Offset += len(vl.Result)
+		more = len(vl.Result) > 0 && all.Offset < vl.Pagination.Count
+	}
 	return out, nil
 }
 
@@ -242,7 +306,7 @@ func (l *Library) exact(ctx context.Context, t Target, mc string, p *project, ve
 // choose picks the version of p to install: versionID when given, else the
 // newest release, else (when allowed) the newest pre-release.
 func (l *Library) choose(ctx context.Context, srv Server, t Target, p *project, versionID string, allowPre bool) (candidate, error) {
-	cands, err := l.candidates(ctx, t, srv.MinecraftVersion, p)
+	cands, err := l.candidates(ctx, t, srv.MinecraftVersion, p, versionID == "")
 	if err != nil {
 		return candidate{}, err
 	}
@@ -299,13 +363,14 @@ func modrinthCandidate(p *project, v *modrinth.Version, t Target, mc string) (ca
 		return candidate{}, false
 	}
 	c := candidate{project: *p, VersionID: v.ID, Number: v.VersionNumber, Channel: modrinthChannel(v.VersionType), Published: v.DatePublished,
-		FileName: f.Filename, URL: f.URL, HashAlgo: "sha512", Hash: f.Hashes.SHA512, Size: f.Size}
+		FileName: f.Filename, URL: f.URL, HashAlgo: "sha512", Hash: f.Hashes.SHA512, Size: f.Size, notes: v.Changelog}
 	for _, d := range v.Dependencies {
 		switch d.DependencyType {
 		case modrinth.Required, modrinth.Optional, modrinth.Incompatible:
 			c.deps = append(c.deps, dep{typ: d.DependencyType, projectID: d.ProjectID, versionID: d.VersionID, name: d.FileName})
 		}
 	}
+	sortDeps(c.deps)
 	return c, true
 }
 
@@ -332,7 +397,7 @@ func hangarCandidate(p *project, v *hangar.Version, t Target, mc string) (candid
 	default:
 		ch = "beta"
 	}
-	c := candidate{project: *p, VersionID: strconv.FormatInt(v.ID, 10), Number: v.Name, Channel: ch, Published: v.CreatedAt}
+	c := candidate{project: *p, VersionID: strconv.FormatInt(v.ID, 10), Number: v.Name, Channel: ch, Published: v.CreatedAt, notes: v.Description}
 	switch {
 	case d.FileInfo != nil && d.DownloadURL != "":
 		c.FileName, c.URL, c.HashAlgo, c.Hash, c.Size = d.FileInfo.Name, d.DownloadURL, "sha256", d.FileInfo.SHA256Hash, d.FileInfo.SizeBytes
@@ -352,7 +417,18 @@ func hangarCandidate(p *project, v *hangar.Version, t Target, mc string) (candid
 		}
 		c.deps = append(c.deps, dd)
 	}
+	sortDeps(c.deps)
 	return c, true
+}
+
+// sortDeps orders a version's dependencies by project, so a plan does not
+// depend on the order a source lists them in: Hangar's version list gives
+// them in a new order on each request.
+func sortDeps(ds []dep) {
+	slices.SortFunc(ds, func(a, b dep) int {
+		return cmp.Or(cmp.Compare(a.projectID, b.projectID), cmp.Compare(a.versionID, b.versionID), cmp.Compare(a.name, b.name),
+			cmp.Compare(a.external, b.external), cmp.Compare(a.typ, b.typ))
+	})
 }
 
 func overlaps(a, b []string) bool {
