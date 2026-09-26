@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"database/sql"
 	"errors"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -98,6 +99,48 @@ func (st *linkStore) Pair(ctx context.Context, codeID string, m machinelink.Mach
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return errors.New("there is no project to add the machine to")
+	}
+	return tx.Commit()
+}
+
+func (st *linkStore) JoinFailures(ctx context.Context) ([]machinelink.JoinFailure, error) {
+	rows, err := st.db.QueryContext(ctx, `SELECT at, network FROM machine_join_failures ORDER BY at, rowid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []machinelink.JoinFailure
+	for rows.Next() {
+		var at int64
+		var network string
+		if err := rows.Scan(&at, &network); err != nil {
+			return nil, err
+		}
+		// A network that doesn't parse counts with the addresses that
+		// couldn't be read.
+		from, _ := netip.ParsePrefix(network)
+		out = append(out, machinelink.JoinFailure{At: fromMillis(at), From: from})
+	}
+	return out, rows.Err()
+}
+
+func (st *linkStore) SetJoinFailures(ctx context.Context, fails []machinelink.JoinFailure) error {
+	tx, err := st.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_join_failures`); err != nil {
+		return err
+	}
+	for _, f := range fails {
+		network := ""
+		if f.From.IsValid() {
+			network = f.From.String()
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO machine_join_failures(at, network) VALUES(?, ?)`, millis(f.At), network); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

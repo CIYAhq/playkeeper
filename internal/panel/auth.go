@@ -164,6 +164,14 @@ CREATE TABLE panel_meta (
   value TEXT NOT NULL
 );
 `,
+	// Joins refused lately for their code, with the network each came from,
+	// so that a pause after too many outlasts a restart.
+	`
+CREATE TABLE machine_join_failures (
+  at      INTEGER NOT NULL,
+  network TEXT NOT NULL
+);
+`,
 }
 
 const (

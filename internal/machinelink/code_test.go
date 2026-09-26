@@ -118,8 +118,8 @@ func TestJoinCodeState(t *testing.T) {
 }
 
 func TestGuardPerAddress(t *testing.T) {
-	g := newGuard(Limits{})
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	g := newGuard(Limits{}, nil, now)
 	a := addrPrefix("203.0.113.7:50000")
 	b := addrPrefix("203.0.113.8:50000")
 	for i := range 5 {
@@ -141,8 +141,8 @@ func TestGuardPerAddress(t *testing.T) {
 }
 
 func TestGuardTotal(t *testing.T) {
-	g := newGuard(Limits{})
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	g := newGuard(Limits{}, nil, now)
 	for i := range 20 {
 		g.fail(now, addrPrefix(fmt.Sprintf("198.51.100.%d:1", i)))
 	}
@@ -158,8 +158,8 @@ func TestGuardTotal(t *testing.T) {
 }
 
 func TestGuardGroupsIPv6Networks(t *testing.T) {
-	g := newGuard(Limits{AddressFailures: 2, TotalFailures: 100, Window: time.Minute})
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	g := newGuard(Limits{AddressFailures: 2, TotalFailures: 100, Window: time.Minute}, nil, now)
 	g.fail(now, addrPrefix("[2001:db8:1:2::1]:1"))
 	g.fail(now, addrPrefix("[2001:db8:1:2:ffff::9]:1"))
 	if g.wait(now, addrPrefix("[2001:db8:1:2::77]:1")) == 0 {
@@ -167,6 +167,40 @@ func TestGuardGroupsIPv6Networks(t *testing.T) {
 	}
 	if g.wait(now, addrPrefix("[2001:db8:1:3::1]:1")) != 0 {
 		t.Fatal("the next /64 is refused too")
+	}
+}
+
+// A guard started from the failures another guard kept, as after a
+// restart, refuses what that guard refused, for as long.
+func TestGuardStartsFromTheFailuresKept(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	g := newGuard(Limits{}, nil, now)
+	var kept []JoinFailure
+	for i := range 5 {
+		kept = g.fail(now.Add(time.Duration(i)*time.Second), addrPrefix("[2001:db8:1:2::1]:1"))
+	}
+	again := newGuard(Limits{}, kept, now.Add(time.Minute))
+	if w := again.wait(now.Add(time.Minute), addrPrefix("[2001:db8:1:2::99]:1")); w != 14*time.Minute {
+		t.Fatalf("the /64 waits %v after a restart, want 14m", w)
+	}
+	if w := again.wait(now.Add(time.Minute), addrPrefix("[2001:db8:1:3::1]:1")); w != 0 {
+		t.Fatalf("the next /64 waits %v", w)
+	}
+
+	// At most TotalFailures are kept, the newest, in the order they came.
+	var many []JoinFailure
+	for i := range 25 {
+		many = append(many, JoinFailure{At: now.Add(time.Duration(25-i) * time.Second), From: addrPrefix(fmt.Sprintf("198.51.100.%d:1", i))})
+	}
+	g = newGuard(Limits{}, many, now.Add(time.Minute))
+	if len(g.fails) != 20 || g.fails[0].At != now.Add(6*time.Second) || g.fails[19].At != now.Add(25*time.Second) {
+		t.Fatalf("kept %d failures, from %v to %v", len(g.fails), g.fails[0].At, g.fails[len(g.fails)-1].At)
+	}
+
+	// A failure the clock put in the future counts as now.
+	g = newGuard(Limits{AddressFailures: 1}, []JoinFailure{{At: now.AddDate(1, 0, 0), From: addrPrefix("203.0.113.7:1")}}, now)
+	if w := g.wait(now, addrPrefix("203.0.113.7:1")); w != 15*time.Minute {
+		t.Fatalf("a failure from next year makes the address wait %v, want 15m", w)
 	}
 }
 

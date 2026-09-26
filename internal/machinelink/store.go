@@ -64,6 +64,11 @@ type Store interface {
 	// Revoke marks the machine removed. It is not an error to revoke a
 	// machine twice; the first time is kept.
 	Revoke(ctx context.Context, id string, at time.Time, by string) error
+	// JoinFailures are the recent joins refused for their code, oldest
+	// first, and SetJoinFailures replaces them, so that a pause after too
+	// many of them outlasts a restart.
+	JoinFailures(ctx context.Context) ([]JoinFailure, error)
+	SetJoinFailures(ctx context.Context, fails []JoinFailure) error
 }
 
 // MemoryStore is a Store in memory, for tests and development.
@@ -71,6 +76,7 @@ type MemoryStore struct {
 	mu       sync.Mutex
 	codes    []JoinCode
 	machines []Machine
+	fails    []JoinFailure
 }
 
 // NewMemoryStore returns an empty MemoryStore.
@@ -196,4 +202,17 @@ func (s *MemoryStore) Revoke(_ context.Context, id string, at time.Time, by stri
 		}
 	}
 	return ErrNotFound
+}
+
+func (s *MemoryStore) JoinFailures(context.Context) ([]JoinFailure, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.fails), nil
+}
+
+func (s *MemoryStore) SetJoinFailures(_ context.Context, fails []JoinFailure) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fails = slices.Clone(fails)
+	return nil
 }

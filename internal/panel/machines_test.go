@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -121,6 +123,21 @@ func (e *env) sharePort(t *testing.T) string {
 	go srv.ServeTLS(ln, "", "")
 	t.Cleanup(func() { srv.Close() })
 	return ln.Addr().String()
+}
+
+// reopen starts the dashboard again on e's data, as a restart does, and
+// serves it.
+func (e *env) reopen(t *testing.T) *env {
+	t.Helper()
+	s, err := New(Options{Config: e.cfg, Now: e.clock.now, Logger: slog.New(slog.NewTextHandler(e.logs, nil)), Agent: agentclient.New(e.cfg.SocketPath),
+		IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour, LinkRoutes: agent.LinkRoutes(), LookupIP: e.names.lookup})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	ts := httptest.NewTLSServer(s.Handler())
+	t.Cleanup(ts.Close)
+	return &env{srv: s, ts: ts, clock: e.clock, agent: e.agent, cfg: e.cfg, names: e.names, logs: e.logs}
 }
 
 func (e *env) linkInfo(t *testing.T, cookie string) map[string]any {
@@ -802,8 +819,50 @@ func TestTooManyWrongCodesPauseJoining(t *testing.T) {
 	if !e.auditHas(t, "(unknown machine)", "machine.join", "", "refused", "join_rate_limited · 3 more") {
 		t.Fatal("the count has the first refusal's actor and result")
 	}
-	e.clock.add(15 * time.Minute)
-	e.joinCode(t, cookie, csrf, `{}`)
+
+	// The pause outlasts a restart of the dashboard, for everyone and for
+	// the address that sent too many, and ends when it would have.
+	again := e.reopen(t)
+	addr = again.sharePort(t)
+	e.clock.add(5 * time.Minute)
+	if info := again.linkInfo(t, cookie); info["joinPausedSeconds"] != float64(600) {
+		t.Fatalf("paused after a restart: %v", info["joinPausedSeconds"])
+	}
+	if c := guess("127.0.0.1"); c != machinelink.CodeJoinRateLimited {
+		t.Fatalf("a wrong code after a restart: %s", c)
+	}
+	e.clock.add(10 * time.Minute)
+	if info := again.linkInfo(t, cookie); info["joinPausedSeconds"] != float64(0) {
+		t.Fatalf("still paused once the window passed: %v", info["joinPausedSeconds"])
+	}
+	if c := guess("127.0.0.1"); c != machinelink.CodeJoinCodeWrong {
+		t.Fatalf("a wrong code once the window passed: %s", c)
+	}
+	again.joinCode(t, cookie, csrf, `{}`)
+}
+
+func TestLinkStoreKeepsJoinFailures(t *testing.T) {
+	e := newEnv(t)
+	st := &linkStore{db: e.srv.db}
+	ctx := context.Background()
+	now := e.clock.now()
+	fails := []machinelink.JoinFailure{
+		{At: now.Add(-time.Minute), From: netip.MustParsePrefix("203.0.113.7/32")},
+		{At: now.Add(-time.Second), From: netip.MustParsePrefix("2001:db8:1:2::/64")},
+		{At: now, From: netip.Prefix{}},
+	}
+	if err := st.SetJoinFailures(ctx, fails); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.JoinFailures(ctx); err != nil || !reflect.DeepEqual(got, fails) {
+		t.Fatalf("join failures: %v, %v", got, err)
+	}
+	if err := st.SetJoinFailures(ctx, fails[2:]); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.JoinFailures(ctx); err != nil || !reflect.DeepEqual(got, fails[2:]) {
+		t.Fatalf("join failures after replacing them: %v, %v", got, err)
+	}
 }
 
 // auditDetails are the details of the panel's audit rows for an action,

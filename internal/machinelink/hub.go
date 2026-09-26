@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"sync"
@@ -126,9 +127,13 @@ func NewHub(o HubOptions) (*Hub, error) {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
 	o.Version = cleanVersion(o.Version)
+	kept, err := o.Store.JoinFailures(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("machinelink: reading the joins refused lately: %w", err)
+	}
 	return &Hub{
 		id: o.Identity, store: o.Store, allow: allow, opts: o, now: o.Now, log: o.Logger,
-		codeKey: key, guard: newGuard(o.Limits), tlsConf: serverTLS(o.Identity),
+		codeKey: key, guard: newGuard(o.Limits, kept, o.Now()), tlsConf: serverTLS(o.Identity),
 		pending:  newPendingConns(o.MaxPending, o.MaxPendingPerSource, o.Now, o.Logger),
 		sessions: map[string]*session{}, revoked: map[string]bool{}, stats: map[string]*machineStats{},
 		conns: map[net.Conn]struct{}{}, listeners: map[net.Listener]struct{}{},
@@ -393,7 +398,7 @@ func (h *Hub) pair(ctx context.Context, key ed25519.PublicKey, hel hello, remote
 	}
 	code, err := NormalizeJoinCode(hel.Code)
 	if err != nil {
-		h.guard.fail(now, from)
+		h.failJoin(ctx, now, from)
 		return Machine{}, nil, errJoinCodeMalformed()
 	}
 	codes, err := h.store.JoinCodes(ctx)
@@ -402,7 +407,7 @@ func (h *Hub) pair(ctx context.Context, key ed25519.PublicKey, hel hello, remote
 	}
 	jc, ok := findCode(codes, hashCode(h.codeKey, code))
 	if !ok {
-		h.guard.fail(now, from)
+		h.failJoin(ctx, now, from)
 		return Machine{}, nil, errJoinCodeWrong()
 	}
 	m, found, err := h.store.MachineByKey(ctx, key)
@@ -414,7 +419,7 @@ func (h *Hub) pair(ctx context.Context, key ed25519.PublicKey, hel hello, remote
 		if found && m.ID == jc.MachineID && !m.Removed() {
 			return m, nil, nil
 		}
-		h.guard.fail(now, from)
+		h.failJoin(ctx, now, from)
 		return Machine{}, nil, errJoinCodeUsed()
 	case jc.State(now) == JoinCodeExpired:
 		return Machine{}, nil, errJoinCodeExpired()
@@ -447,7 +452,7 @@ func (h *Hub) pair(ctx context.Context, key ed25519.PublicKey, hel hello, remote
 		JoinedFrom: remoteIP(remote), CreatedBy: jc.CreatedBy, Version: cleanVersion(hel.Version)}
 	switch err := h.store.Pair(ctx, jc.ID, m); {
 	case errors.Is(err, ErrCodeUsed):
-		h.guard.fail(now, from)
+		h.failJoin(ctx, now, from)
 		return Machine{}, nil, errJoinCodeUsed()
 	case errors.Is(err, ErrNotFound):
 		return Machine{}, nil, errJoinCodeWrong()
@@ -455,6 +460,17 @@ func (h *Hub) pair(ctx context.Context, key ed25519.PublicKey, hel hello, remote
 		return Machine{}, nil, errDashboard(err)
 	}
 	return m, &Event{Kind: EventJoined, At: now, MachineID: m.ID, Name: m.Name, Actor: jc.CreatedBy, Address: m.JoinedFrom}, nil
+}
+
+// failJoin counts a join refused for its code and keeps the count in the
+// store, so that a pause it causes outlasts a restart. It is kept even when
+// the machine has already hung up.
+func (h *Hub) failJoin(ctx context.Context, now time.Time, from netip.Prefix) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := h.store.SetJoinFailures(ctx, h.guard.fail(now, from)); err != nil {
+		h.log.Warn("keeping a refused join failed", "err", err)
+	}
 }
 
 func (h *Hub) leave(ctx context.Context, tc *tls.Conn, key ed25519.PublicKey, remote string) {

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 )
@@ -129,9 +130,12 @@ func DefaultLimits() Limits {
 	return Limits{AddressFailures: 5, TotalFailures: 20, Window: 15 * time.Minute}
 }
 
-type failure struct {
-	at   time.Time
-	from netip.Prefix
+// JoinFailure is a join refused for its code (wrong, malformed or used):
+// when, and the network it came from, an IPv4 address or an IPv6 /64. From
+// is the zero Prefix when the address couldn't be read.
+type JoinFailure struct {
+	At   time.Time
+	From netip.Prefix
 }
 
 // guard counts recent join failures. It keeps at most TotalFailures of
@@ -140,10 +144,13 @@ type guard struct {
 	limits Limits
 
 	mu    sync.Mutex
-	fails []failure
+	fails []JoinFailure
 }
 
-func newGuard(l Limits) *guard {
+// newGuard starts from the failures a store kept. One the clock puts after
+// now counts as now, so a clock that was wrong can't pause joining for
+// longer than the window.
+func newGuard(l Limits, kept []JoinFailure, now time.Time) *guard {
 	d := DefaultLimits()
 	if l.AddressFailures <= 0 {
 		l.AddressFailures = d.AddressFailures
@@ -154,7 +161,17 @@ func newGuard(l Limits) *guard {
 	if l.Window <= 0 {
 		l.Window = d.Window
 	}
-	return &guard{limits: l}
+	g := &guard{limits: l, fails: slices.Clone(kept)}
+	for i := range g.fails {
+		if g.fails[i].At.After(now) {
+			g.fails[i].At = now
+		}
+	}
+	slices.SortStableFunc(g.fails, func(a, b JoinFailure) int { return a.At.Compare(b.At) })
+	if over := len(g.fails) - l.TotalFailures; over > 0 {
+		g.fails = g.fails[over:]
+	}
+	return g
 }
 
 // wait returns how long joins from addr must wait, or 0.
@@ -166,8 +183,8 @@ func (g *guard) wait(now time.Time, addr netip.Prefix) time.Duration {
 	}
 	var mine []time.Time
 	for _, f := range g.fails {
-		if f.from == addr {
-			mine = append(mine, f.at)
+		if f.From == addr {
+			mine = append(mine, f.At)
 		}
 	}
 	if len(mine) >= g.limits.AddressFailures {
@@ -186,24 +203,27 @@ func (g *guard) paused(now time.Time) time.Duration {
 func (g *guard) pausedLocked(now time.Time) time.Duration {
 	g.prune(now)
 	if len(g.fails) >= g.limits.TotalFailures {
-		return g.fails[len(g.fails)-g.limits.TotalFailures].at.Add(g.limits.Window).Sub(now)
+		return g.fails[len(g.fails)-g.limits.TotalFailures].At.Add(g.limits.Window).Sub(now)
 	}
 	return 0
 }
 
-func (g *guard) fail(now time.Time, addr netip.Prefix) {
+// fail counts a failure and returns the failures the guard keeps, for the
+// store.
+func (g *guard) fail(now time.Time, addr netip.Prefix) []JoinFailure {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.prune(now)
-	g.fails = append(g.fails, failure{at: now, from: addr})
+	g.fails = append(g.fails, JoinFailure{At: now, From: addr})
 	if over := len(g.fails) - g.limits.TotalFailures; over > 0 {
 		g.fails = append(g.fails[:0], g.fails[over:]...)
 	}
+	return slices.Clone(g.fails)
 }
 
 func (g *guard) prune(now time.Time) {
 	i := 0
-	for i < len(g.fails) && !now.Before(g.fails[i].at.Add(g.limits.Window)) {
+	for i < len(g.fails) && !now.Before(g.fails[i].At.Add(g.limits.Window)) {
 		i++
 	}
 	if i > 0 {

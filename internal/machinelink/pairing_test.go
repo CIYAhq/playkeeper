@@ -198,6 +198,48 @@ func TestJoinPauseIgnoresOneNoisyAddress(t *testing.T) {
 	}
 }
 
+// A hub keeps the wrong codes it counted in its store, so after a restart
+// it refuses what it refused before, for as long: the address that sent
+// too many, or everyone after too many in total.
+func TestJoinPauseOutlastsARestart(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		limits Limits
+		// paused is how long joining is paused for everyone after the
+		// restart.
+		paused time.Duration
+	}{
+		{"one address", Limits{AddressFailures: 3, TotalFailures: 100, Window: 10 * time.Minute}, 0},
+		{"everyone", Limits{AddressFailures: 100, TotalFailures: 3, Window: 10 * time.Minute}, 6 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := startHub(t, func(o *HubOptions) { o.Limits = tc.limits })
+			code := first.code(t)
+			for range 3 {
+				_, err := first.try(mustIdentity(t), otherCode(code))
+				wantCode(t, err, CodeJoinCodeWrong)
+			}
+			first.Close()
+			first.clock.Add(4 * time.Minute)
+
+			again := startHub(t, func(o *HubOptions) {
+				o.Identity, o.Store, o.Now, o.Limits = first.id, first.store, first.clock.Now, tc.limits
+			})
+			if d := again.JoinPause(); d != tc.paused {
+				t.Fatalf("joining paused for %v after the restart, want %v", d, tc.paused)
+			}
+			_, err := again.try(mustIdentity(t), code)
+			if e := wantCode(t, err, CodeJoinRateLimited); e.RetryAfter != 6*time.Minute {
+				t.Fatalf("refused for %v after the restart, want the 6 minutes left", e.RetryAfter)
+			}
+			first.clock.Add(6 * time.Minute)
+			if _, err := again.try(mustIdentity(t), code); err != nil {
+				t.Fatalf("once the window passed: %v", err)
+			}
+		})
+	}
+}
+
 // A machine in the middle can present only its own key. The machine sees
 // that it isn't the dashboard's before sending anything, so the code stays
 // secret and still works on the real dashboard.
