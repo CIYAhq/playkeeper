@@ -1,0 +1,109 @@
+{{/*
+path: /alternatives/aternos
+title: Aternos alternatives: your own always-on server, no queue
+description: Outgrown Aternos? Run your own always-on Minecraft server on a VPS with Playkeeper: no queue, one-click mods and modpacks, and your world moves over in minutes.
+label: Aternos alternative
+card: The Aternos alternative
+kind: Compare
+section: compare
+crumb: Compare
+og: aternos
+*/}}
+
+{{define "main"}}
+<section class="band-chalk page-hero" aria-labelledby="page-title">
+  <div class="container alt-hero-row">
+    <div>
+      {{template "crumbs" .}}
+      <h1 id="page-title" class="h1-page hero-rise">The Aternos alternative with no queue: your own always-on server.</h1>
+      <p class="lead hero-after">Playkeeper runs your server on a VPS you rent, so it's on whenever your friends are.</p>
+      <div class="hero-after">{{template "install" (dict "ID" true)}}</div>
+      <a class="link-arrow hero-after" href="/sizing">Which VPS should I rent?{{template "icon" "arrow-right"}}</a>
+    </div>
+    <div class="alt-art hero-after" aria-hidden="true">
+      <div class="mini-card art-address">
+        <div class="mini-card-head">Join address <span class="chip-copy">{{template "icon" "copy"}}Copy</span></div>
+        <p class="addr">survival.alex.playkeeper.io</p>
+        <p class="hint">In Minecraft: Multiplayer → Add Server, then paste it.</p>
+        <p class="answering">Answering · checked 12 s ago</p>
+      </div>
+      <div class="mini-card art-running">
+        <div class="mini-card-head">How it's running <span class="link-arrow">my-vps{{template "icon" "arrow-right"}}</span></div>
+        <div class="meter"><span>Memory</span><span>2.6 of 4 GB</span><i class="w65"></i></div>
+        <div class="meter"><span>CPU</span><span>18%</span><i class="w18"></i></div>
+        <dl class="stats"><div><dt>Uptime</dt><dd>3 days</dd></div><div><dt>Tick rate</dt><dd>20.0 <small>smooth</small></dd></div><div><dt>Disk free</dt><dd>41 GB</dd></div></dl>
+      </div>
+      <div class="moment art-joined"><img src="{{asset "img/face-juno.svg"}}" alt="" width="32" height="32"><span>JunoFox joined Survival<small>3:12 am</small></span></div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="glance-title">
+  <div class="container">
+    <h2 id="glance-title" class="section-title reveal">At a glance</h2>
+    <div class="table-scroll reveal" tabindex="0">
+      <table class="compare">
+        <caption>Aternos facts from its help center, checked {{day "2026-09-26"}}.</caption>
+        <thead><tr><td></td><th scope="col">Aternos</th><th scope="col" class="us">Playkeeper on your VPS</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Cost</th><td>Free, with ads</td><td class="us">Free software, plus your VPS</td></tr>
+          <tr><th scope="row">Queue</th><td>At busy times, with a confirmation step</td><td class="us">None</td></tr>
+          <tr><th scope="row">Always on</th><td>Stops when everyone leaves</td><td class="us">Yes, unless you turn on sleep</td></tr>
+          <tr><th scope="row">Mods and modpacks</th><td>Yes</td><td class="us"><a href="/features/mods-and-modpacks">Modrinth and CurseForge, one click each</a></td></tr>
+          <tr><th scope="row">Memory</th><td>Assigned for you, can't be bought</td><td class="us">Whatever your VPS has</td></tr>
+          <tr><th scope="row">Storage</th><td>4 GB</td><td class="us">Your VPS's disk</td></tr>
+          <tr><th scope="row">Backups</th><td>To your Google Drive, once you link it</td><td class="us">Live, checked, and copies off the server</td></tr>
+          <tr><th scope="row">Who owns the world</th><td>Hosted by Aternos</td><td class="us">You, on your VPS</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="better-title">
+  <div class="container">
+    <h2 id="better-title" class="section-title reveal">When Aternos is the better choice</h2>
+    <div class="grid-3">
+      <div class="card better-card reveal"><h3>You want free, with nothing to rent</h3><p>Aternos costs nothing. A VPS costs a few dollars a month.</p></div>
+      <div class="card better-card reveal"><h3>You play now and then</h3><p>If a short queue doesn't bother you, a free host is hard to beat.</p></div>
+      <div class="card better-card reveal"><h3>You'd rather not look after a server</h3><p>Aternos's paid sister, exaroton, runs servers without a queue.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" id="move" aria-labelledby="move-title">
+  <div class="container">
+    <h2 id="move-title" class="section-title reveal">Move your Aternos world in minutes</h2>
+    <div class="move-row">
+      {{template "steps" (dict "Class" "steps-lg" "Items" (list
+        (dict "Title" "Download your world from Aternos" "Text" "It's a .zip file with everything in it.")
+        (dict "Title" "Upload it to Playkeeper" "Text" "New server › A world. The upload resumes if the connection drops.")
+        (dict "Title" "Check what's inside, then start" "Text" "The version, data packs and anything left behind, before anything changes.")
+      ))}}
+      <div class="reveal move-media">
+        <div class="wide-only">{{template "cardshot" (dict "Name" "move-aternos" "Alt" "New server, starting from a world: the steps for getting it out of Aternos, and the upload.")}}</div>
+        <div class="phone-only">{{template "cardshot" (dict "Name" "move-aternos-phone" "Alt" "Starting from a world on a phone: the steps for getting it out of Aternos.")}}</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="cost-title">
+  <div class="container">
+    <h2 id="cost-title" class="section-title reveal">What it costs</h2>
+    <p class="section-sub reveal">Playkeeper is free. You rent a VPS, sized for your group.</p>
+    {{$g := sizing}}{{template "providers" (dict "Label" (printf "Fits %s friends on %s: %d GB of memory, %d fast cores" $g.FirstBand $g.FirstRun $g.Answer.MemoryGB $g.Answer.Cores) "MemoryGB" $g.Answer.MemoryGB "Cores" $g.Answer.Cores)}}
+    <a class="link-arrow reveal cost-link" href="/sizing">Work out your size{{template "icon" "arrow-right"}}</a>
+  </div>
+</section>
+
+<section class="band band-white">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "Is Aternos safe?" "Yes. It's a long-running, popular free host. The trade-offs are the queue, the memory you're given and servers that stop when empty.")
+      (qa "Is Playkeeper free?" "Yes: free and open source (AGPL-3.0). You pay only for the VPS.")
+      (qa "Can I keep my plugins?" "The world comes over; plugins and mods stay behind. Add them again from the Plugins tab, where <a href=\"/features/mods-and-modpacks\">one search covers Modrinth and Hangar</a>. For a modded world, the <a href=\"/guides/modded-minecraft-server\">modded server guide</a> goes step by step.")
+    ))}}
+  </div>
+</section>
+{{end}}

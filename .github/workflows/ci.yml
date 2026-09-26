@@ -70,6 +70,8 @@ jobs:
           PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
       - name: Console scrolling, following and "Jump to latest"
         run: cd test/e2e/ui && npx playwright test -c playwright.fake-panel.config.ts
+      - name: playkeeper.io on desktop and phone — nothing wider than the screen, no serious accessibility violations
+        run: cd test/e2e/ui && npx playwright test -c playwright.site.config.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -78,7 +80,7 @@ jobs:
           retention-days: 7
 
   site:
-    name: Site image — build it, check /, /sizing, /demo/, /t, /healthz and the /install redirect, walk the live demo
+    name: Site image — build it, check every page, /sizing, /demo/, /t, /healthz and the /install redirect, walk the live demo
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

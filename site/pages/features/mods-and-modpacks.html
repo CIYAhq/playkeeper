@@ -1,0 +1,115 @@
+{{/*
+path: /features/mods-and-modpacks
+title: Modded Minecraft server: mods and modpacks in one click
+description: A modded Minecraft server on your own VPS: search Modrinth and Hangar, add Modrinth and CurseForge modpacks in one click, and give friends the same mods.
+label: Plugins, mods and modpacks
+card: Plugins, mods and modpacks. One click each.
+kind: Feature
+section: features
+crumb: Features
+og: mods-and-modpacks
+preload: feature-mods
+*/}}
+
+{{define "main"}}
+<section class="band-chalk page-hero page-hero-center" aria-labelledby="page-title">
+  <div class="container">
+    {{template "crumbs" .}}
+    <h1 id="page-title" class="h1-page hero-rise">Plugins, mods and modpacks. One click each.</h1>
+    <p class="lead hero-after">Search Modrinth and Hangar, add modpacks from Modrinth and CurseForge, and give friends the same mods with one link.</p>
+    <div class="hero-cta hero-after">
+      {{template "install" (dict "ID" true)}}
+      <a class="btn btn-outline" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
+    </div>
+    {{template "logos" (dict "Class" "hero-after")}}
+    <div class="hero-shot hero-after">
+      {{template "browser" (dict "Name" "feature-mods" "URL" "alex.playkeeper.io:8443/servers/cobblemon/mods" "Eager" true "Alt" "The Mods tab of a Fabric server: the mods added by hand, what friends need of each, and Share with friends.")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="three-title">
+  <div class="container">
+    <h2 id="three-title" class="section-title reveal">From zero to modded in three steps.</h2>
+    <div class="grid-3 steps-row">
+      <div class="step-card reveal">
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-type" "Alt" "New server's first step: the server types, with what each runs.")}}</div>
+        <h3><span class="num">1</span>Pick a server type</h3>
+        <p>Paper and Purpur run plugins; {{loaderNames}} run mods.</p>
+      </div>
+      <div class="step-card reveal">
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-modpack" "Alt" "A modpack's details: its Minecraft version, loader, number of mods and the memory it needs.")}}</div>
+        <h3><span class="num">2</span>Add a modpack or add-ons</h3>
+        <p>See what's inside and how much memory it needs, first.</p>
+      </div>
+      <div class="step-card reveal">
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-share" "Alt" "Share with friends: one link to a page with the server's mods.")}}</div>
+        <h3><span class="num">3</span>Send friends the pack</h3>
+        <p>One link gives them a file for the Modrinth App or Prism Launcher.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-label="What it does">
+  <div class="container">
+    <div class="detail reveal-group">
+      <div class="detail-text">
+        <h2 class="reveal">One search across Modrinth and Hangar</h2>
+        <p class="reveal">Picked by Playkeeper shows a few favourites before you type.</p>
+      </div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-browse" "Alt" "The add-on library: Picked by Playkeeper, then the most downloaded plugins that work on the server.")}}</div>
+    </div>
+    <div class="detail flip reveal-group">
+      <div class="detail-text">
+        <h2 class="reveal">Modpacks show what's inside first</h2>
+        <p class="reveal">Memory, mods and what friends do, before anything installs.</p>
+      </div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-modpack" "Alt" "A modpack's details over New server: what's inside and what friends do.")}}</div>
+    </div>
+    <div class="detail reveal-group">
+      <div class="detail-text">
+        <h2 class="reveal">Voice chat, maps and pre-generation</h2>
+        <p class="reveal">Curated add-ons set up their own ports and settings.</p>
+      </div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-voice" "Alt" "Adding proximity voice chat: Playkeeper opens its UDP port and says to open it in the provider's firewall too.")}}</div>
+    </div>
+    <div class="detail flip reveal-group">
+      <div class="detail-text">
+        <h2 class="reveal">Friends get the same mods</h2>
+        <p class="reveal">A page lists what they need, with steps for their launcher.</p>
+      </div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-pack" "Alt" "The page friends open: the pack file and steps for the Modrinth App and Prism Launcher.")}}</div>
+    </div>
+    <div class="detail reveal-group">
+      <div class="detail-text">
+        <h2 class="reveal">Updates you can trust</h2>
+        <p class="reveal">Every file must match its published checksum. Updates wait for a restart you choose.</p>
+      </div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-updates" "Alt" "Updating two plugins: each download checked against its checksum, then a restart to load them.")}}</div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="notdo-title">
+  <div class="container">
+    <div class="notdo">
+      <h2 id="notdo-title" class="section-title reveal">What it doesn't do</h2>
+      <ul>
+        <li class="reveal"><strong>No Bedrock</strong><span>Minecraft: Java Edition only.</span></li>
+        <li class="reveal"><strong>No single mods from CurseForge</strong><span>CurseForge brings whole modpacks; single mods come from Modrinth.</span></li>
+        <li class="reveal"><strong>No client-only mods on the server</strong><span>They stay in your friends' launchers.</span></li>
+      </ul>
+    </div>
+    <div class="faq-gap"></div>
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "Do friends need to install mods?" "For mods and modpacks, yes, the same ones as the server: the share link gives them a file for the Modrinth App or Prism Launcher. Plugins need nothing on their side.")
+      (qa "Which modpacks work?" (printf "Modrinth and CurseForge packs for Minecraft 1.21 and newer, on %s. Each pack shows what it needs before you create the server." loaderNames))
+      (qa "Do I need a CurseForge key?" "No. Playkeeper has one built in. You can add your own free key under Settings › Add-on sources.")
+      (qa "Can I add a mod that isn't in a library?" "Yes: copy its file into the server's mods folder on the VPS. The Mods tab lists it, and if a library recognises it, Playkeeper can take it over so it gets updates.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/guides/modded-minecraft-server" "/features/backups" "/alternatives/aternos" "/sizing")}}
+{{end}}

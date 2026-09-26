@@ -32,6 +32,15 @@ async function still(page: Page, name: string, { fullPage = false } = {}) {
   await page.screenshot({ path: path.join(shotsDir, `${name}.png`), fullPage, animations: 'disabled' })
 }
 
+// The demo's own sheet on a first visit, and its quiet prompt after a few
+// actions, would sit over the walks below; the test after them has both.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('playkeeper-demo-welcomed', '1')
+    localStorage.setItem('playkeeper-demo-prompted', '1')
+  })
+})
+
 test('the live demo: Home, a server’s pages, Settings and a restart, without leaving the page', async ({ page }) => {
   const problems = watch(page)
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -299,4 +308,36 @@ test('the live demo on a phone: the brand line and the install card', async ({ p
   await expect(page.getByText('JunoFox joined Survival')).toBeVisible()
   await still(page, 'demo-home-phone', { fullPage: true })
   expect(problems).toEqual([])
+})
+
+test('the live demo’s first visit says it’s sample data, once, and a few actions in it asks quietly', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const page = await context.newPage()
+  const problems = watch(page)
+  await page.goto(demoUrl)
+  const welcome = page.getByRole('dialog', { name: 'Playkeeper live demo' })
+  await expect(welcome).toBeVisible()
+  await expect(welcome).toContainText('nothing is real, and it all resets every hour')
+  await still(page, 'demo-first-visit-desktop')
+  await welcome.getByRole('button', { name: 'Start clicking' }).click()
+  await expect(welcome).toBeHidden()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Home' })).toBeVisible()
+  await expect(welcome).toHaveCount(0)
+
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: /Survival/ }).click()
+  await page.getByRole('navigation', { name: 'Server pages' }).getByRole('link', { name: 'World' }).click()
+  const prompt = page.getByRole('complementary', { name: 'Like it so far?' })
+  const downloads = page.locator('main a[download]')
+  for (let i = 0; i < 3; i++) {
+    await expect(prompt).toHaveCount(0)
+    await downloads.nth(i).click()
+  }
+  await expect(prompt).toBeVisible()
+  await expect(prompt.getByRole('link', { name: 'Star on GitHub' })).toHaveAttribute('href', 'https://github.com/CIYAhq/playkeeper')
+  await still(page, 'demo-quiet-prompt-desktop')
+  await prompt.getByRole('button', { name: 'Close' }).click()
+  await expect(prompt).toHaveCount(0)
+  expect(problems).toEqual([])
+  await context.close()
 })
