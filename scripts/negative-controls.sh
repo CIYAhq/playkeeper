@@ -235,6 +235,18 @@ control "members cannot remove a plugin or mod" internal/panel/server.go \
   'sm("POST", "/api/servers/{id}/addons/remove-file", "/v1/servers/{id}/addons/remove-file"),' \
   '{"POST", "/api/servers/{id}/addons/remove-file", needSessionCSRF, actView, s.serverProxy("POST", "/v1/servers/{id}/addons/remove-file")},' \
   ./internal/panel '^TestMembersCanLookButNotManage$'
+control "a port holder's name keeps only printable text" internal/agent/portholder.go \
+  'if r == unicode.ReplacementChar || !unicode.IsPrint(r) {' \
+  'if r == unicode.ReplacementChar && !unicode.IsPrint(r) {' \
+  ./internal/agent '^TestPortHolderKeepsOnlyAPlainName$'
+control "only the listening socket names a port's holder" internal/agent/portholder.go \
+  'if len(fields) < 10 || fields[3] != tcpListen {' \
+  'if len(fields) < 10 {' \
+  ./internal/agent '^TestPortHolderNeedsTheListeningSocketItself$'
+control "a crash fix whose add-on can't be put in place doesn't start the server" internal/agent/addons.go \
+  'if err := s.installAddons(ctx, h, actor, run); err != nil {' \
+  'if err := s.installAddons(ctx, h, actor, run); err != nil && !start {' \
+  ./internal/agent '^TestAddonFixesStartTheStoppedServer$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
