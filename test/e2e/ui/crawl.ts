@@ -517,7 +517,8 @@ export class Crawler {
         continue
       }
       const sig = signature(state.base)
-      if (signatures.has(sig)) continue
+      // The page itself is gone through every time, since the menus and dialogs it opens may hold different controls in another view.
+      if (signatures.has(sig) && path.length > 0) continue
       signatures.add(sig)
       const list = await this.controls()
       const endsWithReveal = path.length > 0 && path.at(-1) !== FILL && !!this.tested.get(path.at(-1) as string)?.revealed
