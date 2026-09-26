@@ -60,6 +60,9 @@ function workspace(): Workspace {
     lastSlug: undefined,
     setLastSlug: () => {},
     signOut: async () => {},
+    reloadMe: async () => {},
+    signInNotice: undefined,
+    dismissSignInNotice: () => {},
   }
 }
 

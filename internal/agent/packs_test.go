@@ -4,14 +4,21 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha1"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"image"
 	"image/png"
 	"io"
 	"maps"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/packs"
@@ -691,6 +699,162 @@ func TestResourcePackOffer(t *testing.T) {
 	}
 	if e.audits("resourcepack.offered") != 2 {
 		t.Fatalf("%d resourcepack.offered audit entries", e.audits("resourcepack.offered"))
+	}
+}
+
+// packCA is a certificate authority that players' games trust in a test.
+type packCA struct {
+	cert *x509.Certificate
+	key  *ecdsa.PrivateKey
+}
+
+func newPackCA(t *testing.T) *packCA {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Playkeeper Test Root"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(365 * 24 * time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &packCA{cert: cert, key: key}
+}
+
+func (ca *packCA) pool() *x509.CertPool {
+	p := x509.NewCertPool()
+	p.AddCert(ca.cert)
+	return p
+}
+
+// save saves a certificate for name, valid for life from now, where Issue
+// saves the machine's certificate.
+func (ca *packCA) save(t *testing.T, dir, name string, life time.Duration) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(now.UnixNano()), Subject: pkix.Name{CommonName: name}, DNSNames: []string{name},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(life),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})...)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tmp := filepath.Join(dir, "."+name+".tmp")
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, name+".pem")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (e *agentEnv) containerID() string {
+	e.t.Helper()
+	c, err := e.a.docker.ContainerInspect(context.Background(), e.cname())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return c.ID
+}
+
+// A pack's link uses HTTPS only while the panel serves a certificate that
+// players' games trust for exactly the link's host, valid for a week more.
+// The link follows certificates that arrive or lapse from the next start:
+// a running server keeps offering its link until it restarts.
+func TestResourcePackLinksUseHTTPSWithATrustedCertificate(t *testing.T) {
+	ca, stranger := newPackCA(t), newPackCA(t)
+	e := newAgentEnvWith(t, func(e *agentEnv) {
+		e.tweak = func(o *Options) { o.CertRoots = ca.pool() }
+	})
+	e.create()
+	dir, day := e.cfg.CertsDir(), 24*time.Hour
+	const host = "mc.example.com"
+	faithful := resourcePackZip(t, "Faithful 32x", false)
+	sum := sha1Hex(faithful)
+	plain := "http://" + host + ":8443/resource-packs/" + sum + ".zip"
+	secure := "https://" + host + ":8443/resource-packs/" + sum + ".zip"
+	offer := func() api.ResourcePack {
+		t.Helper()
+		code, out := e.uploadTo(e.sp("/resourcepack?host="+host+"&port=8443&name=Faithful.zip"), faithful)
+		if code != 200 {
+			t.Fatalf("offer: %d %v", code, out)
+		}
+		return decodeAs[api.ResourcePack](t, out)
+	}
+
+	for what, save := range map[string]func(){
+		"no certificate":        func() {},
+		"another authority":     func() { stranger.save(t, dir, host, 90*day) },
+		"another name":          func() { ca.save(t, dir, "www.example.com", 90*day) },
+		"less than a week left": func() { ca.save(t, dir, host, 6*day) },
+	} {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatal(err)
+		}
+		save()
+		if v := offer(); v.Offer == nil || v.Offer.URL != plain {
+			t.Fatalf("%s: the link must be plain HTTP: %+v", what, v.Offer)
+		}
+	}
+	e.serverOp("/restart")
+	if got := e.containerEnv()["RESOURCE_PACK"]; got != plain {
+		t.Fatalf("the started server's link: %s", got)
+	}
+
+	id := e.containerID()
+	ca.save(t, dir, host, 90*day)
+	if v := e.resourcePack(); v.Offer == nil || v.Offer.URL != secure || !v.Pending || !e.status().PendingRestart {
+		t.Fatalf("once a trusted certificate arrived, the next start offers HTTPS: %+v", v)
+	}
+	if e.containerID() != id || e.containerEnv()["RESOURCE_PACK"] != plain {
+		t.Fatal("a running server keeps its link until it restarts")
+	}
+	e.serverOp("/restart")
+	if got := e.containerEnv()["RESOURCE_PACK"]; got != secure || e.resourcePack().Pending {
+		t.Fatalf("the restarted server's link: %s", got)
+	}
+	if v := offer(); v.Offer.URL != secure || v.Pending {
+		t.Fatalf("a pack offered with the certificate: %+v", v)
+	}
+
+	id = e.containerID()
+	ca.save(t, dir, host, 6*day)
+	if v := e.resourcePack(); v.Offer.URL != plain || !v.Pending {
+		t.Fatalf("with less than a week left, the next start offers plain HTTP: %+v", v)
+	}
+	if e.containerID() != id || e.containerEnv()["RESOURCE_PACK"] != secure {
+		t.Fatal("a running server keeps its link until it restarts")
+	}
+	e.serverOp("/stop")
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	e.serverOp("/start")
+	if got := e.containerEnv()["RESOURCE_PACK"]; got != plain || e.resourcePack().Pending {
+		t.Fatalf("a server started without the certificate: %s", got)
 	}
 }
 

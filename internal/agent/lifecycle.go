@@ -85,6 +85,7 @@ var opLabels = map[string]string{
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
 	"addon-install": "installing add-ons", "addon-update": "updating add-ons", "pregen-start": "starting map pre-generation",
+	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -257,7 +258,7 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
-	pack, err := resourcePackEnv(sc.ResourcePack)
+	pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))
 	if err != nil {
 		pack = keptPackEnv(current)
 	}

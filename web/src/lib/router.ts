@@ -19,7 +19,9 @@ export type Route =
   | { name: 'new-server' }
   | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub }
   | { name: 'machine'; id: string }
+  | { name: 'machine-settings'; id: string }
   | { name: 'settings' }
+  | { name: 'account'; section?: 'two-factor' }
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
@@ -40,6 +42,8 @@ export function parse(pathname: string): Route {
       return { name: 'welcome' }
     case 'settings':
       return { name: 'settings' }
+    case 'account':
+      return second === 'two-factor' && !third ? { name: 'account', section: 'two-factor' } : { name: 'account' }
     case 'more':
       return { name: 'more' }
     case 'console':
@@ -56,7 +60,10 @@ export function parse(pathname: string): Route {
       }
       return { name: 'home' }
     case 'machines':
-      if (second && /^[a-z2-9]{10}$/.test(second) && !third) return { name: 'machine', id: second }
+      if (second && /^[a-z2-9]{10}$/.test(second)) {
+        if (!third) return { name: 'machine', id: second }
+        if (third === 'settings' && parts.length === 3) return { name: 'machine-settings', id: second }
+      }
       return { name: 'home' }
   }
   return { name: 'home' }
@@ -80,8 +87,12 @@ export function href(route: Route): string {
     }
     case 'machine':
       return `/machines/${route.id}`
+    case 'machine-settings':
+      return `/machines/${route.id}/settings`
     case 'settings':
       return '/settings'
+    case 'account':
+      return route.section ? `/account/${route.section}` : '/account'
     case 'more':
       return '/more'
     case 'legacy':

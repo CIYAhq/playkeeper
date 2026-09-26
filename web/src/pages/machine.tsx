@@ -1,6 +1,9 @@
-import { ChevronRightIcon, PlugIcon, PlusIcon, SettingsIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronRightIcon, GlobeIcon, PlugIcon, PlusIcon, SettingsIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
-import { useWorkspace } from '@/api/workspace'
+import { get } from '@/api/client'
+import type { Address } from '@/api/types'
+import { machineApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, Dot, MeterRow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
@@ -8,16 +11,21 @@ import { LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
-import { formatBytes, formatMB, formatPercent } from '@/lib/format'
+import { certState, type CertState } from '@/lib/address'
+import { formatBytes, formatLongDate, formatMB, formatPercent } from '@/lib/format'
 import { phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 import { newerStable, softwareLabel } from '@/lib/servers'
+import { cn } from '@/lib/utils'
+import { certProblemText } from './machine-settings/parts'
+import { Group } from './more'
 
 export function MachinePage({ id }: { id: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const m = ws.machines.find((x) => x.id === id) ?? (ws.machine?.id === id ? ws.machine : undefined)
   const { catalog } = useCatalog(m?.id)
+  const address = useAddress(m?.id)
   if (!m && ws.machines.length) {
     return (
       <PageBody>
@@ -47,13 +55,14 @@ export function MachinePage({ id }: { id: string }) {
         title={name}
         subtitle={subtitle}
         actions={
-          <Button variant="outline" render={<a {...linkProps({ name: 'settings' })} />}>
+          <Button variant="outline" render={<a {...linkProps({ name: 'machine-settings', id: m.id })} />}>
             <SettingsIcon />
             {t('machine.settings')}
           </Button>
         }
       />
       <PageBody className="grid gap-4 lg:grid-cols-2">
+        {phone && <AddressRow id={m.id} address={address} />}
         <Card>
           <CardTitle>{t('machine.resources')}</CardTitle>
           <CardHint>{t('machine.resourcesHint')}</CardHint>
@@ -68,6 +77,7 @@ export function MachinePage({ id }: { id: string }) {
           ) : (
             <MeterSkeleton className="mt-4" />
           )}
+          {address && <CertificateLine id={m.id} address={address} />}
           <div className="mt-auto flex flex-wrap justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
             <span>{t('machine.sampled')}</span>
             {live && (
@@ -117,5 +127,74 @@ export function MachinePage({ id }: { id: string }) {
         </Card>
       </PageBody>
     </>
+  )
+}
+
+/** The machine's address; undefined while loading or when it can't be read. */
+function useAddress(id: string | undefined): Address | undefined {
+  const [address, setAddress] = useState<Address>()
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    get<Address>(machineApi(id, '/address')).then(
+      (a) => !cancelled && setAddress(a),
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+  return address
+}
+
+/** The Health line: which certificate the dashboard shows, linking to where that's set up. */
+function CertificateLine({ id, address }: { id: string; address: Address }) {
+  const now = Date.now()
+  const state = certState(address, now)
+  const value = certificateValue(address, state, now)
+  return (
+    <a {...linkProps({ name: 'machine-settings', id })} className="mt-4 mb-3 flex items-center justify-between gap-3 rounded-md text-[13px] outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+      <span className="font-medium">{t('machine.certificate')}</span>
+      <span className={cn('flex min-w-0 items-center gap-1', state === 'problem' ? 'text-warning-foreground' : 'text-muted-foreground')}>
+        <span className="truncate">{value}</span>
+        <ChevronRightIcon className="size-4 shrink-0" aria-hidden="true" />
+      </span>
+    </a>
+  )
+}
+
+function certificateValue(a: Address, state: CertState, now: number): string {
+  switch (state) {
+    case 'none':
+      return t('machine.certSelfSigned')
+    case 'getting':
+      return t('address.certGettingShort')
+    case 'active':
+      return t('machine.certActive', { date: formatLongDate(a.certificate?.notAfter ?? '') })
+    case 'problem':
+      return certProblemText(a, now)?.title ?? t('address.certProblem')
+    default: {
+      const never: never = state
+      return never
+    }
+  }
+}
+
+/** The phone's way to the machine's address, with the address it has. */
+function AddressRow({ id, address }: { id: string; address: Address | undefined }) {
+  const host = address ? (address.kind ? (address.host ?? null) : null) : undefined
+  return (
+    <Group>
+      <li>
+        <a {...linkProps({ name: 'machine-settings', id })} className="flex min-h-14 w-full items-center gap-3.5 px-4 py-2 text-left">
+          <GlobeIcon className="size-[22px] shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-base">{t('address.title')}</span>
+            {host !== undefined && <span className="block truncate text-[13px] text-muted-foreground">{host ?? t('address.rowNone')}</span>}
+          </span>
+          <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+        </a>
+      </li>
+    </Group>
   )
 }

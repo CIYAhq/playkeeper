@@ -20,7 +20,7 @@ git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 make check             # gofmt, go vet, ESLint, TypeScript, Go, web and installer-script unit tests
 ```
 
-CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `make check`, `make lint-sh`, `make package`), then installs the packaged tarball on fresh runners for the end-to-end jobs. One of them installs the current release, upgrades it to the commit under test with the one-line installer, updates it from the dashboard, and forces a failed update to check the rollback; its test releases are signed with a key made for that run (`scripts/e2e/update-releases.sh`). Pull requests from forks run the same CI; a maintainer may need to approve a first-time contributor's run.
+CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `make check`, `make lint-sh`, `make package`), then installs the packaged tarball on fresh runners for the end-to-end jobs. One of them installs the current release, upgrades it to the commit under test with the one-line installer, updates it from the dashboard, and forces a failed update to check the rollback; its test releases are signed with a key made for that run (`scripts/e2e/update-releases.sh`). Two more jobs get certificates from Pebble, Let's Encrypt's test certificate authority, and build and check the names service image. Pull requests from forks run the same CI; a maintainer may need to approve a first-time contributor's run.
 
 ## Run it
 
@@ -31,6 +31,9 @@ CI runs the same commands (`.github/workflows/ci.yml`: `./scripts/setup.sh`, `ma
 - `make web`, then in `test/e2e/ui`: `npm ci`, `npx playwright install chromium` and `npx playwright test -c playwright.fake-panel.config.ts` — browser checks against a faked panel API (`fake-panel.ts`), so they need no agent, Docker or Minecraft server: the Console with a long log arriving at desktop and phone sizes. CI runs them too.
 - `make e2e-vm` — full rehearsal in fresh KVM guests (see `scripts/e2e/vm-e2e.sh`). It needs `qemu-system-x86`, `qemu-utils`, `cloud-image-utils` and Docker, sudo without a password, read and write access to `/dev/kvm` for your own user (qemu runs without sudo), and Playwright's Chromium (`cd test/e2e/ui && npm ci && npx playwright install --with-deps chromium`). It leaves a bridge, `pkbr0`, and iptables rules that forward and NAT 198.51.100.0/24 on your machine.
 - `./scripts/negative-controls.sh` — removes each safety guard in turn in a throwaway worktree and checks that the test covering it fails.
+- `go test -count=1 -run '^TestPebble$' ./internal/certs/` — gets certificates through HTTP-01 and DNS-01 checks from Pebble and `pebble-challtestsrv`, found in `$PLAYKEEPER_PEBBLE_DIR` or on `$PATH`; without them the test is skipped and prints how to install the pinned version (as the `acme-pebble` job in `.github/workflows/ci.yml` does).
+- `scripts/names-check.sh` and `go test ./internal/names/...` — build the names service image and check it, and test its client and service against a fake Cloudflare, without contacting Cloudflare. Deploying and running the service is described in [services/names/README.md](services/names/README.md).
+- In `make dev`, **Machine settings › Address** talks to a names service at `http://127.0.0.1:8081` and to Let's Encrypt's staging certificate authority, never the real names service or real certificates, unless `"namesURL"` or `"acmeDirectoryURL"` in `.dev/config.json` names others (`make dev` fills in the two when they are empty). With nothing on port 8081, the page says the names service can't be reached. To have one answer, run the names service image as `scripts/names-check.sh` runs it (port 8081, a dummy Cloudflare token, `api.cloudflare.com` pointed at the container): it answers whether names are free and refuses claims from a private address, so nothing reaches Cloudflare or Let's Encrypt.
 - `scripts/site-check.sh` — builds the playkeeper.io container from `site/` and checks `/`, `/healthz` and the `/install` redirect (needs Docker; CI runs it too). Hosting it is described in [site/README.md](site/README.md).
 - `make notices` — regenerates `THIRD_PARTY_NOTICES`, the licence texts of the third-party code in the binary. Run it after changing Go or npm dependencies and commit the result; `make check` fails while it is out of date.
 
@@ -60,6 +63,9 @@ git add internal/update/release.pub && git commit -m "Add the release signing ke
 | `internal/install` | preflight, installer with rollback, in-place upgrade, the updater, uninstall |
 | `internal/update`, `cmd/release-sign` | signed release manifests (the release key is in `internal/update/release.pub`), version order, update downloads; the maintainer tool that makes and signs them |
 | `internal/backup`, `internal/minecraft`, `internal/docker` | archive format, Minecraft protocols, log parsing and PaperMC's version list, Docker client |
+| `internal/certs` | the machine's certificates: Let's Encrypt (ACME) with HTTP-01 and DNS-01 checks, DNS checks of an own domain, join addresses and their records, renewal |
+| `internal/names`, `cmd/playkeeper-names`, `services/names` | the client for free `playkeeper.io` names and its signed requests; the names service, its image and how to run it (not part of the release) |
+| `internal/twofactor`, `internal/totp`, `internal/qrcode` | two-factor sign-in rules and recovery codes, authenticator codes, the setup QR code |
 | `web/` | React + TypeScript UI (embedded at build time) |
 | `packaging/` | `install.sh`, the one-line installer `get.sh`, their tests, install notes |
 | `scripts/` | toolchain setup, packaging, release checks, site check, KVM rehearsal harness, negative controls |

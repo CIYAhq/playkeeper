@@ -38,6 +38,8 @@ interface FakeState {
   /** The last answer the page got to each read of a server's add-ons, packs and pre-generation, by path. */
   reads: Map<string, Record<string, unknown>>
   opSeq: number
+  /** Each machine's address as the real panel last showed it; address changes answer with it. */
+  addresses: Map<string, Record<string, unknown>>
   /** What the page's reads show (see View). */
   view: () => View
   /** Each server's phase in the last list of servers. */
@@ -70,6 +72,31 @@ function playerName(body: unknown): string | undefined {
 
 function backupFor(state: FakeState, serverId: string, backupId: string): Record<string, unknown> | undefined {
   return state.backups.get(serverId)?.find((b) => b.id === backupId)
+}
+
+const freeName = /^(?=.{3,32}$)[a-z0-9]+(-[a-z0-9]+)*$/
+const recoveryCodes = ['k7qm-4tzd-9hxw-2rbn', 'p3vc-8jwa-6fke-5msy', 'x2nd-7gqr-4bzh-9tce', 'm9wf-3kpa-8vrn-6dqj', 'c4ht-9xme-2qwz-7bnk', 'r6ya-5dkq-3pjw-8fmx', 'v8bn-2tce-7hqk-4wzr', 'e5jx-6mra-9dvf-3kpt', 'h3wq-8zcn-5tbm-2yja', 'z7kp-4fve-6xrd-9qhm']
+
+function twoFactorSetup(): Record<string, unknown> {
+  const secret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
+  return {
+    qrCodeSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" shape-rendering="crispEdges"><path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0zM9 9h3v3H9z" fill="#111"/></svg>',
+    manualKey: secret.replace(/(.{4})(?=.)/g, '$1 '),
+    uri: `otpauth://totp/Playkeeper:admin?secret=${secret}&issuer=Playkeeper&algorithm=SHA1&digits=6&period=30`,
+    issuer: 'Playkeeper',
+    account: 'admin',
+    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+  }
+}
+
+/** The names service's answer for a free name, without asking it: every well-formed name is free. */
+function nameAvailability(name: string, address: Record<string, unknown> | undefined): Reply {
+  if (!freeName.test(name)) return { ...invalid('Use a–z, 0–9 and single dashes, like alex-mc.'), expected: true }
+  return { status: 200, body: { name, address: `${name}.${String(address?.base ?? 'playkeeper.io')}`, available: true } }
+}
+
+function addressAnswer(state: FakeState, machineId: string): Reply {
+  return { status: 200, body: state.addresses.get(machineId) ?? {} }
 }
 
 const routes: [string, RegExp, Handler][] = [
@@ -264,6 +291,25 @@ const routes: [string, RegExp, Handler][] = [
   ],
   ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => addonJob(state, 'addon-update', r.params[0], updateJob(r.body, addonWorld(state, r.params[0])))],
   ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => addonJob(state, 'addon-install', r.params[0], installJob(r.body, addonWorld(state, r.params[0])))],
+  // Wave 2: the second sign-in step, two-factor sign-in and the machine's address.
+  ['POST', /^\/api\/auth\/second-factor$/, () => ({ status: 401, body: { error: 'That code didn’t work. Try the one showing now.', code: 'code_wrong' }, expected: true })],
+  ['POST', /^\/api\/auth\/second-factor\/cancel$/, () => ({ status: 200, body: {} })],
+  ['POST', /^\/api\/auth\/2fa\/setup$/, ({ body }) => ((body as { password?: unknown } | null)?.password ? { status: 200, body: twoFactorSetup() } : invalid('Enter your password.'))],
+  ['DELETE', /^\/api\/auth\/2fa\/setup$/, () => ({ status: 200, body: {} })],
+  ['POST', /^\/api\/auth\/2fa\/confirm$/, ({ body }) => (/^\d{6}$/.test(String((body as { code?: unknown } | null)?.code)) ? { status: 200, body: { recoveryCodes } } : invalid('Type the 6-digit code from your app.'))],
+  [
+    'POST',
+    /^\/api\/auth\/2fa\/(recovery-codes|disable)$/,
+    (r) => {
+      const b = r.body as { password?: unknown; code?: unknown } | null
+      if (!b?.password || !b.code) return invalid('Enter your password and a code.')
+      return { status: 200, body: r.params[0] === 'disable' ? {} : { recoveryCodes } }
+    },
+  ],
+  ['POST', /^\/api\/machines\/(\w+)\/address\/claim$/, (r, state) => (freeName.test(String((r.body as { name?: unknown } | null)?.name)) ? addressAnswer(state, r.params[0] ?? '') : invalid('Use a–z, 0–9 and single dashes, like alex-mc.'))],
+  ['POST', /^\/api\/machines\/(\w+)\/address\/(refresh|release|certificate)$/, (r, state) => addressAnswer(state, r.params[0] ?? '')],
+  ['POST', /^\/api\/machines\/(\w+)\/address\/check$/, (r, state) => ((r.body as { domain?: unknown } | null)?.domain ? addressAnswer(state, r.params[0] ?? '') : invalid('Type your domain.'))],
+  ['DELETE', /^\/api\/machines\/(\w+)\/address$/, (r, state) => addressAnswer(state, r.params[0] ?? '')],
 ]
 
 interface AddonRecord {
@@ -485,7 +531,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
   const calls: ApiCall[] = []
   const unfaked: string[] = []
   const unrecorded: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0, view, phases: new Map(), jobs: new Map() }
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0, addresses: new Map(), view, phases: new Map(), jobs: new Map() }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -527,6 +573,14 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([leftoverWorld]) })
         return
       }
+      // Asking whether a free name is taken goes out to the names service, which tests never call.
+      const lookup = /^\/api\/machines\/(\w+)\/address\/available$/.exec(path)
+      if (lookup?.[1]) {
+        const reply = nameAvailability(url.searchParams.get('name') ?? '', state.addresses.get(lookup[1]))
+        calls.push({ method, path, status: reply.status, faked: true, expected: reply.expected, at })
+        await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
+        return
+      }
       if (isAddonRead(method, path)) {
         const answer = answerRead(method, url, planning ? posted(request) : undefined, addonWorld(state, /^\/api\/servers\/(\w+)\//.exec(path)?.[1]))
         if (!answer) {
@@ -559,13 +613,17 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
       }
-      calls.push({ method, path, status: res.status(), faked: false, at })
+      // The records for a domain that isn't one are refused, like a wrong password.
+      const refusedDomain = res.status() === 400 && /^\/api\/machines\/\w+\/address\/plan$/.test(path)
+      calls.push({ method, path, status: res.status(), faked: false, expected: refusedDomain || undefined, at })
       if (res.ok()) {
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
         if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
+        const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
+        if (address?.[1]) state.addresses.set(address[1], await res.json().catch(() => ({})))
         if (path === '/api/servers') notePhases(state, await res.json().catch(() => []))
       }
       // The page may have moved on and cancelled the request meanwhile.

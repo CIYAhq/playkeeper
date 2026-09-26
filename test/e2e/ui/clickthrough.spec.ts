@@ -31,8 +31,10 @@ import { login, outDir } from './helpers'
 // never waits on Modrinth or Hangar. There is no list of exceptions: a control
 // that should do nothing right now must be disabled and say why
 // (aria-describedby or a title). The selected tab or option of a group may
-// stay selected. Each page gets a fresh load before a control is pressed
-// unless the page is provably unchanged.
+// stay selected. A link another app opens (an authenticator's otpauth:,
+// mailto:, tel:) counts as working, since a headless browser has no app to
+// open. Each page gets a fresh load before a control is pressed unless the
+// page is provably unchanged.
 //
 // It fails when a control does nothing visible, answers with an error, is
 // disabled without a reason or has no name; when it can't get back to a state
@@ -63,8 +65,8 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
   // The add-on library, for the first server that has one (each library takes minutes).
   const library = servers.find((s) => addonTabs[s.type ?? ''])
   if (library) out.push(`/servers/${library.slug}${addonTabs[library.type ?? '']}/browse`)
-  for (const m of machines) out.push(`/machines/${m.id}`)
-  out.push('/settings')
+  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
+  out.push('/settings', '/account', '/account/two-factor')
   if (phone) out.push('/more')
   return out
 }
@@ -110,9 +112,11 @@ function pageOf(c: { route: string; view?: View }): string {
  * The fewest controls a page must have pressed, a little under what it has
  * now, so a page that stops showing its controls fails even when nothing on
  * it is broken. A page's count leaves out controls pressed on an earlier
- * page, such as the sidebar. A page that isn't listed needs one. The add-on
- * library shows the recorded fixtures' cards (addon-fixtures.ts), so its
- * count doesn't move with what Modrinth and Hangar list.
+ * page, such as the sidebar. A page that isn't listed needs one. A dev build
+ * (make dev) can't update itself, so its /settings has no "Check for updates"
+ * and one control fewer than an installed panel's. The add-on library shows
+ * the recorded fixtures' cards (addon-fixtures.ts), so its count doesn't move
+ * with what Modrinth and Hangar list.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -128,7 +132,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 36,
     '/servers/*/plugins/browse': 107,
     '/machines/*': 3,
-    '/settings': 6,
+    '/machines/*/settings': 6,
+    '/settings': 2,
+    '/account': 7,
+    '/account/two-factor': 4,
     '/ (stopped)': 3,
     '/servers/* (stopped)': 1,
     '/servers/*/console (stopped)': 3,
@@ -156,7 +163,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 29,
     '/servers/*/plugins/browse': 81,
     '/machines/*': 1,
-    '/settings': 5,
+    '/machines/*/settings': 6,
+    '/settings': 1,
+    '/account': 6,
+    '/account/two-factor': 1,
     '/more': 5,
     '/ (stopped)': 1,
     '/servers/* (stopped)': 2,
