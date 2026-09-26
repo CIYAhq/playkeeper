@@ -79,6 +79,10 @@ type ServerStatus struct {
 	// missing because a restore didn't finish. It stays until the previous
 	// world is back, however long that takes.
 	WorldMissing *WorldMissing `json:"worldMissing,omitempty"`
+	// RestoreUnsettled is set while no operation runs and a restore that
+	// didn't finish keeps its swap journal: no other restore starts until an
+	// agent start, with the server stopped, settles it.
+	RestoreUnsettled bool `json:"restoreUnsettled,omitempty"`
 	// Refusal is the file that stopped the server's last start, while the
 	// server stays stopped.
 	Refusal *FileRefusal `json:"refusal,omitempty"`

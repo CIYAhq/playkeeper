@@ -162,6 +162,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	st.LastOperation = s.lastFinishedOperation()
 	if st.Operation == nil && sc != nil {
 		st.WorldMissing = s.worldMissing()
+		st.RestoreUnsettled = s.restoreUnsettled()
 	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	s.mu.Lock()
@@ -1143,6 +1144,13 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		writeError(w, errInvalid("X-Playkeeper-Actor header is required"))
 		return
 	}
+	if target != nil {
+		if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(target.id, actor, "restore.uploaded", "", "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+	}
 	p, err := a.stageArchive(r.Body, "upload", a.uploadLimit(), target)
 	if err != nil {
 		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
@@ -1168,6 +1176,11 @@ func (s *server) hRestoreFromBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := s.getBackup(r.PathValue("bid"))
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.restoreRefusal("restore again"); err != nil {
+		s.audit(actor, "restore.staged", b.ID, "refused", err.Error())
 		writeError(w, err)
 		return
 	}
@@ -1218,6 +1231,18 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := st.preview
+	target := a.serverByID(p.ServerID)
+	if p.ServerID != "" && target == nil {
+		writeError(w, errNotFound("Server"))
+		return
+	}
+	if target != nil {
+		if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+	}
 	if !p.Compatible {
 		writeError(w, errConflict("This backup cannot be restored here: "+strings.Join(p.Problems, " "), ""))
 		return
@@ -1235,18 +1260,6 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Name) != "" {
 		if name, err = validName(req.Name); err != nil {
 			writeError(w, err)
-			return
-		}
-	}
-	target := a.serverByID(p.ServerID)
-	if p.ServerID != "" && target == nil {
-		writeError(w, errNotFound("Server"))
-		return
-	}
-	if target != nil {
-		if m := target.worldMissing(); m != nil {
-			a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", "the world folder is missing")
-			writeError(w, errWorldMissing(m, "restore again"))
 			return
 		}
 	}

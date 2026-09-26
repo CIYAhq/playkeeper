@@ -125,22 +125,131 @@ func TestTheDataPackListWaitsForTheMissingWorldFolder(t *testing.T) {
 	refusedForMissingWorldFolder(t, m, "the data pack list", code, out, "try again")
 }
 
-// Another restore is refused while the world folder is missing: the start
-// that settles the unfinished one would otherwise find a new world in its way.
-func TestARestoreWaitsForTheMissingWorldFolder(t *testing.T) {
-	e, m := worldLeftMissing(t)
+// No restore starts while another one's swap journal is kept, whether its
+// world folder is still missing or was moved back by hand: the agent start
+// that settles the kept one puts its previous settings back, over whatever a
+// newer restore brought.
+func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
+	for _, state := range []struct {
+		name      string
+		movedBack bool
+		code      string
+	}{
+		{"with the world folder missing", false, codeWorldMissing},
+		{"with the world moved back by hand", true, codeRestoreUnsettled},
+	} {
+		t.Run(state.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			id, phrase := e.backupAndStage()
+			list, _ := e.srv().listBackups(`kind = 'manual'`)
+			b := list[0]
+			code, spare := e.call("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"})
+			if code != 200 {
+				t.Fatalf("stage: %d %v", code, spare)
+			}
+			archive, err := os.ReadFile(e.srv().backupPath(b.FileName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			failPuttingBack(t, e, id)
+			if op := e.applyRestore(id, phrase); op.Status != api.OpFailed {
+				t.Fatalf("restore: %+v", op)
+			}
+			renameDir = os.Rename
+			if state.movedBack {
+				asides, _ := filepath.Glob(e.dataDir() + ".replaced-*")
+				if len(asides) != 1 {
+					t.Fatalf("want the previous world's copy, got %v", asides)
+				}
+				if err := os.Rename(asides[0], e.dataDir()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := worldState(t, e)
+			if st := e.status(); (st.WorldMissing == nil) != state.movedBack || !st.RestoreUnsettled {
+				t.Fatalf("status: world missing %+v, restore unsettled %v", st.WorldMissing, st.RestoreUnsettled)
+			}
+			for _, entry := range []struct {
+				name string
+				send func() (int, map[string]any)
+			}{
+				{"applying a staged restore", func() (int, map[string]any) {
+					return e.call("POST", "/v1/restore/"+spare["id"].(string)+"/apply", map[string]any{"confirm": spare["confirmPhrase"], "actor": "admin"})
+				}},
+				{"a restore from a backup", func() (int, map[string]any) {
+					return e.call("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"})
+				}},
+				{"a restore from an uploaded backup", func() (int, map[string]any) { return e.upload(archive) }},
+				{"a restore from an off-site copy", func() (int, map[string]any) {
+					return e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": b.FileName + ".age"})
+				}},
+			} {
+				if code, out := entry.send(); code != http.StatusConflict || out["code"] != state.code {
+					t.Errorf("%s must be refused with %s: %d %v", entry.name, state.code, code, out)
+				}
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action LIKE 'restore.%' AND result = 'refused'`); n != 4 {
+				t.Errorf("want the four refused restores audited, got %d", n)
+			}
+			if after := worldState(t, e); after != before {
+				t.Errorf("a refused restore changed the world folder: %q, was %q", after, before)
+			}
+		})
+	}
+}
+
+// worldState is the world folder's contents' hash, or "missing".
+func worldState(t *testing.T, e *agentEnv) string {
+	t.Helper()
+	if _, err := os.Stat(e.dataDir()); errors.Is(err, os.ErrNotExist) {
+		return "missing"
+	}
+	return worldHash(t, e.dataDir())
+}
+
+// A world moved back by hand is settled by the next agent start that finds
+// the server stopped: the restore's record says so and restores can start
+// again. A start that finds it running leaves the journal, as the refusal's
+// hint says.
+func TestAnAgentStartSettlesAWorldMovedBackByHandWithTheServerStopped(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	failPuttingBack(t, e, id)
+	op := e.applyRestore(id, phrase)
+	if op.Status != api.OpFailed {
+		t.Fatalf("restore: %+v", op)
+	}
+	renameDir = os.Rename
+	asides, _ := filepath.Glob(e.dataDir() + ".replaced-*")
+	if len(asides) != 1 {
+		t.Fatalf("want the previous world's copy, got %v", asides)
+	}
+	if err := os.Rename(asides[0], e.dataDir()); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"/start", "/stop"} {
+		code, out := e.call("POST", e.sp(step), map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", step, code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+			t.Fatalf("%s: %+v", step, op)
+		}
+		e.stop()
+		e.start()
+		if unsettled := e.status().RestoreUnsettled; unsettled != (step == "/start") {
+			t.Fatalf("after %s and an agent start, restore unsettled = %v", step, unsettled)
+		}
+	}
+	settled := e.opAtRest(op.ID)
+	if !strings.HasSuffix(settled.Error, " Your previous world was already back in place, and Playkeeper put its settings back when it started again.") {
+		t.Fatalf("the restore's record must say the start put its settings back: %+v", settled)
+	}
 	list, _ := e.srv().listBackups(`kind = 'manual'`)
-	code, preview := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
-	if code != 200 {
-		t.Fatalf("stage: %d %v", code, preview)
-	}
-	code, out := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "actor": "admin"})
-	refusedForMissingWorldFolder(t, m, "another restore", code, out, "restore again")
-	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.applied' AND result = 'refused'`); n != 1 {
-		t.Fatalf("want the refused restore audited once, got %d", n)
-	}
-	if _, err := os.Stat(e.dataDir()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("a refused restore made a world folder: %v", err)
+	if code, out := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"}); code != 200 {
+		t.Fatalf("a restore once the unfinished one is settled: %d %v", code, out)
 	}
 }
 

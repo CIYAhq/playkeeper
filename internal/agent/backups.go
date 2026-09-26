@@ -857,6 +857,28 @@ func refusedForMissingWorld(h *opHandle, err error) {
 	}
 }
 
+// codeRestoreUnsettled is the error code for a restore refused while
+// another one's swap journal is kept, even with the world folder back.
+const codeRestoreUnsettled = "restore_unsettled"
+
+// restoreRefusal is why a restore of the server can't start now, or nil:
+// the world folder a restore left missing, or a restore whose journal is
+// kept because no agent start has settled it yet. Settling it puts that
+// restore's previous settings back, over whatever a newer restore brought.
+// A running operation, which may be the restore that keeps the journal, is
+// left to the caller's busy check. then ends the hint.
+func (s *server) restoreRefusal(then string) error {
+	if m := s.worldMissing(); m != nil {
+		return errWorldMissing(m, then)
+	}
+	if !s.busy() && s.restoreUnsettled() {
+		return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,
+			Msg:  "A restore isn't finished, so another can't start until it is.",
+			Hint: "With the server stopped, restart the Playkeeper agent (sudo systemctl restart playkeeper-agent) so it can finish the restore, then " + then + "."}
+	}
+	return nil
+}
+
 // worldCopies lists the world folders restores left next to the live one,
 // newest first, without their sizes.
 func (s *server) worldCopies() []api.WorldCopy {
