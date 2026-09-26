@@ -168,7 +168,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
                 {p.online && <Dot tone="online" />}
                 <span className={cn(!p.online && 'text-muted-foreground')}>{status}</span>
               </p>
-              <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{listedSinceText(p)}</p>
+              <p className={cn('mt-0.5 truncate text-[13px]', p.banned ? 'text-destructive-foreground' : 'text-muted-foreground')}>{listedSinceText(p)}</p>
             </div>
           </div>
           {canTalk && (
