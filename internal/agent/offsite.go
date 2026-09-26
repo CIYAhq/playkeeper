@@ -1426,7 +1426,8 @@ func (s *server) stopUpload() {
 }
 
 // queueOffsite queues a verified backup for its copy, when copies are on.
-// Only the newest waiting backups stay queued.
+// Only the newest waiting backups stay queued; what the dropped ones left
+// unfinished is discarded.
 func (s *server) queueOffsite(backupID string) {
 	var enabled int
 	if s.db.QueryRow(`SELECT enabled FROM offsite WHERE server_id = ?`, s.id).Scan(&enabled) != nil || enabled != 1 {
@@ -1442,14 +1443,39 @@ func (s *server) queueOffsite(backupID string) {
 		busy = s.auto.upload.backupID
 	}
 	s.auto.mu.Unlock()
-	res, err := s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id != ? AND backup_id NOT IN
-		(SELECT backup_id FROM offsite_uploads WHERE server_id = ? ORDER BY created_at DESC LIMIT ?)`, s.id, busy, s.id, offsiteMaxQueue)
+	rows, err := s.db.Query(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id != ? AND backup_id NOT IN
+		(SELECT backup_id FROM offsite_uploads WHERE server_id = ? ORDER BY created_at DESC LIMIT ?) RETURNING state`, s.id, busy, s.id, offsiteMaxQueue)
 	if err == nil {
-		if n, _ := res.RowsAffected(); n > 0 {
+		dropped, n := scanStates(rows)
+		if n > 0 {
 			s.log.Warn("older backups waiting for their copy were dropped from the queue", "server", s.id, "count", n)
 		}
+		s.discardUploads(dropped)
 	}
 	s.kickOffsite()
+}
+
+// discardUploads discards, in the background, what uploads dropped from the
+// queue left at the destination and in the spool folder, as far as the
+// destination answers: it may be why they waited.
+func (s *server) discardUploads(states []*offsite.UploadState) {
+	if len(states) == 0 {
+		return
+	}
+	row, err := s.loadOffsite()
+	if err != nil || !row.configured() || !row.hasKeys {
+		return
+	}
+	dest, err := s.openDest(row, row.keys)
+	if err != nil {
+		s.log.Warn("unfinished copies could not be discarded", "server", s.id, "count", len(states), "err", err)
+		return
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.abandon(s.ctx, dest, states)
+	}()
 }
 
 type uploadJob struct {
@@ -1459,20 +1485,27 @@ type uploadJob struct {
 }
 
 func (s *server) queuedStates() []*offsite.UploadState {
-	var out []*offsite.UploadState
 	rows, err := s.db.Query(`SELECT state FROM offsite_uploads WHERE server_id = ? AND state != ''`, s.id)
 	if err != nil {
 		return nil
 	}
+	states, _ := scanStates(rows)
+	return states
+}
+
+// scanStates reads the saved states of queued uploads, skipping those with
+// none, and counts the rows. It closes rows.
+func scanStates(rows *sql.Rows) (states []*offsite.UploadState, n int) {
 	defer rows.Close()
 	for rows.Next() {
+		n++
 		var raw string
 		var st offsite.UploadState
 		if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &st) == nil {
-			out = append(out, &st)
+			states = append(states, &st)
 		}
 	}
-	return out
+	return states, n
 }
 
 func (s *server) offsiteLoop(ctx context.Context) {

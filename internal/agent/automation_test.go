@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -1114,22 +1115,27 @@ func TestACopyTheAgentStoppedInResumesFromItsSavedPart(t *testing.T) {
 	}
 }
 
+// unfinishedCopies are the settings that turn copies on to S3 and to SFTP,
+// each with what an earlier try left at the destination: an S3 multipart
+// upload or an SFTP partial file.
+var unfinishedCopies = []struct {
+	name  string
+	setup map[string]any
+	state *offsite.UploadState
+}{
+	{"S3", map[string]any{"config": map[string]any{"type": "s3", "s3": map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}},
+		"secretKey": "wJalrXUtnFEMI-example-secret"},
+		&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, S3: &offsite.S3Upload{Key: "k", UploadID: "u1", PartSize: 5 << 20, Parts: []offsite.Part{{Number: 1, Size: 400}}}}},
+	{"SFTP", map[string]any{"config": map[string]any{"type": "sftp", "sftp": map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "backups/survival"}},
+		"sftpAuth": "password", "password": "an example password"},
+		&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, SFTP: &offsite.SFTPUpload{Partial: "backups/survival/x.tar.gz.age.partial", Written: 400}}},
+}
+
 // A copy whose archive is no longer on this machine leaves the queue, and
 // what an earlier try left at the destination, an S3 multipart upload or an
 // SFTP partial file, is discarded with it.
 func TestACopyWhoseArchiveIsGoneDiscardsWhatItLeftAtTheDestination(t *testing.T) {
-	for _, c := range []struct {
-		name  string
-		setup map[string]any
-		state *offsite.UploadState
-	}{
-		{"S3", map[string]any{"config": map[string]any{"type": "s3", "s3": map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}},
-			"secretKey": "wJalrXUtnFEMI-example-secret"},
-			&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, S3: &offsite.S3Upload{Key: "k", UploadID: "u1", PartSize: 5 << 20, Parts: []offsite.Part{{Number: 1, Size: 400}}}}},
-		{"SFTP", map[string]any{"config": map[string]any{"type": "sftp", "sftp": map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "backups/survival"}},
-			"sftpAuth": "password", "password": "an example password"},
-			&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, SFTP: &offsite.SFTPUpload{Partial: "backups/survival/x.tar.gz.age.partial", Written: 400}}},
-	} {
+	for _, c := range unfinishedCopies {
 		t.Run(c.name, func(t *testing.T) {
 			dest := &fakeDest{stored: map[string]offsite.Copy{}}
 			prev := openOffsite
@@ -1165,6 +1171,58 @@ func TestACopyWhoseArchiveIsGoneDiscardsWhatItLeftAtTheDestination(t *testing.T)
 			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ?`, id); n != 0 || dest.uploads() != 0 {
 				t.Fatalf("the copy of a missing archive: %d queued, %d uploads", n, dest.uploads())
 			}
+		})
+	}
+}
+
+// Only the newest backups wait for their copy. The oldest leaves a full
+// queue when a backup joins it, and what an earlier try of its copy left at
+// the destination, an S3 multipart upload or an SFTP partial file, is
+// discarded with it; what the backups still waiting left stays.
+func TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination(t *testing.T) {
+	for _, c := range unfinishedCopies {
+		t.Run(c.name, func(t *testing.T) {
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			prev := openOffsite
+			openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.create()
+			body := map[string]any{"actor": "admin", "enabled": true}
+			for k, v := range c.setup {
+				body[k] = v
+			}
+			if code, out := e.call("POST", e.sp("/offsite"), body); code != 200 {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+			// A full queue of copies waiting to be tried again: the two
+			// oldest stopped part way.
+			dropped, _ := json.Marshal(c.state)
+			next := *c.state
+			next.Archive, next.Name = "y.tar.gz", "y.tar.gz.age"
+			kept, _ := json.Marshal(next)
+			states := map[int]string{0: string(dropped), 1: string(kept)}
+			now := e.srv().now()
+			for i := range offsiteMaxQueue {
+				if _, err := e.a.db.Exec(`INSERT INTO offsite_uploads(server_id, backup_id, state, next_attempt, created_at) VALUES(?, ?, ?, ?, ?)`,
+					e.sid, fmt.Sprintf("waiting-%02d", i), states[i], now.Add(time.Hour).UnixMilli(), now.Add(time.Duration(i-offsiteMaxQueue)*time.Hour).UnixMilli()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			id := e.backup()
+			e.waitFor("the dropped copy to be discarded", func() bool { return len(dest.abortedStates()) > 0 })
+			aborted := dest.abortedStates()
+			got, _ := json.Marshal(aborted[0])
+			if len(aborted) != 1 || string(got) != string(dropped) {
+				t.Fatalf("discarded %d unfinished copies, the first %s, not %s", len(aborted), got, dropped)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = 'waiting-00'`); n != 0 {
+				t.Fatal("the oldest backup still waits for its copy")
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = 'waiting-01' AND state = ?`, string(kept)); n != 1 {
+				t.Fatal("a backup still waiting lost where its copy stopped")
+			}
+			e.waitFor("the new backup's copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1 })
 		})
 	}
 }
