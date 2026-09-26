@@ -45,6 +45,9 @@ const (
 	// published: the service allows a key about one request a minute.
 	freePollEvery = 5 * time.Minute
 	publishWait   = 10 * time.Minute
+	// settleWait bounds finding out what a change of name did when the
+	// claim got no clear answer, and claiming the old name back.
+	settleWait = 2 * time.Minute
 	// ownRecheckPending and ownRecheckReady are how often the own domain's
 	// records are looked up while they are not right yet, and after.
 	ownRecheckPending = time.Minute
@@ -318,6 +321,30 @@ func namesCode(err error, code string) bool {
 	return errors.As(err, &ne) && ne.Code == code
 }
 
+// claimRefused reports whether a claim's error says the claim was not
+// stored: the service refuses a claim before it stores it (4xx), and the
+// client refuses one it doesn't send. No answer, or a 5xx from the service
+// or a proxy in front of it, can come after the claim was stored.
+func claimRefused(err error) bool {
+	var ne *names.Error
+	return errors.As(err, &ne) && ne.Status < 500
+}
+
+// listedName looks name up in the service's list of the names this key
+// holds, released ones included.
+func listedName(ctx context.Context, c *names.Client, name string) (n names.Name, listed bool, err error) {
+	list, err := c.Names(ctx)
+	if err != nil {
+		return names.Name{}, false, err
+	}
+	for _, n := range list {
+		if n.Name == name {
+			return n, true, nil
+		}
+	}
+	return names.Name{}, false, nil
+}
+
 // availability says whether name can be claimed, with similar free names
 // when it is taken.
 func (a *Agent) availability(ctx context.Context, name string) (api.NameAvailability, error) {
@@ -388,7 +415,10 @@ func suggestNames(ctx context.Context, c *names.Client, name string) []string {
 
 // claimFree claims name for this machine. A key holds one name at a time,
 // so changing names releases the old one first, and claims it back when
-// the new one can't be had or this machine can't save the change.
+// the new one can't be had or this machine can't save the change. A claim
+// that got no answer, or one that doesn't say it failed, may have been
+// stored all the same, so then the service's list of this key's names
+// says which name the machine has.
 func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor string) error {
 	c, err := a.namesClient(true)
 	if err != nil {
@@ -410,10 +440,20 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 	n, err := c.Claim(ctx, name)
 	a.setClaiming("")
 	if err != nil {
-		if old != "" {
-			a.reclaim(ctx, c, st, old)
+		// A claim that got no answer may have used up ctx.
+		sctx, cancel := context.WithTimeout(a.ctx, settleWait)
+		defer cancel()
+		if !claimRefused(err) {
+			if l, listed, _ := listedName(sctx, c, name); listed && l.State != names.StateReleased {
+				n, err = l, nil
+			}
 		}
-		return a.namesError(err)
+		if err != nil {
+			if old != "" {
+				a.reclaim(sctx, c, st, old)
+			}
+			return a.namesError(err)
+		}
 	}
 	a.noteNames("")
 	now := a.now().UTC()
@@ -441,11 +481,25 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 	return nil
 }
 
-// reclaim takes back the name released for a change that failed.
+// reclaim takes back the name released for a change that failed. While
+// the service still holds the name for this key, or can't say, the machine
+// keeps it even if it can't be claimed back now: the address loop claims
+// it back when it refreshes it, within the hour.
 func (a *Agent) reclaim(ctx context.Context, c *names.Client, st addressState, old string) {
 	n, err := c.Claim(ctx, old)
 	if err != nil {
 		a.log.Warn("could not claim the previous free address back", "name", old, "err", err)
+		if _, listed, lerr := listedName(ctx, c, old); lerr != nil || listed {
+			retry := a.now().UTC().Add(freeRetryEvery)
+			_ = a.updateAddress(func(st *addressState) {
+				if st.Free != nil && st.Free.Name.Name == old {
+					f := *st.Free
+					f.NextRefresh = retry
+					st.Free = &f
+				}
+			})
+			return
+		}
 		_ = a.setAddress(addressState{IP: st.IP, Released: old})
 		a.forgetCertificate(names.Address(old, names.DefaultBase))
 		return
@@ -455,6 +509,9 @@ func (a *Agent) reclaim(ctx context.Context, c *names.Client, st addressState, o
 		n = r
 	}
 	a.saveFree(n, time.Time{})
+	// Releasing the name removed its servers' records: the loop puts them
+	// back.
+	a.serversChanged()
 }
 
 // saveFree records the names service's answer about the machine's name;
