@@ -3005,6 +3005,10 @@ control "the last use of a link goes to one friend" internal/panel/friends.go \
   'AND (max_uses = 0 OR uses < max_uses)' \
   'AND (max_uses = 0 OR 1)' \
   ./internal/panel '^TestTheLastUseGoesToOneFriend$' 3
+control "the fake panel refuses an invalid request with the panel's code" test/e2e/ui/fakes.ts \
+  "  return { status: 400, body: { error, code: 'invalid_request' } }" \
+  "  return { status: 400, body: { error, code: 'invalid' } }" \
+  ./internal/panel '^TestTheFakePanelRefusesWithCodesThePanelSends$'
 control "a server has at most 20 friend links that work" internal/panel/friends.go \
   'if working >= invites.MaxWorkingPlayerInvites {' \
   'if false && working >= invites.MaxWorkingPlayerInvites {' \
