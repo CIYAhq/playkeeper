@@ -290,8 +290,12 @@ control "game files: a link on the way to a file is refused" internal/gamefiles/
   'err = nil' \
   ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
 control "game files: a link or special file is refused before it is opened" internal/gamefiles/gamefiles.go \
-  'err = fileError(name, fi)' \
-  'err = nil' \
+  'fi, err := d.root.Lstat(name)
+	if err == nil {
+		err = fileError(name, fi)' \
+  'fi, err := d.root.Lstat(name)
+	if err == nil {
+		err = nil' \
   ./internal/gamefiles '^(TestLinksAreRefusedAtEveryStep|TestSpecialFilesAreRefusedWithoutWaiting)$'
 control "game files: a link or special file is not written over" internal/gamefiles/gamefiles.go \
   'if err := fileError(name, fi); err != nil {' \
@@ -342,8 +346,12 @@ control "a planted link stops the start before the bStats write" internal/gamefi
   'err = nil' \
   ./internal/agent '^TestPlantedLinksCannotRedirectTheBStatsWrite$'
 control "the agent reads no game file through a link" internal/gamefiles/gamefiles.go \
-  'err = fileError(name, fi)' \
-  'err = nil' \
+  'fi, err := d.root.Lstat(name)
+	if err == nil {
+		err = fileError(name, fi)' \
+  'fi, err := d.root.Lstat(name)
+	if err == nil {
+		err = nil' \
   ./internal/agent '^TestGameFilesAreReadWithoutFollowingLinks$'
 control "a start that fails before the server's files keeps the refusal" internal/agent/gamefiles.go \
   'if !refused && !pastFiles {' \
