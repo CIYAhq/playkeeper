@@ -116,3 +116,48 @@ func TestADoneLineReadAfterTheExitWasJudgedChangesNothing(t *testing.T) {
 	e.skew.Add(int64(time.Minute))
 	e.waitFor("the automatic restart", func() bool { return e.autoRestarts() == 1 && e.onlineIdle() })
 }
+
+// A "Done" line Docker stamped after the run's end, read once the run had
+// stopped, is still that run's: it neither undoes the crash nor stops the
+// automatic restart.
+func TestADoneLineStampedAfterTheRunEndedChangesNothing(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.crashBackoff = []time.Duration{time.Minute}
+	e.start()
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	e.fd.crash(1)
+	e.waitFor("the crash recorded", func() bool { return e.crashEvents() == 1 })
+	e.waitExitRead()
+	e.fd.addLog(`[12:00:30 INFO]: Done (1.000s)! For help, type "help"`)
+	e.waitReread()
+	if st := e.status(); st.Phase != api.PhaseCrashed || st.Crash == nil || e.autoRestarts() != 0 {
+		t.Fatalf("after a Done line stamped after the exit: phase %q, explained %v, %d automatic restarts; want crashed, explained, none yet", st.Phase, st.Crash != nil, e.autoRestarts())
+	}
+	e.skew.Add(int64(time.Minute))
+	e.waitFor("the automatic restart", func() bool { return e.autoRestarts() == 1 && e.onlineIdle() })
+}
+
+// A container started again between the follower's look at it and its read
+// of the log is read as a new run on the next attach, so the new run's
+// "Done" brings the server online.
+func TestARunStartedAsTheFollowerAttachesIsReadAsItsOwn(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.crashBackoff = []time.Duration{time.Hour}
+	e.start()
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	e.fd.crash(1)
+	e.waitFor("the crash recorded", func() bool { return e.crashEvents() == 1 })
+	e.waitExitRead()
+	e.fd.mu.Lock()
+	e.fd.beforeLogs = func(c *fakeContainer) {
+		c.running, c.exitCode, c.started, c.finished = true, 0, time.Now().UTC(), time.Time{}
+		e.fd.log(c, "[12:01:00 INFO]: Starting minecraft server version 26.1.2-74")
+		e.fd.log(c, `[12:01:01 INFO]: Done (1.000s)! For help, type "help"`)
+	}
+	e.fd.mu.Unlock()
+	e.waitFor("the new run online", e.onlineIdle)
+}
