@@ -3,9 +3,9 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, MachineView, Me, Schedule, SchedulePreview, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, MachineView, Me, Schedule, SchedulePreview, ScheduleTiming, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
-import { viewerTimeZone } from '@/lib/when'
+import * as when from '@/lib/when'
 import { SchedulesSection } from './schedules'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -14,6 +14,10 @@ vi.mock('@/api/client', async (importOriginal) => ({
   post: vi.fn(() => Promise.resolve({})),
   del: vi.fn(() => Promise.resolve({})),
 }))
+
+/** The viewer's time zone, as the page reads it. */
+const viewer = vi.hoisted(() => ({ zone: 'UTC' }))
+vi.mock('@/lib/when', async (importOriginal) => ({ ...(await importOriginal<typeof when>()), viewerTimeZone: () => viewer.zone }))
 
 const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
 const me: Me = {
@@ -103,9 +107,21 @@ async function wait(ms: number) {
   await act(async () => new Promise((resolve) => setTimeout(resolve, ms)))
 }
 
+/** Types into a controlled field the way a browser does, so React sees the change. */
+async function typeInto(selector: string, value: string) {
+  const input = document.querySelector<HTMLInputElement>(selector)
+  if (!input) throw new Error(`no field ${selector}`)
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  await act(async () => {
+    setValue?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
 afterEach(async () => {
   if (root) await act(async () => root?.unmount())
   root = undefined
+  viewer.zone = 'UTC'
   vi.mocked(client.get).mockReset()
   vi.mocked(client.post).mockReset()
 })
@@ -151,7 +167,7 @@ describe('a restart skipped because people were playing', () => {
     id: 'r1',
     serverId: server.id,
     kind: 'restart',
-    timing: { kind: 'daily', timeZone: viewerTimeZone(), at: '04:00' },
+    timing: { kind: 'daily', timeZone: when.viewerTimeZone(), at: '04:00' },
     payload: { warnSeconds: [600], skipIfPlaying: true },
     enabled: true,
     createdAt: minutes(-3000),
@@ -174,4 +190,78 @@ describe('a restart skipped because people were playing', () => {
       expect(text.includes('next: ')).toBe(!c.listed)
     })
   }
+})
+
+describe('changing a schedule saved in another time zone', () => {
+  const saved = (timing: ScheduleTiming): Schedule => ({
+    id: 'r1',
+    serverId: server.id,
+    kind: 'restart',
+    timing,
+    payload: { warnSeconds: [600, 300], message: 'Survival restarts in {minutes} minutes.', skipIfPlaying: false },
+    enabled: true,
+    createdAt: '2026-09-20T10:00:00Z',
+    updatedAt: '2026-09-20T10:00:00Z',
+    createdBy: 'owner',
+    updatedBy: 'owner',
+    summary: '',
+  })
+  /** Opens the dialog on the schedule, as the list shows it on the viewer's clock. */
+  async function open(timing: ScheduleTiming): Promise<string> {
+    answer({ '/schedules': { schedules: [saved(timing)] }, '/schedules/runs?limit=6': { runs: [] } })
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/schedules/preview') ? { valid: true, nextRuns: [] } : {})) as typeof client.post)
+    const list = await render(<SchedulesSection server={server} />)
+    const row = document.querySelector<HTMLButtonElement>('li button')
+    if (!row) throw new Error('no schedule in the list')
+    await click(row)
+    return list
+  }
+  const at = () => document.querySelector<HTMLInputElement>('#schedule-at')?.value
+  const often = () => document.querySelector('[aria-label="How often"]')?.textContent ?? ''
+  async function saveWithAWarningMore(): Promise<{ timing: ScheduleTiming; payload: { warnSeconds?: number[] } }> {
+    const box = [...document.querySelectorAll('label')].find((l) => l.textContent?.trim() === '1 minute')
+    if (!box) throw new Error('no 1 minute box')
+    await click(box)
+    return save()
+  }
+  async function save(): Promise<{ timing: ScheduleTiming; payload: { warnSeconds?: number[] } }> {
+    await click(button('Save schedule'))
+    const call = vi.mocked(client.post).mock.calls.find(([path]) => String(path).endsWith('/schedules/r1'))
+    if (!call) throw new Error('nothing was saved')
+    return call[1] as { timing: ScheduleTiming; payload: { warnSeconds?: number[] } }
+  }
+
+  const cases: { name: string; zone: string; timing: ScheduleTiming; lists: string; shows: string; often: string }[] = [
+    { name: 'saved in the viewer’s zone', zone: 'Asia/Tokyo', timing: { kind: 'daily', timeZone: 'Asia/Tokyo', at: '05:00' }, lists: 'Restart every day at 05:00', shows: '05:00', often: 'Every day' },
+    { name: 'every day, in another zone', zone: 'UTC', timing: { kind: 'daily', timeZone: 'Asia/Tokyo', at: '05:00' }, lists: 'Restart every day at 20:00', shows: '20:00', often: 'Every day' },
+    {
+      name: 'on days that fall on others in the viewer’s zone',
+      zone: 'UTC',
+      timing: { kind: 'weekly', timeZone: 'Asia/Tokyo', at: '07:30', days: ['mon', 'thu'] },
+      lists: 'Restart every Wednesday and Sunday at 22:30',
+      shows: '22:30',
+      often: 'Every Wednesday and Sunday',
+    },
+    { name: 'every few hours, in another zone', zone: 'UTC', timing: { kind: 'interval', timeZone: 'Asia/Tokyo', at: '01:00', everyHours: 6 }, lists: 'Restart every 6 hours', shows: '16:00', often: 'Every 6 hours' },
+  ]
+  for (const c of cases) {
+    it(`shows a schedule ${c.name} on the viewer’s clock and keeps its moments`, async () => {
+      viewer.zone = c.zone
+      const list = await open(c.timing)
+      expect(list).toContain(c.lists)
+      expect(at()).toBe(c.shows)
+      expect(often()).toContain(c.often)
+      const sent = await saveWithAWarningMore()
+      expect(sent.timing).toEqual(c.timing)
+      expect(sent.payload.warnSeconds).toEqual([600, 300, 60])
+    })
+  }
+
+  it('saves a new time in the viewer’s zone', async () => {
+    viewer.zone = 'UTC'
+    await open({ kind: 'weekly', timeZone: 'Asia/Tokyo', at: '07:30', days: ['mon', 'thu'] })
+    await typeInto('#schedule-at', '21:00')
+    const sent = await save()
+    expect(sent.timing).toEqual({ kind: 'weekly', timeZone: 'UTC', at: '21:00', days: ['wed', 'sun'] })
+  })
 })

@@ -93,3 +93,62 @@ func TestAScheduleListsItsRetryOnlyWhileTheRunnerPlansIt(t *testing.T) {
 		})
 	}
 }
+
+// The automatic backups keep their time zone while they keep their time, so
+// changing Backup rules from a dashboard in another zone never moves them. A
+// time that starts afresh is in the dashboard's zone.
+func TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime(t *testing.T) {
+	const ny, tokyo = "America/New_York", "Asia/Tokyo"
+	daily := func(at, tz string) schedule.Timing { return schedule.Timing{Kind: schedule.Daily, At: at, TimeZone: tz} }
+	every := func(h int, at, tz string) schedule.Timing {
+		return schedule.Timing{Kind: schedule.Interval, EveryHours: h, At: at, TimeZone: tz}
+	}
+	cases := []struct {
+		name       string
+		everyHours int
+		prev       schedule.Timing
+		tz         string
+		want       schedule.Timing
+	}{
+		{"daily, and only whether someone played changes", 24, daily("05:30", ny), tokyo, daily("05:30", ny)},
+		{"every 6 hours, and only whether someone played changes", 6, every(6, "02:00", ny), tokyo, every(6, "02:00", ny)},
+		{"every 6 hours, now every 12", 12, every(6, "02:00", ny), tokyo, every(12, "02:00", ny)},
+		{"every 6 hours, now daily", 24, every(6, "02:00", ny), tokyo, daily("04:00", tokyo)},
+		{"daily, now every 8 hours", 8, daily("05:30", ny), tokyo, every(8, "00:00", tokyo)},
+		{"new", 24, schedule.Timing{}, tokyo, daily("04:00", tokyo)},
+		{"new, from a dashboard that names no zone", 6, schedule.Timing{}, "", every(6, "00:00", "UTC")},
+		{"daily, from a dashboard that names no zone", 24, daily("05:30", ny), "", daily("05:30", ny)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := automaticTiming(c.everyHours, c.prev, c.tz); !sameJSON(got, c.want) {
+				t.Fatalf("automaticTiming(%d, %+v, %q) = %+v, want %+v", c.everyHours, c.prev, c.tz, got, c.want)
+			}
+		})
+	}
+
+	t.Run("through Backup rules", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.addIdleServer()
+		set := func(onlyIfPlayed bool, tz string) {
+			t.Helper()
+			code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "timeZone": tz,
+				"automatic": map[string]any{"enabled": true, "everyHours": 24, "onlyIfPlayed": onlyIfPlayed}})
+			if code != http.StatusOK {
+				t.Fatalf("backup rules from %s: %d %v", tz, code, out)
+			}
+		}
+		set(true, ny)
+		before, ok := e.srv().automaticSchedule(context.Background())
+		if !ok || !sameJSON(before.Timing, daily("04:00", ny)) {
+			t.Fatalf("automatic backups made from New York: %+v", before.Timing)
+		}
+		set(false, tokyo)
+		after, _ := e.srv().automaticSchedule(context.Background())
+		now := e.a.now()
+		if !sameJSON(after.Timing, before.Timing) || after.Payload.OnlyIfPlayed || !schedule.NextRun(after.Schedule, now).Equal(schedule.NextRun(before.Schedule, now)) {
+			t.Fatalf("after a change from Tokyo: %+v %+v, next run %v, was %+v next %v", after.Timing, after.Payload,
+				schedule.NextRun(after.Schedule, now), before.Timing, schedule.NextRun(before.Schedule, now))
+		}
+	})
+}

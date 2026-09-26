@@ -3076,6 +3076,26 @@ webcontrol "the schedule list promises a retry only while it is the next run" we
   'if (!at) return undefined' \
   web/src/pages/server/schedules.test.tsx 'list a retry the agent no longer plans'
 
+# Wave 7 before Bugbot: a schedule changed from a dashboard in another time
+# zone keeps its moments.
+control "the automatic backups keep their time zone while they keep their time" internal/agent/backuprules.go \
+  '	} else if tz != "" {' \
+  '	}
+	if tz != "" {' \
+  ./internal/agent '^TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime$'
+webcontrol "the schedule dialog keeps the saved time zone while the time and days stay" web/src/pages/server/schedules.tsx \
+  'const kept = existing && opened && opened.often === form.often && opened.at === form.at ? existing.timing : undefined' \
+  'const kept = undefined' \
+  web/src/pages/server/schedules.test.tsx 'every day, in another zone'
+webcontrol "the schedule dialog shows the time on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const here = shownIn(s.timing, timeZone)' \
+  "const here = { at: s.timing.at ?? '', days: s.timing.days }" \
+  web/src/pages/server/schedules.test.tsx 'saves a new time in the viewer'
+webcontrol "the schedule list names the days on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const days = weekdays.filter((d) => here.days?.includes(d))' \
+  'const days = weekdays.filter((d) => timing.days?.includes(d))' \
+  web/src/pages/server/schedules.test.tsx 'days that fall on others'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
