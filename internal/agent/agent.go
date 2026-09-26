@@ -417,7 +417,7 @@ func New(opts Options) (*Agent, error) {
 	a.loadUpdateState()
 	a.collectUpdateResult()
 	a.loadAddress()
-	a.markInterruptedOperations(a.findInterruptedRestores()...)
+	a.markInterruptedOperations(append(a.findInterruptedRestores(), a.findInterruptedVersionChanges()...)...)
 	a.pruneStages()
 	a.pruneArchiveLeftovers()
 	return a, nil
@@ -425,7 +425,8 @@ func New(opts Options) (*Agent, error) {
 
 // Start launches the background loops: each server's follower, collector and
 // reconciler, and the machine's pruning, sampling, update checks and address.
-// A restore a previous agent process was in the middle of is finished first.
+// A restore or version change a previous agent process was in the middle of
+// is finished first.
 func (a *Agent) Start() {
 	for _, s := range a.serverList() {
 		s.recoverAtStart()

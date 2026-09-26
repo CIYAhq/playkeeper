@@ -61,6 +61,8 @@ type server struct {
 	// recovery is a restore a previous agent process left running, found
 	// when the agent is made and finished when it starts.
 	recovery *pendingRestore
+	// versionRecovery is the same for a version change.
+	versionRecovery *pendingVersionChange
 
 	mu              sync.Mutex
 	runPhase        api.Phase

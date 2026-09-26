@@ -640,12 +640,18 @@ func writeSwapJournal(stageDir string, j *swapJournal) error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(stageDir, swapJournalFile+".new")
+	return writeSynced(filepath.Join(stageDir, swapJournalFile), b)
+}
+
+// writeSynced replaces the file at path with data, which is on disk once it
+// returns: a journal must say what happened before the step it records.
+func writeSynced(path string, data []byte) error {
+	tmp := path + ".new"
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	_, err = f.Write(b)
+	_, err = f.Write(data)
 	if err == nil {
 		err = f.Sync()
 	}
@@ -653,7 +659,7 @@ func writeSwapJournal(stageDir string, j *swapJournal) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp, filepath.Join(stageDir, swapJournalFile))
+		err = os.Rename(tmp, path)
 	}
 	if err != nil {
 		os.Remove(tmp)

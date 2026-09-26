@@ -435,9 +435,40 @@ control "Minecraft never goes back to an older version" internal/agent/versions.
   '	case false:' \
   ./internal/agent '^TestVersionChangesNeverGoBack$'
 control "a version that does not start gets the world back" internal/agent/versions.go \
-  'if err := s.putBackupBack(b); err != nil {' \
+  'if err := s.putBackupBack(ctx, j); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestVersionThatDoesNotStartPutsTheWorldBack$'
+# Wave 9: a version change the agent stops in is finished by the next start.
+control "a version change the agent stops in is not rolled back" internal/agent/versions.go \
+  'if err != nil && s.stopping() {' \
+  'if false && err != nil && s.stopping() {' \
+  ./internal/agent '^TestVersionChangeSurvivesTheAgentStopping$/^stops_while'
+control "a version change's journal is written before its new settings are saved" internal/agent/versions.go \
+  'if err := s.writeVersionJournal(j); err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)' \
+  'if err := error(nil); err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)' \
+  ./internal/agent '^TestVersionChangeSurvivesTheAgentStopping$/^dies_with_the_new_settings_saved$'
+control "the next start finishes a version change left running" internal/agent/agent.go \
+  'a.findInterruptedVersionChanges()...' \
+  '[]string{}...' \
+  ./internal/agent '^TestVersionChangeSurvivesTheAgentStopping$/^dies_with_the_new_settings_saved$'
+control "a new version still starting after a restart is kept only once online" internal/agent/versions.go \
+  'err = s.waitOnline(ctx, h)' \
+  'err = nil' \
+  ./internal/agent '^TestVersionRollbackSurvivesTheAgentStopping$/^stops_while_the_new_version_boots$'
+control "a rollback the agent stops in is finished by the next start" internal/agent/versions.go \
+  'if s.stopping() {' \
+  'if false && s.stopping() {' \
+  ./internal/agent '^TestVersionRollbackSurvivesTheAgentStopping$/^stops_before_the_world_moves$'
+control "the journal says a rollback is under way before the world moves" internal/agent/versions.go \
+  'j.State = versionReverting' \
+  'j.State = versionStarting' \
+  ./internal/agent '^TestVersionRollbackSurvivesTheAgentStopping$/^dies_with_the_new_version.s_world_moved_aside$'
+control "a rollback finished after a restart puts the backup where the world was moved from" internal/agent/versions.go \
+  'if !dirExists(live) || !dirExists(failed) {' \
+  'if !dirExists(failed) {' \
+  ./internal/agent '^TestVersionRollbackSurvivesTheAgentStopping$/^dies_with_the_new_version.s_world_moved_aside$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
   'if !ok || !reSHA256.MatchString(d.Checksums.SHA256) {' \
   'if !ok || false && !reSHA256.MatchString(d.Checksums.SHA256) {' \
