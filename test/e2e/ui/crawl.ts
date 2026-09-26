@@ -220,7 +220,8 @@ export class Crawler {
   }
 
   private async ready() {
-    const headed = await this.page.waitForFunction(() => !!window.__pk && !!document.querySelector('h1'), null, { timeout: 20_000 }).then(
+    // A heading in a placeholder that's still loading (aria-busy) doesn't count: the page's code is on its way.
+    const headed = await this.page.waitForFunction(() => !!window.__pk && [...document.querySelectorAll('h1')].some((h) => !h.closest('[aria-busy="true"]')), null, { timeout: 20_000 }).then(
       () => true,
       () => false,
     )
