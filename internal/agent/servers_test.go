@@ -3,13 +3,17 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"hash/crc32"
 	"image"
 	"image/png"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -405,6 +409,67 @@ func TestSettingsChangesAreWholeAndWaitForNoOperation(t *testing.T) {
 	}
 	if code, out := e.uploadTo(e.sp("/icon"), icon.Bytes()); code != 200 {
 		t.Fatalf("an icon once the server is free: %d %v", code, out)
+	}
+}
+
+// padPNG puts a text chunk after a PNG's header so the file is size bytes.
+func padPNG(t *testing.T, b []byte, size int) []byte {
+	t.Helper()
+	const afterHeader = 8 + 8 + 13 + 4
+	data := append([]byte("Comment\x00"), bytes.Repeat([]byte("x"), size-len(b)-12-8)...)
+	chunk := binary.BigEndian.AppendUint32(nil, uint32(len(data)))
+	chunk = append(append(chunk, "tEXt"...), data...)
+	chunk = binary.BigEndian.AppendUint32(chunk, crc32.ChecksumIEEE(chunk[4:]))
+	return slices.Concat(b[:afterHeader], chunk, b[afterHeader:])
+}
+
+// An icon that is not a 64 × 64 PNG of at most 64 KB is refused with its own
+// code before anything is written, and one of exactly 64 KB is saved and can
+// be read back, so an upload never ends in an icon that 404s.
+func TestIconsAreCheckedBeforeTheyAreWritten(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	s := e.srv()
+	encode := func(side int) []byte {
+		var b bytes.Buffer
+		if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, side, side))); err != nil {
+			t.Fatal(err)
+		}
+		return b.Bytes()
+	}
+	small := encode(64)
+	for name, c := range map[string]struct {
+		body []byte
+		says string
+	}{
+		"too large":  {padPNG(t, small, 64<<10+1), "This one is larger."},
+		"not a PNG":  {[]byte("GIF89a not a picture"), "This one is not a PNG."},
+		"128 × 128":  {encode(128), "This one is 128 × 128."},
+		"unreadable": {small[:len(small)-20], "This one could not be read."},
+	} {
+		code, out := e.uploadTo(e.sp("/icon"), c.body)
+		if msg, _ := out["error"].(string); code != 400 || out["code"] != api.CodeIconInvalid || msg != "Icons need to be 64 × 64 PNG pictures of at most 64 KB. "+c.says {
+			t.Errorf("%s: %d %v", name, code, out)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(s.dataDir(), iconFile)); !os.IsNotExist(err) {
+		t.Fatalf("a refused icon was written: %v", err)
+	}
+	if sc, _ := s.serverConfig(); sc.IconUpdatedAt != nil {
+		t.Fatalf("a refused icon was recorded: %+v", sc.IconUpdatedAt)
+	}
+
+	full := padPNG(t, small, 64<<10)
+	if code, out := e.uploadTo(e.sp("/icon"), full); code != 200 {
+		t.Fatalf("an icon of exactly 64 KB: %d %v", code, out)
+	}
+	resp, err := http.Get(e.ts.URL + e.sp("/icon"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got, _ := io.ReadAll(resp.Body); resp.StatusCode != 200 || !bytes.Equal(got, full) {
+		t.Fatalf("reading back the icon just saved: %d, %d bytes", resp.StatusCode, len(got))
 	}
 }
 

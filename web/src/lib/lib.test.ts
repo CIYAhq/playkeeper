@@ -9,7 +9,7 @@ import { behindSeconds, parseLine } from './console'
 import { crashFixes, crashSummary, phoneLines, preselect } from './crash'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
-import { controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone } from './phase'
+import { busyReason, controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from './phase'
 import { href, parse, type Route } from './router'
 import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadline, tickRateAxis, tickTimeAxis, timeLabels } from './running'
 import { newerStable, softwareLabel } from './servers'
@@ -189,6 +189,22 @@ describe('server state', () => {
     expect(isSettingUp(server({ phase: 'online', startedAt: at, lastOperation: { id: '1', kind: 'create', status: 'succeeded', phase: '', actor: 'a', startedAt: at } }))).toBe(false)
   })
 
+  it('says in a few words why a control can’t be used', () => {
+    const backup = { id: '1', kind: 'backup', status: 'running', phase: '', actor: 'a', startedAt: '2026-09-25T10:00:00Z' } as const
+    expect(whyNot(server(), 'restart', false)).toBeUndefined()
+    expect(whyNot(server(), 'start', false)).toBe('Survival is already running.')
+    expect(whyNot(server({ phase: 'stopped' }), 'stop', false)).toBe('Survival is already stopped.')
+    expect(whyNot(server({ phase: 'stopped' }), 'command', false)).toBe('Start Survival first.')
+    expect(whyNot(server({ phase: 'stopping' }), 'start', false)).toBe('Stopping Survival. Try again when it’s done.')
+    expect(whyNot(server({ phase: 'starting' }), 'command', false)).toBe('Starting Survival. Try again when it’s done.')
+    expect(whyNot(server({ operation: backup }), 'change', false)).toBe('Backing up Survival. Try again when it’s done.')
+    expect(whyNot(server({ exists: false, phase: 'not_created' }), 'start', false)).toBe('Survival isn’t set up yet.')
+    expect(whyNot(server({ phase: 'docker_unavailable' }), 'change', false)).toBe('Docker not responding')
+    expect(whyNot(server(), 'change', true)).toBe('Waiting for the Playkeeper agent to answer.')
+    expect(busyReason(server())).toBeUndefined()
+    expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
+  })
+
   it('maps phases to tones and setup steps', () => {
     expect(phaseTone('preparing_world')).toBe('busy')
     expect(phaseTone('not_created')).toBe('stopped')
@@ -258,8 +274,8 @@ describe('crash helper', () => {
 
   it('names a file Playkeeper refused and says to delete it', () => {
     const refused = (reason: string) => crash({ start: true, kind: 'refused_file', params: { path: 'plugins/bStats/config.yml', reason }, fixes: [{ kind: 'restart', title: 'Start the server again', recommended: true }] })
-    expect(crashSummary(refused('link'), 'Survival', 'my-vps')).toBe('plugins/bStats/config.yml is a link, which Playkeeper won’t follow. Delete it, then start again.')
-    expect(crashSummary(refused('special_file'), 'Survival', 'my-vps')).toBe('plugins/bStats/config.yml isn’t a normal file, so Playkeeper won’t open it. Delete it, then start again.')
+    expect(crashSummary(refused('link'), 'Survival', 'my-vps')).toBe('Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.')
+    expect(crashSummary(refused('special_file'), 'Survival', 'my-vps')).toBe('Playkeeper won’t start Survival while plugins/bStats/config.yml isn’t a normal file. Delete it.')
     expect(crashSummary(refused('too_large'), 'Survival', 'my-vps')).toBe('The agent’s words.')
     expect(crashFixes(refused('link'), 'Survival', 'my-vps', false)).toMatchObject([{ title: 'Start Survival again', hint: 'Once it’s deleted', plan: { kind: 'start' }, button: 'Start Survival' }])
     expect(statusLabel(server({ phase: 'stopped', crash: refused('link') }))).toBe('Couldn’t start')

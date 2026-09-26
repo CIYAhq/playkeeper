@@ -7,14 +7,15 @@ import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
-import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
+import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
-import { controls, isSettingUp, phaseTone, statusLabel, statusTone } from '@/lib/phase'
+import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
 import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -50,8 +51,9 @@ export function ServerPage({ slug, tab, page }: { slug: string; tab: ServerTab; 
   if (!ws.servers) {
     return (
       <PageBody>
+        <LoadingLabel />
         <Skeleton className="h-10 w-64" />
-        <Skeleton className="mt-6 h-48 w-full" />
+        <Skeleton className="mt-6 h-48 w-full rounded-3xl" />
       </PageBody>
     )
   }
@@ -93,7 +95,9 @@ export function ServerPage({ slug, tab, page }: { slug: string; tab: ServerTab; 
       ) : (
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
-      <PageBody className="flex flex-1 flex-col gap-4">{body}</PageBody>
+      <PageBody key={tab} className="flex flex-1 animate-page flex-col gap-4">
+        {body}
+      </PageBody>
     </>
   )
 }
@@ -138,31 +142,22 @@ function useCopyAddress(server: ServerStatus) {
 function PrimaryAction({ server }: { server: ServerStatus }) {
   const { stale } = useWorkspace()
   const [busy, setBusy] = useState(false)
-  const c = controls(server)
   const run = async (action: 'start' | 'restart') => {
     setBusy(true)
     await serverAction(server, action)
     setBusy(false)
   }
-  if (stale) {
-    return (
-      <Button variant="outline" disabled>
-        <RotateCwIcon />
-        {t('server.restart')}
-      </Button>
-    )
-  }
   const tone = statusTone(server)
-  if (tone === 'crashed' || (tone === 'stopped' && server.exists)) {
+  if (!stale && (tone === 'crashed' || (tone === 'stopped' && server.exists))) {
     return (
-      <Button onClick={() => run('start')} loading={busy} disabled={!c.canStart}>
+      <Button onClick={() => run('start')} loading={busy} disabledReason={whyNot(server, 'start', stale)}>
         <PlayIcon />
         {tone === 'crashed' ? t('server.startAgain') : t('server.start')}
       </Button>
     )
   }
   return (
-    <Button variant="outline" onClick={() => run('restart')} loading={busy} disabled={!c.canRestart}>
+    <Button variant="outline" onClick={() => run('restart')} loading={busy} disabledReason={whyNot(server, 'restart', stale)}>
       <RotateCwIcon />
       {t('server.restart')}
     </Button>
@@ -172,6 +167,7 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 function MoreMenu({ server }: { server: ServerStatus }) {
   const { stale } = useWorkspace()
   const c = controls(server)
+  const backUpBlocked = whyNot(server, 'change', stale)
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>
@@ -190,7 +186,7 @@ function MoreMenu({ server }: { server: ServerStatus }) {
             {t('server.stop')}
           </MenuItem>
         )}
-        <MenuItem disabled={stale || c.busy || !server.exists || server.phase === 'docker_unavailable'} onClick={() => void serverAction(server, 'backups')}>
+        <MenuItem disabled={!!backUpBlocked} title={backUpBlocked} onClick={() => void serverAction(server, 'backups')}>
           <ArchiveIcon />
           {t('server.backUp')}
         </MenuItem>
@@ -227,13 +223,22 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
               <ChevronDownIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
             </MenuTrigger>
             <MenuPopup align="start" className="min-w-56">
-              {(ws.servers ?? []).map((o) => (
-                <MenuItem key={o.id} onClick={() => navigate({ name: 'server', slug: o.slug, tab })}>
-                  <Dot tone={ws.stale ? 'unknown' : statusTone(o)} className="mx-1" />
-                  <span className="flex-1">{o.name}</span>
-                  {o.id === s.id && <CheckIcon className="text-primary" />}
-                </MenuItem>
-              ))}
+              <MenuRadioGroup
+                value={s.id}
+                onValueChange={(id: string) => {
+                  const o = ws.servers?.find((x) => x.id === id)
+                  if (o) navigate({ name: 'server', slug: o.slug, tab })
+                }}
+              >
+                {(ws.servers ?? []).map((o) => (
+                  <MenuRadioItem key={o.id} value={o.id} closeOnClick>
+                    <span className="flex items-center gap-2">
+                      <Dot tone={ws.stale ? 'unknown' : statusTone(o)} />
+                      {o.name}
+                    </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
               <MenuSeparator />
               <MenuItem onClick={() => navigate({ name: 'new-server' })}>
                 <PlusIcon />
@@ -275,7 +280,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
           )
           if (locked(x.tab)) {
             return (
-              <span key={x.tab} className={cn(cls, 'cursor-default text-muted-foreground/50 hover:text-muted-foreground/50')} aria-disabled="true">
+              <span key={x.tab} role="link" aria-disabled="true" title={t('server.tabAfterSetup', { server: s.name })} className={cn(cls, 'cursor-not-allowed text-muted-foreground/50 hover:text-muted-foreground/50')}>
                 {x.icon}
                 {t(x.key)}
               </span>

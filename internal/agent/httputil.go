@@ -34,11 +34,12 @@ type apiError struct {
 	Msg    string
 	Hint   string
 	Op     *api.Operation
-	cause  error
+	Err    error
 }
 
 func (e *apiError) Error() string { return e.Msg }
-func (e *apiError) Unwrap() error { return e.cause }
+
+func (e *apiError) Unwrap() error { return e.Err }
 
 func errInvalid(format string, args ...any) *apiError {
 	return &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: fmt.Sprintf(format, args...)}

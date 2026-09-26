@@ -68,6 +68,9 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// Refusal is the file that stopped the server's last start, while the
+	// server stays stopped.
+	Refusal *FileRefusal `json:"refusal,omitempty"`
 	// SavingPausedSince is when a backup left world saving off, shown while
 	// no operation runs: progress since then is lost if the server stops
 	// unexpectedly. Playkeeper keeps trying to turn saving back on.
@@ -75,6 +78,18 @@ type ServerStatus struct {
 	// Crash is why the server last stopped unexpectedly or could not start,
 	// shown while it is stopped and no operation runs.
 	Crash *Crash `json:"crash,omitempty"`
+}
+
+// FileRefusal is a file in the server's folder that Playkeeper would not
+// follow or change. Code is stable ("link", "special_file", "not_a_file",
+// …) for the dashboard to translate with Params, which always has "path"
+// and, for some codes, "type" or "limit". Message and Hint say the same in
+// English.
+type FileRefusal struct {
+	Code    string            `json:"code"`
+	Params  map[string]string `json:"params"`
+	Message string            `json:"message"`
+	Hint    string            `json:"hint,omitempty"`
 }
 
 // Crash explains a run that ended unexpectedly: a crash, or a start that
@@ -765,4 +780,5 @@ const (
 	CodeInternal          = "internal"
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
+	CodeIconInvalid       = "icon_invalid"
 )

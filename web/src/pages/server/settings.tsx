@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
-import { api, get, post } from '@/api/client'
+import { api, ApiError, get, post } from '@/api/client'
 import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, MemoryAdvice, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
@@ -21,6 +21,7 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatDate, formatMB, localTimeZone } from '@/lib/format'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress } from '@/lib/memory'
+import { busyReason, whyNot } from '@/lib/phase'
 import { navigate } from '@/lib/router'
 import { iconURL, newerStable, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -128,6 +129,16 @@ export function modeChoices(): Choice<GameMode>[] {
   return (['survival', 'creative', 'adventure', 'spectator'] as const).map((m) => ({ value: m, label: t(`settings.mode.${m}`), hint: t(`settings.mode.${m}.hint`) }))
 }
 
+const maxIconBytes = 64 * 1024
+const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+/** Whether a PNG's header says 64 × 64 and it fits in 64 KB, which is all the agent keeps. */
+async function isIcon(b: Blob): Promise<boolean> {
+  if (b.size > maxIconBytes) return false
+  const head = new DataView(await b.slice(0, 24).arrayBuffer())
+  return head.byteLength === 24 && pngSignature.every((v, i) => head.getUint8(i) === v) && head.getUint32(12) === 0x49484452 && head.getUint32(16) === 64 && head.getUint32(20) === 64
+}
+
 /** Draws a picture onto a 64 × 64 PNG, cropped to a square from the middle. */
 async function iconPNG(file: File): Promise<{ blob: Blob; url: string }> {
   const bitmap = await createImageBitmap(file)
@@ -223,7 +234,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
 
   const game = (
     <>
-      <SettingRow label={t('settings.difficulty')} hint={phone ? t('settings.difficultyHintShort') : t('settings.difficultyHint')} changed={changed('difficulty')} control={<ChoiceSelect value={v.difficulty} onChange={(d) => set('difficulty', d)} options={difficultyChoices()} label={t('settings.difficulty')} />} />
+      <SettingRow label={t('settings.difficulty')} changed={changed('difficulty')} control={<ChoiceSelect value={v.difficulty} onChange={(d) => set('difficulty', d)} options={difficultyChoices()} label={t('settings.difficulty')} />} />
       <SettingRow
         label={t('settings.pvp')}
         hint={phone ? t('settings.pvpHintShort') : t('settings.pvpHint')}
@@ -251,7 +262,6 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       )}
       <SettingRow
         label={t('settings.maxPlayers')}
-        hint={phone ? t('settings.maxPlayersHintShort') : t('settings.maxPlayersHint')}
         changed={changed('maxPlayers')}
         control={
           <NumberField value={v.maxPlayers} onValueChange={(n) => n !== null && set('maxPlayers', n)} min={1} max={100} step={1}>
@@ -263,7 +273,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
           </NumberField>
         }
       />
-      <SettingRow label={t('settings.mode')} hint={phone ? t('settings.modeHintShort') : t('settings.modeHint')} changed={changed('gameMode')} control={<ChoiceSelect value={v.gameMode} onChange={(m) => set('gameMode', m)} options={modeChoices()} label={t('settings.mode')} />} />
+      <SettingRow label={t('settings.mode')} hint={phone ? t('settings.modeHintShort') : undefined} changed={changed('gameMode')} control={<ChoiceSelect value={v.gameMode} onChange={(m) => set('gameMode', m)} options={modeChoices()} label={t('settings.mode')} />} />
     </>
   )
 
@@ -273,7 +283,6 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       <SettingRow
         wide
         label={t('settings.motd')}
-        hint={t('settings.motdHint')}
         changed={changed('motd')}
         htmlFor="server-motd"
         className="items-start"
@@ -284,7 +293,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
           </div>
         }
       />
-      <SettingRow wide label={t('settings.preview')} hint={t('settings.previewHint')} control={<ListPreview server={s} name={v.name} motd={v.motd} />} />
+      <SettingRow wide label={t('settings.preview')} control={<ListPreview server={s} name={v.name} motd={v.motd} />} />
       <IconRow server={s} />
     </>
   )
@@ -310,7 +319,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       <Button variant="ghost" size="sm" onClick={discard}>
         {t('settings.discard')}
       </Button>
-      <Button size="sm" onClick={save} loading={saving} disabled={!v.name.trim() || !!s.operation}>
+      <Button size="sm" onClick={save} loading={saving} disabledReason={v.name.trim() ? busyReason(s) : t('reason.nameFirst')}>
         {restartNeeded && online ? <RotateCwIcon /> : <SaveIcon />}
         {restartNeeded && online ? t('settings.saveRestart') : t('common.save')}
       </Button>
@@ -353,10 +362,10 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         ))}
       </nav>
       <div className="flex min-w-0 flex-col gap-4 pb-20">
-        <Section id="game" title={t('settings.game')} hint={t('settings.gameHint')}>
+        <Section id="game" title={t('settings.game')}>
           {game}
         </Section>
-        <Section id="list" title={t('settings.list')} hint={t('settings.listHint')}>
+        <Section id="list" title={t('settings.list')}>
           {list}
         </Section>
         <Section id="memory" title={t('settings.memory')}>
@@ -447,28 +456,51 @@ function IconRow({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const input = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string>()
+  const [problem, setProblem] = useState<string>()
   const [busy, setBusy] = useState(false)
   async function take(file: File | undefined) {
+    if (input.current) input.current.value = ''
     if (!file) return
+    setProblem(undefined)
+    if (file.size > maxIconBytes) {
+      setProblem(t('settings.iconRefused'))
+      return
+    }
     setBusy(true)
     try {
-      const { blob, url } = await iconPNG(file)
-      setPreview(url)
-      await api('POST', serverApi(s.id, '/icon'), undefined, blob)
+      const icon = await iconPNG(file).catch(() => undefined)
+      if (!icon) {
+        setProblem(t('settings.iconBad'))
+        return
+      }
+      if (!(await isIcon(icon.blob))) {
+        setProblem(t('settings.iconRefused'))
+        return
+      }
+      setPreview(icon.url)
+      await api('POST', serverApi(s.id, '/icon'), undefined, icon.blob)
       toastManager.add({ title: t('settings.iconUploaded', { server: s.name }), type: 'success' })
       await ws.refresh()
     } catch (e) {
       setPreview(undefined)
-      toastManager.add({ title: e instanceof DOMException ? t('settings.iconBad') : errorText(e), type: 'error' })
+      if (e instanceof ApiError && e.code === 'icon_invalid') setProblem(t('settings.iconRefused'))
+      else toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
       setBusy(false)
-      if (input.current) input.current.value = ''
     }
   }
   return (
     <SettingRow
       label={t('settings.icon')}
-      hint={t('settings.iconHint')}
+      hint={
+        problem ? (
+          <span role="alert" className="text-destructive-foreground">
+            {problem}
+          </span>
+        ) : (
+          t('settings.iconHint')
+        )
+      }
       control={
         <div className="flex items-center gap-3">
           <Emblem size={36} icon={preview ?? iconURL(s)} name={s.name} />
@@ -496,7 +528,7 @@ function VersionRows({ server: s, versions }: { server: ServerStatus; versions: 
         hint={newest ? t('settings.updateBody') : versions ? t('settings.upToDateBody') : undefined}
         control={
           newest && (
-            <Button variant="outline" size="sm" onClick={() => setOpen(newest)} disabled={!!s.operation}>
+            <Button variant="outline" size="sm" onClick={() => setOpen(newest)} disabledReason={busyReason(s)}>
               <CircleArrowUpIcon />
               {t('settings.updateTo', { version: newest.minecraftVersion })}
             </Button>
@@ -508,7 +540,7 @@ function VersionRows({ server: s, versions }: { server: ServerStatus; versions: 
           label={t('settings.otherVersions')}
           hint={t('settings.otherVersionsBody')}
           control={
-            <Button variant="outline" size="sm" onClick={() => setOpen('pick')} disabled={!!s.operation}>
+            <Button variant="outline" size="sm" onClick={() => setOpen('pick')} disabledReason={busyReason(s)}>
               {t('settings.chooseVersion')}
             </Button>
           }
@@ -580,7 +612,6 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
           <div>
             <div className="text-[13px] font-semibold">{t('mcupdate.to')}</div>
             <ChoiceSelect value={target?.id ?? ''} onChange={setChosen} options={options} label={t('mcupdate.to')} className="mt-1.5 w-full" />
-            <p className="mt-1 text-xs text-muted-foreground">{t('mcupdate.onlyNewer')}</p>
           </div>
           <ol className="flex flex-col gap-3 rounded-2xl bg-warm p-4">
             {steps.map((st, i) => (
@@ -595,7 +626,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
           </ol>
           <div>
             <p className="text-[13px] font-semibold text-warning-foreground">{t('mcupdate.noBack')}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t('mcupdate.noBackBody', { version, current })}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('mcupdate.noBackBody')}</p>
           </div>
           {players > 0 && (
             <label className="flex items-start gap-3">
@@ -608,7 +639,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
           )}
           <label className="flex items-start gap-2.5 text-[13px]">
             <Checkbox checked={consent} onCheckedChange={(c) => setConsent(c === true)} className="mt-0.5" />
-            {t('mcupdate.consent', { server: s.name, current, version })}
+            {t('mcupdate.consent', { server: s.name, version })}
           </label>
           {target?.experimental && (
             <label className="flex items-start gap-2.5 text-[13px]">
@@ -623,7 +654,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
             <Button variant="ghost" onClick={close}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={go} loading={busy} disabled={!target || !consent || (target.experimental && !experimental) || !!s.operation}>
+            <Button onClick={go} loading={busy} disabledReason={busyReason(s) ?? (!target ? t('reason.pickVersion') : !consent || (target.experimental && !experimental) ? t('mcupdate.tickFirst', { count: target.experimental ? 2 : 1 }) : undefined)}>
               <ArchiveIcon />
               {t('mcupdate.confirm')}
             </Button>
@@ -640,7 +671,6 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const running = !ws.stale && ['online', 'starting', 'preparing_world', 'starting_container'].includes(s.phase)
   const list = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 30_000, s.id)
   const backups = list.data?.length ?? 0
   async function remove() {
@@ -665,7 +695,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={stopping}
-            disabled={!running || !!s.operation}
+            disabledReason={whyNot(s, 'stop', ws.stale)}
             onClick={async () => {
               setStopping(true)
               await serverAction(s, 'stop')
@@ -681,7 +711,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
         label={t('settings.deleteTitle', { server: s.name })}
         hint={t('settings.deleteHint', { count: backups })}
         control={
-          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabled={ws.stale || !!s.operation}>
+          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabledReason={ws.stale ? t('reason.noAgent') : busyReason(s)}>
             <Trash2Icon />
             {t('settings.deleteButton')}
           </Button>
@@ -706,7 +736,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
             <Button variant="ghost" onClick={() => setOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={remove} loading={busy} disabled={typed.trim() !== s.name}>
+            <Button variant="destructive" onClick={remove} loading={busy} disabledReason={typed.trim() === s.name ? undefined : t('settings.deleteTypeFirst', { server: s.name })}>
               <Trash2Icon />
               {t('settings.deleteConfirm', { server: s.name })}
             </Button>

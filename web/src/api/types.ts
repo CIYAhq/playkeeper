@@ -155,10 +155,20 @@ export interface ServerStatus {
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
+  /** The file that stopped the last start, while the server stays stopped. */
+  refusal?: FileRefusal
   /** A backup left world saving off since then; Playkeeper keeps turning it back on. */
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */
   crash?: Crash
+}
+
+/** A file in the server's folder that Playkeeper would not follow or change. */
+export interface FileRefusal {
+  code: 'link' | 'special_file' | 'not_a_file' | 'not_a_folder' | 'too_large' | 'too_many_entries' | 'changed' | 'bad_name'
+  params: { path: string; type?: string; limit?: string }
+  message: string
+  hint?: string
 }
 
 /** Params are the numbers and names each kind's text is built from. */

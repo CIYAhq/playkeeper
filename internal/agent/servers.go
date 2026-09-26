@@ -66,6 +66,7 @@ type server struct {
 	sawCrash        bool
 	lastError       string
 	lastErrorHint   string
+	refusal         *api.FileRefusal
 	reachable       bool
 	reachableAt     time.Time
 	players         *api.PlayerSnapshot

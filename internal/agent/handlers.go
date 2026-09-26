@@ -135,6 +135,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	s.mu.Lock()
 	runPhase, detail := s.runPhase, s.runPhaseDetail
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
+	refusal := s.refusal
 	crashed, crash := s.crashed, s.crash
 	st.CrashCount = len(s.crashes)
 	players, res := s.players, s.resources
@@ -151,10 +152,12 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Phase = api.PhaseDockerUnavailable
 		st.LastError = "Docker is not responding, so Playkeeper cannot see or control the server."
 		st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"
+		st.Refusal = refusal
 	case sc == nil:
 		st.Phase = api.PhaseNotCreated
 	case docker.IsNotFound(err):
 		st.Phase = api.PhaseStopped
+		st.Refusal = refusal
 	case c.State.Running:
 		running = true
 		st.Phase = runPhase
@@ -172,6 +175,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		if crashed {
 			st.Phase = api.PhaseCrashed
 		}
+		st.Refusal = refusal
 		code := c.State.ExitCode
 		st.ExitCode = &code
 		if t, ok := c.State.Finished(); ok {
@@ -907,7 +911,7 @@ func (s *server) hSavingResume(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("could not turn world saving back on", "server", s.id, "err", err)
 		s.audit(actor, "saving.resumed", "server", "failed", err.Error())
 		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not turn world saving back on.",
-			Hint: "Open the Console and run save-on, or restart the server.", cause: err})
+			Hint: "Open the Console and run save-on, or restart the server.", Err: err})
 		return
 	}
 	s.setSavingPaused(false)

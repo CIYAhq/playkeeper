@@ -78,8 +78,8 @@ export function crashSummary(c: Crash, server: string, machine: string): string 
     case 'refused_file': {
       const path = str(p, 'path')
       const reason = str(p, 'reason')
-      if (path && reason === 'link') return t('crash.refusedLink', { path })
-      return path && reason === 'special_file' ? t('crash.refusedSpecial', { path }) : c.explanation
+      if (path && reason === 'link') return t('crash.refusedLink', { server, file: path })
+      return path && reason === 'special_file' ? t('crash.refusedSpecial', { server, file: path }) : c.explanation
     }
     case 'unknown':
       return c.start ? t('crash.unknownStart') : t('crash.unknown')

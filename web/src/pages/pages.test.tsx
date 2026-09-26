@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type { Backup, Crash, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
-import { WorkspaceContext, type Workspace } from '@/api/workspace'
-import { GetStartedCard } from '@/components/app/checklist'
+import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
+import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
@@ -20,6 +20,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
   del: vi.fn(() => Promise.resolve({})),
+  api: vi.fn(() => Promise.resolve({})),
 }))
 
 const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
@@ -168,7 +169,8 @@ describe('Home', () => {
     expect(text).toContain('Playkeeper can’t see your servers right now')
     expect(text).toContain('Survival')
     expect(text).toContain('No live status')
-    expect(text).not.toContain('3 playing')
+    expect(text).toContain('1 server on my-vps')
+    expect(text).not.toContain('playing')
   })
 })
 
@@ -626,7 +628,7 @@ describe('Crash helper', () => {
       fixes: [{ kind: 'restart', title: 'Start the server again', recommended: true }],
     })
     const text = await render(<Overview server={server({ phase: 'stopped', crash: refused })} />)
-    expect(text).toContain('plugins/bStats/config.yml is a link, which Playkeeper won’t follow. Delete it, then start again.')
+    expect(text).toContain('Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.')
     expect(text).not.toContain('replace it with the file')
     expect(text).not.toContain('Last lines before it stopped')
     expect(text).toContain('Start Survival againRecommendedOnce it’s deleted')
@@ -706,6 +708,33 @@ describe('Crash helper', () => {
     expect(text).toContain('Start Survival again')
     expect(text).toContain('Start Survival')
   })
+
+  it('says which file stopped a start and what to do, in one line', async () => {
+    const refusal = { code: 'link' as const, params: { path: 'plugins/bStats/config.yml' }, message: 'plugins/bStats/config.yml in the server’s files is a link, which Playkeeper does not follow.', hint: 'Delete it.' }
+    const lastOperation = failed('start', '', 'Paper’s bStats usage statistics could not be switched off, so the server was not started. ' + refusal.message)
+    const text = await render(<Overview server={server({ phase: 'stopped', startedAt: undefined, exitCode: 0, lastOperation, refusal })} />)
+    expect(text).toContain('Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.')
+    expect(text).toContain('Start Survival again')
+    expect(text).not.toContain('bStats usage statistics')
+    expect(text).not.toContain('Last lines before it stopped')
+    const pipe = { ...refusal, code: 'special_file' as const, params: { path: 'plugins/bStats/config.yml', type: 'named_pipe' } }
+    expect(await render(<Overview server={server({ phase: 'stopped', refusal: pipe })} />)).toContain('while plugins/bStats/config.yml isn’t a normal file. Delete it.')
+    const dockerDown = await render(<Overview server={server({ phase: 'docker_unavailable', lastError: 'Docker is not responding, so Playkeeper cannot see or control the server.', refusal })} />)
+    expect(dockerDown).toContain('Docker is not responding')
+    expect(dockerDown).not.toContain('Playkeeper won’t start Survival')
+  })
+})
+
+describe('Server settings', () => {
+  it('turns down an icon over 64 KB next to the upload, without sending it', async () => {
+    await render(<ServerSettingsPage server={server()} />)
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no icon upload')
+    Object.defineProperty(input, 'files', { value: [new File([new Uint8Array(64 * 1024 + 1)], 'logo.png', { type: 'image/png' })] })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    expect(document.querySelector('[role=alert]')?.textContent).toBe('Icons need to be 64 × 64 and under 64 KB.')
+    expect(client.api).not.toHaveBeenCalled()
+  })
 })
 
 describe('Players', () => {
@@ -728,7 +757,41 @@ describe('Players', () => {
     expect(text).toContain('≈ 6 h 10 m')
     expect(text).toContain('1 hour')
     expect(text).not.toContain('≈ 1 hour')
-    expect(text).toContain('≈ means a session ended in a crash')
+    expect(text).toContain('≈ means it ended in a crash.')
+  })
+
+  it('shows a new player at once and puts the name back if Minecraft refuses it', async () => {
+    answer({ '/whitelist': [], '/operators': [], '/players/summary': { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    let refuse: (e: unknown) => void = () => {}
+    vi.mocked(client.post).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject
+        }),
+    )
+    await render(<PlayersPage server={server()} />)
+    const field = () => document.querySelector('input[aria-label="Minecraft username"]') as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field(), 'tobi2009')
+      field().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => field().form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(document.body.textContent).not.toContain('Nobody’s joined yet')
+    expect(document.querySelector('li')?.textContent).toContain('tobi2009')
+    expect(field().value).toBe('')
+    await act(async () => refuse(new client.ApiError(422, { error: 'That player does not exist', code: 'invalid' })))
+    expect(document.body.textContent).toContain('Nobody’s joined yet')
+    expect(field().value).toBe('tobi2009')
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('That player does not exist')
+  })
+
+  it('shows rows shaped like players until the lists arrive', async () => {
+    const text = await render(<PlayersPage server={server()} />)
+    expect(text).not.toContain('Nobody’s joined yet')
+    expect(text).not.toContain('Nobody has played yet.')
+    expect(text).not.toContain('0 people')
+    expect(text).toContain('Loading…')
+    expect(document.querySelectorAll('li [data-slot="skeleton"]').length).toBeGreaterThan(0)
   })
 
   it('explains how to invite someone when nobody has joined', async () => {
@@ -736,6 +799,30 @@ describe('Players', () => {
     const text = await render(<PlayersPage server={server()} />)
     expect(text).toContain('Nobody’s joined yet')
     expect(text).toContain('You add their name')
+  })
+})
+
+describe('World', () => {
+  it('lists a new backup as soon as it is made, not at the next check', async () => {
+    const at = new Date().toISOString()
+    const job: Operation = { id: 'backup-1', kind: 'backup', status: 'running', phase: 'archiving', actor: 'siya', startedAt: at }
+    const backup: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya', note: 'Before the dragon' }
+    answer({ '/backups': [] })
+    const text = await render(<WorldPage server={server({ phase: 'stopped', operation: job })} />)
+    expect(text).toContain('No backups yet')
+    expect(text).toContain('Backing up…')
+    answer({ '/backups': [backup] })
+    const done = server({ phase: 'stopped', lastOperation: { ...job, status: 'succeeded', finishedAt: at } })
+    await act(async () =>
+      root?.render(
+        <WorkspaceContext.Provider value={workspace({ servers: [done] })}>
+          <WorldPage server={done} />
+        </WorkspaceContext.Provider>,
+      ),
+    )
+    await act(async () => {})
+    expect(document.body.textContent).not.toContain('No backups yet')
+    expect(document.body.textContent).toContain('Before the dragon')
   })
 })
 
@@ -747,7 +834,41 @@ describe('Get started', () => {
   })
 
   it('hides once the owner hid it', async () => {
-    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { 'firstSteps.hidden.abcdefghjk': '1' } }))).toBe('')
+    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { 'checklist.hidden.abcdefghjk': '1' } }))).toBe('')
+  })
+
+  it('hides under a key the panel accepts', () => {
+    for (const s of [server(), undefined]) expect(hiddenKey(s)).toMatch(/^[a-z][a-z0-9.:_-]{0,63}$/)
+  })
+
+  it('hides at once and comes back if the panel refuses', async () => {
+    let refuse: (e: unknown) => void = () => {}
+    vi.mocked(client.post).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject
+        }),
+    )
+    const failed = vi.fn()
+    function Hide() {
+      const { prefs, setPrefs } = useWorkspace()
+      return (
+        <button type="button" onClick={() => void setPrefs({ [hiddenKey(server())]: '1' }).catch(failed)}>
+          {Object.keys(prefs).join(',')}
+        </button>
+      )
+    }
+    await render(
+      <WorkspaceProvider me={me} onSignedOut={() => {}}>
+        <Hide />
+      </WorkspaceProvider>,
+    )
+    const button = document.querySelector('button') as HTMLButtonElement
+    await act(async () => button.click())
+    expect(button.textContent).toBe('checklist.hidden.abcdefghjk')
+    await act(async () => refuse(new client.ApiError(0, { error: 'The dashboard can’t be reached.', code: 'internal' })))
+    expect(button.textContent).toBe('')
+    expect(failed).toHaveBeenCalled()
   })
 })
 

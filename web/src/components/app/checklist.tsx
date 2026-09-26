@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { ArchiveIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, DownloadIcon, LockIcon, PlusIcon, UserPlusIcon, XIcon } from 'lucide-react'
 import type { ServerStatus } from '@/api/types'
-import { useWorkspace } from '@/api/workspace'
+import { errorText, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Progress, SectionLabel } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
+import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { checklist, complete, progress, type Step, type StepId } from '@/lib/checklist'
 import { relativeTime } from '@/lib/format'
@@ -12,8 +13,9 @@ import { isSettingUp } from '@/lib/phase'
 import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
+/** The preference that hides a server's first steps (keys are lower case, see hPrefsSet). */
 export function hiddenKey(server: ServerStatus | undefined): string {
-  return server ? `firstSteps.hidden.${server.id}` : 'firstSteps.hidden'
+  return server ? `checklist.hidden.${server.id}` : 'checklist.hidden'
 }
 
 /** The server the "Get started" steps are about on a page: the open one, or the first with steps left. */
@@ -53,7 +55,7 @@ function stepHint(step: Step, server: ServerStatus | undefined): string {
     case 'backup':
       return t('checklist.backupHintLong')
     case 'download':
-      return step.state === 'locked' ? t('checklist.downloadLocked') : t('checklist.downloadHint')
+      return t('checklist.downloadHint')
     default: {
       const unreachable: never = step.id
       return unreachable
@@ -200,7 +202,9 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
   if (complete(steps) || prefs[hiddenKey(server)] === '1') return null
   const p = progress(steps)
   const left = p.total - p.done
-  const hide = () => void setPrefs({ [hiddenKey(server)]: '1' })
+  const hide = () => {
+    setPrefs({ [hiddenKey(server)]: '1' }).catch((e: unknown) => toastManager.add({ title: t('checklist.hideFailed'), description: errorText(e), type: 'error' }))
+  }
   if (phone) {
     const next = p.next
     return (
@@ -306,7 +310,7 @@ export function EmptySteps({ phone }: { phone?: boolean }) {
           <li key={s.id}>
             <div className={cn('text-xs font-medium', s.state === 'next' ? 'text-primary' : 'text-muted-foreground')}>{s.state === 'next' ? t('checklist.stepNext', { n: i + 1 }) : t('checklist.stepNumber', { n: i + 1 })}</div>
             <div className="mt-1 text-[13px] font-semibold">{s.id === 'create' ? t('checklist.create') : stepTitle(s.id, true)}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">{emptyHint(s.id)}</div>
+            {emptyHint(s.id) && <div className="mt-0.5 text-xs text-muted-foreground">{emptyHint(s.id)}</div>}
           </li>
         ))}
       </ol>
@@ -314,16 +318,15 @@ export function EmptySteps({ phone }: { phone?: boolean }) {
   )
 }
 
-function emptyHint(id: StepId): string {
+function emptyHint(id: StepId): string | undefined {
   switch (id) {
     case 'create':
-      return t('checklist.createHint')
+    case 'backup':
+      return undefined
     case 'invite':
       return t('checklist.inviteHint')
     case 'joined':
       return t('checklist.joinedHint')
-    case 'backup':
-      return t('checklist.backupHint')
     case 'download':
       return t('checklist.downloadHint')
     default: {

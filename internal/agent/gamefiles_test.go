@@ -108,6 +108,9 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		if op.Status != api.OpFailed || !strings.Contains(op.Error, c.at+" in the server's files is a link") || !strings.Contains(op.Hint, "plugin or mod") {
 			t.Fatalf("start with a link at %s: %+v", c.at, op)
 		}
+		if r := e.status().Refusal; r == nil || r.Code != "link" || r.Params["path"] != c.at || !strings.HasPrefix(r.Hint, "Delete it") {
+			t.Fatalf("the status after the start refused a link at %s: %+v", c.at, r)
+		}
 		if after := tree(t, host); !maps.Equal(after, before) {
 			t.Fatalf("the link at %s changed what it leads to:\n%v\nwas\n%v", c.at, after, before)
 		}
@@ -117,6 +120,9 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		}
 		if op := e.act("start"); op.Status != api.OpSucceeded {
 			t.Fatalf("start once the link is gone: %+v", op)
+		}
+		if r := e.status().Refusal; r != nil {
+			t.Fatalf("the status kept a refusal after a start: %+v", r)
 		}
 		if b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")); err != nil || !bStatsOff(b) {
 			t.Fatalf("bStats after the start: %q %v", b, err)
@@ -155,6 +161,114 @@ func wantRefusal(t *testing.T, c *api.Crash, path, reason string) {
 	if c == nil || c.Kind != "refused_file" || !c.Start || !c.Certain || c.Params["path"] != path || c.Params["reason"] != reason ||
 		len(c.Fixes) != 1 || c.Fixes[0].Kind != "restart" || len(c.Lines) != 0 || !strings.Contains(c.Explanation, path+" in the server's files") {
 		t.Fatalf("the refusal of %s as the crash helper shows it: %+v", path, c)
+	}
+}
+
+// A named pipe where Paper's bStats setting goes stops the start without
+// making it wait, and the status names the file and what it is for the
+// dashboard to say.
+func TestAPlantedPipeStopsTheStartAndTheStatusSaysWhy(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	if op := e.act("stop"); op.Status != api.OpSucceeded {
+		t.Fatalf("stop: %+v", op)
+	}
+	at := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
+	if err := os.MkdirAll(filepath.Dir(at), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(at); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(at, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.act("start"); op.Status != api.OpFailed {
+		t.Fatalf("start with a named pipe at bStats' setting: %+v", op)
+	}
+	st := e.status()
+	want := map[string]string{"path": "plugins/bStats/config.yml", "type": "named_pipe"}
+	if r := st.Refusal; st.Phase != api.PhaseStopped || r == nil || r.Code != "special_file" || !maps.Equal(r.Params, want) || !strings.Contains(r.Message, "named pipe") {
+		t.Fatalf("the status after the refused start: %s %+v", st.Phase, r)
+	}
+	if err := os.Remove(at); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.act("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start once the pipe is gone: %+v", op)
+	}
+	if r := e.status().Refusal; r != nil {
+		t.Fatalf("the status kept a refusal after a start: %+v", r)
+	}
+}
+
+// A start that fails before it gets to the server's files keeps the refusal
+// of the start before it, since the planted file may still be there, and the
+// status carries it while Docker isn't answering. Only a start that gets past
+// the files clears it, even when that start fails later.
+func TestARefusalLastsUntilAStartGetsPastTheFiles(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	if op := e.act("stop"); op.Status != api.OpSucceeded {
+		t.Fatalf("stop: %+v", op)
+	}
+	at := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
+	if err := os.MkdirAll(filepath.Dir(at), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(at); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(e.hostFiles(), "panel.db"), at); err != nil {
+		t.Fatal(err)
+	}
+	down := func(prefix string) {
+		e.fd.mu.Lock()
+		e.fd.down = prefix
+		e.fd.mu.Unlock()
+	}
+	refused := func(when string) {
+		t.Helper()
+		if r := e.status().Refusal; r == nil || r.Code != "link" || r.Params["path"] != "plugins/bStats/config.yml" {
+			t.Fatalf("the refusal %s: %+v", when, r)
+		}
+	}
+	if op := e.act("start"); op.Status != api.OpFailed {
+		t.Fatalf("start with a link at bStats' setting: %+v", op)
+	}
+	refused("after the refused start")
+
+	down("/")
+	if st := e.status(); st.Phase != api.PhaseDockerUnavailable {
+		t.Fatalf("the phase while Docker isn't answering: %s", st.Phase)
+	}
+	refused("while Docker isn't answering")
+
+	down("/images/")
+	created := e.fd.called("POST /containers/create")
+	if op := e.act("start"); op.Status != api.OpFailed || e.fd.called("POST /containers/create") != created {
+		t.Fatalf("a start while Docker can't look up the image: %+v", op)
+	}
+	down("")
+	refused("after a start that failed before the server's files")
+
+	if err := os.Remove(at); err != nil {
+		t.Fatal(err)
+	}
+	e.fd.mu.Lock()
+	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+	e.fd.mu.Unlock()
+	if op := e.act("start"); op.Status != api.OpFailed {
+		t.Fatalf("a start with the port taken: %+v", op)
+	}
+	e.fd.mu.Lock()
+	e.fd.startErr = ""
+	e.fd.mu.Unlock()
+	if r := e.status().Refusal; r != nil {
+		t.Fatalf("the refusal after a start that got past the files and failed later: %+v", r)
+	}
+	if op := e.act("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start once the link is gone: %+v", op)
 	}
 }
 

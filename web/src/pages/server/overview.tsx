@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Activity, Crash, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
+import type { Activity, Crash, FileRefusal, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
@@ -18,7 +18,7 @@ import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, phoneLines, preselect } from '@/lib/crash'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
-import { createStepOf, failedJob, isSettingUp, statusTone } from '@/lib/phase'
+import { createStepOf, failedJob, isSettingUp, statusTone, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { formatTPS } from '@/lib/running'
 import { typeName } from '@/lib/servers'
@@ -30,7 +30,7 @@ export function Overview({ server }: { server: ServerStatus }) {
   const ws = useWorkspace()
   if (ws.agentDown) return <AgentDownView />
   if (!ws.stale && isSettingUp(server)) return <SettingUpView server={server} />
-  if (!ws.stale && statusTone(server) === 'crashed' && !server.operation) return <CrashedView server={server} />
+  if (!ws.stale && (statusTone(server) === 'crashed' || (server.refusal && server.phase !== 'docker_unavailable')) && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }
 
@@ -87,7 +87,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={busy}
-            disabled={!!s.operation}
+            disabledReason={whyNot(s, 'restart', stale)}
             onClick={async () => {
               setBusy(true)
               await serverAction(s, 'restart')
@@ -377,13 +377,10 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
             </Button>
           </>
         ) : (
-          <>
-            <Button variant="outline" render={<a {...linkProps(other ? { name: 'server', slug: other.slug, tab: 'overview' } : { name: 'home' })} />}>
-              <ArrowLeftIcon />
-              {other ? t('creating.takeMe', { server: other.name }) : t('creating.takeHome')}
-            </Button>
-            <span className="text-xs text-muted-foreground">{t('creating.nothingToDo')}</span>
-          </>
+          <Button variant="outline" render={<a {...linkProps(other ? { name: 'server', slug: other.slug, tab: 'overview' } : { name: 'home' })} />}>
+            <ArrowLeftIcon />
+            {other ? t('creating.takeMe', { server: other.name }) : t('creating.takeHome')}
+          </Button>
         )}
       </div>
     </Card>
@@ -399,14 +396,15 @@ function fallbackCrash(s: ServerStatus): Crash {
 function CrashedView({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const logs = usePoll(() => (s.crash ? Promise.resolve(undefined) : get<LogsResponse>(serverApi(s.id, '/logs?limit=3'))), 10_000, `${s.id}:${s.crash ? 'crash' : 'tail'}`)
+  const refusal = s.refusal
+  const logs = usePoll(() => (s.crash || refusal ? Promise.resolve(undefined) : get<LogsResponse>(serverApi(s.id, '/logs?limit=3'))), 10_000, `${s.id}:${s.crash || refusal ? 'crash' : 'tail'}`)
   const [picked, setPicked] = useState<string>()
   const [preview, setPreview] = useState<RestorePreview>()
   const [busy, setBusy] = useState(false)
   const crash = s.crash ?? fallbackCrash(s)
-  const summary = s.crash ? crashSummary(s.crash, s.name, ws.machineName) : (s.lastError ?? t('crash.generic', { server: s.name }))
-  const detail = s.crash ? crashDetail(s.crash) : s.lastErrorHint
-  const lines: ConsoleLine[] = s.crash ? s.crash.lines : (logs.data?.lines ?? []).map((l) => parseLine(l.text))
+  const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, ws.machineName) : (s.lastError ?? t('crash.generic', { server: s.name }))
+  const detail = refusal ? undefined : s.crash ? crashDetail(s.crash) : s.lastErrorHint
+  const lines: ConsoleLine[] = refusal ? [] : s.crash ? s.crash.lines : (logs.data?.lines ?? []).map((l) => parseLine(l.text))
   const options = crashFixes(crash, s.name, ws.machineName, phone)
   const choice = options.find((o) => o.id === picked && o.plan) ?? preselect(options)
 
@@ -447,7 +445,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   }
 
   const button = (
-    <Button className={cn('w-full', phone && 'text-base')} size={phone ? 'touch' : 'lg'} loading={busy} onClick={act} disabled={!choice?.plan || !!s.operation || ws.stale}>
+    <Button className={cn('w-full', phone && 'text-base')} size={phone ? 'touch' : 'lg'} loading={busy} onClick={act} disabledReason={whyNot(s, 'start', ws.stale)}>
       <PlayIcon />
       {choice?.button}
     </Button>
@@ -530,6 +528,29 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   )
 }
 
+/** Names the file that stopped a start and what to do about it. */
+function refusalLine(r: FileRefusal, server: string): string {
+  const file = r.params.path
+  const english = [r.message, r.hint].filter(Boolean).join(' ')
+  switch (r.code) {
+    case 'link':
+      return t('crash.refusedLink', { server, file })
+    case 'special_file':
+      return t('crash.refusedSpecial', { server, file })
+    case 'not_a_file':
+    case 'not_a_folder':
+    case 'too_large':
+    case 'too_many_entries':
+    case 'changed':
+    case 'bad_name':
+      return english
+    default: {
+      const unreachable: never = r.code
+      return english || unreachable
+    }
+  }
+}
+
 function AgentDownView() {
   const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
@@ -560,7 +581,7 @@ function AgentDownView() {
       </div>
       <Card className="mt-8 w-full max-w-[460px] text-left">
         <CardTitle>{t('agentDown.fix')}</CardTitle>
-        <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody', { machine: ws.machineName })}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody')}</p>
         <div className="mt-3 flex items-center gap-2">
           <code className="min-w-0 flex-1 truncate rounded-lg bg-console px-3 py-2 text-xs text-[#e8e8e0]">{command}</code>
           <CopyButton text={command} />
