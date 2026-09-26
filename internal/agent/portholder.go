@@ -21,9 +21,10 @@ const (
 
 // portHolder finds the process listening on TCP port on the host: the
 // listening socket's inode in proc's net/tcp and net/tcp6, then the process
-// with that socket open. The agent can only look at the open files of
-// processes run by root, as Docker's port proxy is, so a program another
-// user runs is not found.
+// with that socket open. Without CAP_SYS_PTRACE the kernel shows the agent
+// only the open files of root processes with no capabilities beyond its own,
+// so Docker's port proxy, most root services and other users' programs are
+// not found.
 func portHolder(proc string, port int) (name string, pid int, ok bool) {
 	inodes := map[string]bool{}
 	for _, f := range []string{"tcp", "tcp6"} {
