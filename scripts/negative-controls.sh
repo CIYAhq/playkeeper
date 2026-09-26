@@ -932,6 +932,23 @@ control "a restore gives voice chat back its UDP port" internal/agent/backups.go
   'if err := s.restoredVoiceChat(&j.Restored, prev, m, st.data); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+# Wave 9: voice chat that comes with a modpack.
+control "a pack's voice chat gets its port only with leave from the pack's plan" internal/agent/curated.go \
+  'if !p.OpenPorts || sc.VoiceChatPort > 0 || !voiceChatInPack(pl) {' \
+  'if sc.VoiceChatPort > 0 || !voiceChatInPack(pl) {' \
+  ./internal/agent '^TestAPacksVoiceChatGetsItsPortOnlyWithLeave$'
+control "a pack's plan names the port its voice chat would get" internal/agent/curated.go \
+  'if p.voiceChat {' \
+  'if false {' \
+  ./internal/agent '^TestAPacksPreviewNamesVoiceChatsPort$'
+control "voice chat in a CurseForge pack is known by CurseForge's project" internal/agent/curated.go \
+  'return c.Project == curseForgeVoiceChat' \
+  'return false' \
+  ./internal/agent '^TestVoiceChatIsFoundInPacksFromEitherSource$'
+control "no port for voice chat in a pack whose server can't load it" internal/agent/curated.go \
+  'if _, err := addons.TargetFor(pl.Requirements.Type); err != nil {' \
+  'if _, err := addons.TargetFor(pl.Requirements.Type); false && err != nil {' \
+  ./internal/agent '^(TestAPacksPreviewNamesVoiceChatsPort|TestVoiceChatIsFoundInPacksFromEitherSource)$'
 control "a setup container still running when its output ends fails" internal/agent/software.go \
   'if c.State.Running {' \
   'if false && c.State.Running {' \

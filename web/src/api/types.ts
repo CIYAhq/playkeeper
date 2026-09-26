@@ -1236,12 +1236,15 @@ export interface ModpackPreview {
   blockers: AddonNotice[]
   warnings: AddonNotice[]
   manual: AddonNotice[]
+  /** Voice chat's UDP port, when the pack brings it: a server created with openPorts opens it. */
+  ports?: AddonPort[]
 }
 
 export interface ModpackRef {
   source: ModpackSource
   projectId: string
   versionId: string
+  openPorts?: boolean
 }
 
 // Wave 4: sharing a modded server's pack with friends.
@@ -1357,6 +1360,7 @@ export interface ServerModpack {
   iconUrl?: string
   mods?: number
   pending?: boolean
+  openPorts?: boolean
 }
 
 // Wave 4: templates.

@@ -234,7 +234,7 @@ type Agent struct {
 	keyFileMu        sync.Mutex
 	packSearches     *ttlCache[*api.ModpackResults]
 	packDetails      *ttlCache[*api.ModpackDetail]
-	packPreviews     *ttlCache[*api.ModpackPreview]
+	packPreviews     *ttlCache[packPreview]
 	packPreviewSlots chan struct{}
 
 	// Wave 4: templates planned on this machine, by their plan's
@@ -381,7 +381,7 @@ func New(opts Options) (*Agent, error) {
 
 		packSearches:     newTTLCache[*api.ModpackResults](5*time.Minute, 64),
 		packDetails:      newTTLCache[*api.ModpackDetail](10*time.Minute, 64),
-		packPreviews:     newTTLCache[*api.ModpackPreview](30*time.Minute, 32),
+		packPreviews:     newTTLCache[packPreview](30*time.Minute, 32),
 		packPreviewSlots: make(chan struct{}, 2),
 		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
 		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),

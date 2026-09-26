@@ -226,7 +226,7 @@ func (a *Agent) hModpackPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	key := string(ref.Source) + "\x00" + ref.Project + "\x00" + ref.Version
 	if p, ok := a.packPreviews.get(key, a.now()); ok {
-		writeJSON(w, http.StatusOK, p)
+		writeJSON(w, http.StatusOK, a.withPackPorts(p))
 		return
 	}
 	select {
@@ -260,8 +260,17 @@ func (a *Agent) hModpackPreview(w http.ResponseWriter, r *http.Request) {
 	for _, m := range pl.Manual {
 		out.Manual = append(out.Manual, apiManual(m))
 	}
-	a.packPreviews.put(key, out, a.now())
-	writeJSON(w, http.StatusOK, out)
+	p := packPreview{preview: out, voiceChat: voiceChatInPack(pl)}
+	a.packPreviews.put(key, p, a.now())
+	writeJSON(w, http.StatusOK, a.withPackPorts(p))
+}
+
+// packPreview is a pack version's preview as it's kept for a while, with
+// whether the pack brings voice chat: the port it would get depends on the
+// machine's servers at the time (withPackPorts).
+type packPreview struct {
+	preview   *api.ModpackPreview
+	voiceChat bool
 }
 
 // packCreateTarget is what a server created from a pack starts out as: the
@@ -300,7 +309,7 @@ func (a *Agent) packCreateTarget(ctx context.Context, m api.ModpackRef) (restore
 		return restoreTarget{}, nil, err
 	}
 	return rt, &api.ServerModpack{Source: d.Source, ProjectID: d.ProjectID, VersionID: v.ID, Name: d.Name, VersionNumber: v.Number,
-		PageURL: d.PageURL, IconURL: d.IconURL, Mods: v.Mods, Pending: true}, nil
+		PageURL: d.PageURL, IconURL: d.IconURL, Mods: v.Mods, Pending: true, OpenPorts: m.OpenPorts}, nil
 }
 
 // packTarget is the software a pack runs on: the loader version it names,
@@ -398,10 +407,13 @@ func (s *server) installPendingPack(ctx context.Context, h *opHandle, sc *api.Se
 	if err != nil {
 		return packFailure(h, err)
 	}
+	if err := s.packVoiceChat(h, sc, p, prep.Plan); err != nil {
+		return err
+	}
 	if err := s.savePackRecord(res.Record); err != nil {
 		return err
 	}
-	p.Pending, p.VersionID, p.VersionNumber, p.Mods = false, res.Record.Pack.VersionID, res.Record.Pack.VersionNumber, packMods(res.Record)
+	p.Pending, p.OpenPorts, p.VersionID, p.VersionNumber, p.Mods = false, false, res.Record.Pack.VersionID, res.Record.Pack.VersionNumber, packMods(res.Record)
 	sc.Modpack = &p
 	if err := s.saveServerConfig(*sc); err != nil {
 		return err

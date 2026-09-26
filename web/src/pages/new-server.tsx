@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
+import { useModpackDetail, useModpackPreview } from '@/api/modpacks'
 import { useBuilds } from '@/api/software'
 import { planTemplate } from '@/api/templates'
 import type { Operation, RestorePreview, ServerStatus, TemplatePlan } from '@/api/types'
@@ -11,7 +12,7 @@ import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
 import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
-import { ModpackPicker, type ModpackChoice } from '@/components/app/modpacks'
+import { ModpackPicker, packVoicePort, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
 import { CardsSkeleton } from '@/components/app/skeletons'
@@ -44,10 +45,13 @@ const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = 
   { value: 'template', long: 'new.from.template', short: 'new.from.templateShort' },
 ]
 
-/** A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped. */
-export function packRequest(c: CreateChoices, pack: ModpackChoice) {
+/**
+ * A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped.
+ * openPorts is set once the pack's plan named the port its voice chat needs, next to the Create button.
+ */
+export function packRequest(c: CreateChoices, pack: ModpackChoice, openPorts = false) {
   const { name, acceptEula, memoryMB, motd, maxPlayers } = createRequest(c)
-  return { name, acceptEula, memoryMB, motd, maxPlayers, acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId } }
+  return { name, acceptEula, memoryMB, motd, maxPlayers, acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId, ...(openPorts ? { openPorts } : {}) } }
 }
 
 /** The template decides the type, version and settings: the request names only the plan the user saw. */
@@ -107,6 +111,11 @@ export function NewServerPage() {
   const [from, setFrom] = useState<StartFrom>(handoff ? 'template' : 'type')
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
+  // The chosen pack's plan says whether it brings voice chat, whose port the last step names.
+  const packDetail = useModpackDetail(packed ? ws.machine?.id : undefined, pack?.source, pack?.projectId)
+  const packPlan = useModpackPreview(packed ? ws.machine?.id : undefined, pack?.source, pack?.projectId, pack?.versionId || packDetail.data?.newest)
+  const voicePort = packed ? packVoicePort(packPlan.data) : undefined
+  const planPending = packed && !packPlan.data && !packPlan.error && !packDetail.error
   const [tpl, setTpl] = useState<TemplateChoice>()
   const [tplProblem, setTplProblem] = useState<string>()
   const templated = from === 'template' && !!tpl
@@ -157,7 +166,7 @@ export function NewServerPage() {
       case 3:
         return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: ws.machineName }) : undefined
       default:
-        return packed || templated ? nameBlocked(c) : createBlocked(c, version)
+        return (packed || templated ? nameBlocked(c) : createBlocked(c, version)) ?? (planPending ? t('reason.checkingPack') : undefined)
     }
   }
 
@@ -166,7 +175,7 @@ export function NewServerPage() {
     setBusy(true)
     setCreateError(undefined)
     try {
-      const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack) : createRequest(c)
+      const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack, voicePort !== undefined) : createRequest(c)
       const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), body)
       await openCreated(op, ws.refresh)
     } catch (e) {
@@ -468,6 +477,12 @@ export function NewServerPage() {
               </label>
             )}
             <EulaCheck checked={c.eula} onChange={(eula) => update({ eula })} className="mt-2 rounded-2xl border border-border p-3.5 max-sm:bg-white" />
+            {voicePort !== undefined && (
+              <div className="animate-fade rounded-2xl border border-border p-3.5 max-sm:bg-white">
+                <p className="text-[13px] font-semibold max-sm:text-[15px]">{t('voice.ownPort')}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{t('voice.firewall', { machine: ws.machineName, port: voicePort })}</p>
+              </div>
+            )}
             {createError && (
               <p className="text-[13px] text-destructive-foreground" role="alert">
                 {createError}
@@ -482,7 +497,7 @@ export function NewServerPage() {
   const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} note={note} />
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
   const continueLabel =
-    step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
+    step === 4 ? (voicePort !== undefined ? t('new.createOpenPort') : t('new.create', { name: c?.name.trim() || t('nav.newServer') })) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
   const nextHint = step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
   const restoreLink = (
     <p className="text-xs text-muted-foreground">

@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { AddonSources, Address, Backup, Catalog, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, ModpackDetail, ModpackResults, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus, SignInNotice, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
+import type { AddonSources, Address, Backup, Catalog, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, ModpackCard, ModpackDetail, ModpackResults, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus, SignInNotice, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
@@ -1284,6 +1284,30 @@ describe('Modpacks', () => {
     expect(use?.disabled).toBe(true)
     expect(use?.title).toBe(blocker.message)
     expect(document.body.textContent).toContain('Playkeeper can’t set up this pack')
+  })
+
+  /** Opens the details of a pack whose plan has these ports, on a machine of its own: modpack answers are kept for a few minutes. */
+  async function openPackPlan(projectId: string, ports?: { protocol: 'udp'; port: number }[]): Promise<string> {
+    const plan = { type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', files: 17, downloadSize: 16_000_000, ready: true, blockers: [], warnings: [], manual: [], ports }
+    const card = { ...results.cards[0], projectId, name: `Voice Pack ${projectId}` } as ModpackCard
+    const detail: ModpackDetail = { ...card, versions: [{ id: `${projectId}V`, number: '1.2', channel: 'release', published: '2026-09-01T00:00:00Z', size: 16_000_000, type: 'fabric', minecraftVersion: '26.2', mods: 17 }], newest: `${projectId}V` }
+    answer({ '/preview': plan, [`/modpacks/modrinth/${projectId}`]: detail, '/modpacks?': { ...results, cards: [card] } })
+    await render(<ModpackPicker machineId={`m${projectId.toLowerCase()}`} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith(card.name))
+    await act(async () => row?.click())
+    for (let i = 0; i < 4; i++) await act(async () => {})
+    expect([...document.querySelectorAll('button')].find((b) => b.textContent === 'Use this modpack')?.disabled).toBe(false)
+    return document.body.textContent ?? ''
+  }
+
+  it('names the UDP port voice chat needs in the pack’s plan', async () => {
+    const text = await openPackPlan('VOIC0001', [{ protocol: 'udp', port: 24455 }])
+    expect(text).toContain('Voice travels on its own port')
+    expect(text).toContain('Playkeeper opens it on my-vps. Open UDP 24455 in your provider’s firewall too.')
+  })
+
+  it('says nothing about a port for a pack without voice chat', async () => {
+    expect(await openPackPlan('VOIC0002')).not.toContain('Voice travels on its own port')
   })
 
   it('says what a pack’s server downloads, not Paper', () => {

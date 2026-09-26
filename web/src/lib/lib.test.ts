@@ -495,6 +495,8 @@ describe('creating a server', () => {
     const c = { type: 'paper', versionId: 'paper-26.2', acceptExperimental: true, style: 'friends' as const, hardcore: false, levelType: 'flat' as const, memoryMB: 4096, name: 'Cobblemon', motd: '', eula: true, build: '41' }
     const pack = { source: 'modrinth' as const, projectId: 'TPK00001', versionId: 'TPV00001', name: 'Cobblemon Modpack', type: 'fabric', minecraftVersion: '1.21.1', memoryMB: 6144 }
     expect(packRequest(c, pack)).toEqual({ name: 'Cobblemon', acceptEula: true, memoryMB: 4096, motd: 'Cobblemon', maxPlayers: 10, acceptExperimental: false, modpack: { source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001' } })
+    // Once the pack's plan named voice chat's port, creating it agrees to open it.
+    expect(packRequest(c, pack, true).modpack).toEqual({ source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001', openPorts: true })
   })
 
   it('names each type’s build the way people say it', () => {

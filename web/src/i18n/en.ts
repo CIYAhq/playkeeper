@@ -2089,4 +2089,7 @@ export const en = {
   'voice.install': 'Install and open the port',
   'voice.restarts': '{server} restarts for about 20 s.',
   'voice.cantInstall': 'Voice chat can’t be installed on this server.',
+  // Wave 9: voice chat that comes with a modpack
+  'new.createOpenPort': 'Create and open the port',
+  'reason.checkingPack': 'Checking the pack…',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

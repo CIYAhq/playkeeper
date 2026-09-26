@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { ArrowUpRightIcon, PackageIcon, RefreshCwIcon, SearchIcon } from 'lucide-react'
 import { modpackIcon, useModpackDetail, useModpackPreview, useModpacks, type ModpackSort } from '@/api/modpacks'
-import type { ModpackCard, ModpackDetail, ModpackSource } from '@/api/types'
+import type { ModpackCard, ModpackDetail, ModpackPreview, ModpackSource } from '@/api/types'
 import { TypeLogo } from '@/components/app/art'
 import { Notice } from '@/components/app/bits'
 import { ChoiceSelect } from '@/components/app/controls'
@@ -16,6 +16,7 @@ import { formatBytes, formatCompact, formatMB, relativeTime } from '@/lib/format
 import { linkPath } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
+import { useWorkspace } from '@/api/workspace'
 
 /** The pack a new server is made from. */
 export interface ModpackChoice {
@@ -40,6 +41,11 @@ function choiceOf(card: ModpackCard, detail?: ModpackDetail): ModpackChoice {
     minecraftVersion: newest?.minecraftVersion ?? card.minecraftVersions[0] ?? '',
     memoryMB: detail?.memoryMB ?? card.memoryMB ?? 0,
   }
+}
+
+/** The UDP port a new server opens for the pack's voice chat, when the pack brings it. */
+export function packVoicePort(p: ModpackPreview | undefined): number | undefined {
+  return p?.ports?.find((x) => x.protocol === 'udp')?.port
 }
 
 /** "Fabric Loader 0.17.2", "NeoForge 21.1.72". */
@@ -226,10 +232,12 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
 }
 
 function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: string; card?: ModpackCard; phone: boolean; onClose: () => void; onUse: (c: ModpackChoice) => void }) {
+  const ws = useWorkspace()
   const detail = useModpackDetail(machineId, card?.source, card?.projectId)
   const d = detail.data
   const preview = useModpackPreview(machineId, card?.source, card?.projectId, d?.newest)
   const p = preview.data
+  const voicePort = packVoicePort(p)
   const newest = d?.versions.find((v) => v.id === d.newest)
   const source = card ? sourceName(card.source) : ''
   const blocker = p && !p.ready ? p.blockers[0] : undefined
@@ -286,6 +294,12 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
                 <h3 className="text-sm font-semibold">{t('modpacks.friends')}</h3>
                 <p className="mt-1 text-[13px] text-muted-foreground">{t('modpacks.friendsBody')}</p>
               </section>
+              {voicePort !== undefined && (
+                <section className="animate-fade">
+                  <h3 className="text-sm font-semibold">{t('voice.ownPort')}</h3>
+                  <p className="mt-1 text-[13px] text-muted-foreground">{t('voice.firewall', { machine: ws.machineName, port: voicePort })}</p>
+                </section>
+              )}
               <a href={card.pageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 self-start text-[13px] font-semibold text-success-strong hover:underline">
                 {t('modpacks.open', { source })}
                 <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />

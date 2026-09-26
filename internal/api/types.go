@@ -1721,6 +1721,11 @@ type ModpackPreview struct {
 	Blockers     []AddonNotice `json:"blockers"`
 	Warnings     []AddonNotice `json:"warnings"`
 	Manual       []AddonNotice `json:"manual"`
+	// Ports are the ports the pack's add-ons need of their own, as a new
+	// server made from it would get them now: voice chat's UDP port when
+	// the pack brings Simple Voice Chat. A server created with OpenPorts
+	// opens them.
+	Ports []AddonPort `json:"ports,omitempty"`
 }
 
 // ModpackRef names a pack version to create a server from.
@@ -1728,6 +1733,9 @@ type ModpackRef struct {
 	Source    string `json:"source"`
 	ProjectID string `json:"projectId"`
 	VersionID string `json:"versionId"`
+	// OpenPorts says the owner agreed to open the ports the pack's preview
+	// named.
+	OpenPorts bool `json:"openPorts,omitempty"`
 }
 
 // ServerModpack is the pack a server runs.
@@ -1744,6 +1752,9 @@ type ServerModpack struct {
 	// Pending is set until the pack's files are in place; the next start
 	// puts them there.
 	Pending bool `json:"pending,omitempty"`
+	// OpenPorts is the create request's: the install opens the ports the
+	// pack's add-ons need.
+	OpenPorts bool `json:"openPorts,omitempty"`
 }
 
 // Wave 4: templates.
