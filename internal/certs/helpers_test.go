@@ -11,9 +11,13 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	mrand "math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -184,15 +188,48 @@ func handshake(t testing.TB, getCert func(*tls.ClientHelloInfo) (*tls.Certificat
 	return conn.ConnectionState().PeerCertificates[0], nil
 }
 
-// freePort returns a TCP port on 127.0.0.1 that was free a moment ago.
+// freePorts are the ports freePort gave out, so it never gives one twice.
+var freePorts = struct {
+	sync.Mutex
+	given map[int]bool
+}{given: map[int]bool{}}
+
+// freePort returns a TCP port on 127.0.0.1 that was free a moment ago, for
+// code under test to bind itself, such as the HTTP-01 responder. A port the
+// kernel handed out for port 0 won't do: once it is closed, another
+// package's test, run in parallel, can be handed it too and answer on it.
+// So the port lies below the kernel's range for port 0.
 func freePort(t testing.TB) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	low := 32768
+	if b, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range"); err == nil {
+		if f := strings.Fields(string(b)); len(f) == 2 {
+			if n, err := strconv.Atoi(f[0]); err == nil {
+				low = n
+			}
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	const from = 10000
+	if low-from < 1000 {
+		t.Fatalf("the kernel hands out ports from %d, leaving too few below it for tests", low)
+	}
+	freePorts.Lock()
+	defer freePorts.Unlock()
+	for range 1000 {
+		p := from + mrand.IntN(low-from)
+		if freePorts.given[p] {
+			continue
+		}
+		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		freePorts.given[p] = true
+		return p
+	}
+	t.Fatalf("no free port between %d and %d", from, low)
+	return 0
 }
 
 // problemOf returns err as a *Problem, failing the test otherwise.

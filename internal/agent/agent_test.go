@@ -131,16 +131,18 @@ func newAgentEnvWith(t *testing.T, setup func(e *agentEnv)) *agentEnv {
 	return e
 }
 
-// closedURL is a local http:// address nothing listens on.
+// closedURL is a local http:// address that hangs up on every request. A
+// closed listener's port won't do: another package's test, run in parallel,
+// can take it and answer.
 func closedURL(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	ln.Close()
-	return "http://" + addr
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			conn.Close()
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
 func (e *agentEnv) start() {
