@@ -3959,6 +3959,18 @@ control "Forge's crash report line counts as a crash" internal/minecraft/logpars
   'This crash report has been saved to: |Crash report saved to |' \
   'This crash report has been saved to: |' \
   ./internal/minecraft '^TestParseRecognisesPlayerEvents$'
+control "a player typing Java's out-of-memory error doesn't count" internal/minecraft/logparse.go \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  '(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  ./internal/minecraft '^TestParseTakesOutOfMemoryOnlyFromLinesPlayersCantWrite$'
+control "an INFO entry never says Java ran out of memory" internal/minecraft/logparse.go \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:INFO|WARN|ERROR|FATAL)\]' \
+  ./internal/minecraft '^TestParseTakesOutOfMemoryOnlyFromLinesPlayersCantWrite$'
+control "a player's chat turns no stop or crash into one for memory" internal/minecraft/logparse.go \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  '(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  ./internal/agent '^TestOnlyJavaSaysItRanOutOfMemory$'
 control "crash help on a Forge server names Forge" internal/diagnose/crashaddons.go \
   'if c.in.ServerType == "forge" {
 		return "Forge"' \
