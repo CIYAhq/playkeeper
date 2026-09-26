@@ -1033,9 +1033,20 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Voice chat's port closes before anything is removed: a removal that
+	// can't close it removes nothing, so no start publishes a port with nothing
+	// behind it. If voice chat then stays, so does its port.
+	var voicePort int
+	if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {
+		if voicePort, err = s.closeVoiceChat(actor); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	target := string(key.Source) + ":" + key.ProjectID
 	rm, err := lib.Uninstall(r.Context(), srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
 	if err != nil {
+		s.reopenVoiceChat(voicePort, actor)
 		s.audit(actor, "addon.removed", target, "refused", err.Error())
 		writeError(w, addonError(err))
 		return
@@ -1068,11 +1079,8 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		out.Removed = append(out.Removed, rec.Name)
 		s.audit(actor, "addon.removed", string(rec.Source)+":"+rec.ProjectID, "succeeded", rec.Name+" "+rec.VersionNumber)
 	}
-	if slices.ContainsFunc(drop, voiceChat) {
-		if err := s.closeVoiceChat(actor); err != nil {
-			writeError(w, err)
-			return
-		}
+	if !slices.ContainsFunc(drop, voiceChat) {
+		s.reopenVoiceChat(voicePort, actor)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -42,17 +42,24 @@ type friendsShare struct {
 	at    time.Time
 }
 
+// shareBuilder builds a share; tests replace it.
+var shareBuilder = (*server).buildShare
+
 // friendsShare is the server's share, built again only when its setup
 // changed since the last build. One build runs per server at a time, and a
-// failed one answers with its error for shareRetry.
+// failed one answers with its error for shareRetry. The setup is read under
+// the lock, and again after waiting for another build, so a build of an
+// older setup never takes the place of a newer one.
 func (s *server) friendsShare(ctx context.Context) (*share.Share, error) {
-	setup, err := s.shareSetup()
-	if err != nil {
-		return nil, err
-	}
-	key, fs := setup.Key(), &s.shares
+	fs := &s.shares
 	for {
 		fs.mu.Lock()
+		setup, err := s.shareSetup()
+		if err != nil {
+			fs.mu.Unlock()
+			return nil, err
+		}
+		key := setup.Key()
 		if fs.entries == nil {
 			fs.entries = map[string]*friendsShare{}
 		}
@@ -77,7 +84,7 @@ func (s *server) friendsShare(ctx context.Context) (*share.Share, error) {
 		fs.entries[s.id] = e
 		fs.mu.Unlock()
 
-		sh, err := s.buildShare(setup)
+		sh, err := shareBuilder(s, setup)
 		fs.mu.Lock()
 		e.share, e.err, e.at = sh, err, s.now()
 		close(e.done)

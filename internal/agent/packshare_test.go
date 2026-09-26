@@ -1,11 +1,15 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
@@ -136,6 +140,61 @@ func TestPackLinkGivesTheServersNamedAddress(t *testing.T) {
 	e.decode("GET", "/v1/packs/"+tok, &link)
 	if link.JoinAddress != "survival.alex.playkeeper.io" {
 		t.Fatalf("with a name: %q", link.JoinAddress)
+	}
+}
+
+// An ask that waited for another build reads the setup again, so a build of
+// a setup that has changed since never replaces the newer one's.
+func TestFriendsShareKeepsTheNewestBuild(t *testing.T) {
+	e := newAgentEnv(t)
+	e.withSources()
+	e.create()
+	e.fabricForShare()
+	s := e.srv()
+	release := make(chan struct{})
+	started := make(chan struct{}, 8)
+	var mu sync.Mutex
+	var builds []string
+	old := shareBuilder
+	t.Cleanup(func() { shareBuilder = old })
+	shareBuilder = func(_ *server, setup share.Setup) (*share.Share, error) {
+		mu.Lock()
+		builds = append(builds, setup.MinecraftVersion)
+		first := len(builds) == 1
+		mu.Unlock()
+		started <- struct{}{}
+		if first {
+			<-release
+		}
+		return &share.Share{Key: setup.Key(), MinecraftVersion: setup.MinecraftVersion}, nil
+	}
+	go s.friendsShare(context.Background())
+	<-started
+	waited := make(chan *share.Share, 1)
+	go func() {
+		sh, _ := s.friendsShare(context.Background())
+		waited <- sh
+	}()
+	time.Sleep(50 * time.Millisecond) // the second ask waits for the first build
+	sc, _ := s.serverConfig()
+	sc.MinecraftVersion = "26.2"
+	if err := s.saveServerConfig(*sc); err != nil {
+		t.Fatal(err)
+	}
+	if sh, err := s.friendsShare(context.Background()); err != nil || sh.MinecraftVersion != "26.2" {
+		t.Fatalf("the changed setup's share: %+v %v", sh, err)
+	}
+	close(release)
+	if sh := <-waited; sh == nil || sh.MinecraftVersion != "26.2" {
+		t.Fatalf("an ask that waited got %+v, want the share of the setup as it is now", sh)
+	}
+	if sh, _ := s.friendsShare(context.Background()); sh == nil || sh.MinecraftVersion != "26.2" {
+		t.Fatalf("the cached share: %+v", sh)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(builds, []string{"26.1.2", "26.2"}) {
+		t.Fatalf("builds of %v, want one of each setup", builds)
 	}
 }
 

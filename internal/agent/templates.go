@@ -35,6 +35,10 @@ const kindTemplateVoiceChat addons.Kind = "template_voice_chat_port"
 // kindTemplatePackType blocks a template whose modpack runs on another type.
 const kindTemplatePackType addons.Kind = "template_pack_type"
 
+// kindTemplatePackVersion blocks a template whose modpack is made for
+// another Minecraft version.
+const kindTemplatePackVersion addons.Kind = "template_pack_version"
+
 // templateSubstitutes are the types whose versions an import lists when the
 // template's own type can't be created here, as the templates package
 // substitutes them.
@@ -249,18 +253,19 @@ func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templ
 	if n := a.voiceChatNotice(p.Addons); n != nil {
 		p.Warnings = append(p.Warnings, *n)
 	}
-	if n := a.packTypeNotice(ctx, p); n != nil {
+	if n := a.packFitNotice(ctx, p); n != nil {
 		p.Blockers, p.Ready = append(p.Blockers, *n), false
 	}
 	return p, nil
 }
 
-// packTypeNotice blocks a template whose modpack runs on another type than
-// the one the template names: the new server would run the pack's. When
-// the pack's source can't be asked, the create request checks again.
-func (a *Agent) packTypeNotice(ctx context.Context, p *templates.Plan) *addons.Notice {
+// packFitNotice blocks a template whose modpack runs on another type or
+// Minecraft version than the template names: the new server would run the
+// pack's, not what the plan shows. When the pack's source can't be asked,
+// the create request checks again (templatePackFits).
+func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.Notice {
 	m := p.Modpack
-	if m == nil || !p.Ready {
+	if m == nil || !p.Ready || p.Version == nil {
 		return nil
 	}
 	ref, err := parsePackRef(string(m.Source), m.Project, m.Pin.VersionID)
@@ -272,13 +277,27 @@ func (a *Agent) packTypeNotice(ctx context.Context, p *templates.Plan) *addons.N
 		return nil
 	}
 	i := slices.IndexFunc(d.Versions, func(v api.ModpackVersion) bool { return v.ID == m.Pin.VersionID })
-	if i < 0 || d.Versions[i].Type == "" || d.Versions[i].Type == p.Type.ID {
+	if i < 0 {
 		return nil
 	}
-	packType := typeName(d.Versions[i].Type)
-	return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name, "packType": packType},
-		Msg:  fmt.Sprintf("The template names a %s server, but its modpack %s runs on %s.", p.Type.Name, m.Name, packType),
-		Hint: "Ask whoever shared the template for a new one."}
+	v, hint := d.Versions[i], "Ask whoever shared the template for a new one."
+	switch {
+	case v.Type != "" && v.Type != p.Type.ID:
+		packType := typeName(v.Type)
+		return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name, "packType": packType},
+			Msg: fmt.Sprintf("The template names a %s server, but its modpack %s runs on %s.", p.Type.Name, m.Name, packType), Hint: hint}
+	case v.MinecraftVersion != "" && v.MinecraftVersion != p.Version.MinecraftVersion:
+		return &addons.Notice{Kind: kindTemplatePackVersion, Params: map[string]string{"version": p.Version.MinecraftVersion, "modpack": m.Name, "packVersion": v.MinecraftVersion},
+			Msg:  fmt.Sprintf("The template names Minecraft %s, but its modpack %s is made for Minecraft %s.", p.Version.MinecraftVersion, m.Name, v.MinecraftVersion),
+			Hint: hint}
+	}
+	return nil
+}
+
+// templatePackFits reports whether the software a template's modpack runs
+// on is the type and Minecraft version the template's plan shows.
+func templatePackFits(p *templates.Plan, rt restoreTarget) bool {
+	return rt.typ == p.Type.ID && (p.Version == nil || rt.pin.MinecraftVersion == p.Version.MinecraftVersion)
 }
 
 // templateDataPacks are the data packs a confirmed import downloads.
