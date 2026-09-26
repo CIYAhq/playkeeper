@@ -263,7 +263,10 @@ func (s *server) wakeOp(player string) func(ctx context.Context, h *opHandle) er
 			return s.startServer(ctx, h, *cur)
 		})
 		if err != nil {
-			if _, running, rerr := s.containerRunning(context.WithoutCancel(ctx)); rerr == nil && !running {
+			// After a failed wake the stand-in is back on the game port, so
+			// the server sleeps again unless its container is known to be
+			// running. If Docker can't say, the sleep loop looks again.
+			if _, running, rerr := s.containerRunning(context.WithoutCancel(ctx)); rerr != nil || !running {
 				_ = s.setDesired(api.DesiredSleeping)
 				s.startSleepPeriod(s.now().UTC())
 			}
@@ -458,7 +461,8 @@ type sleepRequest struct {
 	IdleMinutes int    `json:"idleMinutes,omitempty"`
 }
 
-// hSleepSet saves the setting. Turning it off wakes a sleeping server.
+// hSleepSet saves the setting. Turning it off wakes a sleeping server, so
+// then nothing changes unless the server can start now.
 func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 	var req sleepRequest
 	if err := decode(r, &req); err != nil {
@@ -474,6 +478,30 @@ func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 	if err := set.Validate(); err != nil {
 		writeError(w, automationError(err))
 		return
+	}
+	resp := map[string]any{}
+	if !set.Enabled && s.desired() == api.DesiredSleeping {
+		op, err := s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
+			if err := s.setDesired(api.DesiredRunning); err != nil {
+				return err
+			}
+			cur, _ := s.serverConfig()
+			if cur == nil {
+				return errNotCreated()
+			}
+			if err := s.startServer(ctx, h, *cur); err != nil {
+				// Sleep is off, so nothing answers in the server's place.
+				s.leaveSleep()
+				s.startFailed(ctx)
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		resp["operation"] = op
 	}
 	b, _ := json.Marshal(set)
 	if _, err := s.db.Exec(`UPDATE servers SET sleep = ? WHERE id = ?`, string(b), s.id); err != nil {
@@ -492,26 +520,7 @@ func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 		detail = fmt.Sprintf("after %d minutes with nobody on", int(set.Idle().Minutes()))
 	}
 	s.audit(actor, "sleep.changed", "server", "succeeded", detail)
-	resp := map[string]any{"sleep": s.sleepStatus(s.desired())}
-	if !set.Enabled && s.desired() == api.DesiredSleeping {
-		op, err := s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
-			if err := s.setDesired(api.DesiredRunning); err != nil {
-				return err
-			}
-			cur, _ := s.serverConfig()
-			if cur == nil {
-				return errNotCreated()
-			}
-			if err := s.startServer(ctx, h, *cur); err != nil {
-				s.startFailed(ctx)
-				return err
-			}
-			return nil
-		})
-		if err == nil {
-			resp["operation"] = op
-		}
-	}
+	resp["sleep"] = s.sleepStatus(s.desired())
 	writeJSON(w, http.StatusOK, resp)
 }
 

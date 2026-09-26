@@ -332,10 +332,46 @@ func readVarint(r io.ByteReader) (int, error) {
 	return 0, errors.New("varint too long")
 }
 
-func TestServerSleepsWhenEmptyAndWakesForAListedPlayer(t *testing.T) {
+// localStandIn puts stand-ins on a free local port for the rest of the test.
+func localStandIn(t *testing.T) {
 	prev := standInAddr
 	standInAddr = func(int) string { return "127.0.0.1:0" }
 	t.Cleanup(func() { standInAddr = prev })
+}
+
+// putToSleep turns sleep on and puts the server to sleep, with its
+// stand-in on a free local port, as sleep-when-empty does once nobody has
+// played for long enough.
+func (e *agentEnv) putToSleep() {
+	e.t.Helper()
+	localStandIn(e.t)
+	if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
+		e.t.Fatalf("turn sleep on: %d %v", code, out)
+	}
+	s := e.srv()
+	s.fallAsleep(s.sleepSettings())
+	e.waitFor("the server asleep", func() bool { return e.status().Phase == api.PhaseAsleep && !e.a.busy() })
+}
+
+// holdOp runs an operation of kind that lasts until release is called, as
+// a long backup does.
+func (e *agentEnv) holdOp(kind string) (release func()) {
+	e.t.Helper()
+	done := make(chan struct{})
+	if _, err := e.srv().beginOp(kind, "admin", func(context.Context, *opHandle) error {
+		<-done
+		return nil
+	}); err != nil {
+		e.t.Fatalf("%s: %v", kind, err)
+	}
+	var once sync.Once
+	release = func() { once.Do(func() { close(done) }) }
+	e.t.Cleanup(release)
+	return release
+}
+
+func TestServerSleepsWhenEmptyAndWakesForAListedPlayer(t *testing.T) {
+	localStandIn(t)
 	e := newAgentEnv(t)
 	e.create()
 	if err := os.WriteFile(filepath.Join(e.dataDir(), "whitelist.json"), []byte(`[{"name":"Alex","uuid":"00000000-0000-0000-0000-00000000a1e7"}]`), 0o644); err != nil {
@@ -416,6 +452,140 @@ func TestServerSleepsWhenEmptyAndWakesForAListedPlayer(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM sleep_periods WHERE end_ts IS NOT NULL AND woke_by = 'wake:Alex'`); n != 1 {
 		t.Fatalf("%d finished sleep periods", n)
+	}
+}
+
+// Each way a sleeping server wakes, or stays asleep, leaves its desired
+// state, its stand-in, its sleep setting and its sleep periods agreeing:
+// the reconciler starts a server meant to be running, the stand-in wakes
+// only a server meant to be asleep, and the sleep loop looks after one
+// whose stand-in isn't answering.
+func TestSleepAndWakeTransitions(t *testing.T) {
+	type state struct {
+		desired   string
+		listening bool
+		sleepOn   bool
+		phase     api.Phase
+	}
+	var (
+		asleep = state{api.DesiredSleeping, true, true, api.PhaseAsleep}
+		awake  = state{api.DesiredRunning, false, true, api.PhaseOnline}
+	)
+	read := func(e *agentEnv) state {
+		s := e.srv()
+		s.auto.mu.Lock()
+		m := s.auto.standIn
+		s.auto.mu.Unlock()
+		return state{s.desired(), m != nil && m.Listening(), s.sleepSettings().Enabled, e.status().Phase}
+	}
+	dockerDown := func(e *agentEnv, prefix string) {
+		e.fd.mu.Lock()
+		e.fd.down = prefix
+		e.fd.mu.Unlock()
+	}
+	wake := func(e *agentEnv) *api.Operation {
+		e.t.Helper()
+		s := e.srv()
+		op, err := s.beginOp("wake", "wake:Alex", s.wakeOp("Alex"))
+		if err != nil {
+			e.t.Fatalf("wake: %v", err)
+		}
+		return e.waitOp(op.ID)
+	}
+	sleepOff := func(e *agentEnv) (int, map[string]any) {
+		e.t.Helper()
+		return e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": false, "idleMinutes": 5})
+	}
+	cases := []struct {
+		name  string
+		steps func(e *agentEnv)
+		want  state
+	}{
+		{name: "a player wakes it", steps: func(e *agentEnv) {
+			if o := wake(e); o.Status != api.OpSucceeded {
+				e.t.Fatalf("wake: %+v", o)
+			}
+		}, want: awake},
+		{name: "a wake whose start fails", steps: func(e *agentEnv) {
+			e.fd.mu.Lock()
+			e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+			e.fd.mu.Unlock()
+			if o := wake(e); o.Status != api.OpFailed {
+				e.t.Fatalf("wake: %+v", o)
+			}
+		}, want: asleep},
+		{name: "a wake that fails while Docker can't say whether the server runs", steps: func(e *agentEnv) {
+			dockerDown(e, "/containers/"+e.cname()+"/json")
+			o := wake(e)
+			dockerDown(e, "")
+			if o.Status != api.OpFailed {
+				e.t.Fatalf("wake: %+v", o)
+			}
+		}, want: asleep},
+		{name: "a player wakes it during a backup", steps: func(e *agentEnv) {
+			release := e.holdOp("backup")
+			began := make(chan struct{})
+			go func() {
+				e.srv().wakeFor("Alex")
+				close(began)
+			}()
+			time.Sleep(300 * time.Millisecond)
+			if e.srv().desired() != api.DesiredSleeping {
+				e.t.Fatal("the server woke during the backup")
+			}
+			release()
+			select {
+			case <-began:
+			case <-time.After(10 * time.Second):
+				e.t.Fatal("the wake never began")
+			}
+		}, want: awake},
+		{name: "sleep turned off", steps: func(e *agentEnv) {
+			if code, out := sleepOff(e); code != http.StatusOK || out["operation"] == nil {
+				e.t.Fatalf("sleep off: %d %v", code, out)
+			}
+		}, want: state{api.DesiredRunning, false, false, api.PhaseOnline}},
+		{name: "sleep turned off during a backup", steps: func(e *agentEnv) {
+			release := e.holdOp("backup")
+			code, out := sleepOff(e)
+			release()
+			if code != http.StatusConflict || out["code"] != api.CodeBusy {
+				e.t.Fatalf("sleep off during a backup: %d %v", code, out)
+			}
+		}, want: asleep},
+		{name: "sleep turned off, and the server can't start", steps: func(e *agentEnv) {
+			dockerDown(e, "/images/")
+			code, out := sleepOff(e)
+			op, _ := out["operation"].(map[string]any)
+			if code != http.StatusOK || op == nil {
+				dockerDown(e, "")
+				e.t.Fatalf("sleep off: %d %v", code, out)
+			}
+			o := e.waitOp(op["id"].(string))
+			dockerDown(e, "")
+			if o.Status != api.OpFailed {
+				e.t.Fatalf("start: %+v", o)
+			}
+		}, want: state{api.DesiredStopped, false, false, api.PhaseStopped}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			e.putToSleep()
+			c.steps(e)
+			e.waitFor("the operation over", func() bool { return !e.a.busy() })
+			got := read(e)
+			for deadline := time.Now().Add(5 * time.Second); got != c.want && time.Now().Before(deadline); got = read(e) {
+				time.Sleep(50 * time.Millisecond)
+			}
+			if got != c.want {
+				t.Fatalf("the server is left %+v, want %+v", got, c.want)
+			}
+			if open := e.countRows(`SELECT COUNT(*) FROM sleep_periods WHERE end_ts IS NULL`); (open == 1) != (c.want.desired == api.DesiredSleeping) {
+				t.Fatalf("%d sleep periods open, with the server meant to be %s", open, c.want.desired)
+			}
+		})
 	}
 }
 

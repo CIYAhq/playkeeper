@@ -2145,6 +2145,36 @@ control "a swap journal whose restore is gone keeps every rollback archive" inte
 		}' \
   ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
 
+# Wave 7: sleeping and waking leave the desired state, the stand-in and the
+# sleep setting agreeing.
+control "a failed wake sleeps again when the server didn't start" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr != nil || false && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_whose_start_fails$'
+control "a failed wake sleeps again when Docker can't say whether the server runs" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr == nil && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_fails_while_Docker_can.t_say_whether_the_server_runs$'
+control "a wake waits for a backup to end" internal/agent/sleeping.go \
+  'ae.Code != api.CodeBusy || time.Now().After(deadline)' \
+  'ae.Code == api.CodeBusy || time.Now().After(deadline)' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
+control "turning sleep off changes nothing while the server is busy" internal/agent/sleeping.go \
+  '		if err != nil {
+			writeError(w, err)
+			return
+		}
+		resp["operation"] = op' \
+  '		if err == nil {
+			resp["operation"] = op
+		}' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off_during_a_backup$'
+control "turning sleep off lets go of the game port when the server can't start" internal/agent/sleeping.go \
+  '				s.leaveSleep()
+				s.startFailed(ctx)' \
+  '				s.startFailed(ctx)' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
