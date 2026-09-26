@@ -319,7 +319,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 		cfg.ExposedPorts = map[string]struct{}{"25565/tcp": {}}
 		cfg.HostConfig.PortBindings = map[string][]docker.PortBinding{"25565/tcp": {{HostPort: strconv.Itoa(s.gamePort)}}}
 		// Voice chat's UDP port has the same number inside and out, as its
-		// settings say (openVoiceChat).
+		// settings say (installVoiceChat).
 		if p := sc.VoiceChatPort; p > 0 {
 			voice := strconv.Itoa(p) + "/udp"
 			cfg.ExposedPorts[voice] = struct{}{}

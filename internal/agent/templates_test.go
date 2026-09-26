@@ -199,6 +199,47 @@ func TestCreateFromTemplateRefusesAChangedPlan(t *testing.T) {
 	}
 }
 
+// Create goes ahead only on a plan that is still ready. A plan that can no
+// longer choose a version is refused, and fill, which that refusal keeps
+// such a plan from, refuses it too rather than panic.
+func TestTemplateCreateNeedsAVersion(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"memoryMB": 1536})
+	var exp api.TemplateExport
+	e.decode("GET", e.sp("/template"), &exp)
+	code, plan, _ := e.planTemplate(exp.File)
+	if code != 200 || !plan.Ready {
+		t.Fatalf("plan: %d %+v", code, plan)
+	}
+	// PaperMC stops listing versions, so the plan again chooses none.
+	e.fill.set("", []fillVersionSpec{})
+	e.a.catalog.mu.Lock()
+	e.a.catalog.entries, e.a.catalog.at = nil, time.Time{}
+	e.a.catalog.mu.Unlock()
+	before := e.countRows(`SELECT COUNT(*) FROM servers`)
+	if code, out := e.createFromTemplate(plan.Fingerprint, nil); code != http.StatusConflict {
+		t.Fatalf("a plan without a version: %d %v", code, out)
+	}
+	if e.countRows(`SELECT COUNT(*) FROM servers`) != before {
+		t.Fatal("no server is created")
+	}
+
+	ti := &templateImport{p: &templates.Plan{Type: templates.TypeChoice{ID: "fabric", Name: "Fabric"}}}
+	var req api.CreateServerRequest
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("filling in a plan without a version panicked: %v", r)
+			}
+		}()
+		err = ti.fill(&req)
+	}()
+	if err == nil || req.Type != "" || req.VersionID != "" || req.Modpack != nil {
+		t.Fatalf("a plan without a version fills nothing in: %v %+v", err, req)
+	}
+}
+
 func noticeKinds(ns []api.AddonNotice) []string {
 	out := []string{}
 	for _, n := range ns {
@@ -502,23 +543,37 @@ func TestTemplateRequestsAreChecked(t *testing.T) {
 	}
 }
 
-// The panel names who exports a template; the template also says on which
-// day it was made, and planning it shows both.
-func TestTemplateExportNamesItsAuthorAndDay(t *testing.T) {
+// A template names no one, as a sign-in name is half of the login: an export
+// writes no author whatever the request says, and planning a file whose
+// author was filled in by hand doesn't pass it on. Both say on which day the
+// template was made.
+func TestTemplatesNameNoOne(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	today := e.a.now().UTC().Format(time.DateOnly)
+	code, _, body := e.getBytes(e.sp("/template?author=siya"))
 	var exp api.TemplateExport
-	e.decode("GET", e.sp("/template?author=siya"), &exp)
-	if exp.Contents.Author != "siya" || exp.Contents.Created != today {
-		t.Fatalf("the export's author and day: %q %q", exp.Contents.Author, exp.Contents.Created)
+	if err := json.Unmarshal(body, &exp); code != 200 || err != nil {
+		t.Fatalf("export: %d %v %s", code, err, body)
 	}
-	if code, plan, raw := e.planTemplate(exp.File); code != 200 || plan.Contents.Author != "siya" || plan.Contents.Created != today {
-		t.Fatalf("planning it shows who made it and when: %d %+v %v", code, plan.Contents, raw)
+	if exp.Contents.Created != today || strings.Contains(string(body), "siya") || strings.Contains(exp.File, `"author"`) {
+		t.Fatalf("the export names no one and says its day: %s", body)
 	}
-	var unnamed api.TemplateExport
-	e.decode("GET", e.sp("/template?author=%0A"), &unnamed)
-	if unnamed.Contents.Author != "" || unnamed.Contents.Created != today {
-		t.Fatalf("an author that isn't a name is left out: %q %q", unnamed.Contents.Author, unnamed.Contents.Created)
+	if l, err := templates.DecodeLink(exp.Link); err != nil || l.Author != "" {
+		t.Fatalf("the export's link names no one: %+v %v", l, err)
+	}
+
+	signed, err := templates.ParseFile([]byte(exp.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed.Author = "siya"
+	file, err := templates.MarshalFile(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, plan, raw := e.planTemplate(string(file))
+	if shown, _ := json.Marshal(raw); code != 200 || !plan.Ready || plan.Contents.Created != today || strings.Contains(string(shown), "siya") {
+		t.Fatalf("planning a file that names its author shows no name: %d %s", code, shown)
 	}
 }

@@ -83,7 +83,13 @@ func TestHowItsRunningExplainsTheLag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e.waitFor("a smooth diagnosis", func() bool { return e.lag() == "smooth" })
+	// The server was sampled as soon as it came online, before the players
+	// and files above; only a sample taken after them shows them.
+	set := e.a.now()
+	e.waitFor("a smooth diagnosis sampled after the setup", func() bool {
+		r := e.running()
+		return r.Status == "smooth" && r.At != nil && r.At.After(set)
+	})
 	if res := e.status().Resources; res.TPS == nil || *res.TPS != 20 || res.MSPT == nil || *res.MSPT != 4.9 {
 		t.Fatalf("Paper's tps and mspt replies: %+v", res)
 	}

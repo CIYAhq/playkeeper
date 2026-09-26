@@ -371,7 +371,10 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		tpl.fill(&req)
+		if err := tpl.fill(&req); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	typ := req.Type
 	if typ == "" {

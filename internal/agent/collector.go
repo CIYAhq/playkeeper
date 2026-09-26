@@ -184,7 +184,7 @@ func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
 		return
 	}
 	s.runStartedAt = runStart
-	s.sawStopping, s.sawCrash = false, false
+	s.sawStopping, s.sawCrash, s.runReady = false, false, false
 	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
 		s.runPhase = api.PhaseStartingContainer
 	}
@@ -245,15 +245,22 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		// whatever it logged, even a line Docker stamped after its end.
 		if current && ended.IsZero() {
 			s.mu.Lock()
-			s.runPhase = api.PhaseOnline
-			recovered := s.runCrashed
-			// A start someone asked for forgets the crash first, so one still
-			// here is what an automatic restart came back from.
-			if s.crash != nil {
-				s.recovered = s.crash
+			// A "Done" line delivered again changes nothing. One that isn't
+			// new still counts once per run: an agent that restarted reads
+			// the running server's "Done" line again, and learns from it
+			// that the server is up.
+			take := fresh || !s.runReady
+			recovered := take && s.runCrashed
+			if take {
+				// A start someone asked for forgets the crash first, so one
+				// still here is what an automatic restart came back from.
+				if s.crash != nil {
+					s.recovered = s.crash
+				}
+				s.runReady, s.runPhase = true, api.PhaseOnline
+				s.crashed, s.runCrashed, s.crash = false, false, nil
+				s.lastError, s.lastErrorHint = "", ""
 			}
-			s.crashed, s.runCrashed, s.crash = false, false, nil
-			s.lastError, s.lastErrorHint = "", ""
 			s.mu.Unlock()
 			if recovered && fresh {
 				s.alert(discord.Event{Kind: discord.KindRecovered, At: ts})

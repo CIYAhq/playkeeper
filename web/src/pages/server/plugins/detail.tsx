@@ -354,8 +354,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
         )
         break
       case 'blocked':
-        // Installs can't allow pre-releases yet, so that hint has nothing to point at.
-        body = f.notice ? <Blocked title={f.notice.message} body={f.notice.kind === 'only_prerelease' ? undefined : f.notice.hint} /> : null
+        body = f.notice ? <Blocked title={f.notice.message} body={f.notice.hint} /> : null
         break
       default: {
         const unreachable: never = f
