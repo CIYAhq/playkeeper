@@ -1551,6 +1551,10 @@ control "each kind of alert goes out at most every 6 hours" internal/names/servi
   'if t, ok := a.last[kind]; ok && now.Sub(t) < alertEvery {' \
   'if t, ok := a.last[kind]; false && ok && now.Sub(t) < alertEvery {' \
   ./internal/names/service '^TestAlertsReachTheWebhookAtMostOncePerKindEverySixHours$'
+control "an alert the webhook hangs up on is logged" internal/names/service/alert.go \
+  'a.log.Warn("Could not send an alert to "+EnvAlertWebhook, "error", err)' \
+  '_ = err' \
+  ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
 control "names lapse when their dashboard stops answering" internal/names/service/alive.go \
   'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ?' \
   'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ? AND 0' \
