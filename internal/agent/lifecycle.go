@@ -38,6 +38,9 @@ type opHandle struct {
 	cancel      context.CancelFunc
 	cancellable bool
 	cancelled   bool
+	// askedFor is set by a start someone asked for (startNow): startServer
+	// starts the crash policy over once the start is past every refusal.
+	askedFor bool
 }
 
 // allowCancel lets the operation be cancelled until it commits.
@@ -661,6 +664,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.startRefusal(h); err != nil {
 		markRestoreRefusal(h, err)
 		return err
+	}
+	if h.askedFor {
+		s.forgetCrashes()
 	}
 	if err := s.ensureOriginalSaved(h, sc); err != nil {
 		return err

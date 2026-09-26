@@ -658,6 +658,21 @@ control "a remove-and-start keeps the crash until its start goes ahead" internal
   'op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
   'if req.Start { s.forgetCrashes() }; op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
   ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
+control "a start refused for a restore keeps the crash" internal/agent/handlers.go \
+  '	h.askedFor = true
+' \
+  '	h.askedFor = true
+	s.forgetCrashes()
+' \
+  ./internal/agent '^TestAStartForgetsTheCrashOnlyOnceItGoesAhead$'
+control "a start that goes ahead forgets the crash" internal/agent/lifecycle.go \
+  '	if h.askedFor {
+		s.forgetCrashes()
+	}' \
+  '	if false {
+		s.forgetCrashes()
+	}' \
+  ./internal/agent '^TestAStartForgetsTheCrashOnlyOnceItGoesAhead$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \

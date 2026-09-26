@@ -581,8 +581,9 @@ func (s *server) forgetCrashes() {
 
 // startNow is a start someone asked for: the server is to keep running, or
 // stays stopped if it does not come up. The crash policy starts over only
-// once the start goes ahead, so a refused request, or work before the start
-// that failed, keeps the crash that says why the server is down.
+// once the start goes ahead (see opHandle.askedFor), so a refused request,
+// or work before the start that failed, keeps the crash that says why the
+// server is down.
 func (s *server) startNow(ctx context.Context, h *opHandle) error {
 	s.settleBeforeStart(ctx)
 	if err := s.setDesired(api.DesiredRunning); err != nil {
@@ -592,7 +593,7 @@ func (s *server) startNow(ctx context.Context, h *opHandle) error {
 	if cur == nil {
 		return errNotCreated()
 	}
-	s.forgetCrashes()
+	h.askedFor = true
 	if err := s.startServer(ctx, h, *cur); err != nil {
 		s.startFailed(ctx)
 		return err
