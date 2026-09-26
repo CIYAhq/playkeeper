@@ -621,14 +621,88 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 		t.Fatalf("a server made on the dashboard's machine is kept as its: %q, odd ids %d", mid, n)
 	}
 
-	// Removing a machine ends its disputes and forgets its servers.
+	// Removing a machine ends its disputes, and its servers go to no machine.
 	s.claimServers(beta, serverList("newsrvabcd", "zzzzzzzzzz"))
 	if owner("newsrvabcd") != "disputed" {
 		t.Fatal("beta disputes alpha's new server")
 	}
-	s.onMachineEvent(machinelink.Event{Kind: machinelink.EventRemoved, MachineID: beta.ID, Name: "beta", Actor: "admin", At: e.clock.now()})
-	if owner("newsrvabcd") != alpha.ID || owner("zzzzzzzzzz") != local.ID {
-		t.Fatal("a removed machine's servers and disputes are gone")
+	e.removeMachine(t, beta)
+	if owner("newsrvabcd") != alpha.ID {
+		t.Fatal("a removed machine's disputes are gone")
+	}
+	if _, err := s.machineForServer("zzzzzzzzzz"); !errors.Is(err, errNotFound) {
+		t.Fatalf("a removed machine's server goes to %v", err)
+	}
+}
+
+// removeMachine removes m as the machine link does: it's revoked, then the
+// panel hears of it.
+func (e *env) removeMachine(t *testing.T, m machine) {
+	t.Helper()
+	if _, err := e.srv.db.Exec(`UPDATE machines SET revoked_at = ? WHERE id = ?`, millis(e.clock.now()), m.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.onMachineEvent(machinelink.Event{Kind: machinelink.EventRemoved, MachineID: m.ID, Name: m.Name, Actor: "admin", At: e.clock.now()})
+}
+
+// A listing claimed after its machine was removed changes nothing, a server
+// made while a listing was on its way keeps its record, a removed machine's
+// servers go to no machine, and the machine that lists them next (the same
+// host, joined again) takes them over.
+func TestServerRecordsFollowWhichMachinesAreStillJoined(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		check func(t *testing.T, e *env, cookie, csrf string, alpha machine)
+	}{
+		{"a listing claimed after its machine was removed", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			listedAt := e.clock.now()
+			e.clock.add(time.Second)
+			e.removeMachine(t, alpha)
+			if got := e.srv.claimListing(alpha, serverList("xxxxxxxxxx", "yyyyyyyyyy"), listedAt); len(got) != 0 {
+				t.Fatalf("the removed machine shows %q", ids(got))
+			}
+			var n int
+			e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, alpha.ID).Scan(&n)
+			if n != 1 || e.srv.listings.has(alpha.ID, "yyyyyyyyyy") {
+				t.Fatalf("the removed machine's claim was saved: %d records, listing kept %v", n, e.srv.listings.has(alpha.ID, "yyyyyyyyyy"))
+			}
+		}},
+		{"a server made while a listing was on its way", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			listedAt := e.clock.now()
+			e.clock.add(time.Second)
+			e.srv.claimCreated(alpha, []byte(`{"serverId":"newsrvabcd"}`))
+			e.srv.claimListing(alpha, serverList("xxxxxxxxxx"), listedAt)
+			if m, err := e.srv.machineForServer("newsrvabcd"); err != nil || m.ID != alpha.ID {
+				t.Fatalf("the new server goes to %v %v", m.ID, err)
+			}
+		}},
+		{"a removed machine's server", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			e.removeMachine(t, alpha)
+			if _, err := e.srv.machineForServer("xxxxxxxxxx"); !errors.Is(err, errNotFound) {
+				t.Fatalf("it goes to %v", err)
+			}
+			if r := e.do(t, "POST", "/api/servers/xxxxxxxxxx/start", `{}`, auth(cookie, csrf)); r.status != http.StatusNotFound || e.sawLocally("POST /v1/servers/xxxxxxxxxx/start") {
+				t.Fatalf("start: %d %v", r.status, r.body)
+			}
+		}},
+		{"the same host, joined again", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			e.removeMachine(t, alpha)
+			again := e.addRemote(t, "againagain", "alpha")
+			if got := e.srv.claimServers(again, serverList("xxxxxxxxxx")); ids(got) != "xxxxxxxxxx" || got[0]["disputed"] != nil {
+				t.Fatalf("the machine joined again shows %v", got)
+			}
+			if m, err := e.srv.machineForServer("xxxxxxxxxx"); err != nil || m.ID != again.ID {
+				t.Fatalf("the server goes to %v %v", m.ID, err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, csrf := e.setup(t)
+			alpha := e.addRemote(t, "alphaalpha", "alpha")
+			e.srv.claimServers(alpha, serverList("xxxxxxxxxx"))
+			tc.check(t, e, cookie, csrf, alpha)
+		})
 	}
 }
 

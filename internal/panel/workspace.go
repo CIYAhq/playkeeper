@@ -417,7 +417,9 @@ var errServerMachine = errors.New("could not look up the machine that runs the s
 // (see claimServers). A server with no record goes to the dashboard's own
 // machine only if that machine listed it last or no joined machine did: a
 // joined machine's server whose record couldn't be saved goes to none. A
-// disputed server has none. It never asks the machines.
+// server whose record names a removed machine is unknown, unless the
+// dashboard's machine listed it last. A disputed server has none. It never
+// asks the machines.
 func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -433,7 +435,8 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 		s.log.Error("look up the machine that runs a server", "server", serverID, "err", err)
 		return machine{}, errServerMachine
 	}
-	if err == nil {
+	recorded := err == nil
+	if recorded {
 		for _, m := range list {
 			if m.ID != owner {
 				continue
@@ -454,10 +457,14 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 			joinedListed = true
 		}
 	}
-	if joinedListed && !s.listings.has(local.ID, serverID) {
+	switch {
+	case local.Kind == localKind && s.listings.has(local.ID, serverID):
+		return local, nil
+	case joinedListed:
 		return machine{}, errServerMachine
-	}
-	if local.Kind == localKind {
+	case recorded:
+		return machine{}, errNotFound
+	case local.Kind == localKind:
 		return local, nil
 	}
 	return machine{}, errNotFound
@@ -630,6 +637,7 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 		err     error
 	}
 	got := make([]listing, len(list))
+	listedAt := s.now()
 	var wg sync.WaitGroup
 	for i, m := range list {
 		wg.Go(func() {
@@ -662,7 +670,7 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 			servers = s.lastKnownServers(m)
 		case m.Kind == localKind:
 		default:
-			servers = s.claimServers(m, servers)
+			servers = s.claimListing(m, servers, listedAt)
 		}
 		for _, sv := range servers {
 			sv["machineId"] = m.ID

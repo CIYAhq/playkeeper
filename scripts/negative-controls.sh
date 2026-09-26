@@ -3212,8 +3212,10 @@ control "a joined machine's servers still show when their record can't be writte
   'return nil' \
   ./internal/panel '^TestAJoinedMachinesServersShowWhenTheirRecordCantBeWritten$'
 control "a joined machine's server whose record isn't saved goes to no machine, not the dashboard's own" internal/panel/workspace.go \
-  'if joinedListed && !s.listings.has(local.ID, serverID) {' \
-  'if false && joinedListed && !s.listings.has(local.ID, serverID) {' \
+  'case joinedListed:
+		return machine{}, errServerMachine' \
+  'case false && joinedListed:
+		return machine{}, errServerMachine' \
   ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
 control "a failed claim never shows another machine's server" internal/panel/machines.go \
   'case rec.machineID != m.ID:
@@ -3237,6 +3239,26 @@ control "a joined machine's server name is checked before it's posted" internal/
   'name, err := validName(req.ServerName)' \
   'name, err := req.ServerName, error(nil)' \
   ./internal/agent '^TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName$'
+control "a listing claimed after its machine was removed changes nothing" internal/panel/machines.go \
+  'case revoked != 0:
+			return errMachineGone' \
+  'case false && revoked != 0:
+			return errMachineGone' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a server made while a listing was on its way keeps its record" internal/panel/machines.go \
+  'WHERE machine_id = ? AND seen_at <= ?' \
+  'WHERE machine_id = ? AND seen_at <= ? + 1e15' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a removed machine's server goes to no machine, not the dashboard's own" internal/panel/workspace.go \
+  'case recorded:
+		return machine{}, errNotFound' \
+  'case false && recorded:
+		return machine{}, errNotFound' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
+  'case owner != m.ID && !ownerActive:' \
+  'case false && owner != m.ID && !ownerActive:' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
