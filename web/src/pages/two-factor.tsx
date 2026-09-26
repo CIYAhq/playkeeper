@@ -7,6 +7,7 @@ import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { CodeField } from '@/components/app/code-field'
 import { useIsPhone } from '@/components/app/controls'
+import { PasswordField } from '@/components/app/password-field'
 import { PhoneBackHeader } from '@/components/app/shell'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
@@ -16,7 +17,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { PasswordField } from './onboarding'
 
 /** How many recovery codes a new set has (twofactor.RecoveryCodeCount). */
 export const recoveryCodeCount = 10

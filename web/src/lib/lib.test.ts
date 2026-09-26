@@ -4,7 +4,7 @@ import type { Address, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress,
 import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
 import { lineRuns } from '@/components/app/line-chart'
 import { packRequest } from '@/pages/new-server'
-import { passwordStrength } from '@/pages/onboarding'
+import { passwordStrength } from '@/components/app/password-field'
 import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'

@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, PuzzleIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
@@ -7,7 +7,7 @@ import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
-import { LoadingLabel } from '@/components/app/skeletons'
+import { LoadingLabel, TabSkeleton } from '@/components/app/skeletons'
 import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -21,15 +21,19 @@ import { addonTab } from '@/lib/addons'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
-import { ConsolePage } from './console'
 import { Overview } from './overview'
-import { PlayersPage } from './players'
-import { PluginsPage, PluginsPhoneHeader } from './plugins'
-import { RunningPage } from './running'
-import { ServerSettingsPage } from './settings'
-import { WorldPage } from './world'
-import { PacksPage } from './world-packs'
-import { PregenPage } from './world-pregen'
+import { PluginsPhoneHeader } from './plugins/header'
+
+// The Overview comes with the server page; each other tab's code loads the
+// first time it shows.
+const ConsolePage = lazy(() => import('./console').then((m) => ({ default: m.ConsolePage })))
+const PlayersPage = lazy(() => import('./players').then((m) => ({ default: m.PlayersPage })))
+const PluginsPage = lazy(() => import('./plugins').then((m) => ({ default: m.PluginsPage })))
+const RunningPage = lazy(() => import('./running').then((m) => ({ default: m.RunningPage })))
+const ServerSettingsPage = lazy(() => import('./settings').then((m) => ({ default: m.ServerSettingsPage })))
+const WorldPage = lazy(() => import('./world').then((m) => ({ default: m.WorldPage })))
+const PacksPage = lazy(() => import('./world-packs').then((m) => ({ default: m.PacksPage })))
+const PregenPage = lazy(() => import('./world-pregen').then((m) => ({ default: m.PregenPage })))
 
 const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
   { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
@@ -112,7 +116,7 @@ export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: Server
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
       <PageBody key={pageKey} className="flex flex-1 animate-page flex-col gap-4">
-        {body}
+        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
       </PageBody>
     </>
   )
