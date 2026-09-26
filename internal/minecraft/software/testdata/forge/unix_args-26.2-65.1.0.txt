@@ -1,0 +1,1 @@
+-Djava.net.preferIPv6Addresses=system -XX:+UseCompactObjectHeaders -jar forge-26.2-65.1.0-shim.jar
