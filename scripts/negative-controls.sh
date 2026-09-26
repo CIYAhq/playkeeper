@@ -3914,6 +3914,7 @@ control "the recovery key downloads as bytes, whatever type its machine gives" i
   'h.Set("Content-Type", "application/octet-stream")' \
   'h.Set("Content-Type", resp.Header.Get("Content-Type"))' \
   ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+# shellcheck disable=SC2016
 control "the recovery key is a file to save, never shown in the tab" internal/panel/automation.go \
   'h.Set("Content-Disposition", `attachment; filename="`+recoveryKeyFileName' \
   'h.Set("Content-Disposition", `inline; filename="`+recoveryKeyFileName' \
@@ -3998,7 +3999,7 @@ webcontrol "an add-on only on its author's site links only to another site" web/
               <Button variant="outline" size={size} className="w-full" render={<a href={externalLink(f.url)}' \
   '{f.url && (
               <Button variant="outline" size={size} className="w-full" render={<a href={f.url}' \
-  web/src/pages/server/plugins/plugins.test.tsx 'sends people to the author’s site at'
+  web/src/pages/server/plugins/plugins.test.tsx 'sends people to the author.s site at'
 webcontrol "a dependency from another site links only to another site" web/src/pages/server/plugins/detail.tsx \
   '{externalLink(f.url) && (
               <Button
@@ -4016,7 +4017,7 @@ webcontrol "a dependency from another site links only to another site" web/src/p
 webcontrol "an installed add-on's source page opens only on another site" web/src/pages/server/plugins/state.tsx \
   'const link = externalLink(d.card.pageUrl)' \
   'const link = d.card.pageUrl' \
-  web/src/pages/server/plugins/plugins.test.tsx 'opens an installed add-on’s source page at'
+  web/src/pages/server/plugins/plugins.test.tsx 'opens an installed add-on.s source page at'
 webcontrol "a modpack links only to its page on another site" web/src/components/app/modpacks.tsx \
   '{externalLink(card.pageUrl) && (
                 <a href={externalLink(card.pageUrl)}' \
