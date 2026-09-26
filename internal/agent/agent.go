@@ -101,6 +101,9 @@ type Options struct {
 	// DataPackWait bounds how long switching a data pack on or off waits
 	// for the server to reload its data (default a minute).
 	DataPackWait time.Duration
+	// PortHolder names the process listening on a host TCP port, for a
+	// start that failed over a taken port (default: read from /proc).
+	PortHolder func(port int) (name string, pid int, ok bool)
 }
 
 // Retention bounds stored analytics and audit data.
@@ -184,6 +187,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.ProcStat == nil {
 		opts.ProcStat = func() ([]byte, error) { return os.ReadFile("/proc/stat") }
+	}
+	if opts.PortHolder == nil {
+		opts.PortHolder = func(port int) (string, int, bool) { return portHolder("/proc", port) }
 	}
 	if opts.DiskUsage == nil {
 		opts.DiskUsage = diskUsage

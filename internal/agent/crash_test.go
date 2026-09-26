@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -184,6 +185,72 @@ func TestFailedStartIsExplained(t *testing.T) {
 	}
 	if c := e.status().Crash; c != nil {
 		t.Fatalf("stopping the server did not put the crash away: %+v", c)
+	}
+}
+
+// A start Docker refused because the game port is taken names the program
+// holding the port, when the agent can see it; one it can't see is left out.
+// A start that failed for another reason doesn't look.
+func TestPortCrashNamesTheProgramHoldingThePort(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.crashBackoff = []time.Duration{time.Hour}
+	var mu sync.Mutex
+	var asked []int
+	holder := "java"
+	e.portHolder = func(port int) (string, int, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked = append(asked, port)
+		return holder, 48211, holder != ""
+	}
+	e.start()
+	e.create()
+	run := func(verb string) *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", verb, code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	start := func() *api.Crash {
+		t.Helper()
+		if op := run("start"); op.Status != api.OpFailed {
+			t.Fatalf("start: %+v", op)
+		}
+		return e.waitCrash()
+	}
+	run("stop")
+
+	e.fd.mu.Lock()
+	e.fd.bootExit = 134
+	e.fd.mu.Unlock()
+	if c := start(); c.Params["holder"] != nil {
+		t.Fatalf("a start that failed inside the server named a port holder: %v", c.Params)
+	}
+	mu.Lock()
+	if len(asked) != 0 {
+		t.Errorf("looked for a port holder %d time(s) for a failure that wasn't the port", len(asked))
+	}
+	mu.Unlock()
+
+	e.fd.mu.Lock()
+	e.fd.bootExit = 0
+	e.fd.startErr = "driver failed programming external connectivity on endpoint pk: Bind for 0.0.0.0:25565 failed: port is already allocated"
+	e.fd.mu.Unlock()
+	c := start()
+	if c.Kind != "port_in_use" || c.Params["holder"] != "java" || c.Params["holder_pid"] != 48211 {
+		t.Fatalf("got %s with %v", c.Kind, c.Params)
+	}
+	mu.Lock()
+	if len(asked) != 1 || asked[0] != e.srv().gamePort {
+		t.Errorf("asked about ports %v, want the server's %d", asked, e.srv().gamePort)
+	}
+	holder = ""
+	mu.Unlock()
+	if c := start(); c.Kind != "port_in_use" || c.Params["holder"] != nil || c.Params["holder_pid"] != nil {
+		t.Fatalf("a holder the agent can't see: got %s with %v", c.Kind, c.Params)
 	}
 }
 

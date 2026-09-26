@@ -114,6 +114,13 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, s
 			}
 		}
 	}
+	if d.Kind == diagnose.CrashPortInUse && d.Params["reason"] == nil && in.DockerError != "" {
+		if port, ok := d.Params["port"].(int); ok {
+			if name, pid, ok := s.opts.PortHolder(port); ok {
+				c.Params["holder"], c.Params["holder_pid"] = name, pid
+			}
+		}
+	}
 	if d.Kind == diagnose.CrashDiskFull {
 		var total int64
 		for _, b := range backups {

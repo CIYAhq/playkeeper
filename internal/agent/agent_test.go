@@ -59,6 +59,9 @@ type agentEnv struct {
 	// pregenResumeAfter, when set, is how long the server must be empty
 	// before a task paused for players continues.
 	pregenResumeAfter time.Duration
+	// portHolder, when set, names the program on a taken port; otherwise
+	// none is found.
+	portHolder func(port int) (string, int, bool)
 	// sid is the server most helpers act on: the one create made last.
 	sid string
 	// live is the running agent, for the fake RCON's password check.
@@ -130,6 +133,10 @@ func (e *agentEnv) start() {
 	if backoff == nil {
 		backoff = []time.Duration{0}
 	}
+	holder := e.portHolder
+	if holder == nil {
+		holder = func(int) (string, int, bool) { return "", 0, false }
+	}
 	a, err := New(Options{
 		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
 		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
@@ -144,6 +151,7 @@ func (e *agentEnv) start() {
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 		Addons: e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
+		PortHolder: holder,
 	})
 	if err != nil {
 		e.t.Fatal(err)
