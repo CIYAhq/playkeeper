@@ -1,10 +1,13 @@
 import type { Page, Request, Route } from '@playwright/test'
+import { addonKeyProblem, answerRead, installJob, isAddonRead, recordedFolder, updateJob, type JobStart, type World } from './addon-fixtures'
 
 // Realistic stand-ins for every API call that changes something, so the
 // click-through can press every button without restarting, deleting or
-// downloading anything. Reads go to the real panel. Each fake checks the
-// request the way the panel does (CSRF and origin headers, body shape, the
-// preference key rule) and answers with the shape the real handler returns.
+// downloading anything. Reads go to the real panel, except a server's
+// add-ons: those are answered from recorded fixtures (addon-fixtures.ts) and
+// never reach it. Each fake checks the request the way the panel does (CSRF
+// and origin headers, body shape, the preference key rule) and answers with
+// the shape the real handler returns.
 
 export interface ApiCall {
   method: string
@@ -25,15 +28,22 @@ interface Reply {
   expected?: boolean
 }
 
-type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply
+/** A fake's answer, or undefined when it has none, which is reported like a write without a fake. */
+type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply | undefined
 
 interface FakeState {
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
-  /** The real panel's last answer to each read of a server's add-ons, packs and pre-generation, by path. */
+  /** The last answer the page got to each read of a server's add-ons, packs and pre-generation, by path. */
   reads: Map<string, Record<string, unknown>>
   opSeq: number
+  /** What the page's reads show (see View). */
+  view: () => View
+  /** Each server's phase in the last list of servers. */
+  phases: Map<string, string>
+  /** How each faked add-on job ended, by operation id. */
+  jobs: Map<string, Record<string, unknown>>
 }
 
 const name = /^[A-Za-z0-9_]{3,16}$/
@@ -252,8 +262,8 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { removed: [rec.name], warnings: [] } }
     },
   ],
-  ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => (confirmed(r.body) && Array.isArray((r.body as { addons?: unknown }).addons) ? op(state, 'addon-update', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
-  ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => (confirmed(r.body) && typeof (r.body as { projectId?: unknown }).projectId === 'string' ? op(state, 'addon-install', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => addonJob(state, 'addon-update', r.params[0], updateJob(r.body, addonWorld(state, r.params[0])))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => addonJob(state, 'addon-install', r.params[0], installJob(r.body, addonWorld(state, r.params[0])))],
 ]
 
 interface AddonRecord {
@@ -266,7 +276,7 @@ interface AddonRecord {
 
 const notManaged = refuse(404, 'not_managed', 'Playkeeper did not install this add-on, so it cannot manage it.', 'Scan the folder to let Playkeeper identify files added by hand.')
 
-/** What the real panel last answered to a read of the server's add-ons, packs or pre-generation. */
+/** What the page last got for a read of the server's add-ons, packs or pre-generation. */
 function lastRead(state: FakeState, serverId: string | undefined, what: string): Record<string, unknown> {
   return state.reads.get(`/api/servers/${serverId}/${what}`) ?? {}
 }
@@ -296,14 +306,6 @@ function changeDataPack(state: FakeState, [serverId, encoded]: string[], change:
   return { status: 200, body: { ...dp, packs: packs.flatMap((p) => (p.name === name ? change(p) : [p])) } }
 }
 
-/** The agent's check of the add-on a request names. */
-function addonKeyProblem(k: unknown): string | undefined {
-  const { source, projectId } = (k ?? {}) as { source?: unknown; projectId?: unknown }
-  if (source !== 'modrinth' && source !== 'hangar') return 'Add-ons come from Modrinth or Hangar.'
-  if (typeof projectId !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(projectId) || projectId === '.' || projectId === '..') return 'That is not a valid project id.'
-  return undefined
-}
-
 /** The add-ons Playkeeper manages on the server, from the last list of its folder; gone ones have lost their file. */
 function managedAddons(state: FakeState, serverId: string | undefined): AddonRecord[] {
   const { files = [], missing = [] } = lastRead(state, serverId, 'addons') as { files?: { status: string; addon?: AddonRecord }[]; missing?: AddonRecord[] }
@@ -315,9 +317,25 @@ function sameAddon(a: AddonRecord, k: unknown): boolean {
   return a.source === source && a.projectId === projectId
 }
 
-/** An add-on install or update carries the fingerprint of the plan the user confirmed. */
-function confirmed(body: unknown): boolean {
-  return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
+/** The phases in which a server's container runs (web/src/lib/phase.ts), so a finished add-on job asks for a restart. */
+const running = ['online', 'starting', 'starting_container', 'preparing_world', 'downloading_server', 'stopping']
+
+/** The server as the add-on fixtures see it: its folder as the Plugins tab last showed it, and whether it runs. */
+function addonWorld(state: FakeState, serverId: string | undefined): World {
+  const path = `/api/servers/${serverId}/addons`
+  const folder = recordedFolder()
+  const addons = state.reads.get(path) ?? ((lay(state.view(), path, folder) as Record<string, unknown> | undefined) ?? folder)
+  return { addons, running: running.includes(state.phases.get(serverId ?? '') ?? '') }
+}
+
+/** Starts a faked add-on job that ends the way the fixtures say, or refuses it; undefined when they have no answer. */
+function addonJob(state: FakeState, kind: string, serverId: string | undefined, start: JobStart | undefined): Reply | undefined {
+  if (!start) return undefined
+  if ('refused' in start) return { status: start.refused.status, body: start.refused.body, headers: start.refused.headers }
+  const started = op(state, kind, serverId)
+  const begun = started.body as Record<string, unknown>
+  state.jobs.set(String(begun.id), { ...begun, ...start.ends, finishedAt: new Date().toISOString() })
+  return started
 }
 
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
@@ -428,21 +446,46 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
   }
 }
 
-/** Writes that only work out what another write would do and change nothing, so the real panel answers them. */
+/** Writes that only work out what another write would do and change nothing, so they're answered like reads. */
 const plans = [
-  // Wave 1: what updating plugins or mods would do.
+  // Wave 1: what updating plugins or mods would do, from the recorded fixtures.
   /^\/api\/servers\/\w+\/addons\/update\/plan$/,
 ]
+
+/** The panel's refusal of a write without its CSRF headers; signing in and setting up come before there's a token. */
+function csrfRefusal(path: string, headers: Record<string, string>): Reply | undefined {
+  if (headers['x-requested-with'] === 'playkeeper' && (path === '/api/auth/login' || path === '/api/setup' || headers['x-csrf-token'])) return undefined
+  return { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
+}
+
+/** A POST's body as the panel reads it: none, JSON, or text it refuses. */
+function posted(request: Request): unknown {
+  const raw = request.postData() ?? ''
+  if (raw === '') return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function notePhases(state: FakeState, servers: unknown) {
+  if (!Array.isArray(servers)) return
+  for (const s of servers as { id?: unknown; phase?: unknown }[]) if (typeof s.id === 'string') state.phases.set(s.id, String(s.phase ?? ''))
+}
 
 /**
  * Serves the fakes on a page. The returned list collects every API call with
  * its status; unknown writes answer 501 and are listed as unfaked so a new
- * endpoint can't slip through unchecked. Reads show `view()` (see View).
+ * endpoint can't slip through unchecked, and add-on reads the fixtures have
+ * no answer for do the same and are listed as unrecorded. Reads show
+ * `view()` (see View).
  */
-export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
+export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[]; unrecorded: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0 }
+  const unrecorded: string[] = []
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0, view, phases: new Map(), jobs: new Map() }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -456,8 +499,8 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    // Planning changes nothing, so the real panel answers.
-    const planning = method === 'POST' && plans.some((re) => re.test(path))
+    // Planning changes nothing, so it's answered like a read once it passes the panel's CSRF check.
+    const planning = method === 'POST' && plans.some((re) => re.test(path)) && !csrfRefusal(path, request.headers())
     if (method === 'GET' || method === 'HEAD' || planning) {
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
@@ -470,17 +513,35 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
         return
       }
-      // A faked job finishes at once, for the dialogs that follow it.
+      // A faked job finishes at once, for the dialogs that follow it; an add-on job ends the way the fixtures say.
       const fakeOp = /^\/api\/machines\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
       if (fakeOp?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
         const done = new Date().toISOString()
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: fakeOp[1], kind: 'addon-install', status: 'succeeded', phase: '', actor: 'admin', startedAt: done, finishedAt: done, detail: { files: [] } }) })
+        const ended = state.jobs.get(fakeOp[1]) ?? { id: fakeOp[1], kind: 'addon-install', status: 'succeeded', phase: '', actor: 'admin', startedAt: done, finishedAt: done, detail: { files: [] } }
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ended) })
         return
       }
       if (/^\/api\/servers\/\w+\/world-copies$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([leftoverWorld]) })
+        return
+      }
+      if (isAddonRead(method, path)) {
+        const answer = answerRead(method, url, planning ? posted(request) : undefined, addonWorld(state, /^\/api\/servers\/(\w+)\//.exec(path)?.[1]))
+        if (!answer) {
+          const error = `No recorded answer for ${method} ${path}.`
+          unrecorded.push(`${method} ${path}`)
+          calls.push({ method, path, status: 501, faked: true, error, at })
+          await route.fulfill({ status: 501, contentType: 'application/json', body: JSON.stringify({ error, code: 'internal' }) }).catch(() => {})
+          return
+        }
+        const image = Buffer.isBuffer(answer.body)
+        const body = image || answer.status !== 200 ? answer.body : (lay(view(), path, answer.body) ?? answer.body)
+        if (answer.status === 200 && /^\/api\/servers\/\w+\/addons(\/checks)?$/.test(path)) state.reads.set(path, body as Record<string, unknown>)
+        const error = answer.status >= 400 ? String((body as { error?: string }).error ?? '') : undefined
+        calls.push({ method, path, status: answer.status, faked: true, error, at })
+        await route.fulfill({ status: answer.status, headers: answer.headers, body: image ? (body as Buffer) : JSON.stringify(body) }).catch(() => {})
         return
       }
       const res = await route.fetch().catch(() => null)
@@ -494,6 +555,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
+        if (path === '/api/servers') notePhases(state, laid)
         await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
       }
@@ -502,18 +564,17 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
-        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
+        if (path === '/api/servers') notePhases(state, await res.json().catch(() => []))
       }
       // The page may have moved on and cancelled the request meanwhile.
       await route.fulfill({ response: res }).catch(() => {})
       return
     }
     const headers = request.headers()
-    let reply: Reply | undefined
-    if (headers['x-requested-with'] !== 'playkeeper' || (path !== '/api/auth/login' && path !== '/api/setup' && !headers['x-csrf-token'])) {
-      reply = { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
-    } else {
+    let reply = csrfRefusal(path, headers)
+    if (!reply) {
       let body: unknown
       if ((headers['content-type'] ?? '').includes('json')) {
         try {
@@ -541,5 +602,5 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     calls.push({ method, path, status: reply.status, faked: true, error, expected: reply.expected, at })
     await route.fulfill({ status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers }, body: reply.raw ?? JSON.stringify(reply.body ?? {}) })
   })
-  return { calls, unfaked }
+  return { calls, unfaked, unrecorded }
 }

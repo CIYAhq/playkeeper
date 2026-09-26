@@ -1,4 +1,5 @@
 import type { ElementHandle, Page, Request } from '@playwright/test'
+import { isAddonRead } from './addon-fixtures'
 import { breakControl, installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
 import { installFakes, type ApiCall, type View } from './fakes'
 
@@ -110,6 +111,7 @@ export class Crawler {
   private quiet = false
   private calls: ApiCall[] = []
   private unfaked: string[] = []
+  private unrecorded: string[] = []
   private reqs: Req[] = []
   private seen = new Set<string>()
   private pageErrors: string[] = []
@@ -131,9 +133,10 @@ export class Crawler {
   ) {}
 
   async init() {
-    const { calls, unfaked } = await installFakes(this.page, this.baseURL, () => this.view)
+    const { calls, unfaked, unrecorded } = await installFakes(this.page, this.baseURL, () => this.view)
     this.calls = calls
     this.unfaked = unfaked
+    this.unrecorded = unrecorded
     await this.page.addInitScript(installPageHelpers)
     const page = this.page
     page.on('pageerror', (e) => this.pageErrors.push(e.message))
@@ -366,12 +369,14 @@ export class Crawler {
     return [...new Set(out)]
   }
 
-  private problems(since: number, errs: { page: number; console: number; calls: number; unfaked: number }): string[] {
+  private problems(since: number, errs: { page: number; console: number; calls: number; unfaked: number; unrecorded: number }): string[] {
     const out: string[] = []
     for (const e of this.pageErrors.slice(errs.page)) out.push(`page error: ${e}`)
     for (const e of this.consoleErrors.slice(errs.console)) out.push(`console error: ${e.slice(0, 200)}`)
     for (const c of this.calls.slice(errs.calls)) if (c.at >= since && c.status >= 400 && !c.expected) out.push(`${c.method} ${c.path} answered ${c.status}${c.error ? `: ${c.error}` : ''}`)
     for (const u of this.unfaked.slice(errs.unfaked)) out.push(`no fake for ${u}; the real panel was not called`)
+    for (const u of this.unrecorded.slice(errs.unrecorded)) out.push(`no recorded answer for ${u}; the real panel was not called`)
+    for (const c of this.calls.slice(errs.calls)) if (!c.faked && isAddonRead(c.method, c.path)) out.push(`${c.method} ${c.path} reached the panel; add-on reads come from the recorded fixtures`)
     return out
   }
 
@@ -402,7 +407,7 @@ export class Crawler {
     const before = await this.snap(true)
     if (!before) return { result: this.record(route, via, c, 'could not press', [], ['the page was not ready']), opened: false, revealed: false }
     const marks = { popups: this.popups, downloads: this.downloads, choosers: this.choosers }
-    const errs = { page: this.pageErrors.length, console: this.consoleErrors.length, calls: this.calls.length, unfaked: this.unfaked.length }
+    const errs = { page: this.pageErrors.length, console: this.consoleErrors.length, calls: this.calls.length, unfaked: this.unfaked.length, unrecorded: this.unrecorded.length }
     const keysBefore = new Set((await this.controls()).map((x) => x.key))
     const since = Date.now()
     const failed = await this.press(h, c)
@@ -496,6 +501,17 @@ export class Crawler {
       this.quiet = false
       await sabotage.dispose()
     }
+  }
+
+  /**
+   * Every add-on read the page made so far, pressed for or not: how many the
+   * recorded fixtures answered, those that reached the panel instead and
+   * those the fixtures had no answer for.
+   */
+  addonReads(): { answered: number; live: string[]; unrecorded: string[] } {
+    const reads = this.calls.filter((c) => isAddonRead(c.method, c.path))
+    const live = reads.filter((c) => !c.faked).map((c) => `${c.method} ${c.path}`)
+    return { answered: reads.length - live.length - this.unrecorded.length, live, unrecorded: [...this.unrecorded] }
   }
 
   private async explore(route: string) {
