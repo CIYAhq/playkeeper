@@ -55,7 +55,7 @@ Hierarchy: **project → machine → server**. A game is a property of a server,
 ## Other choices
 
 - **Player faces:** the panel fetches each player's skin from Mojang, crops the face and caches it in `panel.db`, so the browser only ever loads images from the panel and viewers' addresses never reach a third party. Players on a default skin, or whose skin can't be found, show their initials, because default skins are Mojang art.
-- **Logos:** the Paper, Purpur, Quilt, NeoForge and Fabric logos are shipped unaltered in one tile style, with their licences and attributions in `THIRD_PARTY_NOTICES` and [THIRD_PARTY.md](../THIRD_PARTY.md). Vanilla uses original pixel art. PaperMC's terms require written permission before any paid or cloud-hosted Playkeeper shows its logo.
+- **Logos:** the Paper, Purpur, Quilt, NeoForge, Fabric and Forge logos are shipped unaltered in one tile style, with their licences and attributions in `THIRD_PARTY_NOTICES` and [THIRD_PARTY.md](../THIRD_PARTY.md). Forge publishes no logo terms; its logo identifies the server software and is removed on request (owner's decision, 26 Sep 2026). Vanilla uses original pixel art. PaperMC's terms require written permission before any paid or cloud-hosted Playkeeper shows its logo.
 - **No Mojang art:** pixel art for play styles, worlds and empty states is original, as is Pip the mascot.
 
 ## Rejected alternatives

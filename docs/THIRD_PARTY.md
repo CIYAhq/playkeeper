@@ -56,8 +56,9 @@ The New server wizard shows these projects' own logos, unaltered, only to name t
 | Quilt | QuiltMC/art `quilt_logo_dark.svg` (849d6df) | CC0 1.0 | Quilt logo by the QuiltMC community (courtesy) |
 | NeoForge | neoforged/Documentation `logo.svg` (2924fdb) | MIT; the branding art is CC BY 4.0 | NeoForge logo © the NeoForged team, created by @Ridanisaurus, CC BY 4.0 |
 | Fabric | FabricMC/fabric `icon.png` (ba0d6c0) | Apache-2.0 (no NOTICE file) | — |
+| Forge | files.minecraftforge.net `static/images/apple-touch-icon.png` (Forge's own website, fetched 2026-09-26) | Forge logo, Forge Development LLC, used to identify the server software; removed on request | Forge logo, Forge Development LLC |
 
-Spigot, Bukkit and Folia are not offered, and Forge stays out until its team allows its logo to be shown. Add-on sources (Modrinth, Hangar, CurseForge) are named in text only.
+Spigot, Bukkit and Folia are not offered. Add-on sources (Modrinth, Hangar, CurseForge) are named in text only.
 
 Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies and are not shipped, apart from the two small pieces of Vite and Rolldown code listed above that the bundler puts into the UI.
 
