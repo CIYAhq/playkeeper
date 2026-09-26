@@ -217,11 +217,11 @@ func TestCreateFromTemplateDownloadsItsDataPacks(t *testing.T) {
 	}
 	tweaks, terrain := dataPackZip(t, "Tweaks", false), dataPackZip(t, "Terrain", false)
 	e.up.serve("https://packs.example.com/tweaks.zip", tweaks)
-	e.up.serve("https://packs.example.com/terrain.zip", terrain)
+	// The host now serves another file than the one the template names.
+	e.up.serve("https://packs.example.com/terrain.zip", dataPackZip(t, "Other terrain", false))
 	tf.Packs = []templates.Pack{
 		{Kind: templates.DataPack, Name: "Tweaks", URL: "https://packs.example.com/tweaks.zip", SHA1: sha1Hex(tweaks)},
-		// The host now serves another file than the one the template names.
-		{Kind: templates.DataPack, Name: "Terrain", URL: "https://packs.example.com/terrain.zip", SHA1: sha1Hex([]byte("the terrain the template was made with"))},
+		{Kind: templates.DataPack, Name: "Terrain", URL: "https://packs.example.com/terrain.zip", SHA1: sha1Hex(terrain)},
 		{Kind: templates.ResourcePack, Name: "Textures", URL: "https://packs.example.com/textures.zip", SHA1: sha1Hex([]byte("textures"))},
 	}
 	file, err := templates.MarshalFile(tf)
@@ -260,11 +260,106 @@ func TestCreateFromTemplateDownloadsItsDataPacks(t *testing.T) {
 		t.Fatalf("the resource pack was downloaded %d times", n)
 	}
 	sc, _ := e.srv().serverConfig()
-	if sc.Template == nil || sc.Template.Pending || e.countRows(`SELECT COUNT(*) FROM template_installs`) != 0 {
-		t.Fatalf("the import is finished: %+v", sc.Template)
+	if sc.Template == nil || sc.Template.Pending || len(sc.Template.Skipped) != 1 || sc.Template.Skipped[0].Params["name"] != "Terrain" {
+		t.Fatalf("the import is finished, and the skipped pack stays listed: %+v", sc.Template)
 	}
 	if e.audits("datapack.added") != 1 || e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'datapack.skipped' AND server_id = ?`, e.sid) != 1 {
 		t.Fatal("both data packs are audited")
+	}
+
+	// The host serves the pack the template names again: Try again puts it in.
+	e.up.serve("https://packs.example.com/terrain.zip", terrain)
+	code, out = e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("try again: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || op.Kind != "template-retry" {
+		t.Fatalf("try again: %+v", op)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Terrain.zip")); err != nil {
+		t.Fatalf("the data pack after trying again: %v", err)
+	}
+	sc, _ = e.srv().serverConfig()
+	if len(sc.Template.Skipped) != 0 || e.countRows(`SELECT COUNT(*) FROM template_installs`) != 0 {
+		t.Fatalf("nothing is left to try: %+v", sc.Template)
+	}
+}
+
+// withdraw takes a published version off the fake Modrinth, as when its
+// author deletes it; the function it returns puts it back.
+func (f *fakeSources) withdraw(id string) func() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	i := slices.IndexFunc(f.versions, func(v *fakeVersion) bool { return v.id == id })
+	if i < 0 {
+		f.t.Fatalf("no version %s", id)
+	}
+	v := f.versions[i]
+	f.versions = slices.Delete(f.versions, i, i+1)
+	return func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.versions = append(f.versions, v)
+	}
+}
+
+// A template add-on its source no longer offers is skipped, and stays on
+// the server's record after the first start (the status carries it) until
+// Try again installs it; the running server then needs a restart.
+func TestSkippedTemplateAddonsStayUntilTriedAgain(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	publishPinnable(f)
+	e.createWith(map[string]any{"memoryMB": 1536})
+	e.installAddon("fALzjamp")
+	e.installAddon("mvportal")
+	var exp api.TemplateExport
+	e.decode("GET", e.sp("/template"), &exp)
+	_, plan, _ := e.planTemplate(exp.File)
+	putBack := f.withdraw("CHUNKY41")
+
+	code, out := e.createFromTemplate(plan.Fingerprint, nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("create from the template: %+v", op)
+	}
+	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+	st := e.status()
+	if tpl := st.Config.Template; tpl == nil || tpl.Pending || len(tpl.Skipped) != 1 || tpl.Skipped[0].Params["name"] != "Chunky" || tpl.Skipped[0].Message == "" {
+		t.Fatalf("the status after the first start: %+v", st.Config.Template)
+	}
+	if recs, _ := e.srv().installedAddons(); len(recs) != 2 {
+		t.Fatalf("the other add-ons are installed: %v", recs)
+	}
+
+	putBack()
+	code, out = e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("try again: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded || op.Detail["restartNeeded"] != true {
+		t.Fatalf("try again: %+v", op)
+	}
+	recs, _ := e.srv().installedAddons()
+	var names []string
+	for _, rec := range recs {
+		names = append(names, rec.Name)
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"Chunky", "Multiverse-Core", "Multiverse-Portals"}) {
+		t.Fatalf("after trying again: %v", names)
+	}
+	if tpl := e.status().Config.Template; len(tpl.Skipped) != 0 || e.countRows(`SELECT COUNT(*) FROM template_installs`) != 0 {
+		t.Fatalf("nothing is left to try: %+v", tpl)
+	}
+	if !e.addonList().RestartNeeded {
+		t.Fatal("the running server is asked to restart for the new plugin")
+	}
+	if code, out := e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"}); code != 409 {
+		t.Fatalf("trying again with nothing left: %d %v", code, out)
 	}
 }
 

@@ -208,4 +208,7 @@ CREATE TABLE template_installs (
 	`
 ALTER TABLE servers ADD COLUMN packs_token TEXT NOT NULL DEFAULT '';
 `,
+	// Wave 4: the template's add-ons and data packs that could not be
+	// installed, as a JSON list, kept after the first start for Try again.
+	`ALTER TABLE template_installs ADD COLUMN skipped TEXT NOT NULL DEFAULT '[]';`,
 }

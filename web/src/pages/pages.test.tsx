@@ -238,6 +238,26 @@ describe('Overview', () => {
     expect(text).not.toContain('Checksum matched')
   })
 
+  it('keeps a template’s skipped add-on on the Overview after setup, with Try again', async () => {
+    const skipped = [{ kind: 'plan_changed', params: { name: 'ViaRewind' }, message: 'What this would do has changed since you confirmed it.' }]
+    const s = server({ config: { ...config, template: { name: 'Paper check', skipped } } })
+    vi.mocked(client.post).mockClear()
+    const text = await render(<Overview server={s} />)
+    expect(text).toContain('ViaRewind from the template isn’t installed')
+    expect(text).toContain('What this would do has changed since you confirmed it.')
+    await click('Try again')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/template/retry', {})
+
+    const busy = server({ config: s.config, operation: { id: 'op-1', kind: 'template-retry', status: 'running', phase: 'installing_addons', actor: 'siya', startedAt: new Date().toISOString() } })
+    await render(<Overview server={busy} />)
+    const retry = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Try again'))
+    expect(retry?.disabled).toBe(true)
+    expect(retry?.title).toBe('Installing Survival’s template add-ons. Try again when it’s done.')
+
+    const two = [...skipped, { kind: 'pack_hash_mismatch', params: { name: 'Terralith' }, message: 'Terralith doesn’t match.' }]
+    expect(await render(<Overview server={server({ config: { ...config, template: { name: 'Paper check', skipped: two } } })} />)).toContain('ViaRewind and Terralith from the template aren’t installed')
+  })
+
   it('counts a modpack’s files as each one is checked', async () => {
     const at = new Date().toISOString()
     const s = server({

@@ -955,6 +955,8 @@ export interface ServerTemplate {
   name: string
   /** Set until the template's add-ons are on the server; the next start installs the rest. */
   pending?: boolean
+  /** The template's add-ons and data packs that couldn't be installed, each with params.name; Try again retries them. */
+  skipped?: AddonNotice[]
 }
 
 export interface TemplateSettings {

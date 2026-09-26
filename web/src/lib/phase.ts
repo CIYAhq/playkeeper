@@ -129,6 +129,7 @@ const opKeys: Record<string, MessageKey> = {
   update: 'op.update',
   // Wave 4.
   reinstall: 'op.reinstall',
+  'template-retry': 'op.templateRetry',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */

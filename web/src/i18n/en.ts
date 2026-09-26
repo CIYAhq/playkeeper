@@ -1470,4 +1470,7 @@ export const en = {
   'new.note.namePack': 'After you start it, Playkeeper downloads {type} and the pack’s mods, checks each file, and tells you when friends can join.',
   'new.note.nameTemplate': 'After you start it, Playkeeper downloads {type} and the template’s add-ons, checks each file, and tells you when friends can join.',
   'new.note.nameAny': 'After you start it, Playkeeper downloads what it needs, checks it, and tells you when friends can join.',
+  'templateSkipped.title': { one: '{names} from the template isn’t installed', other: '{names} from the template aren’t installed' },
+  'templateSkipped.body': 'Playkeeper couldn’t install them when the server was set up.',
+  'op.templateRetry': 'Installing {server}’s template add-ons',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

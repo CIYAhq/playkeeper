@@ -253,6 +253,7 @@ func (s *Server) Routes() []Route {
 		view("/api/machines/{mid}/modpacks/icon", s.hAddonIcon),
 		// Wave 4: templates.
 		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
+		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),
 		{"POST", "/api/machines/{mid}/templates/plan", needSessionCSRF, actManageServers, s.rawUpload("/v1/templates/plan", "text/plain")},
 		// Wave 4: sharing the pack with friends; the public page is in
 		// publicRoutes.

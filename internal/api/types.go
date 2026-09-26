@@ -1268,6 +1268,10 @@ type ServerTemplate struct {
 	// Pending is set until the template's add-ons are on the server; the
 	// next start installs the rest.
 	Pending bool `json:"pending,omitempty"`
+	// Skipped are the template's add-ons and data packs that could not be
+	// installed, each with params["name"]; POST …/template/retry tries them
+	// again.
+	Skipped []AddonNotice `json:"skipped,omitempty"`
 }
 
 // TemplateSettings are the settings a template carries.

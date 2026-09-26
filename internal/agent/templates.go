@@ -369,54 +369,21 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 	if err != nil {
 		return err
 	}
-	skipped := []api.AddonNotice{}
+	var skips []templateSkip
 	if len(remaining) > 0 {
-		lib := s.lib()
-		if lib == nil {
-			return errors.New("the add-on library is not available")
-		}
-		_, srv, _, err := s.addonContext()
-		if err != nil {
-			return err
-		}
 		h.phase("installing_addons")
 		s.setRunPhase(api.PhaseDownloading, "")
 		done := len(planned) - len(remaining)
 		h.set("addons", done)
 		h.set("addonsTotal", len(planned))
 		for len(remaining) > 0 {
-			installed, err := s.installedAddons()
+			skip, err := s.installTemplateAddon(ctx, h, remaining[0], false)
 			if err != nil {
 				return err
 			}
-			pa := remaining[0]
-			res, err := templates.InstallAddon(ctx, lib, srv, installed, pa)
-			if err != nil {
-				return packFailure(h, err)
-			}
-			switch res.Status {
-			case templates.AddonInstalled:
-				if err := s.saveAddons(res.Records, nil, false); err != nil {
-					return err
-				}
-				for _, rec := range res.Records {
-					s.audit(h.op.Actor, "addon.installed", string(rec.Source)+":"+rec.ProjectID, "succeeded", rec.Name+" "+rec.VersionNumber)
-				}
-			case templates.AddonSkipped:
-				if sourceDown(res.Reason.Kind) {
-					return packFailure(h, &addons.Error{Notice: *res.Reason})
-				}
-				n := apiNotice(*res.Reason)
-				if n.Params["name"] == "" {
-					n.Params = maps.Clone(n.Params)
-					if n.Params == nil {
-						n.Params = map[string]string{}
-					}
-					n.Params["name"] = pa.Name
-				}
-				skipped = append(skipped, n)
-				h.set("skipped", skipped)
-				s.audit(h.op.Actor, "addon.skipped", string(pa.Source)+":"+pa.Project, "skipped", pa.Name+": "+n.Message)
+			if skip != nil {
+				skips = append(skips, *skip)
+				h.set("skipped", skipNotices(skips))
 			}
 			remaining = remaining[1:]
 			if err := s.saveTemplateRemaining(remaining); err != nil {
@@ -426,42 +393,95 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 			h.set("addons", done)
 		}
 	}
+	if err := s.linkTemplateDependencies(planned); err != nil {
+		return err
+	}
+	packSkips, err := s.installTemplatePacks(ctx, h, sc, dataPacks, skips)
+	if err != nil {
+		return err
+	}
+	skips = append(skips, packSkips...)
+	return s.settleTemplate(sc, skips)
+}
+
+// installTemplateAddon installs one of the template's add-ons through the
+// add-on library, which checks each download against the hash its source
+// publishes. An add-on the source no longer offers or that doesn't fit comes
+// back as a skip with its reason; a source that can't be reached stops.
+// changed says the running server must restart to load it.
+func (s *server) installTemplateAddon(ctx context.Context, h *opHandle, pa templates.PlannedAddon, changed bool) (*templateSkip, error) {
+	lib := s.lib()
+	if lib == nil {
+		return nil, errors.New("the add-on library is not available")
+	}
+	_, srv, _, err := s.addonContext()
+	if err != nil {
+		return nil, err
+	}
+	installed, err := s.installedAddons()
+	if err != nil {
+		return nil, err
+	}
+	res, err := templates.InstallAddon(ctx, lib, srv, installed, pa)
+	if err != nil {
+		return nil, packFailure(h, err)
+	}
+	switch res.Status {
+	case templates.AddonInstalled:
+		if err := s.saveAddons(res.Records, nil, changed); err != nil {
+			return nil, err
+		}
+		for _, rec := range res.Records {
+			s.audit(h.op.Actor, "addon.installed", string(rec.Source)+":"+rec.ProjectID, "succeeded", rec.Name+" "+rec.VersionNumber)
+		}
+		return nil, nil
+	case templates.AddonSkipped:
+		if sourceDown(res.Reason.Kind) {
+			return nil, packFailure(h, &addons.Error{Notice: *res.Reason})
+		}
+		n := apiNotice(*res.Reason)
+		n.Params = maps.Clone(n.Params)
+		if n.Params == nil {
+			n.Params = map[string]string{}
+		}
+		if n.Params["name"] == "" {
+			n.Params["name"] = pa.Name
+		}
+		s.audit(h.op.Actor, "addon.skipped", string(pa.Source)+":"+pa.Project, "skipped", pa.Name+": "+n.Message)
+		return &templateSkip{Addon: &pa, Notice: n}, nil
+	}
+	return nil, fmt.Errorf("the template's add-on %s ended in an unknown state", pa.Name)
+}
+
+// linkTemplateDependencies records which installed add-ons the template's
+// add-ons need, so removing one keeps the others working.
+func (s *server) linkTemplateDependencies(planned []templates.PlannedAddon) error {
 	installed, err := s.installedAddons()
 	if err != nil {
 		return err
 	}
 	if links := templates.LinkDependencies(installed, &templates.Plan{Addons: planned}); len(links) > 0 {
-		if err := s.saveAddons(links, nil, false); err != nil {
-			return err
-		}
+		return s.saveAddons(links, nil, false)
 	}
-	if err := s.installTemplatePacks(ctx, h, sc, dataPacks, skipped); err != nil {
-		return err
-	}
-	if _, err := s.db.Exec(`DELETE FROM template_installs WHERE server_id = ?`, s.id); err != nil {
-		return err
-	}
-	t := *sc.Template
-	t.Pending = false
-	sc.Template = &t
-	return s.saveServerConfig(*sc)
+	return nil
 }
 
 // installTemplatePacks downloads the template's data packs into the world
-// before the first start, through PackClient. A pack's host is anyone's, so
-// a pack that can't be downloaded or doesn't match its checksum is skipped
-// and reported rather than stopping the start.
-func (s *server) installTemplatePacks(ctx context.Context, h *opHandle, sc *api.ServerConfig, list []templates.Pack, skipped []api.AddonNotice) error {
+// through PackClient. A pack's host is anyone's, so a pack that can't be
+// downloaded or doesn't match its checksum is skipped and reported rather
+// than stopping the start. before are the skips so far, for the progress.
+func (s *server) installTemplatePacks(ctx context.Context, h *opHandle, sc *api.ServerConfig, list []templates.Pack, before []templateSkip) ([]templateSkip, error) {
 	if len(list) == 0 {
-		return nil
+		return nil, nil
 	}
 	if err := s.ensureDirs(); err != nil {
-		return err
+		return nil, err
 	}
 	h.phase("installing_addons")
 	s.setRunPhase(api.PhaseDownloading, "")
 	h.set("packsTotal", len(list))
 	d := s.dataPacks(sc)
+	var skips []templateSkip
 	for i, pk := range list {
 		h.set("packs", i)
 		err := s.installTemplatePack(ctx, d, pk)
@@ -470,16 +490,156 @@ func (s *server) installTemplatePacks(ctx context.Context, h *opHandle, sc *api.
 			continue
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 		n := templatePackNotice(err)
 		n.Params["name"] = pk.Name
-		skipped = append(skipped, n)
-		h.set("skipped", skipped)
+		skips = append(skips, templateSkip{Pack: &pk, Notice: n})
+		h.set("skipped", skipNotices(append(slices.Clone(before), skips...)))
 		s.audit(h.op.Actor, "datapack.skipped", pk.Name, "skipped", n.Message)
 	}
 	h.set("packs", len(list))
-	return nil
+	return skips, nil
+}
+
+// templateSkip is an add-on or data pack of the template a server was made
+// from that could not be installed, and why. The server page lists them
+// with Try again.
+type templateSkip struct {
+	Addon  *templates.PlannedAddon `json:"addon,omitempty"`
+	Pack   *templates.Pack         `json:"pack,omitempty"`
+	Notice api.AddonNotice         `json:"notice"`
+}
+
+func skipNotices(skips []templateSkip) []api.AddonNotice {
+	out := make([]api.AddonNotice, 0, len(skips))
+	for _, sk := range skips {
+		out = append(out, sk.Notice)
+	}
+	return out
+}
+
+// settleTemplate records that the template's install is over: what it
+// skipped stays, for the server page and Try again, and the rest of the
+// record goes.
+func (s *server) settleTemplate(sc *api.ServerConfig, skips []templateSkip) error {
+	if len(skips) == 0 {
+		if _, err := s.db.Exec(`DELETE FROM template_installs WHERE server_id = ?`, s.id); err != nil {
+			return err
+		}
+	} else {
+		b, err := json.Marshal(skips)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`UPDATE template_installs SET remaining = '[]', packs = '[]', skipped = ? WHERE server_id = ?`, string(b), s.id); err != nil {
+			return err
+		}
+	}
+	t := *sc.Template
+	t.Pending = false
+	t.Skipped = nil
+	if len(skips) > 0 {
+		t.Skipped = skipNotices(skips)
+	}
+	sc.Template = &t
+	return s.saveServerConfig(*sc)
+}
+
+// templateSkips are the template's add-ons and data packs that were skipped.
+func (s *server) templateSkips() ([]templateSkip, error) {
+	var v string
+	err := s.db.QueryRow(`SELECT skipped FROM template_installs WHERE server_id = ?`, s.id).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []templateSkip
+	if err := json.Unmarshal([]byte(v), &out); err != nil {
+		return nil, fmt.Errorf("the stored template add-ons are damaged: %w", err)
+	}
+	return out, nil
+}
+
+// hTemplateRetry tries the template's skipped add-ons and data packs again,
+// the way the first start did. What installs loads at the next restart.
+func (s *server) hTemplateRetry(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	skips, err := s.templateSkips()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	sc, err := s.serverConfig()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(skips) == 0 || sc == nil || sc.Template == nil || sc.Template.Pending {
+		writeError(w, errConflict("Nothing from the template is waiting to be installed.", ""))
+		return
+	}
+	op, err := s.beginOp("template-retry", actor, func(ctx context.Context, h *opHandle) error {
+		return s.retryTemplate(ctx, h, skips)
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, op)
+}
+
+func (s *server) retryTemplate(ctx context.Context, h *opHandle, skips []templateSkip) error {
+	sc, err := s.serverConfig()
+	if err != nil || sc == nil || sc.Template == nil {
+		return errConflict("The server no longer has its template's record.", "")
+	}
+	planned, _, _, err := s.templateInstall()
+	if err != nil {
+		return err
+	}
+	_, running, _ := s.containerRunning(ctx)
+	h.phase("installing_addons")
+	var addonTries []templates.PlannedAddon
+	var packTries []templates.Pack
+	for _, sk := range skips {
+		switch {
+		case sk.Addon != nil:
+			addonTries = append(addonTries, *sk.Addon)
+		case sk.Pack != nil:
+			packTries = append(packTries, *sk.Pack)
+		}
+	}
+	var still []templateSkip
+	h.set("addonsTotal", len(addonTries))
+	for i, pa := range addonTries {
+		h.set("addons", i)
+		skip, err := s.installTemplateAddon(ctx, h, pa, running)
+		if err != nil {
+			return err
+		}
+		if skip != nil {
+			still = append(still, *skip)
+			h.set("skipped", skipNotices(still))
+		}
+	}
+	h.set("addons", len(addonTries))
+	if err := s.linkTemplateDependencies(planned); err != nil {
+		return err
+	}
+	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)
+	if err != nil {
+		return err
+	}
+	still = append(still, packSkips...)
+	h.set("restartNeeded", running && len(still) < len(skips))
+	return s.settleTemplate(sc, still)
 }
 
 // templatePackNotice is why a template's data pack was skipped, keeping

@@ -18,7 +18,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine, ranOutOfMemory } from '@/lib/console'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
-import { createStepOf, isSettingUp, opLabel, packStepOf, templateStepOf, whyNot } from '@/lib/phase'
+import { busyReason, createStepOf, isSettingUp, opLabel, packStepOf, templateStepOf, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { addonKind } from '@/lib/software'
@@ -79,7 +79,7 @@ function recovered(s: ServerStatus): boolean {
 
 /** One quiet line at a time: test mode, Docker, a failed job, or settings waiting for a restart. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
-  const { stale, machine } = useWorkspace()
+  const { stale, machine, refresh } = useWorkspace()
   const [dismissed, setDismissed] = useState<string>()
   const [busy, setBusy] = useState(false)
   if (stale) return null
@@ -125,6 +125,39 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
         }
       >
         {t('overview.pendingRestartBody', { server: s.name })}
+      </Notice>
+    )
+  }
+  const skipped = s.config?.template?.skipped ?? []
+  if (skipped.length > 0 && !s.config?.template?.pending) {
+    const names = skipped.map((n) => n.params?.name ?? n.message)
+    return (
+      <Notice
+        title={t('templateSkipped.title', { count: skipped.length, names: formatList(names) })}
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            loading={busy}
+            disabledReason={busyReason(s)}
+            onClick={async () => {
+              setBusy(true)
+              try {
+                await post(serverApi(s.id, '/template/retry'), {})
+                await refresh()
+              } catch (e) {
+                toastManager.add({ title: errorText(e), type: 'error' })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <RefreshCwIcon />
+            {t('common.tryAgain')}
+          </Button>
+        }
+      >
+        {skipped.length === 1 ? skipped[0]?.message : t('templateSkipped.body')}
       </Notice>
     )
   }
