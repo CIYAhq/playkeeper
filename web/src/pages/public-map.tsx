@@ -23,11 +23,13 @@ export function PublicMapPage({ token }: { token: string }) {
   const valid = reToken.test(token)
   const base = `/api/public/map/${token}`
   const map = usePoll(() => (valid ? get<PublicMap>(base) : Promise.reject(new ApiError(404, { error: '', code: 'not_found' }))), 30_000, token)
-  const off = !valid || map.error?.status === 404
   const [last, setLast] = useState<PublicMap>()
   useEffect(() => {
     if (map.data) setLast(map.data)
   }, [map.data])
+  // Any failure before the map was ever shown, a proxy's 502 or a dropped
+  // connection too, reads as unavailable until an answer comes.
+  const off = !valid || map.error?.status === 404 || (!!map.error && !last)
   const shown = off ? undefined : (map.data ?? last)
 
   useEffect(() => {

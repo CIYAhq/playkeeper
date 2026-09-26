@@ -6,6 +6,7 @@ import * as client from '@/api/client'
 import type { Action, MachineView, MapInfo, MapPlayers, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { t } from '@/i18n'
+import { PublicMapPage } from '../public-map'
 import { MapPage } from './map'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -111,6 +112,19 @@ async function renderMap(info: MapInfo, players?: MapPlayers) {
 }
 
 const copyButton = () => document.querySelector<HTMLButtonElement>(`button[aria-label="${t('map.copyLink')}"]`)
+
+describe('The shared map page', () => {
+  it('says the map isn’t available when its first answer fails, instead of loading forever', async () => {
+    vi.mocked(client.get).mockImplementation((() => Promise.reject(new client.ApiError(502, { error: 'Bad gateway', code: 'internal' }))) as typeof client.get)
+    if (root) await act(async () => root?.unmount())
+    document.body.innerHTML = ''
+    const r = createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<PublicMapPage token={token} />))
+    await act(async () => {})
+    expect(document.body.textContent).toContain('This map isn’t available')
+  })
+})
 
 describe('Map sharing', () => {
   it('shows and copies the link with its token', async () => {

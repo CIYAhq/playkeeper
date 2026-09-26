@@ -3797,6 +3797,10 @@ webcontrol "a phone's World tab without backups links to backup rules" web/src/p
   '        <PhoneLink server={server} sub="backup-rules"' \
   '        <PhoneLink server={server} sub="packs"' \
   web/src/pages/server/world.test.tsx 'backup rules and your own world'
+webcontrol "the shared map is unavailable, not loading, when its first answer fails" web/src/pages/public-map.tsx \
+  'map.error?.status === 404 || (!!map.error && !last)' \
+  'map.error?.status === 404' \
+  web/src/pages/server/map.test.tsx 'first answer fails'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
