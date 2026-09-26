@@ -272,14 +272,14 @@ function NewInviteForm({ server, data, onClose, onCreated }: { server: ServerSta
             <span className="text-[13px] font-semibold">{t('invites.howMany')}</span>
             <NumberField value={spec.maxUses} onValueChange={(v) => v !== null && setSpec({ ...spec, maxUses: v })} min={1} max={100} step={1}>
               <NumberFieldGroup className="max-sm:h-11">
-                <NumberFieldDecrement aria-label={t('common.decrease')} className="border-e border-input" />
+                <NumberFieldDecrement aria-label={t('common.decrease')} className="border-e border-input sm:w-8 sm:px-0" />
                 <span className="flex min-w-0 flex-1 items-center justify-center gap-1">
                   <NumberFieldInput className="w-9 grow-0 px-0 text-right" aria-label={t('invites.howMany')} />
                   <span className="text-[13px] text-muted-foreground" aria-hidden="true">
                     {t('invites.friendsUnit', { count: spec.maxUses })}
                   </span>
                 </span>
-                <NumberFieldIncrement aria-label={t('common.increase')} className="border-s border-input" />
+                <NumberFieldIncrement aria-label={t('common.increase')} className="border-s border-input sm:w-8 sm:px-0" />
               </NumberFieldGroup>
             </NumberField>
           </div>
