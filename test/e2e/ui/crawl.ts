@@ -383,6 +383,8 @@ export class Crawler {
       const status: Status = c.reason ? 'disabled with a reason' : 'disabled without a reason'
       return { result: this.record(route, via, c, status, [], [], c.reason || undefined), opened: false, revealed: false }
     }
+    // Another app (an authenticator, mail, the phone) takes these, and a headless browser has none to show.
+    if (c.app) return { result: this.record(route, via, c, 'works', [`hands a ${c.app}: link to another app`]), opened: false, revealed: false }
     if (c.busy) {
       await this.page.waitForFunction((k) => !window.__pk.controls().find((x) => x.key === k)?.busy, c.key, { timeout: 8000 }).catch(() => {})
       const again = (await this.controls()).find((x) => x.key === c.key)

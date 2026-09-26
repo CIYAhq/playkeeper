@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, MachineView, Me, Operation, ServerConfig, ServerStatus } from '@/api/types'
+import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, Address, CuratedAddons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import type { ServerSub } from '@/lib/router'
 import { PluginsPage } from '.'
@@ -60,6 +60,9 @@ function workspace(): Workspace {
     lastSlug: undefined,
     setLastSlug: () => {},
     signOut: async () => {},
+    reloadMe: async () => {},
+    signInNotice: undefined,
+    dismissSignInNotice: () => {},
   }
 }
 
@@ -134,6 +137,21 @@ const updated = [
   { source: 'modrinth', projectId: 'coreprotect' },
 ]
 const updatePlan: AddonPlan = { steps: [step('Chunky', '1.4.40', '1.4.36'), step('CoreProtect', '23.2', '23.1')], manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'fp1' }
+
+const packShare: PackShare = {
+  public: false,
+  file: 'survival.mrpack',
+  size: 2048,
+  loaderName: 'Fabric',
+  share: {
+    server: 'Survival',
+    type: 'fabric',
+    minecraftVersion: '26.1.2',
+    loaderVersion: '0.17.2',
+    notice: { key: 'share.notice.one', params: { mod: 'Waystones' }, text: 'Friends need Waystones' },
+    mods: [],
+  },
+}
 
 let root: Root | undefined
 
@@ -392,6 +410,171 @@ describe('Plugins tab', () => {
     expect(text).toContain('Browse mods')
   })
 
+  it('offers Share with friends above a mod server’s mods, on desktop and phone', async () => {
+    answer([
+      ['/mods/share', packShare],
+      ['/addons/checks', checks],
+      ['/addons', { ...installed, target: { ...target, kind: 'mod', folder: 'mods' } }],
+    ])
+    let text = await render(server({ type: 'fabric' }), 'mods')
+    expect(text).toContain('Friends need Waystones')
+    expect(text).toContain('Send them one link to set it all up.')
+    expect(text.indexOf('Friends need Waystones')).toBeLessThan(text.indexOf('Mods on Survival'))
+    expect(button('Share with friends').tagName).toBe('BUTTON')
+
+    await act(async () => root?.unmount())
+    const media = vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) => ({ matches: query.includes('max-width: 639px'), media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList,
+    )
+    text = await render(server({ type: 'fabric' }), 'mods')
+    media.mockRestore()
+    expect(text).toContain('Send them one link.')
+    expect(button('Share with friends').tagName).toBe('BUTTON')
+  })
+
+  it('shares the pack under the machine’s name once it works there, and suggests a name first without one', async () => {
+    const shared: PackShare = { ...packShare, public: true, token: 'Fake0Share0Token0Abcde' }
+    const mods = { ...installed, target: { ...target, kind: 'mod' as const, folder: 'mods' } }
+    const named = {
+      kind: 'playkeeper',
+      host: 'alex.playkeeper.io',
+      panelPort: 8443,
+      free: { name: 'alex', state: 'active', dns: 'ok', claimedAt: '2026-09-20T10:00:00Z', refreshedAt: '2026-09-25T10:00:00Z' },
+      certificate: { notAfter: '2099-01-01T00:00:00Z' },
+    } as Address
+    const modded = server({ type: 'fabric', machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
+    const link = () => [...document.querySelectorAll('input')].find((i) => i.value.includes('/packs/'))?.value
+    answer([
+      ['/mods/share', shared],
+      ['/address', named],
+      ['/addons/checks', checks],
+      ['/addons', mods],
+    ])
+    await render(modded, 'mods')
+    let text = await click('Share with friends')
+    expect(link()).toBe('https://alex.playkeeper.io:8443/packs/Fake0Share0Token0Abcde')
+    expect(text).toContain('Press Play, then join survival.alex.playkeeper.io.')
+    expect(text).not.toContain('Set up an address first')
+
+    await act(async () => root?.unmount())
+    answer([
+      ['/mods/share', shared],
+      ['/address', { kind: '', panelPort: 8443 } as Address],
+      ['/addons/checks', checks],
+      ['/addons', mods],
+    ])
+    await render({ ...modded, joinAddress: undefined }, 'mods')
+    text = await click('Share with friends')
+    expect(link()).toBe(`${window.location.origin}/packs/Fake0Share0Token0Abcde`)
+    expect(text).toContain('Set up an address first so the link keeps working if the machine’s IP changes.')
+    expect(button('Machine settings').getAttribute('href')).toBe('/machines/m2345abcde/settings')
+    expect(button('Copy link').tagName).toBe('BUTTON')
+  })
+
+  it('lists a modpack’s mods with the pack, not as added by hand', async () => {
+    const pack = { source: 'modrinth' as const, projectId: 'TPK00001', versionId: 'TPV00001', name: 'Smooth Server', versionNumber: '1.2', mods: 2 }
+    const modded: Addons = {
+      ...installed,
+      target: { ...target, kind: 'mod', folder: 'mods' },
+      modpack: pack,
+      files: [
+        { fileName: chunky.fileName, size: 1, status: 'managed', addon: chunky },
+        { fileName: 'lithium-0.18.jar', size: 1, status: 'pack', name: 'Lithium', version: '0.18.0' },
+        { fileName: 'krypton-0.2.jar', size: 1, status: 'pack', name: 'Krypton', version: '0.2.9' },
+      ],
+      missing: [],
+      restartNeeded: false,
+    }
+    const share: PackShare = {
+      ...packShare,
+      share: {
+        ...packShare.share,
+        pack: { name: 'Smooth Server', version: '1.2', source: 'modrinth', need: 'required', label: { key: 'share.need.required', text: 'Friends need it' } },
+        mods: [{ name: 'Lithium', version: '0.18.0', path: 'mods/lithium-0.18.jar', from: 'pack', onServer: true, need: 'optional', label: { key: 'share.need.optional', text: 'Optional for friends' }, inFile: true }],
+      },
+    }
+    answer([
+      ['/mods/share', share],
+      ['/addons/checks', { ...checks, identified: [] }],
+      ['/addons', modded],
+    ])
+    let text = await render(server({ type: 'fabric' }), 'mods')
+    expect(text).toContain('Added by you')
+    expect(text).toContain('From the modpack')
+    expect(text).toContain('Smooth Server')
+    expect(text).toContain('2 mods · version 1.2')
+    expect(text).toContain('Friends need it')
+    expect(text).not.toContain('Added by hand')
+    expect(text).not.toContain('Let Playkeeper manage it')
+    expect(text).not.toContain('Lithium')
+    text = await click('Show all 2')
+    expect(text).toContain('Lithium0.18.0Optional for friends')
+    expect(text).toContain('Krypton0.2.9')
+    expect(text.indexOf('Krypton')).toBeLessThan(text.indexOf('Lithium'))
+    expect(await click('Show fewer')).not.toContain('Lithium')
+  })
+
+  it('says what friends need of each mod added by hand, with the restart line under the heading', async () => {
+    const waystones = addon('Waystones', { versionNumber: '21.1.4' })
+    const chunkyMod = addon('Chunky', { versionNumber: '1.4.40' })
+    const spark = addon('spark', { versionNumber: '1.10.124' })
+    const mods: Addons = {
+      target: { ...target, kind: 'mod', folder: 'mods' },
+      files: [waystones, chunkyMod, spark].map((m) => ({ fileName: m.fileName, size: 1, status: 'managed' as const, addon: m })),
+      missing: [],
+      warnings: [],
+      restartNeeded: false,
+    }
+    const label = (need: 'required' | 'optional' | 'server_only', text: string) => ({ need, label: { key: `share.need.${need}`, text } })
+    const share: PackShare = {
+      ...packShare,
+      share: {
+        ...packShare.share,
+        mods: [
+          { name: 'Waystones', path: 'mods/Waystones.jar', from: 'user', source: 'modrinth', project: waystones.projectId, onServer: true, inFile: true, ...label('required', 'Friends need it') },
+          { name: 'Chunky', path: 'mods/Chunky.jar', from: 'user', source: 'modrinth', project: chunkyMod.projectId, onServer: true, inFile: true, ...label('optional', 'Optional for friends') },
+          { name: 'spark', path: 'mods/spark.jar', from: 'user', source: 'modrinth', project: spark.projectId, onServer: true, inFile: false, ...label('server_only', 'Server only') },
+        ],
+      },
+    }
+    answer([
+      ['/mods/share', share],
+      ['/addons/checks', { ...checks, updates: [], identified: [] }],
+      ['/addons', mods],
+    ])
+    let text = await render(server({ type: 'fabric' }), 'mods')
+    expect(text).toContain('Mods on SurvivalChanges load after a restart.')
+    expect(text).toContain('Waystones21.1.4')
+    expect(text).toContain('Friends need it')
+    expect(text).toContain('Optional for friends')
+    expect(text).toContain('Server only')
+    expect(text).not.toContain('Up to date')
+    const need = [...document.querySelectorAll('li')].find((li) => li.textContent?.includes('Waystones'))
+    expect(need?.querySelector('.text-success-foreground')?.textContent).toBe('Friends need it')
+
+    await act(async () => root?.unmount())
+    const media = vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) => ({ matches: query.includes('max-width: 639px'), media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList,
+    )
+    text = await render(server({ type: 'fabric' }), 'mods')
+    media.mockRestore()
+    expect(text).toContain('1.4.40 · Optional for friends')
+    expect(text).toContain('1.10.124 · Server only')
+    expect(text).not.toContain('· Modrinth')
+  })
+
+  it('doesn’t offer Share with friends on a plugin server', async () => {
+    answer([
+      ['/mods/share', packShare],
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    const text = await render(server())
+    expect(text).toContain('Plugins on Survival')
+    expect(text).not.toContain('Share with friends')
+    expect(vi.mocked(client.get).mock.calls.some(([path]) => String(path).includes('/mods/share'))).toBe(false)
+  })
+
   it('shows an installed add-on’s details with Update and Remove', async () => {
     const details: AddonDetails = {
       card: card('Chunky', { source: 'hangar', projectId: '81', author: 'pop4959', license: 'GPL-3.0', pageUrl: 'https://hangar.papermc.io/pop4959/Chunky' }),
@@ -497,5 +680,77 @@ describe('Plugins tab', () => {
     expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search?q=ProtocolLib')).toBe(true)
     expect(text).toContain('ProtocolLib isn’t in the library. Add it by hand first.')
     expect(document.querySelector('a[href="https://github.com/dmulloy2/ProtocolLib/"]')).not.toBeNull()
+  })
+
+  const svc = card('Simple Voice Chat', { projectId: '9eGKb6K1', slug: 'simple-voice-chat' })
+  const picked: CuratedAddons = {
+    picks: [
+      { id: 'voice-chat', card: svc, ports: [{ protocol: 'udp', port: 24454 }] },
+      { id: 'rollback', card: card('CoreProtect', { projectId: 'Lu3KuzdV' }) },
+      { id: 'pregenerate', card: card('Chunky', { source: 'hangar', projectId: '81', installed: true }) },
+      { id: 'permissions', card: card('LuckPerms', { projectId: 'Vebnzrzj' }) },
+      { id: 'essentials', card: card('EssentialsX', { projectId: 'hXiIvTyT' }) },
+    ],
+  }
+  const library: AddonBrowse = { cards: [card('BlueMap')], more: false, unanswered: [] }
+  const none: Addons = { target, files: [], missing: [], warnings: [], restartNeeded: false }
+
+  it('shows four of Playkeeper’s picks before a search, then Most downloaded', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      answer([
+        ['/addons/checks', checks],
+        ['/addons/curated', picked],
+        ['/addons/search', library],
+        ['/addons', none],
+      ])
+      const text = await render(server(), 'plugins', 'browse')
+      expect(text).toContain('Picked by PlaykeeperHand-picked for Paper 26.1.2')
+      for (const line of ['Hear friends nearby, quieter as they walk away.', 'Needs one more port. Friends add the mod to talk.', 'Undo griefing, block by block.', 'Groups decide who can use which commands.']) expect(text).toContain(line)
+      expect(text).not.toContain('EssentialsX')
+      const headings = [...document.querySelectorAll('h3')].map((h) => h.textContent)
+      expect(headings).toEqual(['Picked by PlaykeeperHand-picked for Paper 26.1.2', 'Most downloaded'])
+      expect(text.lastIndexOf('Most downloaded')).toBeLessThan(text.indexOf('BlueMap'))
+      const search = document.querySelector<HTMLInputElement>('input[type="search"]')
+      if (!search) throw new Error('no search field')
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'maps')
+        search.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(400)
+      })
+      await act(async () => {})
+      expect(document.body.textContent).not.toContain('Picked by Playkeeper')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('asks before installing voice chat, then installs it and opens its port', async () => {
+    const details: AddonDetails = {
+      card: svc,
+      latest: version('2.6.4'),
+      plan: { steps: [{ ...step('Simple Voice Chat', '2.6.4'), projectId: '9eGKb6K1' }], manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'fp-voice' },
+      ports: [{ protocol: 'udp', port: 24454 }],
+    }
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/curated', picked],
+      ['/addons/project/modrinth/9eGKb6K1', details],
+      ['/addons/search', library],
+      ['/addons', none],
+    ])
+    reply([['/addons/install', () => ({ id: 'op-voice', kind: 'addon-install', status: 'running', phase: '', actor: 'siya', startedAt: '2026-09-26T00:00:00Z' })]])
+    await render(server(), 'plugins', 'browse')
+    const install = document.querySelector<HTMLButtonElement>('button[aria-label="Install Simple Voice Chat"]')
+    if (!install) throw new Error('no Install on the voice chat card')
+    await act(async () => install.click())
+    for (let i = 0; i < 5; i++) await act(async () => {})
+    const text = document.body.textContent ?? ''
+    for (const line of ['Add proximity voice chat', 'Simple Voice Chat · Modrinth', 'UDP 24454', 'one more port', 'Voice travels on its own port', 'Playkeeper opens it on my-vps. Open UDP 24454 in your provider’s firewall too.', 'How to open a port', 'Friends who want to talk', 'Friends add the Simple Voice Chat mod to talk.', 'Copy the link for friends', 'Survival restarts for about 20 s.']) expect(text).toContain(line)
+    expect(vi.mocked(client.post).mock.calls.some(([path]) => String(path).endsWith('/addons/install'))).toBe(false)
+    await click('Install and open the port')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/install', { source: 'modrinth', projectId: '9eGKb6K1', fingerprint: 'fp-voice', openPorts: true })
   })
 })

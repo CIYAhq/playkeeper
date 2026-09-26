@@ -447,7 +447,8 @@ func TestSharedMapIsRateLimitedPerAddress(t *testing.T) {
 // map's page and calls are in the group.
 func TestOnlyThePublicGroupAnswersWithoutSignIn(t *testing.T) {
 	e := newEnv(t)
-	signIn := map[string]bool{"GET /api/health": true, "GET /api/setup/status": true, "POST /api/setup": true, "POST /api/auth/login": true}
+	signIn := map[string]bool{"GET /api/health": true, "GET /api/setup/status": true, "POST /api/setup": true, "POST /api/auth/login": true,
+		"POST /api/auth/second-factor": true, "POST /api/auth/second-factor/cancel": true}
 	for _, rt := range e.srv.Routes() {
 		key := rt.Method + " " + rt.Pattern
 		switch {

@@ -7,26 +7,33 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
+	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
+	"github.com/CIYAhq/playkeeper/internal/templates"
 	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
@@ -59,10 +66,15 @@ type Options struct {
 	PingAddr        string
 	OfflineModeTest bool
 	HostMemoryMB    func() int
-	DiskUsage       func(path string) (free, total int64, err error)
-	CheckEgress     func(ctx context.Context) error
-	PortInUse       func(port int) bool
-	Retention       Retention
+	// ProcStat reads /proc/stat, for the machine's CPU use and steal.
+	ProcStat    func() ([]byte, error)
+	DiskUsage   func(path string) (free, total int64, err error)
+	CheckEgress func(ctx context.Context) error
+	PortInUse   func(port int) bool
+	// UDPPortInUse reports a UDP port something on the machine listens on;
+	// add-ons such as voice chat get one no one uses.
+	UDPPortInUse func(port int) bool
+	Retention    Retention
 	// StopTimeout bounds a graceful server stop (default 90s).
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
@@ -100,6 +112,47 @@ type Options struct {
 	// DataPackWait bounds how long switching a data pack on or off waits
 	// for the server to reload its data (default a minute).
 	DataPackWait time.Duration
+	// NamesHTTP carries requests to the free address service (tests); nil
+	// uses the names client's own, which never use a proxy.
+	NamesHTTP *http.Client
+	// Resolver looks up the machine's names as the public sees them
+	// (default: public DNS-over-HTTPS resolvers).
+	Resolver certs.Resolver
+	// Issue gets a certificate (tests replace Let's Encrypt with it).
+	Issue func(ctx context.Context, is *certs.Issuer, req certs.Request) (*certs.Certificate, error)
+	// HTTP01Addr is where Let's Encrypt's HTTP-01 checks are answered
+	// while a certificate is being issued (default ":80").
+	HTTP01Addr string
+	// AddressInterval is how often the address loop looks at the address
+	// (default 1 minute; negative turns the ticker off).
+	AddressInterval time.Duration
+	// PublishPoll is how often a free address's records are looked at
+	// while they are being published (default 30s, which the names
+	// service's per-key rate limit allows).
+	PublishPoll time.Duration
+	// PublicAddrs are the public addresses of the machine's network
+	// interfaces (tests).
+	PublicAddrs func() []netip.Addr
+	// CertRoots are the certificate authorities players' games trust, for
+	// resource pack links (tests); nil means the system's.
+	CertRoots *x509.CertPool
+	// PortHolder names the process listening on a host TCP port, for a
+	// start that failed over a taken port no Docker container publishes
+	// (default: read from /proc).
+	PortHolder func(port int) (name string, pid int, ok bool)
+	// UpstreamClient reads the server software and modpack upstreams
+	// (Mojang, Fabric, Quilt, NeoForge, Purpur, Modrinth, CurseForge) at
+	// their fixed HTTPS hosts; tests swap its transport. It defaults to
+	// HTTPClient.
+	UpstreamClient *http.Client
+	// Modpacks is the modpack library (tests). By default it reaches
+	// Modrinth, and CurseForge with the machine's key, through
+	// UpstreamClient, and is built again when the key changes.
+	Modpacks *modpacks.Library
+	// PackClient downloads the data packs a template names, from any
+	// public host but only over HTTPS to public addresses (default
+	// templates.PackClient); tests swap it.
+	PackClient *http.Client
 
 	// Wave 6: the live map.
 	// MapAddr maps the container address to squaremap's address (tests).
@@ -157,16 +210,44 @@ type Agent struct {
 	dockerOK      bool
 	dockerVersion string
 	hostCPU       *float64
-	hostPrev      cpuTimes
+	hostTimes     []cpuSnapshot
 
 	allowed map[uint32]bool
 
 	upd     updateState
 	catalog catalogCache
 	browse  browseCache
-	icons   iconCache
+	// curatedPicks are the curated add-ons that fit a type and Minecraft
+	// version (wave 4).
+	curatedPicks *ttlCache[[]curatedPick]
+	icons        iconCache
 	// packMu serializes changes to the resource pack store with pruning it.
 	packMu sync.Mutex
+	addr   addressRuntime
+	// panelCerts are the certificates the panel serves, looked at afresh
+	// for every resource pack link.
+	panelCerts *certs.Store
+
+	software softwareCache
+
+	// Wave 4: the modpack library with the CurseForge key in effect, and
+	// answers from the pack sources kept for a little while.
+	packLib          atomic.Pointer[modpacks.Library]
+	packKeyMu        sync.Mutex
+	packKey          curseforge.Key
+	packKeyProblem   string
+	keyFileMu        sync.Mutex
+	packSearches     *ttlCache[*api.ModpackResults]
+	packDetails      *ttlCache[*api.ModpackDetail]
+	packPreviews     *ttlCache[*api.ModpackPreview]
+	packPreviewSlots chan struct{}
+
+	// Wave 4: templates planned on this machine, by their plan's
+	// fingerprint, until a server is created from one.
+	templatePlans *ttlCache[*templates.Template]
+
+	// Wave 4: each server's friends' share, built on the first ask.
+	shares friendsShares
 
 	// Wave 6: the live map, and servers started from a world.
 	maps      mapState
@@ -190,6 +271,12 @@ func New(opts Options) (*Agent, error) {
 	if opts.HostMemoryMB == nil {
 		opts.HostMemoryMB = hostMemoryMB
 	}
+	if opts.ProcStat == nil {
+		opts.ProcStat = func() ([]byte, error) { return os.ReadFile("/proc/stat") }
+	}
+	if opts.PortHolder == nil {
+		opts.PortHolder = func(port int) (string, int, bool) { return portHolder("/proc", port) }
+	}
 	if opts.DiskUsage == nil {
 		opts.DiskUsage = diskUsage
 	}
@@ -198,6 +285,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.PortInUse == nil {
 		opts.PortInUse = portInUse
+	}
+	if opts.UDPPortInUse == nil {
+		opts.UDPPortInUse = udpPortInUse
 	}
 	if opts.RCONAddr == nil {
 		opts.RCONAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(rconPort)) }
@@ -235,6 +325,27 @@ func New(opts Options) (*Agent, error) {
 	if opts.FillURL == "" {
 		opts.FillURL = minecraft.DefaultFillURL
 	}
+	if opts.Resolver == nil {
+		opts.Resolver = certs.PublicResolver{}
+	}
+	if opts.HTTP01Addr == "" {
+		opts.HTTP01Addr = ":80"
+	}
+	if opts.AddressInterval == 0 {
+		opts.AddressInterval = time.Minute
+	}
+	if opts.PublishPoll == 0 {
+		opts.PublishPoll = 30 * time.Second
+	}
+	if opts.PublicAddrs == nil {
+		opts.PublicAddrs = func() []netip.Addr { return certs.ExpectedAddrs() }
+	}
+	if opts.UpstreamClient == nil {
+		opts.UpstreamClient = opts.HTTPClient
+	}
+	if opts.PackClient == nil {
+		opts.PackClient = templates.PackClient()
+	}
 	if opts.MapAddr == nil {
 		opts.MapAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(webmap.Port)) }
 	}
@@ -261,24 +372,40 @@ func New(opts Options) (*Agent, error) {
 	if opts.DataPackWait == 0 {
 		opts.DataPackWait = time.Minute
 	}
+	panelCerts, err := certs.NewStore(certs.StoreOptions{Dir: cfg.CertsDir(), Now: opts.Now, RecheckEvery: -1})
+	if err != nil {
+		return nil, err
+	}
 	db, err := store.Open(filepath.Join(cfg.AgentDir(), "agent.db"), migrations)
 	if err != nil {
 		return nil, err
 	}
 	a := &Agent{
-		cfg:     cfg,
-		opts:    opts,
-		db:      db,
-		docker:  docker.New(cfg.DockerSocket),
-		log:     opts.Logger,
-		now:     opts.Now,
-		started: opts.Now(),
-		mopLock: make(chan struct{}, 1),
-		servers: map[string]*server{},
+		cfg:        cfg,
+		opts:       opts,
+		db:         db,
+		docker:     docker.New(cfg.DockerSocket),
+		log:        opts.Logger,
+		now:        opts.Now,
+		started:    opts.Now(),
+		mopLock:    make(chan struct{}, 1),
+		servers:    map[string]*server{},
+		panelCerts: panelCerts,
+
+		packSearches:     newTTLCache[*api.ModpackResults](5*time.Minute, 64),
+		packDetails:      newTTLCache[*api.ModpackDetail](10*time.Minute, 64),
+		packPreviews:     newTTLCache[*api.ModpackPreview](30*time.Minute, 32),
+		packPreviewSlots: make(chan struct{}, 2),
+		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
+		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),
 
 		mapClient: webmap.NewClient(),
 	}
+	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
+	if a.opts.Issue == nil {
+		a.opts.Issue = a.issue
+	}
 	a.allowed = map[uint32]bool{}
 	if len(opts.AllowedUIDs) > 0 {
 		for _, u := range opts.AllowedUIDs {
@@ -304,6 +431,7 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
+	a.loadAddress()
 	a.markInterruptedOperations(a.findInterruptedRestores()...)
 	a.pruneStages()
 	a.pruneArchiveLeftovers()
@@ -311,8 +439,8 @@ func New(opts Options) (*Agent, error) {
 }
 
 // Start launches the background loops: each server's follower, collector and
-// reconciler, and the machine's pruning, sampling and update checks. A
-// restore a previous agent process was in the middle of is finished first.
+// reconciler, and the machine's pruning, sampling, update checks and address.
+// A restore a previous agent process was in the middle of is finished first.
 func (a *Agent) Start() {
 	for _, s := range a.serverList() {
 		s.recoverAtStart()
@@ -321,6 +449,7 @@ func (a *Agent) Start() {
 	a.loop(a.pruneLoop)
 	a.loop(a.updateLoop)
 	a.loop(a.hostLoop)
+	a.loop(a.addressLoop)
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -562,6 +691,8 @@ func (a *Agent) routeTable() []Route {
 		{"DELETE", "/v1/servers/{id}/operators/{name}", srv((*server).hOperatorRemove)},
 		{"POST", "/v1/servers/{id}/kick", srv((*server).hKick)},
 		{"GET", "/v1/servers/{id}/metrics", srv((*server).hMetrics)},
+		{"GET", "/v1/servers/{id}/running", srv((*server).hRunning)},
+		{"GET", "/v1/servers/{id}/memory", srv((*server).hMemory)},
 		{"GET", "/v1/servers/{id}/players/sessions", srv((*server).hSessions)},
 		{"GET", "/v1/servers/{id}/players/summary", srv((*server).hSummary)},
 		{"GET", "/v1/servers/{id}/events", srv((*server).hEvents)},
@@ -571,6 +702,8 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/servers/{id}/backups/{bid}/download", srv((*server).hBackupDownload)},
 		{"DELETE", "/v1/servers/{id}/backups/{bid}", srv((*server).hBackupDelete)},
 		{"POST", "/v1/servers/{id}/backups/{bid}/restore", srv((*server).hRestoreFromBackup)},
+		{"POST", "/v1/servers/{id}/saving/resume", srv((*server).hSavingResume)},
+		{"POST", "/v1/servers/{id}/addons/remove-file", srv((*server).hRemoveAddon)},
 		{"POST", "/v1/servers/{id}/restore/upload", srv((*server).hRestoreUpload)},
 		{"GET", "/v1/servers/{id}/addons", srv((*server).hAddons)},
 		{"GET", "/v1/servers/{id}/addons/checks", srv((*server).hAddonChecks)},
@@ -614,6 +747,39 @@ func (a *Agent) routeTable() []Route {
 		// Follow-ups after 0.3.0.
 		{"GET", "/v1/servers/{id}/world-copies", srv((*server).hWorldCopies)},
 		{"DELETE", "/v1/servers/{id}/world-copies/{name}", srv((*server).hWorldCopyDelete)},
+		{"GET", "/v1/address", a.hAddress},
+		{"DELETE", "/v1/address", a.hAddressDelete},
+		{"GET", "/v1/address/available", a.hAddressAvailable},
+		{"GET", "/v1/address/alive/{nonce}", a.hAddressAlive},
+		{"GET", "/v1/address/plan", a.hAddressPlan},
+		{"POST", "/v1/address/claim", a.hAddressClaim},
+		{"POST", "/v1/address/refresh", a.hAddressRefresh},
+		{"POST", "/v1/address/release", a.hAddressRelease},
+		{"POST", "/v1/address/check", a.hAddressCheck},
+		{"POST", "/v1/address/certificate", a.hAddressCertificate},
+
+		// Wave 4: every server type.
+		{"GET", "/v1/catalog/builds", a.hCatalogBuilds},
+		{"POST", "/v1/servers/{id}/software/reinstall", srv((*server).hSoftwareReinstall)},
+		// Wave 4: modpacks.
+		{"GET", "/v1/modpacks", a.hModpackSearch},
+		{"GET", "/v1/modpacks/{source}/{project}", a.hModpackDetail},
+		{"GET", "/v1/modpacks/{source}/{project}/versions/{version}/preview", a.hModpackPreview},
+		// Wave 4: templates.
+		{"GET", "/v1/servers/{id}/template", srv((*server).hTemplate)},
+		{"POST", "/v1/servers/{id}/template/retry", srv((*server).hTemplateRetry)},
+		{"POST", "/v1/templates/plan", a.hTemplatePlan},
+		// Wave 4: sharing the pack with friends.
+		{"GET", "/v1/servers/{id}/mods/share", srv((*server).hPackShare)},
+		{"POST", "/v1/servers/{id}/mods/share", srv((*server).hPackShareSet)},
+		{"GET", "/v1/servers/{id}/mods/share.mrpack", srv((*server).hPackShareFile)},
+		{"GET", "/v1/packs/{token}", a.hPackLink},
+		// Wave 4: curated add-ons.
+		{"GET", "/v1/servers/{id}/addons/curated", srv((*server).hAddonCurated)},
+		// Wave 4: add-on sources.
+		{"GET", "/v1/addon-sources", a.hAddonSources},
+		{"POST", "/v1/addon-sources/curseforge", a.hCurseForgeKeySet},
+		{"DELETE", "/v1/addon-sources/curseforge", a.hCurseForgeKeyRemove},
 
 		// Wave 6: the live map and the shared map.
 		{"GET", "/v1/servers/{id}/map", srv((*server).hMap)},

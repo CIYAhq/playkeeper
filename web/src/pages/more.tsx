@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, MapIcon, PlusIcon, PuzzleIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, MapIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { Avatar, PageHeader, roleLabel } from '@/components/app/shell'
+import { TemplateDialog } from '@/components/app/templates'
 import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
 import { addonTab } from '@/lib/addons'
@@ -47,7 +48,7 @@ function Row({ icon, title, hint, to, href, onClick, danger }: { icon: ReactNode
   )
 }
 
-function Group({ label, children }: { label?: string; children: ReactNode }) {
+export function Group({ label, children }: { label?: string; children: ReactNode }) {
   return (
     <section>
       {label && <SectionLabel className="px-4 pb-2">{label}</SectionLabel>}
@@ -62,6 +63,7 @@ export function MorePage() {
   const phone = useIsPhone()
   const server = usePhoneServer()
   const [updateOpen, setUpdateOpen] = useState(false)
+  const [sharing, setSharing] = useState(false)
 
   useEffect(() => {
     if (!phone) navigate({ name: 'home' }, true)
@@ -103,6 +105,9 @@ export function MorePage() {
           <li>
             <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
           </li>
+          <li>
+            <Row icon={<Share2Icon />} title={t('template.menu')} hint={t('more.templateHint')} onClick={() => setSharing(true)} />
+          </li>
           {!complete(steps) && p.next && (
             <li>
               <Row icon={<ListChecksIcon />} title={t('checklist.title')} hint={t('checklist.nextLower', { done: p.done, total: p.total, step: stepTitle(p.next.id, true).toLowerCase() })} to={stepRoute(p.next.id, server)} />
@@ -125,7 +130,10 @@ export function MorePage() {
       </Group>
       <Group label={t('more.you')}>
         <li>
-          <Row icon={<Avatar name={ws.me.user.username} className="size-7" />} title={ws.me.user.username} hint={t('more.accountHint', { role: roleLabel(ws.me.user.role) })} to={{ name: 'settings' }} />
+          <Row icon={<Avatar name={ws.me.user.username} className="size-7" />} title={ws.me.user.username} hint={t('more.accountHint', { role: roleLabel(ws.me.user.role) })} to={{ name: 'account' }} />
+        </li>
+        <li>
+          <Row icon={<SettingsIcon />} title={t('nav.settings')} hint={t('more.globalHint')} to={{ name: 'settings' }} />
         </li>
         <li>
           <Row icon={<CircleHelpIcon />} title={t('nav.help')} href={t('nav.helpUrl')} />
@@ -140,6 +148,7 @@ export function MorePage() {
         {t('footer.version', { version: ws.me.version })}
       </p>
       <UpdateDialog open={updateOpen} onOpenChange={setUpdateOpen} />
+      {server && <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />}
     </div>
   )
 }

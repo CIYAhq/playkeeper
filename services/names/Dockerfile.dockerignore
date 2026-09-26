@@ -1,0 +1,11 @@
+# The build context is the repository root; send Docker only what the image uses.
+*
+!go.mod
+!go.sum
+!LICENSE
+!THIRD_PARTY_NOTICES
+!cmd/playkeeper-names
+!internal/names
+!internal/store
+**/*_test.go
+**/testdata

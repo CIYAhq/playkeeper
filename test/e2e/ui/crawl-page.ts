@@ -18,6 +18,8 @@ export interface ControlInfo {
   editable: boolean
   /** The control that was pressed last. */
   isTarget: boolean
+  /** The scheme of a link another app opens (otpauth, mailto, tel, sms), else empty. */
+  app: string
 }
 
 export interface Snapshot {
@@ -271,6 +273,7 @@ export function installPageHelpers() {
         autoClose: inMenu || (role === 'option' && inPopupList),
         editable: el instanceof HTMLInputElement && role === 'combobox',
         isTarget: el === target,
+        app: el instanceof HTMLAnchorElement && ['otpauth:', 'mailto:', 'tel:', 'sms:'].includes(el.protocol) ? el.protocol.slice(0, -1) : '',
       })
       list.push({ key, el })
     }

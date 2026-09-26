@@ -1,0 +1,236 @@
+[
+  {
+    "id": "Lu3KuzdV",
+    "slug": "coreprotect",
+    "project_type": "mod",
+    "team": "3SnFNpKk",
+    "title": "CoreProtect",
+    "description": "CoreProtect is a fast, efficient, data logging and anti-griefing tool. Rollback and restore any amount of damage. Designed with large servers in mind, CoreProtect will record and manage data without impacting your server performance.",
+    "client_side": "unsupported",
+    "server_side": "required",
+    "license": {
+      "id": "Artistic-2.0",
+      "name": "Artistic License 2.0",
+      "url": null
+    },
+    "loaders": [
+      "bukkit",
+      "folia",
+      "paper",
+      "purpur",
+      "spigot"
+    ],
+    "game_versions": [
+      "26.1.1",
+      "26.1.2",
+      "26.2"
+    ],
+    "updated": "2026-09-24T01:10:14.616365Z"
+  },
+  {
+    "id": "hXiIvTyT",
+    "slug": "essentialsx",
+    "project_type": "mod",
+    "team": "XFKJyide",
+    "title": "EssentialsX",
+    "description": "The essential plugin suite for Paper and Spigot servers.",
+    "client_side": "unsupported",
+    "server_side": "required",
+    "license": {
+      "id": "GPL-3.0-only",
+      "name": "GNU General Public License v3.0 only",
+      "url": null
+    },
+    "loaders": [
+      "bukkit",
+      "paper",
+      "spigot"
+    ],
+    "game_versions": [
+      "1.21.8",
+      "1.21.11",
+      "26.1.2"
+    ],
+    "updated": "2026-05-31T15:05:35.376401Z"
+  },
+  {
+    "id": "LVN9ygNV",
+    "slug": "ledger",
+    "project_type": "mod",
+    "team": "CL6O4s3E",
+    "title": "Ledger",
+    "description": "A serverside logging mod",
+    "client_side": "unsupported",
+    "server_side": "required",
+    "license": {
+      "id": "LGPL-3.0-only",
+      "name": "GNU Lesser General Public License v3.0 only",
+      "url": null
+    },
+    "loaders": [
+      "fabric",
+      "quilt"
+    ],
+    "game_versions": [
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "updated": "2026-09-19T20:43:52.277587Z"
+  },
+  {
+    "id": "9eGKb6K1",
+    "slug": "simple-voice-chat",
+    "project_type": "mod",
+    "team": "O9wOHL2n",
+    "title": "Simple Voice Chat",
+    "description": "A working voice chat in Minecraft!",
+    "client_side": "optional",
+    "server_side": "optional",
+    "license": {
+      "id": "LicenseRef-All-Rights-Reserved",
+      "name": "",
+      "url": null
+    },
+    "loaders": [
+      "bukkit",
+      "bungeecord",
+      "fabric",
+      "folia",
+      "forge",
+      "neoforge",
+      "paper",
+      "purpur",
+      "quilt",
+      "spigot",
+      "velocity",
+      "waterfall"
+    ],
+    "game_versions": [
+      "26.3-rc-3",
+      "26.3",
+      "26.4-snapshot-1"
+    ],
+    "updated": "2026-09-23T06:25:58.853866Z"
+  },
+  {
+    "id": "fALzjamp",
+    "slug": "chunky",
+    "project_type": "mod",
+    "team": "CohgUIPJ",
+    "title": "Chunky",
+    "description": "Pre-generates chunks, quickly and efficiently",
+    "client_side": "optional",
+    "server_side": "optional",
+    "license": {
+      "id": "GPL-3.0-only",
+      "name": "GNU General Public License v3.0 only",
+      "url": null
+    },
+    "loaders": [
+      "bukkit",
+      "fabric",
+      "folia",
+      "forge",
+      "neoforge",
+      "paper",
+      "spigot",
+      "sponge"
+    ],
+    "game_versions": [
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "updated": "2026-07-23T04:22:28.142267Z"
+  },
+  {
+    "id": "P1OZGk5p",
+    "slug": "viaversion",
+    "project_type": "mod",
+    "team": "U7ClvpJK",
+    "title": "ViaVersion",
+    "description": "Allow newer Java Edition clients to connect to older servers.",
+    "client_side": "optional",
+    "server_side": "optional",
+    "license": {
+      "id": "GPL-3.0-or-later",
+      "name": "GNU General Public License v3.0 or later",
+      "url": "https://github.com/ViaVersion/ViaVersion/blob/master/LICENSE"
+    },
+    "loaders": [
+      "bungeecord",
+      "fabric",
+      "folia",
+      "paper",
+      "sponge",
+      "velocity"
+    ],
+    "game_versions": [
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "updated": "2026-09-20T12:56:49.379302Z"
+  },
+  {
+    "id": "l6YH9Als",
+    "slug": "spark",
+    "project_type": "mod",
+    "team": "xI8OXSR4",
+    "title": "spark",
+    "description": "spark is a performance profiler for Minecraft clients, servers and proxies.",
+    "client_side": "optional",
+    "server_side": "optional",
+    "license": {
+      "id": "GPL-3.0-only",
+      "name": "GNU General Public License v3.0 only",
+      "url": "https://github.com/lucko/spark/blob/master/LICENSE.txt"
+    },
+    "loaders": [
+      "fabric",
+      "forge",
+      "neoforge",
+      "quilt"
+    ],
+    "game_versions": [
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "updated": "2026-09-19T07:44:39.577210Z"
+  },
+  {
+    "id": "Vebnzrzj",
+    "slug": "luckperms",
+    "project_type": "mod",
+    "team": "R4rvuFPx",
+    "title": "LuckPerms",
+    "description": "A permissions plugin/mod for Minecraft servers.",
+    "client_side": "unsupported",
+    "server_side": "required",
+    "license": {
+      "id": "MIT",
+      "name": "MIT License",
+      "url": "https://github.com/LuckPerms/LuckPerms/blob/master/LICENSE.txt"
+    },
+    "loaders": [
+      "bukkit",
+      "bungeecord",
+      "fabric",
+      "folia",
+      "forge",
+      "neoforge",
+      "paper",
+      "spigot",
+      "velocity",
+      "waterfall"
+    ],
+    "game_versions": [
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "updated": "2026-09-19T07:45:35.628116Z"
+  }
+]

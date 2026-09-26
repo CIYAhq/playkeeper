@@ -1,14 +1,17 @@
 # playkeeper.io
 
-This folder is the website at [playkeeper.io](https://playkeeper.io): one page with the install command, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
+This folder is the website at [playkeeper.io](https://playkeeper.io): the page with the install command and the share page for server templates, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
 
 | Path | Answer |
 | --- | --- |
 | `/` | the page (`index.html`, `style.css`, `copy.js`, `favicon.svg`) |
+| `/t` | the share page for server templates (`t.html`, `t.js`) |
 | `/install` | `302` to the latest release's `get.sh` |
 | `/healthz` | `200` with `ok`, for health checks |
 
-`Dockerfile` builds the image (nginx, pinned by digest, on port 80) with a health check on `/healthz`. `nginx.conf` holds the redirect, the health path and the security headers. CI builds the image and checks those paths on every pull request with `scripts/site-check.sh`.
+`Dockerfile` builds the image (nginx, pinned by digest, on port 80) with a health check on `/healthz`. `nginx.conf` holds the redirect, the share page's path, the health path and the security headers. CI builds the image and checks those paths on every pull request with `scripts/site-check.sh`, which also opens `/t` in headless Chrome.
+
+Template links from a Playkeeper dashboard point at `/t`, with the template after `#`. The page reads it there, in the browser, shows what the template holds, and sends the visitor on to the create-server page of their own dashboard, with the template after `#` again. Browsers never send what follows `#`, and the page makes no requests, so templates never reach this server. The visitor's dashboard address is remembered in their browser, nowhere else. The template format is in `internal/templates`.
 
 ## Host it with Coolify
 
@@ -63,7 +66,7 @@ curl -sI https://playkeeper.io/install   # a 302, with location: https://github.
 curl -s https://playkeeper.io/healthz    # ok
 ```
 
-Then open `https://playkeeper.io` in a browser: you should see the install page.
+Then open `https://playkeeper.io` in a browser: you should see the install page. `https://playkeeper.io/t` should say that the address has no template in it.
 
 ## Updating
 
@@ -76,6 +79,6 @@ Then open `https://playkeeper.io` in a browser: you should see the install page.
 With Docker installed, from the repository root:
 
 ```bash
-scripts/site-check.sh                         # builds the image and checks /, /healthz, /install and the headers
+scripts/site-check.sh                         # builds the image and checks /, /t, /healthz, /install and the headers; with Chrome installed, opens /t in it
 docker build -t playkeeper-site site && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080
 ```

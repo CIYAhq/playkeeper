@@ -4,7 +4,7 @@ import { ApiError, del } from '@/api/client'
 import type { ImportMessage, ImportWorld, WorldImport, WorldImportPreview } from '@/api/types'
 import { errorText, machineApi } from '@/api/workspace'
 import { Notice, Progress } from '@/components/app/bits'
-import { CardGroup, ChoiceCard, ChoiceSelect, Segmented } from '@/components/app/controls'
+import { CardGroup, ChoiceCard, ChoiceSelect } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { t, type MessageKey } from '@/i18n'
@@ -18,26 +18,6 @@ import { cn } from '@/lib/utils'
 // Starting a new server from a world someone already has: where it is now
 // and how to get it, a resumable upload, then what's inside before anything
 // changes.
-
-export type StartFrom = 'type' | 'world'
-
-/** Create step 1's "Start from": a server type, or a world. */
-export function StartFromControl({ value, onChange, phone }: { value: StartFrom; onChange: (v: StartFrom) => void; phone?: boolean }) {
-  const options: { value: StartFrom; label: string }[] = [
-    { value: 'type', label: phone ? t('new.fromTypeShort') : t('new.fromType') },
-    { value: 'world', label: phone ? t('new.fromWorldShort') : t('new.fromWorld') },
-  ]
-  if (!phone) return <Segmented value={value} onChange={onChange} options={options} label={t('new.startFrom')} />
-  return (
-    <ToggleGroup value={[value]} onValueChange={(v) => v[0] && onChange(v[0] as StartFrom)} aria-label={t('new.startFrom')} className="flex w-full gap-1 rounded-2xl bg-muted p-1">
-      {options.map((o) => (
-        <ToggleGroupItem key={o.value} value={o.value} className="h-11 flex-1 rounded-xl border-0 text-[15px] font-medium text-muted-foreground hover:bg-transparent data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline">
-          {o.label}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
-  )
-}
 
 export type WorldSource = 'singleplayer' | 'aternos' | 'minehut' | 'realms' | 'other'
 

@@ -11,15 +11,18 @@ import { login, outDir } from './helpers'
 // person could notice happened: the page changed, a dialog, menu or sheet
 // opened or closed, the control's own state changed, focus moved, the page
 // scrolled, something was copied, a toast appeared or a request went out.
-// The sign-in page and the shared map pages (a shared map, and a link no map
-// has) are opened signed out. A world file picker gets a small archive, so
-// the world upload's later steps are pressed too.
+// The sign-in page, a friends' pack link that opens nothing and the shared
+// map pages (a shared map, and a link no map has) are opened signed out. A
+// world file picker gets a small archive, so the world upload's later steps
+// are pressed too.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. There is no list of exceptions: a control that should do nothing
 // right now must be disabled and say why (aria-describedby or a title). The
-// selected tab or option of a group may stay selected. Each page gets a fresh
-// load before a control is pressed unless the page is provably unchanged.
+// selected tab or option of a group may stay selected. A link another app
+// opens (an authenticator's otpauth:, mailto:, tel:) counts as working, since
+// a headless browser has no app to open. Each page gets a fresh load before a
+// control is pressed unless the page is provably unchanged.
 
 test.describe.configure({ mode: 'parallel' })
 
@@ -33,6 +36,8 @@ const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins
 
 // A well-formed share link that no map has, for the "isn't available" page.
 const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'
+// A friends' pack link that opens nothing: the page every unavailable link gets.
+const unknownPackLink = '/packs/Pk0Unknown0Link0Abcdef'
 
 /** The pages to open signed in, and the ones anyone can open without signing in. */
 async function routes(page: Page, phone: boolean): Promise<{ signedIn: string[]; signedOut: string[] }> {
@@ -48,10 +53,20 @@ async function routes(page: Page, phone: boolean): Promise<{ signedIn: string[];
     for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
   }
   out.push('/servers/new', '/servers/new#world')
-  for (const m of machines) out.push(`/machines/${m.id}`)
-  out.push('/settings')
+  // The add-on library with Playkeeper's picks, for the first server that
+  // has one (each library takes minutes), and a template someone shared.
+  const library = servers.find((s) => addonTabs[s.type ?? ''])
+  if (library) out.push(`/servers/${library.slug}${addonTabs[library.type ?? '']}/browse`)
+  const first = servers[0]
+  if (first) {
+    const exported = (await (await page.request.get(`/api/servers/${first.id}/template`)).json()) as { link?: string }
+    const payload = exported.link?.split('#')[1]
+    if (payload) out.push(`/servers/new#template=${payload}`)
+  }
+  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
+  out.push('/settings', '/account', '/account/two-factor')
   if (phone) out.push('/more')
-  return { signedIn: out, signedOut: ['/login', unknownMapLink, ...shared] }
+  return { signedIn: out, signedOut: ['/login', unknownPackLink, unknownMapLink, ...shared] }
 }
 
 function summary(report: CrawlReport): string {

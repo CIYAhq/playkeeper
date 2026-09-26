@@ -35,6 +35,16 @@ button:hover { background: var(--accent-strong); }
 .status { min-height: 1.6em; margin: 0; font-size: 14px; color: var(--muted); }
 .note { padding: 12px 14px; background: var(--warn-weak); border: 1px solid var(--warn-border); border-radius: var(--radius); color: var(--warn); }
 ul { padding-left: 22px; }
+[hidden] { display: none !important; }
+label { display: block; margin: 12px 0 0; font-weight: 600; }
+input { flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 10px 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius); }
+input:focus-visible { outline: none; box-shadow: var(--focus); }
+.hint { font-size: 14px; color: var(--muted); }
+.facts { margin: 16px 0; padding: 0 14px; background: var(--subtle); border: 1px solid var(--border); border-radius: var(--radius); }
+.facts div { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.facts div:first-child { border-top: 0; }
+.facts dt { flex: 0 0 88px; color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
 nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 36px; padding-top: 20px; border-top: 1px solid var(--border); }
 footer { max-width: 720px; margin: 0 auto; padding: 8px 20px 40px; font-size: 13px; color: var(--muted); }
 @media (max-width: 520px) {
@@ -42,4 +52,6 @@ footer { max-width: 720px; margin: 0 auto; padding: 8px 20px 40px; font-size: 13
   h1 { font-size: 28px; }
   .cmd { flex-direction: column; }
   button { padding: 10px 16px; }
+  .facts div { flex-direction: column; gap: 0; }
+  .facts dt { flex-basis: auto; }
 }

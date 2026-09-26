@@ -175,6 +175,87 @@ CREATE TABLE pregen (
 );
 ALTER TABLE servers ADD COLUMN addons_changed_at INTEGER;
 `,
+	// 0.4.0: the dashboard's certificates, one row per name: certs.Status
+	// and its Certificate. Times are Unix milliseconds.
+	`
+CREATE TABLE certificates (
+  name         TEXT PRIMARY KEY,
+  names        TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  challenge    TEXT NOT NULL,
+  file         TEXT NOT NULL DEFAULT '',
+  not_before   INTEGER,
+  not_after    INTEGER,
+  renew_at     INTEGER,
+  issuer       TEXT NOT NULL DEFAULT '',
+  serial       TEXT NOT NULL DEFAULT '',
+  sha256       TEXT NOT NULL DEFAULT '',
+  last_attempt INTEGER,
+  next_attempt INTEGER,
+  failures     INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT NOT NULL DEFAULT ''
+);
+`,
+	// Online backups, and the history behind lag and memory advice.
+	// saving_paused_since is set while a backup may have left world saving
+	// off; gc_windows holds 15-minute summaries of the JVM's GC log.
+	`
+ALTER TABLE backups ADD COLUMN saving_paused_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE backups ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE servers ADD COLUMN saving_paused_since INTEGER;
+ALTER TABLE servers ADD COLUMN gc_cursor TEXT NOT NULL DEFAULT '';
+ALTER TABLE samples ADD COLUMN tps REAL;
+ALTER TABLE samples ADD COLUMN mspt REAL;
+CREATE TABLE gc_windows (
+  server_id           TEXT NOT NULL,
+  start               INTEGER NOT NULL,
+  collections         INTEGER NOT NULL,
+  min_after_mb        INTEGER NOT NULL,
+  max_after_mb        INTEGER NOT NULL,
+  heap_mb             INTEGER NOT NULL,
+  full_gcs            INTEGER NOT NULL,
+  evacuation_failures INTEGER NOT NULL,
+  pause_ms            REAL NOT NULL,
+  max_pause_ms        REAL NOT NULL,
+  PRIMARY KEY (server_id, start)
+);
+`,
+	// Wave 4: the modpack on each server, stored once its files are in place
+	// (record is the modpacks.Record as JSON), and whether the server's
+	// friends' pack page is public (off until the user shares a link).
+	`
+CREATE TABLE modpacks (
+  server_id    TEXT PRIMARY KEY,
+  source       TEXT NOT NULL,
+  project_id   TEXT NOT NULL,
+  record       TEXT NOT NULL,
+  installed_at INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+ALTER TABLE servers ADD COLUMN packs_public INTEGER NOT NULL DEFAULT 0;
+`,
+	// Wave 4: the add-ons of the template a server was created from, as
+	// JSON lists of templates.PlannedAddon: all of them, and those its
+	// first start has yet to install.
+	`
+CREATE TABLE template_installs (
+  server_id  TEXT PRIMARY KEY,
+  planned    TEXT NOT NULL,
+  remaining  TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`,
+	// Wave 4: the data packs that template's first start downloads into the
+	// world, as a JSON list of templates.Pack.
+	`ALTER TABLE template_installs ADD COLUMN packs TEXT NOT NULL DEFAULT '[]';`,
+	// Wave 4: the link token of each server's friends' pack page, made when
+	// sharing is turned on and forgotten when it is turned off.
+	`
+ALTER TABLE servers ADD COLUMN packs_token TEXT NOT NULL DEFAULT '';
+`,
+	// Wave 4: the template's add-ons and data packs that could not be
+	// installed, as a JSON list, kept after the first start for Try again.
+	`ALTER TABLE template_installs ADD COLUMN skipped TEXT NOT NULL DEFAULT '[]';`,
 	// Wave 6: each server's map. A row exists while the map is turned on. It
 	// keeps the add-on records of squaremap (and anything it needed) as JSON,
 	// the two sharing switches, when the first full drawing was asked for,

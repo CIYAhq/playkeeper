@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,8 +14,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -68,13 +71,27 @@ func (a *Agent) hMachine(w http.ResponseWriter, r *http.Request) {
 // catalogInfo is what a server can choose: for a new server when forServer
 // is empty, or for an existing one's settings.
 func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
+	return a.catalogFor(ctx, forServer, "")
+}
+
+// catalogFor is catalogInfo with the versions of one server type: typ, or
+// the server's own type, or Paper.
+func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catalog {
+	if typ == "" {
+		typ = api.TypePaper
+		if s := a.serverByID(forServer); s != nil {
+			if sc, _ := s.serverConfig(); sc != nil && sc.Type != "" {
+				typ = sc.Type
+			}
+		}
+	}
 	host := a.opts.HostMemoryMB()
 	opts, rec, max := a.memoryFor(forServer)
 	if opts == nil {
 		opts = []int{}
 	}
 	c := api.Catalog{
-		Type: api.TypePaper, Types: serverTypes(), Versions: []api.CatalogEntry{},
+		Type: typ, Types: serverTypes(), Versions: []api.CatalogEntry{},
 		MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max,
 		SystemReserveMB: minecraft.HostReserveMB, MemoryFreeMB: max, Servers: []api.ServerMemory{}, Image: minecraft.ImageTag,
 	}
@@ -91,11 +108,22 @@ func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
 			c.SuggestedPort = p
 		}
 	}
-	if v, at, err := a.versionCatalog(ctx); err != nil {
+	dates := make(chan map[string]time.Time, 1)
+	go func() { dates <- a.releaseDates(context.WithoutCancel(ctx)) }()
+	v, at, err := a.typeCatalog(ctx, typ)
+	var ae *apiError
+	switch {
+	case err != nil && typ == api.TypePaper:
 		c.VersionsError = "Could not load the Minecraft versions from PaperMC: " + err.Error() + ". Check that this server can reach fill.papermc.io."
-	} else {
-		c.Versions = v
+	case err != nil && errors.As(softwareError(err), &ae):
+		c.VersionsError = strings.TrimSpace(ae.Msg + " " + ae.Hint)
+	case err != nil:
+		c.VersionsError = fmt.Sprintf("Could not load the %s versions: %v.", typeName(typ), err)
+	default:
+		d := <-dates
+		c.Versions = withReleaseDates(v, d)
 		c.VersionsCheckedAt = &at
+		c.LatestRelease = latestRelease(d)
 	}
 	return c
 }
@@ -106,11 +134,12 @@ func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotFound("Server"))
 		return
 	}
-	if t := r.URL.Query().Get("type"); t != "" && t != api.TypePaper {
-		writeError(w, errInvalid("Only Paper servers can be created for now."))
+	typ := r.URL.Query().Get("type")
+	if typ != "" && !typeAvailable(typ) {
+		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
-	writeJSON(w, http.StatusOK, a.catalogInfo(r.Context(), forServer))
+	writeJSON(w, http.StatusOK, a.catalogFor(r.Context(), forServer, typ))
 }
 
 // Status assembles the server's desired and observed state. Nothing here is
@@ -135,8 +164,12 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	runPhase, detail := s.runPhase, s.runPhaseDetail
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
 	refusal := s.refusal
-	crashed := s.crashed
+	crashed, crash := s.crashed, s.crash
 	st.CrashCount = len(s.crashes)
+	if s.softwareChanged != nil {
+		change := *s.softwareChanged
+		st.SoftwareChanged = &change
+	}
 	players, res := s.players, s.resources
 	reachable, reachableAt := s.reachable, s.reachableAt
 	if !s.worldAt.IsZero() {
@@ -156,6 +189,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Phase = api.PhaseNotCreated
 	case docker.IsNotFound(err):
 		st.Phase = api.PhaseStopped
+		if st.SoftwareChanged != nil {
+			st.Phase = api.PhaseCrashed
+		}
 		st.Refusal = refusal
 	case c.State.Running:
 		running = true
@@ -171,7 +207,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.PendingRestart = c.Config.Labels[labelSpec] != hash
 	default:
 		st.Phase = api.PhaseStopped
-		if crashed {
+		if crashed || st.SoftwareChanged != nil {
 			st.Phase = api.PhaseCrashed
 		}
 		st.Refusal = refusal
@@ -219,6 +255,13 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Gameplay = effectiveGameplay(sc.Gameplay, readProperties(s.dataDir()))
 	}
 	st.FirstSteps = s.firstSteps()
+	st.JoinAddress = s.joinAddress()
+	if st.Operation == nil {
+		st.SavingPausedSince = s.savingPausedSince()
+		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {
+			st.Crash = crash
+		}
+	}
 	return st
 }
 
@@ -296,12 +339,29 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, api.CodeEULARequired, "You must accept the Minecraft EULA before Playkeeper downloads or starts a server.", "Read https://www.minecraft.net/en-us/eula and tick the box to accept it.")
 		return
 	}
+	var tpl *templateImport
+	if req.Template != nil {
+		if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {
+			writeError(w, errInvalid("A server made from a template takes its type, version and settings from the template."))
+			return
+		}
+		if tpl, err = a.confirmTemplate(r.Context(), req.Template.Fingerprint); err != nil {
+			writeError(w, err)
+			return
+		}
+		tpl.fill(&req)
+	}
 	typ := req.Type
 	if typ == "" {
 		typ = api.TypePaper
 	}
-	if !typeAvailable(typ) {
-		writeError(w, errInvalid("%s servers can't be created yet. Choose Paper.", typeName(typ)))
+	if req.Modpack != nil {
+		if req.Type != "" || req.VersionID != "" || req.Build != "" {
+			writeError(w, errInvalid("A server made from a modpack runs the type and version the pack names."))
+			return
+		}
+	} else if !typeAvailable(typ) {
+		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
 	name := ""
@@ -315,12 +375,44 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Unknown play style."))
 		return
 	}
-	entry, err := a.catalogEntry(r.Context(), req.VersionID)
-	if err != nil {
+	var entry api.CatalogEntry
+	var pin software.Pin
+	var pack *api.ServerModpack
+	if req.Modpack != nil {
+		var rt restoreTarget
+		if rt, pack, err = a.packCreateTarget(r.Context(), *req.Modpack); err != nil {
+			writeError(w, err)
+			return
+		}
+		if tpl != nil && rt.typ != tpl.p.Type.ID {
+			writeError(w, errConflict(fmt.Sprintf("The template names a %s server, but its modpack runs on %s, so nothing was created.", tpl.p.Type.Name, typeName(rt.typ)),
+				"Ask whoever shared the template for a new one."))
+			return
+		}
+		typ, entry, pin = rt.typ, rt.entry, rt.pin
+	} else if entry, err = a.typeEntry(r.Context(), typ, req.VersionID); err != nil {
 		writeError(w, err)
 		return
 	}
-	if entry.Experimental && !req.AcceptExperimental {
+	experimental := entry.Experimental
+	switch {
+	case pack != nil:
+		// The pack names its loader, and its authors chose it.
+		experimental = false
+	case typ == api.TypePaper:
+		if req.Build != "" {
+			writeError(w, errInvalid("Paper servers run the build the version list names."))
+			return
+		}
+	default:
+		var channel software.Channel
+		if pin, channel, err = a.pinFor(r.Context(), entry, req.Build); err != nil {
+			writeError(w, err)
+			return
+		}
+		experimental = experimental || channel != software.Stable
+	}
+	if experimental && !req.AcceptExperimental {
 		writeError(w, errInvalid("%s is experimental. Confirm that you accept the risk to your world to use it.", entry.Label))
 		return
 	}
@@ -342,15 +434,32 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := a.now().UTC()
-	sc := withBuild(api.ServerConfig{
+	base := api.ServerConfig{
 		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
 		PlayStyle: req.PlayStyle, Gameplay: gp,
-	}, entry)
+	}
+	sc, label := withBuild(base, entry), entry.Label
+	if typ != api.TypePaper {
+		sc = withPin(base, entry, pin)
+		label = softwareLabel(sc)
+	}
+	if pack != nil {
+		sc.Modpack, label = pack, pack.Name+" "+pack.VersionNumber
+	}
+	if tpl != nil {
+		sc.Template = &api.ServerTemplate{Name: tpl.p.Name, Pending: len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0}
+	}
 	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-			s.recordEvent(s.now(), "server_created", "", "playkeeper", entry.Label)
+			if tpl != nil && (len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0) {
+				if err := s.saveTemplateInstall(tpl.p.Addons, templateDataPacks(tpl.p)); err != nil {
+					s.startFailed(ctx)
+					return err
+				}
+			}
+			s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
 			if err := s.startServer(ctx, h, sc); err != nil {
 				s.startFailed(ctx)
 				return err
@@ -398,28 +507,39 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already running."})
 		return
 	}
-	s.mu.Lock()
-	s.crashes, s.crashed, s.nextAutoRestart = nil, false, time.Time{}
-	s.mu.Unlock()
-	op, err := s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
-		if err := s.setDesired(api.DesiredRunning); err != nil {
-			return err
-		}
-		cur, _ := s.serverConfig()
-		if cur == nil {
-			return errNotCreated()
-		}
-		if err := s.startServer(ctx, h, *cur); err != nil {
-			s.startFailed(ctx)
-			return err
-		}
-		return nil
-	})
+	op, err := s.beginOp("start", actor, s.startNow)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// forgetCrashes starts the crash policy over for a start someone asked for.
+func (s *server) forgetCrashes() {
+	s.mu.Lock()
+	s.crashes, s.crashed, s.crash, s.nextAutoRestart = nil, false, nil, time.Time{}
+	s.mu.Unlock()
+}
+
+// startNow is a start someone asked for: the server is to keep running, or
+// stays stopped if it does not come up. The crash policy starts over only
+// once the start goes ahead, so a refused request, or work before the start
+// that failed, keeps the crash that says why the server is down.
+func (s *server) startNow(ctx context.Context, h *opHandle) error {
+	if err := s.setDesired(api.DesiredRunning); err != nil {
+		return err
+	}
+	cur, _ := s.serverConfig()
+	if cur == nil {
+		return errNotCreated()
+	}
+	s.forgetCrashes()
+	if err := s.startServer(ctx, h, *cur); err != nil {
+		s.startFailed(ctx)
+		return err
+	}
+	return nil
 }
 
 func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
@@ -437,7 +557,7 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 		s.mu.Lock()
-		s.crashed = false
+		s.crashed, s.crash = false, nil
 		s.mu.Unlock()
 	}
 	release()
@@ -743,6 +863,10 @@ func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, cur)
 		return
 	}
+	if cur := a.addressOp(); cur != nil && cur.ID == id {
+		writeJSON(w, http.StatusOK, cur)
+		return
+	}
 	for _, s := range a.serverList() {
 		if cur := s.currentOp(); cur != nil && cur.ID == id {
 			writeJSON(w, http.StatusOK, cur)
@@ -857,14 +981,58 @@ func (s *server) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Notes can be at most 200 characters."))
 		return
 	}
+	if !req.Stopped && !s.busy() {
+		if _, running, err := s.containerRunning(r.Context()); err == nil && running && !s.online(r.Context()) {
+			writeError(w, s.errNotOnlineForBackup())
+			return
+		}
+	}
 	op, err := s.beginOp("backup", actor, func(ctx context.Context, h *opHandle) error {
-		return s.backupOp(ctx, h, actor, strings.TrimSpace(req.Note))
+		return s.backupOp(ctx, h, actor, strings.TrimSpace(req.Note), req.Stopped)
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// hSavingResume turns world saving back on after a backup left it off, for
+// the "Turn saving back on" action. It holds the operation lock, so it can't
+// run during a backup, which pauses saving on purpose.
+func (s *server) hSavingResume(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		writeError(w, s.busyError())
+		return
+	}
+	defer release()
+	if s.savingPausedSince() == nil {
+		writeJSON(w, http.StatusOK, s.Status(r.Context()))
+		return
+	}
+	if !s.online(r.Context()) {
+		writeError(w, errConflict("The server is not online, so its console can't turn saving back on.", "Start the server: it saves again from the moment it starts."))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	if err := backup.ResumeSaving(ctx, rconConsole{s}); err != nil {
+		s.log.Warn("could not turn world saving back on", "server", s.id, "err", err)
+		s.audit(actor, "saving.resumed", "server", "failed", err.Error())
+		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not turn world saving back on.",
+			Hint: "Open the Console and run save-on, or restart the server.", Err: err})
+		return
+	}
+	s.setSavingPaused(false)
+	s.recordEvent(s.now(), "saving_resumed", "", "playkeeper", "")
+	s.audit(actor, "saving.resumed", "server", "succeeded", "")
+	writeJSON(w, http.StatusOK, s.Status(r.Context()))
 }
 
 func (s *server) hBackupVerify(w http.ResponseWriter, r *http.Request) {

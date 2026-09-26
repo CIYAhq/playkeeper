@@ -1,0 +1,81 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Survival with friends",
+  "description": "Paper with Chunky, and ViaVersion so friends on older clients can join. Terralith world generation.",
+  "game": "minecraft-java",
+  "server": {
+    "type": "paper",
+    "minecraftVersion": "26.2",
+    "build": {
+      "paperBuild": "129"
+    }
+  },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "viewDistance": 10,
+    "maxPlayers": 10,
+    "motd": "Survival with friends — be nice!",
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    {
+      "source": "modrinth",
+      "project": "fALzjamp",
+      "slug": "chunky",
+      "name": "Chunky",
+      "pin": {
+        "versionId": "MdY6JATr",
+        "versionNumber": "1.5.3",
+        "channel": "release",
+        "hashAlgo": "sha512",
+        "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422"
+      }
+    },
+    {
+      "source": "hangar",
+      "project": "31",
+      "slug": "ViaVersion",
+      "name": "ViaVersion",
+      "pin": {
+        "versionId": "30566",
+        "versionNumber": "5.12.1-SNAPSHOT+1069",
+        "channel": "beta",
+        "hashAlgo": "sha256",
+        "hash": "d3bd99c2c492367e39a3e09761d95b911f7a904af4fd08efc97548c987830fcb"
+      },
+      "dependencyOf": "12"
+    },
+    {
+      "source": "hangar",
+      "project": "12",
+      "slug": "ViaBackwards",
+      "name": "ViaBackwards",
+      "pin": {
+        "versionId": "30818",
+        "versionNumber": "5.12.1-SNAPSHOT+635",
+        "channel": "beta",
+        "hashAlgo": "sha256",
+        "hash": "5aa7e357a2325216e3449688895ff808bd3a98fcf36924a7dd196d18806a029b"
+      }
+    }
+  ],
+  "packs": [
+    {
+      "kind": "resource",
+      "name": "Fresh Animations",
+      "url": "https://cdn.modrinth.com/data/50dA9Sha/versions/RGIzA5em/FreshAnimations_v1.10.5.zip",
+      "sha1": "0d069c5583d1dd4591e55ec5ff6dd0905f3f8615",
+      "prompt": "Smoother mob animations for everyone."
+    },
+    {
+      "kind": "data",
+      "name": "Terralith",
+      "url": "https://cdn.modrinth.com/data/8oi3bsk5/versions/CzijfXJQ/Terralith_26.2_v2.6.4.zip",
+      "sha1": "96ccd25be9ba5240ebe8150cc29240aca781f0e1",
+      "sha256": "5ac86ed13cc9fc617cbb57e14ce02b1ecac2f2776c36f0536a519378e546e23e"
+    }
+  ]
+}

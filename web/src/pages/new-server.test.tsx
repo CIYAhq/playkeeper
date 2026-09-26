@@ -41,6 +41,9 @@ const workspace: Workspace = {
   lastSlug: undefined,
   setLastSlug: () => {},
   signOut: async () => {},
+  reloadMe: async () => {},
+  signInNotice: undefined,
+  dismissSignInNotice: () => {},
 }
 
 const entry = (id: string, v: string, recommended: boolean) => ({ id, label: v, minecraftVersion: v, paperBuild: 1, jarSha256: '', java: 25, recommended, notes: '', channel: 'STABLE', experimental: false, supported: true })

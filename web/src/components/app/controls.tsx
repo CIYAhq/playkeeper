@@ -43,7 +43,10 @@ export function ChoiceSelect<T extends string>({
 }) {
   const phone = useIsPhone()
   const [open, setOpen] = useState(false)
+  const hintId = useId()
   const current = options.find((o) => o.value === value)
+  // A disabled option's hint is why it can't be picked.
+  const why = (o: Choice<T>, i: number) => (o.disabled && o.hint ? `${hintId}-${i}` : undefined)
   if (phone) {
     return (
       <>
@@ -65,13 +68,14 @@ export function ChoiceSelect<T extends string>({
               <SheetTitle className="text-lg">{label}</SheetTitle>
             </SheetHeader>
             <div className="mx-4 mb-4 overflow-hidden rounded-2xl border border-border" role="listbox" aria-label={label}>
-              {options.map((o) => (
+              {options.map((o, i) => (
                 <button
                   type="button"
                   role="option"
                   aria-selected={o.value === value}
                   key={o.value}
                   disabled={o.disabled}
+                  aria-describedby={why(o, i)}
                   onClick={() => {
                     onChange(o.value)
                     setOpen(false)
@@ -80,7 +84,11 @@ export function ChoiceSelect<T extends string>({
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-base">{o.label}</span>
-                    {o.hint && <span className="block text-[13px] text-muted-foreground">{o.hint}</span>}
+                    {o.hint && (
+                      <span id={why(o, i)} className="block text-[13px] text-muted-foreground">
+                        {o.hint}
+                      </span>
+                    )}
                   </span>
                   {o.value === value && <CheckIcon className="size-5 text-primary" aria-hidden="true" />}
                 </button>
@@ -97,14 +105,18 @@ export function ChoiceSelect<T extends string>({
         <SelectValue />
       </SelectTrigger>
       <SelectPopup alignItemWithTrigger={false}>
-        {options.map((o) => (
-          <SelectItem key={o.value} value={o.value} disabled={o.disabled} className="py-1.5">
+        {options.map((o, i) => (
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled} aria-describedby={why(o, i)} className="py-1.5">
             <span className="flex flex-col">
               <span className="flex items-center gap-2">
                 {o.label}
                 {o.marker}
               </span>
-              {o.hint && <span className="text-xs text-muted-foreground">{o.hint}</span>}
+              {o.hint && (
+                <span id={why(o, i)} className="text-xs text-muted-foreground">
+                  {o.hint}
+                </span>
+              )}
             </span>
           </SelectItem>
         ))}
@@ -146,7 +158,7 @@ export function ChoiceCard<T extends string>({ value, disabled, reason, classNam
 }
 
 /** A small segmented control on a muted track. */
-export function Segmented<T extends string>({ value, onChange, options, label, className }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string }) {
+export function Segmented<T extends string>({ value, onChange, options, label, className, itemClassName }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string; itemClassName?: string }) {
   return (
     <ToggleGroup
       value={[value]}
@@ -158,7 +170,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, c
         <ToggleGroupItem
           key={o.value}
           value={o.value}
-          className="h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline"
+          className={cn('h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline', itemClassName)}
         >
           {o.label}
         </ToggleGroupItem>

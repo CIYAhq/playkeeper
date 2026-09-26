@@ -66,6 +66,7 @@ Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwri
 | Component | How it is obtained | Terms |
 | --- | --- | --- |
 | `itzg/minecraft-server` image `2026.9.1-java25` | Pulled by digest `sha256:e8640538…315749` from Docker Hub when the user creates a server | Apache-2.0 (repository licence checked 2026-09-24) |
+| `itzg/minecraft-server` images `2026.9.1-java21`, `-java17`, `-java16` and `-java8` | Pulled by digest (`sha256:21b3d6ba…`, `38afacde…`, `7a5a811a…`, `aea37afb…`, listed in `internal/minecraft/java.go`) only for a server on an older Minecraft version, which runs on the Java Mojang made that version for | Apache-2.0, same release as above |
 | Paper 26.1.2 build 74 / 1.21.11 build 132 | Downloaded by the image from PaperMC's Fill v3 API after EULA acceptance; SHA-256 checked by Playkeeper before first run | GPL-3.0 with some MIT-licensed contributions (Paper `LICENSE.md`, checked 2026-09-24) |
 | Minecraft: Java Edition server | Downloaded from Mojang by Paper's launcher on first start | Minecraft EULA (proprietary); Playkeeper never redistributes it |
 

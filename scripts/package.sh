@@ -6,6 +6,9 @@
 # downloads (playkeeper-linux-amd64.tar.gz), and the release manifest
 # (playkeeper-release.json) that the release workflow signs and installed
 # versions check before updating.
+# CURSEFORGE_API_KEY, when set, goes into the binary as the CurseForge key for
+# owners without their own; it is never printed. --binary OUT builds only the
+# binary, for scripts/package_test.sh.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -20,6 +23,31 @@ name="playkeeper-$version-linux-amd64"
 out="$root/dist"
 stage="$out/$name"
 
+pkg=github.com/CIYAhq/playkeeper/internal/version
+curseforge=github.com/CIYAhq/playkeeper/internal/modpacks/curseforge
+
+# go_build OUT builds the linux/amd64 binary with the version stamped in.
+# -trimpath keeps -ldflags, and so the key, out of the build info that
+# `go version -m` shows.
+go_build() {
+  local ldflags="-s -w -X $pkg.Version=$version -X $pkg.Commit=$commit -X $pkg.Date=$date"
+  if [ -n "${CURSEFORGE_API_KEY:-}" ]; then
+    case $CURSEFORGE_API_KEY in
+    *[[:space:]\'\"\\]*)
+      echo "CURSEFORGE_API_KEY has spaces, quotes or backslashes, which a CurseForge API key never has" >&2
+      return 1
+      ;;
+    esac
+    ldflags+=" -X $curseforge.BuildKey=$CURSEFORGE_API_KEY"
+  fi
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "$ldflags" -o "$1" ./cmd/playkeeper
+}
+
+if [ "${1:-}" = --binary ]; then
+  go_build "${2:?usage: scripts/package.sh --binary OUT}"
+  exit 0
+fi
+
 stable=playkeeper-linux-amd64.tar.gz
 manifest=playkeeper-release.json
 rm -rf "$stage" "${out:?}/$name.tar.gz" "$out/$name.tar.gz.sha256" "$out/${stable:?}" "$out/$stable.sha256" "$out/get.sh" "$out/${manifest:?}" "$out/$manifest.sig"
@@ -27,10 +55,7 @@ mkdir -p "$stage"
 
 (cd web && npm ci --no-audit --no-fund --silent && npm run build --silent)
 
-pkg=github.com/CIYAhq/playkeeper/internal/version
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
-  -ldflags "-s -w -X $pkg.Version=$version -X $pkg.Commit=$commit -X $pkg.Date=$date" \
-  -o "$stage/playkeeper" ./cmd/playkeeper
+go_build "$stage/playkeeper"
 
 ./scripts/third-party-notices.sh --check
 go version -m "$stage/playkeeper" | awk '$1 == "dep" {print $2, $3}' | while read -r mod ver; do
