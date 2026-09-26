@@ -517,32 +517,9 @@ control "a rollback's unsaved settings are saved at the next agent start" intern
   '' \
   ./internal/agent '^TestARollbackThatCannotSaveThePreviousSettingsFinishesAtTheNextStart$'
 control "the agent start leaves settings saved since an unsaved rollback alone" internal/agent/versions.go \
-  '&& versionText(*cur) == versionText(j.Next) {' \
-  '{' \
+  'if versionText(*cur) == versionText(j.Next) {' \
+  'if true {' \
   ./internal/agent '^TestSettingsSavedSinceAnUnsavedRollbackWin$'
-control "a rollback that moved the world and can't finish keeps its journal" internal/agent/versions.go \
-  'if s.swapBegan(j) {' \
-  'if false {' \
-  ./internal/agent '^TestEveryRollbackWriteThatFailsLeavesAServerThatStarts$/^giving_the_backup.s_world_to_the_game.s_user$'
-control "the new version's world is deleted only once the previous settings are saved" internal/agent/versions.go \
-  '		j.State = versionRestored
-		if err := s.writeVersionJournal(j); err != nil {' \
-  '		removeWorldCopy(s.copyPath(j.Failed))
-		j.State = versionRestored
-		if err := s.writeVersionJournal(j); err != nil {' \
-  ./internal/agent '^TestEveryRollbackWriteThatFailsLeavesAServerThatStarts$/^writing_that_the_backup.s_world_is_in_place,_then_saving_the_previous_settings$'
-control "the agent start finishes a rollback that moved the world" internal/agent/versions.go \
-  'if j.State != versionStarting && s.swapBegan(j) && versionText(*cur) == versionText(j.Next) {' \
-  'if false {' \
-  ./internal/agent '^TestEveryRollbackWriteThatFailsLeavesAServerThatStarts$/^giving_the_backup.s_world_to_the_game.s_user$'
-control "a rollback waits for the backup's world to be given to the game" internal/agent/versions.go \
-  'return fmt.Errorf("%w: %v", errWorldNotGiven, err)' \
-  's.log.Warn("chown restored world", "err", err)' \
-  ./internal/agent '^TestEveryRollbackWriteThatFailsLeavesAServerThatStarts$/^giving_the_backup.s_world_to_the_game.s_user$'
-control "copies of a new version's world left behind are deleted at start" internal/agent/versions.go \
-  'if e.IsDir() && reFailedUpdate.MatchString(e.Name()) {' \
-  'if false && e.IsDir() && reFailedUpdate.MatchString(e.Name()) {' \
-  ./internal/agent '^TestEveryRollbackWriteThatFailsLeavesAServerThatStarts$/^deleting_the_new_version.s_world$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
   'if !ok || !reSHA256.MatchString(d.Checksums.SHA256) {' \
   'if !ok || false && !reSHA256.MatchString(d.Checksums.SHA256) {' \

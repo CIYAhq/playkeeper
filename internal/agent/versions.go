@@ -303,14 +303,6 @@ var versionStep = func(ctx context.Context, step string) {}
 // to see that done, which only root can do.
 var giveWorld = chownTree
 
-// The file steps of a rollback besides moving worlds (renameDir); tests
-// replace them to make one fail.
-var (
-	writeJournalFile  = writeSynced
-	removeJournalFile = os.Remove
-	removeWorldCopy   = os.RemoveAll
-)
-
 // versionJournal records a version change in the server's folder, from
 // before the new version's settings are saved until it is kept or rolled
 // back, so that an agent that stopped in the middle finishes the change, or
@@ -356,7 +348,7 @@ func (s *server) writeVersionJournal(j *versionJournal) error {
 	if err != nil {
 		return err
 	}
-	return writeJournalFile(filepath.Join(s.dir(), versionJournalFile), b)
+	return writeSynced(filepath.Join(s.dir(), versionJournalFile), b)
 }
 
 // readVersionJournal reads the server's version change journal, or nil if
@@ -391,17 +383,9 @@ func (s *server) updateLeftWorldAside() bool {
 }
 
 func (s *server) removeVersionJournal() {
-	if err := removeJournalFile(filepath.Join(s.dir(), versionJournalFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(filepath.Join(s.dir(), versionJournalFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		s.log.Warn("could not remove the version change journal", "server", s.id, "err", err)
 	}
-}
-
-// swapBegan is true once a rollback has moved the new version's world out of
-// the live folder: the backup's world is in place, or on its way. Until the
-// previous settings are saved, that copy stays, so the files tell this even
-// when the journal could not record it.
-func (s *server) swapBegan(j *versionJournal) bool {
-	return j.State == versionRestored || dirExists(s.copyPath(j.Failed))
 }
 
 // finishVersionChange starts the new version, whose settings are saved, and
@@ -450,20 +434,12 @@ func (s *server) revertVersionChange(h *opHandle, j *versionJournal) error {
 	defer cancel()
 	h.phase("reverting")
 	kind, to, from := typeName(configType(j.Previous)), j.Next.MinecraftVersion, j.Previous.MinecraftVersion
-	// failed ends a rollback that could not get further. One that moved
-	// nothing leaves the new version's world and settings together, and the
-	// backup is the way back; one that did keeps its journal, so no start
-	// runs the new version on the backup's world and the next agent start
-	// finishes it (settleVersionChange).
 	failed := func(what string, err error) error {
 		s.audit(j.Actor, "server.version", j.Entry, "failed", "rollback failed: "+err.Error())
-		_ = s.setDesired(api.DesiredStopped)
-		msg := fmt.Sprintf("%s %s did not start (%s), and %s failed: %s", kind, to, j.Why, what, err.Error())
-		if s.swapBegan(j) {
-			return &apiError{Msg: msg, Hint: "It stays stopped. Playkeeper finishes putting the backup back when it restarts."}
-		}
 		s.removeVersionJournal()
-		return &apiError{Msg: msg, Hint: "Your world is safe in backup " + j.BackupID + ". Restore it from the World page."}
+		_ = s.setDesired(api.DesiredStopped)
+		return &apiError{Msg: fmt.Sprintf("%s %s did not start (%s), and %s failed: %s", kind, to, j.Why, what, err.Error()),
+			Hint: "Your world is safe in backup " + j.BackupID + ". Restore it from the World page."}
 	}
 	if j.State != versionRestored {
 		j.State = versionReverting
@@ -483,11 +459,7 @@ func (s *server) revertVersionChange(h *opHandle, j *versionJournal) error {
 				h.continues = true
 				return nil
 			}
-			what := "putting the backup back"
-			if errors.Is(err, errWorldNotGiven) {
-				what = "giving the backup's world to the game's user"
-			}
-			return failed(what, err)
+			return failed("putting the backup back", err)
 		}
 		j.State = versionRestored
 		if err := s.writeVersionJournal(j); err != nil {
@@ -498,7 +470,6 @@ func (s *server) revertVersionChange(h *opHandle, j *versionJournal) error {
 	if err := s.saveServerConfig(j.Previous); err != nil {
 		return s.previousSettingsUnsaved(j, err)
 	}
-	s.dropNewVersionsWorld(j)
 	s.removeVersionJournal()
 	if err := s.startServer(ctx, h, j.Previous); err != nil {
 		if s.stopping() {
@@ -509,14 +480,6 @@ func (s *server) revertVersionChange(h *opHandle, j *versionJournal) error {
 	s.audit(j.Actor, "server.version", j.Entry, "rolled back", j.Why)
 	return &apiError{Msg: fmt.Sprintf("%s %s did not start (%s), so Playkeeper put the backup from before the update back. The server runs %s again.", kind, to, j.Why, from),
 		Hint: "Nothing was lost. Open the Console to see why the new version stopped."}
-}
-
-// dropNewVersionsWorld deletes the copy of the world the failed start
-// touched, once the backup's world and the previous settings are in place.
-func (s *server) dropNewVersionsWorld(j *versionJournal) {
-	if err := removeWorldCopy(s.copyPath(j.Failed)); err != nil {
-		s.log.Warn("could not delete the world the failed update touched", "path", s.copyPath(j.Failed), "err", err)
-	}
 }
 
 // previousSettingsUnsaved ends a rollback whose backup is back in place but
@@ -535,76 +498,40 @@ func (s *server) previousSettingsUnsaved(j *versionJournal, err error) error {
 // still run the new version, which could damage the older world.
 func (s *server) unfinishedRollback(sc api.ServerConfig) error {
 	j, err := s.readVersionJournal()
-	if err != nil || j == nil || j.State == versionStarting || !s.swapBegan(j) || versionText(sc) != versionText(j.Next) {
+	if err != nil || j == nil || j.State == versionStarting || versionText(sc) != versionText(j.Next) {
 		return nil
 	}
 	return &apiError{Msg: "A Minecraft update's rollback did not finish, so the server doesn't start the new version on the older world.", Hint: "Playkeeper finishes it when it restarts."}
 }
 
 // settleVersionChange finishes, when the agent starts, a rollback whose
-// operation is over but which moved the backup's world into place, or began
-// to, while the settings still run the new version: it puts the backup back
-// and saves the previous settings. A change since, such as a restore, is left
-// as it is, and so is a rollback that moved nothing. Whatever happened, a
-// copy of the new version's world is deleted once a world is in place.
+// operation is over with the backup's world in place but the previous
+// settings unsaved. It saves them only while the settings still run the new
+// version: a change since, such as a restore, is left as it is.
 func (s *server) settleVersionChange() {
 	j, err := s.readVersionJournal()
-	if err != nil {
-		s.log.Warn("the version change journal is unreadable", "server", s.id, "err", err)
+	if err != nil || j == nil || j.State != versionRestored {
 		return
 	}
-	if j != nil {
-		cur, err := s.serverConfig()
-		if err != nil || cur == nil {
+	cur, err := s.serverConfig()
+	if err != nil || cur == nil {
+		return
+	}
+	if versionText(*cur) == versionText(j.Next) {
+		if err := s.saveServerConfig(j.Previous); err != nil {
+			s.log.Warn("could not save the settings from before an update the agent rolled back", "server", s.id, "err", err)
 			return
 		}
-		if j.State != versionStarting && s.swapBegan(j) && versionText(*cur) == versionText(j.Next) {
-			if err := s.finishRollback(j); err != nil {
-				s.log.Warn("could not finish rolling back an update; it's tried again at the next start", "server", s.id, "err", err)
-				return
-			}
-			s.audit("playkeeper", "server.version", j.Entry, "rolled back", "finished after the Playkeeper agent restarted")
-		}
-		s.removeVersionJournal()
+		s.audit("playkeeper", "server.version", j.Entry, "rolled back", "saved the previous settings after the Playkeeper agent restarted")
 	}
-	if !dirExists(s.dataDir()) {
-		return
-	}
-	entries, _ := os.ReadDir(s.dir())
-	for _, e := range entries {
-		if e.IsDir() && reFailedUpdate.MatchString(e.Name()) {
-			if err := removeWorldCopy(s.copyPath(e.Name())); err != nil {
-				s.log.Warn("could not delete the world a failed update touched", "path", s.copyPath(e.Name()), "err", err)
-			}
-		}
-	}
+	s.removeVersionJournal()
 }
-
-// finishRollback puts the backup back, if it isn't yet, and saves the
-// previous settings, for settleVersionChange.
-func (s *server) finishRollback(j *versionJournal) error {
-	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Minute)
-	defer cancel()
-	if _, running, err := s.containerRunning(ctx); err != nil || running {
-		return fmt.Errorf("the server must be stopped to finish the rollback (running %v, %v)", running, err)
-	}
-	if j.State != versionRestored {
-		if err := s.putBackupBack(ctx, j); err != nil {
-			return err
-		}
-	}
-	return s.saveServerConfig(j.Previous)
-}
-
-// errWorldNotGiven is putBackupBack's error when the backup's world is in
-// place but could not be given to the game's user.
-var errWorldNotGiven = errors.New("the world could not be given to the game's user")
 
 // putBackupBack replaces the live world with the verified backup from before
 // the update, given to the game's user. The world the failed start touched
-// moves to the journal's failed copy, which the rollback deletes once the
-// previous settings are saved. Run again after an interruption, it finishes
-// the job: with both folders there, the backup's world is already in place.
+// moves to the journal's failed copy, which is deleted once the backup's copy
+// is in place. Run again after an interruption, it finishes the job: with
+// both folders there, the backup's world is already in place.
 func (s *server) putBackupBack(ctx context.Context, j *versionJournal) error {
 	live, failed := s.dataDir(), s.copyPath(j.Failed)
 	if !dirExists(live) || !dirExists(failed) {
@@ -643,7 +570,10 @@ func (s *server) putBackupBack(ctx context.Context, j *versionJournal) error {
 	// Every time: a rollback resumed with the backup's world in place may
 	// have stopped before it gave the world to the game.
 	if err := giveWorld(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
-		return fmt.Errorf("%w: %v", errWorldNotGiven, err)
+		s.log.Warn("chown restored world", "err", err)
+	}
+	if err := os.RemoveAll(failed); err != nil {
+		s.log.Warn("could not delete the world the failed update touched", "path", failed, "err", err)
 	}
 	return nil
 }
