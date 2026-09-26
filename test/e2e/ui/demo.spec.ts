@@ -162,6 +162,43 @@ test('the live demo’s plugins, map pre-generation and packs, where a change sa
   expect(problems).toEqual([])
 })
 
+test('the live demo’s address, two-factor, health, crash help, server types and a Fabric server’s mods', async ({ page }) => {
+  const problems = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${demoUrl}servers/survival`)
+  await expect(page.getByText('survival.demo.playkeeper.io').first()).toBeVisible()
+  await page.getByRole('link', { name: 'How it’s running' }).click()
+  await expect(page).toHaveURL(`${demoUrl}servers/survival/running`)
+  await expect(page.getByText(/^Running smoothly/).first()).toBeVisible()
+  await page.goto(`${demoUrl}servers/survival/settings#memory`)
+  await expect(page.getByText('It never needed more than 2.5 GB in the last 14 days, so 4 GB is plenty.')).toBeVisible()
+
+  await page.goto(`${demoUrl}machines/q7m2vk9xpd/settings`)
+  await expect(page.getByText('cobblemon.demo.playkeeper.io').first()).toBeVisible()
+  await page.goto(`${demoUrl}account`)
+  await expect(page.getByRole('region', { name: 'Signing in' }).getByRole('link', { name: 'Turn on' })).toHaveAttribute('href', '/demo/account/two-factor')
+
+  await page.goto(`${demoUrl}servers/cobblemon`)
+  await expect(page.getByText('It ran out of its 4 GB of memory.')).toBeVisible()
+  await expect(page.getByRole('radio', { name: /Give Cobblemon 6 GB/ })).toBeChecked()
+  await still(page, 'demo-crash-desktop')
+  await page.getByRole('button', { name: 'Save and start Cobblemon' }).click()
+  await expect(page.getByRole('heading', { name: 'What happened' })).toHaveCount(0)
+
+  await page.goto(`${demoUrl}servers/cobblemon/mods`)
+  await expect(page.getByRole('heading', { name: 'Mods on Cobblemon' })).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: 'Cobblemon' }).first()).toContainText('Friends need it')
+  await iconsLoaded(page)
+  await still(page, 'demo-mods-desktop')
+
+  await page.goto(`${demoUrl}servers/new`)
+  await expect(page.getByRole('heading', { name: 'A server type' })).toBeVisible()
+  await expect(page.getByText('Fabric', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: 'Start from' })).toHaveCount(0)
+  await expect(page.getByText('The demo has no sample data for this.')).toHaveCount(0)
+  expect(problems).toEqual([])
+})
+
 test('the live demo’s plugins on a phone', async ({ page }) => {
   const problems = watch(page)
   await page.setViewportSize({ width: 390, height: 844 })

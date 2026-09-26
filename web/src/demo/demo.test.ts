@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, DataPacks, LogsResponse, Pregen, ResourcePack, ServerStatus } from '@/api/types'
+import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, AddonSources, Catalog, CuratedAddons, DataPacks, LogsResponse, MemoryAdvice, PackShare, Pregen, ResourcePack, Running, ServerStatus, SoftwareBuilds, TwoFactorStatus } from '@/api/types'
 import { addonIconOf, faceOf, library, samplePlayers } from './data'
 import { answer, resetDemo } from './engine'
 import { faceCount } from './faces'
@@ -172,7 +172,7 @@ it('searches the library by words, category and order, and marks what the server
   const { id } = await survival()
   const search = (query = '') => ask<AddonBrowse>('GET', `/api/servers/${id}/addons/search${query}`)
   const all = await search()
-  expect(all.cards).toHaveLength(library.length)
+  expect(all.cards).toHaveLength(library.filter((a) => !a.mod).length)
   const downloads = all.cards.map((c) => c.downloads)
   expect(downloads).toEqual([...downloads].sort((a, b) => b - a))
   expect(all.cards.find((c) => c.slug === 'chunky')?.installed).toBe(true)
@@ -251,4 +251,91 @@ it('fails soft when asked to change plugins, the pre-generation or packs', async
   for (const [method, path] of writes) await expect(ask(method, `/api/servers/${id}${path}`, {})).rejects.toMatchObject({ status: 400, code: 'demo' })
   await expect(ask('POST', `/api/servers/${id}/datapacks?name=pack.zip`, undefined, new Blob(['x']))).rejects.toMatchObject({ status: 400, code: 'demo' })
   expect((await ask<Addons>('GET', `/api/servers/${id}/addons`)).files).toHaveLength(6)
+})
+
+it('gives the machine a free name nobody can claim, with an address for each server', async () => {
+  const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
+  const address = await ask<Address>('GET', `/api/machines/${m?.id}/address`)
+  expect(address).toMatchObject({ kind: 'playkeeper', host: 'demo.playkeeper.io', free: { name: 'demo', state: 'active', dns: 'ok' }, certificate: { names: ['demo.playkeeper.io'] } })
+  const servers = await ask<ServerStatus[]>('GET', '/api/servers')
+  expect(address.servers?.map((s) => s.address)).toEqual(servers.map((s) => s.joinAddress))
+  expect(servers.map((s) => s.joinAddress)).toEqual(['survival.demo.playkeeper.io', 'creative.demo.playkeeper.io', 'cobblemon.demo.playkeeper.io'])
+  await expect(ask('POST', `/api/machines/${m?.id}/address/claim`, { name: 'alex' })).rejects.toMatchObject({ status: 400, code: 'demo' })
+  expect(await ask<TwoFactorStatus>('GET', '/api/auth/2fa')).toMatchObject({ state: 'off' })
+  await expect(ask('POST', '/api/auth/2fa/setup', { password: 'x' })).rejects.toMatchObject({ status: 400, code: 'demo' })
+  expect(await ask<AddonSources>('GET', `/api/machines/${m?.id}/addon-sources`)).toEqual({ curseforge: { key: 'none' } })
+})
+
+it('says how each server runs and what memory it needs', async () => {
+  const survivalId = (await survival()).id
+  expect(await ask<Running>('GET', `/api/servers/${survivalId}/running`)).toMatchObject({ status: 'smooth', params: { tps: 20 } })
+  expect((await ask<Running>('GET', `/api/servers/${(await server('creative')).id}/running`)).status).toBe('unknown')
+  const keep = await ask<MemoryAdvice>('GET', `/api/servers/${survivalId}/memory`)
+  expect(keep).toMatchObject({ verdict: 'keep', budgetMB: 4096, recommendedMB: 4096 })
+  expect(keep.days).toHaveLength(14)
+  expect(keep.options.map((o) => [o.memoryMB, o.fit])).toEqual([
+    [2048, 'too_tight'],
+    [3072, 'little_room'],
+    [4096, 'room_to_grow'],
+    [6144, 'more_than_needed'],
+    [8192, 'more_than_needed'],
+  ])
+  expect((await ask<MemoryAdvice>('GET', `/api/servers/${(await server('creative')).id}/memory`)).verdict).toBe('lower')
+  expect(await ask<MemoryAdvice>('GET', `/api/servers/${(await server('cobblemon')).id}/memory`)).toMatchObject({ verdict: 'raise', recommendedMB: 6144 })
+})
+
+it('crashed Cobblemon out of memory, and giving it 6 GB starts it again', async () => {
+  const before = await server('cobblemon')
+  expect(before).toMatchObject({ type: 'fabric', phase: 'crashed', crash: { kind: 'heap_out_of_memory', roomMB: 3584 } })
+  expect(before.crash?.fixes.map((f) => f.kind)).toEqual(['raise_memory', 'restart'])
+  await ask('POST', `/api/servers/${before.id}/settings`, { memoryMB: 6144 })
+  await ask('POST', `/api/servers/${before.id}/start`)
+  await vi.advanceTimersByTimeAsync(20_000)
+  const after = await server('cobblemon')
+  expect(after).toMatchObject({ phase: 'online', config: { memoryMB: 6144 } })
+  expect(after.crash).toBeUndefined()
+})
+
+it('lists Cobblemon’s mods, and what friends need of each', async () => {
+  const { id } = await server('cobblemon')
+  const list = await ask<Addons>('GET', `/api/servers/${id}/addons`)
+  expect(list.target).toMatchObject({ kind: 'mod', folder: 'mods', sources: ['modrinth'] })
+  expect(list.files.map((f) => f.addon?.name)).toEqual(['Fabric API', 'Cobblemon', 'Lithium'])
+  expect((await ask<AddonBrowse>('GET', `/api/servers/${id}/addons/search`)).cards.map((c) => c.name)).toEqual(['Fabric API', 'Lithium', 'Cobblemon'])
+  const share = await ask<PackShare>('GET', `/api/servers/${id}/mods/share`)
+  expect(share).toMatchObject({ public: false, loaderName: 'Fabric', share: { type: 'fabric', loaderVersion: '0.19.3', notice: { key: 'share.notice.two' } } })
+  expect(share.share.mods.map((m) => [m.name, m.need])).toEqual([
+    ['Fabric API', 'required'],
+    ['Cobblemon', 'required'],
+    ['Lithium', 'optional'],
+  ])
+  await expect(ask('POST', `/api/servers/${id}/mods/share`, { public: true })).rejects.toMatchObject({ status: 400, code: 'demo' })
+  await expect(ask('GET', `/api/servers/${(await survival()).id}/mods/share`)).rejects.toMatchObject({ status: 404 })
+})
+
+it('picks a few plugins for Paper servers, and none for Fabric', async () => {
+  const picks = await ask<CuratedAddons>('GET', `/api/servers/${(await survival()).id}/addons/curated`)
+  expect(picks.picks.map((p) => [p.id, p.card.name, p.card.installed])).toEqual([
+    ['rollback', 'CoreProtect', true],
+    ['pregenerate', 'Chunky', true],
+    ['newer-clients', 'ViaVersion', true],
+    ['essentials', 'EssentialsX', false],
+    ['permissions', 'LuckPerms', true],
+    ['lag-finder', 'spark', false],
+  ])
+  expect((await ask<CuratedAddons>('GET', `/api/servers/${(await server('cobblemon')).id}/addons/curated`)).picks).toEqual([])
+})
+
+it('offers every server type, with its builds, and makes a Fabric server as asked', async () => {
+  const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
+  const paper = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog`)
+  expect(paper.types.map((x) => x.id)).toEqual(['paper', 'purpur', 'fabric', 'quilt', 'neoforge', 'vanilla'])
+  const fabric = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog?type=fabric`)
+  expect(fabric.type).toBe('fabric')
+  expect(fabric.versions.every((v) => v.software?.type === 'fabric')).toBe(true)
+  const builds = await ask<SoftwareBuilds>('GET', `/api/machines/${m?.id}/catalog/builds?type=fabric&version=26.1.2`)
+  expect(builds.builds[0]).toMatchObject({ version: '0.19.3', recommended: true })
+  const version = fabric.versions.find((v) => v.recommended)
+  await ask('POST', `/api/machines/${m?.id}/servers`, { name: 'Skyblock', type: 'fabric', versionId: version?.id, memoryMB: 2048 })
+  expect(await server('skyblock')).toMatchObject({ type: 'fabric', config: { software: { type: 'fabric' } } })
 })

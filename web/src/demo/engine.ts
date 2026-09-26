@@ -8,7 +8,7 @@ import { ApiError } from '@/api/client'
 import type { Activity, ActivityKind, ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
 import { t } from '@/i18n'
 import { opLabel } from '@/lib/phase'
-import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versions, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
+import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versions, versionsOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
 import { demoMarker } from './marker'
 import { dt } from './messages'
 import { demoToast, type DemoAction } from './toast'
@@ -250,6 +250,7 @@ function up(srv: ServerStatus, live: Live, at: number) {
   srv.reachableAt = iso(at)
   srv.startedAt = iso(at)
   srv.stoppedAt = undefined
+  srv.crash = undefined
   live.away.forEach((name, i) => live.joins.push({ name, at: at + 6 * second + i * 7 * second + Math.round(noise(at + i) * 4 * second) }))
   live.away = []
   live.nextLine = at + 8 * second
@@ -372,6 +373,7 @@ function slugFor(s: DemoState, name: string): string {
 
 interface CreateBody {
   name?: string
+  type?: string
   versionId?: string
   memoryMB?: number
   motd?: string
@@ -384,7 +386,9 @@ function create(s: DemoState, r: Request): Operation {
   const b = (r.body ?? {}) as CreateBody
   const name = (b.name ?? '').trim()
   nameTaken(s, name)
-  const v = versions.find((x) => x.id === b.versionId) ?? versions.find((x) => x.recommended) ?? versions[0]
+  const type = b.type || 'paper'
+  const offered = versionsOf(type)
+  const v = offered.find((x) => x.id === b.versionId) ?? offered.find((x) => x.recommended) ?? offered[0]
   const memoryMB = b.memoryMB ?? 2048
   const m = s.machine.live
   if (m && memoryMB > m.memoryFreeMB) throw new ApiError(409, { error: dt('demo.noMemory', { machine: s.machine.name }), code: 'insufficient_memory' })
@@ -399,14 +403,14 @@ function create(s: DemoState, r: Request): Operation {
     name,
     slug: slugFor(s, name),
     game: 'minecraft-java',
-    type: 'paper',
+    type,
     createdAt: created,
     machineId,
     exists: true,
     desired: 'running',
     phase: 'pulling_image',
     reachable: false,
-    config: config({ versionId: v?.id, minecraftVersion: v?.minecraftVersion ?? '', paperBuild: v?.paperBuild, jarSha256: v?.jarSha256, memoryMB, motd: b.motd || name, createdAt: created, maxPlayers: b.maxPlayers ?? 10, playStyle: b.playStyle ?? '' }),
+    config: config({ versionId: v?.id, minecraftVersion: v?.minecraftVersion ?? '', paperBuild: v?.paperBuild || undefined, software: v?.software, jarSha256: v?.jarSha256, memoryMB, motd: b.motd || name, createdAt: created, maxPlayers: b.maxPlayers ?? 10, playStyle: b.playStyle ?? '' }),
     gameplay: { difficulty: 'normal', pvp: true, gameMode: 'survival', hardcore: false, viewDistance: 10, levelType: 'normal', ...b.gameplay },
     gamePort: port,
     offlineModeTest: false,

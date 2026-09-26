@@ -1,5 +1,6 @@
-// The live demo's sample data: a made-up VPS with two Paper servers, their
-// players, console, backups, plugins, map pre-generation, packs and history.
+// The live demo's sample data: a made-up VPS with two Paper servers and a
+// Fabric one, their players, console, backups, plugins and mods, map
+// pre-generation, packs, address, health and history.
 // Every GET the dashboard makes is answered from `reads` at the bottom; a
 // path that isn't there gets "no sample data" and its screen shows its empty
 // state. To give a screen sample data, add what it needs to DemoState and
@@ -8,6 +9,7 @@
 import { ApiError } from '@/api/client'
 import type {
   Activity,
+  Address,
   Addon,
   AddonBrowse,
   AddonCard,
@@ -16,6 +18,7 @@ import type {
   AddonFile,
   AddonRemovePreview,
   AddonSource,
+  AddonSources,
   AddonVersion,
   Addons,
   AgentActivity,
@@ -24,6 +27,8 @@ import type {
   Backup,
   Catalog,
   CatalogEntry,
+  Crash,
+  CuratedAddons,
   DailyActivity,
   DataPack,
   DataPacks,
@@ -32,9 +37,12 @@ import type {
   MachineLinkInfo,
   MachineView,
   Me,
+  MemoryAdvice,
+  MemoryFit,
   MetricsBucket,
   MetricsResponse,
   OperatorEntry,
+  PackShare,
   Phase,
   PlayerStat,
   PlayersSummary,
@@ -44,10 +52,15 @@ import type {
   PregenPresetId,
   ResourcePack,
   ResourcePackOffer,
+  Running,
   ServerConfig,
   ServerStatus,
   Session,
   SessionsResponse,
+  ShareMod,
+  ShareNeed,
+  SoftwareBuilds,
+  TwoFactorStatus,
   UpdateInfo,
   WhitelistEntry,
 } from '@/api/types'
@@ -55,7 +68,7 @@ import { t } from '@/i18n'
 import { faceCount, faceIndex } from './faces'
 
 /** Bump when DemoState changes shape, so sessions saved by an older demo start over. */
-export const sampleVersion = 2
+export const sampleVersion = 3
 export const demoVersion = '0.4.0'
 export const demoUser = 'siya'
 export const machineId = 'q7m2vk9xpd'
@@ -221,6 +234,11 @@ const busy = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 1, 2, 2, 3, 4, 5, 6, 5, 4, 
 
 const survivalId = 'h4k8v2m9qa'
 const creativeId = 'c6t3w8n2rb'
+const cobblemonId = 'k9p4f7x2ne'
+
+/** The machine's free name; playkeeper.io reserves "demo", so it leads to nobody's server. */
+const freeName = 'demo'
+const machineIP = '203.0.113.10'
 
 export function config(over: Partial<ServerConfig> & Pick<ServerConfig, 'minecraftVersion' | 'memoryMB' | 'motd' | 'createdAt'>): ServerConfig {
   return {
@@ -240,6 +258,8 @@ export function config(over: Partial<ServerConfig> & Pick<ServerConfig, 'minecra
   }
 }
 
+const slugs: Record<string, string> = { [survivalId]: 'survival', [creativeId]: 'creative', [cobblemonId]: 'cobblemon' }
+
 function backup(serverId: string, n: number, at: number, sizeBytes: number, over: Partial<Backup> = {}): Backup {
   const stamp = iso(at).slice(0, 16).replace(/[-:T]/g, '')
   return {
@@ -247,7 +267,7 @@ function backup(serverId: string, n: number, at: number, sizeBytes: number, over
     serverId,
     kind: 'manual',
     createdAt: iso(at),
-    fileName: `${serverId === survivalId ? 'survival' : 'creative'}-${stamp}.tar.gz`,
+    fileName: `${slugs[serverId] ?? 'server'}-${stamp}.tar.gz`,
     sizeBytes,
     sha256: fakeSha(at % 100_000),
     location: 'local',
@@ -257,7 +277,7 @@ function backup(serverId: string, n: number, at: number, sizeBytes: number, over
     method: 'online_copy',
     savingPausedMs: 1_400 + (at % 900),
     durationMs: 9_000 + (at % 7_000),
-    minecraftVersion: serverId === survivalId ? '26.1.2' : '26.2.1',
+    minecraftVersion: serverId === creativeId ? '26.2.1' : '26.1.2',
     levelName: 'world',
     fileCount: Math.round(sizeBytes / 150_000),
     createdBy: demoUser,
@@ -311,6 +331,7 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(created),
     firstSteps: { invited: 'JunoFox', friendJoined: 'JunoFox', friendJoinedAt: iso(created + day), backedUp: true, downloaded: true },
+    joinAddress: `survival.${freeName}.playkeeper.io`,
   }
   const creative: ServerStatus = {
     id: creativeId,
@@ -335,6 +356,43 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(creativeCreated),
     firstSteps: { invited: 'PixelPia', friendJoined: 'PixelPia', friendJoinedAt: iso(creativeCreated + hour), backedUp: true, downloaded: true },
+    joinAddress: `creative.${freeName}.playkeeper.io`,
+  }
+  const cobblemonCreated = now - 9 * day
+  const crashedAt = now - 34 * minute
+  const cobblemonBackups = [backup(cobblemonId, 1, now - day - 7 * hour, 0.81 * gb)]
+  const cobblemon: ServerStatus = {
+    id: cobblemonId,
+    name: 'Cobblemon',
+    slug: 'cobblemon',
+    game: 'minecraft-java',
+    type: 'fabric',
+    createdAt: iso(cobblemonCreated),
+    machineId,
+    exists: true,
+    desired: 'running',
+    phase: 'crashed',
+    reachable: false,
+    stoppedAt: iso(crashedAt),
+    config: config({
+      minecraftVersion: '26.1.2',
+      memoryMB: 4096,
+      motd: 'Catch them with friends',
+      createdAt: iso(cobblemonCreated),
+      playStyle: 'friends',
+      software: { type: 'fabric', minecraftVersion: '26.1.2', fabricLoader: '0.19.3' },
+    }),
+    gameplay: { difficulty: 'normal', pvp: false, gameMode: 'survival', hardcore: false, viewDistance: 10, levelType: 'normal' },
+    gamePort: 25567,
+    offlineModeTest: false,
+    crashCount: 1,
+    crash: outOfMemory(crashedAt),
+    lastBackup: cobblemonBackups[0],
+    worldBytes: 0.86 * gb,
+    pendingRestart: false,
+    collectingSince: iso(cobblemonCreated),
+    firstSteps: { invited: 'Brickbert', friendJoined: 'Brickbert', friendJoinedAt: iso(cobblemonCreated + 2 * hour), backedUp: true, downloaded: true },
+    joinAddress: `cobblemon.${freeName}.playkeeper.io`,
   }
   return {
     sample: sampleVersion,
@@ -353,8 +411,8 @@ export function sample(now: number): DemoState {
         cpuPercent: 22,
         memoryTotalMB: 16384,
         systemReserveMB: 1536,
-        serversMemoryMB: 7168,
-        memoryFreeMB: 7680,
+        serversMemoryMB: 11264,
+        memoryFreeMB: 3584,
         diskFreeBytes: 41 * gb,
         diskTotalBytes: 80 * gb,
         docker: true,
@@ -362,21 +420,23 @@ export function sample(now: number): DemoState {
         agentVersion: demoVersion,
         defaultGamePort: 25565,
         offlineModeTest: false,
-        servers: 2,
+        servers: 3,
       },
     },
-    servers: [survival, creative],
+    servers: [survival, creative, cobblemon],
     live: {
       [survivalId]: { online, joins: [], away: [], nextLine: now + 4000, cursor: 0 },
       [creativeId]: { online: [], joins: [], away: ['PixelPia'], nextLine: now, cursor: 0 },
+      [cobblemonId]: { online: [], joins: [], away: ['Brickbert', 'Kestrel_7', 'mara_k', 'tobi2009'], nextLine: now, cursor: 0 },
     },
-    backups: { [survivalId]: survivalBackups, [creativeId]: creativeBackups },
-    logs: { [survivalId]: survivalLog(now, online), [creativeId]: creativeLog(stoppedAt) },
+    backups: { [survivalId]: survivalBackups, [creativeId]: creativeBackups, [cobblemonId]: cobblemonBackups },
+    logs: { [survivalId]: survivalLog(now, online), [creativeId]: creativeLog(stoppedAt), [cobblemonId]: cobblemonLog(crashedAt) },
     whitelist: {
       [survivalId]: samplePlayers.map((name) => ({ name })),
       [creativeId]: ['PixelPia', 'Brickbert', 'JunoFox'].map((name) => ({ name })),
+      [cobblemonId]: ['Brickbert', 'Kestrel_7', 'mara_k', 'tobi2009'].map((name) => ({ name })),
     },
-    operators: { [survivalId]: [{ name: 'JunoFox', level: 4 }], [creativeId]: [{ name: 'PixelPia', level: 4 }] },
+    operators: { [survivalId]: [{ name: 'JunoFox', level: 4 }], [creativeId]: [{ name: 'PixelPia', level: 4 }], [cobblemonId]: [{ name: 'Brickbert', level: 4 }] },
     roster: {
       [survivalId]: [
         stat('JunoFox', now, 58, 96.5, true),
@@ -387,11 +447,18 @@ export function sample(now: number): DemoState {
         stat('Kestrel_7', now - 6 * day, 4, 3.2),
       ],
       [creativeId]: [stat('PixelPia', stoppedAt - 2 * hour, 19, 31), stat('Brickbert', stoppedAt - day, 8, 9.5), stat('JunoFox', stoppedAt - 4 * day, 3, 2.1)],
+      [cobblemonId]: [
+        stat('Brickbert', crashedAt, 14, 22.5),
+        stat('Kestrel_7', crashedAt, 9, 13.1),
+        stat('mara_k', crashedAt, 6, 7.4),
+        stat('tobi2009', crashedAt, 5, 6.2),
+      ],
     },
     activity: [
       { ts: iso(now - 12 * minute), serverId: survivalId, kind: 'joined', player: 'JunoFox' },
       { ts: iso(now - 48 * minute), serverId: survivalId, kind: 'joined', player: 'tobi2009' },
       { ts: iso(now - 62 * minute), serverId: survivalId, kind: 'backup', actor: demoUser },
+      { ts: iso(crashedAt), serverId: cobblemonId, kind: 'crashed' },
       { ts: iso(stoppedAt), serverId: creativeId, kind: 'stopped' },
     ],
     audit: [
@@ -424,6 +491,10 @@ export function sample(now: number): DemoState {
         byHand: [{ fileName: 'FriendsWelcome.jar', name: 'FriendsWelcome', version: '1.0', size: 14_336 }],
       },
       [creativeId]: { installed: [install(now, 'worldedit', creativeCreated + hour)], byHand: [] },
+      [cobblemonId]: {
+        installed: [install(now, 'fabric-api', cobblemonCreated + hour), install(now, 'cobblemon', cobblemonCreated + hour), install(now, 'lithium', cobblemonCreated + day)],
+        byHand: [],
+      },
     },
     pregen: {
       [survivalId]: { preset: 'medium', radius: 2500, total: squareChunks(2500), rate: 27.5, startedAt: now - 21 * minute, pauseForPlayers: false },
@@ -438,8 +509,37 @@ export function sample(now: number): DemoState {
         ],
       },
       [creativeId]: { data: [] },
+      [cobblemonId]: { data: [] },
     },
   }
+}
+
+/** Cobblemon's crash: out of memory with four players on, and room on the machine for more. */
+function outOfMemory(at: number): Crash {
+  return {
+    at: iso(at),
+    start: false,
+    kind: 'heap_out_of_memory',
+    params: { budget_mb: 4096, heap_mb: 3072, players: 4 },
+    certain: true,
+    title: 'It ran out of memory',
+    explanation: 'Java used all 3 GB it may use, with 4 players on, and the server stopped.',
+    evidence: [{ kind: 'log', text: 'java.lang.OutOfMemoryError: Java heap space' }],
+    fixes: [
+      { kind: 'raise_memory', params: { to_mb: 6144 }, title: 'Give it 6 GB', recommended: true },
+      { kind: 'restart', title: 'Start it again' },
+    ],
+    lines: [
+      { time: clock(at - 9_000), level: 'WARN', text: "Can't keep up! Is the server overloaded? Running 5230ms or 104 ticks behind" },
+      { time: clock(at - 2_000), level: 'ERROR', text: 'Encountered an unexpected exception' },
+      { time: clock(at), level: 'FATAL', text: 'java.lang.OutOfMemoryError: Java heap space' },
+    ],
+    roomMB: 3584,
+  }
+}
+
+function clock(at: number): string {
+  return logText(at, '').slice(1, 9)
 }
 
 function survivalLog(now: number, online: { name: string; since: number }[]): LogLine[] {
@@ -456,6 +556,16 @@ function survivalLog(now: number, online: { name: string; since: number }[]): Lo
 function creativeLog(stoppedAt: number): LogLine[] {
   const texts = ['PixelPia left the game', 'Stopping the server', 'Saving players', 'Saving worlds', "Saving chunks for level 'ServerLevel[world]'/minecraft:overworld", 'ThreadedAnvilChunkStorage: All dimensions are saved']
   return texts.map((text, i) => ({ seq: i + 1, ts: iso(stoppedAt - 60_000 + i * 400), text: logText(stoppedAt - 60_000 + i * 400, text) }))
+}
+
+function cobblemonLog(crashedAt: number): LogLine[] {
+  const lines: [number, string, string][] = [
+    [crashedAt - 70_000, 'Brickbert joined the game', 'INFO'],
+    [crashedAt - 9_000, "Can't keep up! Is the server overloaded? Running 5230ms or 104 ticks behind", 'WARN'],
+    [crashedAt - 2_000, 'Encountered an unexpected exception', 'ERROR'],
+    [crashedAt, 'java.lang.OutOfMemoryError: Java heap space', 'FATAL'],
+  ]
+  return lines.map(([at, text, level], i) => ({ seq: i + 1, ts: iso(at), text: logText(at, text, level) }))
 }
 
 /** A chatter line with online players' names in it. */
@@ -567,7 +677,32 @@ export const versions: CatalogEntry[] = [
   { id: 'paper-1.21.11', label: '1.21.11', minecraftVersion: '1.21.11', paperBuild: 130, jarSha256: fakeSha(12111), java: 21, recommended: false, notes: '', channel: 'default', experimental: false, supported: true },
 ]
 
+const serverTypes = [
+  { id: 'paper', name: 'Paper' },
+  { id: 'purpur', name: 'Purpur' },
+  { id: 'fabric', name: 'Fabric' },
+  { id: 'quilt', name: 'Quilt' },
+  { id: 'neoforge', name: 'NeoForge' },
+  { id: 'vanilla', name: 'Vanilla' },
+]
+
+/** The Minecraft versions a type offers: Paper's, pinned to that type for the others. */
+export function versionsOf(type: string): CatalogEntry[] {
+  if (type === 'paper') return versions
+  return versions.map((v) => ({ ...v, id: `${type}-${v.minecraftVersion}`, paperBuild: 0, software: { type, minecraftVersion: v.minecraftVersion } }))
+}
+
+/** The builds of a type that has them, newest first. */
+const buildsOf: Record<string, string[]> = { purpur: ['2461', '2460', '2457'], fabric: ['0.19.3', '0.19.2', '0.18.4'], quilt: ['0.30.1', '0.30.0'], neoforge: ['26.1.2.18', '26.1.2.11'] }
+
+function builds(_s: DemoState, r: Request): SoftwareBuilds {
+  const type = r.query.get('type') ?? ''
+  const list = buildsOf[type] ?? []
+  return { type, minecraftVersion: r.query.get('version') ?? '', builds: list.map((version, i) => ({ version, channel: 'stable', recommended: i === 0 })), checkedAt: iso(r.now - 20 * minute) }
+}
+
 function catalog(s: DemoState, r: Request): Catalog {
+  const type = serverTypes.some((x) => x.id === r.query.get('type')) ? (r.query.get('type') ?? 'paper') : 'paper'
   const live = s.machine.live
   const total = live?.memoryTotalMB ?? 16384
   const reserve = live?.systemReserveMB ?? 1536
@@ -577,9 +712,9 @@ function catalog(s: DemoState, r: Request): Catalog {
   while (ports.has(port)) port++
   const budgets = [1024, 2048, 3072, 4096, 6144, 8192]
   return {
-    type: r.query.get('type') ?? 'paper',
-    types: [{ id: 'paper', name: 'Paper', available: true }],
-    versions,
+    type,
+    types: serverTypes.map((x) => ({ ...x, available: true })),
+    versions: versionsOf(type),
     versionsCheckedAt: iso(r.now - 20 * minute),
     memoryOptionsMB: budgets,
     recommendedMemoryMB: 4096,
@@ -612,7 +747,7 @@ function preflight(s: DemoState): Preflight {
     checks: [
       { id: 'os', label: 'System', status: 'pass', detail: live?.os ?? '' },
       { id: 'docker', label: 'Docker', status: 'pass', detail: `Docker ${live?.dockerVersion ?? ''} is running` },
-      { id: 'memory', label: 'Memory', status: 'pass', detail: '16 GB, 7.5 GB not given to a server' },
+      { id: 'memory', label: 'Memory', status: 'pass', detail: '16 GB, 3.5 GB not given to a server' },
       { id: 'disk', label: 'Disk', status: 'pass', detail: '41 GB free' },
     ],
   }
@@ -655,22 +790,31 @@ interface LibraryAddon {
   /** Its drawing in the demo, and the folder of plugins/ its settings live in. */
   icon: number
   folder: string
+  /** A mod, for Fabric servers; plugins otherwise. */
+  mod?: true
+  /** What friends need of a mod. */
+  need?: ShareNeed
+  /** The "Picked by Playkeeper" entry it fills. */
+  pick?: string
 }
 
-/** Every plugin the demo's library has: the sample servers' own, and more to browse. */
+/** Every plugin and mod the demo's library has: the sample servers' own, and more to browse. */
 export const library: LibraryAddon[] = [
-  { source: 'modrinth', projectId: 'fALzjamp', slug: 'chunky', name: 'Chunky', author: 'pop4959', summary: 'Pre-generates chunks, quickly and efficiently', categories: ['world', 'optimization'], license: 'GPL-3.0-only', downloads: 2_830_000, version: '1.5.3', daysOld: 12, notes: 'Generates faster on Paper and reports progress more often.', jar: 'Chunky-Bukkit-{v}.jar', size: 304_616, icon: 0, folder: 'Chunky' },
-  { source: 'modrinth', projectId: 'Vebnzrzj', slug: 'luckperms', name: 'LuckPerms', author: 'Luck', summary: 'A permissions plugin for Minecraft servers', categories: ['admin'], license: 'MIT', downloads: 4_260_000, version: '5.5.11', daysOld: 2, notes: 'Fixes the web editor’s link on servers behind a proxy, and updates translations.', jar: 'LuckPerms-Bukkit-{v}.jar', size: 1_734_000, icon: 1, folder: 'LuckPerms' },
-  { source: 'modrinth', projectId: 'Lu3KuzdV', slug: 'coreprotect', name: 'CoreProtect', author: 'Intelli', summary: 'Fast, efficient block logging, rollbacks and restores', categories: ['admin', 'protection'], license: 'Artistic-2.0', downloads: 1_870_000, version: '23.1', daysOld: 41, notes: 'Supports Minecraft 26.1 and logs item frames again.', jar: 'CoreProtect-{v}.jar', size: 1_062_000, icon: 2, folder: 'CoreProtect' },
+  { source: 'modrinth', projectId: 'fALzjamp', slug: 'chunky', name: 'Chunky', author: 'pop4959', summary: 'Pre-generates chunks, quickly and efficiently', categories: ['world', 'optimization'], license: 'GPL-3.0-only', downloads: 2_830_000, version: '1.5.3', daysOld: 12, notes: 'Generates faster on Paper and reports progress more often.', jar: 'Chunky-Bukkit-{v}.jar', size: 304_616, icon: 0, folder: 'Chunky', pick: 'pregenerate' },
+  { source: 'modrinth', projectId: 'Vebnzrzj', slug: 'luckperms', name: 'LuckPerms', author: 'Luck', summary: 'A permissions plugin for Minecraft servers', categories: ['admin'], license: 'MIT', downloads: 4_260_000, version: '5.5.11', daysOld: 2, notes: 'Fixes the web editor’s link on servers behind a proxy, and updates translations.', jar: 'LuckPerms-Bukkit-{v}.jar', size: 1_734_000, icon: 1, folder: 'LuckPerms', pick: 'permissions' },
+  { source: 'modrinth', projectId: 'Lu3KuzdV', slug: 'coreprotect', name: 'CoreProtect', author: 'Intelli', summary: 'Fast, efficient block logging, rollbacks and restores', categories: ['admin', 'protection'], license: 'Artistic-2.0', downloads: 1_870_000, version: '23.1', daysOld: 41, notes: 'Supports Minecraft 26.1 and logs item frames again.', jar: 'CoreProtect-{v}.jar', size: 1_062_000, icon: 2, folder: 'CoreProtect', pick: 'rollback' },
   { source: 'modrinth', projectId: 'swbUV1cr', slug: 'bluemap', name: 'BlueMap', author: 'Blue', summary: 'A 3D map of your world that players open in a browser', categories: ['world', 'utility'], license: 'MIT', downloads: 1_120_000, version: '5.13', daysOld: 18, notes: 'Renders 26.1’s new blocks and opens large maps faster.', jar: 'bluemap-{v}-paper.jar', size: 3_950_000, icon: 3, folder: 'BlueMap' },
-  { source: 'hangar', projectId: 'ViaVersion', slug: 'ViaVersion', owner: 'ViaVersion', name: 'ViaVersion', author: 'ViaVersion', summary: 'Lets players on newer Minecraft versions join your server', categories: ['utility', 'library'], license: 'GPL-3.0', downloads: 6_140_000, version: '5.5.1', daysOld: 9, notes: 'Lets 26.2 players join.', jar: 'ViaVersion-{v}.jar', size: 5_380_000, icon: 4, folder: 'ViaVersion' },
+  { source: 'hangar', projectId: 'ViaVersion', slug: 'ViaVersion', owner: 'ViaVersion', name: 'ViaVersion', author: 'ViaVersion', summary: 'Lets players on newer Minecraft versions join your server', categories: ['utility', 'library'], license: 'GPL-3.0', downloads: 6_140_000, version: '5.5.1', daysOld: 9, notes: 'Lets 26.2 players join.', jar: 'ViaVersion-{v}.jar', size: 5_380_000, icon: 4, folder: 'ViaVersion', pick: 'newer-clients' },
   { source: 'modrinth', projectId: '1u6JkXh5', slug: 'worldedit', name: 'WorldEdit', author: 'EngineHub', summary: 'An in-game map editor for building and shaping land', categories: ['world', 'utility'], license: 'GPL-3.0-only', downloads: 7_950_000, version: '7.3.17', daysOld: 23, notes: 'Knows the blocks added in Minecraft 26.2.', jar: 'worldedit-bukkit-{v}.jar', size: 4_120_000, icon: 5, folder: 'WorldEdit' },
   { source: 'hangar', projectId: 'Geyser', slug: 'Geyser', owner: 'GeyserMC', name: 'Geyser', author: 'GeyserMC', summary: 'Lets Bedrock players on phones and consoles join your Java server', categories: ['utility'], license: 'MIT', downloads: 3_480_000, version: '2.9.0', daysOld: 4, notes: 'Supports the latest Bedrock release.', jar: 'Geyser-Spigot-{v}.jar', size: 17_400_000, icon: 6, folder: 'Geyser-Spigot' },
-  { source: 'hangar', projectId: 'Essentials', slug: 'Essentials', owner: 'EssentialsX', name: 'EssentialsX', author: 'EssentialsX', summary: 'Homes, warps, kits and the everyday commands most servers want', categories: ['admin', 'utility'], license: 'GPL-3.0', downloads: 2_290_000, version: '2.21.2', daysOld: 33, notes: 'Fixes /home on servers with several worlds.', jar: 'EssentialsX-{v}.jar', size: 3_210_000, icon: 7, folder: 'Essentials' },
-  { source: 'modrinth', projectId: 'l6YH9Als', slug: 'spark', name: 'spark', author: 'lucko', summary: 'Finds out what makes your server lag', categories: ['optimization', 'utility'], license: 'GPL-3.0-only', downloads: 5_320_000, version: '1.10.142', daysOld: 6, notes: 'Samples Paper’s new chunk system.', jar: 'spark-{v}-bukkit.jar', size: 2_060_000, icon: 8, folder: 'spark' },
+  { source: 'hangar', projectId: 'Essentials', slug: 'Essentials', owner: 'EssentialsX', name: 'EssentialsX', author: 'EssentialsX', summary: 'Homes, warps, kits and the everyday commands most servers want', categories: ['admin', 'utility'], license: 'GPL-3.0', downloads: 2_290_000, version: '2.21.2', daysOld: 33, notes: 'Fixes /home on servers with several worlds.', jar: 'EssentialsX-{v}.jar', size: 3_210_000, icon: 7, folder: 'Essentials', pick: 'essentials' },
+  { source: 'modrinth', projectId: 'l6YH9Als', slug: 'spark', name: 'spark', author: 'lucko', summary: 'Finds out what makes your server lag', categories: ['optimization', 'utility'], license: 'GPL-3.0-only', downloads: 5_320_000, version: '1.10.142', daysOld: 6, notes: 'Samples Paper’s new chunk system.', jar: 'spark-{v}-bukkit.jar', size: 2_060_000, icon: 8, folder: 'spark', pick: 'lag-finder' },
   { source: 'modrinth', projectId: '3wmN97b8', slug: 'multiverse-core', name: 'Multiverse-Core', author: 'Multiverse', summary: 'Adds more worlds to one server, each with its own settings', categories: ['world', 'admin'], license: 'BSD-3-Clause', downloads: 1_540_000, version: '5.3.1', daysOld: 27, notes: 'Keeps each world’s game rules when it is loaded again.', jar: 'multiverse-core-{v}.jar', size: 1_380_000, icon: 9, folder: 'Multiverse-Core' },
   { source: 'modrinth', projectId: 'TsLS8Py5', slug: 'skinsrestorer', name: 'SkinsRestorer', author: 'SkinsRestorer', summary: 'Keeps players’ skins and lets them pick new ones', categories: ['utility'], license: 'GPL-3.0-only', downloads: 1_010_000, version: '15.8.2', daysOld: 15, notes: 'Loads skins faster when many players join at once.', jar: 'SkinsRestorer-{v}.jar', size: 2_540_000, icon: 10, folder: 'SkinsRestorer' },
   { source: 'modrinth', projectId: 'UmLGoGij', slug: 'discordsrv', name: 'DiscordSRV', author: 'Scarsz', summary: 'Links your server’s chat to a Discord channel', categories: ['chat'], license: 'GPL-3.0-only', downloads: 860_000, version: '1.30.1', daysOld: 38, notes: 'Shows players’ faces next to their messages again.', jar: 'DiscordSRV-Build-{v}.jar', size: 9_870_000, icon: 11, folder: 'DiscordSRV' },
+  { source: 'modrinth', projectId: 'P7dR8mSH', slug: 'fabric-api', name: 'Fabric API', author: 'modmuss50', summary: 'The hooks most Fabric mods need to work', categories: ['library'], license: 'Apache-2.0', downloads: 131_000_000, version: '0.140.2', daysOld: 5, notes: 'Supports Minecraft 26.1.2.', jar: 'fabric-api-{v}.jar', size: 2_310_000, icon: 13, folder: 'fabric', mod: true, need: 'required' },
+  { source: 'modrinth', projectId: 'MdwFAVRL', slug: 'cobblemon', name: 'Cobblemon', author: 'Cobblemon', summary: 'Catch, train and battle creatures across the world', categories: ['adventure', 'mobs'], license: 'MPL-2.0', downloads: 9_800_000, version: '1.7.1', daysOld: 11, notes: 'Adds new creatures and fixes trading between players.', jar: 'Cobblemon-fabric-{v}.jar', size: 88_400_000, icon: 14, folder: 'cobblemon', mod: true, need: 'required' },
+  { source: 'modrinth', projectId: 'gvQqBUqZ', slug: 'lithium', name: 'Lithium', author: 'CaffeineMC', summary: 'Makes the game run faster without changing how it plays', categories: ['optimization'], license: 'LGPL-3.0-only', downloads: 48_600_000, version: '0.18.1', daysOld: 19, notes: 'Speeds up mob pathfinding.', jar: 'lithium-fabric-{v}.jar', size: 740_000, icon: 15, folder: 'lithium', mod: true, need: 'optional' },
 ]
 
 /** The library's categories, in the order the dashboard lists them. */
@@ -717,9 +861,15 @@ function record(a: LibraryAddon, inst: InstalledAddon): Addon {
 }
 
 function card(a: LibraryAddon, now: number, installed: boolean): AddonCard {
-  const pageUrl = a.source === 'modrinth' ? `https://modrinth.com/plugin/${a.slug}` : `https://hangar.papermc.io/${a.owner ?? a.slug}/${a.slug}`
+  const pageUrl = a.source === 'modrinth' ? `https://modrinth.com/${a.mod ? 'mod' : 'plugin'}/${a.slug}` : `https://hangar.papermc.io/${a.owner ?? a.slug}/${a.slug}`
   return { source: a.source, projectId: a.projectId, slug: a.slug, name: a.name, author: a.author, summary: a.summary, categories: a.categories, license: a.license, downloads: a.downloads, iconUrl: iconUrlOf(a), updated: iso(now - a.daysOld * day), pageUrl, installed }
 }
+
+/** Whether a server takes mods (Fabric) or plugins (Paper). */
+const takesMods = (srv: ServerStatus) => srv.type === 'fabric'
+
+/** The library's plugins or mods, whichever the server takes. */
+const libraryFor = (srv: ServerStatus) => library.filter((a) => !!a.mod === takesMods(srv))
 
 function addons(s: DemoState, r: Request): Addons {
   const srv = serverOf(s, r)
@@ -729,7 +879,9 @@ function addons(s: DemoState, r: Request): Addons {
   })
   for (const h of s.addons[srv.id]?.byHand ?? []) files.push({ fileName: h.fileName, size: h.size, status: 'unknown', name: h.name, version: h.version })
   return {
-    target: { kind: 'plugin', folder: 'plugins', sources: ['modrinth', 'hangar'], categories: addonCategories, minecraftVersion: srv.config?.minecraftVersion ?? '' },
+    target: takesMods(srv)
+      ? { kind: 'mod', folder: 'mods', sources: ['modrinth'], categories: addonCategories, minecraftVersion: srv.config?.minecraftVersion ?? '' }
+      : { kind: 'plugin', folder: 'plugins', sources: ['modrinth', 'hangar'], categories: addonCategories, minecraftVersion: srv.config?.minecraftVersion ?? '' },
     files,
     missing: [],
     warnings: [],
@@ -750,7 +902,7 @@ function addonSearch(s: DemoState, r: Request): AddonBrowse {
   const q = words(r.query.get('q') ?? '')
   const category = r.query.get('category') ?? ''
   const mine = new Set(installedOn(s, srv.id).map(({ a }) => a))
-  const found = library.filter((a) => (!q || [a.name, a.summary, a.author].some((x) => words(x).includes(q))) && (!category || a.categories.includes(category)))
+  const found = libraryFor(srv).filter((a) => (!q || [a.name, a.summary, a.author].some((x) => words(x).includes(q))) && (!category || a.categories.includes(category)))
   const byDownloads = (x: LibraryAddon, y: LibraryAddon) => y.downloads - x.downloads
   switch (r.query.get('sort')) {
     case 'updated':
@@ -782,7 +934,7 @@ function addonRemoval(s: DemoState, r: Request): AddonRemovePreview {
   const srv = serverOf(s, r)
   const found = installedOn(s, srv.id).find(({ a }) => a.source === r.params.source && a.projectId === r.params.project)
   if (!found) throw new ApiError(404, { error: t('error.http', { status: '404' }), code: 'not_found' })
-  return { addon: record(found.a, found.inst), neededBy: [], orphans: [], configFolder: `plugins/${found.a.folder}`, changed: false, missing: false }
+  return { addon: record(found.a, found.inst), neededBy: [], orphans: [], configFolder: `${found.a.mod ? 'config' : 'plugins'}/${found.a.folder}`, changed: false, missing: false }
 }
 
 /** The chunks in a square this far out from spawn, as Chunky counts them. */
@@ -851,6 +1003,94 @@ function dataPacks(s: DemoState, r: Request): DataPacks {
 }
 
 /** GET paths the demo has sample data for. */
+// Machine settings › Address and Account's two-factor sign-in.
+
+function address(s: DemoState, r: Request): Address {
+  const claimed = r.now - 32 * day
+  const host = `${freeName}.playkeeper.io`
+  return {
+    kind: 'playkeeper',
+    host,
+    since: iso(claimed),
+    ip: machineIP,
+    panelPort: 8443,
+    base: 'playkeeper.io',
+    servers: s.servers.map((x) => ({ serverId: x.id, name: x.name, port: x.gamePort, label: x.slug, address: `${x.slug}.${host}`, direct: `${machineIP}:${x.gamePort}`, published: true })),
+    free: { name: freeName, state: 'active', dns: 'ok', ipv4: machineIP, claimedAt: iso(claimed), refreshedAt: iso(r.now - 3 * hour), checkedAt: iso(r.now - 2 * hour), holdDays: 30 },
+    certificate: { names: [host], challenge: 'dns-01', notBefore: iso(r.now - 20 * day), notAfter: iso(r.now + 70 * day), renewAt: iso(r.now + 40 * day), issuer: 'Let’s Encrypt' },
+    names: { url: 'https://names.playkeeper.io' },
+    termsAccepted: iso(claimed),
+  }
+}
+
+const twoFactor: TwoFactorStatus = { state: 'off', recoveryCodesLeft: 0, appCodesBlocked: false }
+
+const addonSources: AddonSources = { curseforge: { key: 'none' } }
+
+// How it's running, and the memory each server needs.
+
+function running(s: DemoState, r: Request): Running {
+  const srv = serverOf(s, r)
+  if (srv.phase !== 'online') return { status: 'unknown', title: '', explanation: '', evidence: [], causes: [], windowMinutes: 10 }
+  const players = srv.players?.online ?? 0
+  return { status: 'smooth', params: { tps: 20, mspt: 16 + players * 3 }, title: 'Running smoothly', explanation: 'It keeps up with the game, with time to spare every tick.', evidence: [], causes: [], windowMinutes: 10, at: iso(r.now), players }
+}
+
+const memoryBudgets = [2048, 3072, 4096, 6144, 8192]
+
+function memoryAdvice(s: DemoState, r: Request): MemoryAdvice {
+  const srv = serverOf(s, r)
+  const budgetMB = srv.config?.memoryMB ?? 4096
+  const live = s.machine.live
+  const used = s.servers.reduce((n, x) => n + (x.config?.memoryMB ?? 0), 0)
+  const room = (live?.memoryTotalMB ?? 16384) - (live?.systemReserveMB ?? 1536) - used + budgetMB
+  const heap = (mb: number) => Math.round(mb * 0.75)
+  // What each budget would be for the server, from the most it needed.
+  const peakMB = srv.id === cobblemonId ? 4400 : srv.id === creativeId ? 1400 : 2560
+  const fitOf = (mb: number): MemoryFit => (mb < peakMB ? 'too_tight' : mb < peakMB * 1.3 ? 'little_room' : mb < peakMB * 2 ? 'room_to_grow' : 'more_than_needed')
+  const options = memoryBudgets.map((memoryMB) => ({ memoryMB, heapMB: heap(memoryMB), fits: memoryMB <= room, fit: fitOf(memoryMB) }))
+  const days = Array.from({ length: 14 }, (_, i) => ({ date: iso(r.now - (13 - i) * day).slice(0, 10), peakMB: Math.round(peakMB * (0.8 + noise(i + budgetMB) * 0.2)) }))
+  const base = { title: '', explanation: 'From how much memory it needed over the last 14 days.', evidence: [], actions: [], budgetMB, heapMB: heap(budgetMB), days, options }
+  if (srv.id === cobblemonId) return { ...base, verdict: 'raise', params: { days: 9, to_mb: 6144 }, recommendedMB: 6144, days: days.slice(-9) }
+  if (srv.id === creativeId) return { ...base, verdict: 'lower', params: { peak_mb: peakMB, days: 14, to_mb: 2048 }, recommendedMB: 2048 }
+  return { ...base, verdict: 'keep', params: { peak_mb: peakMB, days: 14, reason: 'fits' }, recommendedMB: budgetMB }
+}
+
+// Picked by Playkeeper, and the pack friends need for a modded server.
+
+function curated(s: DemoState, r: Request): CuratedAddons {
+  const srv = serverOf(s, r)
+  const mine = new Set(installedOn(s, srv.id).map(({ a }) => a))
+  const order = ['rollback', 'pregenerate', 'newer-clients', 'essentials', 'permissions', 'lag-finder']
+  const picks = libraryFor(srv).filter((a) => a.pick).sort((x, y) => order.indexOf(x.pick ?? '') - order.indexOf(y.pick ?? ''))
+  return { picks: picks.map((a) => ({ id: a.pick ?? a.slug, card: card(a, r.now, mine.has(a)) })) }
+}
+
+const needText: Record<ShareNeed, string> = { required: 'Friends need it', optional: 'Optional for friends', server_only: 'Server only', unknown: 'Unknown' }
+
+function modsShare(s: DemoState, r: Request): PackShare {
+  const srv = serverOf(s, r)
+  if (!takesMods(srv)) throw new ApiError(404, { error: t('error.http', { status: '404' }), code: 'not_found' })
+  const mods: ShareMod[] = installedOn(s, srv.id).map(({ a, inst }) => {
+    const need = a.need ?? 'unknown'
+    const v = versionOf(a, inst.version, inst.published)
+    return { name: a.name, version: inst.version, path: `mods/${v.fileName ?? ''}`, from: 'user', source: a.source, project: a.projectId, page: card(a, r.now, true).pageUrl, onServer: true, need, label: { key: `share.need.${need}`, text: needText[need] }, inFile: need !== 'server_only' }
+  })
+  const needed = mods.filter((m) => m.need === 'required')
+  const [first, second] = needed
+  const notice =
+    needed.length === 2 && first && second
+      ? { key: 'share.notice.two', params: { mod: first.name, other: second.name }, text: `Friends need ${first.name} and ${second.name}` }
+      : { key: 'share.notice.none', text: 'Friends can join without mods' }
+  return {
+    public: false,
+    file: `${srv.slug}.mrpack`,
+    size: 4_096,
+    loaderName: 'Fabric',
+    share: { server: srv.name, type: srv.type ?? 'fabric', minecraftVersion: srv.config?.minecraftVersion ?? '', loaderVersion: srv.config?.software?.fabricLoader ?? '', notice, mods },
+  }
+}
+
 export const reads: Routes = {
   'GET /api/setup/status': () => ({ needsSetup: false }),
   'GET /api/auth/me': (_, r) => me(r.now),
@@ -860,6 +1100,10 @@ export const reads: Routes = {
   'GET /api/machines/link': () => link,
   'GET /api/machines/:machine/activity': (s, r) => s.activity.slice(0, limit(r, 5)),
   'GET /api/machines/:machine/catalog': catalog,
+  'GET /api/machines/:machine/catalog/builds': builds,
+  'GET /api/machines/:machine/address': address,
+  'GET /api/machines/:machine/addon-sources': () => addonSources,
+  'GET /api/auth/2fa': () => twoFactor,
   'GET /api/machines/:machine/update': (_, r) => update(r.now),
   'GET /api/machines/:machine/preflight': preflight,
   'GET /api/machines/:machine/events': () => [],
@@ -869,6 +1113,8 @@ export const reads: Routes = {
   'GET /api/servers/:id/logs': logs,
   'GET /api/servers/:id/activity': (s, r) => s.activity.filter((a) => a.serverId === serverOf(s, r).id).slice(0, limit(r, 5)),
   'GET /api/servers/:id/metrics': metrics,
+  'GET /api/servers/:id/running': running,
+  'GET /api/servers/:id/memory': memoryAdvice,
   'GET /api/servers/:id/players/sessions': sessions,
   'GET /api/servers/:id/players/summary': summary,
   'GET /api/servers/:id/whitelist': (s, r) => s.whitelist[serverOf(s, r).id] ?? [],
@@ -877,6 +1123,8 @@ export const reads: Routes = {
   'GET /api/servers/:id/addons': addons,
   'GET /api/servers/:id/addons/checks': addonChecks,
   'GET /api/servers/:id/addons/search': addonSearch,
+  'GET /api/servers/:id/addons/curated': curated,
+  'GET /api/servers/:id/mods/share': modsShare,
   'GET /api/servers/:id/addons/project/:source/:project': addonDetails,
   'GET /api/servers/:id/addons/project/:source/:project/removal': addonRemoval,
   'GET /api/servers/:id/pregen': pregen,
