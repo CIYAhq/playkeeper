@@ -471,7 +471,7 @@ describe('Add-on sources', () => {
   it('says when CurseForge refuses the key, and keeps nothing', async () => {
     answer({ '/addon-sources': none })
     await render(<AddonSourcesCard />)
-    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'curseforge_key_refused', error: 'That key didn’t work. Copy it again from console.curseforge.com.' }))
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'curseforge_key_refused', error: "That key didn't work. Copy it again from console.curseforge.com." }))
     await paste('made-up-key-000000000000')
     await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     await act(async () => {})

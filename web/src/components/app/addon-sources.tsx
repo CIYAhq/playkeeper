@@ -180,7 +180,7 @@ function KeyForm({ locked, onSaved, onCancel }: { locked?: string; onSaved: (s: 
       toastManager.add({ title: t('sources.saved'), type: 'success' })
       onSaved(s)
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'curseforge_key_refused') setRefused(err.message)
+      if (err instanceof ApiError && err.code === 'curseforge_key_refused') setRefused(t('sources.refused'))
       else toastManager.add({ title: errorText(err), type: 'error' })
       setBusy(false)
     }

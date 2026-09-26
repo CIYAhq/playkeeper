@@ -1579,6 +1579,7 @@ export const en = {
   'sources.keyPlaceholder': 'Paste your CurseForge API key',
   'sources.save': 'Save key',
   'sources.stays': 'The key stays on this machine.',
+  'sources.refused': 'That key didn’t work. Copy it again from console.curseforge.com.',
   'sources.ending': 'Key ending {ending}',
   'sources.replace': 'Replace key',
   'sources.saved': 'CurseForge is on',
