@@ -547,10 +547,17 @@ func (a *Agent) currentOp() *api.Operation {
 // busy is true while any server or the machine runs an operation.
 func (a *Agent) busy() bool { return a.currentOp() != nil || a.installingUpdate() != "" }
 
+// stagingOps are the machine-wide operations that only write to staging.
+var stagingOps = map[string]bool{"offsite-recover": true}
+
 // beginMachineOp runs fn as the machine-wide operation. It needs every
 // server idle, and holds their operation locks until fn returns, so no server
-// operation starts meanwhile.
+// operation starts meanwhile; one in stagingOps holds none, as
+// beginStagingOp says.
 func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+	if stagingOps[kind] {
+		return a.beginStagingOp(kind, actor, fn)
+	}
 	select {
 	case a.mopLock <- struct{}{}:
 	default:

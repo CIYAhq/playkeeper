@@ -3141,9 +3141,9 @@ control "machine operations keep their deadline" internal/agent/agent.go \
   ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_machine_operation$'
 
 # Wave 7 before Bugbot: restoring from a recovery key holds no server.
-control "a restore from a recovery key holds no server" internal/agent/recover.go \
-  'op, err := a.beginStagingOp("offsite-recover", actor, func(' \
-  'op, err := a.beginMachineOp("offsite-recover", actor, func(' \
+control "a restore from a recovery key holds no server" internal/agent/agent.go \
+  '	if stagingOps[kind] {' \
+  '	if false && stagingOps[kind] {' \
   ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
 control "what waits for a restore from a recovery key says what for" internal/agent/lifecycle.go \
   '	"offsite-recover": "restoring a server from a recovery key",
