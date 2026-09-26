@@ -1040,9 +1040,18 @@ control "voice chat that a removal leaves gets its port back" internal/agent/add
   '		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
   ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
 control "each version list is fetched on its own" internal/agent/software.go \
-  'err := c.fetchOnce(ctx, "catalog "+typ, func() error {' \
-  'err := c.fetchOnce(ctx, "catalog", func() error {' \
+  'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, typ, func() ([]api.CatalogEntry, time.Time, error) {' \
+  'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, "", func() ([]api.CatalogEntry, time.Time, error) {' \
   ./internal/agent '^TestSlowVersionListHoldsUpOnlyItsOwnCallers$'
+control "a caller that waited for a build list gets what the fetch found" internal/agent/software.go \
+  '	return bs, at, nil
+}' \
+  '	_, _ = bs, at
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.builds[key].builds, c.builds[key].at, nil
+}' \
+  ./internal/agent '^TestBuildListWaitersGetWhatTheFetchFound$'
 control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
