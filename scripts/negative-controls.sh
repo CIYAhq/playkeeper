@@ -944,7 +944,8 @@ control "each version list is fetched on its own" internal/agent/software.go \
 control "a caller that waited for a build list gets what the fetch found" internal/agent/software.go \
   '	return bs, at, nil
 }' \
-  '	c.mu.Lock()
+  '	_, _ = bs, at
+	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.builds[key].builds, c.builds[key].at, nil
 }' \
