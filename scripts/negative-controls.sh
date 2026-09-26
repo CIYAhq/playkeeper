@@ -860,6 +860,10 @@ control "a clean shutdown the reconcile loop has yet to handle is not a crash" i
   '&& !s.intentional[c.ID] && !s.sawStopping' \
   '&& !s.intentional[c.ID]' \
   ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "Discord counts a server's slots before its first sample" internal/agent/discord.go \
+  'if st.MaxPlayers == 0 && sc != nil {' \
+  'if false && st.MaxPlayers == 0 && sc != nil {' \
+  ./internal/agent '^TestDiscordLiveStatusCountsSlotsBeforeTheFirstSample$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

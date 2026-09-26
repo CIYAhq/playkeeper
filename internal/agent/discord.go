@@ -217,6 +217,11 @@ func (s *server) discordStatus(ctx context.Context) discord.Status {
 		if players != nil && s.fresh(players.At) {
 			st.PlayersOnline, st.MaxPlayers, st.Players = players.Online, players.Max, players.Names
 		}
+		// Right after a start, before the first sample, the slots are the
+		// server's setting, so the line reads "0 of 10" rather than "0".
+		if st.MaxPlayers == 0 && sc != nil {
+			st.MaxPlayers = sc.MaxPlayers
+		}
 	case api.PhaseCrashed:
 		st.State = discord.StateCrashed
 	case api.PhasePulling, api.PhaseStartingContainer, api.PhaseDownloading, api.PhaseStarting, api.PhasePreparingWorld:

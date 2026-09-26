@@ -352,6 +352,27 @@ func TestDiscordLiveStatusShowsCrashesWithinSeconds(t *testing.T) {
 	f.waitStatus(e, 0, "** · Crashed")
 }
 
+// Right after a start or a restart, before a sample says who is playing,
+// the live status message counts the slots the server's settings give it:
+// "Online · 0 of 12", not "Online · 0" until the next routine update. No
+// sample runs here once the agent has started.
+func TestDiscordLiveStatusCountsSlotsBeforeTheFirstSample(t *testing.T) {
+	f := startFakeHook(t)
+	e := newAgentEnv(t)
+	e.stop()
+	e.discordClient, e.sampleInterval, e.crashBackoff = f.client(), time.Hour, []time.Duration{4 * time.Second}
+	e.start()
+	e.createWith(map[string]any{"maxPlayers": 12})
+	e.connectDiscord()
+	const within = 4 * time.Second
+	f.waitStatus(e, within, "** · Online · 0 of 12")
+	e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+	e.fd.crash(137)
+	f.waitStatus(e, within, "** · Crashed")
+	e.waitFor("back online", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+	f.waitStatus(e, within, "** · Online · 0 of 12")
+}
+
 // An exit the reconcile loop has yet to handle shows in Discord as what the
 // loop will count it as, so a crash does not show as a stop first. The
 // reconcile loop does not run here once the agent has started.
