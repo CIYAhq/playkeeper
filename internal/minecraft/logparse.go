@@ -51,7 +51,10 @@ var (
 	reBind      = regexp.MustCompile(`FAILED TO BIND TO PORT`)
 	reOOM       = regexp.MustCompile(`java\.lang\.OutOfMemoryError`)
 	reANSI      = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\[[0-9;]{1,8}m`)
-	reIPv4Port  = regexp.MustCompile(`/?\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b`)
+	reIPv4      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	rePort      = regexp.MustCompile(`^:\d{1,5}\b`)
+	reVersionOf = regexp.MustCompile(`(?i)(?:^|[^\w])(?:version|v|build|loader|neoforge|forge|minecraft|mc|fabric|quilt|paper|purpur|java):? ?$`)
+	reModIDNext = regexp.MustCompile(`^ \([a-z][a-z0-9_]{1,63}\)`)
 	reIPv6Port  = regexp.MustCompile(`/\[?[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,7}(?:%[\w.]+)?\]?(?::\d{1,5})?`)
 	reName      = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
 	reLogName   = regexp.MustCompile(`^[A-Za-z0-9_]{1,16}$`)
@@ -68,12 +71,64 @@ func StripANSI(s string) string { return reANSI.ReplaceAllString(s, "") }
 // several vanilla log lines). Playkeeper never stores or displays them.
 func RedactIPs(s string) string {
 	s = reIPv6Port.ReplaceAllString(s, "/[ip redacted]")
-	return reIPv4Port.ReplaceAllStringFunc(s, func(m string) string {
-		if strings.HasPrefix(m, "/") {
-			return "/[ip redacted]"
+	var b strings.Builder
+	last := 0
+	for _, m := range reIPv4.FindAllStringIndex(s, -1) {
+		end, ok := ipv4End(s, m[0], m[1])
+		if !ok {
+			continue
 		}
-		return "[ip redacted]"
-	})
+		b.WriteString(s[last:m[0]])
+		b.WriteString("[ip redacted]")
+		last = end
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+// ipv4End decides whether the dotted quad s[start:end] is an address, and
+// where the address ends (after its port). Java writes addresses as
+// "/203.0.113.7:50284", so a quad after "/" or before a port is one. Four-part
+// version numbers look the same (NeoForge 26.2.0.88), so a quad inside a
+// name or path ("neoforge-26.2.0.88-universal.jar", "/26.2.0.88/"), after a
+// word like "version" or "NeoForge", or in a mod list row ("Waystones
+// 21.1.0.4 (waystones)") is left as it is.
+func ipv4End(s string, start, end int) (int, bool) {
+	var before byte
+	if start > 0 {
+		before = s[start-1]
+	}
+	after := s[end:]
+	if p := rePort.FindString(after); p != "" && !versionChar(after, len(p)) {
+		return end + len(p), true
+	}
+	if before == '/' {
+		return end, !versionChar(after, 0) && !strings.HasPrefix(after, "/")
+	}
+	if strings.ContainsRune("-_.+\\", rune(before)) || isWord(before) || versionChar(after, 0) || strings.HasPrefix(after, "/") {
+		return 0, false
+	}
+	if reVersionOf.MatchString(s[:start]) || reModIDNext.MatchString(after) {
+		return 0, false
+	}
+	return end, true
+}
+
+// versionChar reports whether s[i] carries on a name or version number: a
+// letter or digit, or a joining mark before one ("-universal", ".5"), not a
+// full stop at the end of a sentence.
+func versionChar(s string, i int) bool {
+	if i >= len(s) {
+		return false
+	}
+	if strings.IndexByte("-_.+", s[i]) >= 0 {
+		return i+1 < len(s) && isWord(s[i+1])
+	}
+	return isWord(s[i])
+}
+
+func isWord(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 // CleanLine prepares a raw container line for display and storage.
