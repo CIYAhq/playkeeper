@@ -80,4 +80,16 @@ describe('the English catalog', () => {
   it('falls back to English for a missing key', () => {
     expect(message('brand.name')).toBe('Playkeeper')
   })
+
+  it('says what skipping a scheduled job for players spares them', () => {
+    // A scheduled backup never stops the server: it pauses world saving, or is refused.
+    const rows: [key: string, says: string, never: RegExp][] = [
+      ['schedules.skipBackupHint', 'Players stay online', /stops|restarts|goes offline/],
+      ['schedules.skipHint', 'Tries again an hour later instead.', /backs up/],
+    ]
+    for (const [key, says, never] of rows) {
+      expect(t(key), key).toContain(says)
+      expect(t(key), key).not.toMatch(never)
+    }
+  })
 })
