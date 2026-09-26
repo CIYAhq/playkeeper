@@ -18,7 +18,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, sameDay, serverJoinAddress } from '@/lib/format'
-import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, outOfReach, reachOf } from '@/lib/machines'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
@@ -325,7 +325,7 @@ function MachineHeading({ machine: m }: { machine: MachineView }) {
   return (
     <h2 id={`on-${m.id}`} className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold">
       <ServerIcon className="size-4 shrink-0 self-center text-muted-foreground" aria-hidden="true" />
-      <a {...linkProps(m.kind === 'local' ? { name: 'machine', id: m.id } : { name: 'machine-settings', id: m.id })} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+      <a {...linkProps(machineRoute(m))} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
         {t('machines.home.on', { name })}
       </a>
       <span key={word} className="animate-fade text-[13px] font-normal text-muted-foreground">

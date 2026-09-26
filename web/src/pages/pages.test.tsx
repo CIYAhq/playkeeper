@@ -222,6 +222,8 @@ describe('Home', () => {
     expect(text).toContain('On home-server')
     expect(text).toContain('On attic')
     expect(text).toContain('3 servers on 3 machines')
+    const heading = (id: string) => document.querySelector(`#on-${id} a`)?.getAttribute('href')
+    expect([machine.id, home.id].map(heading)).toEqual([`/machines/${machine.id}`, `/settings/machines/${home.id}`])
     const atticCard = [...document.querySelectorAll('article')].find((a) => a.textContent?.includes('Attic'))?.textContent ?? ''
     expect(atticCard).toContain('No live status')
     expect(atticCard).toContain('Can’t reach attic')
