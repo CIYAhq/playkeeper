@@ -353,7 +353,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
           </section>
         )}
         {manage && <InviteLinks server={s} data={invites.data} onNew={() => setNewOpen(true)} onChanged={invites.refresh} fresh={fresh} />}
-        <div className="flex items-center gap-3 pt-2">
+        <div className="mt-auto flex items-center gap-3 pt-2">
           <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{address ? t('players.tellPhone', { address }) : join.reason}</p>
           {address && <CopyButton text={t('players.inviteMessage', { address })} size="lg" toast={t('toast.copied')} />}
         </div>
@@ -396,7 +396,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
               </a>
             </div>
             <CardHint>{online ? t('players.playingMeta', { online: onlineNames.length, max: s.players?.max ?? 0, server: s.name }) : t('players.playingOffline', { server: s.name })}</CardHint>
-            <ul className="mt-3 flex flex-col gap-3">
+            <ul className="mt-3 mb-4 flex flex-col gap-3">
               {playing.map(({ key, item: n, state }) => (
                 <li key={key} {...presenceProps(state)} className="flex items-center gap-3">
                   <PlayerFace name={n} size={28} />

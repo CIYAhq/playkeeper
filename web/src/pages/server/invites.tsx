@@ -121,7 +121,7 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
           <h2 id="invite-links" className="section-label">
             {t('invites.title')}
           </h2>
-          <Button variant="ghost" size="sm" onClick={onNew} className="-mr-2 text-success-strong">
+          <Button variant="ghost" size="sm" onClick={onNew} className="-mr-2 h-11 text-success-strong">
             <PlusIcon />
             {t('invites.new')}
           </Button>
@@ -154,7 +154,7 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
         <h2 id="invite-links" className="text-[15px] font-semibold">
           {t('invites.title')}
         </h2>
-        <Button size="sm" onClick={onNew}>
+        <Button onClick={onNew}>
           <PlusIcon />
           {t('invites.new')}
         </Button>
@@ -163,17 +163,17 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
         <table className="w-full min-w-[720px] table-fixed text-[13px]">
           <thead className="bg-muted text-left text-xs text-muted-foreground">
             <tr className="h-9">
-              <th className="px-3 font-medium">{t('invites.col.link')}</th>
+              <th className="pr-3 pl-4 font-medium">{t('invites.col.link')}</th>
               <th className="w-24 px-3 text-right font-medium">{t('invites.col.used')}</th>
-              <th className="w-40 px-3 font-medium">{t('invites.col.runsOut')}</th>
+              <th className="w-32 px-3 font-medium">{t('invites.col.runsOut')}</th>
               <th className="w-36 px-3 font-medium">{t('invites.col.approval')}</th>
-              <th className="w-36 px-3 text-right font-medium">{t('invites.col.actions')}</th>
+              <th className="w-36 pr-4 pl-3 text-right font-medium">{t('invites.col.actions')}</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-muted-foreground">
+                <td colSpan={5} className="px-4 py-4 text-muted-foreground">
                   {t('invites.none')}
                 </td>
               </tr>
@@ -183,7 +183,7 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
               const active = inv.status === 'active'
               return (
                 <tr key={key} {...presenceProps(state)} className={cn('h-12 border-t border-border transition-colors duration-(--motion-slow) ease-standard', fresh === inv.id && 'bg-selected', !active && 'text-muted-foreground')}>
-                  <td className="max-w-0 px-3 py-1.5">
+                  <td className="max-w-0 py-1.5 pr-3 pl-4">
                     <span className={cn('block truncate font-semibold', active && 'text-foreground')}>{inv.label || t('invites.unnamed')}</span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {link ? `${link.short}${t('common.dot')}` : ''}
@@ -193,7 +193,7 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
                   <td className={cn('px-3 text-right whitespace-nowrap tabular-nums', active && 'font-semibold')}>{usedText(inv)}</td>
                   <td className="px-3 whitespace-nowrap">{runsOut(inv)}</td>
                   <td className="px-3 whitespace-nowrap">{approvalLabel(inv.approval)}</td>
-                  <td className="px-3">
+                  <td className="pr-4 pl-3">
                     <span className="flex items-center justify-end gap-1">
                       {link && <CopyButton text={link.url} disabledReason={active ? undefined : t('invites.linkOff')} toast={t('invites.copiedToast')} />}
                       <InviteMenu server={server} invite={inv} after={onChanged} />
@@ -261,7 +261,7 @@ function NewInviteForm({ server, data, onClose, onCreated }: { server: ServerSta
           <Input value={spec.label} onChange={(e) => setSpec({ ...spec, label: e.target.value })} maxLength={64} placeholder={t('invites.namePlaceholder')} autoComplete="off" autoFocus={!phone} className="max-sm:h-11 max-sm:[&>input]:h-full" />
           <span className="text-xs text-muted-foreground">{t('invites.nameHint')}</span>
         </label>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
           <div className="flex flex-col gap-1.5">
             <span className="text-[13px] font-semibold" id="invite-expiry">
               {t('invites.worksFor')}
@@ -287,11 +287,11 @@ function NewInviteForm({ server, data, onClose, onCreated }: { server: ServerSta
         <fieldset className="flex flex-col">
           <legend className="mb-1.5 text-[13px] font-semibold">{t('invites.letting')}</legend>
           <CardGroup value={spec.approval} onChange={(approval) => setSpec({ ...spec, approval })} label={t('invites.letting')} className="flex flex-col gap-2">
-            <ChoiceCard value="right_away" radio="start" className="gap-3 px-3.5 py-3">
+            <ChoiceCard value="right_away" radio="start" className="gap-3 px-3.5 py-3.5">
               <span className="block text-[13px] font-semibold">{t('invites.rightAway')}</span>
               <span className="block text-xs text-muted-foreground">{t('invites.rightAwayHint')}</span>
             </ChoiceCard>
-            <ChoiceCard value="after_yes" radio="start" className="gap-3 px-3.5 py-3">
+            <ChoiceCard value="after_yes" radio="start" className="gap-3 px-3.5 py-3.5">
               <span className="block text-[13px] font-semibold">{t('invites.afterYes')}</span>
               <span className="block text-xs text-muted-foreground">{t('invites.afterYesHint')}</span>
             </ChoiceCard>
@@ -303,7 +303,7 @@ function NewInviteForm({ server, data, onClose, onCreated }: { server: ServerSta
           </p>
         )}
       </DialogPanel>
-      <DialogFooter variant="bare" className="border-t border-border pt-4">
+      <DialogFooter variant="bare" className="border-t border-border pt-4 sm:mx-6 sm:px-0">
         <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} onClick={onClose}>
           {t('common.cancel')}
         </Button>
