@@ -392,13 +392,6 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
     },
   ],
-]
-
-const addonJar = /^[^./\\][^/\\]{0,195}\.jar$/
-
-/** An add-on install or update carries the fingerprint of the plan the user confirmed. */
-function confirmed(body: unknown): boolean {
-  return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
   [
     'POST',
     /^\/api\/servers\/(\w+)\/addons\/adopt$/,
@@ -505,6 +498,13 @@ function confirmed(body: unknown): boolean {
     },
   ],
 ]
+
+const addonJar = /^[^./\\][^/\\]{0,195}\.jar$/
+
+/** An add-on install or update carries the fingerprint of the plan the user confirmed. */
+function confirmed(body: unknown): boolean {
+  return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
+}
 
 function importGone(): Reply {
   return { status: 404, body: { error: 'This upload isn’t here anymore.', hint: 'Upload the world again.', code: 'not_found' } }
