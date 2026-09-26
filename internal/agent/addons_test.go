@@ -14,8 +14,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
+
+func TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo(t *testing.T) {
+	lib := addons.Notice{
+		Kind: addons.KindOnlyPrerelease,
+		Msg:  "Chunky has only pre-release versions for Minecraft 26.2 (newest: 1.5.0-beta, a beta).",
+		Hint: "Pre-releases can be unstable. Allow pre-releases to install it anyway.",
+	}
+	for what, n := range map[string]api.AddonNotice{"details": apiNotice(lib), "a plan's error": *noticeOf(&addons.Error{Notice: lib})} {
+		if n.Hint != onlyPrereleaseHint || strings.Contains(strings.ToLower(n.Hint), "allow pre-releases") || n.Message != lib.Msg {
+			t.Errorf("%s: %+v, want the message kept and a hint that doesn't offer pre-releases", what, n)
+		}
+	}
+	if got := apiNotice(addons.Notice{Kind: addons.KindPrerelease, Hint: "kept"}).Hint; got != "kept" {
+		t.Errorf("another notice's hint became %q", got)
+	}
+}
 
 // withSources restarts the agent with an add-on library that reaches only
 // the fake sources.

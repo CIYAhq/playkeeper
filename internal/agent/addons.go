@@ -237,9 +237,17 @@ func apiAddons(recs []addons.Installed) []api.Addon {
 	return out
 }
 
+// apiNotice is n as the API sends it. Installs and updates here never allow
+// pre-releases, so the library's hint to allow them is replaced.
 func apiNotice(n addons.Notice) api.AddonNotice {
-	return api.AddonNotice{Kind: string(n.Kind), Params: n.Params, Message: n.Msg, Hint: n.Hint}
+	hint := n.Hint
+	if n.Kind == addons.KindOnlyPrerelease {
+		hint = onlyPrereleaseHint
+	}
+	return api.AddonNotice{Kind: string(n.Kind), Params: n.Params, Message: n.Msg, Hint: hint}
 }
+
+const onlyPrereleaseHint = "Playkeeper installs releases only, so this waits for a release that runs on this Minecraft version."
 
 func apiNotices(ns []addons.Notice) []api.AddonNotice {
 	out := make([]api.AddonNotice, 0, len(ns))
