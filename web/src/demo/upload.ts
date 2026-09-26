@@ -5,7 +5,7 @@
 
 import type * as real from '@/lib/upload'
 import { backoffMs, pieceBytes, retryable, uploadWorld as uploadForReal, UploadSpeed, xhrPut, type Put, type UploadOptions } from '@/lib/upload'
-import { put } from './client'
+import { answer } from './engine'
 
 export { backoffMs, pieceBytes, retryable, UploadSpeed, xhrPut }
 export type { Put, PutResult, UploadOptions, UploadProgress } from '@/lib/upload'
@@ -40,7 +40,7 @@ export function uploadWorld(o: UploadOptions) {
       await wait(tickMs, signal)
       onSent(Math.round((piece * i) / steps))
     }
-    const imp = await put(url, { received: Number(from) + piece })
+    const imp = await answer('PUT', url, { received: Number(from) + piece })
     return { status: 200, text: JSON.stringify(imp) }
   }
   return uploadForReal({ ...o, put: pretend })

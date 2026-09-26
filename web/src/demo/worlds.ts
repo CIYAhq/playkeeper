@@ -4,8 +4,8 @@
 // after the file, as a singleplayer world saved by Minecraft 1.21.11.
 
 import { ApiError } from '@/api/client'
-import type { ImportPreview, ImportWorld, WorldImport, WorldImportPreview, WorldImportVersion } from '@/api/types'
-import { fakeSha, iso, versionsOf, type DemoState, type Request, type Routes } from './data'
+import type { ImportPreview, ImportWorld, MapInfo, WorldImport, WorldImportPreview, WorldImportVersion } from '@/api/types'
+import { fakeSha, iso, serverOf, versionsOf, type DemoState, type Request, type Routes } from './data'
 
 const gb = 1024 ** 3
 const worldVersion = '1.21.11'
@@ -128,7 +128,31 @@ export function fromUpload(s: DemoState, r: Request): { body: Record<string, unk
   return { body: { name: b.name, type: 'paper', versionId: b.versionId, memoryMB: b.memoryMB, motd: b.name, gameplay: { difficulty: 'normal', gameMode: 'survival' } }, worldBytes: world.sizeBytes }
 }
 
+/** The live map isn't on yet on any sample server: its page offers to turn it on, which answers "not in the demo". */
+function mapInfo(s: DemoState, r: Request): MapInfo {
+  serverOf(s, r)
+  return {
+    supported: true,
+    enabled: false,
+    state: 'not_installed',
+    params: { minutes: '10', megabytes: '200' },
+    message: 'The map is not set up yet.',
+    hint: 'Turn on the map to install squaremap. Drawing the land explored so far takes about 10 minutes and uses about 200 MB of disk.',
+    areas: 0,
+    bytes: 0,
+    plugin: 'squaremap',
+    estimatedMinutes: 10,
+    estimatedMegabytes: 200,
+    public: false,
+    publicPlayers: false,
+    path: '',
+    restartWhenEmpty: false,
+    checkedAt: iso(r.now - 60_000),
+  }
+}
+
 export const worldRoutes: Routes = {
+  'GET /api/servers/:id/map': mapInfo,
   'POST /api/machines/:machine/world-imports': create,
   'GET /api/machines/:machine/world-imports/:imp': importOf,
   'DELETE /api/machines/:machine/world-imports/:imp': (s, r) => {

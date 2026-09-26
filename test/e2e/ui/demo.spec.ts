@@ -46,6 +46,7 @@ test('the live demo: Home, a server’s pages, Settings and a restart, without l
   await expect(main.getByRole('link', { name: /Survival/ })).toBeVisible()
   await expect(main.getByRole('link', { name: /Creative/ })).toBeVisible()
   await expect(page.getByText('JunoFox joined Survival')).toBeVisible()
+  await expect(page.getByText('Creative gave back 3 GB')).toBeVisible()
   await still(page, 'demo-home-desktop')
 
   await page.getByRole('complementary').getByRole('link', { name: 'Settings', exact: true }).click()
@@ -192,7 +193,7 @@ test('the live demo’s address, two-factor, health, crash help, server types an
   await still(page, 'demo-mods-desktop')
 
   await page.goto(`${demoUrl}servers/new`)
-  await expect(page.getByRole('heading', { name: 'A server type' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Start from' })).toBeVisible()
   await expect(page.getByText('Fabric', { exact: true }).first()).toBeVisible()
   // A world, but no modpack or template: the demo has no machine to fetch or plan those.
   await expect(page.getByRole('group', { name: 'Start from' }).getByRole('button')).toHaveText(['A server type', 'A world'])
@@ -219,6 +220,59 @@ test('the live demo’s New server, to the end on its defaults, and a Fabric ser
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('26.2.1')
   await expect(dialog).not.toContainText('Paper')
+  expect(problems).toEqual([])
+})
+
+/** The screens Waves 5 to 7 added, each with a line of its sample data to wait for. */
+const laterScreens: { name: string; path: string; shows: string }[] = [
+  { name: 'team', path: 'settings/team', shows: 'juno' },
+  { name: 'discord', path: 'settings/discord', shows: 'Minecraft alerts' },
+  { name: 'invites', path: 'servers/survival/players', shows: 'Bramble_22 wants to join' },
+  { name: 'profile', path: 'servers/survival/players/Kestrel_7', shows: 'On the allowlist' },
+  { name: 'world-import', path: 'servers/new#world', shows: 'Try a sample world' },
+  { name: 'backup-rules', path: 'servers/survival/world/backup-rules', shows: 'About 13 backups' },
+  { name: 'copies', path: 'servers/survival/world/backup-rules/copies', shows: 'Recovery key' },
+  { name: 'schedules', path: 'servers/survival/settings/schedules', shows: 'Build night starts now: meet at spawn!' },
+  { name: 'sleep', path: 'servers/creative', shows: 'Creative is asleep' },
+  { name: 'disk', path: 'machines/q7m2vk9xpd/disk', shows: 'Logs older than 30 days' },
+  { name: 'map', path: 'servers/survival/map', shows: 'See your world from above' },
+]
+
+for (const [size, viewport] of [
+  ['desktop', { width: 1440, height: 900 }],
+  ['phone', { width: 390, height: 844 }],
+] as const) {
+  test(`the live demo’s screens from Waves 5 to 7 show sample data on ${size}`, async ({ page }) => {
+    const problems = watch(page)
+    await page.setViewportSize(viewport)
+    for (const s of laterScreens) {
+      await page.goto(demoUrl + s.path)
+      await expect(page.getByText(s.shows).first(), `${s.name} on ${size}`).toBeVisible()
+      await expect(page.getByText('The demo has no sample data for this.'), `${s.name} on ${size}`).toHaveCount(0)
+      await expect(page.getByText('The demo can’t do this one. On your own VPS it works.'), `${s.name} on ${size}`).toHaveCount(0)
+      await still(page, `demo-${s.name}-${size}`, { fullPage: true })
+    }
+    expect(problems).toEqual([])
+  })
+}
+
+test('the live demo makes a server from its sample world', async ({ page }) => {
+  const problems = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${demoUrl}servers/survival/world`)
+  await page.getByRole('link', { name: /Start from your own world/ }).click()
+  await page.getByRole('button', { name: 'Try a sample world' }).click()
+  await expect(page.getByText(/· uploaded$/).first()).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: 'Check the world' }).click()
+  await expect(page.getByRole('heading', { name: 'Here’s what’s inside Our old survival world.zip' })).toBeVisible()
+  await expect(page.getByText('Upgrade to 26.1.2')).toBeVisible()
+  await still(page, 'demo-world-check-desktop')
+  await page.getByRole('button', { name: 'Continue to memory' }).click()
+  await page.getByRole('button', { name: 'Continue to name' }).click()
+  await page.getByRole('checkbox', { name: /I accept the Minecraft/ }).check()
+  await page.getByRole('button', { name: 'Create and start Our old survival world' }).click()
+  await expect(page).toHaveURL(`${demoUrl}servers/our-old-survival-world`, { timeout: 30_000 })
+  await expect(page.getByRole('heading', { name: 'Our old survival world', level: 1 })).toBeVisible()
   expect(problems).toEqual([])
 })
 
