@@ -35,6 +35,26 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
   git checkout -q -- "$file"
 }
 
+webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
+  local name=$1 file=$2 test=${5#web/} pattern=$6
+  if [ ! -d web/node_modules ]; then
+    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    bad=1
+    return
+  fi
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+    bad=1
+  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
+    echo "INVALID  $name: the mutated code does not run"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+
 control "CSRF token check" internal/panel/server.go \
   'if !s.sameOrigin(r) || tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(sess.CSRF)) != 1 {' \
   'if false && (!s.sameOrigin(r) || tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(sess.CSRF)) != 1) {' \
@@ -91,6 +111,310 @@ control "restore undoes the swap when settings cannot be saved" internal/agent/b
   'if rerr := renameDir(live, failedAt); rerr != nil {' \
   'if rerr := error(nil); rerr != nil {' \
   ./internal/agent '^TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved$'
+# Restore path, found checking it on a real server.
+control "why a restore was undone reads as one sentence" internal/agent/backups.go \
+  'j.Why = "The restored world did not start (" + clause(err) + ")."' \
+  'j.Why = "The restored world did not start (" + err.Error() + ")."' \
+  ./internal/agent '^TestAnUndoneRestoreSaysWhyInOneSentence$'
+control "a world that isn't there yet is looked for at the next sample" internal/agent/collector.go \
+  'if !dirExists(filepath.Join(s.dataDir(), level)) {' \
+  'if false && !dirExists(filepath.Join(s.dataDir(), level)) {' \
+  ./internal/agent '^TestWorldSizeIsMeasuredOnceTheWorldExists$'
+control "a restore has the world measured again at the next sample" internal/agent/backups.go \
+  '	s.worldChanged()
+	restoreStep(ctx, "moved")' \
+  '	restoreStep(ctx, "moved")' \
+  ./internal/agent '^TestWorldSizeIsMeasuredAgainAfterARestore$'
+control "a backup of a server folder without its world says so" internal/backup/online.go \
+  'case errors.As(err, &noWorld):' \
+  'case false && errors.As(err, &noWorld):' \
+  ./internal/backup '^TestABackupWithoutAWorldSaysSo$'
+control "the status says where the previous world is while its folder is missing" internal/agent/handlers.go \
+  'st.WorldMissing = s.worldMissing()' \
+  'st.WorldMissing = nil' \
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
+control "a backup refused for a missing world folder says where the previous world is" internal/agent/backups.go \
+  'if m := s.worldMissing(); m != nil {
+		err := errWorldMissing(m, "back it up")' \
+  'if m := s.worldMissing(); false && m != nil {
+		err := errWorldMissing(m, "back it up")' \
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
+control "a start refused for a missing world folder is marked so" internal/agent/lifecycle.go \
+  '	if err := s.ensureDirs("press Start"); err != nil {
+		markRestoreRefusal(h, err)
+		return err' \
+  '	if err := s.ensureDirs("press Start"); err != nil {
+		return err' \
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
+control "a restore the next start put back says so" internal/agent/backups.go \
+  's.restoreSettled(j, movedBack, atStart)' \
+  '_, _ = movedBack, atStart' \
+  ./internal/agent '^TestARestoreSettledAtStartSaysSo$'
+control "a restore finished after a restart has its own activity line" internal/agent/backups.go \
+  'kind = "world_restored_after_restart"' \
+  'kind = "world_restored"' \
+  ./internal/agent '^TestARestoreFinishedAfterARestartSaysSo$'
+webcontrol "the Overview says where the previous world is while its folder is missing" web/src/pages/server/overview.tsx \
+  'if (s.worldMissing) return <WorldMissingNotice server={s} />' \
+  'if (s.worldMissing && false) return <WorldMissingNotice server={s} />' \
+  web/src/pages/pages.test.tsx 'long after the restore failed'
+webcontrol "the World tab says where the previous world is while its folder is missing" web/src/pages/server/world.tsx \
+  'if (s.worldMissing) return <WorldMissingNotice server={s} className={className} />' \
+  'if (s.worldMissing && false) return <WorldMissingNotice server={s} className={className} />' \
+  web/src/pages/pages.test.tsx 'long after the restore failed'
+webcontrol "a start or backup refused for a missing world folder goes once the world is back" web/src/lib/phase.ts \
+  "if (op.detail?.errorKind === 'world_missing') return !s.worldMissing" \
+  "if (op.detail?.errorKind === 'never') return !s.worldMissing" \
+  web/src/pages/pages.test.tsx 'once the world is back'
+webcontrol "a backup that just failed never hides a world copy's Discard" web/src/pages/server/world.tsx \
+  "  const failed = failedJob(s)
+  return (
+" \
+  "  const failed = failedJob(s)
+  if (failed?.kind === 'backup' && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />
+  return (
+" \
+  web/src/pages/pages.test.tsx 'Discard under a backup'
+webcontrol "Start says it waits for the missing world folder" web/src/lib/phase.ts \
+  "if (st.worldMissing) return t('reason.worldMissing')" \
+  "if (st.worldMissing && false) return t('reason.worldMissing')" \
+  web/src/lib/lib.test.ts 'start a server whose world folder'
+webcontrol "a backup says it waits for the missing world folder" web/src/lib/phase.ts \
+  "    case 'change':
+      return undefined
+    case 'backup':
+" \
+  "    case 'change':
+    case 'backup':
+      return undefined
+" \
+  web/src/lib/lib.test.ts 'back up a server whose world folder'
+webcontrol "Back up now waits for the missing world folder" web/src/pages/server/world.tsx \
+  "const blocked = whyNot(s, 'backup', ws.stale)" \
+  "const blocked = whyNot(s, 'change', ws.stale)" \
+  web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
+webcontrol "Make my first backup waits for the missing world folder" web/src/pages/server/world.tsx \
+  "disabledReason={whyNot(s, 'backup', ws.stale)}" \
+  "disabledReason={whyNot(s, 'change', ws.stale)}" \
+  web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
+webcontrol "the server menu's Back up now waits for the missing world folder" web/src/pages/server/index.tsx \
+  "const backUpBlocked = whyNot(server, 'backup', stale)" \
+  "const backUpBlocked = whyNot(server, 'change', stale)" \
+  web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
+webcontrol "Home says a server's world folder is missing instead of napping" web/src/pages/home.tsx \
+  'if (s.worldMissing)
+        return (' \
+  'if (s.worldMissing && false)
+        return (' \
+  web/src/pages/pages.test.tsx 'lets only a stopped server nap'
+webcontrol "the activity says a restore was finished after Playkeeper restarted" web/src/components/app/activity.tsx \
+  "return t('activity.restoredAfterRestart', { server })" \
+  "return t('activity.restored', { server })" \
+  web/src/lib/lib.test.ts 'what Playkeeper did after it restarted'
+webcontrol "the activity says a previous world was put back after Playkeeper restarted" web/src/components/app/activity.tsx \
+  "return t('activity.putBack', { server })" \
+  "return t('activity.restored', { server })" \
+  web/src/lib/lib.test.ts 'what Playkeeper did after it restarted'
+webcontrol "a long activity line shortens instead of widening the page" web/src/components/app/activity.tsx \
+  '<span className="w-0 flex-1 truncate">' \
+  '<span className="min-w-0 flex-1 truncate">' \
+  web/src/pages/pages.test.tsx 'long activity line'
+control "the data pack list waits for the missing world folder" internal/agent/packs.go \
+  'if m := s.worldMissing(); m != nil {
+		return nil, errWorldMissing(m, "try again")' \
+  'if m := s.worldMissing(); false && m != nil {
+		return nil, errWorldMissing(m, "try again")' \
+  ./internal/agent '^TestTheDataPackListWaitsForTheMissingWorldFolder$'
+control "applying a restore waits for the missing world folder or an unsettled restore" internal/agent/handlers.go \
+  'if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(p.ServerID' \
+  'if err := target.restoreRefusal("restore again"); false && err != nil {
+			a.auditFor(p.ServerID' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "a new icon refused for the missing world folder says to upload it again" internal/agent/settings.go \
+  's.ensureDirs("upload the icon again")' \
+  's.ensureDirs("press Start")' \
+  ./internal/agent '^TestAnIconOrPackRefusedForTheMissingWorldFolderSaysWhatToRedo$'
+control "a new data pack refused for the missing world folder says to add it again" internal/agent/packs.go \
+  's.ensureDirs("add the data pack again")' \
+  's.ensureDirs("press Start")' \
+  ./internal/agent '^TestAnIconOrPackRefusedForTheMissingWorldFolderSaysWhatToRedo$'
+webcontrol "pre-generating says it waits for the missing world folder" web/src/lib/phase.ts \
+  "      return undefined
+    case 'backup':
+    case 'pregen':
+" \
+  "    case 'pregen':
+      return undefined
+    case 'backup':
+" \
+  web/src/lib/lib.test.ts 'pre-generate or restore while'
+webcontrol "a restore says it waits for the missing world folder" web/src/lib/phase.ts \
+  "return worldMissingReason(st) ?? restoreUnsettledReason(st)" \
+  "return restoreUnsettledReason(st)" \
+  web/src/lib/lib.test.ts 'pre-generate or restore while'
+webcontrol "the pre-generation page's Start waits for the missing world folder" web/src/pages/server/world-pregen.tsx \
+  "whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale)" \
+  "whyNot({ ...s, operation: otherJob }, 'change', ws.stale)" \
+  web/src/pages/server/world.test.tsx 'waits for a world folder a restore left missing'
+webcontrol "the World card's pre-generation row waits for the missing world folder" web/src/pages/server/world-links.tsx \
+  'lineKey={pg?.state} busy={working(pg)} disabledReason={worldMissingReason(s)}' \
+  'lineKey={pg?.state} busy={working(pg)}' \
+  web/src/pages/server/world.test.tsx 'pre-generating while'
+webcontrol "the phone's pre-generation row waits for the missing world folder" web/src/pages/server/world-links.tsx \
+  'line={active ? pregenLine(pg, s.name) : undefined} busy={working(pg)} disabledReason={worldMissingReason(s)}' \
+  'line={active ? pregenLine(pg, s.name) : undefined} busy={working(pg)}' \
+  web/src/pages/server/world.test.tsx 'pre-generating while'
+webcontrol "the World tab's restore drop zone waits for the missing world folder" web/src/pages/server/world.tsx \
+  '<RestoreDropZone server={s} onPreview={setPreview} disabledReason={restoreBlocked} />' \
+  '<RestoreDropZone server={s} onPreview={setPreview} />' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "a disabled drop zone won't choose a file" web/src/components/app/restore.tsx \
+  '<button type="button" disabled={!!disabledReason} title={disabledReason}' \
+  '<button type="button"' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "a backup's restore waits for the missing world folder" web/src/pages/server/world.tsx \
+  '<MenuItem disabled={!!restoreBlocked} title={restoreBlocked} onClick={onRestore}' \
+  '<MenuItem onClick={onRestore}' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "the phone's Restore a world waits for the missing world folder" web/src/pages/server/world.tsx \
+  '<button type="button" disabled={!!restoreBlocked} title={restoreBlocked} onClick={() => setRestoreSheet(true)}' \
+  '<button type="button" onClick={() => setRestoreSheet(true)}' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "a copy's restore waits for the missing world folder" web/src/pages/server/copy-restore.tsx \
+  "const cantRestore = whyNot(s, 'restore', ws.stale)" \
+  "const cantRestore = whyNot(s, 'change', ws.stale)" \
+  web/src/pages/pages.test.tsx 'restore a copy while'
+webcontrol "a refused server icon says what to do next" web/src/pages/server/settings.tsx \
+  "else toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })" \
+  "else toastManager.add({ title: errorText(e), type: 'error' })" \
+  web/src/pages/pages.test.tsx 'new icon is refused'
+webcontrol "a toast wraps a long path" web/src/components/ui/toast.tsx \
+  '<div className="flex min-w-0 flex-col gap-0.5 wrap-anywhere">' \
+  '<div className="flex flex-col gap-0.5">' \
+  web/src/lib/interaction.test.tsx 'wrap a long path'
+webcontrol "a notice wraps a long path" web/src/components/app/bits.tsx \
+  '<p className="min-w-0 flex-1 text-[13px] leading-5 wrap-anywhere">' \
+  '<p className="min-w-0 flex-1 text-[13px] leading-5">' \
+  web/src/pages/server/world.test.tsx 'previous world is when a restore'
+control "no restore starts while another is unsettled" internal/agent/backups.go \
+  'if !s.busy() && s.restoreUnsettled() {' \
+  'if false && !s.busy() && s.restoreUnsettled() {' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "a restore from a backup waits for an unsettled one" internal/agent/handlers.go \
+  'if err := s.restoreRefusal("restore again"); err != nil {
+		s.audit(actor, "restore.staged", b.ID,' \
+  'if err := s.restoreRefusal("restore again"); false && err != nil {
+		s.audit(actor, "restore.staged", b.ID,' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "a restore from an upload waits for an unsettled one" internal/agent/handlers.go \
+  'if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(target.id' \
+  'if err := target.restoreRefusal("restore again"); false && err != nil {
+			a.auditFor(target.id' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "a restore from an off-site copy waits for an unsettled one" internal/agent/offsite.go \
+  'if err := s.restoreRefusal("restore again"); err != nil {' \
+  'if err := s.restoreRefusal("restore again"); false && err != nil {' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "the status says a restore isn't settled" internal/agent/handlers.go \
+  'if s.restoreUnsettled() {
+			st.RestoreUnsettled' \
+  'if false {
+			st.RestoreUnsettled' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "the audit log says a start put back only the settings of a world moved back by hand" internal/agent/backups.go \
+  '"Your previous world was already back in place, and Playkeeper put its settings back", "put the previous world'"'"'s settings back"' \
+  '"Your previous world was already back in place, and Playkeeper put its settings back", "put the previous world back"' \
+  ./internal/agent '^TestAnAgentStartSettlesAWorldMovedBackByHand$'
+webcontrol "a restore says it waits for one that isn't finished" web/src/lib/phase.ts \
+  "return worldMissingReason(st) ?? restoreUnsettledReason(st)" \
+  "return worldMissingReason(st)" \
+  web/src/lib/lib.test.ts 'restore while another restore'
+webcontrol "the World tab's restores wait for one that isn't finished" web/src/lib/phase.ts \
+  "return worldMissingReason(st) ?? restoreUnsettledReason(st)" \
+  "return worldMissingReason(st)" \
+  web/src/pages/pages.test.tsx 'offer a restore while another'
+webcontrol "the phone's copy rows wait for the missing world folder" web/src/pages/server/world.tsx \
+  '<Button size="lg" variant="outline" disabledReason={restoreBlocked} onClick={() => void restore.start(r.copy)}>' \
+  '<Button size="lg" variant="outline" onClick={() => void restore.start(r.copy)}>' \
+  web/src/pages/pages.test.tsx 'copy from a phone'
+webcontrol "the restore sheet's drop zone waits for an unfinished restore" web/src/pages/server/world.tsx \
+  '                compact
+                disabledReason={restoreBlocked}
+' \
+  '                compact
+' \
+  web/src/pages/pages.test.tsx 'restores in the phone'
+webcontrol "the restore sheet's list waits for an unfinished restore" web/src/pages/server/world.tsx \
+  '                        disabled={!!restoreBlocked}
+                        title={restoreBlocked}
+' \
+  '' \
+  web/src/pages/pages.test.tsx 'restores in the phone'
+control "the reconcile tick settles a restore once its world folder is back" internal/agent/lifecycle.go \
+  '	s.settleWhenBack(ctx)
+' \
+  '' \
+  ./internal/agent '^TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart$'
+control "Start settles a restore before it reads the settings" internal/agent/handlers.go \
+  '	s.settleBeforeStart(ctx)
+	if err := s.setDesired(api.DesiredRunning); err != nil {' \
+  '	if err := s.setDesired(api.DesiredRunning); err != nil {' \
+  ./internal/agent '^TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart$'
+control "a restore settled without an agent restart doesn't say it restarted" internal/agent/backups.go \
+  '	if atStart {
+		back, audited = back+" when it started again", audited+" after the Playkeeper agent restarted"
+	}' \
+  '	back, audited = back+" when it started again", audited+" after the Playkeeper agent restarted"' \
+  ./internal/agent '^TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart$'
+control "no job starts a server whose restore isn't settled" internal/agent/lifecycle.go \
+  '	if err := s.startRefusal(h); err != nil {
+		markRestoreRefusal(h, err)
+		return err
+	}
+' \
+  '' \
+  ./internal/agent '^TestNoJobStartsAServerWhoseRestoreIsntSettled$'
+control "a start refused for an unsettled restore is marked so" internal/agent/backups.go \
+  '(ae.Code == codeWorldMissing || ae.Code == codeRestoreUnsettled)' \
+  'ae.Code == codeWorldMissing' \
+  ./internal/agent '^TestNoJobStartsAServerWhoseRestoreIsntSettled$'
+control "a restore the agent can't settle says why" internal/agent/backups.go \
+  '	s.settleProblem = problem
+' \
+  '	s.settleProblem = ""
+' \
+  ./internal/agent '^TestARestoreThatCantBeSettledSaysWhy$'
+control "a swap journal that can't be read holds no server back" internal/agent/backups.go \
+  'if j != nil && j.ServerID == s.id && j.OpID != opID {' \
+  'if j == nil || j.ServerID == s.id && j.OpID != opID {' \
+  ./internal/agent '^TestAnUnreadableSwapJournalHoldsNoServerBack$'
+control "the status says a swap journal can't be read" internal/agent/backups.go \
+  'if _, err := readSwapJournal(s.stageDir(stage)); err != nil {' \
+  'if _, err := readSwapJournal(s.stageDir(stage)); false && err != nil {' \
+  ./internal/agent '^TestAnUnreadableSwapJournalHoldsNoServerBack$'
+webcontrol "the World tab says a restore isn't finished, and what finishes it" web/src/pages/server/world.tsx \
+  '      <RestoreUnsettledNotice server={s} className={className} />
+' \
+  '' \
+  web/src/pages/pages.test.tsx 'what finishes it'
+webcontrol "the unfinished restore's notice says to stop a running server" web/src/components/app/world-missing.tsx \
+  "controls(s).canStop ? t('world.unsettledStop', { server: s.name }) : t('world.unsettledSoon')" \
+  "t('world.unsettledSoon')" \
+  web/src/pages/pages.test.tsx 'what finishes it'
+webcontrol "a world copy's Discard waits for an unfinished restore" web/src/pages/server/world.tsx \
+  'disabledReason={busyReason(s) ?? restoreUnsettledReason(s)}' \
+  'disabledReason={busyReason(s)}' \
+  web/src/pages/pages.test.tsx 'Discard off while a restore'
+webcontrol "a restore Playkeeper couldn't finish says so" web/src/lib/phase.ts \
+  "return st.restoreUnsettled.problem ? t('reason.restoreStuck') : t('reason.restoreUnsettled')" \
+  "return t('reason.restoreUnsettled')" \
+  web/src/lib/lib.test.ts 'restore while another restore'
+webcontrol "a start refused for an unfinished restore goes once it's settled" web/src/lib/phase.ts \
+  "if (op.detail?.errorKind === 'restore_unsettled') return !s.restoreUnsettled" \
+  "if (op.detail?.errorKind === 'never') return !s.restoreUnsettled" \
+  web/src/pages/pages.test.tsx 'refused while a restore wasn'
 control "the first admin only on an empty install" internal/panel/auth.go \
   'SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
   'SELECT ?, ?, ?, ?, ?' \
@@ -1325,24 +1649,28 @@ control "an interrupted restore gets the previous settings back at start" intern
   'return nil' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
 control "a restore stage is kept while its swap is not settled" internal/agent/backups.go \
-  'if err := a.settleSwap(dir); err != nil {' \
-  'if err := a.settleSwap(dir); false && err != nil {' \
+  'if err := a.settleSwap(dir, true); err != nil {' \
+  'if err := a.settleSwap(dir, true); false && err != nil {' \
   ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
 control "a restore preview read again keeps its staged source" internal/agent/backups.go \
   'st.preview.Source, st.preview.ReceivedAt = s.Preview.Source, s.Preview.ReceivedAt' \
   'st.preview.ReceivedAt = s.Preview.ReceivedAt' \
   ./internal/agent '^TestRestorePreviewSaysOnceTheBackupWasMadeHere$'
 control "no start recreates a world directory a restore moved aside" internal/agent/lifecycle.go \
-  'if prev := s.newestPreviousWorld(); prev != "" {' \
-  'if prev := s.newestPreviousWorld(); false && prev != "" {' \
+  'if m := s.worldMissing(); m != nil {
+		return errWorldMissing(m, then)' \
+  'if m := s.worldMissing(); false && m != nil {
+		return errWorldMissing(m, then)' \
   ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
 control "a world copy is discarded only by its exact name" internal/agent/backups.go \
   'if !reWorldCopy.MatchString(name) {' \
   'if false && !reWorldCopy.MatchString(name) {' \
   ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
 control "no world copy is discarded while the live world folder is missing" internal/agent/backups.go \
-  'if !dirExists(s.dataDir()) {' \
-  'if false && !dirExists(s.dataDir()) {' \
+  'if !dirExists(s.dataDir()) {
+		writeError(w, errConflict("The world folder is missing' \
+  'if false && !dirExists(s.dataDir()) {
+		writeError(w, errConflict("The world folder is missing' \
   ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
 control "a world a restore would refuse is refused before the server stops" internal/agent/backups.go \
   'case errors.As(err, &refused):
@@ -2691,26 +3019,6 @@ control "the activity says Java ran out of memory" internal/agent/analytics.go \
   '(strings.HasPrefix(e.Detail, oomCrash) || strings.HasPrefix(e.Detail, heapCrash))' \
   'strings.HasPrefix(e.Detail, oomCrash)' \
   ./internal/agent '^TestJavaRunningOutOfMemoryIsAMemoryCrash$'
-
-webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
-  local name=$1 file=$2 test=${5#web/} pattern=$6
-  if [ ! -d web/node_modules ]; then
-    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
-    bad=1
-    return
-  fi
-  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
-    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
-    bad=1
-  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
-    echo "INVALID  $name: the mutated code does not run"
-    bad=1
-  else
-    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
-  fi
-  git checkout -q -- "$file"
-}
 webcontrol "the console reads Vanilla, Fabric, Quilt and NeoForge lines" web/src/lib/console.ts \
   'const m = reServer.exec(raw) ?? reThread.exec(raw)' \
   'const m = reServer.exec(raw)' \

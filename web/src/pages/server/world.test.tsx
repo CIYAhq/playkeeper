@@ -237,6 +237,14 @@ describe('Pre-generate page', () => {
     expect(button('Start').title).toBe('Backing up Survival. Try again when it’s done.')
   })
 
+  it('waits for a world folder a restore left missing', async () => {
+    answer({ '/pregen': pregen() })
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    await render(<PregenPage server={server({ phase: 'stopped', worldMissing })} />)
+    expect(button('Start').disabled).toBe(true)
+    expect(button('Start').title).toBe('Its world folder is missing. Move the previous world back first.')
+  })
+
   it('says why a size that doesn’t fit can’t be started', async () => {
     answer({ '/pregen': pregen({ presets: pregen().presets.map((p) => ({ ...p, fits: p.id === 'small' })) }) })
     await render(<PregenPage server={server()} />)
@@ -471,6 +479,17 @@ describe('Packs page', () => {
     expect(graves?.hasAttribute('data-disabled')).toBe(true)
     expect(document.querySelector('label [role="switch"]')?.closest('label')?.getAttribute('title')).toBe(why)
   })
+
+  it('says where the previous world is when a restore left the world folder missing', async () => {
+    const previous = '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028'
+    const refused = new client.ApiError(409, { error: `The world folder is missing because a restore did not finish; the previous world is at ${previous}.`, code: 'world_missing', hint: 'Move that folder back to /var/lib/playkeeper/servers/abcdefghjk/data, then try again.' })
+    vi.mocked(client.get).mockImplementation(((path: string) => (path.endsWith('/datapacks') ? Promise.reject(refused) : path.endsWith('/resourcepack') ? Promise.resolve({ pending: false }) : new Promise(() => {}))) as typeof client.get)
+    const text = await render(<PacksPage server={server({ phase: 'stopped', worldMissing: { previous, dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' } })} />)
+    expect(text).toContain(`the previous world is at ${previous}.`)
+    const line = [...document.querySelectorAll('[role="alert"] p')].find((p) => p.textContent?.includes(previous))
+    // happy-dom has no layout: a path breaks only where overflow-wrap lets it.
+    expect(line?.className.split(' ')).toContain('wrap-anywhere')
+  })
 })
 
 describe('World card rows', () => {
@@ -484,5 +503,17 @@ describe('World card rows', () => {
     expect(text).toContain('Pre-generate the mapPre-generating · 42% · about 1.5 h left')
     expect(text).toContain('Resource and data packsFaithful 32x · 3 of 4 data packs on')
     expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/servers/survival/world/pregen', '/servers/survival/world/packs'])
+  })
+
+  it('don’t open pre-generating while a restore left the world folder missing, and say why', async () => {
+    answer({ '/pregen': pregen(), '/resourcepack': { offer, pending: false } satisfies ResourcePack, '/datapacks': dataPacks() })
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    for (const phone of [false, true]) {
+      await render(<WorldTools server={server({ phase: 'stopped', worldMissing })} phone={phone} />)
+      const row = document.querySelector('[role="link"][aria-disabled="true"]')
+      expect(row?.textContent).toContain('Pre-generate the map')
+      expect(row?.getAttribute('title')).toBe('Its world folder is missing. Move the previous world back first.')
+      expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/servers/survival/world/packs'])
+    }
   })
 })

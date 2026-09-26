@@ -672,6 +672,60 @@ func TestWorldSizeIsMeasured(t *testing.T) {
 	}
 }
 
+// A world that isn't there yet, before a new server's first start, has no
+// size; once it's there, the next sample measures it instead of the World
+// tab showing "0 B" for minutes.
+func TestWorldSizeIsMeasuredOnceTheWorldExists(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	s := e.srv()
+	if err := os.RemoveAll(filepath.Join(s.dataDir(), "world")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Add(time.Hour)
+	s.measureWorld(now, "world")
+	if st := e.status(); st.WorldBytes != nil {
+		t.Fatalf("a world that isn't there has a size: %d", *st.WorldBytes)
+	}
+	full := filepath.Join(s.dataDir(), "world", "region", "r.0.0.mca")
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, make([]byte, 3000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.measureWorld(now.Add(time.Minute), "world")
+	if st := e.status(); st.WorldBytes == nil || *st.WorldBytes != 3000 {
+		t.Fatalf("world size = %v, want 3000 as soon as the world is there", st.WorldBytes)
+	}
+}
+
+// A restore puts another world in place: the next sample measures the
+// restored world, instead of showing the previous world's size for minutes.
+func TestWorldSizeIsMeasuredAgainAfterARestore(t *testing.T) {
+	e := newAgentEnv(t)
+	id, phrase, _, _ := e.worldRestoreScenario()
+	s := e.srv()
+	now := time.Now().Add(time.Hour)
+	s.measureWorld(now, "world")
+	before := e.status().WorldBytes
+	if before == nil {
+		t.Fatal("the world before the restore has no size")
+	}
+	if op := e.applyRestore(id, phrase); op.Status != api.OpSucceeded {
+		t.Fatalf("restore: %+v", op)
+	}
+	s.measureWorld(now.Add(time.Minute), "world")
+	after, want := e.status().WorldBytes, s.worldSize("world")
+	if after == nil || *after != want || want == *before {
+		got := int64(-1)
+		if after != nil {
+			got = *after
+		}
+		t.Fatalf("world size after the restore = %d, want the restored world's %d (it was %d)", got, want, *before)
+	}
+}
+
 // Deleting a server moves its files aside before it deletes anything, so a
 // server whose files can't be moved keeps its backups.
 func TestDeleteKeepsBackupsWhenTheFilesCannotBeMoved(t *testing.T) {

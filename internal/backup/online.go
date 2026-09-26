@@ -619,11 +619,14 @@ func syncDir(dir string) {
 func (r *run) fail(ctx context.Context, err error) *Error {
 	var e *Error
 	var refused *RefusedError
+	var noWorld *NoWorldError
 	switch {
 	case errors.As(err, &e):
 		return e
 	case errors.As(err, &refused):
 		return r.errRefused(refused)
+	case errors.As(err, &noWorld):
+		return errNoWorld(noWorld)
 	case ctx.Err() != nil:
 		return errCancelled(ctx.Err())
 	case errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):

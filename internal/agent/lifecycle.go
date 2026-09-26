@@ -423,14 +423,14 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 	return nil
 }
 
-func (s *server) ensureDirs() error {
+// ensureDirs makes the server's folders. then is what to do once the world
+// folder is back, for the refusal while a restore left it missing.
+func (s *server) ensureDirs(then string) error {
 	data := s.dataDir()
 	// A server started without its world directory generates a new world, so
 	// never recreate one a restore moved aside and could not put back.
-	if _, err := os.Stat(data); errors.Is(err, os.ErrNotExist) {
-		if prev := s.newestPreviousWorld(); prev != "" {
-			return &apiError{Msg: "The world folder is missing because a restore did not finish; the previous world is at " + prev + ".", Hint: "Move that folder back to " + data + ", then press Start."}
-		}
+	if m := s.worldMissing(); m != nil {
+		return errWorldMissing(m, then)
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
@@ -654,7 +654,12 @@ func lastNonEmpty(lines []string) string {
 func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("press Start"); err != nil {
+		markRestoreRefusal(h, err)
+		return err
+	}
+	if err := s.startRefusal(h); err != nil {
+		markRestoreRefusal(h, err)
 		return err
 	}
 	if err := s.ensureOriginalSaved(h, sc); err != nil {
@@ -920,6 +925,7 @@ func (s *server) reconcile(ctx context.Context) {
 	if s.busy() {
 		return
 	}
+	s.settleWhenBack(ctx)
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil {
 		return

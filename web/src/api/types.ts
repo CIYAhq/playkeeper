@@ -164,6 +164,10 @@ export interface ServerStatus {
   lastBackup?: Backup
   /** The world's size on disk, measured every few minutes. */
   worldBytes?: number
+  /** Set for as long as the world folder is missing because a restore didn't finish. */
+  worldMissing?: WorldMissing
+  /** A restore that didn't finish keeps its journal until the agent settles it, once the world folder is back and the server is stopped, or first thing on Start; no other restore starts meanwhile. */
+  restoreUnsettled?: RestoreUnsettled
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
@@ -721,6 +725,8 @@ export type ActivityKind =
   | 'crashed_memory'
   | 'created'
   | 'restored'
+  | 'restored_after_restart'
+  | 'put_back'
   | 'version'
   | 'stopped_outside'
   | 'allowlisted'
@@ -1031,6 +1037,20 @@ export interface WorldCopy {
   kind: 'previous' | 'failed_restore'
   createdAt: string
   sizeBytes: number
+}
+
+/** Where a server's world is while its world folder is missing because a restore didn't finish. */
+export interface WorldMissing {
+  /** The folder the restore set the previous world aside in. */
+  previous: string
+  /** The world folder it goes back to. */
+  dataDir: string
+  setAsideAt: string
+}
+
+export interface RestoreUnsettled {
+  /** Why the agent can't settle it by itself, as a sentence: a journal it can't read, or why its last try failed. */
+  problem?: string
 }
 
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.

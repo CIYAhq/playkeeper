@@ -20,6 +20,8 @@ function icon(kind: ActivityKind): ReactNode {
     case 'created':
       return <SproutIcon />
     case 'restored':
+    case 'restored_after_restart':
+    case 'put_back':
       return <HistoryIcon />
     case 'version':
       return <CircleArrowUpIcon />
@@ -107,6 +109,10 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return a.detail ? t('activity.created', { server, detail: a.detail }) : t('activity.createdPlain', { server })
     case 'restored':
       return t('activity.restored', { server })
+    case 'restored_after_restart':
+      return t('activity.restoredAfterRestart', { server })
+    case 'put_back':
+      return t('activity.putBack', { server })
     case 'version':
       return a.detail ? t('activity.version', { server, detail: a.detail }) : t('activity.versionPlain', { server })
     case 'stopped_outside':
@@ -163,7 +169,7 @@ export function ActivityList({ items, servers, here, empty, className }: { items
             <span className="shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden="true">
               {icon(a.kind)}
             </span>
-            <span className="min-w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
+            <span className="w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
             <time dateTime={a.ts} className="shrink-0 text-xs text-muted-foreground">
               {relativeTime(a.ts)}
             </time>

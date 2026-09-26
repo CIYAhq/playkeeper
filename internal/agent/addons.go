@@ -931,7 +931,7 @@ func (s *server) installAddons(ctx context.Context, h *opHandle, actor string, r
 	if err != nil {
 		return err
 	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("try again"); err != nil {
 		return err
 	}
 	installed, err := s.installedAddons()

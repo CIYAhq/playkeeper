@@ -267,6 +267,17 @@ func Check(dataDir string, lim Limits) error {
 	return err
 }
 
+// NoWorldError says a server folder has no world to back up: the level named
+// Level isn't in DataDir, before a new server's first start or once the
+// world folder is gone.
+type NoWorldError struct {
+	Level, DataDir string
+}
+
+func (e *NoWorldError) Error() string {
+	return fmt.Sprintf("no world named %q found in %s", e.Level, e.DataDir)
+}
+
 // archiveFiles lists the allowlisted files in dataDir, sorted, and requires
 // the level's world among them.
 func archiveFiles(dataDir, level string) ([]string, error) {
@@ -304,7 +315,7 @@ func archiveFiles(dataDir, level string) ([]string, error) {
 		}
 	}
 	if len(rels) == 0 || !containsPrefix(rels, level+"/") {
-		return nil, fmt.Errorf("no world named %q found in %s", level, dataDir)
+		return nil, &NoWorldError{Level: level, DataDir: dataDir}
 	}
 	sort.Strings(rels)
 	return rels, nil

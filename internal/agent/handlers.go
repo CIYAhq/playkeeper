@@ -184,6 +184,12 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Operation = s.machineOp()
 	}
 	st.LastOperation = s.lastFinishedOperation()
+	if st.Operation == nil && sc != nil {
+		st.WorldMissing = s.worldMissing()
+		if s.restoreUnsettled() {
+			st.RestoreUnsettled = &api.RestoreUnsettled{Problem: sentence(s.settleProblemNow())}
+		}
+	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	s.mu.Lock()
 	runPhase, detail := s.runPhase, s.runPhaseDetail
@@ -578,6 +584,7 @@ func (s *server) forgetCrashes() {
 // once the start goes ahead, so a refused request, or work before the start
 // that failed, keeps the crash that says why the server is down.
 func (s *server) startNow(ctx context.Context, h *opHandle) error {
+	s.settleBeforeStart(ctx)
 	if err := s.setDesired(api.DesiredRunning); err != nil {
 		return err
 	}
@@ -1200,6 +1207,13 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		writeError(w, errInvalid("X-Playkeeper-Actor header is required"))
 		return
 	}
+	if target != nil {
+		if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(target.id, actor, "restore.uploaded", "", "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+	}
 	p, err := a.stageArchive(r.Body, "upload", a.uploadLimit(), target)
 	if err != nil {
 		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
@@ -1225,6 +1239,11 @@ func (s *server) hRestoreFromBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := s.getBackup(r.PathValue("bid"))
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.restoreRefusal("restore again"); err != nil {
+		s.audit(actor, "restore.staged", b.ID, "refused", err.Error())
 		writeError(w, err)
 		return
 	}
@@ -1275,6 +1294,18 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := st.preview
+	target := a.serverByID(p.ServerID)
+	if p.ServerID != "" && target == nil {
+		writeError(w, errNotFound("Server"))
+		return
+	}
+	if target != nil {
+		if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+	}
 	if !p.Compatible {
 		writeError(w, errConflict("This backup cannot be restored here: "+strings.Join(p.Problems, " "), ""))
 		return
@@ -1294,11 +1325,6 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-	}
-	target := a.serverByID(p.ServerID)
-	if p.ServerID != "" && target == nil {
-		writeError(w, errNotFound("Server"))
-		return
 	}
 	if req.MemoryMB != 0 {
 		if err := a.validMemory(req.MemoryMB, p.ServerID); err != nil {

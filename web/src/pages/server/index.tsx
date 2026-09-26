@@ -230,7 +230,7 @@ function MoreMenu({ server }: { server: ServerStatus }) {
   const remove = can(me, 'servers.create')
   const share = can(me, 'view') && demo?.templates !== false
   const [sharing, setSharing] = useState(false)
-  const backUpBlocked = whyNot(server, 'change', offline)
+  const backUpBlocked = whyNot(server, 'backup', offline)
   if (!run && !backUp && !remove && !share) return null
   return (
     <Menu>
