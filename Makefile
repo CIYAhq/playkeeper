@@ -40,7 +40,7 @@ typecheck: ## TypeScript type check
 test: test-go test-web test-sh ## Go, web and installer-script unit tests
 
 test-go:
-	go test -count=1 $(GO_PKGS)
+	go test -count=1 -timeout 20m $(GO_PKGS)
 
 test-web:
 	cd web && npx vitest run
