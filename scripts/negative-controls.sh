@@ -1925,11 +1925,8 @@ control "each mod keeps more memory outside the heap" internal/minecraft/catalog
   'overhead = max(overhead, min(base+modOverheadMB*0, budgetMB/2))' \
   ./internal/minecraft '^TestHeapForModLoaders$'
 control "a start sizes a mod loader's heap for the mods it has" internal/agent/lifecycle.go \
-  'if err := s.sizeHeap(&sc); err != nil {
-		return err
-	}
-	pastFiles = true' \
-  'pastFiles = true' \
+  'if err := s.sizeHeap(&sc); err != nil {' \
+  'if false {' \
   ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
 control "the container runs the heap sized for its mods" internal/agent/lifecycle.go \
   '"MEMORY="+strconv.Itoa(heapMB(sc))+"M",' \

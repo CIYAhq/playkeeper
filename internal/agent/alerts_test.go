@@ -248,6 +248,13 @@ func TestDiscordAlertSequences(t *testing.T) {
 				e.t.Fatalf("backup without room: %+v", o)
 			}
 		}, want: []sentAlert{lowDisk, backupFailed}, status: discord.StateOnline},
+		{name: "an out-of-memory kill, then a restart that works", steps: func(e *agentEnv) {
+			n := e.crashEvents()
+			e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+			e.fd.oomKill()
+			e.waitFor("the crash counted", func() bool { return e.crashEvents() == n+1 })
+			e.waitFor("online again", e.onlineIdle)
+		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
 		{name: "a crash that logged a shutdown", steps: func(e *agentEnv) {
 			n := e.crashEvents()
 			crashLogged(e)
