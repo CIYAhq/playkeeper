@@ -53,6 +53,18 @@ control "per-address sign-in and setup rate limit" internal/panel/server.go \
   'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); !ok {' \
   'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); false && !ok {' \
   ./internal/panel '^TestSignInAndSetupAreRateLimitedPerAddress$'
+control "previews don't spend the actions' rate limit" internal/panel/server.go \
+  'bucket = s.previews' \
+  'bucket = s.control' \
+  ./internal/panel '^TestPreviewsHaveTheirOwnRateLimit$'
+control "previews have a rate limit of their own" internal/panel/server.go \
+  'newLimiter(120, time.Minute, opts.Now)' \
+  'newLimiter(1000, time.Minute, opts.Now)' \
+  ./internal/panel '^TestPreviewsHaveTheirOwnRateLimit$'
+control "every preview bucket entry is a route" internal/panel/server.go \
+  '"POST /api/servers/{id}/backup-rules/estimate": true,' \
+  '"POST /api/servers/{id}/backup-rules/estimates": true,' \
+  ./internal/panel '^TestEveryPreviewRouteIsACheckedRoute$'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
   'if false && (err != nil || !a.allowed[uid]) {' \
