@@ -937,6 +937,10 @@ control "packs cannot suggest operator or function permission levels" internal/m
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
   ./internal/modpacks '^TestPacksCannotSuggestPermissionLevels$'
+control "a pack file's path with an invisible character is refused before any download" internal/modpacks/mrpack/mrpack.go \
+  'if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {' \
+  'if unicode.IsControl(r) || r == utf8.RuneError {' \
+  ./internal/modpacks '^TestUnsafeIndexPathsAreRefused$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
@@ -1547,14 +1551,14 @@ control "alert failures never show the webhook URL" internal/names/service/alert
   'if errors.As(err, &ue) {' \
   'if false && errors.As(err, &ue) {' \
   ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
-control "each kind of alert goes out at most every 6 hours" internal/names/service/alert.go \
-  'if t, ok := a.last[kind]; ok && now.Sub(t) < alertEvery {' \
-  'if t, ok := a.last[kind]; false && ok && now.Sub(t) < alertEvery {' \
-  ./internal/names/service '^TestAlertsReachTheWebhookAtMostOncePerKindEverySixHours$'
 control "an alert the webhook hangs up on is logged" internal/names/service/alert.go \
   'a.log.Warn("Could not send an alert to "+EnvAlertWebhook, "error", err)' \
   '_ = err' \
   ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
+control "each kind of alert goes out at most every 6 hours" internal/names/service/alert.go \
+  'if t, ok := a.last[kind]; ok && now.Sub(t) < alertEvery {' \
+  'if t, ok := a.last[kind]; false && ok && now.Sub(t) < alertEvery {' \
+  ./internal/names/service '^TestAlertsReachTheWebhookAtMostOncePerKindEverySixHours$'
 control "names lapse when their dashboard stops answering" internal/names/service/alive.go \
   'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ?' \
   'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ? AND 0' \
