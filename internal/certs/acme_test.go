@@ -58,6 +58,13 @@ type fakeCA struct {
 	// like Pebble (issuance still running, no Location header); "lost" and
 	// "lost-early" hang up after or before issuing.
 	finalizeAnswer string
+	// processing is how many looks at a finalized order find it still
+	// processing, as does the finalize answer, with a Retry-After of
+	// retryAfter; -1 means every look. unanswered is how many looks at a
+	// finalized order get no answer at all; -1 means every look.
+	processing int
+	retryAfter string
+	unanswered int
 
 	mu       sync.Mutex
 	nonces   map[string]bool
@@ -66,6 +73,7 @@ type fakeCA struct {
 	authzs   map[string]*caAuthz
 	seq      int
 	steps    []string
+	looked   []time.Time // when finalized orders were looked at
 }
 
 // caFailure is the answer to a step instead of the normal one; for the
@@ -89,6 +97,7 @@ type caOrder struct {
 	authzs      []string
 	valid       bool
 	cert        []byte
+	looks       int // since it was finalized
 }
 
 type caAuthz struct {
@@ -259,11 +268,20 @@ func (f *fakeCA) post(w http.ResponseWriter, r *http.Request) {
 		f.challenge(w, acct, strings.TrimPrefix(path, "/chal/"))
 	case strings.HasPrefix(path, "/order/"):
 		f.steps = append(f.steps, "order")
-		if o := f.orders[id]; o != nil && o.account == acct.url {
-			f.writeOrder(w, http.StatusOK, o)
-		} else {
+		o := f.orders[id]
+		if o == nil || o.account != acct.url {
 			f.problem(w, http.StatusNotFound, "malformed", "no such order")
+			return
 		}
+		if o.valid {
+			o.looks++
+			f.looked = append(f.looked, time.Now())
+			if f.unanswered < 0 || o.looks <= f.unanswered {
+				f.ignore(w)
+				return
+			}
+		}
+		f.writeOrder(w, http.StatusOK, o)
 	case strings.HasPrefix(path, "/finalize/"):
 		f.finalize(w, acct, id, payload)
 	case strings.HasPrefix(path, "/cert/"):
@@ -374,6 +392,9 @@ func (f *fakeCA) newOrder(w http.ResponseWriter, a *caAccount, payload []byte) {
 }
 
 func (f *fakeCA) orderStatus(o *caOrder) string {
+	if o.valid && (f.processing < 0 || (f.processing > 0 && o.looks <= f.processing)) {
+		return "processing"
+	}
 	if o.valid {
 		return "valid"
 	}
@@ -396,9 +417,13 @@ func (f *fakeCA) writeOrder(w http.ResponseWriter, status int, o *caOrder) {
 		ids = append(ids, map[string]string{"type": "dns", "value": n})
 		authzs = append(authzs, f.url("/authz/"+o.authzs[i]))
 	}
-	v := map[string]any{"status": f.orderStatus(o), "identifiers": ids, "authorizations": authzs, "finalize": f.url("/finalize/" + o.id)}
-	if o.cert != nil {
+	s := f.orderStatus(o)
+	v := map[string]any{"status": s, "identifiers": ids, "authorizations": authzs, "finalize": f.url("/finalize/" + o.id)}
+	if s == "valid" {
 		v["certificate"] = f.url("/cert/" + o.id)
+	}
+	if s == "processing" && f.retryAfter != "" {
+		w.Header().Set("Retry-After", f.retryAfter)
 	}
 	writeJSON(w, status, v)
 }
@@ -536,6 +561,17 @@ func hangUp(w http.ResponseWriter) {
 	if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
 		conn.Close()
 	}
+}
+
+// ignore leaves a request unanswered, its connection open until the test
+// ends, as Pebble v2.10.1 does when it deadlocks.
+func (f *fakeCA) ignore(w http.ResponseWriter) {
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		f.t.Errorf("fake CA: %v", err)
+		return
+	}
+	f.t.Cleanup(func() { conn.Close() })
 }
 
 // failed answers with the failure set for step, if there is one.
@@ -785,6 +821,107 @@ func TestIssueFinalizeAnswers(t *testing.T) {
 			}
 			if f.count("finalize") != 1 || f.count("order") != 2 || (f.count("cert") == 1) != c.issued {
 				t.Errorf("steps = %q", f.steps)
+			}
+		})
+	}
+}
+
+// shortWaits shortens validationWait and maxPollWait for a test.
+func shortWaits(t *testing.T, validation, poll time.Duration) {
+	v, p := validationWait, maxPollWait
+	validationWait, maxPollWait = validation, poll
+	t.Cleanup(func() { validationWait, maxPollWait = v, p })
+}
+
+// issueWaiting issues a certificate from f, whose finalized order answers
+// "processing" with a Retry-After of an hour, with requests that time out
+// after timeout. Like an address operation, Issue has a deadline of its own,
+// later than validationWait.
+func issueWaiting(t *testing.T, f *fakeCA, timeout time.Duration) (*Certificate, error) {
+	f.validAuthz, f.retryAfter = true, "3600"
+	base := t.TempDir()
+	is := f.issuer(base)
+	is.Client = &http.Client{Timeout: timeout, Transport: f.srv.Client().Transport}
+	ctx, cancel := context.WithTimeout(t.Context(), validationWait+5*time.Second)
+	defer cancel()
+	return is.Issue(ctx, Request{Names: []string{"mc.example.com"}, HTTP01: &HTTP01Responder{}, Dir: filepath.Join(base, "certs")})
+}
+
+func (f *fakeCA) looks() []time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.looked)
+}
+
+// TestIssueWaitsForTheCertificate: once the order is finalized, it is looked
+// at again within maxPollWait whatever Retry-After the certificate authority
+// asks for, and a look that gets no answer is tried again.
+func TestIssueWaitsForTheCertificate(t *testing.T) {
+	shortWaits(t, 4*time.Second, time.Second)
+	const timeout = time.Second
+	cases := []struct {
+		name       string
+		finalize   string
+		processing int
+		unanswered int
+		wait       time.Duration // between the two looks
+	}{
+		{"one more look finds it processing, like Pebble", "processing", 1, 0, maxPollWait},
+		{"one more look finds it processing, like Let's Encrypt", "", 1, 0, maxPollWait},
+		{"a look gets no answer", "processing", 0, 1, timeout + maxPollWait},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFakeCA(t)
+			f.finalizeAnswer, f.processing, f.unanswered = c.finalize, c.processing, c.unanswered
+			got, err := issueWaiting(t, f, timeout)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read, err := ReadCertificate(got.File); err != nil || read.Serial != got.Serial {
+				t.Errorf("the certificate was not saved: %v", err)
+			}
+			looked := f.looks()
+			if len(looked) != 2 || f.count("finalize") != 1 || f.count("cert") != 1 {
+				t.Fatalf("%d looks at the finalized order; steps %q", len(looked), f.steps)
+			}
+			if gap := looked[1].Sub(looked[0]); gap > c.wait+time.Second {
+				t.Errorf("%s between the looks, want at most %s", gap.Round(time.Millisecond), c.wait)
+			}
+		})
+	}
+}
+
+// TestIssueTimesOutWaitingForTheCertificate: a certificate that is not issued
+// within validationWait of the finalize request is a timeout, not a refusal
+// by the certificate authority, and no other order is made.
+func TestIssueTimesOutWaitingForTheCertificate(t *testing.T) {
+	shortWaits(t, 2*time.Second, time.Second)
+	cases := []struct {
+		name       string
+		finalize   string
+		processing int
+		unanswered int
+	}{
+		{"still processing, like Let's Encrypt", "", -1, 0},
+		{"no answers, like a deadlocked Pebble", "processing", 0, -1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFakeCA(t)
+			f.finalizeAnswer, f.processing, f.unanswered = c.finalize, c.processing, c.unanswered
+			start := time.Now()
+			_, err := issueWaiting(t, f, 500*time.Millisecond)
+			took := time.Since(start)
+			p := wantProblem(t, err, CodeIssuanceTimeout, "")
+			if p.NeedsAction || !p.RetryAt.IsZero() || p.Detail == "" {
+				t.Errorf("problem = %+v", p)
+			}
+			if took < validationWait || took > validationWait+time.Second {
+				t.Errorf("gave up after %s, want %s", took.Round(time.Millisecond), validationWait)
+			}
+			if n := len(f.looks()); n < 2 || f.count("new-order") != 1 || f.count("finalize") != 1 {
+				t.Errorf("%d looks at the finalized order; steps %q", n, f.steps)
 			}
 		})
 	}

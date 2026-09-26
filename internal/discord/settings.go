@@ -23,8 +23,10 @@ type Settings struct {
 	StatusMessageID string
 }
 
-// DefaultSettings are those of a server that has not connected Discord.
-func DefaultSettings() Settings { return Settings{Alerts: DefaultAlerts()} }
+// DefaultSettings are those of a server that has not connected Discord: the
+// default alerts, and the live status message on until the owner turns it
+// off, so connecting Discord shows it.
+func DefaultSettings() Settings { return Settings{Alerts: DefaultAlerts(), LiveStatus: true} }
 
 // Validate checks settings that came from the dashboard.
 func (s Settings) Validate() error {

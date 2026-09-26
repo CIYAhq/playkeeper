@@ -313,6 +313,9 @@ type ServerConfig struct {
 	Software *SoftwarePin `json:"software,omitempty"`
 	// Modpack is the pack the server was created from (wave 4).
 	Modpack *ServerModpack `json:"modpack,omitempty"`
+	// ModpackUnknown says the server was restored from a backup that doesn't
+	// record which modpack, if any, it ran: Playkeeper manages no pack on it.
+	ModpackUnknown bool `json:"modpackUnknown,omitempty"`
 	// Template is the template the server was created from (wave 4).
 	Template *ServerTemplate `json:"template,omitempty"`
 	// VoiceChatPort is the UDP port voice chat has on this server, published
@@ -1790,6 +1793,10 @@ type ServerTemplate struct {
 	// installed, each with params["name"]; POST …/template/retry tries them
 	// again.
 	Skipped []AddonNotice `json:"skipped,omitempty"`
+	// Lost says the record of what the template adds was gone by the time
+	// the server started, so none of its add-ons or data packs were
+	// installed.
+	Lost bool `json:"lost,omitempty"`
 }
 
 // TemplateSettings are the settings a template carries.
@@ -2007,10 +2014,12 @@ type DiscordConnectRequest struct {
 }
 
 type DiscordSettingsRequest struct {
-	Alerts     []string `json:"alerts"`
-	LiveStatus bool     `json:"liveStatus"`
-	Host       string   `json:"host,omitempty"`
-	Actor      string   `json:"actor"`
+	Alerts []string `json:"alerts"`
+	// LiveStatus turns the live status message on or off; left out, it
+	// stays as it is.
+	LiveStatus *bool  `json:"liveStatus,omitempty"`
+	Host       string `json:"host,omitempty"`
+	Actor      string `json:"actor"`
 }
 
 // DiscordNotifyRequest is an alert the panel reports: a join request

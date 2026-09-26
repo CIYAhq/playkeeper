@@ -88,6 +88,7 @@ const (
 	CodeDNSServersFailing   = "dns_servers_failing"
 	CodeCAAForbids          = "caa_forbids"
 	CodeValidationTimeout   = "validation_timeout"
+	CodeIssuanceTimeout     = "issuance_timeout"
 	CodeChallengeNotOffered = "challenge_not_offered"
 	CodeDNS01PublishFailed  = "dns01_publish_failed"
 	CodeDNS01NotVisible     = "dns01_not_visible"
@@ -205,6 +206,7 @@ var catalog = map[string]text{
 	CodeCAAForbids: {msg: "A CAA record on your domain does not allow Let's Encrypt to issue certificates for {name}.",
 		hint: "At your DNS provider, add a CAA record that allows letsencrypt.org, or delete the CAA records, then try again.", action: true},
 	CodeValidationTimeout:   {msg: "Let's Encrypt did not finish checking {name} in time.", hint: "Try again in a few minutes."},
+	CodeIssuanceTimeout:     {msg: "Let's Encrypt did not finish issuing the certificate in time.", hint: "Try again in a few minutes."},
 	CodeChallengeNotOffered: {msg: "Let's Encrypt did not offer the {challenge} check for {name}.", hint: "Try again later. If it keeps happening, report the details."},
 	CodeDNS01PublishFailed:  {msg: "Playkeeper could not create the DNS record {fqdn} that Let's Encrypt checks.", hint: "Try again in a few minutes."},
 	CodeCertificateLimit:    {msg: "The free address service is not handing out new certificates for now.", hint: "Playkeeper tries again after {until}. Players can still join."},
@@ -372,14 +374,20 @@ func explain(err error, s situation, now time.Time) *Problem {
 	if errors.As(err, &refused) {
 		return newProblem(err, CodeCAError, nil)
 	}
-	var dnsErr *net.DNSError
-	var opErr *net.OpError
-	var netErr net.Error
-	if errors.As(err, &dnsErr) || errors.As(err, &opErr) || (errors.As(err, &netErr) && netErr.Timeout()) ||
-		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	if unreachable(err) {
 		return newProblem(err, CodeCAUnreachable, map[string]string{"server": s.host})
 	}
 	return newProblem(err, CodeFailed, nil)
+}
+
+// unreachable is whether err is a failure to reach the certificate authority
+// or to get its whole answer. Context errors count, so check them first.
+func unreachable(err error) bool {
+	var dnsErr *net.DNSError
+	var opErr *net.OpError
+	var netErr net.Error
+	return errors.As(err, &dnsErr) || errors.As(err, &opErr) || (errors.As(err, &netErr) && netErr.Timeout()) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 var (

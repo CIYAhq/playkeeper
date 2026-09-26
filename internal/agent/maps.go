@@ -54,8 +54,12 @@ type mapState struct {
 	mu        sync.Mutex
 	live      map[string]mapLive
 	progress  map[string]progressMark
-	rendering map[string]bool
+	rendering map[string]*renderWait
 }
+
+// renderWait is a start's wait for squaremap to answer before the first
+// render; stop ends it.
+type renderWait struct{ stop context.CancelFunc }
 
 // mapLive is what the agent last saw of a server's container.
 type mapLive struct {
@@ -428,7 +432,10 @@ func (s *server) writeMapConfig() error {
 }
 
 // mapStarted runs after every successful start: a restart put off until
-// nobody plays is done, and a map that was never drawn gets drawn.
+// nobody plays is done, and a map that was never drawn gets drawn. Each
+// start waits for squaremap afresh and ends the wait of the start before
+// it, which may give up on that run, or run out of time, before squaremap
+// answers in this one.
 func (s *server) mapStarted() {
 	rec, err := s.activeMap()
 	if err != nil || rec == nil {
@@ -441,26 +448,30 @@ func (s *server) mapStarted() {
 	if rec.firstRenderAt != nil {
 		return
 	}
+	ctx, stop := context.WithCancel(s.ctx)
+	wait := &renderWait{stop: stop}
 	ms := &s.maps
 	ms.mu.Lock()
-	if ms.rendering[s.id] {
-		ms.mu.Unlock()
-		return
+	if prev := ms.rendering[s.id]; prev != nil {
+		prev.stop()
 	}
 	if ms.rendering == nil {
-		ms.rendering = map[string]bool{}
+		ms.rendering = map[string]*renderWait{}
 	}
-	ms.rendering[s.id] = true
+	ms.rendering[s.id] = wait
 	ms.mu.Unlock()
 	s.loops.Add(1)
 	go func() {
 		defer s.loops.Done()
 		defer func() {
 			ms.mu.Lock()
-			delete(ms.rendering, s.id)
+			if ms.rendering[s.id] == wait {
+				delete(ms.rendering, s.id)
+			}
 			ms.mu.Unlock()
+			stop()
 		}()
-		s.firstRender(s.ctx)
+		s.firstRender(ctx)
 	}()
 }
 
@@ -488,6 +499,9 @@ func (s *server) firstRender(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+	if ctx.Err() != nil {
+		return
+	}
 	if err := webmap.StartDrawing(ctx, rconConsole{s}); err != nil {
 		s.log.Warn("could not ask squaremap to draw the map", "server", s.id, "err", err)
 		return
@@ -498,13 +512,22 @@ func (s *server) firstRender(ctx context.Context) {
 }
 
 // restartMapWhenEmpty restarts an online server nobody is playing on when
-// its owner put off the restart that loads the map.
+// its owner put off the restart that loads the map. One that has loaded
+// squaremap since, started some other way, isn't restarted.
 func (s *server) restartMapWhenEmpty(online bool, snap *api.PlayerSnapshot) {
 	if !online || snap == nil || snap.Online > 0 {
 		return
 	}
 	rec, err := s.activeMap()
 	if err != nil || rec == nil || rec.restartWhenEmpty == "" || s.busy() {
+		return
+	}
+	l := s.mapLive(s.ctx, false)
+	if l.startedAt.IsZero() {
+		return
+	}
+	if !rec.pendingRestart(l) {
+		s.db.Exec(`UPDATE maps SET restart_when_empty = '' WHERE server_id = ?`, s.id)
 		return
 	}
 	if _, err := s.restart(rec.restartWhenEmpty); err != nil {
@@ -856,18 +879,29 @@ func onOff(v bool) string {
 }
 
 // hMapRestartLater restarts the server to load the map once nobody is
-// playing, instead of now.
+// playing, instead of now. It is refused while squaremap needs no restart
+// to load.
 func (s *server) hMapRestartLater(w http.ResponseWriter, r *http.Request) {
 	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if rec, err := s.activeMap(); err != nil {
+	rec, err := s.activeMap()
+	if err != nil {
 		writeError(w, err)
 		return
-	} else if rec == nil {
+	}
+	if rec == nil {
 		writeError(w, errConflict("Turn on the map first.", ""))
+		return
+	}
+	if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {
+		msg := "The server has already loaded the map, so it doesn't need a restart."
+		if l.startedAt.IsZero() {
+			msg = "The server isn't running. It loads the map when it starts."
+		}
+		writeError(w, errConflict(msg, ""))
 		return
 	}
 	res, err := s.db.Exec(`UPDATE maps SET restart_when_empty = ? WHERE server_id = ?`, actor, s.id)

@@ -51,14 +51,23 @@ func (s *server) serverConfig() (*api.ServerConfig, error) {
 	return &sc, nil
 }
 
-func (s *server) saveServerConfig(sc api.ServerConfig) error {
+func (s *server) saveServerConfig(sc api.ServerConfig) error { return saveConfig(s.db, s.id, sc) }
+
+// execer runs a statement: the database, or a transaction a change is part
+// of.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// saveConfig saves the settings of the server with id through ex.
+func saveConfig(ex execer, id string, sc api.ServerConfig) error {
 	b, err := json.Marshal(sc)
 	if err != nil {
 		return err
 	}
 	// The type column follows the software, which a restore or a modpack
 	// can change; configs made before 0.3.0 have no type and stay Paper.
-	res, err := s.db.Exec(`UPDATE servers SET config = ?, type = CASE WHEN ? = '' THEN type ELSE ? END WHERE id = ?`, string(b), sc.Type, sc.Type, s.id)
+	res, err := ex.Exec(`UPDATE servers SET config = ?, type = CASE WHEN ? = '' THEN type ELSE ? END WHERE id = ?`, string(b), sc.Type, sc.Type, id)
 	if err != nil {
 		return err
 	}

@@ -197,10 +197,14 @@ func (f *fakeMapSource) library(t *testing.T) *addons.Library {
 }
 
 // fakeSquaremapWeb answers like squaremap's web server in the container.
+// While hold is set, a request for its list of worlds gets no answer until
+// its asker gives up; held counts those requests.
 type fakeSquaremapWeb struct {
 	srv   *httptest.Server
 	mu    sync.Mutex
 	paths []string
+	hold  atomic.Bool
+	held  atomic.Int32
 }
 
 func startFakeSquaremapWeb(t *testing.T) *fakeSquaremapWeb {
@@ -224,6 +228,11 @@ func startFakeSquaremapWeb(t *testing.T) *fakeSquaremapWeb {
 		f.mu.Lock()
 		f.paths = append(f.paths, r.URL.Path)
 		f.mu.Unlock()
+		if r.URL.Path == "/tiles/settings.json" && f.hold.Load() {
+			f.held.Add(1)
+			<-r.Context().Done()
+			return
+		}
 		if r.URL.Path == "/tiles/minecraft_overworld/3/0_0.png" {
 			w.Header().Set("Content-Type", "image/png")
 			w.Header().Set("ETag", `"1790351880000"`)
@@ -724,6 +733,117 @@ func TestMapWaitsForPlayersBeforeRestarting(t *testing.T) {
 		t.Fatalf("restarts = %d", n)
 	}
 	e.waitFor("the first render", func() bool { return e.rcon.count("squaremap fullrender minecraft:overworld") == 1 })
+}
+
+// Each start waits for squaremap afresh before the first render. When the
+// server restarts, stops and starts, or crashes and is started again while
+// the wait of the start that loaded squaremap is still under way (here
+// squaremap never answers it), that wait ends and the map is drawn once
+// squaremap answers after the new start.
+func TestAStartDuringTheFirstRenderWaitWaitsAgain(t *testing.T) {
+	defer func(w time.Duration) { firstRenderWait = w }(firstRenderWait)
+	// Shorter than the timeout of one answer from squaremap, so the first
+	// wait's unanswered request lasts as long as that wait.
+	firstRenderWait = 4 * time.Second
+	do := func(e *agentEnv, verb string) {
+		e.t.Helper()
+		code, out := e.call("POST", e.sp(verb), map[string]any{"actor": "admin"})
+		if code != http.StatusAccepted || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
+			e.t.Fatalf("%s: %d %v", verb, code, out)
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		event func(e *agentEnv)
+	}{
+		{"a restart", func(e *agentEnv) { do(e, "/restart") }},
+		{"a stop, then a start", func(e *agentEnv) {
+			do(e, "/stop")
+			do(e, "/start")
+		}},
+		{"a crash and the automatic restart", func(e *agentEnv) {
+			started := e.startedAt()
+			e.fd.crash(137)
+			e.waitFor("the automatic restart", func() bool { return e.startedAt().After(started) && e.onlineIdle() })
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, _, sq := newMapEnv(t)
+			e.create()
+			sq.hold.Store(true)
+			if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+				t.Fatalf("enable: %+v", op)
+			}
+			e.waitFor("the first start's wait to ask squaremap", func() bool { return sq.held.Load() > 0 })
+			sq.hold.Store(false)
+			c.event(e)
+			e.waitFor("the first render", func() bool {
+				return e.countRows(`SELECT COUNT(*) FROM maps WHERE first_render_at IS NOT NULL`) == 1
+			})
+			time.Sleep(200 * time.Millisecond)
+			if n := e.rcon.count("squaremap fullrender minecraft:overworld"); n != 1 {
+				t.Fatalf("fullrender sent %d times", n)
+			}
+		})
+	}
+}
+
+// Putting off the restart that loads the map until nobody plays is taken
+// only while squaremap needs that restart. A server that has loaded
+// squaremap, or isn't running, is refused and not restarted for it; a
+// restart put off before a start some other way loaded squaremap is dropped
+// once nobody plays, not done.
+func TestRestartLaterOnlyWhileSquaremapNeedsARestart(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		playing bool // Alex plays as the map is turned on, so squaremap waits for a restart
+		stopped bool
+		earlier bool // the restart was put off before squaremap was loaded
+		code    int
+		says    string
+		kept    int
+	}{
+		{name: "squaremap needs a restart", playing: true, code: http.StatusOK, kept: 1},
+		{name: "squaremap loaded", code: http.StatusConflict, says: "The server has already loaded the map, so it doesn't need a restart."},
+		{name: "server stopped", stopped: true, code: http.StatusConflict, says: "The server isn't running. It loads the map when it starts."},
+		{name: "put off before squaremap was loaded", earlier: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, _, _ := newMapEnv(t)
+			e.create()
+			if c.playing {
+				e.rcon.setOnline("Alex")
+				e.waitFor("Alex to be seen", func() bool { return e.srv().playersOnline() == 1 })
+			}
+			if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+				t.Fatalf("enable: %+v", op)
+			}
+			if c.stopped {
+				code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+				if code != http.StatusAccepted || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
+					t.Fatalf("stop: %d %v", code, out)
+				}
+			}
+			started := e.startedAt()
+			if c.earlier {
+				if _, err := e.a.db.Exec(`UPDATE maps SET restart_when_empty = 'admin'`); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				code, out := e.call("POST", e.sp("/map/restart-later"), map[string]any{"actor": "admin"})
+				if code != c.code || (c.says != "" && out["error"] != c.says) || (code == http.StatusOK && out["restartWhenEmpty"] != true) {
+					t.Fatalf("restart later: %d %v", code, out)
+				}
+			}
+			time.Sleep(5 * e.a.opts.SampleInterval)
+			if !e.startedAt().Equal(started) {
+				t.Fatal("the server was restarted")
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM maps WHERE restart_when_empty != ''`); n != c.kept {
+				t.Fatalf("%d restarts put off, want %d", n, c.kept)
+			}
+		})
+	}
 }
 
 func (f *fakeSquaremapWeb) asked(path string) bool {
