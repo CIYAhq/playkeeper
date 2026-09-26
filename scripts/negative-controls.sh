@@ -2299,8 +2299,8 @@ control "a server's state change reaches the live status message within seconds"
   'case false && states != n.shownStates:' \
   ./internal/discord '^TestStateChangesReachTheStatusMessageWithinSeconds$'
 control "the burst guard on live status updates" internal/discord/notifier.go \
-  'due = later(due, later(n.statusAt.Add(statusGap), n.burstEnds()))' \
-  'due = later(due, n.statusAt.Add(statusGap))' \
+  'due = later(due, later(n.statusAt.Add(n.gap), n.burstEnds()))' \
+  'due = later(due, n.statusAt.Add(n.gap))' \
   ./internal/discord '^TestStateChangesStayInsideDiscordsRateLimits$'
 control "the agent looks at its servers for Discord as often as it reconciles" internal/agent/discord.go \
   't := time.NewTicker(a.opts.ReconcileInterval)' \
@@ -2404,7 +2404,6 @@ control "Minecraft update alerts read each server type's own versions" internal/
   'versions, _, _ = a.typeCatalog(ctx, typ)' \
   'versions, _, _ = a.versionCatalog(ctx)' \
   ./internal/agent '^TestMinecraftUpdateAlertsReadEachTypesOwnVersions$'
-
 # Wave 6: the shared map's link token and its players switch, and the game
 # files a world import and the shared map read.
 control "shared map link tokens carry at least 128 bits" internal/webmap/share.go \

@@ -975,7 +975,22 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
   const unfaked: string[] = []
   const unrecorded: string[] = []
   const origin = new URL(baseURL).origin
-  const state: FakeState = { origin, prefs: {}, backups: new Map(), update: {}, reads: new Map(), discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] }, opSeq: 0, inviteSeq: 0, addresses: new Map(), view, phases: new Map(), jobs: new Map(), maps: new Map(), imports: new Map() }
+  const state: FakeState = {
+    prefs: {},
+    backups: new Map(),
+    update: {},
+    reads: new Map(),
+    opSeq: 0,
+    addresses: new Map(),
+    view,
+    phases: new Map(),
+    jobs: new Map(),
+    origin,
+    discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] },
+    inviteSeq: 0,
+    maps: new Map(),
+    imports: new Map(),
+  }
 
   // Links out of the dashboard open a stand-in page instead of the internet.
   await page.context().route(
