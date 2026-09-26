@@ -75,25 +75,58 @@ func (s *server) forgetAutomation(tx *sql.Tx) error {
 	return nil
 }
 
-// keyNotSaved refuses deleting a server whose copies somewhere else are
-// kept, or still made, while its recovery key was never downloaded:
-// forgetAutomation deletes the key with the server, and nothing would open
-// the copies again.
+// keyNotSaved refuses deleting a server that has encryption keys while its
+// recovery key was never downloaded: forgetAutomation deletes the key with
+// the server, and nothing would open the copies made with it again. Keys
+// exist once copies were turned on, and the copies they open aren't only
+// the recorded ones: a change of place forgets those, and they stay where
+// they were. When the settings for copies can't be read, it can't tell, so
+// it refuses as well, with reason recovery_key_unknown.
 func (s *server) keyNotSaved() error {
 	row, err := s.loadOffsite()
-	if err != nil || !row.hasKeys || row.keySavedAt != nil {
-		return nil
+	if err != nil {
+		return s.keyUnknown(err)
 	}
-	var copies int
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM offsite_copies WHERE server_id = ?`, s.id).Scan(&copies)
-	if copies == 0 && !row.enabled {
+	if !row.hasKeys || row.keySavedAt != nil {
 		return nil
 	}
 	place := offsitePlace(row.cfg.Config)
+	params := map[string]any{"place": place}
+	hint := "Nothing else opens the copies made with it, even ones Playkeeper no longer lists."
+	if copies, err := recordedCopies(s); err != nil {
+		s.log.Warn("the recorded copies couldn't be counted", "server", s.id, "err", err)
+	} else {
+		params["copies"] = copies
+		if copies > 0 {
+			hint = "Nothing else opens its copies on " + place + "."
+		}
+	}
 	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Reason: "recovery_key_not_saved",
 		Msg:    fmt.Sprintf("Deleting %s deletes its recovery key, which was never downloaded.", s.name()),
-		Hint:   "Nothing else opens its copies on " + place + ". Download the recovery key first, or confirm deleting the server without it.",
-		Params: map[string]any{"place": place, "copies": copies}}
+		Hint:   hint + " Download the recovery key first, or confirm deleting the server without it.",
+		Params: params}
+}
+
+// recordedCopies counts the copies of s recorded where copies go now. Tests
+// make it fail.
+var recordedCopies = func(s *server) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM offsite_copies WHERE server_id = ?`, s.id).Scan(&n)
+	return n, err
+}
+
+// reasonKeyUnknown is the refusal of a delete that can't tell whether it
+// would delete the only key to the server's copies.
+const reasonKeyUnknown = "recovery_key_unknown"
+
+// keyUnknown refuses deleting a server whose settings for copies couldn't
+// be read, as keyNotSaved refuses when the key was never downloaded: the
+// same confirmation deletes it.
+func (s *server) keyUnknown(err error) error {
+	s.log.Warn("the settings for copies couldn't be read, so deleting the server needs confirming", "server", s.id, "err", err)
+	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Reason: reasonKeyUnknown,
+		Msg:  fmt.Sprintf("Playkeeper couldn't read the settings for %s's copies, so it can't tell whether deleting it deletes the only key to them.", s.name()),
+		Hint: "Try again in a moment, or confirm deleting the server without its recovery key."}
 }
 
 // automationStatus adds the sleep setting and the refused scheduled backups
@@ -199,6 +232,7 @@ func (a *Agent) automationRoutes() []Route {
 		{"POST", "/v1/servers/{id}/offsite/new-key", srv((*server).hOffsiteNewKey)},
 		{"GET", "/v1/servers/{id}/offsite/copies", srv((*server).hOffsiteCopies)},
 		{"POST", "/v1/servers/{id}/offsite/copies/{name}/check", srv((*server).hOffsiteCheck)},
+		{"POST", "/v1/servers/{id}/offsite/check/cancel", srv((*server).hOffsiteCheckCancel)},
 		{"DELETE", "/v1/servers/{id}/offsite/copies/{name}", srv((*server).hOffsiteCopyDelete)},
 		{"POST", "/v1/servers/{id}/offsite/restore", srv((*server).hOffsiteRestore)},
 		{"POST", "/v1/servers/{id}/offsite/restore/cancel", srv((*server).hOffsiteRestoreCancel)},

@@ -39,6 +39,25 @@ func TestWakeLimitPerHour(t *testing.T) {
 	expectAnswer(t, a, w, answerTooMany, time.Minute)
 }
 
+// A wake that never started is given back: it doesn't count towards the
+// wakes an hour allows, and its waking window ends.
+func TestWakeLimitGivesBackAWakeThatNeverStarted(t *testing.T) {
+	var l wakeLimit
+	a, w := l.try(t0)
+	expectAnswer(t, a, w, answerWake, 0)
+	for i := 1; i <= 2*maxWakesPerHour; i++ {
+		now := t0.Add(time.Duration(i) * wakeWindow)
+		a, w := l.try(now)
+		expectAnswer(t, a, w, answerWake, 0)
+		l.refund()
+		a, w = l.check(now)
+		expectAnswer(t, a, w, answerWake, 0)
+	}
+	if len(l.recent) != 1 {
+		t.Fatalf("%d wakes counted, want only the first", len(l.recent))
+	}
+}
+
 func TestWakeLimitPausesAfterFailures(t *testing.T) {
 	var l wakeLimit
 	now := t0

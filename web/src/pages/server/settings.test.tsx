@@ -161,7 +161,15 @@ describe('deleting a server with copies somewhere else', () => {
   it('warns while copies are on but none was made yet', async () => {
     await render(offsite({ copies: 0 }))
     await openAndType()
-    expect(document.body.textContent).toContain('Copies of Survival go to Backblaze B2, and only its recovery key opens them.')
+    expect(document.body.textContent).toContain('Only the recovery key opens copies of Survival sent to Backblaze B2, or to where copies went before, and deleting Survival deletes the key.')
+    expect(button('Delete Survival').disabled).toBe(true)
+  })
+
+  it('warns while copies are off and none is recorded, as after a change of place forgot them', async () => {
+    await render(offsite({ enabled: false, copies: 0 }))
+    await openAndType()
+    expect(document.body.textContent).toContain('Its recovery key was never downloaded.')
+    expect(document.body.textContent).toContain('or to where copies went before')
     expect(button('Delete Survival').disabled).toBe(true)
   })
 
@@ -175,7 +183,7 @@ describe('deleting a server with copies somewhere else', () => {
   })
 
   it('shows the agent’s refusal when the page didn’t know the key was at risk', async () => {
-    await render(offsite({ enabled: false, copies: 0 }))
+    await render(offsite({ key: { ...offsite().key!, savedAt: '2026-09-21T10:00:00Z' } }))
     await openAndType()
     expect(document.body.textContent).not.toContain('never downloaded')
     const refusal = new client.ApiError(409, {
@@ -188,6 +196,30 @@ describe('deleting a server with copies somewhere else', () => {
     await click(button('Delete Survival'))
     expect(document.body.textContent).toContain('Its recovery key was never downloaded.')
     expect(button('Delete Survival').disabled).toBe(true)
+    const box = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Delete it without the key'))
+    if (!box) throw new Error('no box to delete without the key')
+    await click(box)
+    await click(button('Delete Survival'))
+    expect(deletes()).toEqual([{ confirm: 'Survival' }, { confirm: 'Survival', forgetKey: true }])
+  })
+
+  it('shows the agent’s refusal when it couldn’t read the settings for copies, and deletes without the key only once told to', async () => {
+    await render(offsite({ key: { ...offsite().key!, savedAt: '2026-09-21T10:00:00Z' } }))
+    await openAndType()
+    const refusal = new client.ApiError(409, {
+      error: 'Playkeeper couldn’t read the settings for Survival’s copies, so it can’t tell whether deleting it deletes the only key to them.',
+      code: 'conflict',
+      reason: 'recovery_key_unknown',
+    })
+    vi.mocked(client.post).mockRejectedValueOnce(refusal).mockResolvedValue({})
+    await click(button('Delete Survival'))
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Playkeeper couldn’t read the settings for its copies.')
+    expect(text).toContain('It can’t tell whether deleting Survival deletes the only key to copies sent somewhere else.')
+    expect(text).not.toContain('never downloaded')
+    const go = button('Delete Survival')
+    expect(go.disabled).toBe(true)
+    expect(go.title).toBe('Tick the box to delete without the key, or close this and try again in a moment.')
     const box = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Delete it without the key'))
     if (!box) throw new Error('no box to delete without the key')
     await click(box)

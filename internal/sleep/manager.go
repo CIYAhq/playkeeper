@@ -77,7 +77,8 @@ type Config struct {
 	Status Status
 	// OnWake is called on its own goroutine when a player tries to join and
 	// may wake the server, at most once per wake. It should start the
-	// agent's wake operation, which calls Wake.
+	// agent's wake operation, which calls Wake, or call WakeCalledOff when
+	// it doesn't.
 	OnWake func(player string)
 	// Admit says whether a player may wake the server, for example whether
 	// they are on the whitelist or an operator. Nil admits every valid name.
@@ -231,6 +232,16 @@ func (m *Manager) Wake(ctx context.Context, start func(context.Context) error) e
 		return errors.Join(err, lerr)
 	}
 	return err
+}
+
+// WakeCalledOff gives back the wake the last OnWake call was counted for,
+// when that call didn't start a wake: another wake was already waiting to
+// start, or it gave up. Only wakes that start count towards the wakes an
+// hour allows, and the next join attempt may wake the server.
+func (m *Manager) WakeCalledOff() {
+	m.mu.Lock()
+	m.limit.refund()
+	m.mu.Unlock()
 }
 
 // Close stops the stand-in and frees the port, for example when sleeping

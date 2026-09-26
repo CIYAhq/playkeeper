@@ -451,6 +451,7 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/offsite/new-key", needSessionCSRF, actRecoveryKey, s.serverProxy("POST", "/v1/servers/{id}/offsite/new-key")},
 		sg("/api/servers/{id}/offsite/copies", "/v1/servers/{id}/offsite/copies"),
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/copies/{name}/check", "/v1/servers/{id}/offsite/copies/{name}/check"),
+		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/check/cancel", "/v1/servers/{id}/offsite/check/cancel"),
 		{"DELETE", "/api/servers/{id}/offsite/copies/{name}", needSessionCSRF, actManageBackupCopies, s.serverProxy("DELETE", "/v1/servers/{id}/offsite/copies/{name}")},
 		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
 		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore/cancel", "/v1/servers/{id}/offsite/restore/cancel"),
