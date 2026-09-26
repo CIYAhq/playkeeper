@@ -171,22 +171,25 @@ func (f *fakeStore) update(id string, edit func(*Schedule)) {
 }
 
 type fakeServer struct {
-	mu         sync.Mutex
-	clock      *fakeClock
-	loc        *time.Location
-	state      ServerState
-	replies    map[string]string
-	runErrs    []error
-	alwaysBusy bool
-	timeline   []string
-	commands   []string
-	ops        []Operation
+	mu      sync.Mutex
+	clock   *fakeClock
+	loc     *time.Location
+	state   ServerState
+	replies map[string]string
+	runErrs []error
+	// busyUntil is when another operation lets go of the server.
+	busyUntil time.Time
+	timeline  []string
+	commands  []string
+	ops       []Operation
 }
 
 func (f *fakeServer) State(context.Context) (ServerState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.state, nil
+	st := f.state
+	st.Busy = f.clock.Now().Before(f.busyUntil)
+	return st, nil
 }
 
 func (f *fakeServer) setState(st ServerState) {
@@ -208,8 +211,8 @@ func (f *fakeServer) Run(_ context.Context, op Operation) (string, error) {
 	defer f.mu.Unlock()
 	f.ops = append(f.ops, op)
 	f.timeline = append(f.timeline, fmt.Sprintf("%s op %s %s", f.clock.Now().In(f.loc).Format("15:04:05"), op.Kind, op.Actor))
-	if f.alwaysBusy {
-		return "", fmt.Errorf("start backup: %w", ErrBusy)
+	if f.clock.Now().Before(f.busyUntil) {
+		return "", fmt.Errorf("start %s: %w", op.Kind, ErrBusy)
 	}
 	if len(f.runErrs) > 0 {
 		err := f.runErrs[0]
@@ -527,16 +530,63 @@ func TestRunnerRetriesWhileBusy(t *testing.T) {
 	}
 }
 
-func TestRunnerGivesUpWhenBusyTooLong(t *testing.T) {
-	h := setup(t, "03:59", func(h *harness) []Schedule { return []Schedule{h.sched("b1", KindBackup, "04:00", Payload{})} })
-	h.server.mu.Lock()
-	h.server.alwaysBusy = true
-	h.server.mu.Unlock()
-	h.until("04:30")
-	if n := len(h.server.seen()); n != 31 {
-		t.Fatalf("%d attempts, want one every 30 seconds for 15 minutes (31)", n)
+// While another operation holds the server, such as a restore of a copy that
+// takes hours, a scheduled backup is tried again until its grace ends, as a
+// backup delayed by downtime may still start that late. A restart waits once
+// its countdown is over, without telling players it restarts now, and gives
+// up after BusyGiveUp.
+func TestRunnerWaitsForABusyServer(t *testing.T) {
+	restart := restartPayload()
+	restart.WarnSeconds = []int{10}
+	cases := []struct {
+		name      string
+		kind      Kind
+		payload   Payload
+		busyUntil string
+		until     string
+		// timeline is what players see and the operations started, from the
+		// first that isn't an op the server refused as busy; attempts
+		// counts every op.
+		timeline []string
+		attempts int
+		result   Result
+		reason   Reason
+	}{
+		{name: "a backup, busy for 40 minutes", kind: KindBackup, busyUntil: "04:40", until: "05:00",
+			timeline: []string{"04:40:00 op backup schedule:j1"}, attempts: 81, result: ResultSucceeded},
+		{name: "a backup, busy past its grace", kind: KindBackup, busyUntil: "10:30", until: "11:00",
+			timeline: []string{"10:00:00 op backup schedule:j1"}, attempts: 721, result: ResultFailed, reason: ReasonBusy},
+		{name: "a restart, busy for 5 minutes", kind: KindRestart, payload: restart, busyUntil: "04:05", until: "04:30",
+			timeline: []string{"03:59:50 The server restarts in 10 seconds. Back in a minute!", "04:05:00 The server is restarting now.", "04:05:00 op restart schedule:j1"},
+			attempts: 1, result: ResultSucceeded},
+		{name: "a restart, busy for 40 minutes", kind: KindRestart, payload: restart, busyUntil: "04:40", until: "05:00",
+			timeline: []string{"03:59:50 The server restarts in 10 seconds. Back in a minute!", "04:15:00 The planned restart was called off."},
+			result: ResultFailed, reason: ReasonBusy},
 	}
-	h.expectLast("b1", ResultFailed, ReasonBusy)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, "03:59")
+			h.store.schedules = []Schedule{h.sched("j1", c.kind, "04:00", c.payload)}
+			h.server.busyUntil = h.at(c.busyUntil)
+			h.start()
+			h.until(c.until)
+			var shown []string
+			ops := 0
+			for _, line := range h.server.seen() {
+				if strings.Contains(line, " op ") {
+					ops++
+					if ops < c.attempts {
+						continue
+					}
+				}
+				shown = append(shown, line)
+			}
+			if !slices.Equal(shown, c.timeline) || ops != c.attempts {
+				t.Fatalf("%d ops; timeline:\n  %s\nwant %d ops and:\n  %s", ops, strings.Join(shown, "\n  "), c.attempts, strings.Join(c.timeline, "\n  "))
+			}
+			h.expectLast("j1", c.result, c.reason)
+		})
+	}
 }
 
 func TestRunnerRestartFailureIsAnnounced(t *testing.T) {

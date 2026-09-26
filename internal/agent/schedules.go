@@ -193,7 +193,7 @@ func (ss scheduleServer) State(ctx context.Context) (schedule.ServerState, error
 	s.mu.Lock()
 	online := s.runPhase == api.PhaseOnline
 	s.mu.Unlock()
-	st := schedule.ServerState{Running: online}
+	st := schedule.ServerState{Running: online, Busy: s.busy()}
 	if !online {
 		return st, nil
 	}
