@@ -24,6 +24,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
 	"github.com/CIYAhq/playkeeper/internal/schedule"
+	"github.com/CIYAhq/playkeeper/internal/sleep"
 )
 
 // clockBefore moves the agent's clock to lead before a whole minute and
@@ -728,6 +729,86 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 			}
 			if open := e.countRows(`SELECT COUNT(*) FROM sleep_periods WHERE end_ts IS NULL`); (open == 1) != (c.want.desired == api.DesiredSleeping) {
 				t.Fatalf("%d sleep periods open, with the server meant to be %s", open, c.want.desired)
+			}
+		})
+	}
+}
+
+// A running map pre-generation keeps an empty server awake, as an operation
+// does, so it sleeps once the task is paused or over. Until Chunky reports
+// on the task, as after the agent starts, the task runs unless it was
+// paused.
+func TestSleepWaitsForTheMapPreGeneration(t *testing.T) {
+	// restart starts the agent again, checking on the task only when asked.
+	restart := func(e *agentEnv) {
+		e.stop()
+		e.tweak = func(o *Options) { o.PregenInterval = time.Hour }
+		e.start()
+	}
+	cases := []struct {
+		name   string
+		steps  func(e *agentEnv, fc *fakeChunky)
+		sleeps bool
+	}{
+		{name: "running", steps: func(*agentEnv, *fakeChunky) {}},
+		{name: "running, before Chunky reports", steps: func(e *agentEnv, _ *fakeChunky) { restart(e) }},
+		{name: "paused", steps: func(e *agentEnv, _ *fakeChunky) { e.pregenAct("pause") }, sleeps: true},
+		{name: "paused, before Chunky reports", steps: func(e *agentEnv, _ *fakeChunky) {
+			e.pregenAct("pause")
+			restart(e)
+		}, sleeps: true},
+		{name: "paused from the console", steps: func(e *agentEnv, fc *fakeChunky) {
+			fc.answer("chunky pause world")
+			e.waitFor("Chunky to report the pause", func() bool { return e.pregen().State == "paused" })
+		}, sleeps: true},
+		{name: "finished", steps: func(e *agentEnv, fc *fakeChunky) {
+			fc.finish(7 * time.Minute)
+			e.waitFor("the finished task", func() bool { return e.pregen().State == "finished" })
+		}, sleeps: true},
+		{name: "cancelled", steps: func(e *agentEnv, _ *fakeChunky) { e.pregenAct("cancel") }, sleeps: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			localStandIn(t)
+			e := newAgentEnv(t)
+			e.withSources()
+			e.create()
+			fc := e.chunky()
+			e.startPregen("small", true)
+			if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
+				t.Fatalf("turn sleep on: %d %v", code, out)
+			}
+			c.steps(e, fc)
+			// Nobody plays. The clock skips the 10 minutes a started server
+			// stays up, then the sampler sees every minute.
+			e.skew.Add(int64(10 * time.Minute))
+			fell := func() bool { return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'sleep'`) > 0 }
+			if c.sleeps {
+				e.waitUpTo(20*time.Second, "the server to fall asleep", func() bool {
+					if fell() {
+						return true
+					}
+					e.skew.Add(int64(time.Minute))
+					time.Sleep(150 * time.Millisecond)
+					return false
+				})
+				e.waitFor("the server asleep", func() bool { return e.status().Phase == api.PhaseAsleep && !e.a.busy() })
+				return
+			}
+			// Twice the 5 minutes of the setting.
+			for range 10 {
+				e.skew.Add(int64(time.Minute))
+				time.Sleep(150 * time.Millisecond)
+			}
+			s := e.srv()
+			s.auto.mu.Lock()
+			hold := s.auto.decision.Hold
+			s.auto.mu.Unlock()
+			if running, _ := fc.state(); fell() || !running || hold != sleep.HoldBusy {
+				t.Fatalf("with the map pre-generating, the server fell asleep %v, Chunky runs %v, sleep holds for %q", fell(), running, hold)
+			}
+			if _, reported := s.pg.lastState(); reported != !strings.Contains(c.name, "before Chunky reports") {
+				t.Fatalf("Chunky reported on the task %v", reported)
 			}
 		})
 	}
