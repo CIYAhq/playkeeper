@@ -214,7 +214,7 @@ const toneDot: Record<MachineTone, string> = { good: 'bg-success', warn: 'bg-war
 function MachineRow({ machine: m, route }: { machine: MachineView; route: Route }) {
   const ws = useWorkspace()
   const state = machineState(m, ws)
-  const active = (route.name === 'machine' || route.name === 'machine-details' || route.name === 'machine-settings') && route.id === m.id
+  const active = (route.name === 'machine' || route.name === 'machine-settings') && route.id === m.id
   return (
     <a
       {...linkProps(machineRoute(m))}
@@ -294,7 +294,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           </SideItem>
         )}
         {shared && can(ws.me, 'machine.manage') && (
-          <SideItem to={{ name: 'machines' }} active={route.name === 'machines'} icon={<PlugIcon />} muted>
+          <SideItem to={{ name: 'machines' }} icon={<PlugIcon />} muted>
             {t('machines.connectNav')}
           </SideItem>
         )}

@@ -128,7 +128,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
   const [dial, setDial] = useState<Dial>(made?.dial ?? defaultDial(link.addresses))
   const [form, setForm] = useState<Form>('install')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
+  const [error, setError] = useState<{ text: string; quiet: boolean }>()
   const [cancelled, setCancelled] = useState(false)
   const [pausedUntil, setPausedUntil] = useState<number>()
   const tried = useRef(false)
@@ -156,7 +156,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
         setCancelled(false)
         if (old && old.id !== next.id) void del(`/api/join-codes/${old.id}`).catch(() => undefined)
       } catch (e) {
-        if (!(e instanceof ApiError && e.status === 429)) setError(errorText(e))
+        if (!(e instanceof ApiError && e.status === 429)) setError({ text: errorText(e), quiet: e instanceof ApiError && e.code === 'demo' })
       } finally {
         setBusy(false)
         void refresh()
@@ -263,7 +263,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
         </Step>
         <Step n={2} title={t('machines.connect.step2')}>
           <div className="flex items-center gap-3">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('machines.connect.namePlaceholder')} aria-label={t('machines.connect.name')} maxLength={40} autoComplete="off" spellCheck={false} className="w-[170px]" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('machines.connect.namePlaceholder')} aria-label={t('machines.connect.name')} maxLength={40} autoComplete="off" spellCheck={false} className="w-[240px]" />
             <span className="text-xs text-muted-foreground">{t('machines.connect.optional')}</span>
           </div>
         </Step>
@@ -303,13 +303,13 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
           {!dialable ? (
             <p className="mt-3 text-[13px] text-muted-foreground">{t('machines.connect.noAddress')}</p>
           ) : error ? (
-            <p className="mt-3 text-[13px] text-destructive-foreground" role="alert">
-              {error}
+            <p className={cn('mt-3 text-[13px]', error.quiet ? 'text-muted-foreground' : 'text-destructive-foreground')} role="alert">
+              {error.text}
             </p>
           ) : cmd ? (
             <>
               <div className="relative mt-3 rounded-xl bg-console px-4 py-3.5" role="group" aria-label={t('machines.connect.command')}>
-                <pre className={cn('overflow-x-auto font-mono text-xs leading-[1.7] text-white/90', !phone && 'pr-20')}>
+                <pre className={cn('overflow-x-auto font-mono text-xs leading-[1.7] text-white/90 max-sm:break-all max-sm:whitespace-pre-wrap', !phone && 'pr-20')}>
                   {lines.map((l, i) => (
                     <span key={i} className="block">
                       {l}
@@ -558,8 +558,8 @@ export function MachineDetailsSection({ id }: { id: string }) {
         {manage && (
           <Card aria-labelledby="machine-remove">
             <CardTitle id="machine-remove">{t('machines.remove.title', { name })}</CardTitle>
-            <CardHint>{t('machines.remove.hint')}</CardHint>
-            <Button variant="destructive-outline" size="sm" className="mt-auto self-start" onClick={() => setRemoving(true)}>
+            <CardHint className="mt-3">{t('machines.remove.hint')}</CardHint>
+            <Button variant="destructive-outline" size="sm" className="mt-3 self-start lg:mt-auto" onClick={() => setRemoving(true)}>
               <Trash2Icon />
               {t('machines.remove.button', { name })}
             </Button>
@@ -588,7 +588,7 @@ function DetailsSkeleton() {
       </div>
       <Card className="py-1">
         {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="grid grid-cols-[94px_minmax(0,1fr)] gap-4 border-t border-border py-3 first:border-t-0">
+          <div key={i} className="grid grid-cols-[116px_minmax(0,1fr)] gap-4 border-t border-border py-3 first:border-t-0">
             <Skeleton className="h-3 w-16" />
             <Skeleton className={cn('h-3', lineWidth(i))} />
           </div>
@@ -620,7 +620,7 @@ function ConnectSkeleton() {
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[94px_minmax(0,1fr)] gap-4 border-t border-border py-3 text-[13px] first:border-t-0">
+    <div className="grid grid-cols-[116px_minmax(0,1fr)] gap-4 border-t border-border py-3 text-[13px] first:border-t-0">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-words">{children}</dd>
     </div>
@@ -647,7 +647,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="sm:max-w-[400px]" showCloseButton={false}>
+      <DialogPopup className="sm:max-w-[500px]" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">{t('machines.remove.confirmTitle', { name })}</DialogTitle>
           <DialogDescription>{t('machines.remove.confirmBody')}</DialogDescription>
