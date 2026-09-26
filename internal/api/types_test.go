@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/certs"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/twofactor"
@@ -58,6 +59,8 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"CertificateStatus": CertificateStatus{}, "DNSRecord": DNSRecord{}, "FreeAddress": FreeAddress{}, "JoinAddress": JoinAddress{},
 		"NameAvailability": NameAvailability{}, "NamesService": NamesService{}, "Note": Note{}, "SRVParts": SRVParts{},
 		"Challenge": twofactor.Challenge{}, "SignInNotice": twofactor.Notice{}, "TwoFactorSetup": twofactor.Setup{}, "TwoFactorStatus": twofactor.Status{},
+		"Crash": Crash{}, "CrashLine": CrashLine{}, "DiagnosisAction": DiagnosisAction{}, "DiagnosisEvidence": DiagnosisEvidence{}, "FileRefusal": FileRefusal{},
+		"LagCause": LagCause{}, "MemoryAdvice": MemoryAdvice{}, "MemoryDay": MemoryDay{}, "MemoryOption": MemoryOption{}, "Running": Running{},
 	}
 	addedByPanel := map[string]bool{"ServerStatus.machineId": true, "AuditEntry.source": true}
 	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)
@@ -82,9 +85,13 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 
 func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
-	for _, c := range []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
+	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
-		string(twofactor.KindPasswordWrong)} {
+		string(twofactor.KindPasswordWrong)}
+	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName} {
+		sent = append(sent, string(k))
+	}
+	for _, c := range sent {
 		if codes[c] {
 			t.Errorf("error code %q is used twice", c)
 		}

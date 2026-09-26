@@ -1,0 +1,8 @@
+[12:00:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.neoForgeVersion, 21.1.172]
+[12:00:02] [main/WARN] [ne.ne.fm.lo.mo.ModDiscoverer/SCAN]: Skipping jar. File mods/sodium-fabric-0.6.13+mc1.21.1.jar is a Fabric mod and cannot be loaded
+[12:00:03] [main/ERROR] [minecraft/Main/]: Failed to start the minecraft server
+net.neoforged.fml.ModLoadingException: Loading errors encountered:
+	- File mods/Jade-1.21.1-NeoForge-15.10.0.jar is not a jar file
+Loading warnings encountered:
+	- File mods/sodium-fabric-0.6.13+mc1.21.1.jar is a Fabric mod and cannot be loaded
+	at MC-BOOTSTRAP/fml_loader@4.0.39/net.neoforged.fml.loading.moddiscovery.ModDiscoverer.discoverMods(ModDiscoverer.java:148)

@@ -12,7 +12,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatDay, formatDuration, relativeTime, serverJoinAddress } from '@/lib/format'
+import { formatDay, formatDuration, localTimeZone, relativeTime, serverJoinAddress } from '@/lib/format'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
@@ -23,14 +23,10 @@ const reName = /^[A-Za-z0-9_]{3,16}$/
 
 type Days = '1' | '7' | '30'
 
-function tz(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-}
-
 function usePlayers(s: ServerStatus, days: Days) {
   const whitelist = usePoll(() => get<WhitelistEntry[]>(serverApi(s.id, '/whitelist')), 10_000, s.id)
   const operators = usePoll(() => get<OperatorEntry[]>(serverApi(s.id, '/operators')), 10_000, s.id)
-  const summary = usePoll(() => get<PlayersSummary>(serverApi(s.id, `/players/summary?days=${days}&tz=${encodeURIComponent(tz())}`)), 30_000, `${s.id}:${days}`)
+  const summary = usePoll(() => get<PlayersSummary>(serverApi(s.id, `/players/summary?days=${days}&tz=${encodeURIComponent(localTimeZone())}`)), 30_000, `${s.id}:${days}`)
   const sessions = usePoll(() => get<SessionsResponse>(serverApi(s.id, '/players/sessions?range=24h')), 30_000, s.id)
   const activity = usePoll(() => get<Activity[]>(serverApi(s.id, '/activity?limit=200')), 60_000, s.id)
   const refresh = async () => {

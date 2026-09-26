@@ -10,7 +10,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
-import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
+import { isSettingUp, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -170,12 +170,12 @@ function SideItem({ to, active, icon, children, trailing, muted }: { to: Route; 
 function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
   if (stale) return <span className="text-xs text-muted-foreground">{t('status.unknown')}</span>
   if (isSettingUp(s)) return <span className="text-xs font-medium text-info-foreground">{t('status.creating')}</span>
-  const tone = phaseTone(s.phase)
+  const tone = statusTone(s)
   switch (tone) {
     case 'online':
       return <span className="text-xs text-muted-foreground tabular-nums">{s.players ? `${s.players.online}/${s.players.max}` : ''}</span>
     case 'crashed':
-      return <span className="text-xs font-medium text-destructive-foreground">{t('status.crashed')}</span>
+      return <span className="text-xs font-medium text-destructive-foreground">{statusLabel(s)}</span>
     case 'busy':
       return <span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>
     case 'stopped':
@@ -235,7 +235,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
             key={s.id}
             to={{ name: 'server', slug: s.slug, tab }}
             active={route.name === 'server' && route.slug === s.slug}
-            icon={!ws.stale && isSettingUp(s) ? <Spinner /> : <Dot tone={ws.stale ? 'unknown' : phaseTone(s.phase)} />}
+            icon={!ws.stale && isSettingUp(s) ? <Spinner /> : <Dot tone={ws.stale ? 'unknown' : statusTone(s)} />}
             trailing={serverMeta(s, ws.stale)}
           >
             {s.name}

@@ -1,0 +1,7 @@
+[08:30:02 INFO]: Preparing level "world"
+[08:30:02 ERROR]: Failed to start the minecraft server
+java.nio.file.AccessDeniedException: ./world/session.lock
+	at java.base/sun.nio.fs.UnixException.translateToIOException(UnixException.java:90) ~[?:?]
+	at java.base/sun.nio.fs.UnixFileSystemProvider.newFileChannel(UnixFileSystemProvider.java:224) ~[?:?]
+	at net.minecraft.util.DirectoryLock.create(DirectoryLock.java:49) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[08:30:02 INFO]: Stopping server

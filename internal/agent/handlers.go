@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -135,7 +136,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	runPhase, detail := s.runPhase, s.runPhaseDetail
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
 	refusal := s.refusal
-	crashed := s.crashed
+	crashed, crash := s.crashed, s.crash
 	st.CrashCount = len(s.crashes)
 	players, res := s.players, s.resources
 	reachable, reachableAt := s.reachable, s.reachableAt
@@ -217,6 +218,12 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	}
 	st.FirstSteps = s.firstSteps()
 	st.JoinAddress = s.joinAddress()
+	if st.Operation == nil {
+		st.SavingPausedSince = s.savingPausedSince()
+		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {
+			st.Crash = crash
+		}
+	}
 	return st
 }
 
@@ -396,28 +403,39 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already running."})
 		return
 	}
-	s.mu.Lock()
-	s.crashes, s.crashed, s.nextAutoRestart = nil, false, time.Time{}
-	s.mu.Unlock()
-	op, err := s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
-		if err := s.setDesired(api.DesiredRunning); err != nil {
-			return err
-		}
-		cur, _ := s.serverConfig()
-		if cur == nil {
-			return errNotCreated()
-		}
-		if err := s.startServer(ctx, h, *cur); err != nil {
-			s.startFailed(ctx)
-			return err
-		}
-		return nil
-	})
+	op, err := s.beginOp("start", actor, s.startNow)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// forgetCrashes starts the crash policy over for a start someone asked for.
+func (s *server) forgetCrashes() {
+	s.mu.Lock()
+	s.crashes, s.crashed, s.crash, s.nextAutoRestart = nil, false, nil, time.Time{}
+	s.mu.Unlock()
+}
+
+// startNow is a start someone asked for: the server is to keep running, or
+// stays stopped if it does not come up. The crash policy starts over only
+// once the start goes ahead, so a refused request, or work before the start
+// that failed, keeps the crash that says why the server is down.
+func (s *server) startNow(ctx context.Context, h *opHandle) error {
+	if err := s.setDesired(api.DesiredRunning); err != nil {
+		return err
+	}
+	cur, _ := s.serverConfig()
+	if cur == nil {
+		return errNotCreated()
+	}
+	s.forgetCrashes()
+	if err := s.startServer(ctx, h, *cur); err != nil {
+		s.startFailed(ctx)
+		return err
+	}
+	return nil
 }
 
 func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
@@ -435,7 +453,7 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 		s.mu.Lock()
-		s.crashed = false
+		s.crashed, s.crash = false, nil
 		s.mu.Unlock()
 	}
 	release()
@@ -859,14 +877,63 @@ func (s *server) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Notes can be at most 200 characters."))
 		return
 	}
+	if !req.Stopped && !s.busy() {
+		if _, running, err := s.containerRunning(r.Context()); err == nil && running && !s.online(r.Context()) {
+			writeError(w, s.errNotOnlineForBackup())
+			return
+		}
+	}
 	op, err := s.beginOp("backup", actor, func(ctx context.Context, h *opHandle) error {
-		return s.backupOp(ctx, h, actor, strings.TrimSpace(req.Note))
+		return s.backupOp(ctx, h, actor, strings.TrimSpace(req.Note), req.Stopped)
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// hSavingResume turns world saving back on after a backup left it off, for
+// the "Turn saving back on" action. It is refused during an operation, such
+// as a backup that pauses saving on purpose, and holds the saving lock, which
+// a backup starting meanwhile waits for, rather than the operation lock.
+func (s *server) hSavingResume(w http.ResponseWriter, r *http.Request) {
+	actor, err := actionActor(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if s.busy() {
+		writeError(w, s.busyError())
+		return
+	}
+	release, err := s.holdSavingLock(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer release()
+	if s.savingPausedSince() == nil {
+		writeJSON(w, http.StatusOK, s.Status(r.Context()))
+		return
+	}
+	if !s.online(r.Context()) {
+		writeError(w, errConflict("The server is not online, so its console can't turn saving back on.", "Start the server: it saves again from the moment it starts."))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	if err := backup.ResumeSaving(ctx, rconConsole{s}); err != nil {
+		s.log.Warn("could not turn world saving back on", "server", s.id, "err", err)
+		s.audit(actor, "saving.resumed", "server", "failed", err.Error())
+		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not turn world saving back on.",
+			Hint: "Open the Console and run save-on, or restart the server.", Err: err})
+		return
+	}
+	s.setSavingPaused(false)
+	s.recordEvent(s.now(), "saving_resumed", "", "playkeeper", "")
+	s.audit(actor, "saving.resumed", "server", "succeeded", "")
+	writeJSON(w, http.StatusOK, s.Status(r.Context()))
 }
 
 func (s *server) hBackupVerify(w http.ResponseWriter, r *http.Request) {

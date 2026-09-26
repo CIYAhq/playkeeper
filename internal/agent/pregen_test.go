@@ -720,7 +720,8 @@ func TestPregenRefusals(t *testing.T) {
 
 // A restore brings back a world without the task: Chunky in it doesn't
 // resume what the backup saved, and the agent forgets the task. Deleting
-// the server forgets it too.
+// the server forgets it too. Chunky saves its task when the server stops,
+// so the backup is made with the server stopped.
 func TestPregenIsForgottenWithTheWorld(t *testing.T) {
 	e := newAgentEnv(t)
 	e.withSources()
@@ -728,7 +729,7 @@ func TestPregenIsForgottenWithTheWorld(t *testing.T) {
 	fc := e.chunky()
 	e.startPregen("small", true)
 	fc.advance(2000)
-	id, phrase := e.backupAndStage()
+	id, phrase := e.backupWithAndStage(map[string]any{"actor": "admin", "stopped": true})
 	if running, _ := fc.state(); !running {
 		t.Fatal("the task did not resume after the backup")
 	}

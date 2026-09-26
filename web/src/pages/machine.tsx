@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { certState, type CertState } from '@/lib/address'
 import { formatBytes, formatLongDate, formatMB, formatPercent } from '@/lib/format'
-import { phaseLabel, phaseTone } from '@/lib/phase'
+import { statusLabel, statusTone } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 import { newerStable, softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -99,8 +99,8 @@ export function MachinePage({ id }: { id: string }) {
           </div>
           <ul className="mt-3 flex flex-col">
             {(ws.servers ?? []).map((s) => {
-              const tone = ws.stale ? 'unknown' : phaseTone(s.phase)
-              const state = ws.stale ? t('status.unknown') : tone === 'online' ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players?.online ?? 0 })}` : phaseLabel(s.phase)
+              const tone = ws.stale ? 'unknown' : statusTone(s)
+              const state = ws.stale ? t('status.unknown') : tone === 'online' ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players?.online ?? 0 })}` : statusLabel(s)
               return (
                 <li key={s.id} className="border-t border-border first:border-t-0">
                   <a {...linkProps({ name: 'server', slug: s.slug, tab: 'overview' })} className="flex min-h-14 items-center gap-3 py-2 outline-none hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring">

@@ -1,0 +1,29 @@
+---- Minecraft Crash Report ----
+// Surprise! Haha. Well, this is awkward.
+
+Time: 2026-09-25 03:22:17
+Description: Watching Server
+
+java.lang.Error: ServerHangWatchdog detected that a single server tick took 60.00 seconds (should be max 0.05)
+	at net.minecraft.world.level.redstone.CollectingNeighborUpdater.runUpdates(CollectingNeighborUpdater.java:92)
+	at net.minecraft.world.level.Level.updateNeighborsAt(Level.java:643)
+	at net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:812)
+	at net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:1572)
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Server Watchdog
+Stacktrace:
+	at net.minecraft.world.level.redstone.CollectingNeighborUpdater.runUpdates(CollectingNeighborUpdater.java:92)
+
+-- System Details --
+Details:
+	Minecraft Version: 1.21.4
+	Minecraft Version ID: 1.21.4
+	Operating System: Linux (amd64) version 6.8.0-45-generic
+	Java Version: 25.0.1, Eclipse Adoptium
+	Memory: 812345678 bytes (774 MiB) / 3221225472 bytes (3072 MiB) up to 3221225472 bytes (3072 MiB)
+	Player Count: 2 / 20; [ServerPlayer['Alex'/318, l='ServerLevel[world]', x=88.50, y=64.00, z=-12.30]]
