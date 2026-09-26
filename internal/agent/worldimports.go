@@ -631,61 +631,67 @@ func uploadNames(imp *worldImport) (names []string, sums []map[string]any) {
 // importVersions are the versions a new server from world w can run: the
 // recommended version first, then the world's own where Playkeeper runs it
 // (1.21 and newer on the image's Java) and it differs. A world newer than the
-// recommended version is offered only its own version, if that runs here.
-func (a *Agent) importVersions(ctx context.Context, w *worldimport.World) ([]api.WorldImportVersion, error) {
+// recommended version is offered only its own version, if that runs here,
+// and nothing until it does, since no version listed can load it. rec is the
+// recommended version, which such a world is shown against.
+func (a *Agent) importVersions(ctx context.Context, w *worldimport.World) (versions []api.WorldImportVersion, rec api.CatalogEntry, err error) {
 	entries, _, err := a.versionCatalog(ctx)
 	if err != nil {
-		return nil, &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeInvalid, Msg: "Could not load the Minecraft versions from PaperMC: " + err.Error(), Hint: "Check that this server can reach fill.papermc.io, then try again."}
+		return nil, rec, &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeInvalid, Msg: "Could not load the Minecraft versions from PaperMC: " + err.Error(), Hint: "Check that this server can reach fill.papermc.io, then try again."}
 	}
-	var rec *api.CatalogEntry
+	found := false
 	for i := range entries {
 		if entries[i].Recommended {
-			rec = &entries[i]
+			rec, found = entries[i], true
 			break
 		}
 	}
 	for i := range entries {
-		if rec == nil && !entries[i].Experimental {
-			rec = &entries[i]
+		if !found && !entries[i].Experimental {
+			rec, found = entries[i], true
 		}
 	}
-	if rec == nil {
-		return nil, &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeInvalid, Msg: "PaperMC lists no stable Minecraft version right now.", Hint: "Try again later."}
+	if !found {
+		return nil, rec, &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeInvalid, Msg: "PaperMC lists no stable Minecraft version right now.", Hint: "Try again later."}
 	}
 	own := ""
 	if w != nil && w.Level != nil && !w.Level.Snapshot && (w.Level.Series == "" || w.Level.Series == "main") {
 		own = w.Level.Version
 	}
-	recommended := api.WorldImportVersion{CatalogEntry: *rec}
+	recommended := api.WorldImportVersion{CatalogEntry: rec}
 	if own == "" {
-		return []api.WorldImportVersion{recommended}, nil
+		return []api.WorldImportVersion{recommended}, rec, nil
 	}
 	switch c := minecraft.CompareMinecraft(own, rec.MinecraftVersion); {
 	case c == 0:
 		recommended.Keep = true
-		return []api.WorldImportVersion{recommended}, nil
+		return []api.WorldImportVersion{recommended}, rec, nil
 	case c < 0:
 		out := []api.WorldImportVersion{recommended}
 		if keep, err := a.restoreBuild(ctx, own, 0); err == nil {
 			out = append(out, api.WorldImportVersion{CatalogEntry: keep, Keep: true})
 		}
-		return out, nil
+		return out, rec, nil
 	default:
 		if keep, err := a.restoreBuild(ctx, own, 0); err == nil {
-			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, nil
+			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
 		}
-		return []api.WorldImportVersion{recommended}, nil
+		return nil, rec, nil
 	}
 }
 
 // newServerPlan plans a new server from the upload on the chosen version, or
-// the first one offered.
+// the first one offered. A world no version can load yet is shown against
+// the recommended version, with no version to choose.
 func (a *Agent) newServerPlan(ctx context.Context, in *worldimport.Inspection, o worldimport.Options, versionID string) (*worldimport.Preview, []api.WorldImportVersion, api.WorldImportVersion, error) {
-	versions, err := a.importVersions(ctx, findWorld(in, o.World))
+	versions, rec, err := a.importVersions(ctx, findWorld(in, o.World))
 	if err != nil {
 		return nil, nil, api.WorldImportVersion{}, err
 	}
-	chosen := versions[0]
+	var chosen api.WorldImportVersion
+	if len(versions) > 0 {
+		chosen = versions[0]
+	}
 	if versionID != "" {
 		found := false
 		for _, v := range versions {
@@ -697,11 +703,38 @@ func (a *Agent) newServerPlan(ctx context.Context, in *worldimport.Inspection, o
 			return nil, nil, api.WorldImportVersion{}, errInvalid("Choose one of the listed versions.")
 		}
 	}
-	p, err := in.Plan(worldimport.Target{Type: worldimport.TypePaper, MinecraftVersion: chosen.MinecraftVersion, LevelName: "world"}, o)
+	target := chosen.MinecraftVersion
+	if len(versions) == 0 {
+		target = rec.MinecraftVersion
+	}
+	p, err := in.Plan(worldimport.Target{Type: worldimport.TypePaper, MinecraftVersion: target, LevelName: "world"}, o)
 	if err != nil {
 		return nil, nil, api.WorldImportVersion{}, importErr(err)
 	}
+	if len(versions) == 0 {
+		notRunnableYet(p)
+	}
 	return p, versions, chosen, nil
+}
+
+// notRunnableYet rewords the problem of a world newer than every version
+// offered: there is no newer one to choose until Paper has one.
+func notRunnableYet(p *worldimport.Preview) {
+	reword := func(m *worldimport.Message) {
+		if m == nil || m.Kind != worldimport.KindWorldNewer {
+			return
+		}
+		world, _ := m.Params["world"].(string)
+		target, _ := m.Params["target"].(string)
+		m.Text = fmt.Sprintf("This world was saved by Minecraft %s, which Playkeeper can't run yet. Minecraft can't load worlds from newer versions.", world)
+		m.Hint = fmt.Sprintf("Try again once Paper has a stable build of %s, or upload a world saved by Minecraft %s or older.", world, target)
+	}
+	for i := range p.Problems {
+		reword(&p.Problems[i])
+	}
+	if p.Version != nil {
+		reword(p.Version.Problem)
+	}
 }
 
 func upgrades(p *worldimport.Preview) bool {

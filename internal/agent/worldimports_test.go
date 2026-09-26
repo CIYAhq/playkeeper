@@ -782,8 +782,21 @@ func TestWorldImportRefusals(t *testing.T) {
 		{"Future/level.dat", levelDat(t, future)},
 		{"Future/dimensions/minecraft/overworld/region/r.0.0.mca", importRegion},
 	}))
-	if pv := e.importPreview(imp, map[string]any{}); pv.Preview.OK() || pv.Preview.Version.Compat != worldimport.CompatNewer {
+	pv := e.importPreview(imp, map[string]any{})
+	if pv.Preview.OK() || pv.Preview.Version.Compat != worldimport.CompatNewer {
 		t.Errorf("a world from 26.3 on 26.2: %+v", pv.Preview)
+	}
+	// PaperMC has only an alpha build of 26.3, so no version can load the
+	// world yet: none is offered, and the problem says so instead of asking
+	// for a newer version there is no way to choose.
+	if len(pv.Versions) != 0 || pv.VersionID != "" {
+		t.Errorf("a world from 26.3 is offered versions that can't load it: %q %+v", pv.VersionID, pv.Versions)
+	}
+	if len(pv.Preview.Problems) != 1 || !strings.Contains(pv.Preview.Problems[0].Text, "Playkeeper can't run yet") || !strings.Contains(pv.Preview.Problems[0].Hint, "stable build of 26.3") {
+		t.Errorf("the problem of a world from 26.3: %+v", pv.Preview.Problems)
+	}
+	if code, out := e.call("POST", importPath(imp, "/preview"), map[string]any{"versionId": "paper-26.2", "actor": "admin"}); code != 400 || !strings.Contains(errOf(out), "listed versions") {
+		t.Errorf("previewing a world from 26.3 on 26.2 anyway: %d %v", code, out)
 	}
 	if code, out := e.call("POST", importPath(imp, "/create"), map[string]any{"memoryMB": 1536, "acceptEula": true, "actor": "admin"}); code != 409 || !strings.Contains(errOf(out), "can't be imported") || !strings.Contains(errOf(out), "26.3") {
 		t.Errorf("creating a server from a world too new: %d %v", code, out)

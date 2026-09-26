@@ -1983,6 +1983,14 @@ control "turning the map off keeps what another add-on needs" internal/agent/map
   'if parent := neededBy(others, rec); parent != "" {' \
   'if parent := neededBy(others, rec); false && parent != "" {' \
   ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "a world no version can load yet is offered none" internal/agent/worldimports.go \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return nil, rec, nil' \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return []api.WorldImportVersion{recommended}, rec, nil' \
+  ./internal/agent '^TestWorldImportRefusals$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
