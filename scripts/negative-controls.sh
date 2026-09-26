@@ -1931,6 +1931,24 @@ shcontrol "the VM rehearsal keeps evidence without setup codes" scripts/e2e/vm-r
   ' || [ $? = 1 ]; }' \
   '; }' \
   scripts/e2e/vm-rehearsal_test.sh
+# shellcheck disable=SC2016
+shcontrol "the site check looks for the demo's marker in chunks other chunks load" scripts/demo-marker.sh \
+  '    queue+=("$dir/$name")' \
+  '    [ "$chunk" != "$entry" ] || queue+=("$dir/$name")' \
+  scripts/demo-marker_test.sh
+# shellcheck disable=SC2016
+shcontrol "the site check fetches each chunk once looking for the demo's marker" scripts/demo-marker.sh \
+  'case $seen in *" $dir/$name "*) continue ;; esac' \
+  ':' \
+  scripts/demo-marker_test.sh
+shcontrol "the site check looks for the demo's marker in 200 chunks at most" scripts/demo-marker.sh \
+  'limit=200' \
+  'limit=100000' \
+  scripts/demo-marker_test.sh
+shcontrol "the site check goes on past a chunk that loads no other chunk" scripts/demo-marker.sh \
+  ' | sort -u) || true' \
+  ' | sort -u)' \
+  scripts/demo-marker_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \

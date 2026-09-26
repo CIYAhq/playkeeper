@@ -91,20 +91,14 @@ read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}
 code=$(curl -sS -o "$page" -w '%{http_code}' "$base/demo/")
 [ "$code" = 200 ] || fail "/demo/ answered $code, not 200"
 grep -qF '<div id="root">' "$page" || fail "/demo/ is not the dashboard"
-grep -qE 'src="/demo/assets/index-[^"]+\.js"' "$page" || fail "/demo/ does not load its script from /demo/assets/"
+script=$(grep -oE 'src="/demo/assets/index-[^"]+\.js"' "$page" | head -1 | cut -d'"' -f2) || true
+[ -n "$script" ] || fail "/demo/ does not load its script from /demo/assets/"
 if grep -qE '<script>|<style|[[:space:]](style|on[a-z]+)=' "$page"; then
   fail "/demo/ has inline script or style, which the Content-Security-Policy blocks"
 fi
 check_files /demo/ "$page"
-script=$(grep -oE '/demo/assets/index-[^"]+\.js' "$page" | head -1)
-curl -fsS -o "$work/demo.js" "$base$script" || fail "$script does not download"
-# The pages load in chunks, so the demo's code is in the entry or in a chunk it names.
-demo=
-for chunk in "$script" $(grep -oE '(\./|assets/)[A-Za-z0-9_-]+\.js' "$work/demo.js" | sed -E 's#^(\./|assets/)#/demo/assets/#' | sort -u); do
-  curl -fsS -o "$work/chunk.js" "$base$chunk" || fail "$chunk does not download"
-  if grep -qF 'playkeeper-live-demo' "$work/chunk.js"; then demo=$chunk; break; fi
-done
-[ -n "$demo" ] || fail "$script is not the demo build (vite build --mode demo)"
+# The pages load in chunks, so the demo's code can be in any chunk the entry reaches.
+"$root/scripts/demo-marker.sh" "$base" "$script" >/dev/null 2>"$work/marker.err" || fail "$(cat "$work/marker.err")"
 for deep in /demo/servers/survival/console /demo/settings/audit; do
   code=$(curl -sS -o "$work/deep.html" -w '%{http_code}' "$base$deep")
   [ "$code" = 200 ] || fail "$deep answered $code, not 200"
