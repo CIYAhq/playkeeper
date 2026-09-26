@@ -243,10 +243,30 @@ control "only the listening socket names a port's holder" internal/agent/porthol
   'if len(fields) < 10 || fields[3] != tcpListen {' \
   'if len(fields) < 10 {' \
   ./internal/agent '^TestPortHolderNeedsTheListeningSocketItself$'
+control "a container Playkeeper made isn't named as another program's" internal/agent/portholder.go \
+  'if c.Labels[labelManaged] == "true" {' \
+  'if false && c.Labels[labelManaged] == "true" {' \
+  ./internal/agent '^TestPortCrashNamesTheDockerContainerHoldingThePort$'
+control "only a container publishing the game port over TCP is named" internal/agent/portholder.go \
+  'if p.PublicPort == port && p.Type == "tcp" {' \
+  'if p.PublicPort == port {' \
+  ./internal/agent '^TestPortCrashNamesTheDockerContainerHoldingThePort$'
+control "a container is named only by a name Docker allows" internal/agent/portholder.go \
+  'if n = strings.TrimPrefix(n, "/"); reContainerName.MatchString(n) {' \
+  'if n = strings.TrimPrefix(n, "/"); n != "" {' \
+  ./internal/agent '^TestPortCrashNamesTheDockerContainerHoldingThePort$'
 control "a crash fix whose add-on can't be put in place doesn't start the server" internal/agent/addons.go \
   'if err := s.installAddons(ctx, h, actor, run); err != nil {' \
   'if err := s.installAddons(ctx, h, actor, run); err != nil && !start {' \
   ./internal/agent '^TestAddonFixesStartTheStoppedServer$'
+control "a start that isn't accepted keeps the crash" internal/agent/handlers.go \
+  'op, err := s.beginOp("start", actor, s.startNow)' \
+  's.forgetCrashes(); op, err := s.beginOp("start", actor, s.startNow)' \
+  ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
+control "a remove-and-start keeps the crash until its start goes ahead" internal/agent/crash.go \
+  'op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
+  'if req.Start { s.forgetCrashes() }; op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
+  ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \

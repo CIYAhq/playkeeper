@@ -504,7 +504,6 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"noop": true, "message": "The server is already running."})
 		return
 	}
-	s.forgetCrashes()
 	op, err := s.beginOp("start", actor, s.startNow)
 	if err != nil {
 		writeError(w, err)
@@ -521,7 +520,9 @@ func (s *server) forgetCrashes() {
 }
 
 // startNow is a start someone asked for: the server is to keep running, or
-// stays stopped if it does not come up.
+// stays stopped if it does not come up. The crash policy starts over only
+// once the start goes ahead, so a refused request, or work before the start
+// that failed, keeps the crash that says why the server is down.
 func (s *server) startNow(ctx context.Context, h *opHandle) error {
 	if err := s.setDesired(api.DesiredRunning); err != nil {
 		return err
@@ -530,6 +531,7 @@ func (s *server) startNow(ctx context.Context, h *opHandle) error {
 	if cur == nil {
 		return errNotCreated()
 	}
+	s.forgetCrashes()
 	if err := s.startServer(ctx, h, *cur); err != nil {
 		s.startFailed(ctx)
 		return err

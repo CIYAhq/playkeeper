@@ -2,9 +2,11 @@ package agent
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -18,6 +20,41 @@ const (
 	maxOpenFiles   = 65_536
 	tcpListen      = "0A"
 )
+
+// reContainerName is Docker's rule for a container name, capped at the
+// length the crash screen shows.
+var reContainerName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,63}$`)
+
+// portContainer reports whether a running Docker container publishes TCP
+// port on the host, from Docker's list of containers, and names it unless
+// Playkeeper made it or its name isn't one Docker allows.
+func (s *server) portContainer(ctx context.Context, port int) (name string, found bool) {
+	list, err := s.docker.ContainerList(ctx, false)
+	if err != nil {
+		return "", false
+	}
+	for _, c := range list {
+		published := false
+		for _, p := range c.Ports {
+			if p.PublicPort == port && p.Type == "tcp" {
+				published = true
+			}
+		}
+		if !published {
+			continue
+		}
+		if c.Labels[labelManaged] == "true" {
+			return "", true
+		}
+		for _, n := range c.Names {
+			if n = strings.TrimPrefix(n, "/"); reContainerName.MatchString(n) {
+				return n, true
+			}
+		}
+		return "", true
+	}
+	return "", false
+}
 
 // portHolder finds the process listening on TCP port on the host: the
 // listening socket's inode in proc's net/tcp and net/tcp6, then the process

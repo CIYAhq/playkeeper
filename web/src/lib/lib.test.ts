@@ -318,6 +318,8 @@ describe('crash helper', () => {
     expect(crashDetail(port)).toBeUndefined()
     expect(crashDetail({ ...port, params: { port: 25565, holder: 'java', holder_pid: 48211 } })).toBe('It’s java, process 48211, not started by Playkeeper.')
     expect(crashDetail({ ...port, params: { port: 25565, holder: 'java' } })).toBeUndefined()
+    expect(crashDetail({ ...port, params: { port: 25565, holder_container: 'old-minecraft' } })).toBe('It’s the Docker container old-minecraft, not started by Playkeeper.')
+    expect(crashDetail({ ...port, kind: 'disk_full', params: { holder_container: 'old-minecraft' } })).toBeUndefined()
     expect(crashSummary(crash({ kind: 'port_in_use', params: { port: 25565, reason: 'in_use' } }), 'Survival', 'my-vps')).toBe('Something inside Survival was already using its port.')
     expect(crashSummary(crash({ kind: 'port_in_use' }), 'Survival', 'my-vps')).toBe('The agent’s words.')
   })
