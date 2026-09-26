@@ -810,6 +810,15 @@ control "a map whose squaremap is gone counts as off and turns on again" interna
   'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); err != nil || !fi.Mode().IsRegular() {' \
   'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); false && (err != nil || !fi.Mode().IsRegular()) {' \
   ./internal/agent '^TestTurningOnTheMapInstallsAMissingSquaremapAgain$'
+control "a start saves the world as uploaded before upgrading it" internal/agent/lifecycle.go \
+  'if err := s.ensureOriginalSaved(h, sc); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded$'
+control "announces take turns with the upload allowance" internal/agent/worldimports.go \
+  'a.imports.announce.Lock()
+	defer a.imports.announce.Unlock()' \
+  '' \
+  ./internal/agent '^TestAnnouncesTakeTurnsWithTheUploadAllowance$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
