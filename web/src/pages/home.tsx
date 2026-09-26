@@ -19,7 +19,7 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { can, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
-import { formatBytes, formatDate, formatList, formatMB, formatPercent, formatSpan, sameDay } from '@/lib/format'
+import { formatBytes, formatDate, formatList, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
 import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
@@ -37,9 +37,11 @@ export function HomePage() {
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
   const reachable = ws.machines.filter((m) => !outOfReach(m)).map((m) => m.id)
-  const activity = usePoll<Activity[] | undefined>(() => (reachable.length ? recentActivity(reachable) : Promise.resolve(undefined)), 10000, reachable.join(' '))
   const grouped = ws.machines.length > 1
+  const activity = usePoll<Activity[] | undefined>(() => (!grouped && reachable.length ? recentActivity(reachable) : Promise.resolve(undefined)), 10000, grouped ? '' : reachable.join(' '))
   const sections = useListPresence(grouped ? ws.machines : undefined, machineKey)
+  const groups = byMachine(servers ?? [], ws.machines)
+  const on = (m: MachineView) => groups.find((g) => g.machine.id === m.id)?.servers ?? []
 
   const create = can(ws.me, 'servers.create')
   const newButton = create && (
@@ -87,40 +89,42 @@ export function HomePage() {
   const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers.filter((s) => !s.lastKnownAt)) })}`
   return (
     <>
-      <PageHeader title={t('home.title')} subtitle={demo ? demo.homeSubtitle() : subtitle} actions={demo ? <demo.HomeAction /> : newButton} phoneAction={<PhoneMoreButton />} />
+      <PageHeader title={t('home.title')} subtitle={demo ? demo.homeSubtitle() : subtitle} actions={demo ? <demo.HomeAction /> : newButton} phoneAction={demo ? <demo.HomeAction /> : <PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
         <HomeNotice />
         {grouped && servers ? (
           sections.map(({ key, item: m, state }) => (
             <section key={key} {...presenceProps(state)} aria-labelledby={`on-${m.id}`} className="flex flex-col gap-3">
               <MachineHeading machine={m} />
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {byMachine(servers, ws.machines)
-                  .find((g) => g.machine.id === m.id)
-                  ?.servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />)}
+              <ServerRow count={create ? on(m).length : undefined}>
+                {on(m).map((s) => (
+                  <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
+                ))}
                 <NewServerCard machine={m} />
-              </div>
+              </ServerRow>
             </section>
           ))
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ServerRow count={demo || !create ? undefined : (servers?.length ?? 2)}>
             {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
-            {demo ? <demo.HomeCard /> : <NewServerCard />}
+            {demo ? <demo.HomeCard wide={!!servers && servers.length % 3 === 0} /> : <NewServerCard />}
+          </ServerRow>
+        )}
+        {!grouped && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.23fr)_minmax(0,1fr)]">
+            <Card>
+              <CardTitle>{t('home.activityTitle')}</CardTitle>
+              <ActivityList items={activity.data} servers={servers ?? []} empty={t('home.activityEmpty')} className="mt-3 flex-1" />
+              {can(ws.me, 'audit.view') && (
+                <a {...linkPath('/settings#audit')} className="mt-4 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
+                  {t('home.auditLink')}
+                  <ArrowRightIcon className="size-3.5" aria-hidden="true" />
+                </a>
+              )}
+            </Card>
+            <MachineCard />
           </div>
         )}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.23fr)_minmax(0,1fr)]">
-          <Card>
-            <CardTitle>{t('home.activityTitle')}</CardTitle>
-            <ActivityList items={activity.data} servers={servers ?? []} empty={t('home.activityEmpty')} className="mt-3 flex-1" />
-            {can(ws.me, 'audit.view') && (
-              <a {...linkPath('/settings#audit')} className="mt-4 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
-                {t('home.auditLink')}
-                <ArrowRightIcon className="size-3.5" aria-hidden="true" />
-              </a>
-            )}
-          </Card>
-          <MachineCard />
-        </div>
       </PageBody>
     </>
   )
@@ -329,9 +333,9 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
   const join = joinOf(s, machineOf(s, ws.machines))
   const stopped = phaseTone(s.phase) !== 'online'
   return (
-    <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
+    <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] duration-(--motion-fast) ease-standard focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
       <div className="flex items-start gap-3">
-        <Emblem size={40} stopped={stopped} icon={iconURL(s)} name={s.name} />
+        <Emblem size={40} stopped={stopped && s.phase !== 'asleep'} icon={iconURL(s)} name={s.name} />
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[17px] leading-[22px] font-bold">
             <a {...linkProps({ name: 'server', slug: s.slug, tab: 'overview' })} className="outline-none after:absolute after:inset-0 after:rounded-3xl focus-visible:after:ring-2 focus-visible:after:ring-ring">
@@ -352,12 +356,12 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
       <div className="flex h-11 items-center gap-3">
         <CardDetail server={s} />
       </div>
-      <div className={cn('relative z-10 flex h-10 items-center gap-2 rounded-lg bg-muted pl-3 text-sm font-semibold', join.address ? 'pr-1' : 'pr-3')}>
+      <div className={cn('relative z-10 mt-2.5 flex h-10 items-center gap-2 rounded-lg bg-muted pl-3 text-sm font-semibold', join.address ? 'pr-1' : 'pr-3')}>
         <LinkIcon className="size-4 text-muted-foreground" aria-hidden="true" />
         {join.address ? (
           <>
             <span className="min-w-0 flex-1 truncate">{join.address}</span>
-            <CopyButton text={join.address} size="xs" className="bg-white" />
+            <CopyButton text={join.address} size="sm" className="bg-white" />
           </>
         ) : (
           <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground" title={join.reason}>
@@ -367,6 +371,11 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
       </div>
     </article>
   )
+}
+
+/** Server cards and the card after them; with two servers the last card is the narrower third column, as designed. */
+function ServerRow({ count, children }: { count?: number; children: ReactNode }) {
+  return <div className={cn('grid grid-cols-1 gap-4 md:grid-cols-2', count === 2 ? 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_290px]' : 'xl:grid-cols-3')}>{children}</div>
 }
 
 /** A server card while the list loads, in the same box as the real one. */
@@ -458,7 +467,7 @@ function MachineCard() {
       {live && <CardHint>{t('home.machineMeta', { os: live.os, memory: formatMB(live.memoryTotalMB) })}</CardHint>}
       {live ? (
         <div className="mt-4 flex flex-col gap-4">
-          <MeterRow label={t('home.memoryReserved')} value={[t('home.ofTotal', { used: formatMB(reserved), total: formatMB(live.memoryTotalMB) }), gaveBack].filter(Boolean).join(t('common.dot'))} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
+          <MeterRow label={t('home.memoryReserved')} value={[formatMBOf(reserved, live.memoryTotalMB), gaveBack].filter(Boolean).join(t('common.dot'))} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
           <MeterRow label={t('home.cpu')} value={formatPercent(live.cpuPercent)} percent={live.cpuPercent} />
           <MeterRow label={t('home.disk')} value={t('home.diskFree', { free: formatBytes(live.diskFreeBytes) })} percent={diskUsed} />
         </div>

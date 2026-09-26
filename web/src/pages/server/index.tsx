@@ -332,7 +332,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Emblem size={44} stopped={place.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+        <Emblem size={44} stopped={place.stale || (phaseTone(s.phase) !== 'online' && s.phase !== 'asleep')} icon={iconURL(s)} name={s.name} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="truncate text-title font-bold tracking-[-0.015em]">{s.name}</h1>
@@ -447,7 +447,7 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           {(ws.servers ?? []).map((s) => (
             <li key={s.id} className="border-b border-border last:border-b-0">
               <button type="button" onClick={() => go({ name: 'server', slug: s.slug, tab: tab === 'settings' ? 'overview' : tab })} className="flex min-h-16 w-full items-center gap-3 px-3 py-2 text-left" aria-current={s.id === current?.id ? 'true' : undefined}>
-                <Emblem size={44} stopped={staleOf(s) || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+                <Emblem size={44} stopped={staleOf(s) || (phaseTone(s.phase) !== 'online' && s.phase !== 'asleep')} icon={iconURL(s)} name={s.name} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-base font-semibold">{s.name}</span>
                   <span className="block truncate text-[13px] text-muted-foreground">{line(s)}</span>

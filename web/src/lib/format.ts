@@ -15,6 +15,12 @@ export function formatMB(mb: number): string {
   return t('unit.mb', { value: num(mb) })
 }
 
+/** "8.5 of 16 GB": the unit once when both are gigabytes, else "512 MB of 16 GB". */
+export function formatMBOf(used: number, total: number): string {
+  if (used >= 1024 && total >= 1024) return t('home.ofTotalGb', { used: num(used / 1024, 1), total: num(total / 1024, 1) })
+  return t('home.ofTotal', { used: formatMB(used), total: formatMB(total) })
+}
+
 export function formatBytes(n: number | undefined | null): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return '—'
   const keys = ['unit.bytes', 'unit.kb', 'unit.mb', 'unit.gb', 'unit.tb'] as const

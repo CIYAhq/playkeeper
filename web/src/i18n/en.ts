@@ -209,6 +209,7 @@ export const en = {
   'home.machineMeta': '{os} · {memory}',
   'home.memoryReserved': 'Memory reserved',
   'home.ofTotal': '{used} of {total}',
+  'home.ofTotalGb': '{used} of {total} GB',
   'home.cpu': 'CPU',
   'home.disk': 'Disk',
   'home.diskFree': '{free} free',

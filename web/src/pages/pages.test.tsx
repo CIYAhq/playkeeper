@@ -346,10 +346,10 @@ describe('Home', () => {
     const atticCard = [...document.querySelectorAll('article')].find((a) => a.textContent?.includes('Attic'))?.textContent ?? ''
     expect(atticCard).toContain('No live status')
     expect(atticCard).toContain('Can’t reach attic')
-    const activity = [...document.querySelectorAll('li')].map((li) => li.textContent ?? '')
-    const at = (line: string) => activity.findIndex((l) => l.includes(line))
-    expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
-    expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
+    // As designed, the machine groups end the page: no activity or one machine's meters after them.
+    expect(text).not.toContain('Across your servers')
+    expect(text).not.toContain('Memory reserved')
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/activity'))).toBe(false)
     expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
   })
 
@@ -3025,7 +3025,8 @@ describe('Machines and AI agents', () => {
     vi.mocked(client.get).mockClear()
     await render(<HomePage />, ws)
     expect(asked(), 'Home asks home-server for its activity').toEqual([])
-    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${machine.id}/activity`))).toBe(true)
+    // Home grouped by machine shows no activity, so it asks no machine for it.
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/activity'))).toBe(false)
   })
 
   it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {

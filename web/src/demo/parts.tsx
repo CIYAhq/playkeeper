@@ -2,6 +2,7 @@ import { DownloadIcon, ExternalLinkIcon } from 'lucide-react'
 import { Card, CardHint, CardTitle, CopyButton } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
 import type { DemoParts } from '@/lib/demo'
+import { cn } from '@/lib/utils'
 import { dt } from './messages'
 
 const installCommand = 'curl -fsSL https://playkeeper.io/install | sudo sh'
@@ -24,16 +25,19 @@ function HomeAction() {
   )
 }
 
-function HomeCard() {
+function HomeCard({ wide }: { wide?: boolean }) {
   return (
-    <Card>
-      <CardTitle>{dt('demo.cardTitle')}</CardTitle>
-      <CardHint>{dt('demo.cardHint')}</CardHint>
-      <div className="mt-3 rounded-xl bg-console px-3 py-2.5">
-        <code className="block font-mono text-xs leading-5 whitespace-pre-wrap text-[#e8e8e0]">{installCommand.replace(' | ', '\n  | ')}</code>
-        <CopyButton text={installCommand} aria-label={dt('demo.copyCommand')} className="mt-2 bg-white" />
+    <Card className={cn(wide && 'xl:col-span-3 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-x-6')}>
+      <div>
+        <CardTitle>{dt('demo.cardTitle')}</CardTitle>
+        <CardHint>{dt('demo.cardHint')}</CardHint>
       </div>
-      <a href={dt('demo.installUrl')} target="_blank" rel="noreferrer" className="mt-auto inline-flex items-center gap-1 self-start pt-3 text-xs font-medium text-primary hover:underline">
+      <div className={cn('mt-3 rounded-xl bg-console px-3 py-2.5', wide && 'xl:col-start-1 xl:flex xl:items-center xl:justify-between xl:gap-3')}>
+        <code className={cn('block font-mono text-xs leading-5 whitespace-pre-wrap text-[#e8e8e0]', wide && 'xl:hidden')}>{installCommand.replace(' | ', '\n  | ')}</code>
+        {wide && <code className="hidden font-mono text-xs leading-5 text-[#e8e8e0] xl:block">{installCommand}</code>}
+        <CopyButton text={installCommand} aria-label={dt('demo.copyCommand')} className={cn('mt-2 bg-white', wide && 'xl:mt-0')} />
+      </div>
+      <a href={dt('demo.installUrl')} target="_blank" rel="noreferrer" className={cn('mt-auto inline-flex items-center gap-1 self-start pt-3 text-xs font-medium text-primary hover:underline', wide && 'xl:col-start-2 xl:row-start-2 xl:self-center xl:pt-3')}>
         {dt('demo.guide')}
         <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
         <span className="sr-only">{dt('demo.newTab')}</span>
