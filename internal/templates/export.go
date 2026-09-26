@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -70,6 +71,10 @@ type ExportOptions struct {
 	// Latest names each add-on as "the newest version that fits" rather
 	// than the version installed.
 	Latest bool
+	// Author and Created say who made the template and when; both may be
+	// left out.
+	Author  string
+	Created time.Time
 }
 
 // Report is what an export left out and why, and notes on what never
@@ -84,7 +89,10 @@ type Report struct {
 func Export(s Setup, opts ExportOptions) (*Template, *Report, error) {
 	t := &Template{
 		Format: Format, Name: cmp.Or(clean(s.Name, maxName), "My server"), Description: clean(s.Description, maxDescription),
-		Game: Game, Server: Server{Type: cmp.Or(s.Type, "paper"), MinecraftVersion: s.MinecraftVersion},
+		Author: clean(opts.Author, maxLabel), Game: Game, Server: Server{Type: cmp.Or(s.Type, "paper"), MinecraftVersion: s.MinecraftVersion},
+	}
+	if !opts.Created.IsZero() {
+		t.Created = opts.Created.UTC().Format(time.DateOnly)
 	}
 	if !validType(t.Server.Type) || !validMinecraft(t.Server.MinecraftVersion) {
 		return nil, nil, fail(KindExportInvalid, kv("type", printable(t.Server.Type), "minecraft", printable(t.Server.MinecraftVersion)),

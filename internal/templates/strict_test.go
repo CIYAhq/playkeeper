@@ -43,7 +43,7 @@ func TestParseFileRefuses(t *testing.T) {
 		{name: "format as text", data: edit(`"playkeeperTemplate": 1,`, `"playkeeperTemplate": "1",`), kind: KindInvalid, field: "playkeeperTemplate", problem: "value"},
 		{name: "format 0", data: edit(`"playkeeperTemplate": 1,`, `"playkeeperTemplate": 0,`), kind: KindInvalid, field: "playkeeperTemplate", problem: "value"},
 
-		{name: "unknown field", data: edit(`"game":`, `"author": "siya", "game":`), kind: KindUnknownField, field: "author"},
+		{name: "unknown field", data: edit(`"game":`, `"owner": "siya", "game":`), kind: KindUnknownField, field: "owner"},
 		{name: "unknown server detail", data: edit(`"type": "paper",`, `"type": "paper", "jar": "paper-26.2-129.jar",`), kind: KindUnknownField, field: "server.jar"},
 		{name: "unknown setting", data: edit(`"difficulty": "normal",`, `"difficulty": "normal", "spawnProtection": 16,`), kind: KindUnknownField, field: "settings.spawnProtection"},
 		{name: "field in capitals", data: edit(`"name": "Survival with friends"`, `"Name": "Survival with friends"`), kind: KindUnknownField, field: "Name"},

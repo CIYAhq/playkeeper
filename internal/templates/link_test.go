@@ -153,7 +153,7 @@ func TestCraftedLinks(t *testing.T) {
 		{name: "a newer link format", payload: craft(2, body), kind: KindNewer},
 		{name: "format 0", payload: craft(0, body), kind: KindLinkDamaged},
 		{name: "a newer template format", payload: craft(1, with(`"playkeeperTemplate":1`, `"playkeeperTemplate":2`)), kind: KindNewer},
-		{name: "unknown field", payload: craft(1, with(`"game":`, `"author":"siya","game":`)), kind: KindUnknownField, field: "author"},
+		{name: "unknown field", payload: craft(1, with(`"game":`, `"owner":"siya","game":`)), kind: KindUnknownField, field: "owner"},
 		{name: "forbidden field", payload: craft(1, with(`"settings":{`, `"settings":{"onlineMode":false,`)), kind: KindForbiddenField, field: "settings.onlineMode"},
 		{name: "invalid value", payload: craft(1, with(`"viewDistance":10`, `"viewDistance":99`)), kind: KindInvalid, field: "settings.viewDistance", problem: "value"},
 		{name: "hash in capitals", payload: craft(1, with("43ffecc6e6a734b7", "43FFECC6E6A734B7")), kind: KindInvalid, field: "addons[0].pin.hash", problem: "hash"},

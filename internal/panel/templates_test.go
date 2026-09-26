@@ -20,12 +20,13 @@ func TestTemplateRoutesReachTheAgent(t *testing.T) {
 	mid := "/api/machines/" + machines[0]["id"].(string)
 	agent.take()
 
-	r, b := e.send(t, "GET", "/api/servers/"+sampleServer+"/template?addons=off&versions=latest", "", "", auth(cookie, ""))
+	r, b := e.send(t, "GET", "/api/servers/"+sampleServer+"/template?addons=off&versions=latest&author=someone+else", "", "", auth(cookie, ""))
 	if r.StatusCode != http.StatusOK {
 		t.Fatalf("export: %d %s", r.StatusCode, b)
 	}
 	calls := agent.take()
-	want := url.Values{"addons": {"off"}, "versions": {"latest"}}
+	// The template's author is the signed-in account, whatever the request says.
+	want := url.Values{"addons": {"off"}, "versions": {"latest"}, "author": {"admin"}}
 	if len(calls) != 1 || calls[0].method != "GET" || calls[0].path != "/v1/servers/"+sampleServer+"/template" || !reflect.DeepEqual(calls[0].query, want) {
 		t.Fatalf("export: the agent saw %v", calls)
 	}

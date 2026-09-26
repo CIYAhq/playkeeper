@@ -457,3 +457,24 @@ func TestTemplateRequestsAreChecked(t *testing.T) {
 		t.Fatal("no server is created")
 	}
 }
+
+// The panel names who exports a template; the template also says on which
+// day it was made, and planning it shows both.
+func TestTemplateExportNamesItsAuthorAndDay(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	today := e.a.now().UTC().Format(time.DateOnly)
+	var exp api.TemplateExport
+	e.decode("GET", e.sp("/template?author=siya"), &exp)
+	if exp.Contents.Author != "siya" || exp.Contents.Created != today {
+		t.Fatalf("the export's author and day: %q %q", exp.Contents.Author, exp.Contents.Created)
+	}
+	if code, plan, raw := e.planTemplate(exp.File); code != 200 || plan.Contents.Author != "siya" || plan.Contents.Created != today {
+		t.Fatalf("planning it shows who made it and when: %d %+v %v", code, plan.Contents, raw)
+	}
+	var unnamed api.TemplateExport
+	e.decode("GET", e.sp("/template?author=%0A"), &unnamed)
+	if unnamed.Contents.Author != "" || unnamed.Contents.Created != today {
+		t.Fatalf("an author that isn't a name is left out: %q %q", unnamed.Contents.Author, unnamed.Contents.Created)
+	}
+}

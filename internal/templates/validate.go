@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -55,6 +56,12 @@ func (t *Template) validate() *Error {
 	}
 	if e := checkText("description", "The template's description", t.Description, maxDescription, false); e != nil {
 		return e
+	}
+	if e := checkText("author", "The template's author", t.Author, maxLabel, false); e != nil {
+		return e
+	}
+	if t.Created != "" && !validDay(t.Created) {
+		return invalid("created", "value", "The day the template was made is not a date.")
 	}
 	if t.Game != Game {
 		return invalid("game", "value", fmt.Sprintf("This template is for a game Playkeeper does not run (\"%s\").", printable(t.Game)))
@@ -283,6 +290,12 @@ func checkPin(field, name string, src addons.Source, p Pin) *Error {
 		return invalid(field+".hash", "hash", fmt.Sprintf("The hash of %s is not valid.", name))
 	}
 	return nil
+}
+
+// validDay reports whether s is a day as YYYY-MM-DD, from 2020 on.
+func validDay(s string) bool {
+	d, err := time.Parse(time.DateOnly, s)
+	return err == nil && d.Year() >= 2020 && d.Year() < 10000
 }
 
 // checkText checks a line of text a user reads.

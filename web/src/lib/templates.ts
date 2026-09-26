@@ -1,5 +1,5 @@
 import type { AddonNotice, TemplateContents, TemplateSettings } from '@/api/types'
-import { t, type MessageKey } from '@/i18n'
+import { formatLocale, t, type MessageKey } from '@/i18n'
 import { addonKind } from '@/lib/software'
 
 const settingKeys: [keyof TemplateSettings, MessageKey][] = [
@@ -20,6 +20,15 @@ function capitalize(s: string): string {
 }
 
 /** "Difficulty, PvP, view distance, server list message": the settings a template carries, four at most. */
+/** "from siya · made 25 Sep", when the template says both who made it and when. */
+export function madeBy(c: TemplateContents, now: Date = new Date()): string | undefined {
+  if (!c.author || !c.created) return undefined
+  const day = new Date(`${c.created}T00:00:00Z`)
+  if (Number.isNaN(day.getTime())) return undefined
+  const date = day.toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: day.getUTCFullYear() === now.getUTCFullYear() ? undefined : 'numeric', timeZone: 'UTC' })
+  return [t('template.from', { author: c.author }), t('template.made', { date })].join(t('common.dot'))
+}
+
 export function settingNames(s: TemplateSettings): string {
   const names = settingKeys.filter(([k]) => s[k] !== undefined && s[k] !== '').map(([, key]) => t(key))
   if (names.length === 0) return ''

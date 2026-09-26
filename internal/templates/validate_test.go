@@ -44,6 +44,11 @@ func TestValidateRefuses(t *testing.T) {
 		{name: "name with spaces around", edit: func(tp *Template) { tp.Name = " Survival" }, field: "name", problem: "spaces"},
 		{name: "long description", edit: func(tp *Template) { tp.Description = a(281) }, field: "description", problem: "too_long"},
 		{name: "other game", edit: func(tp *Template) { tp.Game = "minecraft-bedrock" }, field: "game", problem: "value"},
+		{name: "long author", edit: func(tp *Template) { tp.Author = a(65) }, field: "author", problem: "too_long"},
+		{name: "author on two lines", edit: func(tp *Template) { tp.Author = "siya\nadmin" }, field: "author", problem: "characters"},
+		{name: "day in words", edit: func(tp *Template) { tp.Created = "25 Sep 2026" }, field: "created", problem: "value"},
+		{name: "day with a time", edit: func(tp *Template) { tp.Created = "2026-09-25T18:04:00Z" }, field: "created", problem: "value"},
+		{name: "day before templates", edit: func(tp *Template) { tp.Created = "2019-12-31" }, field: "created", problem: "value"},
 
 		{name: "no type", edit: func(tp *Template) { tp.Server.Type = "" }, field: "server.type", problem: "value"},
 		{name: "type in capitals", edit: func(tp *Template) { tp.Server.Type = "Paper" }, field: "server.type", problem: "value"},

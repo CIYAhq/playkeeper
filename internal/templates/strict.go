@@ -274,6 +274,7 @@ func canonicalJSON(t *Template) ([]byte, error) {
 func (t *Template) tidy() {
 	t.Name = strings.TrimSpace(t.Name)
 	t.Description = strings.TrimSpace(t.Description)
+	t.Author = strings.TrimSpace(t.Author)
 	for i := range t.Addons {
 		if p := t.Addons[i].Pin; p != nil {
 			p.Hash = strings.ToLower(p.Hash)

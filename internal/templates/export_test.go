@@ -6,6 +6,7 @@ import (
 	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 )
@@ -107,6 +108,43 @@ func TestExportPaperServer(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(js), `{"leftOut":[{"kind":"left_out_formatting"`) {
 		t.Errorf("the report's JSON is %s", js)
+	}
+}
+
+// A template says who made it and on which day, when asked to, and a
+// template without either still reads.
+func TestExportNamesItsAuthorAndDay(t *testing.T) {
+	made := time.Date(2026, 9, 25, 23, 30, 0, 0, time.FixedZone("CEST", 2*60*60))
+	tp, _, err := Export(paperSetup(t), ExportOptions{Author: " §asiya\n", Created: made})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tp.Author != "siya" || tp.Created != "2026-09-25" {
+		t.Fatalf("author %q, made %q: want the name as plain text and the day in UTC", tp.Author, tp.Created)
+	}
+	roundTrip(t, tp)
+	file, err := MarshalFile(tp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(file), `"author": "siya",`) || !strings.Contains(string(file), `"created": "2026-09-25",`) {
+		t.Fatalf("the file says who and when after its name: %s", file)
+	}
+	back, err := DecodeLink(mustLink(t, tp).URL)
+	if err != nil || back.Author != "siya" || back.Created != "2026-09-25" {
+		t.Fatalf("the link carries who and when: %+v %v", back, err)
+	}
+
+	old := fixture(t, "paper-server.json")
+	if old.Author != "" || old.Created != "" {
+		t.Fatalf("the fixture from before authors and days: %+v", old)
+	}
+	if err := old.Validate(); err != nil {
+		t.Fatalf("a template without an author or day is still valid: %v", err)
+	}
+	tp, _, err = Export(paperSetup(t), ExportOptions{})
+	if err != nil || tp.Author != "" || tp.Created != "" {
+		t.Fatalf("an export not asked to name them leaves both out: %+v %v", tp, err)
 	}
 }
 

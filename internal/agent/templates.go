@@ -124,8 +124,11 @@ func (s *server) hTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	// The panel names the signed-in account as the author.
+	author, _ := validActor(q.Get("author"))
 	t, rep, err := templates.Export(st, templates.ExportOptions{
 		WithoutAddons: q.Get("addons") == "off", WithoutSettings: q.Get("settings") == "off", WithoutPacks: q.Get("packs") == "off", Latest: latest,
+		Author: author, Created: s.now(),
 	})
 	if err != nil {
 		writeError(w, addonError(err))
@@ -155,7 +158,7 @@ func (s *server) hTemplate(w http.ResponseWriter, r *http.Request) {
 func templateContents(t *templates.Template) api.TemplateContents {
 	st := t.Settings
 	c := api.TemplateContents{
-		Name: t.Name, Type: t.Server.Type, MinecraftVersion: t.Server.MinecraftVersion, Build: t.Server.Build[templateBuildKey],
+		Name: t.Name, Author: t.Author, Created: t.Created, Type: t.Server.Type, MinecraftVersion: t.Server.MinecraftVersion, Build: t.Server.Build[templateBuildKey],
 		Settings: api.TemplateSettings{
 			Difficulty: st.Difficulty, PVP: st.PVP, GameMode: st.GameMode, Hardcore: st.Hardcore, ViewDistance: st.ViewDistance,
 			LevelType: st.LevelType, MaxPlayers: st.MaxPlayers, MOTD: st.MOTD, PlayStyle: st.PlayStyle, MemoryMB: st.MemoryMB,

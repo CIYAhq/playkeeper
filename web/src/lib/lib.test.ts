@@ -14,7 +14,7 @@ import { href, parse, type Route } from './router'
 import { newerStable, softwareLabel, softwareName } from './servers'
 import { addonKind, formatReleased, shortHash } from './software'
 import { memoryForStyle } from './styles'
-import { addonsLine, afterSignIn, leftOutAddons, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
+import { addonsLine, afterSignIn, leftOutAddons, madeBy, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
 import { upgradeTargets } from './versions'
 
 function server(over: Partial<ServerStatus> = {}): ServerStatus {
@@ -379,6 +379,15 @@ describe('templates', () => {
     dataPacks: 0,
     packs: [],
     ...over,
+  })
+
+  it('says who made a template and on which day only when it says both', () => {
+    const now = new Date('2026-09-26T04:00:00Z')
+    expect(madeBy(contents({ author: 'siya', created: '2026-09-25' }), now)).toMatch(/^from siya · made (25 Sep|Sep 25)$/)
+    expect(madeBy(contents({ author: 'siya', created: '2025-12-31' }), now)).toMatch(/^from siya · made (31 Dec 2025|Dec 31, 2025)$/)
+    expect(madeBy(contents({ author: 'siya' }), now)).toBeUndefined()
+    expect(madeBy(contents({ created: '2026-09-25' }), now)).toBeUndefined()
+    expect(madeBy(contents({ author: 'siya', created: 'yesterday' }), now)).toBeUndefined()
   })
 
   it('names the settings a template carries, four at most', () => {

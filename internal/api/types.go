@@ -1381,7 +1381,11 @@ type TemplateAddon struct {
 
 // TemplateContents is what a template carries.
 type TemplateContents struct {
-	Name             string           `json:"name"`
+	Name string `json:"name"`
+	// Author and Created say who made the template and on which day
+	// (YYYY-MM-DD); templates made before either was recorded have neither.
+	Author           string           `json:"author,omitempty"`
+	Created          string           `json:"created,omitempty"`
 	Type             string           `json:"type"`
 	MinecraftVersion string           `json:"minecraftVersion"`
 	Build            string           `json:"build,omitempty"`

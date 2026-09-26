@@ -640,6 +640,10 @@ control "only who manages the machine changes its CurseForge key" internal/panel
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
   ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
+control "a template's author is the account that exports it" internal/panel/server.go \
+  'q.Set("author", sess.User.Username)' \
+  '_ = sess.User.Username' \
+  ./internal/panel '^TestTemplateRoutesReachTheAgent$'
 control "voice chat installs only with leave to open its port" internal/agent/addons.go \
   'if voice && !req.OpenPorts {' \
   'if false && voice && !req.OpenPorts {' \

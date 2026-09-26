@@ -379,6 +379,7 @@ describe('Templates', () => {
     expect(await (body as Blob).text()).toBe('eyJ2IjoxfQ')
     expect(window.location.hash).toBe('')
     const text = document.body.textContent ?? ''
+    expect(text).not.toContain('· from')
     for (const line of ['Survival with friends', 'From a link', 'Paper 26.1.2', '2, with the same versions', 'Chunky, LuckPerms', 'Normal difficulty · friends can’t hurt each other · view distance 10 · up to 10 players', 'The new server starts with fresh land', 'Paper, from the template', 'Type, version and plugins come from the template']) expect(text).toContain(line)
 
     await click('Continue to memory')
@@ -387,6 +388,15 @@ describe('Templates', () => {
     await toggle('I accept the Minecraft End User License Agreement')
     await click('Create and start Survival with friends')
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
+  })
+
+  it('says who made a template and when, when it says both', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValue({ ...plan, contents: { ...contents, author: 'siya', created: '2026-09-25' } })
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    expect(document.body.textContent).toMatch(/Survival with friendsFrom a link · from siya · made (25 Sep|Sep 25)/)
   })
 
   it('shows the new plan when the machine no longer has the one the user saw', async () => {

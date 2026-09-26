@@ -53,8 +53,13 @@ type Template struct {
 	Format      int    `json:"playkeeperTemplate"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	Game        string `json:"game"`
-	Server      Server `json:"server"`
+	// Author is who shared it: their sign-in name on the Playkeeper it came
+	// from. It is only shown, as "from siya", and anyone can edit it.
+	Author string `json:"author,omitempty"`
+	// Created is the day it was made, YYYY-MM-DD in UTC.
+	Created string `json:"created,omitempty"`
+	Game    string `json:"game"`
+	Server  Server `json:"server"`
 	// Settings left unset keep the new server's defaults.
 	Settings Settings `json:"settings,omitzero"`
 	// Addons are in install order: add-ons others need come before them.

@@ -19,7 +19,7 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { iconURL, typeName } from '@/lib/servers'
 import { addonKind } from '@/lib/software'
-import { addonsLine, fileSize, leftOutAddons, packsLine, pinned, settingNames, settingsSummary } from '@/lib/templates'
+import { addonsLine, fileSize, leftOutAddons, madeBy, packsLine, pinned, settingNames, settingsSummary } from '@/lib/templates'
 import { cn } from '@/lib/utils'
 
 /** The server menu's entry for sharing the server as a template. */
@@ -361,7 +361,7 @@ export function TemplatePicker({
           <GameIcon size={40} />
           <div className="min-w-0 flex-1 basis-40">
             <h3 className="truncate text-[15px] font-semibold">{c.name}</h3>
-            <p className="truncate text-xs text-muted-foreground">{value.fileName || t('template.fromLink')}</p>
+            <p className="truncate text-xs text-muted-foreground">{[value.fileName || t('template.fromLink'), madeBy(c)].filter(Boolean).join(t('common.dot'))}</p>
           </div>
           <Button variant="ghost" size="sm" onClick={choose}>
             <FileIcon />
