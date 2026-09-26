@@ -923,10 +923,13 @@ func (s *server) reconcile(ctx context.Context) {
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
 		cause := s.recordCrash(fin, c.State)
+		// A server that wasn't meant to be running is left off, which is
+		// not Playkeeper giving up on it.
+		wanted := desired == api.DesiredRunning
 		s.mu.Lock()
-		restarting := desired == api.DesiredRunning && len(s.crashes) < maxCrashes
+		restarting := wanted && len(s.crashes) < maxCrashes
 		s.mu.Unlock()
-		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, At: fin})
+		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, GaveUp: wanted && !restarting, At: fin})
 		s.explainCrash(c.ID, c.State, false, nil)
 		if desired == api.DesiredRunning {
 			s.mu.Lock()

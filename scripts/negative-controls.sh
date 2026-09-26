@@ -1696,6 +1696,10 @@ control "a clean shutdown the reconcile loop has yet to handle is not a crash" i
   '&& !s.intentional[c.ID] && !s.sawStopping' \
   '&& !s.intentional[c.ID]' \
   ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "a crash of a server meant to be off is not a give-up" internal/agent/lifecycle.go \
+  'GaveUp: wanted && !restarting' \
+  'GaveUp: !restarting' \
+  ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
 control "Discord counts a server's slots before its first sample" internal/agent/discord.go \
   'if st.MaxPlayers == 0 && sc != nil {' \
   'if false && st.MaxPlayers == 0 && sc != nil {' \

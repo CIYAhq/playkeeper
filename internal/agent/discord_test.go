@@ -327,6 +327,27 @@ func TestDiscordGaveUpAlertSaysItOnceWithTheCause(t *testing.T) {
 	}
 }
 
+// A server that wasn't meant to be running stays off after it stops
+// unexpectedly: the alert says it crashed, not that Playkeeper gave up
+// restarting it after crashes that never happened.
+func TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	if err := e.srv().setDesired(api.DesiredStopped); err != nil {
+		t.Fatal(err)
+	}
+	e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+	e.fd.crash(137)
+	f.waitMessage(e, "Server crashed", "stopped unexpectedly. Open the dashboard to see what went wrong.")
+	time.Sleep(300 * time.Millisecond)
+	for _, wrong := range []string{"stays off", "kept crashing", "Playkeeper is restarting it"} {
+		if f.count(wrong) != 0 {
+			t.Fatalf("one crash of a server meant to be off, and the alert says %q", wrong)
+		}
+	}
+}
+
 // The live status message shows the server as it is, not as the last sample
 // saw it: no sample runs here once the agent has started. Crashes, coming
 // back online and Playkeeper giving up restarting each show within seconds,
