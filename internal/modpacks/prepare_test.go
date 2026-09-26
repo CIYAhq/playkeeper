@@ -140,6 +140,17 @@ func TestSearchCountsBundledMods(t *testing.T) {
 		t.Errorf("the counts were not asked for in one call of the newest versions: %v", q)
 	}
 
+	// A latest version for an older Minecraft version than the card names
+	// isn't what a server from the card gets, so its count isn't shown.
+	f.editVersion("BSg2ZS8u", func(v obj) { v["game_versions"] = []any{"1.20.1"} })
+	older, err := l.Search(context.Background(), Query{Source: addons.Modrinth})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := cardBySlug(t, older.Cards, "create_plus"); c.Mods != 0 || c.MinecraftVersions[0] == "1.20.1" {
+		t.Errorf("create_plus shows %d mods for Minecraft %s", c.Mods, c.MinecraftVersions[0])
+	}
+
 	// Without the counts, the page still lists the packs.
 	f.hook("modrinth /v2/versions", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
 	again, err := l.Search(context.Background(), Query{Source: addons.Modrinth})
@@ -189,6 +200,27 @@ func TestNewestPrefersReleases(t *testing.T) {
 	}
 	if v := Newest(vs[:1]); v != nil {
 		t.Errorf("newest of unsupported versions = %+v, want none", v)
+	}
+}
+
+// Smooth Server published 1.2 for 26.1 minutes after 1.1 for 26.2; its card
+// names 26.2, so a new server gets 1.1.
+func TestNewestTakesTheNewestMinecraftVersion(t *testing.T) {
+	vs := []Version{
+		{ID: "1.2", Channel: "release", MinecraftVersion: "26.1"},
+		{ID: "1.1", Channel: "release", MinecraftVersion: "26.2"},
+		{ID: "1.0", Channel: "release", MinecraftVersion: "26.2"},
+		{ID: "0.9", Channel: "release", MinecraftVersion: "1.21.11"},
+	}
+	if v := Newest(vs); v == nil || v.ID != "1.1" {
+		t.Errorf("newest = %+v, want 1.1, the latest for 26.2", v)
+	}
+	betas := []Version{{ID: "b2", Channel: "beta", MinecraftVersion: "1.21.4"}, {ID: "b1", Channel: "beta", MinecraftVersion: "1.21.11"}}
+	if v := Newest(betas); v == nil || v.ID != "b1" {
+		t.Errorf("newest beta = %+v, want b1", v)
+	}
+	if v := Newest(append(betas, Version{ID: "r", Channel: "release", MinecraftVersion: "1.20.1"})); v == nil || v.ID != "r" {
+		t.Errorf("a release still wins over newer betas: %+v", v)
 	}
 }
 

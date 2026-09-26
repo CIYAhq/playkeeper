@@ -192,10 +192,12 @@ func (l *Library) searchModrinth(ctx context.Context, q Query) (*Results, error)
 		out.Cards = append(out.Cards, c)
 	}
 	// The mod counts are extra: without them the page still lists the packs.
+	// A count is kept only when the latest version is for the Minecraft
+	// version the card names, so the card and the pack's details agree.
 	if len(latest) > 0 {
 		if vs, err := l.Modrinth.Versions(ctx, slices.Sorted(maps.Keys(latest))); err == nil {
 			for i := range vs {
-				if n, ok := latest[vs[i].ID]; ok && vs[i].ProjectID == out.Cards[n].ProjectID {
+				if n, ok := latest[vs[i].ID]; ok && vs[i].ProjectID == out.Cards[n].ProjectID && slices.Contains(vs[i].GameVersions, out.Cards[n].MinecraftVersions[0]) {
 					out.Cards[n].Mods = len(bundled(&vs[i]))
 				}
 			}
@@ -500,19 +502,31 @@ func (l *Library) curseForgeVersions(ctx context.Context, mod *curseforge.Mod, m
 	return newestFirst(out), nil
 }
 
-// Newest is the version a pack installs when none is asked for: the newest
-// release Playkeeper can install, else the newest beta or alpha it can; nil
-// when it can install none. vs is newest first.
+// Newest is the version a pack installs when none is asked for: the release
+// Playkeeper can install for the newest Minecraft version (the latest one
+// published for it), else the same among betas and alphas; nil when it can
+// install none. vs is newest first. Packs that keep a version per Minecraft
+// version often publish for an older one last, and a pack's card names its
+// newest Minecraft version.
 func Newest(vs []Version) *Version {
-	var pre *Version
+	var rel, pre *Version
+	newer := func(v, than *Version) bool {
+		return than == nil || minecraft.CompareMinecraft(v.MinecraftVersion, than.MinecraftVersion) > 0
+	}
 	for i := range vs {
+		v := &vs[i]
 		switch {
-		case vs[i].Unsupported != nil:
-		case vs[i].Channel == "release":
-			return &vs[i]
-		case pre == nil:
-			pre = &vs[i]
+		case v.Unsupported != nil:
+		case v.Channel == "release":
+			if newer(v, rel) {
+				rel = v
+			}
+		case newer(v, pre):
+			pre = v
 		}
+	}
+	if rel != nil {
+		return rel
 	}
 	return pre
 }
