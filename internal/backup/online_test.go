@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 // fakeServer answers console commands the way a Paper or vanilla server does
@@ -396,6 +398,26 @@ func TestRefusedBeforeAnythingIsPaused(t *testing.T) {
 		}
 		if len(h.server.sent()) > 0 {
 			t.Errorf("sent %q before refusing", h.server.sent())
+		}
+	})
+	t.Run("a server.properties Playkeeper won't read", func(t *testing.T) {
+		h := newHarness(t)
+		props := filepath.Join(h.opts.DataDir, "server.properties")
+		if err := os.Remove(props); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(t.TempDir(), "server.properties"), props); err != nil {
+			t.Fatal(err)
+		}
+		_, err := h.take()
+		if err == nil || gamefiles.KindOf(err) != gamefiles.KindLink || !strings.Contains(err.Error(), "server.properties") {
+			t.Errorf("got %v, want a refusal naming server.properties", err)
+		}
+		if len(h.server.sent()) > 0 || len(h.pauses) > 0 {
+			t.Errorf("sent %q and paused %v before refusing", h.server.sent(), h.pauses)
+		}
+		if left := h.leftovers(); len(left) > 0 {
+			t.Errorf("left behind: %q", left)
 		}
 	})
 }

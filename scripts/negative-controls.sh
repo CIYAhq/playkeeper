@@ -569,6 +569,14 @@ control "a backup refuses a server.properties Playkeeper won't read" internal/ba
 		return "world", nil
 	}' \
   ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "an online backup refuses a server.properties Playkeeper won't read" internal/backup/staging.go \
+  'level, err := levelName(dataDir)' \
+  'level, err := LevelName(dataDir), error(nil)' \
+  ./internal/backup '^TestRefusedBeforeAnythingIsPaused$'
+control "a backup a file Playkeeper won't read stopped says what to do" internal/agent/backups.go \
+  'if errors.As(err, &ge) {' \
+  'if false && errors.As(err, &ge) {' \
+  ./internal/agent '^TestBackupRefusesAServerPropertiesItWontReadBeforeStopping$'
 control "the check before a backup stops for a file Playkeeper won't read" internal/agent/backups.go \
   'case gamefiles.KindOf(err) != "":
 		err = gameFileError(err, notBackedUp)' \

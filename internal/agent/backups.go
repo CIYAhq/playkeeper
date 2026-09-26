@@ -438,6 +438,10 @@ func (s *server) recordBackup(id, fileName, actor, note string, created time.Tim
 // facts go in the operation's detail, so the UI can say it in its own words
 // and offer the matching action.
 func (s *server) backupFailed(h *opHandle, err error) error {
+	var ge *gamefiles.Error
+	if errors.As(err, &ge) {
+		return gameFileError(err, notBackedUp)
+	}
 	var e *backup.Error
 	if !errors.As(err, &e) {
 		return err
