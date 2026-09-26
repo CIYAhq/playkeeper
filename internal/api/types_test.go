@@ -52,12 +52,15 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"AddonRemovePreview": AddonRemovePreview{}, "AddonRemoval": AddonRemoval{}, "Addons": Addons{}, "AddonStep": AddonStep{},
 		"AddonTarget": AddonTarget{}, "AddonUpdate": AddonUpdate{}, "AddonVersion": AddonVersion{}, "DataPack": DataPack{}, "DataPacks": DataPacks{},
 		"Pregen": Pregen{}, "PregenPreset": PregenPreset{}, "ResourcePack": ResourcePack{}, "ResourcePackOffer": ResourcePackOffer{},
+		"MemoryBudget": MemoryBudget{}, "MemorySizing": MemorySizing{}, "MemorySuggestion": MemorySuggestion{},
+		"ApiErrorBody": Error{}, "LinkProblem": machinelink.Problem{}, "MachineLink": machinelink.Status{},
 	}
 	addedByPanel := map[string]bool{
 		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true,
 		"AuditEntry.source": true, "AuditEntry.machineId": true, "AuditEntry.actorKind": true, "AuditEntry.actorName": true,
 		"Activity.actorKind": true, "Activity.actorName": true,
 	}
+	addedByMarshalJSON := map[string]bool{"MachineLink.rttMs": true}
 	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)
 	found := 0
 	for _, m := range regexp.MustCompile(`(?ms)^export interface (\w+) \{\n(.*?)^\}`).FindAllStringSubmatch(string(src), -1) {
@@ -68,8 +71,8 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		found++
 		names := jsonNames(reflect.TypeOf(v))
 		for _, f := range field.FindAllStringSubmatch(m[2], -1) {
-			if !names[f[1]] && !addedByPanel[m[1]+"."+f[1]] {
-				t.Errorf("web/src/api/types.ts: %s.%s is not a JSON field of api.%s", m[1], f[1], m[1])
+			if k := m[1] + "." + f[1]; !names[f[1]] && !addedByPanel[k] && !addedByMarshalJSON[k] {
+				t.Errorf("web/src/api/types.ts: %s.%s is not a JSON field of %s", m[1], f[1], reflect.TypeOf(v))
 			}
 		}
 	}
