@@ -16,6 +16,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 )
 
@@ -29,9 +30,9 @@ import (
 const maxPackFileName = 100
 
 func (s *server) dataPacks(sc *api.ServerConfig) packs.DataPacks {
-	var owner *packs.Owner
+	var owner *gamefiles.Owner
 	if o := s.gameOwner(); o != nil {
-		owner = &packs.Owner{UID: o.UID, GID: o.GID}
+		owner = &gamefiles.Owner{UID: o.UID, GID: o.GID}
 	}
 	return packs.DataPacks{DataDir: s.dataDir(), Level: s.levelName(*sc), Owner: owner}
 }
@@ -62,7 +63,7 @@ func packError(err error) error {
 	}
 	status := http.StatusBadRequest
 	switch e.Code {
-	case packs.CodeFolderPack, packs.CodeNeedsFeatures, packs.CodeFeaturePack, packs.CodeUnsupportedServer, packs.CodeInvalidLevel:
+	case packs.CodeFolderPack, packs.CodeNeedsFeatures, packs.CodeFeaturePack, packs.CodeUnsupportedServer, packs.CodeInvalidLevel, packs.CodeFileRefused:
 		status = http.StatusConflict
 	case packs.CodeNotFound, packs.CodeUnknownPack, packs.CodeNoIcon:
 		status = http.StatusNotFound

@@ -3,6 +3,7 @@ package packs
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -59,7 +61,7 @@ func (s Store) Put(ctx context.Context, src io.ReaderAt, size int64) (Info, erro
 	if st, err := root.Lstat(name); err == nil && st.Mode().IsRegular() && st.Size() == info.Size {
 		return info, nil
 	}
-	err = writeAtomic(root, name, nil, func(w io.Writer) error {
+	err = writeAtomic(root, name, func(w io.Writer) error {
 		h := sha1.New()
 		if _, err := io.Copy(io.MultiWriter(w, h), ctxReader{ctx, io.NewSectionReader(src, 0, size)}); err != nil {
 			return err
@@ -76,6 +78,45 @@ func (s Store) Put(ctx context.Context, src io.ReaderAt, size int64) (Info, erro
 		return Info{}, fileFailed("store the resource pack", err)
 	}
 	return info, nil
+}
+
+// writeAtomic replaces name inside root with what write writes: it writes a
+// new file next to it, makes it readable by the panel, syncs it and renames
+// it over the old one.
+func writeAtomic(root *os.Root, name string, write func(io.Writer) error) error {
+	var rnd [6]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return err
+	}
+	tmp := path.Join(path.Dir(name), "."+path.Base(name)+".playkeeper-"+hex.EncodeToString(rnd[:]))
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			f.Close()
+			root.Remove(tmp)
+		}
+	}()
+	if err := write(f); err != nil {
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		return err
+	}
+	ok = true
+	return nil
 }
 
 // Remove deletes the pack whose SHA-1 hash is sum. Removing a pack the

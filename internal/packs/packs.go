@@ -14,10 +14,13 @@ package packs
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 // Kind is what a pack holds.
@@ -165,13 +168,6 @@ func (l Limits) maxBytes(use Kind) int64 {
 	return l.MaxBytes
 }
 
-// Owner is the user and group that own the files Playkeeper writes for a
-// server, so the server, which runs as that user, can still change them.
-type Owner struct {
-	UID int
-	GID int
-}
-
 // Error codes: stable identifiers the UI translates, with Error.Params as
 // the values.
 const (
@@ -194,6 +190,7 @@ const (
 	CodeNotFound               = "not_found"
 	CodeFolderPack             = "folder_pack"
 	CodeFileFailed             = "file_failed"
+	CodeFileRefused            = "file_refused"
 	CodeInvalidOffer           = "invalid_offer"
 	CodeInvalidHost            = "invalid_host"
 	CodeInvalidPrompt          = "invalid_prompt"
@@ -279,8 +276,17 @@ func tooLarge(size, max int64, use Kind) *Error {
 
 // fileFailed is the error for a file operation that failed on Playkeeper's
 // side rather than because of the pack. what completes "Playkeeper
-// couldn't …".
+// couldn't …". A file in the server's folder that Playkeeper refused, such
+// as a link (see internal/gamefiles), is named with what to do about it.
 func fileFailed(what string, err error) *Error {
+	var ge *gamefiles.Error
+	if errors.As(err, &ge) {
+		params := map[string]any{"kind": string(ge.Kind)}
+		for k, v := range ge.Params {
+			params[k] = v
+		}
+		return &Error{Code: CodeFileRefused, Params: params, Msg: fmt.Sprintf("Playkeeper couldn't %s. %s", what, ge.Msg), Hint: ge.Hint, Err: ge}
+	}
 	return &Error{
 		Code:   CodeFileFailed,
 		Params: map[string]any{"detail": err.Error()},
