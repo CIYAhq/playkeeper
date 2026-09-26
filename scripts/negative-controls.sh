@@ -190,16 +190,16 @@ webcontrol "a backup says it waits for the missing world folder" web/src/lib/pha
 " \
   web/src/lib/lib.test.ts 'back up a server whose world folder'
 webcontrol "Back up now waits for the missing world folder" web/src/pages/server/world.tsx \
-  "const blocked = whyNot(s, 'backup', ws.stale)" \
-  "const blocked = whyNot(s, 'change', ws.stale)" \
+  "const blocked = whyNot(s, 'backup', offline)" \
+  "const blocked = whyNot(s, 'change', offline)" \
   web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
 webcontrol "Make my first backup waits for the missing world folder" web/src/pages/server/world.tsx \
-  "disabledReason={whyNot(s, 'backup', ws.stale)}" \
-  "disabledReason={whyNot(s, 'change', ws.stale)}" \
+  "disabledReason={whyNot(s, 'backup', offline)}" \
+  "disabledReason={whyNot(s, 'change', offline)}" \
   web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
 webcontrol "the server menu's Back up now waits for the missing world folder" web/src/pages/server/index.tsx \
-  "const backUpBlocked = whyNot(server, 'backup', stale)" \
-  "const backUpBlocked = whyNot(server, 'change', stale)" \
+  "const backUpBlocked = whyNot(server, 'backup', offline)" \
+  "const backUpBlocked = whyNot(server, 'change', offline)" \
   web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
 webcontrol "Home says a server's world folder is missing instead of napping" web/src/pages/home.tsx \
   'if (s.worldMissing)
@@ -282,8 +282,8 @@ webcontrol "the phone's Restore a world waits for the missing world folder" web/
   '<button type="button" onClick={() => setRestoreSheet(true)}' \
   web/src/pages/pages.test.tsx 'offer a restore while'
 webcontrol "a copy's restore waits for the missing world folder" web/src/pages/server/copy-restore.tsx \
-  "const cantRestore = whyNot(s, 'restore', ws.stale)" \
-  "const cantRestore = whyNot(s, 'change', ws.stale)" \
+  "const cantRestore = whyNot(s, 'restore', offline)" \
+  "const cantRestore = whyNot(s, 'change', offline)" \
   web/src/pages/pages.test.tsx 'restore a copy while'
 webcontrol "a refused server icon says what to do next" web/src/pages/server/settings.tsx \
   "else toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })" \
