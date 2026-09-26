@@ -1578,6 +1578,11 @@ control "free address: the name taken from the service is refreshed at once" int
   '			c.Name = held.Name
 ' \
   ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released_and_the_service_holds_bob$'
+control "operations: an address operation stores its end with its audit entry" internal/agent/address.go \
+  'a.finishOperation("", "machine", &done)' \
+  'a.saveOperation(&done)
+		a.audit(actor, kind, "machine", done.Status, done.Error)' \
+  ./internal/agent '^TestAFinishedAddressOperationIsAlreadyAudited$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
