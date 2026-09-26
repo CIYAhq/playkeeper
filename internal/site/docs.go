@@ -343,7 +343,11 @@ func renderMarkdown(md, source string, anchors, tops map[string]string, s Settin
 	if len(lr.broken) > 0 {
 		return "", fmt.Errorf("links to anchors that don't exist: %s", strings.Join(lr.broken, ", "))
 	}
-	return b.String(), nil
+	// Code blocks and tables wider than the page scroll, so the keyboard can
+	// reach them.
+	html := strings.ReplaceAll(b.String(), "<pre><code", `<pre tabindex="0"><code`)
+	html = strings.ReplaceAll(html, "<table>", `<div class="table-scroll" tabindex="0"><table>`)
+	return strings.ReplaceAll(html, "</table>", "</table></div>"), nil
 }
 
 // anchorer gives bold lead-ins their anchors, and moves headings up a level:

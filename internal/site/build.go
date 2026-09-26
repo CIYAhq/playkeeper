@@ -8,6 +8,7 @@ package site
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -99,7 +100,11 @@ func Build(o Options) (*Output, error) {
 	}
 
 	out := &Output{Files: map[string][]byte{}}
-	for _, p := range s.pages {
+	// Articles first: rendering one works out its reading time and contents,
+	// which the blog index and the cards that list it show.
+	order := slices.Clone(s.pages)
+	slices.SortStableFunc(order, func(a, b *Page) int { return cmp.Compare(articleFirst(a), articleFirst(b)) })
+	for _, p := range order {
 		html, err := s.render(p)
 		if err != nil {
 			src := p.file
@@ -313,6 +318,13 @@ func headings(article string) []Heading {
 		out = append(out, Heading{ID: m[1], Number: strings.TrimSpace(m[2]), Text: strings.TrimSpace(unescape(reTags.ReplaceAllString(m[3], "")))})
 	}
 	return out
+}
+
+func articleFirst(p *Page) int {
+	if p.Layout == "guide" || p.Layout == "post" {
+		return 0
+	}
+	return 1
 }
 
 // readingMinutes is how long an article takes to read, at 230 words a minute.

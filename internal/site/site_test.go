@@ -456,3 +456,16 @@ func TestDocsEntriesFollowTheReadme(t *testing.T) {
 		}
 	}
 }
+
+// The blog index gives each post the reading time its own page has.
+func TestBlogShowsReadingTimes(t *testing.T) {
+	built := pages(build(t, Default))
+	reMinutes := regexp.MustCompile(`(\d+) min read`)
+	post := reMinutes.FindStringSubmatch(built["/blog/playkeeper-0-4-0"])
+	if post == nil || post[1] == "0" {
+		t.Fatalf("the 0.4.0 post's reading time is %v", post)
+	}
+	if !strings.Contains(built["/blog"], post[0]) {
+		t.Errorf("the blog index doesn't say %q", post[0])
+	}
+}

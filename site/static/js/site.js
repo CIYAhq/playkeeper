@@ -113,7 +113,7 @@
         var panel = document.getElementById(t.getAttribute('aria-controls'));
         if (panel) panel.hidden = !on;
       });
-      var copy = $('.code-copy', list);
+      var copy = $('.code-copy', list.parentNode);
       var panel = document.getElementById(tab.getAttribute('aria-controls'));
       if (copy && panel) copy.setAttribute('data-copy', panel.textContent.replace(/^\s+|\s+$/g, ''));
       if (focus) tab.focus();

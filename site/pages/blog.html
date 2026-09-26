@@ -26,7 +26,7 @@ og: blog
         {{range .Tags}}<span class="tag">{{.}}</span> {{end}}
         <h2>{{.Label}}</h2>
         <p>{{.Summary}}</p>
-        <p class="meta">{{day .Published}} · {{.Author}}</p>
+        <p class="meta">{{day .Published}} · {{.Author}} · {{.Minutes}} min read</p>
         <span class="link-arrow">Read the post{{template "icon" "arrow-right"}}</span>
       </div>
     </a>
@@ -41,7 +41,7 @@ og: blog
           {{range $p.Tags}}<span class="tag">{{.}}</span> {{end}}
           <h3>{{$p.Label}}</h3>
           <p>{{$p.Summary}}</p>
-          <p class="meta">{{$p.Author}}</p>
+          <p class="meta">{{day $p.Published}} · {{$p.Minutes}} min read</p>
         </a>
         {{end}}{{end}}
       </div>

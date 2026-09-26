@@ -28,8 +28,8 @@ A page that isn't built yet can already be linked: the header's menus, the foote
 ### Add a page
 
 1. Copy the page closest to it: a feature page (`pages/features/mods-and-modpacks.html`), a comparison (`pages/alternatives/aternos.html`), a guide (`pages/guides/modded-minecraft-server.html`) or a blog post (`pages/blog/playkeeper-0-4-0.html`).
-2. Change its settings and words. Screenshots go in `static/shots/` as `<name>.webp` with a `<name>@2x.webp` beside it; `test/e2e/ui/site-shots.mjs` takes page screenshots. Every page gets a social preview in `static/og/`.
-3. Run `make site` and open `site/dist/html`, or build the image, then run `go test ./internal/site` and `scripts/site-check.sh`.
+2. Change its settings and words. Screenshots go in `static/shots/` as `<name>.webp` with a `<name>@2x.webp` beside it: `test/e2e/ui/site-captures.mjs` takes them from the live demo and `site/tools/shots.py` converts them. `test/e2e/ui/site-shots.mjs` takes screenshots of whole pages. Every page gets a social preview in `static/og/`, drawn by `test/e2e/ui/site-og.mjs`.
+3. Run `go run ./cmd/site -serve 127.0.0.1:8080` and look at it, then run `go test ./internal/site`, the browser checks (in `test/e2e/ui`: `npx playwright test -c playwright.site.config.ts`, which open every page at desktop and phone sizes and fail on anything wider than the screen or a serious accessibility violation) and `scripts/site-check.sh`.
 
 ### Settings
 
@@ -101,7 +101,8 @@ Then open `https://playkeeper.io` in a browser. `https://playkeeper.io/t` should
 With Go (`./scripts/setup.sh` installs it) or Docker, from the repository root:
 
 ```bash
-make site                                     # builds the site into site/dist; open site/dist/html/index.html's pages through any web server
+make site                                     # builds the site into site/dist
+go run ./cmd/site -serve 127.0.0.1:8080       # serves it as nginx would, at http://127.0.0.1:8080
 scripts/site-check.sh                         # builds the image and checks every page, /t, /healthz, /install and the headers; with Chrome installed, opens /t in it
 docker build -f site/Dockerfile -t playkeeper-site . && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080
 ```

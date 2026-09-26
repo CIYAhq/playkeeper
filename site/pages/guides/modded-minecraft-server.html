@@ -56,26 +56,28 @@ schema: article
     (dict "Title" "Start it" "Text" "Every player needs the same loader, version and mods.")
   ))}}
   <div class="codeblock">
-    <div class="code-tabs" role="tablist" aria-label="Loader">
-      <button type="button" class="code-tab" role="tab" id="tab-neoforge" aria-controls="code-neoforge" aria-selected="true">NeoForge</button>
-      <button type="button" class="code-tab" role="tab" id="tab-fabric" aria-controls="code-fabric" aria-selected="false" tabindex="-1">Fabric</button>
-      {{if hasType "forge"}}<button type="button" class="code-tab" role="tab" id="tab-forge" aria-controls="code-forge" aria-selected="false" tabindex="-1">Forge</button>{{end}}
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Loader">
+        <button type="button" class="code-tab" role="tab" id="tab-neoforge" aria-controls="code-neoforge" aria-selected="true">NeoForge</button>
+        <button type="button" class="code-tab" role="tab" id="tab-fabric" aria-controls="code-fabric" aria-selected="false" tabindex="-1">Fabric</button>
+        {{if hasType "forge"}}<button type="button" class="code-tab" role="tab" id="tab-forge" aria-controls="code-forge" aria-selected="false" tabindex="-1">Forge</button>{{end}}
+      </div>
       <button type="button" class="code-copy" data-copy="sudo apt install openjdk-21-jre-headless" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
     </div>
-<pre id="code-neoforge" role="tabpanel" aria-labelledby="tab-neoforge"><span class="c"># NeoForge, for a pack on Minecraft 1.21</span>
+<pre id="code-neoforge" role="tabpanel" tabindex="0" aria-labelledby="tab-neoforge"><span class="c"># NeoForge, for a pack on Minecraft 1.21</span>
 sudo apt install openjdk-21-jre-headless
 java -jar neoforge-&lt;version&gt;-installer.jar --installServer
 echo "eula=true" &gt; eula.txt
 echo "-Xmx8G" &gt;&gt; user_jvm_args.txt
 sudo ufw allow 25565/tcp
 ./run.sh nogui</pre>
-<pre id="code-fabric" role="tabpanel" aria-labelledby="tab-fabric" hidden><span class="c"># Fabric, for a pack on Minecraft 1.21.1</span>
+<pre id="code-fabric" role="tabpanel" tabindex="0" aria-labelledby="tab-fabric" hidden><span class="c"># Fabric, for a pack on Minecraft 1.21.1</span>
 sudo apt install openjdk-21-jre-headless
 java -jar fabric-installer.jar server -mcversion 1.21.1 -downloadMinecraft
 echo "eula=true" &gt; eula.txt
 sudo ufw allow 25565/tcp
 java -Xmx8G -jar fabric-server-launch.jar nogui</pre>
-{{if hasType "forge"}}<pre id="code-forge" role="tabpanel" aria-labelledby="tab-forge" hidden><span class="c"># Forge, for a pack on Minecraft 1.21</span>
+{{if hasType "forge"}}<pre id="code-forge" role="tabpanel" tabindex="0" aria-labelledby="tab-forge" hidden><span class="c"># Forge, for a pack on Minecraft 1.21</span>
 sudo apt install openjdk-21-jre-headless
 java -jar forge-&lt;version&gt;-installer.jar --installServer
 echo "eula=true" &gt; eula.txt
