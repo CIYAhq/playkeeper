@@ -218,7 +218,7 @@ export function NewInviteDialog({ server, open, onOpenChange, data, onCreated }:
   }, [open])
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="sm:max-w-[520px]">
+      <DialogPopup className="sm:max-w-[520px]" showCloseButton={false}>
         <NewInviteForm key={n} server={server} data={data} onClose={() => onOpenChange(false)} onCreated={onCreated} />
       </DialogPopup>
     </Dialog>

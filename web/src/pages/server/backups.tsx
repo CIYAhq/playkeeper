@@ -275,7 +275,7 @@ function RulesDialog({ server: s, view, onClose, onSaved }: { server: ServerStat
   const d = useRulesDraft(s, view)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="max-w-[838px]">
+      <DialogPopup className="max-w-[838px]" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{t('backupRules.editTitle')}</DialogTitle>
         </DialogHeader>

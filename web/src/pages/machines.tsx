@@ -647,7 +647,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="sm:max-w-[400px]">
+      <DialogPopup className="sm:max-w-[400px]" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">{t('machines.remove.confirmTitle', { name })}</DialogTitle>
           <DialogDescription>{t('machines.remove.confirmBody')}</DialogDescription>

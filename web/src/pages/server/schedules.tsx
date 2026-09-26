@@ -596,7 +596,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   const label = 'text-[13px] font-medium'
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[560px]">
+      <DialogPopup className="sm:max-w-[560px]" showCloseButton={phone}>
         <div className="px-6 pt-6 pb-1 max-sm:px-5">
           <DialogTitle className="text-lg leading-6 font-bold">{existing ? t('schedules.editTitle') : t('schedules.newTitle', { server: server.name })}</DialogTitle>
         </div>

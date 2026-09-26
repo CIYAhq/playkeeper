@@ -495,7 +495,7 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
         if (!o) window.setTimeout(reset, 250)
       }}
     >
-      <DialogPopup className="sm:max-w-[520px]">
+      <DialogPopup className="sm:max-w-[520px]" showCloseButton={false}>
         {made ? (
           <CreatedToken made={made} address={address} onDone={() => onOpenChange(false)} />
         ) : (

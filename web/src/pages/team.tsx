@@ -100,7 +100,7 @@ export function TeamSection() {
   const dialogs = (
     <>
       <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
-        <DialogPopup className="sm:max-w-[540px]">
+        <DialogPopup className="sm:max-w-[540px]" showCloseButton={false}>
           {grant && (
             <GrantForm
               key={grant.n}
