@@ -498,6 +498,7 @@ func TestDocsSearchIndexIsText(t *testing.T) {
 }
 
 var reEntity = regexp.MustCompile(`&(#\d+|#x[0-9a-fA-F]+|[a-z]+);`)
+
 // A page's breadcrumb links its section's hub, also when the hub is a part
 // of another page, like the landing page's features, and then gives search
 // engines the trail.
