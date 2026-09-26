@@ -2131,6 +2131,17 @@ control "the activity says a server ran out of memory" internal/agent/analytics.
   'e.Kind = "crashed_memory"' \
   'e.Kind = "crashed"' \
   ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+# Wave 9: Java running out of memory, as Wave 3's 5f3515a makes a crash, is a crash for memory.
+control "a run that logged Java's out-of-memory line crashed for memory" internal/agent/lifecycle.go \
+  'case s.sawOOM:
+		s.lastError = heapCrash' \
+  'case false:
+		s.lastError = heapCrash' \
+  ./internal/agent '^TestJavaRunningOutOfMemoryIsAMemoryCrash$'
+control "the activity says Java ran out of memory" internal/agent/analytics.go \
+  '(strings.HasPrefix(e.Detail, oomCrash) || strings.HasPrefix(e.Detail, heapCrash))' \
+  'strings.HasPrefix(e.Detail, oomCrash)' \
+  ./internal/agent '^TestJavaRunningOutOfMemoryIsAMemoryCrash$'
 
 webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
   local name=$1 file=$2 test=${5#web/} pattern=$6

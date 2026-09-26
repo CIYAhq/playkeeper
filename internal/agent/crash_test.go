@@ -409,6 +409,44 @@ func TestAMemoryKillIsExplainedAfterTheServerComesBack(t *testing.T) {
 	}
 }
 
+// Java running out of memory and stopping the server is a crash for memory,
+// as Docker's kill is: the error says so, and so does the activity. The next
+// run that crashes without that line is a plain crash.
+func TestJavaRunningOutOfMemoryIsAMemoryCrash(t *testing.T) {
+	e := crashEnv(t)
+	kinds := func() []string {
+		acts, err := e.a.Activity(e.sid, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, a := range acts {
+			out = append(out, a.Kind)
+		}
+		return out
+	}
+	e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+	e.fd.addLog("[03:11:31 INFO]: Stopping server")
+	e.fd.crash(1)
+	e.waitCrash()
+	if st := e.status(); st.LastError != heapCrash {
+		t.Fatalf("the error says %q, want %q", st.LastError, heapCrash)
+	}
+	if k := kinds(); !slices.Contains(k, "crashed_memory") || slices.Contains(k, "crashed") {
+		t.Fatalf("activity after running out of memory: %v", k)
+	}
+
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	e.fd.crash(1)
+	e.waitFor("the second crash", func() bool { return e.crashEvents() == 2 })
+	if k := kinds(); len(k) == 0 || k[0] != "crashed" || !slices.Contains(k, "crashed_memory") {
+		t.Fatalf("activity after a crash without the line: %v", k)
+	}
+}
+
 // A start that isn't accepted, and a remove-and-start whose remove fails,
 // leave the crash and the crash count as they were: nothing started, so the
 // crash still says why the server is down.

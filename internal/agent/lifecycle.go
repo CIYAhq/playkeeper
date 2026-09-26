@@ -831,7 +831,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping, s.sawCrash = false, false
+	s.sawStopping, s.sawCrash, s.sawOOM = false, false, false
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }
@@ -859,8 +859,10 @@ const (
 	// recoveredFor is how long the status keeps saying why a server that
 	// came back on its own had crashed.
 	recoveredFor = 24 * time.Hour
-	// oomCrash starts the event detail of a server Docker killed for memory.
-	oomCrash = "The server ran out of memory and was killed."
+	// oomCrash starts the event detail of a server Docker killed for memory,
+	// heapCrash that of one whose Java ran out of memory and stopped it.
+	oomCrash  = "The server ran out of memory and was killed."
+	heapCrash = "Java ran out of memory and the server stopped."
 )
 
 // stoppedCleanly reports whether the run that ended logged a clean shutdown.
@@ -1006,10 +1008,14 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	n := len(s.crashes)
 	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
-	if st.OOMKilled {
+	switch {
+	case st.OOMKilled:
 		s.lastError = oomCrash
 		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
-	} else {
+	case s.sawOOM:
+		s.lastError = heapCrash
+		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
+	default:
 		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
 		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
@@ -1021,12 +1027,14 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 		s.nextAutoRestart = s.now().Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
 	}
 	detail := s.lastError
-	oom := st.OOMKilled
-	s.mu.Unlock()
 	kind := "exit"
-	if oom {
+	switch {
+	case st.OOMKilled:
 		kind = "oom"
+	case s.sawOOM:
+		kind = "java_oom"
 	}
+	s.mu.Unlock()
 	s.recordEvent(fin, "server_crashed", "", "docker", detail)
 	s.log.Warn("server crashed", "server", s.id, "exit", st.ExitCode, "cause", kind, "crashes", n)
 	return cause
