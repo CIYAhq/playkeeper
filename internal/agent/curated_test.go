@@ -116,6 +116,65 @@ func TestVoiceChatOpensItsPortAndClosesItWhenRemoved(t *testing.T) {
 	}
 }
 
+// Removing voice chat closes its port first: a removal that can't close it
+// removes nothing, so no later start publishes a port with nothing behind
+// it, and one whose file can't be removed gives the port back.
+func TestVoiceChatRemovalClosesItsPortFirst(t *testing.T) {
+	e := newAgentEnv(t)
+	withCuratedProjects(e.withSources())
+	e.a.opts.UDPPortInUse = func(int) bool { return false }
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	var d api.AddonDetails
+	e.decode("GET", e.sp("/addons/project/modrinth/"+voiceChatProject), &d)
+	if op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": voiceChatProject, "fingerprint": d.Plan.Fingerprint,
+		"openPorts": true, "actor": "admin"}); op.Status != api.OpSucceeded {
+		t.Fatalf("install voice chat: %+v", op)
+	}
+	plugins := filepath.Join(e.dataDir(), "plugins")
+	left := func() (int, int, int) {
+		recs, _ := e.srv().installedAddons()
+		jars, _ := filepath.Glob(filepath.Join(plugins, "*.jar"))
+		sc, _ := e.srv().serverConfig()
+		return len(recs), len(jars), sc.VoiceChatPort
+	}
+	remove := map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}
+
+	if _, err := e.a.db.Exec(`CREATE TRIGGER stuck_config BEFORE UPDATE OF config ON servers BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.call("POST", e.sp("/addons/remove"), remove); code < 400 {
+		t.Fatalf("a removal whose port can't be closed: %d %v", code, out)
+	}
+	if recs, jars, port := left(); recs != 1 || jars != 1 || port != curated.VoiceChatPort {
+		t.Fatalf("a removal whose port can't be closed left %d records, %d jars and port %d, want voice chat as it was", recs, jars, port)
+	}
+	if _, err := e.a.db.Exec(`DROP TRIGGER stuck_config`); err != nil {
+		t.Fatal(err)
+	}
+
+	if os.Geteuid() != 0 {
+		if err := os.Chmod(plugins, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		code, out := e.call("POST", e.sp("/addons/remove"), remove)
+		os.Chmod(plugins, 0o755)
+		if code < 400 {
+			t.Fatalf("a removal whose file can't be removed: %d %v", code, out)
+		}
+		if recs, jars, port := left(); recs != 1 || jars != 1 || port != curated.VoiceChatPort {
+			t.Fatalf("voice chat stayed, so its port must too: %d records, %d jars, port %d", recs, jars, port)
+		}
+	}
+
+	if code, out := e.call("POST", e.sp("/addons/remove"), remove); code != 200 {
+		t.Fatalf("remove: %d %v", code, out)
+	}
+	if recs, jars, port := left(); recs != 0 || jars != 0 || port != 0 {
+		t.Fatalf("after removing voice chat: %d records, %d jars, port %d", recs, jars, port)
+	}
+}
+
 // published are the ports the server's container publishes.
 func (e *agentEnv) published() []string {
 	e.fd.mu.Lock()
