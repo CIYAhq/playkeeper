@@ -830,6 +830,34 @@ func TestNamesServiceUnreachableBreaksNothingElse(t *testing.T) {
 	}
 }
 
+func TestANamesServiceThatNeverAnswersIsReportedInTime(t *testing.T) {
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	t.Cleanup(hang.Close)
+	e := newAgentEnvWith(t, func(e *agentEnv) {
+		e.cfg.NamesURL = hang.URL
+		e.tweak = func(o *Options) { o.NamesCheckWait = 200 * time.Millisecond }
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.ts.URL+"/v1/address/available?name=alex", nil)
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("no answer about the name after %s: %v", time.Since(start).Round(time.Millisecond), err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); resp.StatusCode != http.StatusServiceUnavailable || out["code"] != api.CodeNamesUnreachable || took > 3*time.Second {
+		t.Fatalf("a names service that never answers: %d %v after %s", resp.StatusCode, out, took)
+	}
+	if !e.address().Names.Unreachable {
+		t.Fatal("the address doesn't say the service can't be reached")
+	}
+}
+
 func TestNamesRefusalsKeepTheirCodeAndParams(t *testing.T) {
 	e := newAddressEnv(t, nil)
 	e.names.setFail(func(r *http.Request) *fakeRefusal {

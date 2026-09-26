@@ -336,6 +336,8 @@ func (a *Agent) availability(ctx context.Context, name string) (api.NameAvailabi
 	if err != nil {
 		return api.NameAvailability{}, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, a.opts.NamesCheckWait)
+	defer cancel()
 	res, err := c.Available(ctx, name)
 	if err != nil {
 		return api.NameAvailability{}, a.namesError(err)

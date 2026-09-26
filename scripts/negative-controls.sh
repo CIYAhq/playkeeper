@@ -1849,6 +1849,10 @@ control "own domain: a certificate attempt that finds the name wrong brings the 
   'if !saved || ready {' \
   'if true || !saved || ready {' \
   ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "free addresses: a names service that never answers is reported within the check's wait" internal/agent/address.go \
+  'ctx, cancel := context.WithTimeout(ctx, a.opts.NamesCheckWait)' \
+  'ctx, cancel := context.WithCancel(ctx)' \
+  ./internal/agent '^TestANamesServiceThatNeverAnswersIsReportedInTime$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
