@@ -24,7 +24,7 @@ import tarfile
 import tempfile
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pkclient import Client  # noqa: E402
@@ -362,8 +362,12 @@ def host_a_play(a, c, anon):
     today = summary["days"][-1]
     day_sessions = c.ok("GET", c.sp("/players/sessions?range=24h"))["sessions"]
     total = sum(s["durationSeconds"] for s in day_sessions)
-    check(today["uniquePlayers"] == len({s["player"] for s in day_sessions}) and abs(today["playtimeSeconds"] - total) <= len(day_sessions),
-          f"daily summary recomputes from sessions: {today['uniquePlayers']} players, {today['sessions']} sessions, {today['playtimeSeconds']} s observed, {today['coverage']:.0%} collected")
+    midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    if any(ts(s["start"]) < midnight for s in day_sessions):
+        print("  skip: daily summary recomputes from sessions: some began before midnight UTC, so today has only part of them", flush=True)
+    else:
+        check(today["uniquePlayers"] == len({s["player"] for s in day_sessions}) and abs(today["playtimeSeconds"] - total) <= len(day_sessions),
+              f"daily summary recomputes from sessions: {today['uniquePlayers']} players, {today['sessions']} sessions, {today['playtimeSeconds']} s observed, {today['coverage']:.0%} collected")
 
 
 def host_b(a):
