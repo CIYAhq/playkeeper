@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
 	"github.com/CIYAhq/playkeeper/internal/schedule"
+	"github.com/CIYAhq/playkeeper/internal/sleep"
 )
 
 // clockBefore moves the agent's clock to lead before a whole minute and
@@ -733,6 +736,86 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 	}
 }
 
+// A running map pre-generation keeps an empty server awake, as an operation
+// does, so it sleeps once the task is paused or over. Until Chunky reports
+// on the task, as after the agent starts, the task runs unless it was
+// paused.
+func TestSleepWaitsForTheMapPreGeneration(t *testing.T) {
+	// restart starts the agent again, checking on the task only when asked.
+	restart := func(e *agentEnv) {
+		e.stop()
+		e.tweak = func(o *Options) { o.PregenInterval = time.Hour }
+		e.start()
+	}
+	cases := []struct {
+		name   string
+		steps  func(e *agentEnv, fc *fakeChunky)
+		sleeps bool
+	}{
+		{name: "running", steps: func(*agentEnv, *fakeChunky) {}},
+		{name: "running, before Chunky reports", steps: func(e *agentEnv, _ *fakeChunky) { restart(e) }},
+		{name: "paused", steps: func(e *agentEnv, _ *fakeChunky) { e.pregenAct("pause") }, sleeps: true},
+		{name: "paused, before Chunky reports", steps: func(e *agentEnv, _ *fakeChunky) {
+			e.pregenAct("pause")
+			restart(e)
+		}, sleeps: true},
+		{name: "paused from the console", steps: func(e *agentEnv, fc *fakeChunky) {
+			fc.answer("chunky pause world")
+			e.waitFor("Chunky to report the pause", func() bool { return e.pregen().State == "paused" })
+		}, sleeps: true},
+		{name: "finished", steps: func(e *agentEnv, fc *fakeChunky) {
+			fc.finish(7 * time.Minute)
+			e.waitFor("the finished task", func() bool { return e.pregen().State == "finished" })
+		}, sleeps: true},
+		{name: "cancelled", steps: func(e *agentEnv, _ *fakeChunky) { e.pregenAct("cancel") }, sleeps: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			localStandIn(t)
+			e := newAgentEnv(t)
+			e.withSources()
+			e.create()
+			fc := e.chunky()
+			e.startPregen("small", true)
+			if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
+				t.Fatalf("turn sleep on: %d %v", code, out)
+			}
+			c.steps(e, fc)
+			// Nobody plays. The clock skips the 10 minutes a started server
+			// stays up, then the sampler sees every minute.
+			e.skew.Add(int64(10 * time.Minute))
+			fell := func() bool { return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'sleep'`) > 0 }
+			if c.sleeps {
+				e.waitUpTo(20*time.Second, "the server to fall asleep", func() bool {
+					if fell() {
+						return true
+					}
+					e.skew.Add(int64(time.Minute))
+					time.Sleep(150 * time.Millisecond)
+					return false
+				})
+				e.waitFor("the server asleep", func() bool { return e.status().Phase == api.PhaseAsleep && !e.a.busy() })
+				return
+			}
+			// Twice the 5 minutes of the setting.
+			for range 10 {
+				e.skew.Add(int64(time.Minute))
+				time.Sleep(150 * time.Millisecond)
+			}
+			s := e.srv()
+			s.auto.mu.Lock()
+			hold := s.auto.decision.Hold
+			s.auto.mu.Unlock()
+			if running, _ := fc.state(); fell() || !running || hold != sleep.HoldBusy {
+				t.Fatalf("with the map pre-generating, the server fell asleep %v, Chunky runs %v, sleep holds for %q", fell(), running, hold)
+			}
+			if _, reported := s.pg.lastState(); reported != !strings.Contains(c.name, "before Chunky reports") {
+				t.Fatalf("Chunky reported on the task %v", reported)
+			}
+		})
+	}
+}
+
 // fakeDest is a destination for copies somewhere else that keeps them in
 // memory.
 type fakeDest struct {
@@ -745,7 +828,12 @@ type fakeDest struct {
 	stored  map[string]offsite.Copy
 }
 
-func (d *fakeDest) Upload(_ context.Context, up offsite.Upload) (offsite.Copy, error) {
+func (d *fakeDest) Upload(ctx context.Context, up offsite.Upload) (offsite.Copy, error) {
+	// As at a real destination, an upload stopped before it starts sends
+	// nothing.
+	if err := ctx.Err(); err != nil {
+		return offsite.Copy{}, err
+	}
 	d.mu.Lock()
 	d.names = append(d.names, up.Name)
 	d.resumes = append(d.resumes, up.Resume)
@@ -1033,22 +1121,27 @@ func TestACopyTheAgentStoppedInResumesFromItsSavedPart(t *testing.T) {
 	}
 }
 
+// unfinishedCopies are the settings that turn copies on to S3 and to SFTP,
+// each with what an earlier try left at the destination: an S3 multipart
+// upload or an SFTP partial file.
+var unfinishedCopies = []struct {
+	name  string
+	setup map[string]any
+	state *offsite.UploadState
+}{
+	{"S3", map[string]any{"config": map[string]any{"type": "s3", "s3": map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}},
+		"secretKey": "wJalrXUtnFEMI-example-secret"},
+		&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, S3: &offsite.S3Upload{Key: "k", UploadID: "u1", PartSize: 5 << 20, Parts: []offsite.Part{{Number: 1, Size: 400}}}}},
+	{"SFTP", map[string]any{"config": map[string]any{"type": "sftp", "sftp": map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "backups/survival"}},
+		"sftpAuth": "password", "password": "an example password"},
+		&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, SFTP: &offsite.SFTPUpload{Partial: "backups/survival/x.tar.gz.age.partial", Written: 400}}},
+}
+
 // A copy whose archive is no longer on this machine leaves the queue, and
 // what an earlier try left at the destination, an S3 multipart upload or an
 // SFTP partial file, is discarded with it.
 func TestACopyWhoseArchiveIsGoneDiscardsWhatItLeftAtTheDestination(t *testing.T) {
-	for _, c := range []struct {
-		name  string
-		setup map[string]any
-		state *offsite.UploadState
-	}{
-		{"S3", map[string]any{"config": map[string]any{"type": "s3", "s3": map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}},
-			"secretKey": "wJalrXUtnFEMI-example-secret"},
-			&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, S3: &offsite.S3Upload{Key: "k", UploadID: "u1", PartSize: 5 << 20, Parts: []offsite.Part{{Number: 1, Size: 400}}}}},
-		{"SFTP", map[string]any{"config": map[string]any{"type": "sftp", "sftp": map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "backups/survival"}},
-			"sftpAuth": "password", "password": "an example password"},
-			&offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, SFTP: &offsite.SFTPUpload{Partial: "backups/survival/x.tar.gz.age.partial", Written: 400}}},
-	} {
+	for _, c := range unfinishedCopies {
 		t.Run(c.name, func(t *testing.T) {
 			dest := &fakeDest{stored: map[string]offsite.Copy{}}
 			prev := openOffsite
@@ -1083,6 +1176,182 @@ func TestACopyWhoseArchiveIsGoneDiscardsWhatItLeftAtTheDestination(t *testing.T)
 			}
 			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ?`, id); n != 0 || dest.uploads() != 0 {
 				t.Fatalf("the copy of a missing archive: %d queued, %d uploads", n, dest.uploads())
+			}
+		})
+	}
+}
+
+// Only the newest backups wait for their copy. The oldest leaves a full
+// queue when a backup joins it, and what an earlier try of its copy left at
+// the destination, an S3 multipart upload or an SFTP partial file, is
+// discarded with it; what the backups still waiting left stays.
+func TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination(t *testing.T) {
+	for _, c := range unfinishedCopies {
+		t.Run(c.name, func(t *testing.T) {
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			prev := openOffsite
+			openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.create()
+			body := map[string]any{"actor": "admin", "enabled": true}
+			for k, v := range c.setup {
+				body[k] = v
+			}
+			if code, out := e.call("POST", e.sp("/offsite"), body); code != 200 {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+			// A full queue of copies waiting to be tried again: the two
+			// oldest stopped part way.
+			dropped, _ := json.Marshal(c.state)
+			next := *c.state
+			next.Archive, next.Name = "y.tar.gz", "y.tar.gz.age"
+			kept, _ := json.Marshal(next)
+			states := map[int]string{0: string(dropped), 1: string(kept)}
+			now := e.srv().now()
+			for i := range offsiteMaxQueue {
+				if _, err := e.a.db.Exec(`INSERT INTO offsite_uploads(server_id, backup_id, state, next_attempt, created_at) VALUES(?, ?, ?, ?, ?)`,
+					e.sid, fmt.Sprintf("waiting-%02d", i), states[i], now.Add(time.Hour).UnixMilli(), now.Add(time.Duration(i-offsiteMaxQueue)*time.Hour).UnixMilli()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			id := e.backup()
+			e.waitFor("the dropped copy to be discarded", func() bool { return len(dest.abortedStates()) > 0 })
+			aborted := dest.abortedStates()
+			got, _ := json.Marshal(aborted[0])
+			if len(aborted) != 1 || string(got) != string(dropped) {
+				t.Fatalf("discarded %d unfinished copies, the first %s, not %s", len(aborted), got, dropped)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = 'waiting-00'`); n != 0 {
+				t.Fatal("the oldest backup still waits for its copy")
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = 'waiting-01' AND state = ?`, string(kept)); n != 1 {
+				t.Fatal("a backup still waiting lost where its copy stopped")
+			}
+			e.waitFor("the new backup's copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1 })
+		})
+	}
+}
+
+// The copy the uploader picked stays queued until the uploader is done with
+// it. A backup that joins the full queue meanwhile drops only the oldest of
+// the others and discards what that one left at the destination; the picked
+// copy then carries on from where its last try stopped. Turning copies off
+// once the next copy is picked stops it before it sends anything.
+func TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue(t *testing.T) {
+	for _, c := range unfinishedCopies {
+		t.Run(c.name, func(t *testing.T) {
+			// The uploader waits right after claiming the held backup's
+			// copy, until the test lets it go or the claim is cancelled.
+			var holding atomic.Pointer[string]
+			claimed, release := make(chan string, 1), make(chan struct{}, 1)
+			prevHook := uploadClaimed
+			uploadClaimed = func(job uploadJob) {
+				if id := holding.Load(); id != nil && *id == job.backupID && holding.CompareAndSwap(id, nil) {
+					claimed <- job.backupID
+					select {
+					case <-release:
+					case <-job.ctx.Done():
+					}
+				}
+			}
+			t.Cleanup(func() { uploadClaimed = prevHook })
+			hold := func(id string) { holding.Store(&id) }
+			waitClaim := func(id string) {
+				t.Helper()
+				select {
+				case <-claimed:
+				case <-time.After(15 * time.Second):
+					t.Fatalf("the uploader never picked the copy of %s", id)
+				}
+			}
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			prev := openOffsite
+			openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.create()
+			body := map[string]any{"actor": "admin", "enabled": true}
+			for k, v := range c.setup {
+				body[k] = v
+			}
+			if code, out := e.call("POST", e.sp("/offsite"), body); code != 200 {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+
+			// The first try of a backup's copy stops part way.
+			saved, _ := json.Marshal(c.state)
+			dest.mu.Lock()
+			dest.fail = &offsite.Error{Kind: offsite.KindNetwork, Msg: "The storage stopped answering.", Resume: c.state}
+			dest.mu.Unlock()
+			id := e.backup()
+			e.waitFor("the first try to stop part way", func() bool {
+				return e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ? AND attempts = 1 AND state = ?`, id, string(saved)) == 1
+			})
+
+			// Twelve other backups wait for their copy, the oldest with a
+			// part stored. The backup's copy, second oldest, is due again
+			// and the uploader picks it.
+			old := *c.state
+			old.Archive, old.Name = "w.tar.gz", "w.tar.gz.age"
+			dropped, _ := json.Marshal(old)
+			now := e.srv().now()
+			for i := range offsiteMaxQueue {
+				state := ""
+				if i == 0 {
+					state = string(dropped)
+				}
+				if _, err := e.a.db.Exec(`INSERT INTO offsite_uploads(server_id, backup_id, state, next_attempt, created_at) VALUES(?, ?, ?, ?, ?)`,
+					e.sid, fmt.Sprintf("waiting-%02d", i), state, now.Add(time.Hour).UnixMilli(), now.Add(time.Duration(i-14)*time.Hour).UnixMilli()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			hold(id)
+			if _, err := e.a.db.Exec(`UPDATE offsite_uploads SET next_attempt = 0, created_at = ? WHERE backup_id = ?`, now.Add(-13*time.Hour-30*time.Minute).UnixMilli(), id); err != nil {
+				t.Fatal(err)
+			}
+			e.srv().kickOffsite()
+			waitClaim(id)
+
+			// A backup joins the queue: the oldest waiting backup leaves it,
+			// and the picked copy stays with where its last try stopped.
+			joined := e.backup()
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ? AND state = ?`, id, string(saved)); n != 1 {
+				t.Fatal("the queue dropped the copy being made, or where its last try stopped")
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = 'waiting-00'`); n != 0 {
+				t.Fatal("the oldest backup still waits for its copy")
+			}
+			e.waitFor("the dropped copy to be discarded", func() bool { return len(dest.abortedStates()) > 0 })
+
+			// The picked copy carries on from its stored part and finishes.
+			hold(joined)
+			release <- struct{}{}
+			waitClaim(joined)
+			if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id); n != 1 {
+				t.Fatal("the copy being made didn't finish")
+			}
+			dest.mu.Lock()
+			resumes := append([]*offsite.UploadState(nil), dest.resumes...)
+			dest.mu.Unlock()
+			if len(resumes) != 2 {
+				t.Fatalf("%d tries of the copy, not 2", len(resumes))
+			}
+			if got, _ := json.Marshal(resumes[1]); string(got) != string(saved) {
+				t.Fatalf("the copy carried on from %s, not %s", got, saved)
+			}
+			if got, _ := json.Marshal(dest.abortedStates()); string(got) != "["+string(dropped)+"]" {
+				t.Fatalf("discarded %s, not only %s", got, dropped)
+			}
+
+			// Copies are turned off once the joined backup's copy is picked.
+			if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": false}); code != 200 {
+				t.Fatalf("turn off: %d %v", code, out)
+			}
+			release <- struct{}{}
+			e.waitFor("the queue to empty", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_uploads`) == 0 })
+			if n := dest.uploads(); n != 2 {
+				t.Fatalf("the copy of %s went ahead after copies were turned off: %d tries in all", joined, n)
 			}
 		})
 	}

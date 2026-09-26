@@ -133,13 +133,14 @@ func (s *server) standInIcon() string {
 }
 
 // observeSleep feeds one sample to the sleep tracker and puts an empty
-// server to sleep when it is time.
+// server to sleep when it is time. A running map pre-generation keeps it
+// awake, as an operation does.
 func (s *server) observeSleep(now time.Time, state string, snap *api.PlayerSnapshot) {
 	set := s.sleepSettings()
 	s.mu.Lock()
 	startedAt := s.runStartedAt
 	s.mu.Unlock()
-	o := sleep.Observation{At: now, Running: state == "online", Busy: s.busy(), StartedAt: startedAt}
+	o := sleep.Observation{At: now, Running: state == "online", Busy: s.busy() || s.pregenRunning(), StartedAt: startedAt}
 	if snap != nil {
 		o.Players, o.PlayersKnown = snap.Online, true
 	}

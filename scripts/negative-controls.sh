@@ -2677,6 +2677,65 @@ control "an add-on or pack error the agent answers with has Playkeeper's hint" i
   '	return &apiError{Status: status, Code: string(e.Kind), Msg: e.Msg, Hint: e.Hint}' \
   ./internal/agent '^TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo$'
 
+# Wave 7 after Bugbot's findings on d825c69: a running map pre-generation keeps
+# an empty server awake, and a backup dropped from a full copy queue discards
+# what it left at the destination.
+control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
+  'Busy: s.busy() || s.pregenRunning(),' \
+  'Busy: s.busy(),' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
+control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
+  'return st == pregen.StateRunning' \
+  '_ = st' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused_from_the_console$'
+control "until Chunky reports, a running task keeps the server awake" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return false' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running,_before_Chunky_reports$'
+control "until Chunky reports, a paused task lets the server sleep" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return true' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused,_before_Chunky_reports$'
+control "a finished map pre-generation lets the server sleep" internal/agent/pregen.go \
+  '	if !task.unfinished() {
+		return false
+	}
+	if st, ok := s.pg.lastState(); ok {' \
+  '	if st, ok := s.pg.lastState(); ok {' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^finished$'
+control "a backup dropped from a full copy queue discards what it left at the destination" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  '_ = dropped' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$'
+control "only the dropped backups' unfinished copies are discarded" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  's.discardUploads(append(s.queuedStates(), dropped...))' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$/^S3$'
+
+# Wave 7 after Bugbot's finding on ee0e519: the uploader claims the copy it
+# picks as it picks it, the queue trim leaves the claimed copy alone, and
+# turning copies off between the pick and the upload stops the copy.
+control "the queue trim leaves the copy the uploader claimed alone" internal/agent/offsite.go \
+  'claimed = c.backupID' \
+  '_ = c' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$'
+control "the uploader's claim names the copy it picked" internal/agent/offsite.go \
+  's.auto.claim = &uploadClaim{backupID: j.backupID, cancel: cancel}' \
+  's.auto.claim = &uploadClaim{cancel: cancel}' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^SFTP$'
+control "a claimed copy uploads under the claim's cancel" internal/agent/offsite.go \
+  'cp, err := dest.Upload(job.ctx,' \
+  'cp, err := dest.Upload(ctx,' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+control "turning copies off stops the copy the uploader claimed" internal/agent/offsite.go \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	c := s.auto.claim' \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	var c *uploadClaim' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

@@ -63,6 +63,10 @@ var openOffsite = func(cfg offsite.Config, keys offsite.Keys, o offsite.Options)
 	return d, nil
 }
 
+// uploadClaimed runs as the uploader starts on an upload it claimed, before
+// it looks at the backup; tests hold it there.
+var uploadClaimed = func(uploadJob) {}
+
 // Sign-in methods over SFTP.
 const (
 	sftpAuthKey      = "key"
@@ -573,7 +577,14 @@ type uploadProgress struct {
 	total     int64
 	startSent int64
 	started   time.Time
-	cancel    context.CancelFunc
+}
+
+// uploadClaim is the upload the uploader claimed, until it is done with the
+// upload's row: trimming the queue leaves that row alone, and stopUpload
+// cancels the upload through cancel, whether it has started or not.
+type uploadClaim struct {
+	backupID string
+	cancel   context.CancelFunc
 }
 
 // storedBytes is how much of an unfinished upload the destination has.
@@ -1415,18 +1426,19 @@ func (s *server) kickOffsite() {
 	}
 }
 
-// stopUpload cancels the upload running now, if any.
+// stopUpload cancels the upload the uploader claimed, if any.
 func (s *server) stopUpload() {
 	s.auto.mu.Lock()
-	up := s.auto.upload
+	c := s.auto.claim
 	s.auto.mu.Unlock()
-	if up != nil && up.cancel != nil {
-		up.cancel()
+	if c != nil {
+		c.cancel()
 	}
 }
 
 // queueOffsite queues a verified backup for its copy, when copies are on.
-// Only the newest waiting backups stay queued.
+// Only the newest waiting backups stay queued, besides the one the uploader
+// claimed; what the dropped ones left unfinished is discarded.
 func (s *server) queueOffsite(backupID string) {
 	var enabled int
 	if s.db.QueryRow(`SELECT enabled FROM offsite WHERE server_id = ?`, s.id).Scan(&enabled) != nil || enabled != 1 {
@@ -1436,43 +1448,82 @@ func (s *server) queueOffsite(backupID string) {
 		s.log.Warn("could not queue a backup's copy", "server", s.id, "backup", backupID, "err", err)
 		return
 	}
+	// The uploader picks and claims an upload under the same lock, so the
+	// claim read here names any upload it picked before the delete.
 	s.auto.mu.Lock()
-	busy := ""
-	if s.auto.upload != nil {
-		busy = s.auto.upload.backupID
+	claimed := ""
+	if c := s.auto.claim; c != nil {
+		claimed = c.backupID
+	}
+	var dropped []*offsite.UploadState
+	n := 0
+	rows, err := s.db.Query(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id != ? AND backup_id NOT IN
+		(SELECT backup_id FROM offsite_uploads WHERE server_id = ? ORDER BY created_at DESC LIMIT ?) RETURNING state`, s.id, claimed, s.id, offsiteMaxQueue)
+	if err == nil {
+		dropped, n = scanStates(rows)
 	}
 	s.auto.mu.Unlock()
-	res, err := s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id != ? AND backup_id NOT IN
-		(SELECT backup_id FROM offsite_uploads WHERE server_id = ? ORDER BY created_at DESC LIMIT ?)`, s.id, busy, s.id, offsiteMaxQueue)
-	if err == nil {
-		if n, _ := res.RowsAffected(); n > 0 {
-			s.log.Warn("older backups waiting for their copy were dropped from the queue", "server", s.id, "count", n)
-		}
+	if n > 0 {
+		s.log.Warn("older backups waiting for their copy were dropped from the queue", "server", s.id, "count", n)
 	}
+	s.discardUploads(dropped)
 	s.kickOffsite()
 }
 
+// discardUploads discards, in the background, what uploads dropped from the
+// queue left at the destination and in the spool folder, as far as the
+// destination answers: it may be why they waited.
+func (s *server) discardUploads(states []*offsite.UploadState) {
+	if len(states) == 0 {
+		return
+	}
+	row, err := s.loadOffsite()
+	if err != nil || !row.configured() || !row.hasKeys {
+		return
+	}
+	dest, err := s.openDest(row, row.keys)
+	if err != nil {
+		s.log.Warn("unfinished copies could not be discarded", "server", s.id, "count", len(states), "err", err)
+		return
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.abandon(s.ctx, dest, states)
+	}()
+}
+
+// uploadJob is an upload the uploader claimed. It runs under ctx, which
+// stopUpload cancels from the moment of the claim.
 type uploadJob struct {
 	backupID string
 	state    *offsite.UploadState
 	attempts int
+	ctx      context.Context
 }
 
 func (s *server) queuedStates() []*offsite.UploadState {
-	var out []*offsite.UploadState
 	rows, err := s.db.Query(`SELECT state FROM offsite_uploads WHERE server_id = ? AND state != ''`, s.id)
 	if err != nil {
 		return nil
 	}
+	states, _ := scanStates(rows)
+	return states
+}
+
+// scanStates reads the saved states of queued uploads, skipping those with
+// none, and counts the rows. It closes rows.
+func scanStates(rows *sql.Rows) (states []*offsite.UploadState, n int) {
 	defer rows.Close()
 	for rows.Next() {
+		n++
 		var raw string
 		var st offsite.UploadState
 		if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &st) == nil {
-			out = append(out, &st)
+			states = append(states, &st)
 		}
 	}
-	return out
+	return states, n
 }
 
 func (s *server) offsiteLoop(ctx context.Context) {
@@ -1534,7 +1585,7 @@ func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent s
 		}
 	}
 	for ctx.Err() == nil {
-		job, ok := s.nextUpload()
+		job, ok := s.claimUpload(ctx)
 		if !ok || !s.uploadOne(ctx, dest, ident, job) {
 			break
 		}
@@ -1557,7 +1608,11 @@ func (s *server) abandon(ctx context.Context, dest offsiteDest, states []*offsit
 	}
 }
 
-func (s *server) nextUpload() (uploadJob, bool) {
+// claimUpload picks the newest upload that is due and claims it, holding
+// the lock queueOffsite trims the queue under from the pick to the claim.
+func (s *server) claimUpload(ctx context.Context) (uploadJob, bool) {
+	s.auto.mu.Lock()
+	defer s.auto.mu.Unlock()
 	var j uploadJob
 	var raw string
 	err := s.db.QueryRow(`SELECT backup_id, state, attempts FROM offsite_uploads WHERE server_id = ? AND next_attempt <= ? ORDER BY created_at DESC LIMIT 1`,
@@ -1571,15 +1626,33 @@ func (s *server) nextUpload() (uploadJob, bool) {
 			j.state = &st
 		}
 	}
+	var cancel context.CancelFunc
+	j.ctx, cancel = context.WithCancel(ctx)
+	s.auto.claim = &uploadClaim{backupID: j.backupID, cancel: cancel}
 	return j, true
+}
+
+// releaseUpload lets go of the claimed upload.
+func (s *server) releaseUpload() {
+	s.auto.mu.Lock()
+	c := s.auto.claim
+	s.auto.claim = nil
+	s.auto.mu.Unlock()
+	if c != nil {
+		c.cancel()
+	}
 }
 
 func (s *server) dropUpload(backupID string) {
 	_, _ = s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, backupID)
 }
 
-// uploadOne copies one backup. It reports whether the next one can go.
+// uploadOne copies the backup of an upload the uploader claimed, and lets go
+// of the claim once it is done with the upload's row. It reports whether the
+// next one can go.
 func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, job uploadJob) bool {
+	defer s.releaseUpload()
+	uploadClaimed(job)
 	b, err := s.getBackup(job.backupID)
 	if err != nil || b.Verified == nil || !*b.Verified {
 		s.dropUpload(job.backupID)
@@ -1597,13 +1670,11 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, 
 		return true
 	}
 	defer f.Close()
-	uctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	sent := storedBytes(job.state)
 	s.auto.mu.Lock()
-	s.auto.upload = &uploadProgress{backupID: b.ID, sent: sent, total: b.SizeBytes, startSent: sent, started: s.now(), cancel: cancel}
+	s.auto.upload = &uploadProgress{backupID: b.ID, sent: sent, total: b.SizeBytes, startSent: sent, started: s.now()}
 	s.auto.mu.Unlock()
-	cp, err := dest.Upload(uctx, offsite.Upload{Name: b.FileName, File: f, Size: b.SizeBytes, SHA256: b.SHA256, Resume: job.state,
+	cp, err := dest.Upload(job.ctx, offsite.Upload{Name: b.FileName, File: f, Size: b.SizeBytes, SHA256: b.SHA256, Resume: job.state,
 		Progress: func(p offsite.Progress) {
 			s.auto.mu.Lock()
 			if up := s.auto.upload; up != nil {
