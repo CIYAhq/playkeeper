@@ -3774,7 +3774,7 @@ control "only the dashboard's machine lists the team's joins" internal/panel/tea
   ./internal/panel '^TestHomeShowsEachTeamJoinOnce$'
 control "Home's activity carries on while the dashboard's agent is down" internal/panel/team.go \
   'if !answered && len(machines) > 0 {' \
-  'if errs[0] != nil {' \
+  'if errs[0] != nil || !answered && len(machines) > 0 {' \
   ./internal/panel '^TestHomeShowsEachTeamJoinOnce$'
 webcontrol "the add-on sources card shows the machine it was opened for" web/src/components/app/addon-sources.tsx \
   'const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine' \
