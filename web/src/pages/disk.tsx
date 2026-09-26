@@ -14,6 +14,7 @@ import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, Dia
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { formatLocale, t, type MessageKey } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, formatClock, formatDate, formatList } from '@/lib/format'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
@@ -326,7 +327,7 @@ export function DiskPage({ id }: { id: string }) {
     body = (
       <div className={cn('flex flex-col', phone ? 'gap-5 pb-6' : 'gap-6')}>
         <UsageCard report={report} machine={name} phone={phone} scanning={scanning} onScan={() => void again()} />
-        <Ways report={report} names={names} phone={phone} busy={busy} locked={locked} onOpen={setOpen} />
+        {can(ws.me, 'machine.manage') && <Ways report={report} names={names} phone={phone} busy={busy} locked={locked} onOpen={setOpen} />}
         {!phone && report.servers.length > 0 && <ServerTable servers={report.servers} />}
       </div>
     )

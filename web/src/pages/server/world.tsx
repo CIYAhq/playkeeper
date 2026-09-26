@@ -17,6 +17,7 @@ import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
 import { busyReason, failedJob, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
@@ -133,10 +134,12 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
                       <span className="block text-base">{formatDay(r.copy.createdAt)}</span>
                       <span className="block text-[13px] text-muted-foreground">{[formatBytes(r.copy.sizeBytes), phoneStored(r, place)].join(t('common.dot'))}</span>
                     </span>
-                    <Button size="lg" variant="outline" onClick={() => void restore.start(r.copy)}>
-                      <RotateCcwIcon />
-                      {t('world.restoreCopyShort')}
-                    </Button>
+                    {can(ws.me, 'backups.restore') && (
+                      <Button size="lg" variant="outline" onClick={() => void restore.start(r.copy)}>
+                        <RotateCcwIcon />
+                        {t('world.restoreCopyShort')}
+                      </Button>
+                    )}
                   </li>
                 ) : (
                   <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
@@ -285,6 +288,7 @@ function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatu
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
   const blocked = whyNot(s, 'change', ws.stale)
+  if (!can(ws.me, 'backups.make')) return null
 
   async function backup() {
     setBusy(true)
@@ -521,25 +525,27 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
       <EmptyArt kind="backups" scale={phone ? 6 : 5} />
       <h2 className="mt-5 text-title font-extrabold tracking-[-0.015em] max-sm:text-[22px]">{t('world.emptyTitle')}</h2>
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('world.emptyBody')}</p>
-      <Button
-        size={phone ? 'touch' : 'lg'}
-        className="mt-5 max-sm:w-full"
-        loading={busy || running}
-        disabledReason={whyNot(s, 'change', ws.stale)}
-        onClick={async () => {
-          setBusy(true)
-          try {
-            await post(serverApi(s.id, '/backups'))
-          } catch (e) {
-            toastManager.add({ title: errorText(e), type: 'error' })
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        <ArchiveIcon />
-        {running ? t('world.backingUp') : t('world.emptyButton')}
-      </Button>
+      {can(ws.me, 'backups.make') && (
+        <Button
+          size={phone ? 'touch' : 'lg'}
+          className="mt-5 max-sm:w-full"
+          loading={busy || running}
+          disabledReason={whyNot(s, 'change', ws.stale)}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              await post(serverApi(s.id, '/backups'))
+            } catch (e) {
+              toastManager.add({ title: errorText(e), type: 'error' })
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <ArchiveIcon />
+          {running ? t('world.backingUp') : t('world.emptyButton')}
+        </Button>
+      )}
       <p className="mt-3 text-xs text-muted-foreground">{online ? t('world.emptyNoteOnline') : t('world.emptyNote')}</p>
       <ol className="mt-8 grid w-full max-w-[720px] gap-4 border-t border-border pt-5 text-left sm:grid-cols-3">
         {steps.map((st, i) => (

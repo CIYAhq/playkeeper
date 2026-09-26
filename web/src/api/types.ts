@@ -1470,6 +1470,9 @@ export type Action =
   | 'team.manage'
   | 'machine.manage'
   | 'audit.view'
+  | 'backups.copies.manage'
+  | 'backups.recovery_key'
+  | 'backups.recover'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatClock, formatDuration, formatMB } from '@/lib/format'
 import { whyNot } from '@/lib/phase'
 import { linkPath } from '@/lib/router'
@@ -114,7 +115,7 @@ export function AsleepCard({ server: s }: { server: ServerStatus }) {
     await wake(s)
     setBusy(false)
   }
-  const button = (
+  const button = can(ws.me, 'servers.run') && (
     <Button size={phone ? 'touch' : 'default'} className={cn(phone && 'mt-4 w-full')} onClick={run} loading={busy} disabledReason={whyNot(s, 'start', ws.stale)}>
       <SunIcon />
       {t('sleep.wake')}
@@ -133,9 +134,11 @@ export function AsleepCard({ server: s }: { server: ServerStatus }) {
         {!phone && (
           <div className="flex shrink-0 flex-col items-end gap-2">
             {button}
-            <a {...linkPath(`/servers/${s.slug}/settings#memory`)} className="text-xs font-medium text-primary hover:underline">
-              {t('sleep.settings')}
-            </a>
+            {can(ws.me, 'servers.manage') && (
+              <a {...linkPath(`/servers/${s.slug}/settings#memory`)} className="text-xs font-medium text-primary hover:underline">
+                {t('sleep.settings')}
+              </a>
+            )}
           </div>
         )}
       </div>
@@ -210,7 +213,7 @@ export function AsleepDetail({ server: s }: { server: ServerStatus }) {
     <>
       <Pip pose="sleep" size={40} />
       <span className="text-[13px] text-muted-foreground">{s.sleep?.listening === false ? t('sleep.cardDeaf') : t('sleep.card')}</span>
-      {!s.operation && (
+      {!s.operation && can(ws.me, 'servers.run') && (
         <Button
           variant="outline"
           size="sm"

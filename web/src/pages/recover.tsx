@@ -12,11 +12,12 @@ import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, formatDate, formatDay } from '@/lib/format'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { Field, HostKeyDialog, holdsBackupKeys, ProblemLine, type HostKey, type Problem } from './server/copies'
+import { Field, HostKeyDialog, ProblemLine, type HostKey, type Problem } from './server/copies'
 import { CopyJobDialog } from './server/copy-restore'
 
 const newestShown = 4
@@ -593,12 +594,12 @@ export function RecoverPage() {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const r = useRecover()
-  if (!holdsBackupKeys(ws.me?.user.role ?? '')) {
+  if (!can(ws.me, 'backups.recover')) {
     return (
       <>
         {phone ? <PhoneBackHeader to={{ name: 'home' }} label={t('nav.home')} title={t('recover.phoneTitle')} /> : <PageHeader title={t('recover.title')} subtitle={t('recover.on', { machine: ws.machineName })} />}
         <PageBody>
-          <Notice title={t('recover.ownerOnly')}>{t('recover.ownerOnlyHint')}</Notice>
+          <Notice title={t('recover.holdersOnly')}>{t('recover.holdersOnlyHint')}</Notice>
         </PageBody>
       </>
     )

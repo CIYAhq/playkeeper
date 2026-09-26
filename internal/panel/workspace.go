@@ -46,17 +46,23 @@ const (
 	actViewAuditTrail action = "audit.view"
 )
 
-// Wave 7 (0.4.0): where copies of backups go, and the key that opens them.
-// mayHoldBackupKeys alone decides who may use these.
+// Wave 7 (0.4.0): where copies of backups go, the key that opens them, and
+// bringing a server back from its copies on a new machine. mayHoldBackupKeys
+// alone decides who may use these; bringing one back makes a server, so it
+// needs every server too.
 const (
 	actManageBackupCopies action = "backups.copies.manage"
 	actRecoveryKey        action = "backups.recovery_key"
+	actRecoverBackups     action = "backups.recover"
 )
 
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups}
+
+// keyActions are decided by mayHoldBackupKeys rather than actNeeds.
+var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
 
 // actNeeds is the least project role an action needs, as the Team page's
 // table says: viewers look, moderators run the servers day to day, admins
@@ -118,9 +124,30 @@ var (
 )
 
 // mayHoldBackupKeys reports whether an account may change where backup
-// copies go, and see or download the recovery key that opens them. It is the
-// only check for both.
-func mayHoldBackupKeys(a access) bool { return a.owner() }
+// copies go, and see or download the recovery key that opens them: the
+// owner, or an admin with two-factor sign-in on. As for every Admin right,
+// the owner or an admin must have confirmed it (see access). It is the only
+// check for both.
+func mayHoldBackupKeys(a access) bool {
+	return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)
+}
+
+// keysRefusal is permit for keyActions: why a may not take act, or nil.
+func keysRefusal(a access, act action) error {
+	if !mayHoldBackupKeys(a) {
+		switch {
+		case a.InstallRole != roleMember || a.ProjectRole != invites.RoleAdmin:
+			return errForbidden
+		case a.awaitingConfirmation():
+			return errAdminUnconfirmed
+		}
+		return invites.TwoFactorRequired()
+	}
+	if act == actRecoverBackups && !a.owner() && !a.Servers.All {
+		return errAllServers
+	}
+	return nil
+}
 
 // permit decides whether a may take act, on the server serverID when the
 // route names one ("" otherwise). Admin actions wait for two-factor sign-in
@@ -132,11 +159,8 @@ func permit(a access, act action, serverID string) error {
 		return errForbidden
 	case serverID != "" && !a.covers(serverID):
 		return errNoServer
-	case act == actManageBackupCopies || act == actRecoveryKey:
-		if !mayHoldBackupKeys(a) {
-			return errForbidden
-		}
-		return nil
+	case keyActions[act]:
+		return keysRefusal(a, act)
 	case a.owner():
 		return nil
 	case a.InstallRole != roleMember:

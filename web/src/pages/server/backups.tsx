@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes } from '@/lib/format'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
@@ -116,6 +117,8 @@ export function BackupRulesPage({ server: s, copies }: { server: ServerStatus; c
 const everyChoices = [1, 2, 3, 4, 6, 8, 12, 24]
 
 function AutomaticCard({ server: s, view, onSaved }: { server: ServerStatus; view: BackupRulesView; onSaved: () => void }) {
+  const ws = useWorkspace()
+  const locked = can(ws.me, 'servers.manage') ? undefined : t('backupRules.adminsOnly')
   const [auto, setAuto] = useState(view.automatic)
   useEffect(() => setAuto(view.automatic), [view.automatic])
   async function save(next: typeof auto) {
@@ -137,7 +140,7 @@ function AutomaticCard({ server: s, view, onSaved }: { server: ServerStatus; vie
           <CardTitle>{t('backupRules.auto')}</CardTitle>
           <CardHint>{t('backupRules.autoHint')}</CardHint>
         </div>
-        <Switch checked={auto.enabled} onCheckedChange={(c) => void save({ ...auto, enabled: c })} aria-label={t('backupRules.auto')} />
+        <Switch checked={auto.enabled} onCheckedChange={(c) => void save({ ...auto, enabled: c })} aria-label={t('backupRules.auto')} disabled={!!locked} title={locked} />
       </div>
       <div className={cn('grid transition-[grid-template-rows,opacity] duration-(--motion-standard) ease-standard', auto.enabled ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')} inert={!auto.enabled}>
         <div className="overflow-hidden">
@@ -147,14 +150,16 @@ function AutomaticCard({ server: s, view, onSaved }: { server: ServerStatus; vie
             label={t('backupRules.howOften')}
             value={String(auto.everyHours)}
             onChange={(v) => void save({ ...auto, everyHours: Number(v) })}
+            disabledReason={locked}
             options={everyChoices.map((h) => ({ value: String(h), label: h === 24 ? t('backupRules.daily') : t('backupRules.every', { count: h }) }))}
           />
-          <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-[13px]">
-            <Checkbox checked={auto.onlyIfPlayed} onCheckedChange={(c) => void save({ ...auto, onlyIfPlayed: c === true })} />
+          <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-[13px]" title={locked}>
+            <Checkbox checked={auto.onlyIfPlayed} onCheckedChange={(c) => void save({ ...auto, onlyIfPlayed: c === true })} disabled={!!locked} />
             {t('backupRules.onlyIfPlayed')}
           </label>
         </div>
       </div>
+      {locked && <p className="mt-3 text-xs text-muted-foreground">{locked}</p>}
     </Card>
   )
 }
@@ -175,9 +180,11 @@ function KeepCard({ view, onChange }: { view: BackupRulesView; onChange: () => v
       </ul>
       <div className="mt-3 flex items-center justify-between gap-4 border-t border-border pt-4">
         <span className="text-[13px] font-medium">{totalText(e, 'backups', ws.machineName)}</span>
-        <Button size="sm" variant="outline" onClick={onChange}>
-          {t('backupRules.change')}
-        </Button>
+        {can(ws.me, 'servers.manage') && (
+          <Button size="sm" variant="outline" onClick={onChange}>
+            {t('backupRules.change')}
+          </Button>
+        )}
       </div>
     </Card>
   )
@@ -200,13 +207,15 @@ function useRulesDraft(server: ServerStatus, view: BackupRulesView) {
   const seq = useRef(0)
   useEffect(() => {
     const n = ++seq.current
+    // The view already holds the totals for the saved rules.
+    if (draft === view.rules) return
     const timer = window.setTimeout(() => {
       post<Record<Side, RetentionEstimate>>(serverApi(server.id, '/backup-rules/estimate'), { rules: draft, timeZone: timeZone() })
         .then((r) => n === seq.current && setEst(r))
         .catch(() => undefined)
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [draft, server.id])
+  }, [draft, server.id, view.rules])
   function set(side: Side, field: Field, n: number) {
     setDraft((d) => ({ ...d, [side]: { ...d[side], keepAll: false, [field]: n } satisfies RetentionRules }))
   }
@@ -231,11 +240,11 @@ function sideTitle(side: Side, machine: string, offsite: OffsiteView | undefined
   return offsite?.configured ? t('backupRules.on', { place: offsite.place }) : t('backupRules.offServer')
 }
 
-function RuleField({ label, unit, value, max, onChange, phone }: { label: string; unit: string; value: number; max: number; onChange: (n: number) => void; phone?: boolean }) {
+function RuleField({ label, unit, value, max, onChange, phone, disabled }: { label: string; unit: string; value: number; max: number; onChange: (n: number) => void; phone?: boolean; disabled?: boolean }) {
   return (
     <div className={cn('flex items-center justify-between gap-3', phone ? 'min-h-[60px] border-b border-border py-2 last:border-b-0' : 'py-1.5')}>
       <span className={phone ? 'text-base' : 'text-[13px]'}>{label}</span>
-      <NumberField className="w-auto shrink-0" value={value} onValueChange={(n) => onChange(Math.max(0, Math.min(max, n ?? 0)))} min={0} max={max} step={1} size={phone ? 'lg' : 'sm'}>
+      <NumberField className="w-auto shrink-0" value={value} onValueChange={(n) => onChange(Math.max(0, Math.min(max, n ?? 0)))} min={0} max={max} step={1} size={phone ? 'lg' : 'sm'} disabled={disabled}>
         <NumberFieldGroup className={phone ? 'w-[156px]' : 'w-[148px]'}>
           <NumberFieldDecrement aria-label={t('common.decrease')} title={value <= 0 ? t('reason.atMin', { min: 0 }) : undefined} />
           <span className="flex min-w-0 flex-1 items-center justify-center gap-1 border-x border-input">
@@ -249,11 +258,11 @@ function RuleField({ label, unit, value, max, onChange, phone }: { label: string
   )
 }
 
-function SideFields({ view, draft, side, set, phone }: { view: BackupRulesView; draft: RetentionSettings; side: Side; set: (side: Side, field: Field, n: number) => void; phone?: boolean }) {
+function SideFields({ view, draft, side, set, phone, disabled }: { view: BackupRulesView; draft: RetentionSettings; side: Side; set: (side: Side, field: Field, n: number) => void; phone?: boolean; disabled?: boolean }) {
   return (
     <>
       {fields.map((f) => (
-        <RuleField key={f.field} phone={phone} label={t(f.label)} unit={t(f.unit)} value={draft[side].keepAll ? 0 : (draft[side][f.field] ?? 0)} max={view.limits[f.field]} onChange={(n) => set(side, f.field, n)} />
+        <RuleField key={f.field} phone={phone} label={t(f.label)} unit={t(f.unit)} value={draft[side].keepAll ? 0 : (draft[side][f.field] ?? 0)} max={view.limits[f.field]} onChange={(n) => set(side, f.field, n)} disabled={disabled} />
       ))}
     </>
   )
@@ -308,10 +317,10 @@ function RulesDialog({ server: s, view, onClose, onSaved }: { server: ServerStat
   )
 }
 
-function SwitchLine({ checked, onChange, title, hint, phone }: { checked: boolean; onChange: (v: boolean) => void; title: string; hint: string; phone?: boolean }) {
+function SwitchLine({ checked, onChange, title, hint, phone, disabled }: { checked: boolean; onChange: (v: boolean) => void; title: string; hint: string; phone?: boolean; disabled?: boolean }) {
   return (
     <label className={cn('flex cursor-pointer items-start gap-3', phone && 'min-h-[60px] flex-row-reverse items-center justify-between border-b border-border py-2 last:border-b-0')}>
-      <Switch checked={checked} onCheckedChange={onChange} className={phone ? '' : 'mt-0.5'} />
+      <Switch checked={checked} onCheckedChange={onChange} className={phone ? '' : 'mt-0.5'} disabled={disabled} />
       <span className="min-w-0">
         <span className={cn('block font-semibold', phone ? 'text-base font-normal' : 'text-[13px]')}>{title}</span>
         <span className={cn('block text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')}>{hint}</span>
@@ -343,6 +352,8 @@ export function BackupRulesPhonePage({ server: s }: { server: ServerStatus }) {
 }
 
 function PhoneRules({ server: s, view, machine, offsite, onSaved }: { server: ServerStatus; view: BackupRulesView; machine: string; offsite: OffsiteView | undefined; onSaved: () => void }) {
+  const ws = useWorkspace()
+  const manage = can(ws.me, 'servers.manage')
   const d = useRulesDraft(s, view)
   const [side, setSide] = useState<Side>('onHost')
   const place = side === 'onHost' ? machine : offsite?.configured ? offsite.place : undefined
@@ -357,15 +368,15 @@ function PhoneRules({ server: s, view, machine, offsite, onSaved }: { server: Se
       />
       <SectionLabel className="mt-2 px-4">{t('backupRules.keep')}</SectionLabel>
       <div className="rounded-3xl border border-border bg-white px-4">
-        <SideFields view={view} draft={d.draft} side={side} set={d.set} phone />
+        <SideFields view={view} draft={d.draft} side={side} set={d.set} phone disabled={!manage} />
       </div>
       <p className="px-1 pt-1 text-[15px] font-semibold" aria-live="polite">
         {totalText(d.est[side], side === 'onHost' ? 'backups' : 'copies', place)}
       </p>
       <SectionLabel className="mt-2 px-4">{t('backupRules.bothPlaces')}</SectionLabel>
       <div className="rounded-3xl border border-border bg-white px-4">
-        <SwitchLine phone checked={!!d.draft.includeManual} onChange={(c) => d.setDraft((r) => ({ ...r, includeManual: c }))} title={t('backupRules.phoneManual')} hint={d.draft.includeManual ? t('backupRules.phoneOn') : t('backupRules.phoneManualOff')} />
-        <SwitchLine phone checked={!!d.draft.deleteOnlyCopies} onChange={(c) => d.setDraft((r) => ({ ...r, deleteOnlyCopies: c }))} title={t('backupRules.phoneOnlyCopies')} hint={d.draft.deleteOnlyCopies ? t('backupRules.phoneOn') : t('backupRules.phoneOnlyCopiesOff')} />
+        <SwitchLine phone disabled={!manage} checked={!!d.draft.includeManual} onChange={(c) => d.setDraft((r) => ({ ...r, includeManual: c }))} title={t('backupRules.phoneManual')} hint={d.draft.includeManual ? t('backupRules.phoneOn') : t('backupRules.phoneManualOff')} />
+        <SwitchLine phone disabled={!manage} checked={!!d.draft.deleteOnlyCopies} onChange={(c) => d.setDraft((r) => ({ ...r, deleteOnlyCopies: c }))} title={t('backupRules.phoneOnlyCopies')} hint={d.draft.deleteOnlyCopies ? t('backupRules.phoneOn') : t('backupRules.phoneOnlyCopiesOff')} />
       </div>
       <a {...linkProps({ name: 'server', slug: s.slug, tab: 'world', sub: 'backup-copies' })} className="mt-2 flex min-h-[60px] items-center gap-3 rounded-3xl border border-border bg-white px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <span className="min-w-0 flex-1">
@@ -374,11 +385,15 @@ function PhoneRules({ server: s, view, machine, offsite, onSaved }: { server: Se
         </span>
         <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
       </a>
-      <div className="fixed inset-x-4 bottom-[calc(76px+env(safe-area-inset-bottom))] z-20">
-        <Button size="touch" className="w-full" loading={d.saving} onClick={async () => (await d.save()) && onSaved()}>
-          {t('backupRules.save')}
-        </Button>
-      </div>
+      {manage ? (
+        <div className="fixed inset-x-4 bottom-[calc(76px+env(safe-area-inset-bottom))] z-20">
+          <Button size="touch" className="w-full" loading={d.saving} onClick={async () => (await d.save()) && onSaved()}>
+            {t('backupRules.save')}
+          </Button>
+        </div>
+      ) : (
+        <p className="px-4 text-[13px] text-muted-foreground">{t('backupRules.adminsOnly')}</p>
+      )}
     </div>
   )
 }

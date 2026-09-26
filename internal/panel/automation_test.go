@@ -3,10 +3,10 @@ package panel
 import (
 	"io"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
@@ -73,53 +73,77 @@ func TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt(t *testing.T) {
 	}
 }
 
-func TestMembersCannotTouchBackupCopiesOrTheRecoveryKey(t *testing.T) {
+// Wave 7's routes follow the Team page's table: viewers look, moderators
+// back up now and check or retry copies, admins change schedules, sleep and
+// backup rules and restore, and only those who may hold backup keys change
+// where copies go or take the recovery key.
+func TestWaveSevenRoutesFollowTheTeamTable(t *testing.T) {
 	e := newEnv(t)
-	e.setup(t)
-	h, _ := hashPassword("member password 1")
-	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('friend', ?, 0, 0, 'member')`, h); err != nil {
-		t.Fatal(err)
-	}
-	r := e.do(t, "POST", "/api/auth/login", `{"username":"friend","password":"member password 1"}`, map[string]string{"X-Requested-With": "playkeeper"})
-	if r.status != http.StatusOK {
-		t.Fatalf("member login: %d %v", r.status, r.body)
-	}
-	cookie, csrf := r.cookie, r.body["csrfToken"].(string)
-	ms, _ := e.srv.machines()
+	own := owner(t, e)
+	mid := machineID(t, e)
 	srv := "/api/servers/" + sampleServer
-	for _, p := range []string{srv + "/schedules", srv + "/sleep", srv + "/backup-rules", srv + "/offsite"} {
-		if r := e.do(t, "GET", p, "", auth(cookie, "")); r.status != http.StatusOK {
-			t.Errorf("a member may look at %s: %d", p, r.status)
+	copyPath := srv + "/offsite/copies/survival-1.tar.zst.age"
+	const (
+		looks = iota + 1
+		runs
+		manages
+		holdsKeys
+	)
+	routes := []struct {
+		method, path string
+		least        int
+	}{
+		{"GET", srv + "/schedules", looks}, {"GET", srv + "/schedules/runs", looks}, {"GET", srv + "/sleep", looks},
+		{"GET", srv + "/backup-rules", looks}, {"GET", srv + "/offsite", looks}, {"GET", srv + "/offsite/copies", looks},
+		{"GET", "/api/machines/" + mid + "/disk", looks},
+		{"POST", srv + "/backups", runs}, {"POST", srv + "/offsite/retry", runs}, {"POST", copyPath + "/check", runs},
+		{"POST", srv + "/schedules", manages}, {"POST", srv + "/schedules/preview", manages}, {"POST", srv + "/schedules/qrstuvwxyz", manages},
+		{"DELETE", srv + "/schedules/qrstuvwxyz", manages}, {"POST", srv + "/sleep", manages}, {"POST", srv + "/backup-rules", manages},
+		{"POST", srv + "/backup-rules/estimate", manages}, {"POST", srv + "/offsite/restore", manages}, {"POST", srv + "/offsite/restore/cancel", manages},
+		{"POST", "/api/machines/" + mid + "/disk/clean", manages},
+		{"POST", srv + "/offsite", holdsKeys}, {"POST", srv + "/offsite/test", holdsKeys}, {"POST", srv + "/offsite/ssh-key", holdsKeys},
+		{"GET", srv + "/offsite/recovery-key", holdsKeys}, {"POST", srv + "/offsite/new-key", holdsKeys}, {"DELETE", copyPath, holdsKeys},
+		{"POST", "/api/machines/" + mid + "/offsite/recover", holdsKeys}, {"POST", "/api/machines/" + mid + "/offsite/recover/restore", holdsKeys},
+	}
+	accounts := []struct {
+		who   string
+		m     member
+		level int
+	}{
+		{"a viewer", addMember(t, e, "friend", invites.RoleViewer, "*"), looks},
+		{"a moderator", addMember(t, e, "mo", invites.RoleModerator, "*"), runs},
+		{"an admin without two-factor", addMember(t, e, "una", invites.RoleAdmin, "*"), runs},
+		{"an admin with two-factor", addAdmin(t, e, "ada", "*"), holdsKeys},
+		{"the owner", own, holdsKeys},
+	}
+	for _, a := range accounts {
+		for _, c := range routes {
+			e.clock.add(2 * time.Second)
+			e.agent.mu.Lock()
+			e.agent.hits = nil
+			e.agent.mu.Unlock()
+			r := e.do(t, c.method, c.path, `{}`, a.m.auth())
+			switch {
+			case a.level >= c.least && (r.status == http.StatusForbidden || r.status == http.StatusUnauthorized):
+				t.Errorf("%s may use %s %s: %d %v", a.who, c.method, c.path, r.status, r.body)
+			case a.level >= c.least:
+			case r.status != http.StatusForbidden:
+				t.Errorf("%s may not use %s %s: %d %v", a.who, c.method, c.path, r.status, r.body)
+			case a.who == "an admin without two-factor" && r.body["code"] != invites.CodeTwoFactorRequired:
+				t.Errorf("%s is refused %s %s without asking for two-factor: %v", a.who, c.method, c.path, r.body)
+			case len(e.agentHits()) != 0:
+				t.Errorf("%s's refused %s %s reached the agent: %v", a.who, c.method, c.path, e.agentHits())
+			}
 		}
 	}
-	e.agent.mu.Lock()
-	e.agent.hits = nil
-	e.agent.mu.Unlock()
-	refused := []struct{ method, path string }{
-		{"POST", srv + "/schedules"}, {"DELETE", srv + "/schedules/qrstuvwxyz"}, {"POST", srv + "/sleep"}, {"POST", srv + "/backup-rules"},
-		{"POST", srv + "/backup-rules/estimate"}, {"POST", srv + "/offsite"}, {"POST", srv + "/offsite/test"}, {"POST", srv + "/offsite/ssh-key"}, {"POST", srv + "/offsite/retry"},
-		{"GET", srv + "/offsite/recovery-key"}, {"POST", srv + "/offsite/new-key"}, {"POST", srv + "/offsite/restore"},
-		{"POST", srv + "/offsite/copies/survival-1.tar.zst.age/check"}, {"DELETE", srv + "/offsite/copies/survival-1.tar.zst.age"}, {"POST", srv + "/offsite/restore/cancel"},
-		{"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/disk/clean"},
-		{"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/offsite/recover"}, {"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/offsite/recover/restore"},
-	}
-	for _, c := range refused {
-		if r := e.do(t, c.method, c.path, `{}`, auth(cookie, csrf)); r.status != http.StatusForbidden {
-			t.Errorf("a member may not use %s %s: %d", c.method, c.path, r.status)
+	for action, want := range map[string]int{"offsite.recovery_key": 2, "offsite.recover": 2} {
+		var n int
+		if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE actor = 'friend' AND action = ? AND result = 'refused'`, action).Scan(&n); err != nil || n != want {
+			t.Errorf("audited %d refused %s requests, want %d (%v)", n, action, want, err)
 		}
-	}
-	e.agent.mu.Lock()
-	hits := append([]string(nil), e.agent.hits...)
-	e.agent.mu.Unlock()
-	if len(hits) != 0 {
-		t.Fatalf("refused requests reached the agent: %v", hits)
-	}
-	var refusedKeys int
-	if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE actor = 'friend' AND action = 'offsite.recovery_key' AND result = 'refused'`).Scan(&refusedKeys); err != nil || refusedKeys != 4 {
-		t.Fatalf("audited %d refused recovery key requests, want 4 (%v)", refusedKeys, err)
 	}
 	req, _ := http.NewRequest("GET", e.ts.URL+srv+"/offsite/recovery-key", nil)
-	req.Header.Set("Cookie", cookieName+"="+cookie)
+	req.Header.Set("Cookie", cookieName+"="+accounts[1].m.cookie)
 	res, err := e.ts.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -127,13 +151,13 @@ func TestMembersCannotTouchBackupCopiesOrTheRecoveryKey(t *testing.T) {
 	body, _ := io.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != http.StatusForbidden || res.Header.Get("Cache-Control") != "no-store" || strings.Contains(string(body), "AGE-SECRET-KEY") {
-		t.Fatalf("a member's recovery key request: %d %v %q", res.StatusCode, res.Header, body)
+		t.Fatalf("a moderator's recovery key request: %d %v %q", res.StatusCode, res.Header, body)
 	}
 }
 
 // Who may change where copies go or hold the recovery key is decided in
-// mayHoldBackupKeys and nowhere else, so widening it to admins with
-// two-factor later is one change.
+// mayHoldBackupKeys and nowhere else: the owner, or an admin whose two-factor
+// sign-in is on (and confirmed, as for every Admin right).
 func TestOneCheckDecidesWhoHoldsBackupKeys(t *testing.T) {
 	e := newEnv(t)
 	want := map[string]action{
@@ -143,8 +167,8 @@ func TestOneCheckDecidesWhoHoldsBackupKeys(t *testing.T) {
 		"DELETE /api/servers/{id}/offsite/copies/{name}":   actManageBackupCopies,
 		"GET /api/servers/{id}/offsite/recovery-key":       actRecoveryKey,
 		"POST /api/servers/{id}/offsite/new-key":           actRecoveryKey,
-		"POST /api/machines/{mid}/offsite/recover":         actRecoveryKey,
-		"POST /api/machines/{mid}/offsite/recover/restore": actRecoveryKey,
+		"POST /api/machines/{mid}/offsite/recover":         actRecoverBackups,
+		"POST /api/machines/{mid}/offsite/recover/restore": actRecoverBackups,
 	}
 	for _, rt := range e.srv.Routes() {
 		key := rt.Method + " " + rt.Pattern
@@ -152,7 +176,7 @@ func TestOneCheckDecidesWhoHoldsBackupKeys(t *testing.T) {
 		switch {
 		case listed && rt.Act != act:
 			t.Errorf("%s is checked as %q, want %q", key, rt.Act, act)
-		case !listed && (rt.Act == actManageBackupCopies || rt.Act == actRecoveryKey):
+		case !listed && keyActions[rt.Act]:
 			t.Errorf("%s is checked as %q but isn't listed here", key, rt.Act)
 		}
 		delete(want, key)
@@ -160,20 +184,45 @@ func TestOneCheckDecidesWhoHoldsBackupKeys(t *testing.T) {
 	if len(want) != 0 {
 		t.Errorf("routes missing: %v", want)
 	}
-	accounts := map[string]access{
-		"nobody": {},
-		"owner":  {Account: invites.Account{UserID: 1, Name: "siya", InstallRole: roleOwner}},
-		"member": {Account: invites.Account{UserID: 2, Name: "friend", InstallRole: roleMember, ProjectRole: invites.RoleViewer}},
-		"admin":  {Account: invites.Account{UserID: 3, Name: "co", InstallRole: roleMember, ProjectRole: invites.RoleAdmin}},
+	admin := func(servers invites.Scope, factorOn, confirmed bool) access {
+		return access{Account: invites.Account{UserID: 3, Name: "co", InstallRole: roleMember, ProjectRole: invites.RoleAdmin, Servers: servers, TwoFactor: factorOn && confirmed}, FactorOn: factorOn}
 	}
-	for who, a := range accounts {
+	for _, c := range []struct {
+		who     string
+		a       access
+		holds   bool
+		refusal *invites.Error
+	}{
+		{"nobody", access{}, false, errForbidden},
+		{"the owner", access{Account: invites.Account{UserID: 1, Name: "siya", InstallRole: roleOwner}}, true, nil},
+		{"a viewer", access{Account: invites.Account{UserID: 2, Name: "friend", InstallRole: roleMember, ProjectRole: invites.RoleViewer, Servers: invites.AllServers()}}, false, errForbidden},
+		{"a moderator with two-factor on", access{Account: invites.Account{UserID: 2, Name: "mo", InstallRole: roleMember, ProjectRole: invites.RoleModerator, Servers: invites.AllServers(), TwoFactor: true}, FactorOn: true}, false, errForbidden},
+		{"an admin with two-factor on", admin(invites.AllServers(), true, true), true, nil},
+		{"an admin of one server with two-factor on", admin(invites.OnlyServers(otherServer), true, true), true, nil},
+		{"an admin without two-factor", admin(invites.AllServers(), false, false), false, invites.TwoFactorRequired()},
+		{"an admin whose Admin rights wait to be confirmed", admin(invites.AllServers(), true, false), false, errAdminUnconfirmed},
+	} {
+		if got := mayHoldBackupKeys(c.a); got != c.holds {
+			t.Errorf("mayHoldBackupKeys(%s) = %v, want %v", c.who, got, c.holds)
+		}
 		for _, act := range []action{actManageBackupCopies, actRecoveryKey} {
-			if (permit(a, act, "") == nil) != mayHoldBackupKeys(a) {
-				t.Errorf("permit(%s, %q) disagrees with mayHoldBackupKeys", who, act)
+			err := permit(c.a, act, "")
+			if (err == nil) != c.holds {
+				t.Errorf("permit(%s, %q) = %v, but mayHoldBackupKeys says %v", c.who, act, err, c.holds)
+			}
+			if ie, ok := err.(*invites.Error); c.refusal != nil && (!ok || ie.Code != c.refusal.Code || ie.Msg != c.refusal.Msg) {
+				t.Errorf("permit(%s, %q) = %v, want %q", c.who, act, err, c.refusal.Msg)
 			}
 		}
-		if got := mayHoldBackupKeys(a); got != (who == "owner") {
-			t.Errorf("mayHoldBackupKeys(%s) = %v", who, got)
+		// Bringing a server back makes one, so it needs every server too.
+		err := permit(c.a, actRecoverBackups, "")
+		switch everyServer := c.a.owner() || c.a.Servers.All; {
+		case c.holds && everyServer && err != nil:
+			t.Errorf("%s may not bring a server back: %v", c.who, err)
+		case c.holds && !everyServer && err != errAllServers:
+			t.Errorf("%s of one server may bring a server back: %v", c.who, err)
+		case !c.holds && err == nil:
+			t.Errorf("%s may bring a server back", c.who)
 		}
 	}
 }

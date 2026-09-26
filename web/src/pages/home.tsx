@@ -24,7 +24,6 @@ import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { holdsBackupKeys } from '@/pages/server/copies'
 import { AsleepDetail, gaveBackText } from '@/pages/server/sleep'
 import { ConfirmAdminNotice } from './team'
 
@@ -61,7 +60,7 @@ export function HomePage() {
             ) : (
               <div className="mt-5">{newButton}</div>
             ))}
-          {holdsBackupKeys(ws.me?.user.role ?? '') && (
+          {can(ws.me, 'backups.recover') && (
             <p className="mt-3 text-xs text-muted-foreground max-sm:text-[13px]">
               {rich('recover.homeLink', {
                 recover: (chunk) => (

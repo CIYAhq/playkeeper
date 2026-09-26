@@ -351,17 +351,18 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite")},
 		{"POST", "/api/servers/{id}/offsite/test", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite/test")},
 		{"POST", "/api/servers/{id}/offsite/ssh-key", needSessionCSRF, actManageBackupCopies, s.serverProxy("POST", "/v1/servers/{id}/offsite/ssh-key")},
-		sm("POST", "/api/servers/{id}/offsite/retry", "/v1/servers/{id}/offsite/retry"),
+		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/retry", "/v1/servers/{id}/offsite/retry"),
 		{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actRecoveryKey, s.hRecoveryKey},
 		{"POST", "/api/servers/{id}/offsite/new-key", needSessionCSRF, actRecoveryKey, s.serverProxy("POST", "/v1/servers/{id}/offsite/new-key")},
 		sg("/api/servers/{id}/offsite/copies", "/v1/servers/{id}/offsite/copies"),
-		sm("POST", "/api/servers/{id}/offsite/copies/{name}/check", "/v1/servers/{id}/offsite/copies/{name}/check"),
+		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/copies/{name}/check", "/v1/servers/{id}/offsite/copies/{name}/check"),
 		{"DELETE", "/api/servers/{id}/offsite/copies/{name}", needSessionCSRF, actManageBackupCopies, s.serverProxy("DELETE", "/v1/servers/{id}/offsite/copies/{name}")},
-		sm("POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
-		sm("POST", "/api/servers/{id}/offsite/restore/cancel", "/v1/servers/{id}/offsite/restore/cancel"),
-		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoveryKey),
-		mm("POST", "/api/machines/{mid}/offsite/recover/restore", "/v1/offsite/recover/restore", actRecoveryKey),
-		mg("/api/machines/{mid}/disk", "/v1/disk"),
+		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
+		smAs(actRestore, "POST", "/api/servers/{id}/offsite/restore/cancel", "/v1/servers/{id}/offsite/restore/cancel"),
+		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),
+		mm("POST", "/api/machines/{mid}/offsite/recover/restore", "/v1/offsite/recover/restore", actRecoverBackups),
+		// The Disk space page lists every server's use of the disk.
+		{"GET", "/api/machines/{mid}/disk", needSession, actView, everyServer(s.machineProxy("GET", "/v1/disk"))},
 		mm("POST", "/api/machines/{mid}/disk/clean", "/v1/disk/clean", actManageMachine),
 	}
 	// Wave 5: invite links and join requests, player profiles, the team
@@ -485,8 +486,11 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 			}
 			sess.Access = acct
 			if err := permit(acct, rt.Act, r.PathValue("id")); err != nil {
-				if rt.Act == actRecoveryKey {
+				switch rt.Act {
+				case actRecoveryKey:
 					s.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")
+				case actRecoverBackups:
+					s.audit(sess.User.Username, "offsite.recover", r.PathValue("mid"), "refused", "not allowed to bring servers back from copies")
 				}
 				writeRefusal(w, err)
 				return

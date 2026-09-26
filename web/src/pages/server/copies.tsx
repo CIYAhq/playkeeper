@@ -15,14 +15,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, formatClock, formatDate, formatPercent, formatSpan, relativeTime } from '@/lib/format'
 import { navigate } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { useOffsite } from './backups'
-
-// The panel refuses anyone else (mayHoldBackupKeys); this only greys out
-// what it would refuse.
-export const holdsBackupKeys = (role: string) => role === 'owner'
 
 const ntpCommand = 'sudo timedatectl set-ntp true'
 const savedDots = '•'.repeat(16)
@@ -214,9 +211,11 @@ function stateOf(v: OffsiteView): CopyState {
 /** The page's settings, the last connection test and every action on copies. */
 function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>) {
   const ws = useWorkspace()
-  const canEdit = holdsBackupKeys(ws.me.user.role)
-  const readOnly = canEdit ? undefined : t('offsite.ownerOnly')
-  const keyReadOnly = canEdit ? undefined : t('offsite.key.ownerOnly')
+  const canEdit = can(ws.me, 'backups.copies.manage')
+  const readOnly = canEdit ? undefined : t('offsite.holdersOnly')
+  const keyReadOnly = can(ws.me, 'backups.recovery_key') ? undefined : t('offsite.key.holdersOnly')
+  const canRetry = can(ws.me, 'backups.make')
+  const canChangeRules = can(ws.me, 'servers.manage')
   const [edits, setEdits] = useState<Draft>()
   const [test, setTest] = useState<{ result: OffsiteTestResult; at: string }>()
   const [problem, setProblem] = useState<Problem>()
@@ -366,6 +365,8 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
     canEdit,
     readOnly,
     keyReadOnly,
+    canRetry,
+    canChangeRules,
     draft,
     dirty,
     sshKey,
@@ -660,10 +661,12 @@ function CopyStatus({ state, v, c, machine, onChangeRules, phone }: { state: Cop
           </p>
           {p.sent > 0 && <Progress value={pct} tone="muted" className="mt-2.5" label={title} />}
           <p className={cn('mt-2 text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')}>{sub}</p>
-          <Button size="sm" variant="outline" className="mt-3" loading={c.busy === 'retry'} disabledReason={c.readOnly} onClick={() => void c.retry()}>
-            <RefreshCwIcon />
-            {t('offsite.tryNow')}
-          </Button>
+          {c.canRetry && (
+            <Button size="sm" variant="outline" className="mt-3" loading={c.busy === 'retry'} onClick={() => void c.retry()}>
+              <RefreshCwIcon />
+              {t('offsite.tryNow')}
+            </Button>
+          )}
         </div>
       )
     }
@@ -677,15 +680,21 @@ function CopyStatus({ state, v, c, machine, onChangeRules, phone }: { state: Cop
             {full ? t('offsite.full', { place: v.place }) : p.error}
           </p>
           {(full || p.hint) && <p className={cn('mt-1 ms-6 text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')}>{full ? t('offsite.fullHint') : p.hint}</p>}
-          <div className="mt-3 flex items-center gap-2">
-            <Button size="sm" variant="outline" loading={c.busy === 'retry'} disabledReason={c.readOnly} onClick={() => void c.retry()}>
-              <RefreshCwIcon />
-              {t('offsite.tryAgain')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onChangeRules}>
-              {t('backupRules.change')}
-            </Button>
-          </div>
+          {(c.canRetry || c.canChangeRules) && (
+            <div className="mt-3 flex items-center gap-2">
+              {c.canRetry && (
+                <Button size="sm" variant="outline" loading={c.busy === 'retry'} onClick={() => void c.retry()}>
+                  <RefreshCwIcon />
+                  {t('offsite.tryAgain')}
+                </Button>
+              )}
+              {c.canChangeRules && (
+                <Button size="sm" variant="ghost" onClick={onChangeRules}>
+                  {t('backupRules.change')}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )
     }
@@ -1017,7 +1026,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
       <div className="mt-4">
         <DestFields c={c} v={v} />
       </div>
-      {!c.canEdit && <p className="mt-3 text-xs text-muted-foreground">{t('offsite.ownerOnly')}</p>}
+      {!c.canEdit && <p className="mt-3 text-xs text-muted-foreground">{t('offsite.holdersOnly')}</p>}
       {v.enabled && <p className="mt-3 text-xs text-muted-foreground">{t('offsite.encryptedKeep')}</p>}
       {(v.key || testWhileStopped) && (
         <div className="mt-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
@@ -1172,7 +1181,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
           <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
         </button>
       )}
-      {!c.canEdit && <p className="px-4 text-[13px] text-muted-foreground">{t('offsite.ownerOnly')}</p>}
+      {!c.canEdit && <p className="px-4 text-[13px] text-muted-foreground">{t('offsite.holdersOnly')}</p>}
       {c.problem && (
         <div className="px-1 pt-1">
           <ProblemLine problem={c.problem} />
@@ -1226,7 +1235,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
                 {k.savedAt ? t('offsite.key.downloadAgain') : t('offsite.key.download')}
               </Button>
             </div>
-            <button type="button" disabled={!c.canEdit || c.busy === 'newKey'} title={c.keyReadOnly ?? (c.busy === 'newKey' ? t('offsite.key.making') : undefined)} aria-busy={c.busy === 'newKey' || undefined} className="flex min-h-14 w-full items-center gap-3 text-left" onClick={() => void c.newKey()}>
+            <button type="button" disabled={!!c.keyReadOnly || c.busy === 'newKey'} title={c.keyReadOnly ?? (c.busy === 'newKey' ? t('offsite.key.making') : undefined)} aria-busy={c.busy === 'newKey' || undefined} className="flex min-h-14 w-full items-center gap-3 text-left" onClick={() => void c.newKey()}>
               {c.busy === 'newKey' ? <Spinner className="size-5" /> : <RefreshCwIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
               <span className="flex-1 text-base">{t('offsite.key.makeNew')}</span>
               <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />

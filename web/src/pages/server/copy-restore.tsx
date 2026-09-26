@@ -12,13 +12,13 @@ import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, Dia
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, formatDate, formatDay, formatPercent } from '@/lib/format'
 import { whyNot } from '@/lib/phase'
 import { presenceProps, type Presence } from '@/lib/presence'
 import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { holdsBackupKeys } from './copies'
 
 export type StoredRow = { kind: 'here'; backup: Backup; copy?: OffsiteCopy; copying?: number } | { kind: 'there'; copy: OffsiteCopy }
 
@@ -88,7 +88,9 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
   const when = formatDay(c.createdAt)
   const path = `/offsite/copies/${encodeURIComponent(c.name)}`
   const cantRun = whyNot(s, 'change', ws.stale)
-  const cantDelete = holdsBackupKeys(ws.me?.user.role ?? '') ? cantRun : t('world.copyOwnerOnly', { place })
+  const cantDelete = can(ws.me, 'backups.copies.manage') ? cantRun : t('world.copyHoldersOnly', { place })
+  const mayRestore = can(ws.me, 'backups.restore')
+  const mayCheck = can(ws.me, 'backups.make')
   const noChecksum = c.sha256 ? undefined : t('world.noChecksum')
 
   async function check() {
@@ -127,26 +129,32 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
       <td className="px-3">{storedCell(row, place)}</td>
       <td className="px-3">
         <span className="flex items-center justify-end gap-1">
-          <Button size="sm" variant="outline" onClick={onRestore}>
-            <RotateCcwIcon />
-            {t('world.restoreCopy')}
-          </Button>
+          {mayRestore && (
+            <Button size="sm" variant="outline" onClick={onRestore}>
+              <RotateCcwIcon />
+              {t('world.restoreCopy')}
+            </Button>
+          )}
           <Menu>
             <MenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t('world.menuFor', { time: when })} />}>
               <EllipsisIcon />
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-60">
-              <MenuItem onClick={onRestore} className="items-start py-1.5">
-                <HistoryIcon className="mt-0.5" />
-                <span>
-                  <span className="block">{t('world.restoreThis')}</span>
-                  <span className="block text-xs text-muted-foreground">{t('world.restoreThisHint')}</span>
-                </span>
-              </MenuItem>
-              <MenuItem disabled={!!cantRun} title={cantRun} className={cn(cantRun && 'data-disabled:pointer-events-auto')} onClick={() => void check()}>
-                <ShieldCheckIcon />
-                {t('world.checkAgain')}
-              </MenuItem>
+              {mayRestore && (
+                <MenuItem onClick={onRestore} className="items-start py-1.5">
+                  <HistoryIcon className="mt-0.5" />
+                  <span>
+                    <span className="block">{t('world.restoreThis')}</span>
+                    <span className="block text-xs text-muted-foreground">{t('world.restoreThisHint')}</span>
+                  </span>
+                </MenuItem>
+              )}
+              {mayCheck && (
+                <MenuItem disabled={!!cantRun} title={cantRun} className={cn(cantRun && 'data-disabled:pointer-events-auto')} onClick={() => void check()}>
+                  <ShieldCheckIcon />
+                  {t('world.checkAgain')}
+                </MenuItem>
+              )}
               <MenuItem
                 disabled={!!noChecksum}
                 title={noChecksum}

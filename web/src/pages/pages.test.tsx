@@ -8,6 +8,7 @@ import type {
   AddonSources,
   Address,
   Backup,
+  BackupRulesView,
   Candidate,
   Catalog,
   Crash,
@@ -32,6 +33,7 @@ import type {
   Preflight,
   ProjectRole,
   RestorePreview,
+  RetentionEstimate,
   Running,
   ServerConfig,
   ServerStatus,
@@ -59,12 +61,14 @@ import { MachinePage } from './machine'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { RecoverPage } from './recover'
+import { BackupRulesPage } from './server/backups'
 import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 import { PlayerProfilePage } from './server/profile'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
+import { AsleepCard } from './server/sleep'
 import { WorldPage } from './server/world'
 import { GlobalSettingsPage } from './settings'
 import { TeamSection } from './team'
@@ -78,7 +82,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   del: vi.fn(() => Promise.resolve(undefined)),
 }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -2203,16 +2207,23 @@ describe('Copies somewhere else', () => {
     expect(document.body.textContent).toContain('Is this really vault.example.net?')
   })
 
-  it('lets only the owner change where copies go or download the key', async () => {
+  it('lets only those who may hold backup keys change where copies go or download the key', async () => {
     answer({ '/offsite': { ...sftp, enabled: true, key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, fileName: 'playkeeper-recovery-key-survival.txt' } } })
-    await render(<CopiesCard server={server()} onChangeRules={() => {}} />, workspace({ me: { ...me, user: { username: 'friend', role: 'member' } } }))
-    expect(document.body.textContent).toContain('Only the owner can change where copies go.')
+    const download = () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Download')
+    // An admin without two-factor sign-in has a moderator's rights.
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />, workspace({ me: member('admin', moderatorCan) }))
+    expect(document.body.textContent).toContain('Only the owner, or an admin with two-factor sign-in, can change where copies go.')
     expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(true)
-    const download = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Download')
-    expect(download?.disabled).toBe(true)
-    expect(download?.title).toBe('Only the owner can hold the recovery key.')
+    expect(download()?.disabled).toBe(true)
+    expect(download()?.title).toBe('Only the owner, or an admin with two-factor sign-in, can hold the recovery key.')
     const test = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Test connection')
-    expect(test?.title).toBe('Only the owner can change where copies go.')
+    expect(test?.title).toBe('Only the owner, or an admin with two-factor sign-in, can change where copies go.')
+
+    const keys: Action[] = ['backups.copies.manage', 'backups.recovery_key']
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />, workspace({ me: member('admin', [...moderatorCan, 'backups.restore', 'servers.manage', ...keys], { twoFactor: true }) }))
+    expect(document.body.textContent).not.toContain('Only the owner')
+    expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(false)
+    expect(download()?.disabled).toBe(false)
   })
 })
 
@@ -2324,11 +2335,38 @@ describe('World backups with copies', () => {
     expect(vi.mocked(client.del)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/copies/survival-b1.tar.zst.age')
   })
 
+  it('shows each role only the backup controls it may use', async () => {
+    const viewer = member('viewer', ['view', 'account.manage'])
+    const { row, item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: viewer }))
+    expect(document.body.textContent).not.toContain('Back up now')
+    expect(row.textContent).not.toContain('Restore…')
+    expect(item('Restore this backup')).toBeUndefined()
+    expect(item('Check it again')).toBeUndefined()
+    expect(item('Delete backup')?.getAttribute('aria-disabled')).toBe('true')
+
+    const estimate: RetentionEstimate = { where: 'on-host', rows: [], count: 7, bytes: 2e9, summary: { code: 'keeps', text: '' } }
+    const rules: BackupRulesView = { automatic: { enabled: true, everyHours: 6, onlyIfPlayed: true }, rules: { onHost: { daily: 7 }, offSite: { daily: 7 } }, custom: false, describe: [], onHost: estimate, offSite: { ...estimate, where: 'off-site' }, limits: { hours: 48, last: 50, daily: 31, weekly: 26, monthly: 24 } }
+    answer({ '/backup-rules': rules })
+    const text = await render(<BackupRulesPage server={server()} />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(text).toContain('Only admins can change the backup rules.')
+    expect(document.querySelector('[role="switch"][aria-label="Automatic backups"]')?.hasAttribute('data-disabled')).toBe(true)
+    expect(text).not.toContain('Change rules')
+    await render(<BackupRulesPage server={server()} />)
+    expect(document.body.textContent).toContain('Change rules')
+    expect(document.querySelector('[role="switch"][aria-label="Automatic backups"]')?.hasAttribute('data-disabled')).toBe(false)
+
+    const asleep = server({ phase: 'asleep', desired: 'sleeping', sleep: { enabled: true, idleMinutes: 15, listening: true } })
+    expect(await render(<AsleepCard server={asleep} />, workspace({ me: viewer }))).not.toContain('Wake up now')
+    const moderator = await render(<AsleepCard server={asleep} />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(moderator).toContain('Wake up now')
+    expect(moderator).not.toContain('Sleep settings')
+  })
+
   it('says why a copy’s checksum or deleting it is out of reach', async () => {
-    const { item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: { ...me, user: { username: 'alex', role: 'admin' } } }))
+    const { item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: member('admin', [...moderatorCan, 'backups.restore', 'servers.manage']) }))
     for (const [label, reason] of [
       ['Copy checksum', 'This copy’s checksum wasn’t recorded.'],
-      ['Delete backup', 'Only the owner can delete copies kept on Backblaze B2.'],
+      ['Delete backup', 'Only the owner, or an admin with two-factor sign-in, can delete copies kept on Backblaze B2.'],
     ] as const) {
       expect(item(label)?.getAttribute('aria-disabled')).toBe('true')
       expect(item(label)?.title).toBe(reason)
@@ -2422,10 +2460,13 @@ describe('Restore from a recovery key', () => {
     expect(document.body.textContent).toContain('Connected · 5 copies of Survival found')
   })
 
-  it('is the owner’s alone', async () => {
-    const text = await render(<RecoverPage />, workspace({ servers: [], me: { ...me, user: { username: 'friend', role: 'member' } } }))
-    expect(text).toContain('Only the owner can restore from a recovery key.')
+  it('is for those who may hold backup keys and use every server', async () => {
+    const keys: Action[] = ['backups.copies.manage', 'backups.recovery_key']
+    const text = await render(<RecoverPage />, workspace({ servers: [], me: member('admin', [...moderatorCan, ...keys], { twoFactor: true }) }))
+    expect(text).toContain('Only the owner, or an admin of every server with two-factor sign-in, can restore from a recovery key.')
     expect(document.querySelector('input[type=file]')).toBeNull()
+    await render(<RecoverPage />, workspace({ servers: [], me: member('admin', [...moderatorCan, ...keys, 'backups.recover'], { twoFactor: true, servers: { all: true } }) }))
+    expect(document.querySelector('input[type=file]')).not.toBeNull()
   })
 })
 
