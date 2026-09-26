@@ -535,6 +535,19 @@ control "public routes: only successful answers may be cached" internal/panel/pu
   'if w.cache != "" && (status < 300 || status == http.StatusNotModified) {' \
   'if w.cache != "" {' \
   ./internal/panel '^TestPublicRoutesCacheOnlyWhatTheyMay$'
+control "operations: the audit entry is stored before the operation shows finished" internal/agent/state.go \
+  'if err = a.insertAudit(tx, serverID, op.Actor, op.Kind, target, op.Status, op.Error); err == nil {
+			err = writeOperation(tx, op)
+		}' \
+  'if err = writeOperation(tx, op); err == nil {
+			err = a.insertAudit(tx, serverID, op.Actor, op.Kind, target, op.Status, op.Error)
+		}' \
+  ./internal/agent '^TestAFinishedOperationIsAlreadyAudited$'
+control "operations: a server's operation stores its end with its audit entry" internal/agent/lifecycle.go \
+  's.finishOperation(s.id, "server", &done)' \
+  's.saveOperation(&done)
+		s.audit(done.Actor, kind, "server", done.Status, done.Error)' \
+  ./internal/agent '^TestAFinishedOperationIsAlreadyAudited$'
 control "resource packs: a listed pack doesn't wait while the agent is asked about another" internal/panel/packs.go \
   'if wait == nil || known && !started {' \
   'if wait == nil || known && !started && false {' \
