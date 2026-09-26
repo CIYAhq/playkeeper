@@ -274,10 +274,10 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
     setTest(undefined)
     try {
       const result = await post<OffsiteTestResult>(serverApi(s.id, '/offsite/test'), request(d, v))
-      setTest({ result, at: new Date().toISOString() })
       const bad = result.checks.find((c) => !c.ok)
       if (result.hostKey && (bad?.kind === 'host_key_unknown' || (toConfirm && bad?.kind === 'host_key_changed'))) setAsk(result.hostKey)
       else if (result.hostKey && bad?.kind === 'host_key_changed') setChanged({ confirmed: bad.params?.pinnedFingerprint ?? v.sftp?.hostKeyFingerprint ?? '', now: result.hostKey.fingerprint, key: result.hostKey })
+      else setTest({ result, at: new Date().toISOString() })
       return result
     } catch (e) {
       setProblem(problemOf(e))
@@ -320,8 +320,8 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
     const next = await act(enabled ? 'on' : 'save', () => post<OffsiteView>(serverApi(s.id, '/offsite'), body))
     if (!next) return false
     discard()
-    toastManager.add({ title: t(enabled ? 'offsite.onToast' : 'offsite.savedToast'), type: 'success' })
     if (enabled && next.key && !next.key.savedAt) setOffer('first')
+    else toastManager.add({ title: t(enabled ? 'offsite.onToast' : 'offsite.savedToast'), type: 'success' })
     await refresh()
     return true
   }
@@ -780,7 +780,7 @@ export function HostKeyDialog({ host, hostKey, phone, busy, onConfirm, onClose }
   const kind = hostKeyKind(hostKey.type)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[420px]" showCloseButton={phone}>
+      <DialogPopup className="sm:max-w-[520px]" showCloseButton={phone}>
         <DialogHeader>
           <DialogTitle>{t('offsite.hostKey.title', { host })}</DialogTitle>
           <DialogDescription>{t('offsite.hostKey.body')}</DialogDescription>
@@ -807,7 +807,7 @@ export function HostKeyDialog({ host, hostKey, phone, busy, onConfirm, onClose }
 function HostKeyChangedDialog({ host, changed, phone, busy, onCheck, onClose }: { host: string; changed: Changed; phone: boolean; busy: boolean; onCheck: () => void; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[420px]" showCloseButton={phone}>
+      <DialogPopup className="sm:max-w-[520px]" showCloseButton={phone}>
         <DialogHeader>
           <DialogTitle>{t('offsite.hostKey.changedTitle', { host })}</DialogTitle>
           <DialogDescription>{t('offsite.hostKey.changedBody')}</DialogDescription>
@@ -1123,7 +1123,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
       {form ? (
         <div className="flex flex-col gap-3">
           <ChoiceSelect
-            className="w-full"
+            className="min-h-14 w-full justify-between rounded-3xl border border-border bg-white px-4"
             label={t('offsite.whereTo')}
             value={d.type}
             onChange={(x) => c.set('type', x)}

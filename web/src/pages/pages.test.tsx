@@ -342,6 +342,7 @@ describe('Copies somewhere else', () => {
     expect(document.body.textContent).toContain('Encrypted before they leave. Copies start once the test passes.')
     await click('Test connection')
     expect(document.body.textContent).toContain('Is this really vault.example.net?')
+    expect(document.body.textContent).not.toContain('A check failed')
     expect(document.body.textContent).toContain(hostKey.fingerprint)
     expect(document.body.textContent).toContain('ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub')
     await click('It matches, confirm')
