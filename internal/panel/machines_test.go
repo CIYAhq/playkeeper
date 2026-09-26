@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,6 +28,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
+	"github.com/CIYAhq/playkeeper/internal/mojang"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -235,6 +237,25 @@ func (rl *runningLink) ended(t *testing.T) error {
 	}
 }
 
+// joinMachine joins ra to the dashboard as home-server over a real link and
+// returns its machine id and link once it's connected. The dashboard needs a
+// domain.
+func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) (string, *runningLink) {
+	t.Helper()
+	addr := e.sharePort(t)
+	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
+	code, _ := e.joinCode(t, cookie, csrf, `{"name":"home-server","dial":"name"}`)["code"].(string)
+	id := newIdentity(t)
+	d, err := machinelink.Join(context.Background(), machinelink.JoinOptions{Address: addr, Code: code, Fingerprint: fp, Identity: id,
+		Name: "home-server", Version: version.Version, Now: e.clock.now})
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	link := e.runLink(t, d, id, ra)
+	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
+	return d.MachineID, link
+}
+
 // auditHas reports whether the panel's audit log has a row with these
 // fields and a detail containing detail.
 func (e *env) auditHas(t *testing.T, actor, action, target, result, detail string) bool {
@@ -408,10 +429,11 @@ func TestAMachineJoinsAndItsServersAreReachable(t *testing.T) {
 	if len(servers) != 1 || servers[0]["id"] != "abcdefghjk" {
 		t.Fatalf("servers after the removal: %v", servers)
 	}
-	var claims int
-	e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, rid).Scan(&claims)
-	if claims != 0 || !e.auditHas(t, "admin", "machine.removed", "home-server", "succeeded", "") {
-		t.Fatalf("the removal is audited and its servers forgotten: %d claims", claims)
+	if !e.auditHas(t, "admin", "machine.removed", "home-server", "succeeded", "") {
+		t.Fatal("the removal isn't audited")
+	}
+	if _, err := e.srv.machineForServer("rstuvwxyzq"); !errors.Is(err, errNotFound) {
+		t.Fatalf("the removed machine's server goes to %v, not to no machine", err)
 	}
 	if r := e.do(t, "DELETE", "/api/machines/"+rid, "", auth(cookie, csrf)); r.status != http.StatusNotFound {
 		t.Fatalf("remove twice: %d", r.status)
@@ -508,6 +530,13 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 		}
 		return m.ID
 	}
+	lastKnown := func(m machine) []map[string]any {
+		last, err := s.lastKnownServers(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return last
+	}
 	events := func(m machine) string {
 		rows, err := s.db.Query(`SELECT kind || ' ' || code FROM machine_events WHERE machine_id = ? ORDER BY id`, m.ID)
 		if err != nil {
@@ -574,17 +603,17 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 	stopped := []map[string]any{{"id": "xxxxxxxxxx", "name": "x", "phase": "stopped"}}
 	e.clock.add(10 * time.Second)
 	s.claimServers(alpha, stopped)
-	if last := s.lastKnownServers(alpha); len(last) != 1 || last[0]["phase"] != "online" || !lastKnownAt(last[0]).Equal(e.clock.now().Add(-10*time.Second)) {
+	if last := lastKnown(alpha); len(last) != 1 || last[0]["phase"] != "online" || !lastKnownAt(last[0]).Equal(e.clock.now().Add(-10*time.Second)) {
 		t.Fatalf("within 30 s: %v", last)
 	}
 	e.clock.add(25 * time.Second)
 	s.claimServers(alpha, stopped)
-	if last := s.lastKnownServers(alpha); len(last) != 1 || last[0]["phase"] != "stopped" || !lastKnownAt(last[0]).Equal(e.clock.now()) {
+	if last := lastKnown(alpha); len(last) != 1 || last[0]["phase"] != "stopped" || !lastKnownAt(last[0]).Equal(e.clock.now()) {
 		t.Fatalf("after 30 s: %v", last)
 	}
 
 	s.claimServers(alpha, nil)
-	if owner("xxxxxxxxxx") != local.ID || len(s.lastKnownServers(alpha)) != 0 {
+	if owner("xxxxxxxxxx") != local.ID || len(lastKnown(alpha)) != 0 {
 		t.Fatal("a server alpha no longer lists is forgotten")
 	}
 	s.claimCreated(alpha, []byte(`{"id":"0123456789abcdef","serverId":"newsrvabcd"}`))
@@ -601,14 +630,88 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 		t.Fatalf("a server made on the dashboard's machine is kept as its: %q, odd ids %d", mid, n)
 	}
 
-	// Removing a machine ends its disputes and forgets its servers.
+	// Removing a machine ends its disputes, and its servers go to no machine.
 	s.claimServers(beta, serverList("newsrvabcd", "zzzzzzzzzz"))
 	if owner("newsrvabcd") != "disputed" {
 		t.Fatal("beta disputes alpha's new server")
 	}
-	s.onMachineEvent(machinelink.Event{Kind: machinelink.EventRemoved, MachineID: beta.ID, Name: "beta", Actor: "admin", At: e.clock.now()})
-	if owner("newsrvabcd") != alpha.ID || owner("zzzzzzzzzz") != local.ID {
-		t.Fatal("a removed machine's servers and disputes are gone")
+	e.removeMachine(t, beta)
+	if owner("newsrvabcd") != alpha.ID {
+		t.Fatal("a removed machine's disputes are gone")
+	}
+	if _, err := s.machineForServer("zzzzzzzzzz"); !errors.Is(err, errNotFound) {
+		t.Fatalf("a removed machine's server goes to %v", err)
+	}
+}
+
+// removeMachine removes m as the machine link does: it's revoked, then the
+// panel hears of it.
+func (e *env) removeMachine(t *testing.T, m machine) {
+	t.Helper()
+	if _, err := e.srv.db.Exec(`UPDATE machines SET revoked_at = ? WHERE id = ?`, millis(e.clock.now()), m.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.onMachineEvent(machinelink.Event{Kind: machinelink.EventRemoved, MachineID: m.ID, Name: m.Name, Actor: "admin", At: e.clock.now()})
+}
+
+// A listing claimed after its machine was removed changes nothing, a server
+// made while a listing was on its way keeps its record, a removed machine's
+// servers go to no machine, and the machine that lists them next (the same
+// host, joined again) takes them over.
+func TestServerRecordsFollowWhichMachinesAreStillJoined(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		check func(t *testing.T, e *env, cookie, csrf string, alpha machine)
+	}{
+		{"a listing claimed after its machine was removed", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			listedAt := e.clock.now()
+			e.clock.add(time.Second)
+			e.removeMachine(t, alpha)
+			if got := e.srv.claimListing(alpha, serverList("xxxxxxxxxx", "yyyyyyyyyy"), listedAt); len(got) != 0 {
+				t.Fatalf("the removed machine shows %q", ids(got))
+			}
+			var n int
+			e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, alpha.ID).Scan(&n)
+			if n != 1 || e.srv.listings.has(alpha.ID, "yyyyyyyyyy") {
+				t.Fatalf("the removed machine's claim was saved: %d records, listing kept %v", n, e.srv.listings.has(alpha.ID, "yyyyyyyyyy"))
+			}
+		}},
+		{"a server made while a listing was on its way", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			listedAt := e.clock.now()
+			e.clock.add(time.Second)
+			e.srv.claimCreated(alpha, []byte(`{"serverId":"newsrvabcd"}`))
+			e.srv.claimListing(alpha, serverList("xxxxxxxxxx"), listedAt)
+			if m, err := e.srv.machineForServer("newsrvabcd"); err != nil || m.ID != alpha.ID {
+				t.Fatalf("the new server goes to %v %v", m.ID, err)
+			}
+		}},
+		{"a removed machine's server", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			e.removeMachine(t, alpha)
+			if _, err := e.srv.machineForServer("xxxxxxxxxx"); !errors.Is(err, errNotFound) {
+				t.Fatalf("it goes to %v", err)
+			}
+			if r := e.do(t, "POST", "/api/servers/xxxxxxxxxx/start", `{}`, auth(cookie, csrf)); r.status != http.StatusNotFound || e.sawLocally("POST /v1/servers/xxxxxxxxxx/start") {
+				t.Fatalf("start: %d %v", r.status, r.body)
+			}
+		}},
+		{"the same host, joined again", func(t *testing.T, e *env, cookie, csrf string, alpha machine) {
+			e.removeMachine(t, alpha)
+			again := e.addRemote(t, "againagain", "alpha")
+			if got := e.srv.claimServers(again, serverList("xxxxxxxxxx")); ids(got) != "xxxxxxxxxx" || got[0]["disputed"] != nil {
+				t.Fatalf("the machine joined again shows %v", got)
+			}
+			if m, err := e.srv.machineForServer("xxxxxxxxxx"); err != nil || m.ID != again.ID {
+				t.Fatalf("the server goes to %v %v", m.ID, err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, csrf := e.setup(t)
+			alpha := e.addRemote(t, "alphaalpha", "alpha")
+			e.srv.claimServers(alpha, serverList("xxxxxxxxxx"))
+			tc.check(t, e, cookie, csrf, alpha)
+		})
 	}
 }
 
@@ -626,6 +729,88 @@ func TestAMachineCantFillTheDatabaseWithServers(t *testing.T) {
 	e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, alpha.ID).Scan(&n)
 	if n != maxMachineServers || !strings.Contains(e.logs.String(), "more servers than the dashboard keeps") {
 		t.Fatalf("rows kept: %d", n)
+	}
+}
+
+// Every change the dashboard makes on a machine names who makes it, since a
+// joined machine's link refuses one that doesn't. A join request's Discord
+// alert goes to the dashboard's own agent, which holds the Discord settings,
+// with the server's name.
+func TestEveryChangeOnAMachineNamesWhoMakesIt(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	ra := newRemoteAgent()
+	rid, _ := e.joinMachine(t, cookie, csrf, ra)
+	var list []map[string]any
+	if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk rstuvwxyzq" {
+		t.Fatalf("servers: %d %v", r, list)
+	}
+	local, err := e.srv.machineByID(e.localMachine(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := e.srv.machineByID(rid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered := func(r resp) error {
+		if r.status/100 != 2 {
+			return fmt.Errorf("%d %v", r.status, r.body)
+		}
+		return nil
+	}
+	const imp, invite = "0123456789abcdef", "invite:abcdefghjkmn"
+	for _, on := range []struct {
+		m      machine
+		server string
+	}{{local, "abcdefghjk"}, {joined, "rstuvwxyzq"}} {
+		type change struct {
+			name, key, actor string
+			do               func() error
+		}
+		changes := []change{
+			{"adding a player, as an invite link and an approved join request do", "POST /v1/servers/" + on.server + "/whitelist", invite, func() error {
+				_, err := e.srv.addToWhitelist(context.Background(), on.m, on.server, mojang.Profile{ID: "5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f", Name: "PixelPia"}, invite)
+				return err
+			}},
+			{"taking a player off the allowlist", "DELETE /v1/servers/" + on.server + "/whitelist/Steve", "admin", func() error {
+				return answered(e.do(t, "DELETE", "/api/servers/"+on.server+"/whitelist/Steve", ``, auth(cookie, csrf)))
+			}},
+		}
+		for _, step := range []string{"inspect", "preview", "apply", "create"} {
+			changes = append(changes, change{"the world import's " + step, "POST /v1/world-imports/" + imp + "/" + step, "admin", func() error {
+				return answered(e.do(t, "POST", "/api/machines/"+on.m.ID+"/world-imports/"+imp+"/"+step, `{}`, auth(cookie, csrf)))
+			}})
+		}
+		for _, c := range changes {
+			t.Run(on.m.Kind+", "+c.name, func(t *testing.T) {
+				if err := c.do(); err != nil {
+					t.Fatal(err)
+				}
+				if on.m.Kind == localKind {
+					if !e.sawLocally(c.key) {
+						t.Fatalf("the dashboard's agent never got %s", c.key)
+					}
+				} else if actor, ok := ra.saw(c.key); !ok || actor != c.actor {
+					t.Fatalf("the joined machine got %s: %v, from %q", c.key, ok, actor)
+				}
+			})
+		}
+	}
+
+	e.srv.notifyJoinRequest(context.Background(), "Cobblemon", invites.JoinRequest{ServerID: "rstuvwxyzq", PlayerName: "PixelPia"}, invite)
+	e.agent.mu.Lock()
+	body := e.agent.lastBody["POST /v1/discord/notify"]
+	e.agent.mu.Unlock()
+	var alert api.DiscordNotifyRequest
+	if err := json.Unmarshal([]byte(body), &alert); err != nil || alert.Kind != api.DiscordJoinRequested || alert.ServerID != "rstuvwxyzq" ||
+		alert.ServerName != "Cobblemon" || alert.Player != "PixelPia" || alert.Actor != invite {
+		t.Fatalf("the dashboard's agent got the join request's alert as %q", body)
+	}
+	if _, ok := ra.saw("POST /v1/discord/notify"); ok {
+		t.Fatal("the joined machine, which has no Discord settings, got the alert")
 	}
 }
 
@@ -1508,6 +1693,257 @@ func TestBackupFileNames(t *testing.T) {
 	} {
 		if got := backupFileName(bid, tc.disposition); got != tc.want {
 			t.Errorf("%s: %s", tc.disposition, got)
+		}
+	}
+}
+
+// Every server in the list has a slug no other one has, since the
+// dashboard's pages find a server by its slug: a later machine's duplicate
+// gets a number, skipping slugs another server already has.
+func TestEveryServerInTheListHasItsOwnSlug(t *testing.T) {
+	server := func(id, slug string) map[string]any {
+		return map[string]any{"id": id, "slug": slug, "name": slug, "phase": "online"}
+	}
+	for _, tc := range []struct {
+		name        string
+		local       string // the dashboard's own server's slug, or ""
+		alpha, beta []map[string]any
+		want        string // id=slug, in the list's order
+	}{
+		{"the dashboard's machine and a joined machine both have my-server", "my-server", []map[string]any{server("xxxxxxxxxx", "my-server")}, nil,
+			"abcdefghjk=my-server xxxxxxxxxx=my-server-2"},
+		{"two joined machines both have survival", "", []map[string]any{server("xxxxxxxxxx", "survival")}, []map[string]any{server("zzzzzzzzzz", "survival")},
+			"xxxxxxxxxx=survival zzzzzzzzzz=survival-2"},
+		{"another machine already has survival-2", "survival", []map[string]any{server("xxxxxxxxxx", "survival")}, []map[string]any{server("zzzzzzzzzz", "survival-2")},
+			"abcdefghjk=survival xxxxxxxxxx=survival-3 zzzzzzzzzz=survival-2"},
+		{"slugs no other server has", "survival", []map[string]any{server("xxxxxxxxxx", "creative")}, []map[string]any{server("zzzzzzzzzz", "skyblock")},
+			"abcdefghjk=survival xxxxxxxxxx=creative zzzzzzzzzz=skyblock"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, _ := e.setup(t)
+			local := `[]`
+			if tc.local != "" {
+				local = `[{"id":"abcdefghjk","slug":"` + tc.local + `","name":"Survival","phase":"online"}]`
+			}
+			e.reply("GET", "/v1/servers", local)
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			e.srv.claimServers(alpha, tc.alpha)
+			e.srv.claimServers(beta, tc.beta)
+			var list []map[string]any
+			if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK {
+				t.Fatalf("servers: %d", r)
+			}
+			var got []string
+			for _, sv := range list {
+				got = append(got, fmt.Sprintf("%v=%v", sv["id"], sv["slug"]))
+			}
+			if strings.Join(got, " ") != tc.want {
+				t.Fatalf("servers %q, want %q", strings.Join(got, " "), tc.want)
+			}
+		})
+	}
+}
+
+// A machine that can't answer holds up no change on the Team page. With a
+// joined machine away, demoting a member (whose admin token stops at once),
+// making a team invite, and previewing and accepting it go by the servers
+// the dashboard knows, the joined machine's as it last listed them. With no
+// machine to answer, taking rights away still works.
+func TestAMachineThatCantAnswerHoldsUpNoTeamChange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		away  func(t *testing.T, e *env, cookie, csrf string)
+		known bool // whether the dashboard still knows its servers
+	}{
+		{"a joined machine that never connected", func(t *testing.T, e *env, cookie, csrf string) {
+			e.srv.claimServers(e.addRemote(t, "alphaalpha", "alpha"), serverList("xxxxxxxxxx"))
+		}, true},
+		{"a joined machine that went away", func(t *testing.T, e *env, cookie, csrf string) {
+			_, link := e.joinMachine(t, cookie, csrf, newRemoteAgent())
+			var list []map[string]any
+			if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" {
+				t.Fatalf("servers before it went away: %v", list)
+			}
+			link.stop()
+		}, true},
+		{"a joined machine whose agent answers with an error", func(t *testing.T, e *env, cookie, csrf string) {
+			ra := newRemoteAgent()
+			ra.handle("GET /v1/servers", func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"error":"Something went wrong.","code":"internal"}`, http.StatusInternalServerError)
+			})
+			e.joinMachine(t, cookie, csrf, ra)
+		}, true},
+		{"the dashboard's own agent, with no joined machine", func(t *testing.T, e *env, cookie, csrf string) {
+			e.agent.mu.Lock()
+			e.agent.statuses["GET /v1/servers"] = http.StatusInternalServerError
+			e.agent.mu.Unlock()
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnvConfig(t, withDomain, nil)
+			own := owner(t, e)
+			e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+			e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+			alex := addAdmin(t, e, "alex", "*")
+			token, _ := e.newToken(t, alex.cookie, alex.csrf, `{"name":"Alex's agent","role":"admin","allServers":true}`)
+			tc.away(t, e, own.cookie, own.csrf)
+
+			if r := e.do(t, "PUT", alex.path(), `{"role":"moderator","servers":{"all":true}}`, own.auth()); r.status != http.StatusOK {
+				t.Fatalf("demote an admin: %d %v", r.status, r.body)
+			}
+			var revoked int64
+			if err := e.srv.db.QueryRow(`SELECT revoked_at FROM api_tokens WHERE id = ?`, token).Scan(&revoked); err != nil || revoked == 0 {
+				t.Fatalf("the demoted admin's token still works (%v)", err)
+			}
+			if !tc.known {
+				if r := e.do(t, "PUT", alex.path(), `{"role":"admin","servers":{"all":true}}`, own.auth()); r.status/100 == 2 {
+					t.Fatalf("a wider role without the servers: %d %v", r.status, r.body)
+				}
+				return
+			}
+			r := e.do(t, "POST", "/api/team/invites", `{"role":"viewer","servers":{"servers":["abcdefghjk"]}}`, own.auth())
+			path, _ := r.body["path"].(string)
+			code, ok := strings.CutPrefix(path, invites.JoinPath+"/")
+			if r.status != http.StatusCreated || !ok {
+				t.Fatalf("make a team invite: %d %v", r.status, r.body)
+			}
+			if r := e.public(t, "preview", codeBody(code)); r.status != http.StatusOK {
+				t.Fatalf("preview the invite: %d %v", r.status, r.body)
+			}
+			if r := e.public(t, "accept", codeBody(code, "username", "sam", "password", "member password 1")); r.status != http.StatusOK {
+				t.Fatalf("accept the invite: %d %v", r.status, r.body)
+			}
+		})
+	}
+}
+
+// A joined machine that can't be reached shows its servers as it last
+// listed them. When those can't be read, the list fails as a database
+// error, for the dashboard and AI agents alike, rather than show the
+// machine with no servers, as though they had been deleted.
+func TestAnAwayMachinesServersAreNeverShownAsNone(t *testing.T) {
+	for _, tc := range []struct {
+		name, breaks string
+		readable     bool
+	}{
+		{"its last known servers can be read", "", true},
+		{"its last known servers can't be read", `ALTER TABLE server_machines RENAME TO server_machines_gone`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, csrf := e.setup(t)
+			e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+			alpha := e.addRemote(t, "alphaalpha", "alpha")
+			e.srv.claimServers(alpha, serverList("xxxxxxxxxx"))
+			if tc.breaks != "" {
+				if _, err := e.srv.db.Exec(tc.breaks); err != nil {
+					t.Fatal(err)
+				}
+			}
+			servers, err := (mcpBackend{e.srv}).Servers(context.Background())
+			if tc.readable {
+				var list []map[string]any
+				if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk xxxxxxxxxx" || list[1]["lastKnownAt"] == nil {
+					t.Fatalf("servers: %d %v", r, list)
+				}
+				if err != nil || len(servers) != 2 {
+					t.Fatalf("an AI agent's list: %v %v", servers, err)
+				}
+				return
+			}
+			if r := e.do(t, "GET", "/api/servers", "", auth(cookie, csrf)); r.status != http.StatusInternalServerError || r.body["error"] != "Database error." {
+				t.Fatalf("servers: %d %v", r.status, r.body)
+			}
+			var te *mcp.ToolError
+			if !errors.As(err, &te) || te.Kind != mcp.KindInternal {
+				t.Fatalf("an AI agent's list: %v %v", servers, err)
+			}
+			if !strings.Contains(e.logs.String(), "read a machine's last known servers") {
+				t.Fatal("the failed read isn't logged")
+			}
+		})
+	}
+}
+
+// A removed machine's servers keep their records, but show nowhere as
+// servers: not in the server list or its slugs, the Team page's servers or
+// a team invite, nor AI agents' list or tools. Another machine gets such a
+// server only by listing it.
+func TestARemovedMachinesServersShowNowhere(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","slug":"survival","name":"Survival","phase":"online"}]`)
+	alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+	e.srv.claimServers(alpha, []map[string]any{{"id": "xxxxxxxxxx", "slug": "survival", "name": "Old survival", "phase": "online"}})
+	e.srv.claimServers(beta, []map[string]any{{"id": "zzzzzzzzzz", "slug": "creative", "name": "Creative", "phase": "online"}})
+	e.removeMachine(t, alpha)
+	listed := func(list []map[string]any) string {
+		var out []string
+		for _, sv := range list {
+			out = append(out, fmt.Sprintf("%v=%v", sv["id"], sv["slug"]))
+		}
+		return strings.Join(out, " ")
+	}
+	for _, c := range []struct {
+		where string
+		check func() error
+	}{
+		{"the server list and its slugs", func() error {
+			var list []map[string]any
+			if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || listed(list) != "abcdefghjk=survival zzzzzzzzzz=creative" {
+				return fmt.Errorf("%d %s", r, listed(list))
+			}
+			return nil
+		}},
+		{"the Team page's servers", func() error {
+			var team struct{ Servers []serverRef }
+			if r := e.get(t, "/api/team", cookie, &team); r != http.StatusOK || len(team.Servers) != 2 || team.Servers[0].ID != "abcdefghjk" || team.Servers[1].ID != "zzzzzzzzzz" {
+				return fmt.Errorf("%d %v", r, team.Servers)
+			}
+			return nil
+		}},
+		{"a team invite for it", func() error {
+			if r := e.do(t, "POST", "/api/team/invites", `{"role":"viewer","servers":{"servers":["xxxxxxxxxx"]}}`, auth(cookie, csrf)); r.status != http.StatusBadRequest {
+				return fmt.Errorf("%d %v", r.status, r.body)
+			}
+			return nil
+		}},
+		{"AI agents' list_servers", func() error {
+			list, err := (mcpBackend{e.srv}).Servers(context.Background())
+			if err != nil || len(list) != 2 || list[0].ID != "abcdefghjk" || list[1].ID != "zzzzzzzzzz" {
+				return fmt.Errorf("%v %v", list, err)
+			}
+			return nil
+		}},
+		{"AI agents' tools", func() error {
+			if _, err := (mcpBackend{e.srv}).Agent(context.Background(), "xxxxxxxxxx"); err == nil {
+				return errors.New("a tool reached a machine for it")
+			}
+			return nil
+		}},
+	} {
+		if err := c.check(); err != nil {
+			t.Errorf("%s: %v", c.where, err)
+		}
+	}
+
+	for _, step := range []struct {
+		name   string
+		act    func()
+		goesTo string // "beta", or "" for no machine
+	}{
+		{"beta makes a server with its id", func() { e.srv.claimCreated(beta, []byte(`{"serverId":"xxxxxxxxxx"}`)) }, ""},
+		{"beta lists its own servers", func() { e.srv.claimServers(beta, serverList("zzzzzzzzzz")) }, ""},
+		{"beta lists it", func() { e.srv.claimServers(beta, serverList("zzzzzzzzzz", "xxxxxxxxxx")) }, "beta"},
+	} {
+		step.act()
+		m, err := e.srv.machineForServer("xxxxxxxxxx")
+		switch {
+		case step.goesTo == "" && !errors.Is(err, errNotFound):
+			t.Errorf("after %s, the removed machine's server goes to %v %v", step.name, m.ID, err)
+		case step.goesTo == "beta" && (err != nil || m.ID != beta.ID):
+			t.Errorf("after %s, it goes to %v %v, want beta", step.name, m.ID, err)
 		}
 	}
 }

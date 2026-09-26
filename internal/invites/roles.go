@@ -119,6 +119,12 @@ func CanEdit(a, target Account, role string, servers Scope) error {
 	return CanGrant(a, role, servers)
 }
 
+// Narrows reports whether role and servers give target no more than they
+// have: a project role no higher than theirs, on servers within theirs.
+func Narrows(target Account, role string, servers Scope) bool {
+	return rank(role) != 0 && rank(role) <= rank(target.ProjectRole) && servers.Within(target.Servers)
+}
+
 // CanRemove reports whether a may remove target from the team, by the rule
 // of CanEdit.
 func CanRemove(a, target Account) error { return canTouch(a, target) }
