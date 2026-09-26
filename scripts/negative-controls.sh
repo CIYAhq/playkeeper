@@ -2759,6 +2759,12 @@ control "the upload being added to is never forgotten as stale" internal/agent/w
   'stale := a.staleImports(a.now(), imp)' \
   'stale := a.staleImports(a.now(), nil)' \
   ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a cancel marks the upload gone as it checks it" internal/agent/worldimports.go \
+  '	if !inUse {
+		imp.gone = true
+	}' \
+  '' \
+  ./internal/agent '^TestCancellingAnUploadNeverDeletesItFromUnderAnOperation$'
 control "an imported world moves back only once the server stopped" internal/agent/worldimports.go \
   '	if err := s.stopServer(ctx, h); err != nil {
 		if s.stopping() {' \

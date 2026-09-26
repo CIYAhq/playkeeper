@@ -974,6 +974,61 @@ func TestStaleUploadsMakeWayForNewOnes(t *testing.T) {
 	}
 }
 
+// Cancelling an upload decides in one step whether an operation has it. An
+// operation claiming it between the cancel's check and the deleting of its
+// files finds it gone, and a cancel after an operation claimed it is
+// refused, so an upload is never deleted from under an operation.
+func TestCancellingAnUploadNeverDeletesItFromUnderAnOperation(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		first string // what claimed the upload before the cancel
+		late  string // what claims it between the cancel's check and the deleting
+		want  int
+	}{
+		{name: "a create claiming it as it's cancelled", late: "creating", want: 204},
+		{name: "an import claiming it as it's cancelled", late: "applying", want: 204},
+		{name: "a create that claimed it first", first: "creating", want: 409},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			id := e.openImport("/v1/world-imports")
+			imp, err := e.a.worldImport(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.first != "" {
+				if err := imp.claim(c.first, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			claims := make(chan error, 1)
+			importCancelled = func(i *worldImport) {
+				if c.late != "" {
+					claims <- i.claim(c.late, time.Now())
+				}
+			}
+			t.Cleanup(func() { importCancelled = func(*worldImport) {} })
+			code, out := e.call("DELETE", importPath(id, "?actor=admin"), nil)
+			if code != c.want {
+				t.Fatalf("the cancel: %d %v, want %d", code, out, c.want)
+			}
+			if c.late != "" {
+				select {
+				case err := <-claims:
+					if err != errImportGone {
+						t.Fatalf("a %s claiming the upload the cancel had checked: %v, want it gone", c.late, err)
+					}
+				default:
+					t.Fatal("the cancel never got as far as deleting the upload")
+				}
+			}
+			if gone := code == 204; exists(filepath.Join(e.cfg.StagingDir(), "import-"+id)) == gone {
+				t.Fatalf("the cancel answered %d, but the upload's files say otherwise", code)
+			}
+		})
+	}
+}
+
 // An imported world that did not start is swapped back out only once the
 // server has stopped: the imported world may still be running, and would
 // write into the previous one. When stopping it fails, or the agent itself

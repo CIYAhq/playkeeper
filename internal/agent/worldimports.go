@@ -1066,16 +1066,27 @@ func (a *Agent) hWorldImportDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	// Checked and marked gone in one go, so no operation claims the upload
+	// between the check and the deleting of its files.
 	imp.mu.Lock()
 	busy := imp.busy
+	inUse := busy == "applying" || busy == "creating"
+	if !inUse {
+		imp.gone = true
+	}
 	imp.mu.Unlock()
-	if busy == "applying" || busy == "creating" {
+	if inUse {
 		writeError(w, importBusy(busy))
 		return
 	}
+	importCancelled(imp)
 	a.dropImport(imp)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// importCancelled runs between a cancel's check of an upload and the
+// deleting of its files; tests replace it to claim the upload there.
+var importCancelled = func(imp *worldImport) {}
 
 // gameplayFrom sets the game settings an imported world carries. The image
 // writes them into server.properties at every start, so they live in the
