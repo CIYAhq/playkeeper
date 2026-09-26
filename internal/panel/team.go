@@ -495,9 +495,16 @@ func (s *Server) hMachineActivity(w http.ResponseWriter, r *http.Request, sess *
 	writeJSON(w, status, s.withActorNames(out))
 }
 
-// hActivity is Home's recent activity: every machine's that answers, for
-// the servers the account can use, and the team's joins once, whichever
-// machines answer. It fails only when no machine does.
+// activityTimeout bounds how long Home's activity waits for each machine.
+// One that doesn't answer in time is left out of that refresh, so a joined
+// machine whose agent hangs holds up neither the other machines' lines nor
+// the team's joins.
+var activityTimeout = 3 * time.Second
+
+// hActivity is Home's recent activity: every machine's that answers within
+// activityTimeout, for the servers the account can use, and the team's
+// joins once, whichever machines answer. It fails only when no machine
+// does.
 func (s *Server) hActivity(w http.ResponseWriter, r *http.Request, sess *session) {
 	limit := activityLimit(r)
 	machines, err := s.machines()
@@ -510,7 +517,7 @@ func (s *Server) hActivity(w http.ResponseWriter, r *http.Request, sess *session
 	var wg sync.WaitGroup
 	for i, m := range machines {
 		wg.Go(func() {
-			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
+			ctx, cancel := context.WithTimeout(r.Context(), activityTimeout)
 			defer cancel()
 			lists[i], _, errs[i] = machineActivity(ctx, m, sess.Access, limit)
 		})

@@ -371,6 +371,21 @@ describe('Home', () => {
     expect(activityAsked()).toEqual(['/api/activity?limit=5'])
   })
 
+  // A machine that is slow to answer holds up only the activity card, which waits in place.
+  it('shows every machine’s servers while the activity is still on its way', async () => {
+    answer({})
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const text = await render(<HomePage />, workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] }))
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+    expect(text).toContain('On my-vps')
+    expect(text).toContain('On home-server')
+    expect(text).toContain('Cobblemon')
+    expect(text).toContain('2 servers on 2 machines')
+    const card = [...document.querySelectorAll('section, article, div')].find((el) => el.firstElementChild?.textContent === 'Across your servers')
+    expect(card?.querySelector('[data-slot="skeleton"]')).not.toBeNull()
+    expect(text).not.toContain('Nothing yet. What happens on your servers shows up here.')
+  })
+
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
     const text = await render(<HomePage />, workspace({ agentDown: true, stale: true, servers: [server({ players: { online: 3, max: 10, names: [], source: '', at: '' } })] }))
     expect(text).toContain('Playkeeper can’t see your servers right now')

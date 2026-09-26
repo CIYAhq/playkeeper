@@ -1176,6 +1176,15 @@ control "only the owner changes the CurseForge key, not an admin of all servers"
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
   ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
+control "Home's activity waits only so long for a machine that hangs" internal/panel/team.go \
+  'ctx, cancel := context.WithTimeout(r.Context(), activityTimeout)' \
+  'ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)' \
+  ./internal/panel '^TestHomesActivityWaitsOnlySoLongForAMachineThatHangs$'
+webcontrol "Home shows every machine's servers while the activity is on its way" web/src/pages/home.tsx \
+  'const activity = usePoll(recentActivity, 10000)' \
+  'const activity = usePoll(recentActivity, 10000)
+  if (!activity.data) return null' \
+  web/src/pages/pages.test.tsx 'still on its way'
 control "only the owner removes any machine's CurseForge key, not an admin of all servers" internal/panel/server.go \
   'mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
   'mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \

@@ -412,6 +412,49 @@ func TestHomeShowsEachTeamJoinOnce(t *testing.T) {
 	}
 }
 
+// Home's activity waits only so long for a joined machine whose agent hangs:
+// the dashboard's machine's lines and the team's joins come without it.
+func TestHomesActivityWaitsOnlySoLongForAMachineThatHangs(t *testing.T) {
+	was := activityTimeout
+	activityTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { activityTimeout = was })
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	addMember(t, e, "alex", invites.RoleModerator, "*")
+	e.reply("GET", "/v1/activity", `[{"ts":"2026-09-24T11:03:00Z","serverId":"abcdefghjk","kind":"join","player":"Steve"}]`)
+	ra := newRemoteAgent()
+	asked := make(chan struct{}, 1)
+	release := make(chan struct{})
+	ra.handle("GET /v1/activity", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case asked <- struct{}{}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	e.joined(t, cookie, csrf, ra)
+	t.Cleanup(func() { close(release) })
+	start := time.Now()
+	var acts []api.Activity
+	st := e.get(t, "/api/activity?limit=5", cookie, &acts)
+	took := time.Since(start)
+	select {
+	case <-asked:
+	default:
+		t.Fatal("the joined machine was never asked")
+	}
+	var lines []string
+	for _, a := range acts {
+		lines = append(lines, a.Kind+" "+a.Player+a.Actor)
+	}
+	if st != http.StatusOK || took > 2*time.Second || strings.Join(lines, ", ") != "team_joined alex, join Steve" {
+		t.Fatalf("Home's activity with a machine that hangs: %d after %v: %v", st, took, lines)
+	}
+}
+
 // Removing a member deletes their account and its sessions, an account left
 // without a membership gets nothing, and a restart gives nobody back their
 // rights (H5).
