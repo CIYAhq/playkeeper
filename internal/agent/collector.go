@@ -162,6 +162,7 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 	if ts.After(s.console.lastTS()) {
 		s.console.append(ts, text)
 	}
+	s.pregenLogLine(ts, text)
 	p := minecraft.Parse(text)
 	if p.Kind == minecraft.EventNone {
 		return

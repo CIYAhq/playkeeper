@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
@@ -21,6 +21,7 @@ import { busyReason, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
 
 function downloadURL(s: ServerStatus, b: Backup): string {
   return serverApi(s.id, `/backups/${b.id}/download`)
@@ -96,11 +97,16 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             <ListSkeleton rowClassName="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0" className="mt-2 overflow-hidden rounded-3xl border border-border bg-white" trailing={<Skeleton className="h-10 w-28 shrink-0 rounded-lg" />} />
           )}
         </section>
-        <button type="button" onClick={() => setRestoreSheet(true)} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 text-left">
-          <RotateCcwIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-          <span className="min-w-0 flex-1 text-base font-medium">{t('world.restorePhone')}</span>
-          <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-        </button>
+        <ul className="overflow-hidden rounded-3xl border border-border bg-white">
+          <li className="border-b border-border">
+            <button type="button" onClick={() => setRestoreSheet(true)} className={phoneRow}>
+              <RotateCcwIcon aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-base">{t('world.restorePhone')}</span>
+              <ChevronRightIcon aria-hidden="true" />
+            </button>
+          </li>
+          <PhoneWorldLinks server={s} />
+        </ul>
         <Sheet open={restoreSheet} onOpenChange={setRestoreSheet}>
           <SheetPopup side="bottom">
             <div className="px-5 pt-3">
@@ -251,8 +257,6 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
 
 function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] | undefined }) {
   const later = [
-    { icon: <MapIcon />, title: t('world.pregen'), hint: t('world.pregenHint') },
-    { icon: <PackageIcon />, title: t('world.packs'), hint: t('world.packsHint') },
     { icon: <UploadIcon />, title: t('world.ownWorld'), hint: t('world.ownWorldHint') },
   ]
   return (
@@ -273,12 +277,13 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
           <dd className="mt-0.5 text-lg font-bold tabular-nums">{backups ? backups.length : <InlineSkeleton className="h-5 w-6" />}</dd>
         </div>
       </dl>
-      <ul className="mt-1 flex flex-col">
+      <ul className="mt-3 flex flex-col">
+        <WorldLinks server={s} />
         {later.map((l) => (
-          <li key={l.title} className="flex items-center gap-3 py-2.5 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
+          <li key={l.title} className="flex items-center gap-3 py-1 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
             {l.icon}
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium">{l.title}</span>
+              <span className="block text-[13px] font-semibold">{l.title}</span>
               <span className="block text-xs text-muted-foreground">{l.hint}</span>
             </span>
             <span className="text-xs text-muted-foreground">{t('common.later')}</span>
@@ -458,6 +463,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
           </li>
         ))}
       </ol>
+      <WorldTools server={s} phone={phone} className="mt-6" />
     </div>
   )
 }

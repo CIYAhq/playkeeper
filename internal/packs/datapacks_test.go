@@ -158,8 +158,8 @@ func TestInstallRefusals(t *testing.T) {
 
 	wantCode(t, install(DataPacks{DataDir: filepath.Join(d.DataDir, "missing"), Level: "world"}, "x.zip", pack), CodeFileFailed)
 	writeFile(t, filepath.Join(d.DataDir, "file-world"), "")
-	e := wantCode(t, install(DataPacks{DataDir: d.DataDir, Level: "file-world"}, "x.zip", pack), CodeFileFailed)
-	if !strings.HasPrefix(e.Msg, "Playkeeper couldn't create the world's datapacks folder: ") {
+	e := wantCode(t, install(DataPacks{DataDir: d.DataDir, Level: "file-world"}, "x.zip", pack), CodeFileRefused)
+	if e.Msg != "Playkeeper couldn't install the data pack. file-world in the server's files is not a folder." {
 		t.Errorf("message %q", e.Msg)
 	}
 }
@@ -235,7 +235,7 @@ func TestListDoesNotWaitOnAPipe(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		wantCode(t, err, CodeFileFailed)
+		wantCode(t, err, CodeFileRefused)
 	case <-time.After(5 * time.Second):
 		if fd, err := syscall.Open(pipe, syscall.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
 			syscall.Close(fd)

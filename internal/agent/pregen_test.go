@@ -206,8 +206,20 @@ func (fc *fakeChunky) advance(n int64) {
 // one 8 KiB region file.
 func (fc *fakeChunky) finish(took time.Duration) {
 	fc.mu.Lock()
+	total := fc.task.total
+	fc.mu.Unlock()
+	fc.endAt(total, took)
+}
+
+// endAt has the running task reach the end of its area, taking took in
+// all, and saves it as Chunky saves a task that ran to its end: cancelled,
+// with chunks processed. Chunky saves it while its last chunks still load,
+// so chunks can fall short of the area. The world grows by one 8 KiB
+// region file.
+func (fc *fakeChunky) endAt(chunks int64, took time.Duration) {
+	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	fc.task.chunks, fc.task.millis, fc.task.cancelled = fc.task.total, took.Milliseconds(), true
+	fc.task.chunks, fc.task.millis, fc.task.cancelled = chunks, took.Milliseconds(), true
 	fc.running = false
 	fc.save()
 	region := filepath.Join(fc.dataDir, "world", "region", "r.0.0.mca")
@@ -573,6 +585,68 @@ func TestPregenCancel(t *testing.T) {
 	e.waitFor("the lost task to end", func() bool { return e.pregen().State == "idle" })
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.cancelled' AND result = 'failed' AND detail = 'Chunky no longer has the task'`, e.sid); n != 1 {
 		t.Errorf("%d audit entries for the lost task", n)
+	}
+}
+
+// A task finishes when Chunky logs so, although it saved the task short of
+// the area a moment before. A task cancelled from the console that close to
+// its end, which Chunky never logs as finished, ends as cancelled.
+func TestPregenFinishesWhenChunkyLogsIt(t *testing.T) {
+	e := newAgentEnv(t)
+	e.withSources()
+	e.create()
+	fc := e.chunky()
+	e.fd.addLog("[22:30:00 INFO]: [Chunky] Task finished for world. Processed: 16129 chunks (100.00%), Total time: 0:07:21")
+	e.startPregen("small", true)
+	fc.advance(15000)
+	e.waitFor("progress", func() bool { return e.pregen().Chunks == 15000 })
+	s := e.srv()
+	waiting := func() bool {
+		s.pg.mu.Lock()
+		defer s.pg.mu.Unlock()
+		return !s.pg.idleSince.IsZero()
+	}
+
+	// What Chunky 1.4.40 on Paper 26.2 saved and logged at the end of a
+	// small task: the save came as the last 50 chunks were loading.
+	fc.endAt(16079, 440900*time.Millisecond)
+	e.waitFor("Chunky to report the saved task", waiting)
+	if v := e.pregen(); v.State != "paused" {
+		t.Fatalf("before Chunky logged the finish: %+v", v)
+	}
+	e.fd.addLog("[22:56:56 INFO]: [Chunky] Task finished for world. Processed: 16129 chunks (100.00%), Total time: 0:07:21")
+	e.waitFor("the finished task", func() bool { return e.pregen().State == "finished" })
+	v := e.pregen()
+	if v.Chunks != 16129 || v.Total != 16129 || v.Percent != 100 || v.ElapsedSeconds != 441 || v.DiskBytes == nil || *v.DiskBytes != 8192 {
+		t.Fatalf("finished: %+v", v)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'playkeeper' AND action = 'pregen.finished' AND detail = '16129 chunks in 441 seconds'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for the finish", n)
+	}
+
+	e.startPregen("small", true)
+	fc.advance(16079)
+	e.waitFor("progress", func() bool { return e.pregen().Chunks == 16079 })
+	fc.answer("chunky cancel world")
+	fc.answer("chunky confirm")
+	e.fd.addLog("[23:10:02 INFO]: [Chunky] Task stopped for world.")
+	e.fd.addLog("[23:10:02 INFO]: [Chunky] Task cancelled for world.")
+	e.waitFor("Chunky to report the cancelled task", waiting)
+	if v := e.pregen(); v.State != "paused" {
+		t.Fatalf("a task just cancelled from the console: %+v", v)
+	}
+	s.pg.mu.Lock()
+	s.pg.idleSince = s.pg.idleSince.Add(-pregenIdleGrace)
+	s.pg.mu.Unlock()
+	e.waitFor("the cancelled task to end", func() bool { return e.pregen().State == "idle" })
+	if n := e.countRows(`SELECT COUNT(*) FROM pregen WHERE server_id = ? AND ended = 'cancelled' AND chunks = 16079`, e.sid); n != 1 {
+		t.Error("the task cancelled from the console was not recorded as cancelled")
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'playkeeper' AND action = 'pregen.cancelled' AND result = 'succeeded' AND detail = 'cancelled from the console'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for the cancel", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.finished'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for finishes", n)
 	}
 }
 

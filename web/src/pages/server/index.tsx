@@ -26,6 +26,8 @@ import { PlayersPage } from './players'
 import { PluginsPage, PluginsPhoneHeader } from './plugins'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
+import { PacksPage } from './world-packs'
+import { PregenPage } from './world-pregen'
 
 const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
   { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
@@ -74,7 +76,7 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
       body = <PlayersPage server={server} />
       break
     case 'world':
-      body = <WorldPage server={server} />
+      body = sub === 'pregen' ? <PregenPage server={server} /> : sub === 'packs' ? <PacksPage server={server} /> : <WorldPage server={server} />
       break
     case 'plugins':
     case 'mods':
@@ -89,6 +91,9 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
     }
   }
   if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
+  // The Plugins tab keeps its running job and highlighted file across its
+  // views, and animates switching between them itself.
+  const pageKey = tab === 'plugins' || tab === 'mods' ? tab : `${tab}:${sub ?? ''}`
   return (
     <>
       {phone ? (
@@ -96,13 +101,13 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
         ) : (tab === 'plugins' || tab === 'mods') && !settingUp ? (
           <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
-        ) : (
+        ) : tab === 'world' && sub && !settingUp ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
-      <PageBody key={tab} className="flex flex-1 animate-page flex-col gap-4">
+      <PageBody key={pageKey} className="flex flex-1 animate-page flex-col gap-4">
         {body}
       </PageBody>
     </>
