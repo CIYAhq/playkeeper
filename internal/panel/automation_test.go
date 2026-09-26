@@ -46,6 +46,52 @@ func TestWaveSevenRoutesReachTheAgent(t *testing.T) {
 	}
 }
 
+// Schedule previews and backup-rule estimates follow typing: they have a
+// bucket of their own, larger than the 30 actions a minute, and using it up
+// leaves the actions alone.
+func TestPreviewsHaveTheirOwnRateLimit(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	srv := "/api/servers/" + sampleServer
+	previews := []string{srv + "/schedules/preview", srv + "/backup-rules/estimate"}
+	for i := range 100 {
+		if r := e.do(t, "POST", previews[i%2], `{}`, auth(cookie, csrf)); r.status != http.StatusOK {
+			t.Fatalf("preview %d, %s: %d %v", i+1, previews[i%2], r.status, r.body)
+		}
+	}
+	limited := false
+	for range 50 {
+		if r := e.do(t, "POST", previews[0], `{}`, auth(cookie, csrf)); r.status == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("150 previews in a burst were never rate limited")
+	}
+	for i := range 30 {
+		if r := e.do(t, "POST", srv+"/schedules", `{}`, auth(cookie, csrf)); r.status != http.StatusOK {
+			t.Fatalf("action %d after the previews ran out: %d %v", i+1, r.status, r.body)
+		}
+	}
+	if r := e.do(t, "POST", srv+"/schedules", `{}`, auth(cookie, csrf)); r.status != http.StatusTooManyRequests {
+		t.Fatalf("the 31st action in a burst: %d %v", r.status, r.body)
+	}
+}
+
+func TestEveryPreviewRouteIsACheckedRoute(t *testing.T) {
+	e := newEnv(t)
+	routes := map[string]authLevel{}
+	for _, rt := range e.srv.Routes() {
+		routes[rt.Method+" "+rt.Pattern] = rt.Level
+	}
+	for key := range previewRoutes {
+		if level, ok := routes[key]; !ok || level != needSessionCSRF {
+			t.Errorf("%s: not a route with a session and a CSRF token (found %v, level %d)", key, ok, level)
+		}
+	}
+}
+
 func TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt(t *testing.T) {
 	e := newEnv(t)
 	cookie, _ := e.setup(t)
