@@ -847,6 +847,11 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Type the server's name, %q, to delete it.", name))
 		return
 	}
+	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {
+		s.audit(actor, "server.deleted", s.id, "refused", "its recovery key was never downloaded")
+		writeError(w, err)
+		return
+	}
 	op, err := s.beginOp("delete", actor, func(ctx context.Context, h *opHandle) error {
 		if err := s.setDesired(api.DesiredStopped); err != nil {
 			return err
@@ -944,6 +949,10 @@ func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cur := a.machineOp(); cur != nil && cur.ID == id {
+		writeJSON(w, http.StatusOK, cur)
+		return
+	}
+	if cur := a.stagingOp(); cur != nil && cur.ID == id {
 		writeJSON(w, http.StatusOK, cur)
 		return
 	}

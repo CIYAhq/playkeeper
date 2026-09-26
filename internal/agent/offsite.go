@@ -203,8 +203,10 @@ func keyFolder(c storedOffsite) string {
 // sameFolder says whether two folders a recovery key file names are one.
 func sameFolder(a, b string) bool { return strings.TrimRight(a, "/") == strings.TrimRight(b, "/") }
 
-// saveOffsite writes the settings and secrets; the keys and when the
-// recovery key was saved are written by their own routes.
+// saveOffsite writes the settings and secrets. It never writes the keys: r
+// may hold keys read before Make a new key replaced them. The keys and when
+// the recovery key was saved are written by their own routes, and the first
+// keys by storeFirstKeys.
 func (s *server) saveOffsite(r offsiteRow) error {
 	cfg := r.cfg
 	cfg.S3.SecretKey, cfg.SFTP.Password, cfg.SFTP.PrivateKey = offsite.Secret{}, offsite.Secret{}, offsite.Secret{}
@@ -212,15 +214,24 @@ func (s *server) saveOffsite(r offsiteRow) error {
 	if err != nil {
 		return err
 	}
-	keys := ""
-	if r.hasKeys {
-		keys = encodeKeys(r.keys)
-	}
-	_, err = s.db.Exec(`INSERT INTO offsite(server_id, enabled, config, secret, password, private_key, ssh_public, keys, updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+	_, err = s.db.Exec(`INSERT INTO offsite(server_id, enabled, config, secret, password, private_key, ssh_public, updated_at) VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(server_id) DO UPDATE SET enabled = excluded.enabled, config = excluded.config, secret = excluded.secret, password = excluded.password,
-			private_key = excluded.private_key, ssh_public = excluded.ssh_public, keys = excluded.keys, updated_at = excluded.updated_at`,
-		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, keys, s.now().UnixMilli())
+			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli())
 	return err
+}
+
+// storeFirstKeys stores k as the server's encryption keys while it has none,
+// and returns the keys it has: keys another request stored first stay.
+func (s *server) storeFirstKeys(k offsite.Keys) (offsite.Keys, error) {
+	if _, err := s.db.Exec(`UPDATE offsite SET keys = ? WHERE server_id = ? AND keys = ''`, encodeKeys(k), s.id); err != nil {
+		return offsite.Keys{}, err
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT keys FROM offsite WHERE server_id = ?`, s.id).Scan(&raw); err != nil {
+		return offsite.Keys{}, err
+	}
+	return decodeKeys(raw)
 }
 
 // spoolDir is where the server's copies are encrypted before they are sent.
@@ -836,13 +847,14 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	madeKeys := false
 	if next.enabled && !next.hasKeys {
 		k, err := offsite.NewKeys(s.now())
 		if err != nil {
 			writeError(w, automationError(err))
 			return
 		}
-		next.keys, next.hasKeys = k, true
+		next.keys, next.hasKeys, madeKeys = k, true, true
 	}
 	moved := row.configured() && offsiteIdentity(row.cfg.Config) != offsiteIdentity(next.cfg.Config)
 	var forgotten []offsiteCopy
@@ -859,6 +871,12 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 	if err := s.saveOffsite(next); err != nil {
 		writeError(w, err)
 		return
+	}
+	if madeKeys {
+		if next.keys, err = s.storeFirstKeys(next.keys); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	if moved {
 		// The recorded copies stay where they were; the rules no longer
@@ -1056,6 +1074,10 @@ func (s *server) hOffsiteNewKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row.keys, row.keySavedAt, row.keySavedFolder = keys, nil, nil
+	// The copy being made is encrypted to the old key: it starts over with
+	// the new one, and so does the rest of the queue.
+	s.stopUpload()
+	s.kickOffsite()
 	s.audit(actor, "offsite.key_rotated", "server", "succeeded", "new key "+rot.Recipient)
 	writeJSON(w, http.StatusOK, offsiteNewKey{Rotation: rot, Offsite: s.offsiteView(row)})
 }
@@ -1272,7 +1294,9 @@ func (s *server) fetchCopy(ctx context.Context, h *opHandle, dest offsiteDest, a
 		}
 	}
 	h.phase("downloading")
+	s.copyReads.RLock()
 	got, err := dest.Download(ctx, dl)
+	s.copyReads.RUnlock()
 	if err != nil {
 		return offsite.Archive{}, dl, automationError(err)
 	}
@@ -1544,7 +1568,8 @@ func (s *server) offsiteLoop(ctx context.Context) {
 	}
 }
 
-// offsiteRound uploads what is due. When the destination changed or copies
+// offsiteRound uploads what is due, encrypted to the key current as it
+// starts: a new key ends the round. When the destination changed or copies
 // were turned off, it first discards what the old destination holds of
 // unfinished uploads.
 func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent string, tidied map[string]bool) (offsiteDest, string) {
@@ -1586,7 +1611,7 @@ func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent s
 	}
 	for ctx.Err() == nil {
 		job, ok := s.claimUpload(ctx)
-		if !ok || !s.uploadOne(ctx, dest, ident, job) {
+		if !ok || !s.uploadOne(ctx, dest, row, job) {
 			break
 		}
 	}
@@ -1647,12 +1672,19 @@ func (s *server) dropUpload(backupID string) {
 	_, _ = s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, backupID)
 }
 
-// uploadOne copies the backup of an upload the uploader claimed, and lets go
-// of the claim once it is done with the upload's row. It reports whether the
+// uploadOne copies the backup of an upload the uploader claimed to dest,
+// which the round opened with the settings and keys in at, and lets go of
+// the claim once it is done with the upload's row. It reports whether the
 // next one can go.
-func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, job uploadJob) bool {
+//
+// A new key saved before the claim is seen here; one saved after it stops
+// the claim. Either way nothing more is encrypted to the old key.
+func (s *server) uploadOne(ctx context.Context, dest offsiteDest, at offsiteRow, job uploadJob) bool {
 	defer s.releaseUpload()
 	uploadClaimed(job)
+	if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {
+		return false
+	}
 	b, err := s.getBackup(job.backupID)
 	if err != nil || b.Verified == nil || !*b.Verified {
 		s.dropUpload(job.backupID)
@@ -1691,13 +1723,19 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, 
 	s.auto.upload = nil
 	s.auto.mu.Unlock()
 	row, lerr := s.loadOffsite()
-	if lerr != nil || !row.enabled || offsiteIdentity(row.cfg.Config) != ident {
+	if lerr == nil && (!row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config)) {
 		// The settings changed meanwhile; the next round sorts it out.
 		return false
 	}
 	if err != nil {
-		s.uploadFailed(ctx, b, job, err)
+		s.uploadFailed(job.ctx, b, job, err)
 		return false
+	}
+	if lerr != nil {
+		// The copy is made: left unrecorded, the next round would make it
+		// again.
+		s.log.Warn("the settings for copies somewhere else can't be read; the copy just made is recorded with those it was made with", "server", s.id, "backup", b.ID, "err", lerr)
+		row = at
 	}
 	s.copyDone(ctx, dest, row, b, cp)
 	return true
@@ -1715,7 +1753,9 @@ func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob,
 		}
 	}
 	if ctx.Err() != nil {
-		// Playkeeper is stopping: the upload carries on next time.
+		// Playkeeper is stopping, or stopUpload stopped the upload for new
+		// settings or a new key: it isn't a failed try, and goes on, or
+		// starts over, next time.
 		_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state) WHERE server_id = ? AND backup_id = ?`, state, s.id, b.ID)
 		return
 	}
@@ -1766,8 +1806,14 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 	}
 }
 
-// pruneOffsite deletes the copies the rules no longer keep.
+// pruneOffsite deletes the copies the rules no longer keep, unless a copy is
+// being downloaded: then it leaves them to the next copy's pruning.
 func (s *server) pruneOffsite(ctx context.Context, dest offsiteDest) {
+	if !s.copyReads.TryLock() {
+		s.log.Info("a copy is being downloaded, so the backup rules delete copies after the next one", "server", s.id)
+		return
+	}
+	defer s.copyReads.Unlock()
 	res, err := s.retentionPlan()
 	if err != nil {
 		s.log.Warn("backup rules could not be applied to the copies", "server", s.id, "err", err)

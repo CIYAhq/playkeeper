@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -230,6 +231,105 @@ func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
 	}
 	if got := removed(); got[first] != "rules <nil>" || got[second] != "person admin" {
 		t.Fatalf("after deleting the second backup by hand: %v", got)
+	}
+}
+
+// While a copy is being downloaded, as a restore does, the backup rules
+// delete no copies where copies go, so a copy they no longer keep isn't
+// deleted from under the download. The next copy's pruning deletes it.
+func TestPruningLeavesACopyThatIsBeingDownloaded(t *testing.T) {
+	cases := []struct {
+		name string
+		// download starts downloading the copy name, and returns what ends
+		// the download.
+		download func(e *agentEnv, dest *fetchDest, name string) (end func())
+	}{
+		{name: "nothing is downloading"},
+		{name: "a restore is downloading it", download: func(e *agentEnv, dest *fetchDest, name string) func() {
+			downloading := make(chan struct{}, 1)
+			dest.answer(func(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+				downloading <- struct{}{}
+				<-ctx.Done()
+				return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
+			})
+			code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+			if code != http.StatusAccepted {
+				e.t.Fatalf("restore: %d %v", code, out)
+			}
+			id := out["id"].(string)
+			select {
+			case <-downloading:
+			case <-time.After(10 * time.Second):
+				e.t.Fatal("the download never started")
+			}
+			return func() {
+				if code, out := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusAccepted {
+					e.t.Fatalf("cancel: %d %v", code, out)
+				}
+				e.waitOp(id)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// The uploader waits after it picks the next copy, until let go.
+			var hold atomic.Bool
+			picked, letGo := make(chan struct{}, 1), make(chan struct{})
+			prev := uploadClaimed
+			uploadClaimed = func(job uploadJob) {
+				if hold.CompareAndSwap(true, false) {
+					picked <- struct{}{}
+					select {
+					case <-letGo:
+					case <-job.ctx.Done():
+					}
+				}
+			}
+			t.Cleanup(func() { uploadClaimed = prev })
+			dest := &fetchDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}
+			e, first, file := withCopies(t, dest)
+			rules := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"last": 1}, "includeManual": true}
+			if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+				t.Fatalf("rules: %d %v", code, out)
+			}
+			name := offsite.CopyName(file)
+			stored := func() bool {
+				dest.mu.Lock()
+				defer dest.mu.Unlock()
+				_, ok := dest.stored[name]
+				return ok
+			}
+			copied := func(id string) {
+				t.Helper()
+				e.waitFor("the copy of "+id, func() bool {
+					return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+				})
+			}
+			hold.Store(true)
+			second := e.backup()
+			select {
+			case <-picked:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the uploader never picked the second copy")
+			}
+			end := func() {}
+			if c.download != nil {
+				end = c.download(e, dest, name)
+			}
+			close(letGo)
+			copied(second)
+			if c.download == nil {
+				e.waitFor("the rules to delete the first copy", func() bool { return !stored() })
+				return
+			}
+			time.Sleep(300 * time.Millisecond)
+			if !stored() || e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first) != 1 {
+				t.Fatal("the rules deleted the copy being downloaded")
+			}
+			end()
+			copied(e.backup())
+			e.waitFor("the rules to delete the first copy once the download ended", func() bool { return !stored() })
+		})
 	}
 }
 
@@ -1031,7 +1131,7 @@ func TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed(t *testing.T) {
 		}
 		problems, _ := out["problems"].([]any)
 		for _, p := range problems {
-			if p, _ := p.(map[string]any); p["code"] == diskRestoresUnknown {
+			if p, _ := p.(map[string]any); p["code"] == diskusage.CodeRestoresUnknown {
 				return fmt.Sprint(p["text"])
 			}
 		}
