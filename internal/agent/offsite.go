@@ -1546,8 +1546,9 @@ type uploadJob struct {
 	ctx       context.Context
 }
 
-// queuedStates reads the saved states of the queued uploads. Its error is
-// never an empty queue: what the states name is kept only while they're read.
+// queuedStates reads the saved states of the queued uploads. A queue that
+// can't be read to the end is an error, never fewer states: AbortStale
+// discards every unfinished upload they don't name.
 func (s *server) queuedStates() ([]*offsite.UploadState, error) {
 	rows, err := s.db.Query(`SELECT state FROM offsite_uploads WHERE server_id = ? AND state != ''`, s.id)
 	if err != nil {
