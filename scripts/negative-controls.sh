@@ -3259,6 +3259,14 @@ control "a machine that lists a removed machine's server takes it over" internal
   'case owner != m.ID && !ownerActive:' \
   'case false && owner != m.ID && !ownerActive:' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "every server in the list has its own slug" internal/panel/workspace.go \
+  'uniqueSlugs(out)' \
+  '' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "a duplicate's number skips slugs another server has" internal/panel/workspace.go \
+  'if next := fmt.Sprintf("%s-%d", slug, i); !taken[next] {' \
+  'if next := fmt.Sprintf("%s-%d", slug, i); true {' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -1687,3 +1687,51 @@ func TestBackupFileNames(t *testing.T) {
 		}
 	}
 }
+
+// Every server in the list has a slug no other one has, since the
+// dashboard's pages find a server by its slug: a later machine's duplicate
+// gets a number, skipping slugs another server already has.
+func TestEveryServerInTheListHasItsOwnSlug(t *testing.T) {
+	server := func(id, slug string) map[string]any {
+		return map[string]any{"id": id, "slug": slug, "name": slug, "phase": "online"}
+	}
+	for _, tc := range []struct {
+		name        string
+		local       string // the dashboard's own server's slug, or ""
+		alpha, beta []map[string]any
+		want        string // id=slug, in the list's order
+	}{
+		{"the dashboard's machine and a joined machine both have my-server", "my-server", []map[string]any{server("xxxxxxxxxx", "my-server")}, nil,
+			"abcdefghjk=my-server xxxxxxxxxx=my-server-2"},
+		{"two joined machines both have survival", "", []map[string]any{server("xxxxxxxxxx", "survival")}, []map[string]any{server("zzzzzzzzzz", "survival")},
+			"xxxxxxxxxx=survival zzzzzzzzzz=survival-2"},
+		{"another machine already has survival-2", "survival", []map[string]any{server("xxxxxxxxxx", "survival")}, []map[string]any{server("zzzzzzzzzz", "survival-2")},
+			"abcdefghjk=survival xxxxxxxxxx=survival-3 zzzzzzzzzz=survival-2"},
+		{"slugs no other server has", "survival", []map[string]any{server("xxxxxxxxxx", "creative")}, []map[string]any{server("zzzzzzzzzz", "skyblock")},
+			"abcdefghjk=survival xxxxxxxxxx=creative zzzzzzzzzz=skyblock"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, _ := e.setup(t)
+			local := `[]`
+			if tc.local != "" {
+				local = `[{"id":"abcdefghjk","slug":"` + tc.local + `","name":"Survival","phase":"online"}]`
+			}
+			e.reply("GET", "/v1/servers", local)
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			e.srv.claimServers(alpha, tc.alpha)
+			e.srv.claimServers(beta, tc.beta)
+			var list []map[string]any
+			if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK {
+				t.Fatalf("servers: %d", r)
+			}
+			var got []string
+			for _, sv := range list {
+				got = append(got, fmt.Sprintf("%v=%v", sv["id"], sv["slug"]))
+			}
+			if strings.Join(got, " ") != tc.want {
+				t.Fatalf("servers %q, want %q", strings.Join(got, " "), tc.want)
+			}
+		})
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -677,10 +678,43 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 			out = append(out, sv)
 		}
 	}
+	uniqueSlugs(out)
 	if everyMachine && len(ids) > 0 {
 		s.forgetDeletedServers(ids)
 	}
 	return out, list, nil
+}
+
+// uniqueSlugs gives every server in the list a slug no other one has, since
+// the dashboard's pages find a server by its slug. Each agent keeps slugs
+// unique among its own servers only, so a later machine's duplicate gets a
+// number, as the agent numbers its own ("my-server-2"), skipping any slug
+// already in the list.
+func uniqueSlugs(servers []map[string]any) {
+	taken := map[string]bool{}
+	for _, sv := range servers {
+		if slug, _ := sv["slug"].(string); slug != "" {
+			taken[slug] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, sv := range servers {
+		slug, _ := sv["slug"].(string)
+		if slug == "" {
+			continue
+		}
+		if !seen[slug] {
+			seen[slug] = true
+			continue
+		}
+		for i := 2; ; i++ {
+			if next := fmt.Sprintf("%s-%d", slug, i); !taken[next] {
+				sv["slug"] = next
+				taken[next], seen[next] = true, true
+				break
+			}
+		}
+	}
 }
 
 // forgetDeletedServers drops the friend invites, join requests and origins
