@@ -1,4 +1,5 @@
 import type { ElementHandle, Page, Request } from '@playwright/test'
+import { isAddonRead } from './addon-fixtures'
 import { breakControl, installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
 import { installFakes, type ApiCall, type View } from './fakes'
 
@@ -48,6 +49,11 @@ export function where(route: string, view: View = 'live'): string {
 const FILL = 'fill in the form'
 const WINDOW_MS = 1600
 const MAX_WAIT_MS = 7000
+// A link that shows nothing within the short window may still be starting a
+// download, which the browser reports only once the answer starts; in CI the
+// panel has taken over 8 s to start one. A download link's own request is
+// out of sight of the page's requests, so nothing shows it in flight.
+const DOWNLOAD_WAIT_MS = 20_000
 // A request cancelled by a page load while its route handler was still
 // fetching never reports back, so old requests stop counting as in flight.
 const STUCK_MS = 10_000
@@ -97,6 +103,8 @@ function isSelected(state: string | null): boolean {
   return !!state && /aria-(selected|checked|pressed)=true|data-checked=|data-pressed=/.test(state)
 }
 
+const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+
 export class Crawler {
   readonly results: Result[] = []
   readonly notes: string[] = []
@@ -110,14 +118,18 @@ export class Crawler {
   private quiet = false
   private calls: ApiCall[] = []
   private unfaked: string[] = []
+  private unrecorded: string[] = []
   private reqs: Req[] = []
   private seen = new Set<string>()
   private pageErrors: string[] = []
   private consoleErrors: string[] = []
   private popups = 0
   private downloads = 0
+  private downloadAt = 0
   private choosers = 0
   private pending = new Map<Request, number>()
+  /** The control pressed last, and whether its press is still being watched. */
+  private pressed?: { key: string; at: number; watching: boolean }
   private loadedAt = 0
   private loads = 0
   private unheaded = new Set<string>()
@@ -131,9 +143,10 @@ export class Crawler {
   ) {}
 
   async init() {
-    const { calls, unfaked } = await installFakes(this.page, this.baseURL, () => this.view)
+    const { calls, unfaked, unrecorded } = await installFakes(this.page, this.baseURL, () => this.view)
     this.calls = calls
     this.unfaked = unfaked
+    this.unrecorded = unrecorded
     await this.page.addInitScript(installPageHelpers)
     const page = this.page
     page.on('pageerror', (e) => this.pageErrors.push(e.message))
@@ -146,6 +159,9 @@ export class Crawler {
     })
     page.on('download', (d) => {
       this.downloads++
+      this.downloadAt = Date.now()
+      const p = this.pressed
+      if (p && !p.watching && !this.quiet) this.notes.push(`[${this.viewport}] ${p.key}: a download started ${secs(this.downloadAt - p.at)} after it was pressed, after its wait`)
       void d.cancel().catch(() => {})
     })
     page.on('filechooser', () => {
@@ -312,7 +328,9 @@ export class Crawler {
           // A slider at its highest value can only go down.
           if ((await value()) === was) await this.page.keyboard.press('ArrowLeft')
         } else {
-          await h.click({ timeout: 4000 })
+          // A link to an attachment starts a page load that never finishes;
+          // the crawl watches what the press did itself.
+          await h.click({ timeout: 4000, noWaitAfter: info?.role === 'link' })
           if (info?.editable) await this.page.keyboard.press('ArrowDown')
         }
         return undefined
@@ -367,12 +385,14 @@ export class Crawler {
     return [...new Set(out)]
   }
 
-  private problems(since: number, errs: { page: number; console: number; calls: number; unfaked: number }): string[] {
+  private problems(since: number, errs: { page: number; console: number; calls: number; unfaked: number; unrecorded: number }): string[] {
     const out: string[] = []
     for (const e of this.pageErrors.slice(errs.page)) out.push(`page error: ${e}`)
     for (const e of this.consoleErrors.slice(errs.console)) out.push(`console error: ${e.slice(0, 200)}`)
     for (const c of this.calls.slice(errs.calls)) if (c.at >= since && c.status >= 400 && !c.expected) out.push(`${c.method} ${c.path} answered ${c.status}${c.error ? `: ${c.error}` : ''}`)
     for (const u of this.unfaked.slice(errs.unfaked)) out.push(`no fake for ${u}; the real panel was not called`)
+    for (const u of this.unrecorded.slice(errs.unrecorded)) out.push(`no recorded answer for ${u}; the real panel was not called`)
+    for (const c of this.calls.slice(errs.calls)) if (!c.faked && isAddonRead(c.method, c.path)) out.push(`${c.method} ${c.path} reached the panel; add-on reads come from the recorded fixtures`)
     return out
   }
 
@@ -405,9 +425,11 @@ export class Crawler {
     const before = await this.snap(true)
     if (!before) return { result: this.record(route, via, c, 'could not press', [], ['the page was not ready']), opened: false, revealed: false }
     const marks = { popups: this.popups, downloads: this.downloads, choosers: this.choosers }
-    const errs = { page: this.pageErrors.length, console: this.consoleErrors.length, calls: this.calls.length, unfaked: this.unfaked.length }
+    const errs = { page: this.pageErrors.length, console: this.consoleErrors.length, calls: this.calls.length, unfaked: this.unfaked.length, unrecorded: this.unrecorded.length }
     const keysBefore = new Set((await this.controls()).map((x) => x.key))
     const since = Date.now()
+    const pressed = { key: `${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}`, at: since, watching: true }
+    this.pressed = pressed
     const failed = await this.press(h, c)
     if (failed) return { result: this.record(route, via, c, 'could not press', [], [failed]), opened: false, revealed: false }
     let effects: string[] = []
@@ -417,12 +439,15 @@ export class Crawler {
       after = await this.snap(true)
       effects = this.effects(c, before, after, state, since, marks)
       const waited = Date.now() - since
-      if (effects.length || waited > MAX_WAIT_MS || (waited > WINDOW_MS && this.inflight === 0)) break
+      const link = c.role === 'link'
+      if (effects.length || waited > (link ? DOWNLOAD_WAIT_MS : MAX_WAIT_MS) || (!link && waited > WINDOW_MS && this.inflight === 0)) break
     }
     await this.settle(3000)
     await this.page.waitForTimeout(150)
     after = await this.snap(true)
     effects = [...new Set([...effects, ...this.effects(c, before, after, state, since, marks)])]
+    pressed.watching = false
+    if (this.downloads > marks.downloads && this.downloadAt - since > WINDOW_MS && !this.quiet) this.notes.push(`[${this.viewport}] ${pressed.key}: its download started ${secs(this.downloadAt - since)} after the press`)
     const problems = this.problems(since, errs)
     let status: Status = 'works'
     if (problems.length) status = 'broken'
@@ -499,6 +524,17 @@ export class Crawler {
       this.quiet = false
       await sabotage.dispose()
     }
+  }
+
+  /**
+   * Every add-on read the page made so far, pressed for or not: how many the
+   * recorded fixtures answered, those that reached the panel instead and
+   * those the fixtures had no answer for.
+   */
+  addonReads(): { answered: number; live: string[]; unrecorded: string[] } {
+    const reads = this.calls.filter((c) => isAddonRead(c.method, c.path))
+    const live = reads.filter((c) => !c.faked).map((c) => `${c.method} ${c.path}`)
+    return { answered: reads.length - live.length - this.unrecorded.length, live, unrecorded: [...this.unrecorded] }
   }
 
   private async explore(route: string) {

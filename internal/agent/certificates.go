@@ -110,10 +110,8 @@ func (a *Agent) forgetCertificate(name string) {
 	if _, err := a.db.Exec(`DELETE FROM certificates WHERE name = ?`, name); err != nil {
 		a.log.Warn("could not forget a certificate", "name", name, "err", err)
 	}
-	if n, err := certs.NormalizeName(name); err == nil && n == name {
-		if err := os.Remove(filepath.Join(a.cfg.CertsDir(), name+".pem")); err != nil && !os.IsNotExist(err) {
-			a.log.Warn("could not delete a certificate", "name", name, "err", err)
-		}
+	if err := certs.Forget(a.cfg.CertsDir(), name); err != nil {
+		a.log.Warn("could not delete a certificate", "name", name, "err", err)
 	}
 }
 
