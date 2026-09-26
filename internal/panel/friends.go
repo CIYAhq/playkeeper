@@ -456,7 +456,7 @@ func (s *Server) hJoinRequestApprove(w http.ResponseWriter, r *http.Request, ses
 		change, err = s.addToWhitelist(r.Context(), m, jr.ServerID, grant.Profile, sess.User.Username)
 	}
 	if err != nil {
-		if _, dbErr := s.db.Exec(`UPDATE join_requests SET state = 'pending', decided_at = 0, decided_by = 0, address = ? WHERE id = ?`, jr.Address, jr.ID); dbErr != nil {
+		if dbErr := s.putBack(context.WithoutCancel(r.Context()), jr, decided); dbErr != nil {
 			s.log.Error("could not put a join request back", "err", dbErr)
 		}
 		s.audit(sess.User.Username, "join_request.approve", jr.PlayerName, "failed", fmt.Sprintf("request %s, invite %s", jr.ID, jr.InviteID))
@@ -473,6 +473,29 @@ func (s *Server) hJoinRequestApprove(w http.ResponseWriter, r *http.Request, ses
 	}
 	s.audit(sess.User.Username, "join_request.approve", jr.PlayerName, "succeeded", fmt.Sprintf("request %s, invite %s", jr.ID, jr.InviteID))
 	writeJSON(w, http.StatusOK, map[string]any{"request": decided, "origin": origin})
+}
+
+// putBack undoes an approve the agent couldn't carry out, for a request the
+// approve left as it was. It waits again, unless its link was turned off
+// meanwhile: a revoke, or removing the member who made the link, declines
+// only the requests still waiting, so it would miss this one and a friend
+// could still be let in through the dead link. Then it's declined.
+func (s *Server) putBack(ctx context.Context, jr, decided invites.JoinRequest) error {
+	at := invites.Millis(decided.DecidedAt)
+	return s.immediate(ctx, func(c *sql.Conn) error {
+		var live bool
+		if err := c.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM invites WHERE id = ? AND revoked_at = 0)`, jr.InviteID).Scan(&live); err != nil {
+			return err
+		}
+		if live {
+			_, err := c.ExecContext(ctx, `UPDATE join_requests SET state = 'pending', decided_at = 0, decided_by = 0, address = ?
+				WHERE id = ? AND state = 'approved' AND decided_at = ? AND decided_by = ?`, jr.Address, jr.ID, at, decided.DecidedBy)
+			return err
+		}
+		_, err := c.ExecContext(ctx, `UPDATE join_requests SET state = 'declined', address = ''
+			WHERE id = ? AND state = 'approved' AND decided_at = ? AND decided_by = ?`, jr.ID, at, decided.DecidedBy)
+		return err
+	})
 }
 
 // hJoinRequestDecline says no and gives the invite its use back.
