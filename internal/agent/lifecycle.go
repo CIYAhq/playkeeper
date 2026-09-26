@@ -818,8 +818,12 @@ func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) erro
 	}
 	s.resetRCON()
 	// Said here rather than when the reconcile loop sees the exit: a restart
-	// or an update starts the server again before it looks.
-	s.alert(discord.Stopped())
+	// or an update starts the server again before it looks. A server falling
+	// asleep isn't news: it does so whenever it's empty, and wakes when
+	// someone joins.
+	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}
 	return nil
 }
 

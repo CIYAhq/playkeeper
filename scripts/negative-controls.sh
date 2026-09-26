@@ -1811,10 +1811,18 @@ control "Discord hears a server come online" internal/agent/collector.go \
   '} else if false && fresh {' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
 control "Discord hears Playkeeper stop a server, restarts too" internal/agent/lifecycle.go \
-  '	s.alert(discord.Stopped())
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}
 	return nil' \
   '	return nil' \
-  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart)$/^every_alert$'
+  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart|a_scheduled_restart)$/^every_alert$'
+control "Discord doesn't hear of a server falling asleep" internal/agent/lifecycle.go \
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}' \
+  '	s.alert(discord.Stopped())' \
+  ./internal/agent '^TestDiscordAlertSequences$/^falling_asleep$/^every_alert$'
 control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle.go \
   '		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 		s.recordEvent(fin, "server_stopped_externally"' \
