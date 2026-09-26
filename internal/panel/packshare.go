@@ -153,10 +153,10 @@ func (s *Server) unrecordedPack(ctx context.Context, token string) (*friendsPack
 	case failed != nil:
 		s.log.Warn("a friends' pack page could not be answered", "err", failed)
 		return nil, failed
-	case len(found) == 1:
-		return found[0], nil
+	case len(found) == 0:
+		return nil, errPackGone
 	}
-	return nil, errPackGone
+	return found[0], nil
 }
 
 // askPack asks m which shared pack token opens.
