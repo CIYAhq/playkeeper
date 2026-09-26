@@ -2092,4 +2092,6 @@ export const en = {
   // Wave 9: voice chat that comes with a modpack
   'new.createOpenPort': 'Create and open the port',
   'reason.checkingPack': 'Checking the pack…',
+  // Wave 9: the plugin crash, as designed, once an update made for the server's Minecraft is found
+  'crash.addonOutdated': '{addon} doesn’t work with Minecraft {minecraft}.',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

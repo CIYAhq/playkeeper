@@ -370,6 +370,12 @@ describe('crash helper', () => {
     const byHand = crashFixes(plugin, 'Survival', 'my-vps', false, new Date(), { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })
     expect(byHand[0]).toMatchObject({ title: 'Update Multiverse-Portals', reason: 'Added by hand, so Playkeeper can’t update it' })
     expect(preselect(byHand)?.title).toBe('Remove Multiverse-Portals')
+
+    // With an update made for its Minecraft, the summary says what the design says.
+    const update = { state: 'ready', key: portals, name: 'Multiverse-Portals', version: '5.1.0', fingerprint: 'a'.repeat(32), madeFor: '26.1.2', installed: '5.0.2' } as const
+    expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': update })).toBe('Multiverse-Portals 5.0.2 doesn’t work with Minecraft 26.1.2.')
+    expect(crashSummary(plugin, 'Survival', 'my-vps')).toBe('Multiverse-Portals hit an error while starting.')
+    expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })).toBe('Multiverse-Portals hit an error while starting.')
   })
 
   it('says where the memory would come from on a phone', () => {

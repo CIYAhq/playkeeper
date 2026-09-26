@@ -508,10 +508,10 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   const [picked, setPicked] = useState<string>()
   const [preview, setPreview] = useState<RestorePreview>()
   const [busy, setBusy] = useState(false)
-  const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, ws.machineName) : (s.lastError ?? t('crash.generic', { server: s.name }))
+  const lookups = useAddonLookups(s)
+  const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, ws.machineName, lookups) : (s.lastError ?? t('crash.generic', { server: s.name }))
   const detail = refusal ? undefined : s.crash ? crashDetail(s.crash) : s.lastErrorHint
   const lines: ConsoleLine[] = refusal ? [] : s.crash ? s.crash.lines : (logs.data?.lines ?? []).map((l) => parseLine(l.text))
-  const lookups = useAddonLookups(s)
   const options = refusal ? refusalFixes(refusal, s.name) : crashFixes(s.crash ?? fallbackCrash(s), s.name, ws.machineName, phone, new Date(), lookups)
   const choice = options.find((o) => o.id === picked && o.plan) ?? preselect(options)
 
