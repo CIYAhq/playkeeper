@@ -236,6 +236,11 @@ func (m *sharedMapAgent) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// The shared map is in the public group. Its page is the same for every
+// link and never asks the agent; its calls answer only for a shared map,
+// and a map that is off, an unknown, old or malformed link token, a
+// player the map doesn't show and an agent that doesn't answer all get
+// the group's one 404, no sooner than any other.
 func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 	sm := &sharedMapAgent{}
 	e, agent := newScriptedEnv(t, sm.serve)
@@ -243,42 +248,57 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 	if _, err := e.srv.db.Exec(`INSERT INTO player_heads(name, status, png, fetched_at) VALUES('alex', 'ok', ?, ?)`, face, e.clock.now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
-	get := func(path string) (*http.Response, []byte) {
+	send := func(method, path string) (*http.Response, []byte) {
 		t.Helper()
-		r, body := e.raw(t, "GET", path, nil, nil)
+		r, body := e.raw(t, method, path, nil, nil)
 		if r.Header.Get("Cache-Control") != "no-store" || r.Header.Get("ETag") != "" || r.Header.Get("Last-Modified") != "" || len(r.Cookies()) != 0 {
-			t.Fatalf("%s: headers %v", path, r.Header)
+			t.Fatalf("%s %s: headers %v", method, path, r.Header)
 		}
 		return r, body
 	}
+	get := func(path string) (*http.Response, []byte) {
+		t.Helper()
+		return send("GET", path)
+	}
 	page, pub := "/map/"+mapToken, "/api/public/map/"+mapToken
-	_, pageOff := get(page)
-	_, apiOff := get(pub)
+	_, notFound := get(pub)
 	unavailable := func(what string, paths ...string) {
 		t.Helper()
 		for _, p := range paths {
-			r, body := get(p)
-			want := apiOff
-			if strings.HasPrefix(p, "/map/") {
-				want = pageOff
+			method, path, _ := strings.Cut(p, " ")
+			if path == "" {
+				method, path = "GET", p
 			}
-			if r.StatusCode != 404 || !bytes.Equal(body, want) {
-				t.Fatalf("%s, %s: %d %q", what, p, r.StatusCode, body)
+			start := time.Now()
+			r, body := send(method, path)
+			if r.StatusCode != 404 || !bytes.Equal(body, notFound) || time.Since(start) < publicNotFoundAfter {
+				t.Fatalf("%s, %s: %d %q after %v", what, p, r.StatusCode, body, time.Since(start))
 			}
 		}
 	}
-	if bytes.Contains(apiOff, []byte("Survival")) || !bytes.Contains(apiOff, []byte("This map isn't available.")) || string(pageOff) != indexPage {
-		t.Fatalf("unavailable answers: %s / %s", apiOff, pageOff)
+	if bytes.Contains(notFound, []byte("Survival")) {
+		t.Fatalf("the unavailable answer names the server: %s", notFound)
 	}
 
-	unavailable("not shared", page, pub+"/worlds", pub+"/tiles/minecraft_overworld/3/0_0.png", pub+"/icon", pub+"/players")
-	unavailable("unknown link", "/map/"+otherToken, "/api/public/map/"+otherToken, "/api/public/map/"+otherToken+"/worlds")
+	for _, shared := range []bool{false, true} {
+		sm.set(shared, false)
+		agent.forget()
+		for _, p := range []string{page, "/map/" + otherToken, "/map/" + oldToken, "/map/survival", "/map/Bad_Slug", "/map/" + mapToken[1:]} {
+			r, body := get(p)
+			if r.StatusCode != 200 || string(body) != indexPage || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/html") {
+				t.Fatalf("the page at %s while shared is %v: %d %v %s", p, shared, r.StatusCode, r.Header, body)
+			}
+		}
+		if hits := agent.seen(); len(hits) != 0 {
+			t.Fatalf("the page asked the agent: %v", hits)
+		}
+	}
+
+	sm.set(false, false)
+	unavailable("not shared", pub, pub+"/worlds", pub+"/tiles/minecraft_overworld/3/0_0.png", pub+"/icon", pub+"/players")
+	unavailable("unknown link", "/api/public/map/"+otherToken, "/api/public/map/"+otherToken+"/worlds")
 
 	sm.set(true, false)
-	r, body := get(page)
-	if r.StatusCode != 200 || string(body) != indexPage || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/html") {
-		t.Fatalf("shared page: %d %v %s", r.StatusCode, r.Header, body)
-	}
 	if r, body := get(pub); r.StatusCode != 200 || string(body) != `{"name":"Survival","players":false}` {
 		t.Fatalf("shared details: %d %s", r.StatusCode, body)
 	}
@@ -292,12 +312,13 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 		t.Fatalf("players while they are hidden: %d %s", r.StatusCode, body)
 	}
 	unavailable("faces while players are hidden", pub+"/faces/Alex", pub+"/faces/alex")
-	unavailable("old link", "/map/"+oldToken, "/api/public/map/"+oldToken, "/api/public/map/"+oldToken+"/players")
+	unavailable("old link", "/api/public/map/"+oldToken, "/api/public/map/"+oldToken+"/players")
+	unavailable("writes", "POST "+pub, "DELETE "+pub+"/players", "POST "+page)
 
 	agent.forget()
-	unavailable("the server's slug", "/map/survival", "/api/public/map/survival", "/api/public/map/survival/worlds", "/api/public/map/survival/players")
-	unavailable("invalid paths", "/map/Bad_Slug", "/map/"+mapToken[1:], "/map/"+mapToken+"x", "/api/public/map/"+mapToken[1:], "/api/public/map/"+mapToken+"x/worlds",
-		"/api/public/map/"+mapToken+"%3Fx/worlds", "/api/public/map/"+mapToken[:21]+"-/worlds",
+	unavailable("the server's slug", "/api/public/map/survival", "/api/public/map/survival/worlds", "/api/public/map/survival/players")
+	unavailable("invalid paths", "/api/public/map/"+mapToken[1:], "/api/public/map/"+mapToken+"x/worlds",
+		"/api/public/map/"+mapToken+"%3Fx/worlds", "/api/public/map/"+mapToken[:21]+"-/worlds", pub+"/settings",
 		pub+"/tiles/..%2Fplugins/3/0_0.png", pub+"/tiles/minecraft_overworld/99x/0_0.png",
 		pub+"/tiles/minecraft_overworld/3/0_0.jpg", pub+"/faces/no%20name", "/api/public/map/survival/faces/Alex")
 	if hits := agent.seen(); len(hits) != 0 {
@@ -314,13 +335,13 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 	unavailable("someone not on the map", pub+"/faces/Steve")
 
 	sm.set(false, true)
-	unavailable("turned off", page, pub, pub+"/players", pub+"/faces/Alex")
+	unavailable("turned off", pub, pub+"/players", pub+"/faces/Alex")
 
 	sm.set(true, true)
 	sm.mu.Lock()
 	sm.down = true
 	sm.mu.Unlock()
-	unavailable("agent down", page, pub, pub+"/tiles/minecraft_overworld/3/0_0.png")
+	unavailable("agent down", pub, pub+"/tiles/minecraft_overworld/3/0_0.png")
 }
 
 // lockedBuffer is a log destination the panel's handlers may write to
@@ -352,73 +373,98 @@ func TestSharedMapTokensStayOutOfTheLog(t *testing.T) {
 		"/map/" + mapToken, "/map/" + oldToken, "/MAP/" + mapToken, "/map/" + mapToken[:21],
 		"/api/public/map/" + mapToken, "/api/public/map/" + mapToken + "/tiles/minecraft_overworld/3/0_0.png",
 		"/api/public/map/" + oldToken + "/players", "/api/public/map/" + mapToken + "x/worlds", "/api/public//map/" + mapToken + "/worlds",
+		"/api/public/map/./" + oldToken + "/worlds",
 	} {
 		e.raw(t, "GET", p, nil, nil)
 	}
 	out := logs.String()
-	if !strings.Contains(out, "path=/api/public/map/[token]/tiles/minecraft_overworld/3/0_0.png") || !strings.Contains(out, "path=/map/[token]") {
+	if !strings.Contains(out, "path=/api/public/map/…") {
 		t.Fatalf("request log:\n%s", out)
 	}
-	for _, tok := range []string{mapToken[:21], oldToken[:21], mapToken[1:]} {
+	for _, tok := range []string{mapToken[:21], oldToken[:21], mapToken[1:], oldToken[1:]} {
 		if strings.Contains(out, tok) {
 			t.Fatalf("the request log holds a link token:\n%s", out)
 		}
 	}
-	for _, tc := range []struct{ in, want string }{
-		{"/map/" + mapToken, "/map/[token]"},
-		{"/api/public/map/" + mapToken + "/faces/Alex", "/api/public/map/[token]/faces/Alex"},
-		{"/api/servers/abcdefghjk/map/worlds", "/api/servers/abcdefghjk/map/worlds"},
-		{"/mapped", "/mapped"},
-		{"/map/", "/map/"},
+	for in, want := range map[string]string{
+		"/map/" + mapToken: "/map/…",
+		"/api/public/map/" + mapToken + "/faces/Alex": "/api/public/map/…",
+		"/api/public//map/" + mapToken + "/worlds":    "/api/public/map/…",
+		"/api/public/./map/" + mapToken:               "/api/public/map/…",
+		"/api/servers/abcdefghjk/map/worlds":          "/api/servers/abcdefghjk/map/worlds",
+		"/mapped":                                     "/mapped",
 	} {
-		if got := redactMapToken(tc.in); got != tc.want {
-			t.Errorf("redactMapToken(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := e.srv.public.logPath(in); got != want {
+			t.Errorf("logPath(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
 
+// Each address may ask for so many of the shared map's pages and calls a
+// minute, counted apart, and only its own requests count.
 func TestSharedMapIsRateLimitedPerAddress(t *testing.T) {
-	e, _ := newScriptedEnv(t, func(w http.ResponseWriter, r *http.Request) { agentUnavailable(w) })
-	for i := 0; i < publicMapRequests; i++ {
-		if r, _ := e.raw(t, "GET", "/api/public/map/"+mapToken, nil, nil); r.StatusCode != 404 {
-			t.Fatalf("request %d: %d", i, r.StatusCode)
+	sm := &sharedMapAgent{}
+	sm.set(true, false)
+	e, _ := newScriptedEnv(t, sm.serve)
+	serve := func(prefix, remote, target string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", target, nil)
+		req.RemoteAddr = remote
+		req.Header.Set("X-Forwarded-For", "203.0.113.9")
+		rec := httptest.NewRecorder()
+		e.srv.public.handler(prefix).ServeHTTP(rec, req)
+		return rec
+	}
+	limited := func(what string, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s: %d %v", what, rec.Code, rec.Header())
 		}
 	}
-	for _, p := range []string{"/api/public/map/" + mapToken + "/worlds", "/map/" + mapToken, "/map/survival"} {
-		r, _ := e.raw(t, "GET", p, nil, nil)
-		if r.StatusCode != http.StatusTooManyRequests || r.Header.Get("Retry-After") == "" || r.Header.Get("Cache-Control") != "no-store" {
-			t.Fatalf("%s over the limit: %d %v", p, r.StatusCode, r.Header)
+	viewer, other := "192.0.2.10:52000", "[2001:db8:1:2::7]:443"
+	for i := 0; i < mapDataLimits.perMinute; i++ {
+		if rec := serve(mapDataPrefix, viewer, "/api/public/map/"+mapToken); rec.Code != 200 {
+			t.Fatalf("call %d: %d", i+1, rec.Code)
 		}
 	}
+	limited("a call over the limit", serve(mapDataPrefix, viewer, "/api/public/map/"+mapToken+"/worlds"))
+	if rec := serve(mapDataPrefix, other, "/api/public/map/"+mapToken); rec.Code != 200 {
+		t.Fatalf("another address: %d", rec.Code)
+	}
+	for i := 0; i < mapPageLimits.perMinute; i++ {
+		if rec := serve(mapPagePrefix, viewer, "/map/"+mapToken); rec.Code != 200 {
+			t.Fatalf("page %d: %d", i+1, rec.Code)
+		}
+	}
+	limited("a page over the limit", serve(mapPagePrefix, viewer, "/map/"+mapToken))
 	e.clock.add(time.Minute)
-	if r, _ := e.raw(t, "GET", "/map/"+mapToken, nil, nil); r.StatusCode != 404 {
-		t.Fatalf("a minute later: %d", r.StatusCode)
+	if rec := serve(mapDataPrefix, viewer, "/api/public/map/"+mapToken); rec.Code != 200 {
+		t.Fatalf("a minute later: %d", rec.Code)
 	}
 }
 
 // The public route group is the only place without a sign-in: health,
-// setup and sign-in aside, a route either needs a session or belongs to
-// the shared map, and those only read.
-func TestOnlyTheSharedMapIsPublic(t *testing.T) {
+// setup and sign-in aside, every route needs a session, and the shared
+// map's page and calls are in the group.
+func TestOnlyThePublicGroupAnswersWithoutSignIn(t *testing.T) {
 	e := newEnv(t)
 	signIn := map[string]bool{"GET /api/health": true, "GET /api/setup/status": true, "POST /api/setup": true, "POST /api/auth/login": true}
-	group := map[string]bool{}
-	for _, rt := range e.srv.publicPages() {
-		group[rt.Method+" "+rt.Pattern] = true
-		if rt.Level != public || rt.Method != "GET" {
-			t.Errorf("%s %s: level %d", rt.Method, rt.Pattern, rt.Level)
-		}
-	}
 	for _, rt := range e.srv.Routes() {
 		key := rt.Method + " " + rt.Pattern
 		switch {
-		case signIn[key] || group[key]:
-		case rt.NeedsSession():
-			if strings.HasPrefix(rt.Pattern, "/api/public/") || strings.HasPrefix(rt.Pattern, "/map/") {
-				t.Errorf("%s is under a public path but needs a session", key)
-			}
-		default:
-			t.Errorf("%s is public outside the public route group", key)
+		case signIn[key]:
+		case !rt.NeedsSession():
+			t.Errorf("%s answers without a sign-in outside the public route group", key)
+		case strings.HasPrefix(rt.Pattern, mapPagePrefix) || strings.HasPrefix(rt.Pattern, mapDataPrefix):
+			t.Errorf("%s is under the shared map's paths outside the public route group", key)
+		}
+	}
+	group := map[string]bool{}
+	for _, rt := range e.srv.public.routes {
+		group[rt.prefix] = true
+	}
+	for _, p := range []string{mapPagePrefix, mapDataPrefix} {
+		if !group[p] {
+			t.Errorf("%s is not in the public route group", p)
 		}
 	}
 }

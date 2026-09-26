@@ -767,14 +767,23 @@ control "a shared map shows faces only of players it lists" internal/panel/maps.
   'if !strings.EqualFold(p.Name, name) {' \
   'if false && !strings.EqualFold(p.Name, name) {' \
   ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
-control "link tokens stay out of the request log" internal/panel/server.go \
-  '"path", redactMapToken(r.URL.Path),' \
-  '"path", r.URL.Path,' \
-  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
-control "per-address shared map rate limit" internal/panel/maps.go \
-  'if ok, wait := s.mapViews.allow("ip:" + clientIP(r)); !ok {' \
-  'if ok, wait := s.mapViews.allow("ip:" + clientIP(r)); false && !ok {' \
+control "the shared map is served by the public route group" internal/panel/public.go \
+  '		{prefix: mapPagePrefix, limits: mapPageLimits, handler: s.mapPage()},
+		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},' \
+  '' \
+  ./internal/panel '^(TestOnlyThePublicGroupAnswersWithoutSignIn|TestSharedMapAnswersTheSameWhenItIsNotAvailable)$'
+control "per-address shared map rate limit" internal/panel/public.go \
+  '{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()}' \
+  '{prefix: mapDataPrefix, limits: publicLimits{perMinute: 1 << 30, open: 1 << 30, read: time.Minute, write: time.Minute}, handler: s.mapData()}' \
   ./internal/panel '^TestSharedMapIsRateLimitedPerAddress$'
+control "link tokens stay out of the request log" internal/panel/public.go \
+  'return rt.prefix + "…"' \
+  'return p' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "a public path is cleaned before it is logged" internal/panel/public.go \
+  'c := path.Clean("/" + p)' \
+  'c := p + path.Ext("")' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
 control "a world import reads server.properties without following a link" internal/agent/worldimports.go \
   'b, err := d.ReadProperties()' \
   'b, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))' \

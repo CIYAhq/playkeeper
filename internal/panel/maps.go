@@ -5,10 +5,10 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
-	"path"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -20,14 +20,9 @@ import (
 // accounts, and serves the shared map at /map/<link token> to anyone while
 // its switch is on.
 
-const (
-	// maxMapBytes bounds a tile or a JSON answer about the map; squaremap's
-	// tiles are at most about 1 MB.
-	maxMapBytes = 2 << 20
-	// Requests a viewer's address may make to shared maps per minute: a
-	// screen of tiles, panning and zooming, and players every few seconds.
-	publicMapRequests = 600
-)
+// maxMapBytes bounds a tile or a JSON answer about the map; squaremap's
+// tiles are at most about 1 MB.
+const maxMapBytes = 2 << 20
 
 var (
 	reMapWorld = regexp.MustCompile(`^[a-z0-9_][a-z0-9_.-]{0,99}$`)
@@ -98,47 +93,70 @@ func mediaType(v string) string {
 	return t
 }
 
-// The shared map. Every answer is no-store. A map that is off or not
-// shared, a stopped server, an old, unknown or malformed link token and an
-// agent that doesn't answer all get the same 404, which never names a
-// server.
+// The shared map is in the public group (publicRoutes): its page at
+// /map/<link token> and the calls the page makes under
+// /api/public/map/<link token>/. The group limits each address, answers
+// no-store, and turns every 404 and failure into its one 404, so a map
+// that is off or not shared, a stopped server, an old, unknown or
+// malformed link token and an agent that doesn't answer all look alike
+// and never name a server.
+
+const (
+	mapPagePrefix = "/map/"
+	mapDataPrefix = "/api/public/map/"
+)
+
+// mapPageLimits: people open a shared map now and then.
+var mapPageLimits = publicLimits{perMinute: 60, open: 4, read: 10 * time.Second, write: 30 * time.Second, stall: 10 * time.Second}
+
+// mapDataLimits let one viewer load a screen of tiles at once, pan and
+// zoom, and ask who is playing every few seconds.
+var mapDataLimits = publicLimits{perMinute: 600, open: 24, read: 10 * time.Second, write: 30 * time.Second, stall: 10 * time.Second}
 
 func writeMapUnavailable(w http.ResponseWriter) {
-	w.Header().Set("Cache-Control", "no-store")
 	writeErr(w, http.StatusNotFound, api.CodeNotFound, "This map isn't available.", "Ask whoever shared it for a new link.")
 }
 
-// mapTokenPaths are the paths that carry a shared map's link token as
-// their next segment.
-var mapTokenPaths = []string{"/map/", "/api/public/map/"}
-
-// redactMapToken hides a shared map's link token in a request path, for the
-// request log: whoever reads the log could otherwise open the map. It hides
-// mistyped and malformed tokens too, since they may hold most of a real
-// one.
-func redactMapToken(p string) string {
-	c := path.Clean("/" + p)
-	for _, prefix := range mapTokenPaths {
-		if len(c) > len(prefix) && strings.EqualFold(c[:len(prefix)], prefix) {
-			_, rest, more := strings.Cut(c[len(prefix):], "/")
-			if more {
-				return prefix + "[token]/" + rest
-			}
-			return prefix + "[token]"
+// readOnly answers anything but GET and HEAD with the group's 404.
+func readOnly(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
 		}
-	}
-	return p
+		h.ServeHTTP(w, r)
+	})
 }
 
-// publicMapAllowed rate-limits shared maps per viewer address.
-func (s *Server) publicMapAllowed(w http.ResponseWriter, r *http.Request) bool {
-	w.Header().Set("Cache-Control", "no-store")
-	if ok, wait := s.mapViews.allow("ip:" + clientIP(r)); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
-		writeErr(w, http.StatusTooManyRequests, api.CodeRateLimited, "Too many requests in a short time. Wait a moment.", "")
-		return false
-	}
-	return true
+// mapPage serves the UI for /map/<link token> without asking the agent:
+// the page asks the calls below, whose 404 then says the map isn't
+// available.
+func (s *Server) mapPage() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(mapPagePrefix+"{token}", func(w http.ResponseWriter, r *http.Request) {
+		page := []byte(uiMissing)
+		if s.static != nil {
+			if b, err := fs.ReadFile(s.static, "index.html"); err == nil {
+				page = b
+			}
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(page)
+	})
+	return readOnly(mux)
+}
+
+// mapData serves the shared map's details, worlds, players, tiles, the
+// server's icon and players' faces.
+func (s *Server) mapData() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(mapDataPrefix+"{token}", s.publicMap(mapPart("")))
+	mux.HandleFunc(mapDataPrefix+"{token}/worlds", s.publicMap(mapPart("worlds")))
+	mux.HandleFunc(mapDataPrefix+"{token}/players", s.publicMap(mapPart("players")))
+	mux.HandleFunc(mapDataPrefix+"{token}/icon", s.publicMap(mapPart("icon")))
+	mux.HandleFunc(mapDataPrefix+"{token}/tiles/{world}/{zoom}/{tile}", s.publicMap(mapTile))
+	mux.HandleFunc(mapDataPrefix+"{token}/faces/{name}", s.hPublicMapFace)
+	return readOnly(mux)
 }
 
 // sharedMap asks the agent for part of the shared map with the link token
@@ -168,35 +186,10 @@ func (s *Server) sharedMap(r *http.Request, token, part string) (contentType str
 	return ct, body, true
 }
 
-// hMapPage serves the UI for /map/<link token>: 200 while the map is
-// shared, otherwise 404 with the same page, which then says the map isn't
-// available.
-func (s *Server) hMapPage(w http.ResponseWriter, r *http.Request, _ *session) {
-	if !s.publicMapAllowed(w, r) {
-		return
-	}
-	status := http.StatusNotFound
-	if _, _, ok := s.sharedMap(r, r.PathValue("token"), ""); ok {
-		status = http.StatusOK
-	}
-	page := []byte(uiMissing)
-	if s.static != nil {
-		if b, err := fs.ReadFile(s.static, "index.html"); err == nil {
-			page = b
-		}
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	w.Write(page)
-}
-
 // publicMap forwards one part of the shared map, which part names from the
 // request's validated path.
-func (s *Server) publicMap(part func(r *http.Request) (string, bool)) func(http.ResponseWriter, *http.Request, *session) {
-	return func(w http.ResponseWriter, r *http.Request, _ *session) {
-		if !s.publicMapAllowed(w, r) {
-			return
-		}
+func (s *Server) publicMap(part func(r *http.Request) (string, bool)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		p, ok := part(r)
 		if !ok {
 			writeMapUnavailable(w)
@@ -229,10 +222,7 @@ func mapTile(r *http.Request) (string, bool) {
 // now. The agent's list is empty while the players switch is off, so no
 // name gets a face then. Faces come from the panel's cache, so viewers'
 // addresses never reach Mojang.
-func (s *Server) hPublicMapFace(w http.ResponseWriter, r *http.Request, _ *session) {
-	if !s.publicMapAllowed(w, r) {
-		return
-	}
+func (s *Server) hPublicMapFace(w http.ResponseWriter, r *http.Request) {
 	token, name := r.PathValue("token"), r.PathValue("name")
 	if !webmap.ValidShareToken(token) || !minecraft.ValidPlayerName(name) {
 		writeMapUnavailable(w)
