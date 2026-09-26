@@ -388,7 +388,7 @@ func suggestNames(ctx context.Context, c *names.Client, name string) []string {
 
 // claimFree claims name for this machine. A key holds one name at a time,
 // so changing names releases the old one first, and claims it back when
-// the new one can't be had.
+// the new one can't be had or this machine can't save the change.
 func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor string) error {
 	c, err := a.namesClient(true)
 	if err != nil {
@@ -426,6 +426,13 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 		released = ""
 	}
 	if err := a.setAddress(addressState{Kind: api.AddressPlaykeeper, Host: host, Since: now, IP: st.IP, Free: &freeState{Name: n, CheckedAt: now}, Released: released}); err != nil {
+		c.Name = name
+		if _, rerr := c.Release(ctx); rerr != nil {
+			a.log.Warn("could not release a free address this machine couldn't save", "name", name, "err", rerr)
+		}
+		if old != "" {
+			a.reclaim(ctx, c, st, old)
+		}
 		return err
 	}
 	if old != "" {
@@ -1270,7 +1277,7 @@ func (a *Agent) hAddressCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("This machine has a free address.", "Release it first, then use your own domain."))
 		return
 	case st.Kind != api.AddressOwn || st.Host != domain:
-		if err := a.setAddress(addressState{Kind: api.AddressOwn, Host: domain, Since: a.now().UTC(), IP: st.IP}); err != nil {
+		if err := a.setAddress(addressState{Kind: api.AddressOwn, Host: domain, Since: a.now().UTC(), IP: st.IP, Released: st.Released}); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -1309,7 +1316,7 @@ func (a *Agent) hAddressDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("This machine doesn't use its own domain.", ""))
 		return
 	}
-	if err := a.setAddress(addressState{IP: st.IP}); err != nil {
+	if err := a.setAddress(addressState{IP: st.IP, Released: st.Released}); err != nil {
 		writeError(w, err)
 		return
 	}

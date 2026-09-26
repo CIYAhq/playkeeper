@@ -1203,6 +1203,18 @@ control "free address refresh: a refused connection keeps the other IP version's
   'errors.Is(err, syscall.EADDRNOTAVAIL)' \
   'errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.ECONNREFUSED)' \
   ./internal/names '^TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute$'
+control "free address change: undone at the names service when it can't be saved" internal/agent/address.go \
+  'if _, rerr := c.Release(ctx); rerr != nil {' \
+  'if rerr := error(nil); rerr != nil {' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "own domain: setting one keeps the released free name claimable" internal/agent/address.go \
+  'Since: a.now().UTC(), IP: st.IP, Released: st.Released}' \
+  'Since: a.now().UTC(), IP: st.IP}' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "own domain: removing it keeps the released free name claimable" internal/agent/address.go \
+  'if err := a.setAddress(addressState{IP: st.IP, Released: st.Released}); err != nil {' \
+  'if err := a.setAddress(addressState{IP: st.IP}); err != nil {' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

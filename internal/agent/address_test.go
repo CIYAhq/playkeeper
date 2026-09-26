@@ -702,6 +702,30 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 		t.Fatalf("address after the failed change: %+v", v)
 	}
 
+	// A change this machine can't save is undone at the names service too.
+	for _, op := range []string{"INSERT", "UPDATE"} {
+		if _, err := e.a.db.Exec(`CREATE TRIGGER no_address_` + op + ` BEFORE ` + op + ` ON kv WHEN NEW.key = 'address' BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 500 {
+		t.Fatalf("a change that can't be saved: %d %v", code, out)
+	}
+	for _, op := range []string{"INSERT", "UPDATE"} {
+		if _, err := e.a.db.Exec(`DROP TRIGGER no_address_` + op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, _ := e.names.name("bob"); n.State != names.StateReleased {
+		t.Fatalf("bob was kept after the change couldn't be saved: %+v", n)
+	}
+	if n, _ := e.names.name("alex"); n.State != names.StateActive {
+		t.Fatalf("alex was not claimed back after the change couldn't be saved: %+v", n)
+	}
+	if v := e.address(); v.Host != "alex.playkeeper.io" || v.Free.State != names.StateActive {
+		t.Fatalf("address after the change couldn't be saved: %+v", v)
+	}
+
 	v := e.claim("bob")
 	if v.Host != "bob.playkeeper.io" || v.Servers[0].Address != "survival.bob.playkeeper.io" {
 		t.Fatalf("address after the change: %+v", v)
@@ -732,6 +756,17 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	}
 	if v.Servers[0].Address != "" || v.Servers[0].Direct != "203.0.113.10" {
 		t.Fatalf("join address after the release: %+v", v.Servers[0])
+	}
+	// Trying an own domain meanwhile doesn't make it look taken.
+	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "play.example.com", "actor": "admin"}, &v); code != 200 || v.Kind != api.AddressOwn {
+		t.Fatalf("own domain: %d %+v", code, v)
+	}
+	if code := e.callInto("DELETE", "/v1/address?actor=admin", nil, &v); code != 200 || v.Kind != api.AddressNone {
+		t.Fatalf("removing the own domain: %d %+v", code, v)
+	}
+	var bob api.NameAvailability
+	if code := e.callInto("GET", "/v1/address/available?name=bob", nil, &bob); code != 200 || !bob.Available {
+		t.Fatalf("this machine's released name after an own domain: %d %+v", code, bob)
 	}
 	audit := e.auditActions()
 	for _, want := range []string{"address.claim failed", "address.release succeeded"} {
