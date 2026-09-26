@@ -288,7 +288,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
         <Stat label={t('players.col.playtime')} value={p.playtimeUncertain ? t('players.approx', { time: formatDuration(p.playtimeSeconds) }) : formatDuration(p.playtimeSeconds)} />
         <Stat label={t('profile.longest')} value={formatDuration(p.longestSeconds)} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <PlaytimeChart profile={p} />
         <Card>
           <CardTitle id="recent-sessions">{t('profile.recent')}</CardTitle>

@@ -66,7 +66,7 @@ export function AccountStep({ onDone }: { onDone: (m: Me) => void }) {
   ]
   return (
     <Frame step={0}>
-      <div className="grid w-full max-w-[920px] items-center gap-12 md:grid-cols-[1.1fr_1fr] max-sm:gap-6">
+      <div className="grid w-full max-w-[920px] grid-cols-1 items-center gap-12 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] max-sm:gap-6">
         <div>
           <Pip pose="wave" size={phone ? 80 : 112} />
           <h1 className="mt-5 text-display font-extrabold tracking-[-0.025em] max-sm:mt-3 max-sm:text-[28px] max-sm:leading-[34px]">{t('onboarding.hi')}</h1>

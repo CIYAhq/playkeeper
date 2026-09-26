@@ -436,7 +436,7 @@ function Console({ server: s }: { server: ServerStatus }) {
   }
 
   return (
-    <div className="grid flex-1 gap-4 xl:grid-cols-[1fr_280px]">
+    <div className="grid flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
       <div className="flex min-w-0 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <Segmented value={filter} onChange={show} options={filters} label={t('console.filter')} />

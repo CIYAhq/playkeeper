@@ -605,7 +605,7 @@ export function NewServerPage() {
       />
       <PageBody className="flex flex-col gap-5">
         <Stepper steps={stepTitles} current={step} label={t('new.steps')} />
-        <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
           <div className="flex min-w-0 flex-col">
             {stepBody}
             <div className="mt-6 flex items-center gap-3 border-t border-border pt-4">

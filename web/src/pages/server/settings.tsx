@@ -347,7 +347,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[160px_1fr]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[160px_minmax(0,1fr)]">
       <nav aria-label={t('settings.sections')} className="sticky top-4 hidden flex-col gap-0.5 self-start lg:flex">
         {sections.map((x) => (
           <a

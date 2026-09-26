@@ -208,7 +208,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
       </section>
       <Card className="mt-2">
         <CardTitle>{t('world.restore')}</CardTitle>
-        <div className="mt-4 grid items-center gap-5 md:grid-cols-[1.6fr_1fr]">
+        <div className="mt-4 grid grid-cols-1 items-center gap-5 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <RestoreDropZone server={s} onPreview={setPreview} />
           <p className="text-[13px] text-muted-foreground">{t('world.restoreNote')}</p>
         </div>
