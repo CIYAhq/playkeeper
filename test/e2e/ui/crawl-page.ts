@@ -203,7 +203,7 @@ export function installPageHelpers() {
         break
       }
       const tag = p.tagName.toLowerCase()
-      if ((tag === 'nav' || tag === 'aside' || role === 'navigation' || role === 'toolbar' || role === 'tablist' || role === 'radiogroup' || role === 'group') && (p.getAttribute('aria-label') || p.getAttribute('aria-labelledby'))) {
+      if ((tag === 'nav' || tag === 'aside' || tag === 'form' || role === 'navigation' || role === 'toolbar' || role === 'tablist' || role === 'radiogroup' || role === 'group') && (p.getAttribute('aria-label') || p.getAttribute('aria-labelledby'))) {
         parts.unshift(`${role || tag} "${norm(byIds(p.getAttribute('aria-labelledby')) || p.getAttribute('aria-label'), 40)}"`)
         continue
       }
@@ -258,7 +258,8 @@ export function installPageHelpers() {
       const role = roleOf(el)
       if (!ROLES.has(role)) continue
       if (el.closest('[data-slot=toast-viewport],[data-slot=toast-viewport-anchored]')) continue
-      if (scope === document.body && layers().length === 0 && !root()?.contains(el)) continue
+      // Outside the app, only the phone's action bar is part of the page; anything else is a layer on its way out.
+      if (scope === document.body && layers().length === 0 && !root()?.contains(el) && !el.closest('[data-slot=phone-action-bar]')) continue
       if (!visible(el)) continue
       const name = norm(nameOf(el), 60)
       const context = contextOf(el)

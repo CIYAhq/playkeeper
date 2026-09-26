@@ -284,12 +284,14 @@ export class Crawler {
         const label = labels.map((l) => l.textContent).join(' ')
         // A typed confirmation says what to type in bold: "Type <b>replace world</b> to confirm."
         const phrase = /confirm/i.test(label) ? (labels.map((l) => l.querySelector('strong, b')?.textContent?.trim()).find(Boolean) ?? '') : ''
-        return { type: i.type, text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max, phrase }
+        return { type: i.type, numeric: i.inputMode === 'numeric', text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max, phrase }
       })
       let value = 'Sample'
       if (hint.phrase) value = hint.phrase
       else if (hint.type === 'password') value = 'sample-password-2026'
       else if (hint.type === 'number') value = hint.min || '1'
+      // A code's boxes drop anything but digits; the first takes the whole code.
+      else if (hint.numeric) value = '123456'
       else if (/webhook/.test(hint.text)) value = `https://discord.com/api/webhooks/123456789012345678/${'sample_token_'.repeat(6)}`
       else if (/minecraft|player|username|friend/.test(hint.text)) value = 'Pixel_Pia'
       else if (/command/.test(hint.text)) value = 'list'

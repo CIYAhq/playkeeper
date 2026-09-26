@@ -110,7 +110,12 @@ export function PhoneActionBar({ children }: { children: ReactNode }) {
   return (
     <>
       <div className="h-20 shrink-0" aria-hidden="true" />
-      {createPortal(<div className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex animate-fade gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur">{children}</div>, document.body)}
+      {createPortal(
+        <div data-slot="phone-action-bar" className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex animate-fade gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur">
+          {children}
+        </div>,
+        document.body,
+      )}
     </>
   )
 }

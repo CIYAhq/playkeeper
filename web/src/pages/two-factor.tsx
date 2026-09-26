@@ -333,7 +333,7 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
         <>
           <p className="px-1 pt-1 text-[13px] text-muted-foreground">{t('twofa.step', { n: stage.step === 'scan' ? 2 : 1, total: setupSteps })}</p>
           {stage.step === 'password' ? (
-            <form onSubmit={s.start} noValidate className="mt-2 flex flex-1 flex-col">
+            <form onSubmit={s.start} noValidate aria-label={t('twofa.phoneTitle')} className="mt-2 flex flex-1 flex-col">
               <section className="rounded-3xl border border-border bg-white p-4">
                 <PasswordField
                   id={passwordId}
