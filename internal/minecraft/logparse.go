@@ -22,6 +22,9 @@ const (
 	EventInitError   EventKind = "init_error"
 	EventOOM         EventKind = "out_of_memory"
 	EventBindFailed  EventKind = "bind_failed"
+	// EventCrashed is the server reporting that it crashed. It may still
+	// log "Stopping server" afterwards, as a clean stop does.
+	EventCrashed EventKind = "crashed"
 )
 
 // Parsed is the structured meaning of one log line.
@@ -49,6 +52,9 @@ var (
 	reStarting  = regexp.MustCompile(prefix + `Starting minecraft server version (\S+)`)
 	rePreparing = regexp.MustCompile(prefix + `(?:Preparing level "|Preparing start region|Preparing spawn area)`)
 	reBind      = regexp.MustCompile(`FAILED TO BIND TO PORT`)
+	// Only ERROR and FATAL entries, which players cannot write.
+	reCrashed = regexp.MustCompile(`^\[\d{2}:\d{2}:\d{2}(?: (?:ERROR|FATAL)\]|\] \[[^\]]{1,64}/(?:ERROR|FATAL)\])(?: \[[^\]]{1,120}\])?: ` +
+		`(?:Encountered an unexpected exception|This crash report has been saved to: |The server has stopped responding!|Failed to start the minecraft server|A single server tick took )`)
 	reOOM       = regexp.MustCompile(`java\.lang\.OutOfMemoryError`)
 	reANSI      = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\[[0-9;]{1,8}m`)
 	reIPv4      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
@@ -60,8 +66,6 @@ var (
 	reName      = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
 	reLogName   = regexp.MustCompile(`^[A-Za-z0-9_]{1,16}$`)
 	reListReply = regexp.MustCompile(`There are (\d+) of a max of (\d+) players online:?\s*(.*)$`)
-	reTPS       = regexp.MustCompile(`TPS from last 1m, 5m, 15m: \*?([0-9]+(?:\.[0-9]+)?)`)
-	reBehind    = regexp.MustCompile(`Can't keep up! Is the server overloaded\? Running (\d+)ms or (\d+) ticks behind`)
 )
 
 // StripANSI removes terminal colour codes the container image emits.
@@ -167,6 +171,9 @@ func Parse(line string) Parsed {
 	if reStopping.MatchString(line) {
 		return Parsed{Kind: EventStopping}
 	}
+	if reCrashed.MatchString(line) {
+		return Parsed{Kind: EventCrashed}
+	}
 	if m := reStarting.FindStringSubmatch(line); m != nil {
 		return Parsed{Kind: EventStarting, Detail: m[1]}
 	}
@@ -200,15 +207,4 @@ func ParseList(reply string) (online, max int, names []string, ok bool) {
 		}
 	}
 	return online, max, names, true
-}
-
-// ParseTPS reads the last minute's ticks per second from Paper's `tps`
-// command (20 is full speed).
-func ParseTPS(reply string) (float64, bool) {
-	m := reTPS.FindStringSubmatch(StripColours(StripANSI(reply)))
-	if m == nil {
-		return 0, false
-	}
-	v, err := strconv.ParseFloat(m[1], 64)
-	return v, err == nil
 }

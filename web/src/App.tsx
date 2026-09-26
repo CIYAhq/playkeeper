@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, get, onUnauthorized, setCsrfToken } from '@/api/client'
-import type { Me } from '@/api/types'
+import type { Me, SetupStatus } from '@/api/types'
 import { useWorkspace, WorkspaceProvider } from '@/api/workspace'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { AppShell } from '@/components/app/shell'
@@ -9,9 +9,11 @@ import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
+import { AccountPage } from '@/pages/account'
 import { HomePage } from '@/pages/home'
 import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
+import { MachineSettingsPage } from '@/pages/machine-settings'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
 import { AccountStep, Onboarding } from '@/pages/onboarding'
@@ -25,6 +27,7 @@ export function App() {
   const route = useRoute()
   const [state, setState] = useState<AuthState>('loading')
   const [me, setMe] = useState<Me>()
+  const [status, setStatus] = useState<SetupStatus>()
 
   const signedIn = useCallback((m: Me) => {
     setCsrfToken(m.csrfToken)
@@ -42,8 +45,9 @@ export function App() {
     let cancelled = false
     async function boot() {
       try {
-        const s = await get<{ needsSetup: boolean }>('/api/setup/status')
+        const s = await get<SetupStatus>('/api/setup/status')
         if (cancelled) return
+        setStatus(s)
         if (s.needsSetup) {
           setState('setup')
           if (window.location.pathname !== '/setup') navigate('/setup', true)
@@ -96,6 +100,8 @@ export function App() {
     case 'login':
       return (
         <LoginPage
+          machine={status?.machine}
+          version={status?.version}
           onDone={(m) => {
             signedIn(m)
             navigate(afterSignIn(window.location), true)
@@ -105,7 +111,7 @@ export function App() {
     case 'ready':
       if (!me) return null
       return (
-        <WorkspaceProvider me={me} onSignedOut={signedOut}>
+        <WorkspaceProvider me={me} onMe={signedIn} onSignedOut={signedOut}>
           <Routes route={route} />
         </WorkspaceProvider>
       )
@@ -145,11 +151,15 @@ function page(route: Route) {
     case 'new-server':
       return <NewServerPage />
     case 'server':
-      return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} />
+      return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
     case 'machine':
       return <MachinePage id={route.id} />
+    case 'machine-settings':
+      return <MachineSettingsPage id={route.id} />
     case 'settings':
       return <GlobalSettingsPage />
+    case 'account':
+      return <AccountPage section={route.section} />
     case 'more':
       return <MorePage />
     case 'pack':

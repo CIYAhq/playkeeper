@@ -119,6 +119,26 @@ func TestPackShareLinkIsMadeWhenSharedAndReplacedAfterward(t *testing.T) {
 	}
 }
 
+// Once the machine has a name, the friends' page gives the server's address
+// under it, not the host the page was opened at with the game port.
+func TestPackLinkGivesTheServersNamedAddress(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	e.withSources()
+	e.createWith(map[string]any{"name": "Survival"})
+	e.fabricForShare()
+	tok := e.sharePublic(true).Token
+	var link api.PackLink
+	e.decode("GET", "/v1/packs/"+tok, &link)
+	if link.JoinAddress != "" {
+		t.Fatalf("without a name the page uses the host it's opened at: %+v", link)
+	}
+	e.claim("alex")
+	e.decode("GET", "/v1/packs/"+tok, &link)
+	if link.JoinAddress != "survival.alex.playkeeper.io" {
+		t.Fatalf("with a name: %q", link.JoinAddress)
+	}
+}
+
 func TestPackLinkAnswersAlikeWhateverTheReason(t *testing.T) {
 	e := newAgentEnv(t)
 	e.withSources()

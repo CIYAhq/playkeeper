@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { CheckIcon, CopyIcon, DownloadIcon, ExternalLinkIcon, LinkIcon, Share2Icon, XIcon } from 'lucide-react'
-import { packFileUrl, packLink, usePackShare } from '@/api/packs'
+import { packFileUrl, packLink, useMachineAddress, usePackShare } from '@/api/packs'
 import type { PackShare, ServerStatus, ShareYourself } from '@/api/types'
 import { errorText } from '@/api/workspace'
 import { Emblem } from '@/components/app/art'
@@ -15,8 +15,10 @@ import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/c
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { joinAddress } from '@/lib/format'
+import { namedDashboard } from '@/lib/address'
+import { serverJoinAddress } from '@/lib/format'
 import { fileHolds, shareText, yourselfLink, yourselfReason } from '@/lib/packs'
+import { linkProps } from '@/lib/router'
 import { iconURL } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 
@@ -84,9 +86,11 @@ export function PackShareNotice({ server }: { server: ServerStatus }) {
 export function PackShareSheet({ server, pack, open, onOpenChange }: { server: ServerStatus; pack: PackShareState; open: boolean; onOpenChange: (open: boolean) => void }) {
   const phone = useIsPhone()
   const [busy, setBusy] = useState<'on' | 'off'>()
+  const address = useMachineAddress(open ? server.machineId : undefined)
   const ps = pack.share
   if (!ps) return null
-  const link = ps.public && ps.token ? packLink(ps.token) : ''
+  const named = namedDashboard(address, Date.now())
+  const link = ps.public && ps.token ? packLink(ps.token, named) : ''
   const setPublic = async (on: boolean) => {
     setBusy(on ? 'on' : 'off')
     try {
@@ -109,6 +113,7 @@ export function PackShareSheet({ server, pack, open, onOpenChange }: { server: S
   const body = (
     <div key={link ? 'shared' : 'off'} className="flex animate-fade flex-col gap-4">
       {link ? <SharedBody ps={ps} server={server} link={link} phone={phone} /> : <OffBody server={server} />}
+      {address && !named && server.machineId && <NameFirst machineId={server.machineId} />}
     </div>
   )
 
@@ -202,7 +207,7 @@ function OffBody({ server }: { server: ServerStatus }) {
 }
 
 function SharedBody({ ps, server, link, phone }: { ps: PackShare; server: ServerStatus; link: string; phone: boolean }) {
-  const address = joinAddress(window.location.hostname, server.gamePort)
+  const address = serverJoinAddress(server)
   const steps = [t('share.step.open_link'), t('share.step.import'), address ? t('share.step.play_join', { address }) : t('share.step.play')]
   const yourself = ps.share.yourself ?? []
   return (
@@ -251,6 +256,22 @@ function SharedBody({ ps, server, link, phone }: { ps: PackShare; server: Server
         </Section>
       )}
     </>
+  )
+}
+
+/** Without a name the link carries the machine's IP: suggest giving it one first; sharing works either way. */
+function NameFirst({ machineId }: { machineId: string }) {
+  return (
+    <Notice
+      title={t('packShare.nameFirst')}
+      action={
+        <Button variant="outline" size="sm" render={<a {...linkProps({ name: 'machine-settings', id: machineId })} />}>
+          {t('machine.settings')}
+        </Button>
+      }
+    >
+      {t('packShare.nameFirstBody')}
+    </Notice>
   )
 }
 

@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatBytes, formatMB, joinAddress } from '@/lib/format'
+import { formatBytes, formatMB, serverJoinAddress } from '@/lib/format'
 import { createStepOf, isSettingUp } from '@/lib/phase'
 import { navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
@@ -44,19 +44,52 @@ export function passwordStrength(pw: string): Strength {
 
 const strengthWidth: Record<Strength, number> = { short: 15, weak: 35, okay: 65, strong: 90 }
 
-export function PasswordField({ id, value, onChange, autoComplete, meter, label }: { id: string; value: string; onChange: (v: string) => void; autoComplete: string; meter?: boolean; label: string }) {
+export function PasswordField({
+  id,
+  value,
+  onChange,
+  autoComplete,
+  meter,
+  label,
+  labelClassName,
+  autoFocus,
+  error,
+}: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+  autoComplete: string
+  meter?: boolean
+  label: string
+  labelClassName?: string
+  autoFocus?: boolean
+  /** Shown under the field, which is then marked invalid. */
+  error?: string
+}) {
   const [show, setShow] = useState(false)
   const s = passwordStrength(value)
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-[13px] font-medium max-sm:text-[15px]">
+      <label htmlFor={id} className={cn('text-[13px] font-medium max-sm:text-[15px]', labelClassName)}>
         {label}
       </label>
       <InputGroup className="max-sm:h-11">
         <InputGroupAddon>
           <KeyRoundIcon aria-hidden="true" />
         </InputGroupAddon>
-        <InputGroupInput id={id} type={show ? 'text' : 'password'} value={value} onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete} required minLength={meter ? 10 : undefined} maxLength={256} />
+        <InputGroupInput
+          id={id}
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete={autoComplete}
+          required
+          minLength={meter ? 10 : undefined}
+          maxLength={256}
+          autoFocus={autoFocus}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
+        />
         <InputGroupAddon align="inline-end">
           <Button type="button" variant="ghost" size="icon-xs" onClick={() => setShow((v) => !v)} aria-label={show ? t('onboarding.hidePassword') : t('onboarding.showPassword')}>
             {show ? <EyeOffIcon /> : <EyeIcon />}
@@ -75,6 +108,11 @@ export function PasswordField({ id, value, onChange, autoComplete, meter, label 
             </div>
           )}
         </>
+      )}
+      {error && (
+        <p id={`${id}-error`} className="text-[13px] text-destructive-foreground" role="alert">
+          {error}
+        </p>
       )}
     </div>
   )
@@ -684,7 +722,7 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [added, setAdded] = useState<string[]>([])
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = serverJoinAddress(s)
   const dashboard = () => navigate({ name: 'server', slug: s.slug, tab: 'overview' }, true)
 
   async function invite(e: FormEvent) {

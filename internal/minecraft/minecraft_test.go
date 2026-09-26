@@ -2,11 +2,14 @@ package minecraft
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -32,6 +35,13 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{`[20:38:07] [Server thread/INFO] [minecraft/DedicatedServer]: Preparing level "world"`, EventPreparing, ""},
 		{"[init] [ERROR] Failed to download paper", EventInitError, ""},
 		{"java.lang.OutOfMemoryError: Java heap space", EventOOM, ""},
+		{"[03:11:30 ERROR]: Encountered an unexpected exception", EventCrashed, ""},
+		{"[03:11:31 ERROR]: This crash report has been saved to: /data/./crash-reports/crash-2026-09-25_03.11.31-server.txt", EventCrashed, ""},
+		{"[21:40:12 ERROR]: The server has stopped responding! This is (probably) not a Paper bug.", EventCrashed, ""},
+		{"[12:00:00] [Server Watchdog/FATAL]: A single server tick took 60.00 seconds (should be max 0.05)", EventCrashed, ""},
+		{"[12:00:00] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server", EventCrashed, ""},
+		{"[03:11:30 INFO]: Encountered an unexpected exception", EventNone, ""},
+		{"[03:11:30 ERROR]: <PkBotFriend> Encountered an unexpected exception", EventNone, ""},
 	}
 	for _, c := range cases {
 		p := Parse(c.line)
@@ -180,6 +190,13 @@ func TestImageAndKnownBuildsArePinned(t *testing.T) {
 	}
 }
 
+// Replies with these prefixes make fakeRCON hang up: without replying (the
+// reply is lost), or right after replying (the connection goes stale).
+const (
+	hangUp          = "\x00hang up"
+	replyThenHangUp = "\x00reply then hang up:"
+)
+
 // fakeRCON serves the RCON protocol and, like Paper, drops the connection if
 // a second packet arrives in the same read (no pipelining).
 func fakeRCON(t *testing.T, password string, reply func(cmd string) string) string {
@@ -228,11 +245,21 @@ func fakeRCON(t *testing.T, password string, reply func(cmd string) string) stri
 						send(-1, 2, "")
 					case typ == 2 && authed:
 						out := reply(body)
+						if out == hangUp {
+							return
+						}
+						after, closeAfter := strings.CutPrefix(out, replyThenHangUp)
+						if closeAfter {
+							out = after
+						}
 						for len(out) > 4096 {
 							send(id, 0, out[:4096])
 							out = out[4096:]
 						}
 						send(id, 0, out)
+						if closeAfter {
+							return
+						}
 					default:
 						send(id, 0, "Unknown request c8")
 					}
@@ -268,8 +295,141 @@ func TestRCONCommands(t *testing.T) {
 	if err != nil || len(out) != 9000 {
 		t.Fatalf("multi-packet reply: len %d err %v", len(out), err)
 	}
-	if _, err := r.Command(strings.Repeat("a", 2000), time.Second); err == nil {
-		t.Fatal("oversized command must be refused")
+	if _, err := r.Command(strings.Repeat("a", 2000), time.Second); err == nil || !errors.Is(err, ErrNotSent) {
+		t.Fatalf("oversized command must be refused before sending: %v", err)
+	}
+}
+
+// A command is written at most once, and the caller learns whether it may
+// have run: resending save-on after a lost reply would read as saving turned
+// back on by someone else.
+// The connection's timeout can arrive a moment before its context reports
+// the deadline. It still counts as the deadline, while a timeout before the
+// deadline, or another error at it, stays what it is.
+func TestRCONTimeoutAtTheDeadlineCountsAsTheDeadline(t *testing.T) {
+	r := &RCON{}
+	passed := lateCtx{Context: context.Background(), d: time.Now().Add(-time.Millisecond)}
+	if err := r.ctxErr(passed, timeoutErr{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a timeout at the deadline: got %v", err)
+	}
+	ahead := lateCtx{Context: context.Background(), d: time.Now().Add(time.Hour)}
+	if err := r.ctxErr(ahead, timeoutErr{}); errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a timeout before the deadline: got %v", err)
+	}
+	if err := r.ctxErr(passed, io.EOF); !errors.Is(err, io.EOF) {
+		t.Fatalf("a closed connection at the deadline: got %v", err)
+	}
+}
+
+// lateCtx has a deadline but doesn't report itself done, like a context
+// whose timer hasn't fired yet.
+type lateCtx struct {
+	context.Context
+	d time.Time
+}
+
+func (c lateCtx) Deadline() (time.Time, bool) { return c.d, true }
+func (c lateCtx) Err() error                  { return nil }
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
+
+func TestRCONCommandContextNeverResendsAndHonoursTheContext(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	addr := fakeRCON(t, "secret", func(cmd string) string {
+		mu.Lock()
+		got = append(got, cmd)
+		mu.Unlock()
+		switch cmd {
+		case "lost":
+			return hangUp
+		case "last":
+			return replyThenHangUp + "bye"
+		case "slow":
+			<-block
+		}
+		return "ran: " + cmd
+	})
+	dial := func() *RCON {
+		t.Helper()
+		r, err := DialRCONContext(context.Background(), addr, "secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { r.Close() })
+		return r
+	}
+	count := func(cmd string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		n := 0
+		for _, c := range got {
+			if c == cmd {
+				n++
+			}
+		}
+		return n
+	}
+
+	r := dial()
+	if _, err := r.CommandContext(context.Background(), "lost"); err == nil || errors.Is(err, ErrNotSent) {
+		t.Fatalf("a lost reply must say the command may have run, got %v", err)
+	}
+	if count("lost") != 1 {
+		t.Fatalf("the command reached the server %d times, want once", count("lost"))
+	}
+
+	r = dial()
+	if out, err := r.CommandContext(context.Background(), "last"); err != nil || out != "bye" {
+		t.Fatalf("got %q %v", out, err)
+	}
+	// The fake hangs up just after its reply. Wait until this side can see
+	// that rather than for a fixed time, which a busy machine can outlast.
+	for deadline := time.Now().Add(5 * time.Second); r.stale() == nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the server's hang-up never reached this side")
+		}
+	}
+	if _, err := r.CommandContext(context.Background(), "after"); !errors.Is(err, ErrNotSent) {
+		t.Fatalf("a connection the server closed must be noticed before writing, got %v", err)
+	}
+	if count("after") != 0 {
+		t.Fatal("nothing may be written to a connection the server closed")
+	}
+
+	r = dial()
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := r.CommandContext(ctx, "slow")
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrNotSent) {
+		t.Fatalf("an expired deadline: got %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("the deadline was not honoured: %s", d)
+	}
+
+	r = dial()
+	ctx, cancel = context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start = time.Now()
+	if _, err := r.CommandContext(ctx, "slow"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled context: got %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("cancellation was not honoured: %s", d)
+	}
+	if _, err := r.CommandContext(ctx, "never"); !errors.Is(err, ErrNotSent) {
+		t.Fatalf("a command with a context already done is not sent, got %v", err)
+	}
+	if count("never") != 0 {
+		t.Fatal("a command with a context already done reached the server")
 	}
 }
 
@@ -307,19 +467,5 @@ func TestPing(t *testing.T) {
 	}
 	if st.Online != 1 || st.Max != 10 || st.Protocol != 775 || len(st.Sample) != 1 {
 		t.Fatalf("got %+v", st)
-	}
-}
-
-func TestParseTPS(t *testing.T) {
-	for in, want := range map[string]float64{
-		"§6TPS from last 1m, 5m, 15m: §a*20.0, §a20.0, §a20.0": 20,
-		"TPS from last 1m, 5m, 15m: 17.42, 18.1, 19.9":         17.42,
-	} {
-		if got, ok := ParseTPS(in); !ok || got != want {
-			t.Errorf("ParseTPS(%q) = %v %v, want %v", in, got, ok, want)
-		}
-	}
-	if _, ok := ParseTPS("Unknown command. Type \"/help\" for help."); ok {
-		t.Error("a server without the tps command has no tick rate")
 	}
 }

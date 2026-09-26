@@ -97,6 +97,19 @@ func cobblemonShare() share.Share {
 	}
 }
 
+// The server's address under the machine's name, when the agent knows it,
+// replaces the host the page was opened at.
+func TestFriendsPackPageGivesTheServersNamedAddress(t *testing.T) {
+	f := newFriendsAgent(t)
+	f.link.JoinAddress = "cobblemon.alex.playkeeper.io"
+	e := newEnvAgent(t, f.handler, &syncBuffer{})
+	r, body := get(t, e.ts.Client(), "GET", e.ts.URL+share.PathPrefix+friendsToken+"/page", nil)
+	var p share.Page
+	if r.StatusCode != http.StatusOK || json.Unmarshal([]byte(body), &p) != nil || p.Address != "cobblemon.alex.playkeeper.io" {
+		t.Fatalf("page data: %d %s", r.StatusCode, body)
+	}
+}
+
 func TestFriendsPackPageIsPublicAndListsOnlyWhatFriendsGet(t *testing.T) {
 	f := newFriendsAgent(t)
 	logs := &syncBuffer{}

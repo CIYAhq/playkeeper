@@ -1,0 +1,6 @@
+[08:30:02 INFO]: Preparing level "world"
+[08:30:02 ERROR]: Failed to start the minecraft server
+net.minecraft.util.DirectoryLock$LockException: /data/./world/session.lock: already locked (possibly by other Minecraft instance?)
+	at net.minecraft.util.DirectoryLock.create(DirectoryLock.java:57) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+	at net.minecraft.world.level.storage.LevelStorageSource$LevelStorageAccess.<init>(LevelStorageSource.java:401) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[08:30:02 INFO]: Stopping server

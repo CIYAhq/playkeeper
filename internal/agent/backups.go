@@ -23,6 +23,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
+	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -68,35 +69,47 @@ func allowlistedSize(dataDir string) int64 {
 	return total
 }
 
-// createArchive writes a verified archive of the (stopped) server's data.
-func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*api.Backup, error) {
-	now := s.now().UTC()
-	id := now.Format("20060102-150405") + "-" + randomSecret(3)
+// archiveName is a new backup's id and archive file name.
+func (s *server) archiveName(now time.Time) (id, fileName string) {
+	id = now.Format("20060102-150405") + "-" + randomSecret(3)
 	label := backup.LevelName(s.dataDir())
 	if s.layout != layoutV1 {
 		if row, err := s.row(); err == nil {
 			label = row.Slug
 		}
 	}
-	fileName := fmt.Sprintf("playkeeper-%s-%s.tar.gz", sanitizeName(label), id)
-	tmp := s.backupPath("." + fileName + ".partial")
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	h := sha256.New()
-	meta := backup.Manifest{
+	return id, fmt.Sprintf("playkeeper-%s-%s.tar.gz", sanitizeName(label), id)
+}
+
+// archiveMeta describes the server in a backup's manifest. How the archive
+// was made (Consistency) and its files are added when it is written.
+func (s *server) archiveMeta(sc api.ServerConfig, now time.Time) backup.Manifest {
+	m := backup.Manifest{
 		CreatedAt: now, PlaykeeperVersion: version.Version, SourceInstall: shortID(s.cfg.InstallID),
 		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Build: configBuild(sc), Image: runtimeImage(sc.MinecraftVersion),
 		Settings: map[string]string{
 			"motd": sc.MOTD, "maxPlayers": strconv.Itoa(sc.MaxPlayers), "memoryMB": strconv.Itoa(sc.MemoryMB), "whitelist": "true",
 			"name": s.name(),
 		},
-		Consistency: "server stopped during archive",
 	}
 	if sc.VoiceChatPort > 0 {
-		meta.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)
+		m.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)
 	}
+	return m
+}
+
+// createArchive writes a verified archive of the (stopped) server's data.
+func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*api.Backup, error) {
+	now := s.now().UTC()
+	id, fileName := s.archiveName(now)
+	tmp := s.backupPath("." + fileName + ".partial")
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	h := sha256.New()
+	meta := s.archiveMeta(sc, now)
+	meta.Consistency = "server stopped during archive"
 	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, archiveLimits())
 	if err == nil {
 		err = f.Sync()
@@ -244,7 +257,7 @@ func (s *server) listBackups(cond string, args ...any) ([]api.Backup, error) {
 }
 
 func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
-	rows, err := a.db.Query(`SELECT id, server_id, kind, created_at, file_name, size_bytes, sha256, manifest, verified, verified_at, verify_error, downtime_ms, created_by, downloaded_at, note
+	rows, err := a.db.Query(`SELECT id, server_id, kind, created_at, file_name, size_bytes, sha256, manifest, verified, verified_at, verify_error, downtime_ms, created_by, downloaded_at, note, saving_paused_ms, duration_ms
 		FROM backups `+where+` ORDER BY created_at DESC`, args...)
 	if err != nil {
 		return nil, err
@@ -256,7 +269,7 @@ func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
 		var created int64
 		var manifest string
 		var verified, verifiedAt, downloaded sql.NullInt64
-		if err := rows.Scan(&b.ID, &b.ServerID, &b.Kind, &created, &b.FileName, &b.SizeBytes, &b.SHA256, &manifest, &verified, &verifiedAt, &b.VerifyError, &b.DowntimeMs, &b.CreatedBy, &downloaded, &b.Note); err != nil {
+		if err := rows.Scan(&b.ID, &b.ServerID, &b.Kind, &created, &b.FileName, &b.SizeBytes, &b.SHA256, &manifest, &verified, &verifiedAt, &b.VerifyError, &b.DowntimeMs, &b.CreatedBy, &downloaded, &b.Note, &b.SavingPausedMs, &b.DurationMs); err != nil {
 			return nil, err
 		}
 		b.CreatedAt = time.UnixMilli(created).UTC()
@@ -264,6 +277,7 @@ func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
 		var m backup.Manifest
 		if json.Unmarshal([]byte(manifest), &m) == nil {
 			b.MinecraftVersion, b.LevelName, b.FileCount = m.MinecraftVersion, m.LevelName, len(m.Files)
+			b.Method = string(backup.MethodOf(m))
 		}
 		if verified.Valid {
 			v := verified.Int64 == 1
@@ -282,11 +296,20 @@ func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
 	return out, rows.Err()
 }
 
-// backupOp refuses a world a restore would refuse, then stops the server
-// (saving first), archives, restarts it if it was running, and verifies the
-// archive. Downtime is measured from the stop request until the server is
-// online again.
-func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) error {
+// errNotOnlineForBackup refuses a backup of a server that is starting or
+// stopping: its console can't pause saving yet, and stopping it isn't asked.
+func (s *server) errNotOnlineForBackup() error {
+	return errConflict(s.name()+" is starting or stopping, so it can't be backed up right now.", "Wait until the server is online, then try again.")
+}
+
+// backupOp backs up the world, then verifies the archive. An online server
+// keeps its players: backup.Take pauses world saving only while it copies the
+// world. With stopped, a running server is stopped for the backup (players
+// online are warned in chat first) and started again, and its downtime is
+// measured from the stop request until it is online again. A world a restore
+// would refuse is refused before the server stops or saving pauses. A server
+// that isn't running is backed up as it is.
+func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
 	sc, err := s.serverConfig()
 	if err != nil {
 		return err
@@ -294,48 +317,82 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 	if sc == nil {
 		return errNotCreated()
 	}
-	need := allowlistedSize(s.dataDir())
-	if free, _, err := s.opts.DiskUsage(s.cfg.BackupsDir()); err == nil && free < need+minFreeAfterBackup {
-		// Lets the UI drop this failure once enough space is free again.
-		h.set("neededBytes", need+minFreeAfterBackup)
-		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space for a backup: %s free, about %s needed.", humanBytes(free), humanBytes(need+minFreeAfterBackup)),
-			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
-	}
-	if err := s.archiveRefusal(""); err != nil {
-		return err
-	}
 	_, running, err := s.containerRunning(ctx)
 	if err != nil {
 		return err
 	}
+	if running && !stopped && !s.online(ctx) {
+		return s.errNotOnlineForBackup()
+	}
+	now := s.now().UTC()
+	id, fileName := s.archiveName(now)
+	o := backup.Options{
+		DataDir:    s.dataDir(),
+		Archive:    s.backupPath(fileName),
+		StagingDir: s.cfg.StagingDir(),
+		Meta:       s.archiveMeta(*sc, now),
+		Limits:     archiveLimits(),
+		Reserve:    minFreeAfterBackup,
+		DiskFree: func(dir string) (int64, error) {
+			free, _, err := s.opts.DiskUsage(dir)
+			return free, err
+		},
+		State: backup.ServerStopped,
+		IsRunning: func(ctx context.Context) (bool, error) {
+			_, running, err := s.containerRunning(ctx)
+			return running, err
+		},
+		OnPhase: func(p backup.Phase) { h.phase(string(p)) },
+		Now:     s.now,
+	}
+	restart := running && stopped
+	if running && !stopped {
+		o.State, o.Console = backup.ServerRunning, rconConsole{s}
+		o.OnPauseChange = func(paused bool) {
+			s.setSavingPaused(paused)
+			h.set("savingPaused", paused)
+		}
+	}
 	start := s.now()
-	if running {
+	if restart {
+		if err := s.archiveRefusal(""); err != nil {
+			return err
+		}
+		if err := backup.CheckSpace(ctx, o); err != nil {
+			return s.backupFailed(h, err)
+		}
+		h.set("stopped", true)
 		s.warnBeforeBackup(ctx)
 		if err := s.stopServer(ctx, h); err != nil {
 			return err
 		}
 	}
-	h.phase("archiving")
-	b, archiveErr := s.createArchive(*sc, "manual", actor, note)
-	if running {
+	res, err := backup.Take(ctx, o)
+	var b *api.Backup
+	if err == nil {
+		b, err = s.recordBackup(id, fileName, actor, note, now, res)
+	}
+	if restart {
 		h.phase("restarting")
-		if err := s.startServer(ctx, h, *sc); err != nil {
-			if archiveErr != nil {
-				return s.withRefusalHint(archiveErr)
+		if serr := s.startServer(ctx, h, *sc); serr != nil {
+			if err != nil {
+				return s.backupFailed(h, err)
 			}
-			return &apiError{Msg: "The backup was saved, but the server did not start again: " + err.Error(), Hint: "Press Start on the Overview."}
+			return &apiError{Msg: "The backup was saved, but the server did not start again: " + serr.Error(), Hint: "Press Start on the Overview."}
 		}
 	}
-	if archiveErr != nil {
-		return s.withRefusalHint(archiveErr)
+	if err != nil {
+		return s.backupFailed(h, err)
 	}
 	downtime := int64(0)
-	if running {
+	if restart {
 		downtime = s.now().Sub(start).Milliseconds()
 		_, _ = s.db.Exec(`UPDATE backups SET downtime_ms = ? WHERE id = ?`, downtime, b.ID)
 	}
-	h.set("backupId", b.ID)
-	h.set("downtimeMs", downtime)
+	h.setAll(map[string]any{
+		"backupId": b.ID, "method": string(res.Method), "savingPausedMs": res.Paused.Milliseconds(), "durationMs": res.Took.Milliseconds(),
+		"downtimeMs": downtime, "stagedBytes": res.Staged, "savingWasOff": res.SavingWasOff,
+	})
 	h.phase("verifying")
 	vb, err := s.verifyBackup(b.ID)
 	if err != nil {
@@ -344,9 +401,122 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 	if vb.Verified == nil || !*vb.Verified {
 		return &apiError{Msg: "The backup was written but failed verification: " + vb.VerifyError, Hint: "Try again; if it keeps failing, check the disk for errors."}
 	}
-	s.audit(actor, "backup.created", b.ID, "succeeded", fmt.Sprintf("%s sha256 %s downtime %dms", b.FileName, b.SHA256, downtime))
+	s.audit(actor, "backup.created", b.ID, "succeeded", fmt.Sprintf("%s sha256 %s method %s saving paused %s took %s downtime %dms",
+		b.FileName, b.SHA256, res.Method, res.Paused.Round(time.Millisecond), res.Took.Round(time.Millisecond), downtime))
 	return nil
 }
+
+// recordBackup stores a manual backup backup.Take finished: the checksum file
+// beside the archive, and its row. An archive without a row would never be
+// listed or deleted, so it goes if the row can't be written.
+func (s *server) recordBackup(id, fileName, actor, note string, created time.Time, res *backup.Result) (*api.Backup, error) {
+	final := s.backupPath(fileName)
+	_ = os.WriteFile(final+".sha256", []byte(res.SHA256+"  "+fileName+"\n"), 0o600)
+	mj, _ := json.Marshal(res.Manifest)
+	_, err := s.db.Exec(`INSERT INTO backups(id, server_id, kind, created_at, file_name, size_bytes, sha256, manifest, created_by, note, downtime_ms, saving_paused_ms, duration_ms)
+		VALUES(?,?,'manual',?,?,?,?,?,?,?,0,?,?)`,
+		id, s.id, created.UnixMilli(), fileName, res.Size, res.SHA256, string(mj), actor, note, res.Paused.Milliseconds(), res.Took.Milliseconds())
+	if err != nil {
+		os.Remove(final)
+		os.Remove(final + ".sha256")
+		return nil, err
+	}
+	return s.getBackup(id)
+}
+
+// backupFailed is the operation's error for a failed backup. Its kind and
+// facts go in the operation's detail, so the UI can say it in its own words
+// and offer the matching action.
+func (s *server) backupFailed(h *opHandle, err error) error {
+	var e *backup.Error
+	if !errors.As(err, &e) {
+		return err
+	}
+	d := map[string]any{"errorKind": string(e.Kind)}
+	if e.Kind == backup.KindInsufficientSpace {
+		// Lets the UI drop this failure once enough space is free again.
+		d["neededBytes"], d["freeBytes"] = e.NeededBytes, e.FreeBytes
+	}
+	if e.File != "" {
+		d["file"] = e.File
+	}
+	if e.Command != "" {
+		d["command"], d["reply"] = e.Command, e.Reply
+	}
+	if e.Timeout > 0 {
+		d["timeoutMs"] = e.Timeout.Milliseconds()
+	}
+	if e.SavingPaused {
+		d["savingPaused"] = true
+	}
+	h.setAll(d)
+	return &apiError{Code: string(e.Kind), Msg: e.Msg, Hint: e.Hint}
+}
+
+// setSavingPaused records whether a backup may have left world saving off on
+// the server, so the reconciler (and a restarted agent) can turn it back on.
+// A pause already recorded keeps its time: progress since then is at risk.
+func (s *server) setSavingPaused(paused bool) {
+	var err error
+	if paused {
+		_, err = s.db.Exec(`UPDATE servers SET saving_paused_since = COALESCE(saving_paused_since, ?) WHERE id = ?`, s.now().UnixMilli(), s.id)
+	} else {
+		_, err = s.db.Exec(`UPDATE servers SET saving_paused_since = NULL WHERE id = ?`, s.id)
+	}
+	if err != nil {
+		s.log.Error("could not record whether world saving is paused", "server", s.id, "err", err)
+	}
+}
+
+// savingPausedSince is when a backup left world saving off, or nil.
+func (s *server) savingPausedSince() *time.Time {
+	var ms sql.NullInt64
+	if s.db.QueryRow(`SELECT saving_paused_since FROM servers WHERE id = ?`, s.id).Scan(&ms) != nil || !ms.Valid {
+		return nil
+	}
+	t := time.UnixMilli(ms.Int64).UTC()
+	return &t
+}
+
+// resumeSaving turns world saving back on after a backup left it off. A
+// container that stopped or started since then saves again by itself, so
+// only an online server that has run all along gets save-on. It holds the
+// operation lock, so save-on can't land in the middle of a new backup.
+func (s *server) resumeSaving(ctx context.Context, c docker.ContainerJSON, running bool) {
+	since := s.savingPausedSince()
+	if since == nil {
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		return
+	}
+	defer release()
+	if started, ok := c.State.Started(); !running || (ok && started.After(*since)) {
+		s.setSavingPaused(false)
+		return
+	}
+	s.mu.Lock()
+	due := !s.now().Before(s.nextResume)
+	s.mu.Unlock()
+	if !due || !s.online(ctx) {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if err := backup.ResumeSaving(cctx, rconConsole{s}); err != nil {
+		s.log.Warn("could not turn world saving back on", "server", s.id, "err", err)
+		s.mu.Lock()
+		s.nextResume = s.now().Add(resumeRetry)
+		s.mu.Unlock()
+		return
+	}
+	s.setSavingPaused(false)
+	s.recordEvent(s.now(), "saving_resumed", "", "playkeeper", "")
+}
+
+// resumeRetry is how long the reconciler waits after save-on failed.
+const resumeRetry = 30 * time.Second
 
 func humanBytes(n int64) string {
 	const unit = 1024

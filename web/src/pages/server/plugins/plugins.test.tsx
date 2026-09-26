@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, CuratedAddons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
+import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, Address, CuratedAddons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import type { ServerSub } from '@/lib/router'
 import { PluginsPage } from '.'
@@ -60,6 +60,9 @@ function workspace(): Workspace {
     lastSlug: undefined,
     setLastSlug: () => {},
     signOut: async () => {},
+    reloadMe: async () => {},
+    signInNotice: undefined,
+    dismissSignInNotice: () => {},
   }
 }
 
@@ -392,6 +395,45 @@ describe('Plugins tab', () => {
     media.mockRestore()
     expect(text).toContain('Send them one link.')
     expect(button('Share with friends').tagName).toBe('BUTTON')
+  })
+
+  it('shares the pack under the machine’s name once it works there, and suggests a name first without one', async () => {
+    const shared: PackShare = { ...packShare, public: true, token: 'Fake0Share0Token0Abcde' }
+    const mods = { ...installed, target: { ...target, kind: 'mod' as const, folder: 'mods' } }
+    const named = {
+      kind: 'playkeeper',
+      host: 'alex.playkeeper.io',
+      panelPort: 8443,
+      free: { name: 'alex', state: 'active', dns: 'ok', claimedAt: '2026-09-20T10:00:00Z', refreshedAt: '2026-09-25T10:00:00Z' },
+      certificate: { notAfter: '2099-01-01T00:00:00Z' },
+    } as Address
+    const modded = server({ type: 'fabric', machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
+    const link = () => [...document.querySelectorAll('input')].find((i) => i.value.includes('/packs/'))?.value
+    answer([
+      ['/mods/share', shared],
+      ['/address', named],
+      ['/addons/checks', checks],
+      ['/addons', mods],
+    ])
+    await render(modded, 'mods')
+    let text = await click('Share with friends')
+    expect(link()).toBe('https://alex.playkeeper.io:8443/packs/Fake0Share0Token0Abcde')
+    expect(text).toContain('Press Play, then join survival.alex.playkeeper.io.')
+    expect(text).not.toContain('Set up an address first')
+
+    await act(async () => root?.unmount())
+    answer([
+      ['/mods/share', shared],
+      ['/address', { kind: '', panelPort: 8443 } as Address],
+      ['/addons/checks', checks],
+      ['/addons', mods],
+    ])
+    await render({ ...modded, joinAddress: undefined }, 'mods')
+    text = await click('Share with friends')
+    expect(link()).toBe(`${window.location.origin}/packs/Fake0Share0Token0Abcde`)
+    expect(text).toContain('Set up an address first so the link keeps working if the machine’s IP changes.')
+    expect(button('Machine settings').getAttribute('href')).toBe('/machines/m2345abcde/settings')
+    expect(button('Copy link').tagName).toBe('BUTTON')
   })
 
   it('lists a modpack’s mods with the pack, not as added by hand', async () => {

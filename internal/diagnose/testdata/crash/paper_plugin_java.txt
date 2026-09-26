@@ -1,0 +1,12 @@
+[09:14:01 INFO]: [bootstrap] Running Java 25 (OpenJDK 64-Bit Server VM 25.0.1+8-LTS; Eclipse Adoptium Temurin-25.0.1+8) on Linux 6.8.0-45-generic (amd64)
+[09:14:01 INFO]: [PluginInitializerManager] Initializing plugins...
+[09:14:02 INFO]: [PluginInitializerManager] Initialized 3 plugins
+[09:14:02 ERROR]: [ModernPluginLoadingStrategy] Could not load plugin 'FancyNpcs-2.8.0.jar' in folder 'plugins'
+java.lang.UnsupportedClassVersionError: de/oliver/fancynpcs/FancyNpcs has been compiled by a more recent version of the Java Runtime (class file version 70.0), this version of the Java Runtime only recognizes class file versions up to 69.0
+	at java.base/java.lang.ClassLoader.defineClass1(Native Method) ~[?:?]
+	at java.base/java.lang.ClassLoader.defineClass(ClassLoader.java:1027) ~[?:?]
+	at org.bukkit.plugin.java.PluginClassLoader.findClass(PluginClassLoader.java:235) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]
+	at io.papermc.paper.plugin.entrypoint.strategy.modern.ModernPluginLoadingStrategy.loadProviders(ModernPluginLoadingStrategy.java:117) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[09:14:03 INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[09:14:05 INFO]: Done (3.102s)! For help, type "help"
+[11:47:30 INFO]: Stopping server

@@ -1,11 +1,28 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, get, post } from './client'
-import type { PackPage, PackShare } from './types'
-import { errorText, serverApi } from './workspace'
+import type { Address, PackPage, PackShare } from './types'
+import { errorText, machineApi, serverApi } from './workspace'
 
-/** Where a link token's page lives on this dashboard's address. */
-export function packLink(token: string): string {
-  return `${window.location.origin}/packs/${token}`
+/** Where a link token's page lives: under dashboard, the machine's name once it works there, else this dashboard's address. */
+export function packLink(token: string, dashboard: string = window.location.origin): string {
+  return `${dashboard}/packs/${token}`
+}
+
+/** A machine's address; undefined while it loads, when it can't be read, or without a machine. */
+export function useMachineAddress(machineId: string | undefined): Address | undefined {
+  const [address, setAddress] = useState<Address>()
+  useEffect(() => {
+    if (!machineId) return
+    let cancelled = false
+    get<Address>(machineApi(machineId, '/address')).then(
+      (a) => !cancelled && setAddress(a),
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [machineId])
+  return address
 }
 
 /** The friends' file of a server, for a signed-in user; it works without sharing. */

@@ -130,7 +130,11 @@ type friendsPackPage struct {
 }
 
 func (s *Server) packPageData(w http.ResponseWriter, r *http.Request, fp *friendsPack, token string) {
-	p, err := fp.share.Page(token, fp.link.Slug, joinAddressAt(r.Host, fp.link.GamePort))
+	address := fp.link.JoinAddress
+	if address == "" {
+		address = joinAddressAt(r.Host, fp.link.GamePort)
+	}
+	p, err := fp.share.Page(token, fp.link.Slug, address)
 	if err != nil {
 		packGone(w)
 		return

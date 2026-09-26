@@ -306,7 +306,7 @@ func (a *Agent) hPackLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sc, _ := s.serverConfig()
-	writeJSON(w, http.StatusOK, api.PackLink{Server: s.id, Slug: row.Slug, GamePort: s.gamePort, HasIcon: sc != nil && sc.IconUpdatedAt != nil, Share: raw})
+	writeJSON(w, http.StatusOK, api.PackLink{Server: s.id, Slug: row.Slug, GamePort: s.gamePort, JoinAddress: s.joinAddress(), HasIcon: sc != nil && sc.IconUpdatedAt != nil, Share: raw})
 }
 
 // serverForPackToken is the server whose friends' page token is token while

@@ -32,6 +32,8 @@ interface FakeState {
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
   opSeq: number
+  /** Each machine's address as the real panel last showed it; address changes answer with it. */
+  addresses: Map<string, Record<string, unknown>>
 }
 
 const name = /^[A-Za-z0-9_]{3,16}$/
@@ -54,6 +56,31 @@ function playerName(body: unknown): string | undefined {
 
 function backupFor(state: FakeState, serverId: string, backupId: string): Record<string, unknown> | undefined {
   return state.backups.get(serverId)?.find((b) => b.id === backupId)
+}
+
+const freeName = /^(?=.{3,32}$)[a-z0-9]+(-[a-z0-9]+)*$/
+const recoveryCodes = ['k7qm-4tzd-9hxw-2rbn', 'p3vc-8jwa-6fke-5msy', 'x2nd-7gqr-4bzh-9tce', 'm9wf-3kpa-8vrn-6dqj', 'c4ht-9xme-2qwz-7bnk', 'r6ya-5dkq-3pjw-8fmx', 'v8bn-2tce-7hqk-4wzr', 'e5jx-6mra-9dvf-3kpt', 'h3wq-8zcn-5tbm-2yja', 'z7kp-4fve-6xrd-9qhm']
+
+function twoFactorSetup(): Record<string, unknown> {
+  const secret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
+  return {
+    qrCodeSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" shape-rendering="crispEdges"><path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0zM9 9h3v3H9z" fill="#111"/></svg>',
+    manualKey: secret.replace(/(.{4})(?=.)/g, '$1 '),
+    uri: `otpauth://totp/Playkeeper:admin?secret=${secret}&issuer=Playkeeper&algorithm=SHA1&digits=6&period=30`,
+    issuer: 'Playkeeper',
+    account: 'admin',
+    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+  }
+}
+
+/** The names service's answer for a free name, without asking it: every well-formed name is free. */
+function nameAvailability(name: string, address: Record<string, unknown> | undefined): Reply {
+  if (!freeName.test(name)) return { ...invalid('Use a–z, 0–9 and single dashes, like alex-mc.'), expected: true }
+  return { status: 200, body: { name, address: `${name}.${String(address?.base ?? 'playkeeper.io')}`, available: true } }
+}
+
+function addressAnswer(state: FakeState, machineId: string): Reply {
+  return { status: 200, body: state.addresses.get(machineId) ?? {} }
 }
 
 const routes: [string, RegExp, Handler][] = [
@@ -142,21 +169,34 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
+  // Wave 2: the second sign-in step, two-factor sign-in and the machine's address.
+  ['POST', /^\/api\/auth\/second-factor$/, () => ({ status: 401, body: { error: 'That code didn’t work. Try the one showing now.', code: 'code_wrong' }, expected: true })],
+  ['POST', /^\/api\/auth\/second-factor\/cancel$/, () => ({ status: 200, body: {} })],
+  ['POST', /^\/api\/auth\/2fa\/setup$/, ({ body }) => ((body as { password?: unknown } | null)?.password ? { status: 200, body: twoFactorSetup() } : invalid('Enter your password.'))],
+  ['DELETE', /^\/api\/auth\/2fa\/setup$/, () => ({ status: 200, body: {} })],
+  ['POST', /^\/api\/auth\/2fa\/confirm$/, ({ body }) => (/^\d{6}$/.test(String((body as { code?: unknown } | null)?.code)) ? { status: 200, body: { recoveryCodes } } : invalid('Type the 6-digit code from your app.'))],
+  [
+    'POST',
+    /^\/api\/auth\/2fa\/(recovery-codes|disable)$/,
+    (r) => {
+      const b = r.body as { password?: unknown; code?: unknown } | null
+      if (!b?.password || !b.code) return invalid('Enter your password and a code.')
+      return { status: 200, body: r.params[0] === 'disable' ? {} : { recoveryCodes } }
+    },
+  ],
+  ['POST', /^\/api\/machines\/(\w+)\/address\/claim$/, (r, state) => (freeName.test(String((r.body as { name?: unknown } | null)?.name)) ? addressAnswer(state, r.params[0] ?? '') : invalid('Use a–z, 0–9 and single dashes, like alex-mc.'))],
+  ['POST', /^\/api\/machines\/(\w+)\/address\/(refresh|release|certificate)$/, (r, state) => addressAnswer(state, r.params[0] ?? '')],
+  ['POST', /^\/api\/machines\/(\w+)\/address\/check$/, (r, state) => ((r.body as { domain?: unknown } | null)?.domain ? addressAnswer(state, r.params[0] ?? '') : invalid('Type your domain.'))],
+  ['DELETE', /^\/api\/machines\/(\w+)\/address$/, (r, state) => addressAnswer(state, r.params[0] ?? '')],
+  // The crash screen's fixes that act on a plugin or mod, then start the server.
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => (confirmed(r.body) && Array.isArray((r.body as { addons?: unknown }).addons) ? op(state, 'addon-update', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => (confirmed(r.body) && typeof (r.body as { projectId?: unknown }).projectId === 'string' ? op(state, 'addon-install', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
   // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
   ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
   // Wave 4: the CurseForge key. A key typed here isn't one CurseForge knows, so it's refused as the real check would.
   ['POST', /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/, () => ({ status: 400, body: { error: "That key didn't work. Copy it again from console.curseforge.com.", code: 'curseforge_key_refused' }, expected: true })],
   ['DELETE', /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/, () => ({ status: 200, body: { curseforge: { key: 'none' } } })],
-  // Wave 4: installing from the library (voice chat with leave to open its port).
-  [
-    'POST',
-    /^\/api\/servers\/(\w+)\/addons\/install$/,
-    (r, state) => {
-      const b = r.body as { source?: unknown; projectId?: unknown; fingerprint?: unknown } | null
-      if (typeof b?.source !== 'string' || typeof b.projectId !== 'string' || typeof b.fingerprint !== 'string') return invalid('Confirm the plan first.')
-      return op(state, 'addon-install', r.params[0])
-    },
-  ],
   ['POST', /^\/api\/servers\/(\w+)\/template\/retry$/, (r, state) => op(state, 'template-retry', r.params[0])],
   [
     'POST',
@@ -168,6 +208,13 @@ const routes: [string, RegExp, Handler][] = [
     },
   ],
 ]
+
+const addonJar = /^[^./\\][^/\\]{0,195}\.jar$/
+
+/** An add-on install or update carries the fingerprint of the plan the user confirmed. */
+function confirmed(body: unknown): boolean {
+  return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
+}
 
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
 const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
@@ -223,7 +270,7 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0 }
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0, addresses: new Map() }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -264,6 +311,14 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([leftoverWorld]) })
         return
       }
+      // Asking whether a free name is taken goes out to the names service, which tests never call.
+      const lookup = /^\/api\/machines\/(\w+)\/address\/available$/.exec(path)
+      if (lookup?.[1]) {
+        const reply = nameAvailability(url.searchParams.get('name') ?? '', state.addresses.get(lookup[1]))
+        calls.push({ method, path, status: reply.status, faked: true, expected: reply.expected, at })
+        await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
+        return
+      }
       const res = await route.fetch().catch(() => null)
       if (!res) {
         await route.abort().catch(() => {})
@@ -272,12 +327,16 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       // Add-on icons come from their sites through the panel, and one that
       // can't be had shows a stand-in, so its error is expected.
       const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
-      calls.push({ method, path, status: res.status(), faked: false, at, expected: icon && !res.ok() })
+      // The records for a domain that isn't one are refused, like a wrong password.
+      const refusedDomain = res.status() === 400 && /^\/api\/machines\/\w+\/address\/plan$/.test(path)
+      calls.push({ method, path, status: res.status(), faked: false, expected: (icon && !res.ok()) || refusedDomain || undefined, at })
       if (res.ok()) {
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
+        const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
+        if (address?.[1]) state.addresses.set(address[1], await res.json().catch(() => ({})))
       }
       // The page may have moved on and cancelled the request meanwhile.
       await route.fulfill({ response: res }).catch(() => {})
