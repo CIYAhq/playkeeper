@@ -1239,7 +1239,8 @@ export const en = {
   'login.password': 'Password',
   'login.submit': 'Sign in',
   'login.submitting': 'Signing in…',
-  'login.forgot': 'Forgot your password? On the VPS run <code>{command}</code>.',
+  'login.forgotLink': 'Forgot your password?',
+  'login.forgot': 'On the VPS, run <code>{command}</code>.',
 
   // The second sign-in step
   'signin.codeTitle': 'Enter your code',
