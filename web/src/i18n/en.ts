@@ -169,6 +169,8 @@ export const en = {
   'checklist.nextLower': '{done} of {total} done · next: {step}',
   'checklist.headline': { one: '{server} is up. One small step left.', other: '{server} is up. {count} small steps left.' },
   'checklist.headlineStart': '{server} is up. Here’s how to make it yours.',
+  'checklist.headlineAsleep': { one: 'One small step left for {server}.', other: '{count} small steps left for {server}.' },
+  'checklist.headlineStartAsleep': 'Here’s how to make {server} yours.',
   'checklist.done': 'Done',
   'checklist.nextMarker': 'Next',
   'checklist.stepNumber': 'Step {n}',
