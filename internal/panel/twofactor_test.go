@@ -540,6 +540,103 @@ func TestConcurrentWrongCodesAreAllCounted(t *testing.T) {
 	}
 }
 
+// Two right codes sent at once for one sign-in start one session and spend
+// one code: the request that loses finds the sign-in passed before its code
+// is checked, so that code still works for the next sign-in.
+func TestConcurrentRightCodesSpendOneCode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		app  bool // the second request sends an app code, not a recovery code
+	}{
+		{name: "two recovery codes"},
+		{name: "a recovery code and an app code", app: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, csrf := e.setup(t)
+			secret, recovery := turnOn(t, e, cookie, csrf)
+			e.srv.loginIP = newLimiter(1000, time.Minute, e.clock.now)
+			codes := []string{recovery[0], recovery[1]}
+			if tc.app {
+				codes[1] = totp.Code(secret, e.clock.now())
+			}
+			sessions := e.count(t, `SELECT COUNT(*) FROM sessions`)
+			login := e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+
+			// Both requests have found the pending sign-in before either
+			// checks its code.
+			b := newBarrier(len(codes), 5*time.Second)
+			e.srv.beforeCodeCheck = b.arrive
+			resps := make([]resp, len(codes))
+			var wg sync.WaitGroup
+			for i, code := range codes {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					resps[i] = e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+code+`"}`, pendingHeaders(login.pending))
+				}()
+			}
+			wg.Wait()
+			e.srv.beforeCodeCheck = nil
+			if b.arrived.Load() != int32(len(codes)) {
+				t.Fatalf("%d of %d requests reached the code check", b.arrived.Load(), len(codes))
+			}
+
+			won, lost := 0, 1
+			if resps[1].status == http.StatusOK {
+				won, lost = 1, 0
+			}
+			if resps[won].status != http.StatusOK || resps[won].cookie == "" || resps[lost].status != http.StatusUnauthorized || resps[lost].body["code"] != "unauthorized" || resps[lost].cookie != "" {
+				t.Fatalf("two right codes at once: %d %v and %d %v", resps[0].status, resps[0].body, resps[1].status, resps[1].body)
+			}
+			if n := e.count(t, `SELECT COUNT(*) FROM sessions`); n != sessions+1 {
+				t.Fatalf("two right codes at once started %d sessions", n-sessions)
+			}
+			left := twofactor.RecoveryCodeCount - 1
+			if tc.app && won == 1 {
+				left++
+			}
+			if f, _, _, _ := loadFactor(context.Background(), e.srv.db, 1); f.Recovery.Remaining() != left {
+				t.Fatalf("%d recovery codes left after the %s won, want %d", f.Recovery.Remaining(), []string{"first", "second"}[won], left)
+			}
+
+			login = e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+			if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+codes[lost]+`"}`, pendingHeaders(login.pending)); r.status != http.StatusOK {
+				t.Fatalf("the losing code on the next sign-in: %d %v", r.status, r.body)
+			}
+			login = e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+			if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+codes[won]+`"}`, pendingHeaders(login.pending)); r.status != http.StatusUnauthorized {
+				t.Fatalf("the winning code again: %d %v", r.status, r.body)
+			}
+		})
+	}
+}
+
+// A sign-in whose session cannot be stored spends nothing: its code and the
+// pending sign-in are both still there for another try.
+func TestASessionThatCannotStartSpendsNoCode(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	_, recovery := turnOn(t, e, cookie, csrf)
+	login := e.do(t, "POST", "/api/auth/login", `{"username":"admin","password":"correct horse battery"}`, xrw)
+	if _, err := e.srv.db.Exec(`CREATE TRIGGER no_sessions BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+recovery[0]+`"}`, pendingHeaders(login.pending))
+	if r.status != http.StatusInternalServerError || r.cookie != "" || r.pendingCleared {
+		t.Fatalf("a session that cannot be stored: %d %v, signed in %v, pending sign-in cleared %v", r.status, r.body, r.cookie != "", r.pendingCleared)
+	}
+	if f, _, _, _ := loadFactor(context.Background(), e.srv.db, 1); f.Recovery.Remaining() != twofactor.RecoveryCodeCount {
+		t.Fatalf("%d recovery codes left after a sign-in that started no session", f.Recovery.Remaining())
+	}
+	if _, err := e.srv.db.Exec(`DROP TRIGGER no_sessions`); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.do(t, "POST", "/api/auth/second-factor", `{"code":"`+recovery[0]+`"}`, pendingHeaders(login.pending)); r.status != http.StatusOK || r.cookie == "" {
+		t.Fatalf("the same code once sessions can be stored: %d %v", r.status, r.body)
+	}
+}
+
 // Every address in an IPv6 /64 shares one sign-in budget; IPv4 addresses,
 // also written as IPv4-mapped IPv6, have their own.
 func TestSignInLimiterCountsIPv6By64(t *testing.T) {
