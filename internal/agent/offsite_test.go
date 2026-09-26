@@ -242,6 +242,12 @@ func TestANewKeyReachesTheCopyBeingMade(t *testing.T) {
 		e.waitFor("where the copy stopped to be saved", func() bool {
 			return e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ? AND state LIKE '%"u1"%'`, id) == 1
 		})
+		// Turning copies on can leave a kick waiting; only the new key's
+		// own may start the round that starts the copy over.
+		select {
+		case <-e.srv().offsiteKick():
+		default:
+		}
 		key := newKey(e)
 		if got := copied(e, id); got[id] != key {
 			t.Fatalf("the copy is encrypted to %s, not the new key %s", got[id], key)
