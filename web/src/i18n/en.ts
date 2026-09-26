@@ -2831,6 +2831,7 @@ export const en = {
   'import.uploaded': '{size} · uploaded',
   'import.resumes': 'It resumes if the connection drops.',
   'import.retrying': 'The connection dropped. Carrying on…',
+  'import.otherFiles': 'The machine has other files for this upload. Choose the world again to start over.',
   'import.wrongType': 'Choose a .zip, .tar.gz or .tar file.',
   'import.nextCheck': 'Next: check what’s inside',
   'import.check': 'Check the world',
