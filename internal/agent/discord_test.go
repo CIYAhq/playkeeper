@@ -160,14 +160,48 @@ func (f *fakeHook) waitStatus(e *agentEnv, d time.Duration, want string) {
 }
 
 // newDiscordEnv is an agent that talks to the fake Discord.
-func newDiscordEnv(t *testing.T) (*agentEnv, *fakeHook) {
+func newDiscordEnv(t *testing.T) (*agentEnv, *fakeHook) { return newDiscordEnvWith(t, nil) }
+
+// newDiscordEnvWith is newDiscordEnv with setup run before the agent starts.
+// The log follower and a start look again within milliseconds rather than
+// seconds, so a server is seen up soon after its "Done" line.
+func newDiscordEnvWith(t *testing.T, setup func(e *agentEnv)) (*agentEnv, *fakeHook) {
 	t.Helper()
 	f := startFakeHook(t)
-	e := newAgentEnv(t)
-	e.stop()
-	e.discordClient = f.client()
-	e.start()
+	e := newAgentEnvWith(t, func(e *agentEnv) {
+		e.discordClient = f.client()
+		if setup != nil {
+			setup(e)
+		}
+		more := e.tweak
+		e.tweak = func(o *Options) {
+			o.ReadyPoll, o.FollowRetry = 10*time.Millisecond, 20*time.Millisecond
+			if more != nil {
+				more(o)
+			}
+		}
+	})
 	return e, f
+}
+
+// releaseRestart lets an automatic start that waits out its backoff go ahead
+// now, as if the backoff had passed. Moving the agent's clock on instead
+// would make the alerts that follow look old, and the notifier drops those.
+func (e *agentEnv) releaseRestart() {
+	s := e.srv()
+	s.mu.Lock()
+	s.nextAutoRestart = time.Time{}
+	s.mu.Unlock()
+}
+
+// liveStatusEnv is a Discord agent whose live status message may change
+// every 200 ms rather than every two seconds, that samples no players, and
+// whose automatic restarts wait for releaseRestart.
+func liveStatusEnv(t *testing.T) (*agentEnv, *fakeHook) {
+	return newDiscordEnvWith(t, func(e *agentEnv) {
+		e.sampleInterval, e.crashBackoff = time.Hour, []time.Duration{time.Hour}
+		e.tweak = func(o *Options) { o.DiscordStatusGap = 200 * time.Millisecond }
+	})
 }
 
 func (e *agentEnv) connectDiscord() map[string]any {
@@ -558,13 +592,8 @@ func TestDiscordOptionalAlertsGoOut(t *testing.T) {
 // back online and Playkeeper giving up restarting each show within seconds,
 // not after the minute between routine updates.
 func TestDiscordLiveStatusShowsCrashesWithinSeconds(t *testing.T) {
-	f := startFakeHook(t)
-	e := newAgentEnv(t)
-	e.stop()
-	// Playkeeper restarts the server four seconds after a crash, long enough
-	// for the crash to show first.
-	e.discordClient, e.sampleInterval, e.crashBackoff = f.client(), time.Hour, []time.Duration{4 * time.Second}
-	e.start()
+	// Playkeeper restarts the server only once the crash has shown.
+	e, f := liveStatusEnv(t)
 	e.create()
 	e.connectDiscord()
 	const within = 4 * time.Second
@@ -579,6 +608,7 @@ func TestDiscordLiveStatusShowsCrashesWithinSeconds(t *testing.T) {
 		if i == maxCrashes {
 			break
 		}
+		e.releaseRestart()
 		e.waitFor("back online", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
 		f.waitStatus(e, within, "** · Online")
 	}
@@ -593,11 +623,7 @@ func TestDiscordLiveStatusShowsCrashesWithinSeconds(t *testing.T) {
 // "Online · 0 of 12", not "Online · 0" until the next routine update. No
 // sample runs here once the agent has started.
 func TestDiscordLiveStatusCountsSlotsBeforeTheFirstSample(t *testing.T) {
-	f := startFakeHook(t)
-	e := newAgentEnv(t)
-	e.stop()
-	e.discordClient, e.sampleInterval, e.crashBackoff = f.client(), time.Hour, []time.Duration{4 * time.Second}
-	e.start()
+	e, f := liveStatusEnv(t)
 	e.createWith(map[string]any{"maxPlayers": 12})
 	e.connectDiscord()
 	const within = 4 * time.Second
@@ -605,6 +631,7 @@ func TestDiscordLiveStatusCountsSlotsBeforeTheFirstSample(t *testing.T) {
 	e.fd.addLog("[12:00:05 INFO]: Timings Reset")
 	e.fd.crash(137)
 	f.waitStatus(e, within, "** · Crashed")
+	e.releaseRestart()
 	e.waitFor("back online", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
 	f.waitStatus(e, within, "** · Online · 0 of 12")
 }

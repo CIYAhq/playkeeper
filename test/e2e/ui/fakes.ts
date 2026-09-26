@@ -1420,7 +1420,30 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
   const unfaked: string[] = []
   const unrecorded: string[] = []
   const origin = new URL(baseURL).origin
-  const state: FakeState = { origin, prefs: {}, backups: new Map(), update: {}, reads: new Map(), discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] }, opSeq: 0, inviteSeq: 0, addresses: new Map(), view, phases: new Map(), jobs: new Map(), maps: new Map(), imports: new Map(), ops: new Map(), schedules: new Map(), backupRules: new Map(), offsite: new Map(), sshKeys: new Set(), link: {}, machines: [], seq: 0 }
+  const state: FakeState = {
+    prefs: {},
+    backups: new Map(),
+    update: {},
+    reads: new Map(),
+    opSeq: 0,
+    addresses: new Map(),
+    view,
+    phases: new Map(),
+    jobs: new Map(),
+    origin,
+    discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] },
+    inviteSeq: 0,
+    maps: new Map(),
+    imports: new Map(),
+    ops: new Map(),
+    schedules: new Map(),
+    backupRules: new Map(),
+    offsite: new Map(),
+    sshKeys: new Set(),
+    link: {},
+    machines: [],
+    seq: 0,
+  }
 
   // Links out of the dashboard open a stand-in page instead of the internet.
   await page.context().route(
@@ -1457,10 +1480,10 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
       // A faked job finishes at once, for the dialogs that follow it; an add-on job ends the way the fixtures say.
       const fakeOp = /^\/api\/(?:servers|machines)\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
       if (fakeOp?.[1]) {
-        const o = state.ops.get(fakeOp[1])
-        const ended = state.jobs.get(fakeOp[1]) ?? (o && finished(o))
-        calls.push({ method, path, status: ended ? 200 : 404, faked: true, at })
-        await route.fulfill({ status: ended ? 200 : 404, contentType: 'application/json', body: JSON.stringify(ended ?? { error: 'Operation not found.', code: 'not_found' }) })
+        const started = state.ops.get(fakeOp[1])
+        const o = state.jobs.get(fakeOp[1]) ?? (started && finished(started))
+        calls.push({ method, path, status: o ? 200 : 404, faked: true, at })
+        await route.fulfill({ status: o ? 200 : 404, contentType: 'application/json', body: JSON.stringify(o ?? { error: 'Operation not found.', code: 'not_found' }) })
         return
       }
       if (/^\/api\/machines\/\w+\/restore\/fakerestore$/.test(path)) {

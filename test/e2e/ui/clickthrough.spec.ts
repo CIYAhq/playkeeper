@@ -164,12 +164,12 @@ function pageOf(c: { route: string; view?: View }): string {
  * it is broken. A page's count leaves out controls pressed on an earlier
  * page, such as the sidebar. A page that isn't listed needs one. A dev build
  * (make dev) can't update itself, so its /settings has no "Check for updates"
- * and one control fewer than an installed panel's. A fresh install has
- * nothing to free on the Disk space page, whose way back to the machine is
- * pressed on the machine's other pages first, so its controls count in the
- * space to free view. The add-on library shows the recorded fixtures' cards
- * (addon-fixtures.ts), so its count doesn't move with what Modrinth and
- * Hangar list.
+ * and one control fewer than an installed panel's. The add-on library shows
+ * the recorded fixtures' cards (addon-fixtures.ts), so its count doesn't move
+ * with what Modrinth and Hangar list. A fresh install has nothing to free on
+ * the Disk space page, whose way back to the machine is pressed on the
+ * machine's other pages first, so its controls count in the space to free
+ * view.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
