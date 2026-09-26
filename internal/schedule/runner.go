@@ -11,7 +11,8 @@ import (
 
 var (
 	// ErrBusy is Server.Run's error when another operation holds the server.
-	// The runner tries again until Config.BusyGiveUp has passed.
+	// The runner tries a restart again until Config.BusyGiveUp has passed,
+	// and a backup until its grace ends.
 	ErrBusy = errors.New("another operation is running on this server")
 	// ErrNotRunning is Server.Run's error when a restart finds the server
 	// stopped. The run is recorded as skipped.
@@ -54,6 +55,9 @@ type ServerState struct {
 	// Players is the number of players online, when PlayersKnown.
 	Players      int
 	PlayersKnown bool
+	// Busy is true while another operation holds the server, so Run would
+	// return ErrBusy.
+	Busy bool
 }
 
 // Server is what the runner needs from the agent for its server.
@@ -90,8 +94,9 @@ type Config struct {
 	NewTimer func(d time.Duration) Timer
 	// Logf defaults to discarding.
 	Logf func(format string, args ...any)
-	// BusyRetry and BusyGiveUp say how often, and for how long, a restart or
-	// backup is tried again while another operation holds the server.
+	// BusyRetry and BusyGiveUp say how often, and for how long, a restart is
+	// tried again while another operation holds the server. A backup is
+	// tried again until its grace ends, as a late one may still start.
 	BusyRetry  time.Duration
 	BusyGiveUp time.Duration
 }
@@ -377,7 +382,7 @@ func (r *Runner) restart(ctx context.Context, j Job) (res Run) {
 		case IfEmptySkip:
 			return Run{Result: ResultSkipped, Reason: ReasonNobodyOnline}
 		case IfEmptyNow:
-			return r.operation(ctx, j, Operation{Kind: OpRestart})
+			return r.operation(ctx, j, Operation{Kind: OpRestart}, r.cfg.Now().Add(r.cfg.BusyGiveUp))
 		}
 	}
 	now := r.cfg.Now()
@@ -422,15 +427,44 @@ func (r *Runner) restart(ctx context.Context, j Job) (res Run) {
 				seen = n
 			}
 		}
-		if warned {
-			_, _ = r.cfg.Server.Command(ctx, restartNow())
-		}
 	}
-	res = r.operation(ctx, j, Operation{Kind: OpRestart})
+	giveUp := r.cfg.Now().Add(r.cfg.BusyGiveUp)
+	if res, stop := r.waitIdle(ctx, j, warned, giveUp); stop {
+		return res
+	}
+	if warned && !emptied {
+		_, _ = r.cfg.Server.Command(ctx, restartNow())
+	}
+	res = r.operation(ctx, j, Operation{Kind: OpRestart}, giveUp)
 	if warned && res.Result == ResultFailed && res.Reason != ReasonInterrupted {
 		_, _ = r.cfg.Server.Command(ctx, restartCalledOff())
 	}
 	return res
+}
+
+// waitIdle waits, once a restart's countdown is over, while another
+// operation holds the server, so players aren't told it restarts now while
+// it can't. It gives up at giveUp, and stops as the countdown does when the
+// schedule is turned off or the server stops.
+func (r *Runner) waitIdle(ctx context.Context, j Job, warned bool, giveUp time.Time) (Run, bool) {
+	for {
+		st, err := r.cfg.Server.State(ctx)
+		if err != nil || !st.Busy {
+			return Run{}, false
+		}
+		if skip, ok := offline(st); ok {
+			return skip, true
+		}
+		if !r.cfg.Now().Before(giveUp) {
+			if warned {
+				_, _ = r.cfg.Server.Command(ctx, restartCalledOff())
+			}
+			return Run{Result: ResultFailed, Reason: ReasonBusy}, true
+		}
+		if res, stop := r.countdownWait(ctx, j, r.cfg.Now().Add(r.cfg.BusyRetry), warned); stop {
+			return res, true
+		}
+	}
 }
 
 // backup backs the world up. It doesn't need the server running: a stopped
@@ -444,7 +478,7 @@ func (r *Runner) backup(ctx context.Context, j Job) Run {
 		}
 		seen = players(st)
 	}
-	res := r.operation(ctx, j, Operation{Kind: OpBackup, Note: p.Note, OnlyIfPlayed: p.OnlyIfPlayed})
+	res := r.operation(ctx, j, Operation{Kind: OpBackup, Note: p.Note, OnlyIfPlayed: p.OnlyIfPlayed}, j.Due.Add(j.Schedule.Grace()))
 	res.Players = seen
 	return res
 }
@@ -511,9 +545,10 @@ func (r *Runner) turnedOff(ctx context.Context, id string) bool {
 	return true
 }
 
-func (r *Runner) operation(ctx context.Context, j Job, op Operation) Run {
+// operation runs op, trying again while another operation holds the server
+// until giveUp. It always tries once.
+func (r *Runner) operation(ctx context.Context, j Job, op Operation, giveUp time.Time) Run {
 	op.Actor, op.ScheduleID, op.Due = Actor(j.Schedule.ID), j.Schedule.ID, j.Due
-	giveUp := r.cfg.Now().Add(r.cfg.BusyGiveUp)
 	for {
 		id, err := r.cfg.Server.Run(ctx, op)
 		switch {

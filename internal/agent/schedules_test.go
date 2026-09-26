@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -141,16 +142,181 @@ func TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime(t *testing.T) {
 			}
 		}
 		set(true, ny)
-		before, ok := e.srv().automaticSchedule(context.Background())
-		if !ok || !sameJSON(before.Timing, daily("04:00", ny)) {
-			t.Fatalf("automatic backups made from New York: %+v", before.Timing)
+		before, ok, err := e.srv().automaticSchedule(context.Background())
+		if err != nil || !ok || !sameJSON(before.Timing, daily("04:00", ny)) {
+			t.Fatalf("automatic backups made from New York: %+v (%v)", before.Timing, err)
 		}
 		set(false, tokyo)
-		after, _ := e.srv().automaticSchedule(context.Background())
+		after, _, _ := e.srv().automaticSchedule(context.Background())
 		now := e.a.now()
 		if !sameJSON(after.Timing, before.Timing) || after.Payload.OnlyIfPlayed || !schedule.NextRun(after.Schedule, now).Equal(schedule.NextRun(before.Schedule, now)) {
 			t.Fatalf("after a change from Tokyo: %+v %+v, next run %v, was %+v next %v", after.Timing, after.Payload,
 				schedule.NextRun(after.Schedule, now), before.Timing, schedule.NextRun(before.Schedule, now))
 		}
 	})
+}
+
+// While the schedules can't be read, the automatic backups are neither shown
+// nor saved: a save is refused rather than make a second backup schedule, or
+// answer that it turned them off, and the page doesn't show the defaults.
+func TestAutomaticBackupsThatCantBeReadAreNeitherShownNorSaved(t *testing.T) {
+	every := func(on bool, hours int) map[string]any {
+		return map[string]any{"enabled": on, "everyHours": hours, "onlyIfPlayed": true}
+	}
+	cases := []struct {
+		name string
+		// existing is whether automatic backups every day were made before.
+		existing  bool
+		automatic map[string]any
+	}{
+		{name: "turned on", automatic: every(true, 24)},
+		{name: "every few hours instead", existing: true, automatic: every(true, 6)},
+		{name: "turned off", existing: true, automatic: every(false, 24)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.addIdleServer()
+			if c.existing {
+				if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "automatic": every(true, 24)}); code != http.StatusOK {
+					t.Fatalf("automatic backups: %d %v", code, out)
+				}
+			}
+			schedules := func() string {
+				t.Helper()
+				var s string
+				if err := e.a.db.QueryRow(`SELECT COALESCE(group_concat(id || ' ' || timing || ' ' || enabled, ';'), '') FROM schedules`).Scan(&s); err != nil {
+					t.Fatal(err)
+				}
+				return s
+			}
+			before := schedules()
+			if _, err := e.a.db.Exec(`ALTER TABLE schedules RENAME COLUMN last_run TO last_run_gone`); err != nil {
+				t.Fatal(err)
+			}
+			saved, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "automatic": c.automatic})
+			shown, _ := e.call("GET", e.sp("/backup-rules"), nil)
+			estimated, _ := e.call("POST", e.sp("/backup-rules/estimate"), map[string]any{"actor": "admin",
+				"rules": map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}})
+			if _, err := e.a.db.Exec(`ALTER TABLE schedules RENAME COLUMN last_run_gone TO last_run`); err != nil {
+				t.Fatal(err)
+			}
+			if saved != http.StatusInternalServerError || shown != http.StatusInternalServerError || estimated != http.StatusInternalServerError {
+				t.Fatalf("with the schedules unreadable: save %d %v, page %d, estimate %d", saved, out, shown, estimated)
+			}
+			if after := schedules(); after != before {
+				t.Fatalf("the refused save changed the schedules from %q to %q", before, after)
+			}
+		})
+	}
+}
+
+// An edit of a schedule saves what it changes, but never writes back the
+// last run it read: a run the runner saves meanwhile stays, on the schedule
+// and in Recent runs, so a restart doesn't record it as interrupted.
+func TestEditingAScheduleKeepsTheRunTheRunnerSaved(t *testing.T) {
+	due := time.Now().UTC().Truncate(time.Minute).Add(-time.Hour)
+	running := schedule.Run{Due: due, Started: due, Result: schedule.ResultRunning}
+	done := schedule.Run{Due: due, Started: due, Finished: due.Add(time.Minute), Result: schedule.ResultSucceeded, OperationID: "opopopopopopopop"}
+	yesterday := done
+	yesterday.Due, yesterday.Started, yesterday.Finished = due.Add(-24*time.Hour), due.Add(-24*time.Hour), due.Add(-24*time.Hour+time.Minute)
+	cases := []struct {
+		name   string
+		change map[string]any
+		// read is the last run the edit reads, and saved the run the runner
+		// saves before the edit saves.
+		read, saved schedule.Run
+		column      string
+		value       any
+	}{
+		{name: "renamed as its run finishes", change: map[string]any{"name": "Nightly"}, read: running, saved: done, column: "name", value: "Nightly"},
+		{name: "switched off as a run starts", change: map[string]any{"enabled": false}, read: yesterday, saved: running, column: "enabled", value: int64(0)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.addIdleServer()
+			at := time.Now().UTC().Add(12 * time.Hour).Format("15:04")
+			code, out := e.call("POST", e.sp("/schedules"), map[string]any{"actor": "admin", "kind": "backup",
+				"timing": map[string]any{"kind": "daily", "at": at, "timeZone": "UTC"}})
+			if code != http.StatusCreated {
+				t.Fatalf("create: %d %v", code, out)
+			}
+			id := out["id"].(string)
+			s := e.srv()
+			if err := s.saveScheduleRun(context.Background(), id, c.read); err != nil {
+				t.Fatal(err)
+			}
+			var once sync.Once
+			prev := scheduleEditRead
+			scheduleEditRead = func(row scheduleRow) {
+				once.Do(func() {
+					if err := s.saveScheduleRun(context.Background(), row.ID, c.saved); err != nil {
+						t.Error(err)
+					}
+				})
+			}
+			t.Cleanup(func() { scheduleEditRead = prev })
+			c.change["actor"] = "admin"
+			if code, out := e.call("POST", e.sp("/schedules/"+id), c.change); code != http.StatusOK {
+				t.Fatalf("edit: %d %v", code, out)
+			}
+			var raw string
+			var changed any
+			if err := e.a.db.QueryRow(`SELECT last_run, `+c.column+` FROM schedules WHERE id = ?`, id).Scan(&raw, &changed); err != nil {
+				t.Fatal(err)
+			}
+			// The runner closes a run left running when it first reads the
+			// schedules, which may be after the edit here: that is still the
+			// runner's run.
+			runners := func(result schedule.Result, reason schedule.Reason) bool {
+				return result == c.saved.Result || c.saved.Result == schedule.ResultRunning && result == schedule.ResultFailed && reason == schedule.ReasonInterrupted
+			}
+			var last schedule.Run
+			if err := json.Unmarshal([]byte(raw), &last); err != nil || !runners(last.Result, last.Reason) || !last.Due.Equal(c.saved.Due) || changed != c.value {
+				t.Fatalf("after the edit: last run %s (%v), %s %v; want the runner's %s run due %s, and %v", raw, err, c.column, changed, c.saved.Result, c.saved.Due, c.value)
+			}
+			var result, reason string
+			if err := e.a.db.QueryRow(`SELECT result, reason FROM schedule_runs WHERE schedule_id = ? AND due = ?`, id, c.saved.Due.UnixMilli()).Scan(&result, &reason); err != nil ||
+				!runners(schedule.Result(result), schedule.Reason(reason)) {
+				t.Fatalf("Recent runs lost the runner's run: %s %s (%v)", result, reason, err)
+			}
+		})
+	}
+}
+
+// The runner hears that the server is busy while another operation holds
+// it, so a scheduled restart waits before it tells players it restarts now.
+func TestTheRunnerHearsWhenAnotherOperationHoldsTheServer(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.waitFor("the server to be online and idle", e.onlineIdle)
+	state := func() schedule.ServerState {
+		t.Helper()
+		st, err := scheduleServer{e.srv()}.State(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	if st := state(); !st.Running || st.Busy {
+		t.Fatalf("idle: %+v", st)
+	}
+	release := make(chan struct{})
+	op, err := e.srv().beginOp("backup", "admin", func(context.Context, *opHandle) error {
+		<-release
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := state()
+	close(release)
+	e.waitOp(op.ID)
+	if !st.Running || !st.Busy {
+		t.Fatalf("during another operation: %+v", st)
+	}
+	if st := state(); st.Busy {
+		t.Fatalf("once it ended: %+v", st)
+	}
 }
