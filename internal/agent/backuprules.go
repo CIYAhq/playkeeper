@@ -77,6 +77,17 @@ func (j *swapJournal) concerns(serverID string) bool {
 	return j == nil || j.ServerID == serverID
 }
 
+// restoreUnsettled says whether a restore of the server may not be over: a
+// stage keeps a swap journal that may be its own.
+func (s *server) restoreUnsettled() bool {
+	for _, j := range s.unsettledSwaps() {
+		if j.concerns(s.id) {
+			return true
+		}
+	}
+	return false
+}
+
 // rollbacksNeeded names the rollback archives of the server's restores that
 // aren't over, the one running and those whose stage keeps a swap journal,
 // as the unfinished restore that may still need them. A journal that can't

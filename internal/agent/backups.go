@@ -647,7 +647,9 @@ func (s *server) hWorldCopies(w http.ResponseWriter, r *http.Request) {
 }
 
 // hWorldCopyDelete discards one world copy. Nothing is discarded while the
-// live world folder is missing, because a copy may then be the only world.
+// live world folder is missing, because a copy may then be the only world,
+// nor while a restore of the server isn't over, because it may still put a
+// copy back.
 func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.URL.Query().Get("actor"))
 	if err != nil {
@@ -668,6 +670,11 @@ func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 	path := filepath.Join(s.dir(), name)
 	if st, err := os.Lstat(path); err != nil || !st.IsDir() {
 		writeError(w, errNotFound("World copy"))
+		return
+	}
+	if s.restoreUnsettled() {
+		writeError(w, errConflict("A restore isn't finished, so this server's world copies are kept until it is.",
+			"Restart the Playkeeper agent (sudo systemctl restart playkeeper-agent) so it can finish the restore, then try again. If the copies are still kept, sudo journalctl -u playkeeper-agent says why."))
 		return
 	}
 	if !dirExists(s.dataDir()) {

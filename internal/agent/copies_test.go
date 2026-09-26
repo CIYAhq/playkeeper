@@ -623,3 +623,67 @@ func TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed(t *testing.T) {
 		t.Fatalf("once nothing needs them, the stage (%v) and the set-aside world (%v) are offered", o[dir], o[aside])
 	}
 }
+
+// While a restore of a server isn't over, a stage keeping a swap journal that
+// may be the server's, the World tab discards none of the server's world
+// copies: the restore may still put one back. A journal that can't be read
+// may be any server's; a server no journal is about can discard.
+func TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	e.createWith(map[string]any{"name": "Creative"})
+	other := e.srv()
+
+	old := time.Now().Add(-48 * time.Hour)
+	stamp := old.UTC().Format("20060102-150405")
+	name := "data.replaced-" + stamp
+	discard := func(sv *server) (int, map[string]any) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(sv.dir(), name, "world"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		return e.call("DELETE", "/v1/servers/"+sv.id+"/world-copies/"+name+"?actor=admin", nil)
+	}
+	refused := func(what string, sv *server) {
+		t.Helper()
+		code, out := discard(sv)
+		if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "restore isn't finished") || !strings.Contains(fmt.Sprint(out["hint"]), "systemctl restart playkeeper-agent") {
+			t.Fatalf("%s: discarding %s's world copy: %d %v", what, sv.name(), code, out)
+		}
+		if !dirExists(filepath.Join(sv.dir(), name)) {
+			t.Fatalf("%s: %s's world copy is gone", what, sv.name())
+		}
+	}
+	discarded := func(what string, sv *server) {
+		t.Helper()
+		if code, out := discard(sv); code != http.StatusNoContent || dirExists(filepath.Join(sv.dir(), name)) {
+			t.Fatalf("%s: discarding %s's world copy: %d %v", what, sv.name(), code, out)
+		}
+	}
+
+	dir := e.a.stageDir("0123456789abcdef")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := s.serverConfig()
+	j := &swapJournal{ServerID: s.id, OpID: "0000000000000000", Actor: "admin", Aside: name, Failed: "data.failed-restore-" + stamp, HadLive: true,
+		StartedAt: old, Previous: sc, Restored: *sc, State: swapReverting}
+	if err := writeSwapJournal(dir, j); err != nil {
+		t.Fatal(err)
+	}
+	refused("with its swap journal", s)
+	discarded("with another server's swap journal", other)
+
+	journal := filepath.Join(dir, swapJournalFile)
+	if err := os.WriteFile(journal, []byte(`{"serverId":"`+s.id+`","opId":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refused("with a swap journal that can't be read", s)
+	refused("with a swap journal that can't be read", other)
+
+	if err := os.Remove(journal); err != nil {
+		t.Fatal(err)
+	}
+	discarded("without a swap journal", s)
+}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from 'lucide-react'
-import { del, get, post } from '@/api/client'
+import { ApiError, del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
@@ -569,7 +569,7 @@ function LeftoverNotice({ server: s, copy: c, state, onDiscarded }: { server: Se
       setConfirm(false)
       await onDiscarded()
     } catch (e) {
-      toastManager.add({ title: errorText(e), type: 'error' })
+      toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })
     } finally {
       setBusy(false)
     }
