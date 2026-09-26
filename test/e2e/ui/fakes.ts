@@ -1,4 +1,4 @@
-import type { Page, Request, Route } from '@playwright/test'
+import type { APIResponse, Page, Request, Route } from '@playwright/test'
 
 // Realistic stand-ins for every API call that changes something, so the
 // click-through can press every button without restarting, deleting or
@@ -74,8 +74,22 @@ function knownZone(z: unknown): boolean {
   }
 }
 
-/** POSTs that only work something out and change nothing; they go to the real panel. */
+/**
+ * POSTs that only work something out and change nothing; they go to the real
+ * panel. It counts them as actions (30 a minute for each session), and the
+ * crawl clicks much faster than a person, so a refusal is tried again after
+ * the wait the panel asks for.
+ */
 const computes = [/^\/api\/servers\/\w+\/schedules\/preview$/, /^\/api\/servers\/\w+\/backup-rules\/estimate$/]
+
+async function fetchFromPanel(route: Route, compute: boolean): Promise<APIResponse | null> {
+  for (let tries = 1; ; tries++) {
+    const res = await route.fetch().catch(() => null)
+    if (!compute || res?.status() !== 429 || tries === 5) return res
+    const wait = Math.min(Math.max(Number(res.headers()['retry-after']) || 2, 1), 5)
+    await new Promise((resolve) => setTimeout(resolve, wait * 1000))
+  }
+}
 
 const automaticEvery = [1, 2, 3, 4, 6, 8, 12, 24]
 const diskWays = ['old_backups', 'old_logs', 'old_crash_reports', 'unused_software', 'downloads', 'set_aside', 'unfinished']
@@ -490,7 +504,8 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    if (method === 'GET' || method === 'HEAD' || (method === 'POST' && computes.some((re) => re.test(path)))) {
+    const compute = method === 'POST' && computes.some((re) => re.test(path))
+    if (method === 'GET' || method === 'HEAD' || compute) {
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
@@ -521,7 +536,7 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(restorePreview(undefined)) })
         return
       }
-      const res = await route.fetch().catch(() => null)
+      const res = await fetchFromPanel(route, compute)
       if (!res) {
         await route.abort().catch(() => {})
         return
