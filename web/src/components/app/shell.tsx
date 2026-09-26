@@ -81,7 +81,7 @@ function pageKey(route: Route): string {
     case 'server':
       return `server/${route.slug}`
     case 'machine':
-      return `machine/${route.id}`
+      return route.sub ? `machine/${route.id}/${route.sub}` : `machine/${route.id}`
     case 'legacy':
       return `legacy/${route.tab}`
     case 'home':

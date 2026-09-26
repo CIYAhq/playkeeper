@@ -87,6 +87,11 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
     }
   }
   if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
+  // A page inside a tab animates in like a tab of its own. On desktop, both
+  // backup pages are one page and Schedules is a section of Settings.
+  let view: string = tab
+  if (tab === 'world' && sub) view = phone ? `world/${sub}` : 'world/backup-rules'
+  if (tab === 'settings' && phone && sub === 'schedules') view = 'settings/schedules'
   // Pages inside a tab bring their own phone header with a way back.
   const ownHeader = phone && !settingUp && sub !== undefined
   return (
@@ -100,7 +105,7 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
       ) : (
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
-      <PageBody key={tab} className="flex flex-1 animate-page flex-col gap-4">
+      <PageBody key={view} className="flex flex-1 animate-page flex-col gap-4">
         {body}
       </PageBody>
     </>
