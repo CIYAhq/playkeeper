@@ -142,7 +142,18 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
+  // The crash screen's fixes that act on a plugin or mod, then start the server.
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => (confirmed(r.body) && Array.isArray((r.body as { addons?: unknown }).addons) ? op(state, 'addon-update', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => (confirmed(r.body) && typeof (r.body as { projectId?: unknown }).projectId === 'string' ? op(state, 'addon-install', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
 ]
+
+const addonJar = /^[^./\\][^/\\]{0,195}\.jar$/
+
+/** An add-on install or update carries the fingerprint of the plan the user confirmed. */
+function confirmed(body: unknown): boolean {
+  return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
+}
 
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
 const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
