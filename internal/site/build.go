@@ -354,6 +354,22 @@ func headings(article string) []Heading {
 	return out
 }
 
+// installLines breaks the installer onto the three lines a phone shows: the
+// program and its flags, the address, and what it's piped to.
+func installLines(cmd string) []string {
+	before, after, piped := strings.Cut(cmd, " | ")
+	var out []string
+	if f := strings.Fields(before); len(f) > 1 {
+		out = append(out, strings.Join(f[:len(f)-1], " "), f[len(f)-1])
+	} else {
+		out = append(out, before)
+	}
+	if piped {
+		out = append(out, "| "+after)
+	}
+	return out
+}
+
 func articleFirst(p *Page) int {
 	if p.Layout == "guide" || p.Layout == "post" {
 		return 0
@@ -558,6 +574,17 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"providers": func() []Provider { return providers },
 		"sizing":    func() SizingGuide { return s.sizing },
+		// The one-line installer (Settings.InstallCommand), on one line, in
+		// the three a phone shows, and wrapped before its pipe for a terminal.
+		"installCommand": func() string { return s.opts.Settings.InstallCommand },
+		"installLines":   func() []string { return installLines(s.opts.Settings.InstallCommand) },
+		"installWrapped": func() string {
+			before, after, ok := strings.Cut(s.opts.Settings.InstallCommand, " | ")
+			if !ok {
+				return before
+			}
+			return before + " \\\n    | " + after
+		},
 		"referral":  anyReferral,
 		"checked":   func() string { return Day(checkedProviders) },
 		"posts":     func() []*Page { return s.posts },

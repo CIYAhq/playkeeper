@@ -59,7 +59,7 @@ preload: loop-overview
       </div>
       <div class="step-card reveal">
         <div class="step-card-art">
-          {{template "terminal" (dict "Lines" (list (dict "Cmd" "curl -fsSL https://playkeeper.io/install \\\n    | sudo sh") (dict "Ok" "Download matches its SHA-256") (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")))}}
+          {{template "terminal" (dict "Lines" (list (dict "Cmd" (installWrapped)) (dict "Ok" "Download matches its SHA-256") (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")))}}
         </div>
         <h3><span class="num">2</span>Run one command</h3>
         <p>It checks the machine and asks before it changes anything.</p>

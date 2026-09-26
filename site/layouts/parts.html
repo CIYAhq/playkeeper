@@ -6,8 +6,8 @@
      band. On phones it breaks onto three lines. */}}
 {{define "install"}}
 <div class="install{{if .Dark}} install-dark{{end}}{{with .Class}} {{.}}{{end}}"{{if .ID}} id="install"{{end}} data-install>
-  <code class="install-cmd" tabindex="0"><span class="install-prompt" aria-hidden="true">$</span><span class="install-line">curl -fsSL https://playkeeper.io/install | sudo sh</span><span class="install-lines" aria-hidden="true">curl -fsSL \<br>  https://playkeeper.io/install \<br>  | sudo sh</span></code>
-  <button type="button" class="install-copy" data-copy="curl -fsSL https://playkeeper.io/install | sudo sh" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span class="install-copy-label">Copy</span><span class="visually-hidden"> the install command</span></button>
+  <code class="install-cmd" tabindex="0"><span class="install-prompt" aria-hidden="true">$</span><span class="install-line">{{installCommand}}</span><span class="install-lines" aria-hidden="true">{{range $i, $l := installLines}}{{if $i}} \<br>  {{end}}{{$l}}{{end}}</span></code>
+  <button type="button" class="install-copy" data-copy="{{installCommand}}" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span class="install-copy-label">Copy</span><span class="visually-hidden"> the install command</span></button>
 </div>
 {{end}}
 
