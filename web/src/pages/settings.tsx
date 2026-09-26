@@ -3,6 +3,7 @@ import { CircleArrowUpIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-react
 import { get, post } from '@/api/client'
 import type { AuditEntry, UpdateInfo } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
+import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
@@ -21,7 +22,7 @@ import { MachineDetailsSection, MachinesSection } from './machines'
 
 export type SettingsPage = Extract<Route, { name: 'settings' | SettingsSectionName | 'machine-details' }>
 
-/** Settings: Playkeeper itself and the audit log, or a section. */
+/** Settings: Playkeeper itself, add-on sources and the audit log, or a section. */
 export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
   switch (page.name) {
     case 'settings':
@@ -103,7 +104,7 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
   )
 }
 
-/** Playkeeper itself and the audit log, with the sections list beside them on desktop. */
+/** Playkeeper itself, add-on sources and the audit log, with the sections list beside them on desktop. */
 function GeneralSettings() {
   const phone = useIsPhone()
   const hash = window.location.hash
@@ -114,6 +115,7 @@ function GeneralSettings() {
   const cards = (
     <>
       <PlaykeeperCard />
+      <AddonSourcesCard />
       <AuditCard />
       <Card as="section" aria-labelledby="about-title">
         <CardTitle id="about-title">{t('global.about')}</CardTitle>

@@ -215,9 +215,11 @@ func (a *Agent) issueCertificate(ctx context.Context, h *opHandle) error {
 }
 
 // saveNameCheck keeps the result of looking up the own domain's name
-// alone, next to the last look at its SRV records.
+// alone, next to the last look at its SRV records. A result that isn't
+// ready brings the loop's next full look forward, as checkOwn's would.
 func (a *Agent) saveNameCheck(host string, nc certs.NameCheck) {
 	now := a.now().UTC()
+	saved, ready := false, false
 	_ = a.updateAddress(func(st *addressState) {
 		if st.Kind != api.AddressOwn || st.Host != host {
 			return
@@ -229,7 +231,16 @@ func (a *Agent) saveNameCheck(host string, nc certs.NameCheck) {
 		c.At, c.Name = now, nameCheck(nc)
 		c.Ready = nc.OK && !slices.ContainsFunc(c.Records, func(r api.RecordCheck) bool { return !r.OK })
 		st.Check = &c
+		saved, ready = true, c.Ready
 	})
+	if !saved || ready {
+		return
+	}
+	a.addr.mu.Lock()
+	if soon := now.Add(ownRecheckPending); soon.Before(a.addr.recheck) {
+		a.addr.recheck = soon
+	}
+	a.addr.mu.Unlock()
 }
 
 // issue is the default Options.Issue: Let's Encrypt, or the directory the

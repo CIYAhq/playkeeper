@@ -8,6 +8,7 @@ import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel } from '@/components/app/skeletons'
+import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
@@ -150,7 +151,7 @@ function metaLine(s: ServerStatus, settingUp: boolean, lastSeen: string | undefi
   if (lastSeen) {
     if (s.phase === 'online') parts.push(t('server.lastSeen', { time: relativeTime(lastSeen) }))
   } else {
-    const style = styleTitle(cfg)
+    const style = cfg?.modpack?.name ?? styleTitle(cfg)
     if (style) parts.push(style)
     if (settingUp && cfg?.memoryMB) parts.push(formatMB(cfg.memoryMB))
   }
@@ -194,6 +195,7 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 function MoreMenu({ server }: { server: ServerStatus }) {
   const { offline } = useServerMachine(server)
   const c = controls(server)
+  const [sharing, setSharing] = useState(false)
   const backUpBlocked = whyNot(server, 'change', offline)
   return (
     <Menu>
@@ -217,12 +219,14 @@ function MoreMenu({ server }: { server: ServerStatus }) {
           <ArchiveIcon />
           {t('server.backUp')}
         </MenuItem>
+        <TemplateMenuItem onClick={() => setSharing(true)} />
         <MenuSeparator />
         <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
           <Trash2Icon />
           {t('server.deleteMenu')}
         </MenuItem>
       </MenuPopup>
+      <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />
     </Menu>
   )
 }

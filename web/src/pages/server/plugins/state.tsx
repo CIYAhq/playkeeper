@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PackageIcon } from 'lucide-react'
 import { addonIconUrl, ApiError, get, post } from '@/api/client'
-import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Operation, ServerStatus } from '@/api/types'
+import { usePackShare } from '@/api/packs'
+import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Operation, ServerStatus, ShareNeed } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { footerFor, isAddonOp, keyFrom, keyOf, mergeRows, sameKey, type AddonKind, type AddonRow } from '@/lib/addons'
+import { footerFor, isAddonOp, keyFrom, keyOf, mergeRows, sameKey, voiceChatProject, type AddonKind, type AddonRow } from '@/lib/addons'
+import { shareText } from '@/lib/packs'
 import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -29,6 +31,13 @@ export interface Detail {
   key: AddonKey
   adoptFile?: string
   details?: AddonDetails
+}
+
+/** Voice chat, which asks before it opens its port. */
+export interface VoiceAsk {
+  key: AddonKey
+  name: string
+  fingerprint?: string
 }
 
 /** An update of a file that changed since it was installed, which asks first. */
@@ -56,13 +65,23 @@ interface AddonsState {
   asking: Ask | undefined
   askUpdate: (a: Ask | undefined) => void
   highlight: string | undefined
-  install: (key: AddonKey, name: string, fingerprint?: string) => Promise<boolean>
+  /** Installs the add-on; voice chat asks first, and installs with openPorts once the owner agrees. */
+  install: (key: AddonKey, name: string, fingerprint?: string, openPorts?: boolean) => Promise<boolean>
+  voice: VoiceAsk | undefined
+  closeVoice: () => void
   update: (keys: AddonKey[] | undefined, title: string, changed?: boolean) => Promise<boolean>
   adopt: (fileName: string) => Promise<boolean>
   forget: (key: AddonKey) => Promise<boolean>
   restart: () => Promise<boolean>
   openSource: (key: AddonKey) => void
   goToFile: (file: string, name: string) => void
+  /** On mod servers, what friends need of a mod added by hand, from its Modrinth data. */
+  friends: (r: AddonRow) => FriendsLabel | undefined
+}
+
+export interface FriendsLabel {
+  text: string
+  need: ShareNeed
 }
 
 const Ctx = createContext<AddonsState | null>(null)
@@ -100,6 +119,15 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
   const [job, setJob] = useState<Job>()
   const [removing, setRemoving] = useState<AddonKey>()
   const [asking, setAsking] = useState<Ask>()
+  const [voice, setVoice] = useState<VoiceAsk>()
+  const share = usePackShare(kind === 'mod' ? id : undefined).share?.share
+  const friendsLabels = useMemo(() => {
+    const m = new Map<string, FriendsLabel>()
+    for (const mod of share?.mods ?? []) {
+      if (mod.from === 'user' && mod.source && mod.project) m.set(`${mod.source}:${mod.project}`, { text: shareText(mod.label), need: mod.need })
+    }
+    return m
+  }, [share])
   const [highlight, setHighlight] = useState<string>()
 
   const refreshList = list.refresh
@@ -148,16 +176,22 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
   }, [serverOp, refresh])
 
   const install = useCallback(
-    async (key: AddonKey, name: string, fingerprint?: string): Promise<boolean> => {
-      try {
-        const op = await post<Operation>(serverApi(id, '/addons/install'), { source: key.source, projectId: key.projectId, fingerprint })
+    async (key: AddonKey, name: string, fingerprint?: string, openPorts = false): Promise<boolean> => {
+      if (!openPorts && sameKey(key, voiceChatProject)) {
         setDetail(undefined)
+        setVoice({ key, name, fingerprint })
+        return true
+      }
+      try {
+        const op = await post<Operation>(serverApi(id, '/addons/install'), { source: key.source, projectId: key.projectId, fingerprint, openPorts: openPorts || undefined })
+        setDetail(undefined)
+        setVoice(undefined)
         // The plan may have changed since: confirm the new one, or show why not.
         const again = () => {
           void get<AddonDetails>(detailsPath(id, key))
             .then((d) => {
               const f = footerFor(d)
-              if (f.kind === 'install' && d.plan && d.plan.steps.length <= 1) return void install(key, name, f.fingerprint)
+              if (f.kind === 'install' && d.plan && d.plan.steps.length <= 1) return void install(key, name, f.fingerprint, openPorts)
               setJob(undefined)
               setDetail({ key, details: d })
             })
@@ -323,12 +357,15 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
     },
     highlight,
     install,
+    voice,
+    closeVoice: () => setVoice(undefined),
     update,
     adopt,
     forget,
     restart,
     openSource,
     goToFile,
+    friends: (r) => (r.addon ? friendsLabels.get(keyOf(r.addon)) : undefined),
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

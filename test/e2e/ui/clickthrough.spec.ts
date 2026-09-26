@@ -33,7 +33,7 @@ const sizes = {
 const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
 
 async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string; type?: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string; kind: string }[]
   const out = ['/']
   for (const s of servers) {
@@ -41,6 +41,16 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
   }
   out.push('/servers/new')
+  // The add-on library with Playkeeper's picks, for the first server that
+  // has one (each library takes minutes), and a template someone shared.
+  const library = servers.find((s) => addonTabs[s.type ?? ''])
+  if (library) out.push(`/servers/${library.slug}${addonTabs[library.type ?? '']}/browse`)
+  const first = servers[0]
+  if (first) {
+    const exported = (await (await page.request.get(`/api/servers/${first.id}/template`)).json()) as { link?: string }
+    const payload = exported.link?.split('#')[1]
+    if (payload) out.push(`/servers/new#template=${payload}`)
+  }
   // A joined machine's page is in Settings › Machines; the dashboard's own has its own page.
   for (const m of machines) out.push(m.kind === 'remote' ? `/settings/machines/${m.id}` : `/machines/${m.id}`, `/machines/${m.id}/settings`)
   out.push('/settings', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor')
@@ -80,6 +90,8 @@ for (const [name, size] of Object.entries(sizes)) {
     const outCrawler = new Crawler(outPage, name, base, log)
     await outCrawler.init()
     await outCrawler.crawl('/login')
+    // A friends' pack link that opens nothing: the page every unavailable link gets.
+    await outCrawler.crawl('/packs/Pk0Unknown0Link0Abcdef')
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
     await signedOut.close()

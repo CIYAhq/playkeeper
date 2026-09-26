@@ -62,6 +62,13 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"Challenge": twofactor.Challenge{}, "SignInNotice": twofactor.Notice{}, "TwoFactorSetup": twofactor.Setup{}, "TwoFactorStatus": twofactor.Status{},
 		"Crash": Crash{}, "CrashLine": CrashLine{}, "DiagnosisAction": DiagnosisAction{}, "DiagnosisEvidence": DiagnosisEvidence{}, "FileRefusal": FileRefusal{},
 		"LagCause": LagCause{}, "MemoryAdvice": MemoryAdvice{}, "MemoryDay": MemoryDay{}, "MemoryOption": MemoryOption{}, "Running": Running{},
+		"AddonSources": AddonSources{}, "CurseForgeSource": CurseForgeSource{},
+		"AddonPort": AddonPort{}, "CuratedAddons": CuratedAddons{}, "CuratedAddon": CuratedAddon{},
+		"SoftwarePin": SoftwarePin{}, "SoftwareBuild": SoftwareBuild{}, "SoftwareBuilds": SoftwareBuilds{}, "SoftwareChange": SoftwareChange{},
+		"ModpackCard": ModpackCard{}, "ModpackResults": ModpackResults{}, "ModpackVersion": ModpackVersion{}, "ModpackPreview": ModpackPreview{},
+		"ModpackRef": ModpackRef{}, "ServerModpack": ServerModpack{}, "ServerTemplate": ServerTemplate{}, "TemplateSettings": TemplateSettings{},
+		"TemplateAddon": TemplateAddon{}, "TemplateContents": TemplateContents{}, "TemplateExport": TemplateExport{}, "TemplatePlan": TemplatePlan{},
+		"PackShare":    PackShare{},
 		"MemoryBudget": MemoryBudget{}, "MemorySizing": MemorySizing{}, "MemorySuggestion": MemorySuggestion{},
 		"ApiErrorBody": Error{}, "LinkProblem": machinelink.Problem{}, "MachineLink": machinelink.Status{},
 	}
@@ -95,7 +102,7 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
 	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
-		string(twofactor.KindPasswordWrong), machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout}
+		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout}
 	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName} {
 		sent = append(sent, string(k))
 	}

@@ -15,6 +15,7 @@ import { rich } from '@/i18n/rich'
 import { formatBytes, formatDateTime, formatMB } from '@/lib/format'
 import { machineOf } from '@/lib/machines'
 import { navigate } from '@/lib/router'
+import { softwareName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 
 const maxUpload = 20 * 2 ** 30
@@ -180,7 +181,7 @@ export function RestoreDialog({ preview, server, machine, onClose }: { preview: 
                 <dl>
                   <Row label={t('restore.world')}>{m.levelName}</Row>
                   <Row label={t('restore.made')}>{formatDateTime(m.createdAt)}</Row>
-                  <Row label={t('restore.software')}>{t('restore.softwareValue', { version: m.minecraftVersion, build: m.paperBuild })}</Row>
+                  <Row label={t('restore.software')}>{t('restore.softwareValue', { version: m.minecraftVersion, software: softwareName(m.type, m.build || m.paperBuild) })}</Row>
                   <Row label={t('restore.size')}>{t('restore.sizeValue', { archive: formatBytes(preview.sizeBytes), files: formatBytes(m.totalBytes) })}</Row>
                   <Row label={t('restore.memory')}>{formatMB(preview.memoryMB)}</Row>
                 </dl>

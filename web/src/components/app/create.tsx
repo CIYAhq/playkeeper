@@ -13,7 +13,8 @@ import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatMB } from '@/lib/format'
 import { memorySegments, share } from '@/lib/memory'
-import { typeName } from '@/lib/servers'
+import { softwareName, typeName } from '@/lib/servers'
+import { addonKind, formatReleased, hasBuilds, typeTexts } from '@/lib/software'
 import { levelTypes, memoryForStyle, preset } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 import { compareMinecraft } from '@/lib/versions'
@@ -32,6 +33,8 @@ export interface CreateChoices {
   name: string
   motd: string
   eula: boolean
+  /** The build to pin for types that have one; empty takes the recommended one. */
+  build: string
 }
 
 /** A name nobody else on the machine uses: "Survival", then "Survival 2". */
@@ -79,6 +82,7 @@ export function createRequest(c: CreateChoices) {
     maxPlayers: 10,
     playStyle: c.hardcore ? 'hardcore' : c.style,
     gameplay,
+    ...(c.build && hasBuilds(c.type) ? { build: c.build } : {}),
   }
 }
 
@@ -88,18 +92,23 @@ export function versionBlocked(c: CreateChoices, version: CatalogEntry | undefin
   return version.experimental && !c.acceptExperimental ? t('reason.experimental', { version: version.minecraftVersion }) : undefined
 }
 
+/** Why the name step isn't finished; undefined when it is. */
+export function nameBlocked(c: CreateChoices): string | undefined {
+  return !c.name.trim() ? t('reason.nameFirst') : c.eula ? undefined : t('reason.eula')
+}
+
 /** Why the server can't be created yet; undefined when it can. */
 export function createBlocked(c: CreateChoices, version: CatalogEntry | undefined): string | undefined {
-  return versionBlocked(c, version) ?? (!c.name.trim() ? t('reason.nameFirst') : c.eula ? undefined : t('reason.eula'))
+  return versionBlocked(c, version) ?? nameBlocked(c)
 }
 
 const typeKeys: Record<string, { long: MessageKey; short: MessageKey }> = {
   paper: { long: 'new.type.paper', short: 'new.type.paper.short' },
   vanilla: { long: 'new.type.vanilla', short: 'new.type.vanilla.short' },
   purpur: { long: 'new.type.purpur', short: 'new.type.purpur.short' },
-  fabric: { long: 'new.type.fabric', short: 'new.type.fabric.short' },
-  quilt: { long: 'new.type.quilt', short: 'new.type.quilt.short' },
-  neoforge: { long: 'new.type.neoforge', short: 'new.type.neoforge.short' },
+  fabric: { long: 'new.type.fabric', short: 'new.type.mods.short' },
+  quilt: { long: 'new.type.quilt', short: 'new.type.mods.short' },
+  neoforge: { long: 'new.type.neoforge', short: 'new.type.mods.short' },
 }
 
 export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalog | undefined; value: string; onChange: (v: string) => void; phone?: boolean }) {
@@ -108,30 +117,43 @@ export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalo
     <CardGroup value={value} onChange={onChange} label={t('new.typeTitle')} className={cn('grid gap-2.5', phone ? 'grid-cols-1' : 'grid-cols-2 xl:grid-cols-3')}>
       {types.map((ty) => {
         const keys = typeKeys[ty.id]
+        const runs = typeTexts(ty.id)?.runs
         const soon = !ty.available
+        if (phone) {
+          return (
+            <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className="min-h-[60px] items-center gap-3 px-3.5 py-2.5">
+              <span className="flex items-center gap-3">
+                <TypeLogo type={ty.id} size={40} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-semibold">{typeName(ty.id)}</span>
+                  {keys && <span className="block text-[13px] text-muted-foreground">{t(keys.short)}</span>}
+                </span>
+                {soon && (
+                  <span className="text-xs text-muted-foreground" aria-hidden="true">
+                    {t('common.soon')}
+                  </span>
+                )}
+              </span>
+            </ChoiceCard>
+          )
+        }
         return (
-          <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className={cn(phone ? 'items-center gap-3 p-3' : 'min-h-[128px] flex-col-reverse gap-2 p-3.5 [&>[data-slot=radio]]:self-end')}>
-            <span className={cn('flex gap-3', phone ? 'items-center' : 'flex-col')}>
+          <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className="min-h-[160px] gap-2 p-3.5">
+            <span className="flex h-full flex-col">
               <span className="flex items-start justify-between">
-                <TypeLogo type={ty.id} size={phone ? 40 : 34} />
-                {soon && !phone && (
+                <TypeLogo type={ty.id} size={36} />
+                {soon && (
                   <span className="text-xs text-muted-foreground" aria-hidden="true">
                     {t('common.comingSoon')}
                   </span>
                 )}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-sm font-semibold">
-                  {typeName(ty.id)}
-                  {ty.id === 'paper' && !phone && <span className="text-xs font-medium text-muted-foreground">{t('common.recommended')}</span>}
-                </span>
-                {keys && <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{phone ? t(keys.short) : t(keys.long)}</span>}
+              <span className="mt-3.5 flex items-center gap-2 text-sm font-semibold">
+                {typeName(ty.id)}
+                {ty.id === 'paper' && <span className="text-xs font-medium text-muted-foreground">{t('common.recommended')}</span>}
               </span>
-              {soon && phone && (
-                <span className="text-xs text-muted-foreground" aria-hidden="true">
-                  {t('common.soon')}
-                </span>
-              )}
+              {keys && <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{t(keys.long)}</span>}
+              {runs && <span className="mt-auto block pt-4 text-xs leading-4 text-muted-foreground">{t(runs)}</span>}
             </span>
           </ChoiceCard>
         )
@@ -142,7 +164,22 @@ export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalo
 
 interface VersionCard {
   entry: CatalogEntry
-  hint: string
+  note: string
+}
+
+/** The note after a recommended version's release date. */
+function recommendedNote(e: CatalogEntry, type: string, phone?: boolean): string {
+  if (phone) return t('new.latestStablePhone')
+  if (type === 'paper') return softwareName(type, e.paperBuild)
+  if (type === 'purpur') return softwareName(type, e.build ?? '')
+  return addonKind(type) === 'mods' ? t('new.modsSupport', { type: typeName(type) }) : ''
+}
+
+/** "Released 2 Sep 2026 · Paper build 41", or just the note without a date. */
+export function versionLine(e: CatalogEntry, note: string): string {
+  if (!e.releasedAt) return note
+  const date = formatReleased(e.releasedAt)
+  return note ? t('new.releasedNote', { date, note }) : t('new.released', { date })
 }
 
 /**
@@ -150,19 +187,19 @@ interface VersionCard {
  * Older versions PaperMC no longer updates stay on offer, for friends or
  * plugins that still need them.
  */
-export function versionCards(versions: CatalogEntry[], servers: ServerStatus[] | undefined, phone?: boolean): { cards: VersionCard[]; older: CatalogEntry[] } {
+export function versionCards(versions: CatalogEntry[], servers: ServerStatus[] | undefined, phone?: boolean, type = 'paper'): { cards: VersionCard[]; older: CatalogEntry[] } {
   const byVersion = (a: CatalogEntry, b: CatalogEntry) => compareMinecraft(b.minecraftVersion, a.minecraftVersion) || b.paperBuild - a.paperBuild
   const stable = versions.filter((v) => !v.experimental).sort(byVersion)
   const rec = versions.find((v) => v.recommended) ?? stable.find((v) => v.supported) ?? stable[0]
   const cards: VersionCard[] = []
-  const add = (e: CatalogEntry | undefined, hint: string) => {
-    if (e && !cards.some((c) => c.entry.id === e.id)) cards.push({ entry: e, hint })
+  const add = (e: CatalogEntry | undefined, note: string) => {
+    if (e && !cards.some((c) => c.entry.id === e.id)) cards.push({ entry: e, note })
   }
-  add(rec, t('new.latestStable'))
+  if (rec) add(rec, recommendedNote(rec, type, phone))
   const exp = versions.filter((v) => v.experimental && v.supported && (!rec || compareMinecraft(v.minecraftVersion, rec.minecraftVersion) > 0)).sort(byVersion)[0]
-  add(exp, phone ? t('new.experimentalShort') : t('new.experimentalHint'))
+  add(exp, phone ? t('new.experimentalShort') : addonKind(type) === 'mods' ? t('new.modsNotReady') : t('new.experimentalHint'))
   const next = stable.find((v) => rec && compareMinecraft(v.minecraftVersion, rec.minecraftVersion) < 0)
-  add(next, t('new.build', { build: next?.paperBuild ?? 0 }))
+  add(next, '')
   for (const s of servers ?? []) {
     const v = s.config?.minecraftVersion
     const e = v ? stable.find((x) => x.minecraftVersion === v) : undefined
@@ -174,10 +211,12 @@ export function versionCards(versions: CatalogEntry[], servers: ServerStatus[] |
 
 export function VersionPicker({ catalog, servers, value, onChange, acceptExperimental, onAcceptExperimental, phone }: { catalog: Catalog | undefined; servers: ServerStatus[] | undefined; value: string; onChange: (id: string) => void; acceptExperimental: boolean; onAcceptExperimental: (v: boolean) => void; phone?: boolean }) {
   const [showOlder, setShowOlder] = useState(false)
-  const { cards, older } = versionCards(catalog?.versions ?? [], servers, phone)
+  const type = catalog?.type ?? 'paper'
+  const { cards, older } = versionCards(catalog?.versions ?? [], servers, phone, type)
   const chosen = catalog?.versions.find((v) => v.id === value)
   const olderChosen = older.find((v) => v.id === value)
-  const items = older.map((v) => ({ value: v.id, label: v.minecraftVersion, build: v.paperBuild }))
+  const olderLine = (v: CatalogEntry) => versionLine(v, v.releasedAt ? '' : type === 'paper' ? t('new.build', { build: v.paperBuild }) : '')
+  const items = older.map((v) => ({ value: v.id, label: v.minecraftVersion, line: olderLine(v) }))
   return (
     <div className="flex flex-col gap-2.5">
       <CardGroup value={value} onChange={onChange} label={t('new.versionTitle')} className="flex flex-col gap-2.5">
@@ -188,13 +227,13 @@ export function VersionPicker({ catalog, servers, value, onChange, acceptExperim
               {!phone && c.entry.recommended && <span className="text-xs font-medium text-success-foreground">{t('new.latestStable')}</span>}
               {!phone && c.entry.experimental && <span className="text-xs font-medium text-warning-foreground">{t('common.experimental')}</span>}
             </span>
-            <span className={cn('mt-0.5 block text-xs text-muted-foreground', c.entry.experimental && phone && 'text-warning-foreground')}>{phone || !c.entry.recommended ? c.hint : t('new.build', { build: c.entry.paperBuild })}</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground max-sm:text-[13px]">{versionLine(c.entry, c.note)}</span>
           </ChoiceCard>
         ))}
         {olderChosen && (
           <ChoiceCard value={olderChosen.id} radio={phone ? 'end' : 'start'} className="items-center gap-3 px-4 py-3">
             <span className="text-[15px] font-semibold">{olderChosen.minecraftVersion}</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">{t('new.build', { build: olderChosen.paperBuild })}</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground max-sm:text-[13px]">{olderLine(olderChosen)}</span>
           </ChoiceCard>
         )}
       </CardGroup>
@@ -213,7 +252,7 @@ export function VersionPicker({ catalog, servers, value, onChange, acceptExperim
           <div className="mt-2 max-w-[320px] max-sm:max-w-none">
             <div className="mb-1.5 text-[13px] font-semibold">{t('new.older')}</div>
             <Combobox items={items} value={items.find((i) => i.value === value) ?? null} onValueChange={(i) => i && onChange((i as { value: string }).value)}>
-              <ComboboxInput placeholder={t('new.olderSearch', { count: older.length })} aria-label={t('new.older')} startAddon={<SearchIcon />} />
+              <ComboboxInput placeholder={t('new.olderSearch', { count: older.length, type: typeName(type) })} aria-label={t('new.older')} startAddon={<SearchIcon />} />
               <ComboboxPopup>
                 <ComboboxEmpty>{t('new.noMatch')}</ComboboxEmpty>
                 <ComboboxList>
@@ -221,7 +260,7 @@ export function VersionPicker({ catalog, servers, value, onChange, acceptExperim
                     <ComboboxItem key={item.value} value={item}>
                       <span className="flex flex-col">
                         <span>{item.label}</span>
-                        <span className="text-xs text-muted-foreground">{t('new.build', { build: item.build })}</span>
+                        {item.line && <span className="text-xs text-muted-foreground">{item.line}</span>}
                       </span>
                     </ComboboxItem>
                   )}

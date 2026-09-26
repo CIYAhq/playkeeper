@@ -323,6 +323,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/addons", "/v1/servers/{id}/addons"),
 		sg("/api/servers/{id}/addons/checks", "/v1/servers/{id}/addons/checks"),
 		sg("/api/servers/{id}/addons/search", "/v1/servers/{id}/addons/search"),
+		sg("/api/servers/{id}/addons/curated", "/v1/servers/{id}/addons/curated"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}", "/v1/servers/{id}/addons/project/{source}/{project}"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}/removal", "/v1/servers/{id}/addons/project/{source}/{project}/removal"),
 		view("/api/servers/{id}/addons/icon", s.hAddonIcon),
@@ -348,6 +349,29 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/resourcepack/settings", "/v1/servers/{id}/resourcepack/settings"),
 		sm("DELETE", "/api/servers/{id}/resourcepack", "/v1/servers/{id}/resourcepack"),
 		view("/api/servers/{id}/resourcepack/icon", s.rawGet("/v1/servers/{id}/resourcepack/icon", "image/png")),
+
+		// Wave 4: every server type.
+		mg("/api/machines/{mid}/catalog/builds", "/v1/catalog/builds"),
+		sm("POST", "/api/servers/{id}/software/reinstall", "/v1/servers/{id}/software/reinstall"),
+		// Wave 4: modpacks.
+		mg("/api/machines/{mid}/modpacks", "/v1/modpacks"),
+		mg("/api/machines/{mid}/modpacks/{source}/{project}", "/v1/modpacks/{source}/{project}"),
+		mg("/api/machines/{mid}/modpacks/{source}/{project}/versions/{version}/preview", "/v1/modpacks/{source}/{project}/versions/{version}/preview"),
+		view("/api/machines/{mid}/modpacks/icon", s.hAddonIcon),
+		// Wave 4: add-on sources. The CurseForge key is the machine's, so only
+		// those who may manage the machine change it.
+		mg("/api/machines/{mid}/addon-sources", "/v1/addon-sources"),
+		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
+		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
+		// Wave 4: templates.
+		{"GET", "/api/servers/{id}/template", needSession, actView, s.templateExport},
+		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),
+		{"POST", "/api/machines/{mid}/templates/plan", needSessionCSRF, actManageServers, s.rawUpload("/v1/templates/plan", "text/plain")},
+		// Wave 4: sharing the pack with friends; the public page is in
+		// publicRoutes.
+		sg("/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		sm("POST", "/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		view("/api/servers/{id}/mods/share.mrpack", s.hPackShareFile),
 	}
 }
 
@@ -856,7 +880,7 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 
 // --- agent proxy ---
 
-var pathKeys = []string{"id", "name", "bid", "rid", "op", "source", "project"}
+var pathKeys = []string{"id", "name", "bid", "rid", "op", "source", "project", "version"}
 
 func agentPath(pattern string, r *http.Request) string {
 	out := pattern
@@ -896,11 +920,20 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (machine, bool) 
 }
 
 func (s *Server) serverProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forwardTo(method, pattern, false, nil)
+	return s.forward(method, pattern)
+}
+
+// templateExport forwards a template export with the signed-in account as
+// the template's author, whatever the request says.
+func (s *Server) templateExport(w http.ResponseWriter, r *http.Request, sess *session) {
+	q := r.URL.Query()
+	q.Set("author", sess.User.Username)
+	r.URL.RawQuery = q.Encode()
+	s.forward("GET", "/v1/servers/{id}/template")(w, r, sess)
 }
 
 func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forwardTo(method, pattern, false, nil)
+	return s.forward(method, pattern)
 }
 
 // addressProxy forwards an address route with panelHost, the host the
@@ -922,19 +955,23 @@ func (s *Server) recordUpdate(m machine, sess *session, _ json.RawMessage) {
 	}
 }
 
-// forwardThen forwards the request, then calls then with the answer of a
-// request that succeeded.
+// forward sends the request to its machine's agent. GETs pass the query on;
+// JSON bodies get the signed-in account stamped as actor (the agent checks
+// every field and rejects unknown ones); DELETEs pass the actor in the query.
+// Machine links read the actor from the request's context.
+func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forwardTo(method, pattern, false, nil)
+}
+
+// forwardThen is forward, then calls then with the answer of a request that
+// succeeded.
 func (s *Server) forwardThen(method, pattern string, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
 	return s.forwardTo(method, pattern, false, then)
 }
 
-// forwardTo sends the request to its machine's agent, then calls then (if
-// set) with the answer of a request that succeeded. GETs pass the query on;
-// JSON bodies get the signed-in account stamped as actor (the agent checks
-// every field and rejects unknown ones); DELETEs pass the actor in the query.
-// Machine links read the actor from the request's context. With withHost it
-// also stamps panelHost. What the panel stamps replaces anything the browser
-// sent under the same name.
+// forwardTo is forward, also stamping panelHost when withHost is set and
+// calling then (if set) after a request that succeeded. What the panel stamps
+// replaces anything the browser sent under the same name.
 func (s *Server) forwardTo(method, pattern string, withHost bool, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)

@@ -16,7 +16,7 @@ FROM nginx:1.30.5-alpine-slim@sha256:32463212baf0e7d91aded2e9b843a4f2b9e017804b8
 
 RUN rm -rf /usr/share/nginx/html/*
 COPY site/nginx.conf /etc/nginx/conf.d/default.conf
-COPY site/index.html site/style.css site/copy.js site/favicon.svg /usr/share/nginx/html/
+COPY site/index.html site/style.css site/copy.js site/favicon.svg site/t.html site/t.js /usr/share/nginx/html/
 COPY site/sizing.html site/sizing.css site/sizing-nojs.css site/sizing.js site/sizing-data.js site/pip-wave.svg site/playkeeper-mark.svg /usr/share/nginx/html/
 COPY --from=demo /web/dist-demo/ /usr/share/nginx/html/demo/
 

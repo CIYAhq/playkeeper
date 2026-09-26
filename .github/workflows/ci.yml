@@ -78,7 +78,7 @@ jobs:
           retention-days: 7
 
   site:
-    name: Site image — build it, check /, /sizing, /demo/, /healthz and the /install redirect, walk the live demo
+    name: Site image — build it, check /, /sizing, /demo/, /t, /healthz and the /install redirect, walk the live demo
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

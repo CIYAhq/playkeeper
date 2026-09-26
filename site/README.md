@@ -1,18 +1,21 @@
 # playkeeper.io
 
-This folder is the website at [playkeeper.io](https://playkeeper.io): a page with the install command, a guide to how big a VPS to rent and a live demo of the dashboard, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
+This folder is the website at [playkeeper.io](https://playkeeper.io): a page with the install command, a guide to how big a VPS to rent, a live demo of the dashboard and the share page for server templates, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
 
 | Path | Answer |
 | --- | --- |
 | `/` | the page (`index.html`, `style.css`, `copy.js`, `favicon.svg`) |
 | `/sizing` | the VPS sizing guide (`sizing.html`, `sizing-data.js`, `sizing.css`, `sizing-nojs.css`, `sizing.js`, `pip-wave.svg`, `playkeeper-mark.svg`); `/sizing/` redirects to it |
 | `/demo/` | the live demo: the dashboard from `web/`, built with sample data (`npm run build:demo`), running entirely in the visitor's browser; every page under `/demo/` is answered by it, and `/demo` redirects to it |
+| `/t` | the share page for server templates (`t.html`, `t.js`) |
 | `/install` | `302` to the latest release's `get.sh` |
 | `/healthz` | `200` with `ok`, for health checks |
 
-`Dockerfile` builds the image in two stages: Node (pinned by digest) builds the live demo from `web/`, then nginx (pinned by digest, on port 80) serves this folder and the demo, with a health check on `/healthz`. Because it needs `web/` as well as this folder, the image is built from the **repository root**: `docker build -f site/Dockerfile .`. `Dockerfile.dockerignore` sends only `site/` and `web/` (without `node_modules` and builds) to the build; Docker reads it because it sits next to the Dockerfile with the same name. `nginx.conf` holds the redirects, the health path, the demo's routes and the security headers. CI builds the image and checks those paths on every pull request with `scripts/site-check.sh`.
+`Dockerfile` builds the image in two stages: Node (pinned by digest) builds the live demo from `web/`, then nginx (pinned by digest, on port 80) serves this folder and the demo, with a health check on `/healthz`. Because it needs `web/` as well as this folder, the image is built from the **repository root**: `docker build -f site/Dockerfile .`. `Dockerfile.dockerignore` sends only `site/` and `web/` (without `node_modules` and builds) to the build; Docker reads it because it sits next to the Dockerfile with the same name. `nginx.conf` holds the redirects, the health path, the demo's routes, the share page's path and the security headers. CI builds the image and checks those paths on every pull request with `scripts/site-check.sh`, which also opens `/sizing` and `/t` in headless Chrome.
 
 The demo has no panel, agent or Minecraft behind it: its sample servers, players, console, backups and settings live in the browser tab, start again on the hour and on every new visit, and never send a request anywhere else. The sample data is in `web/src/demo/data.ts`.
+
+Template links from a Playkeeper dashboard point at `/t`, with the template after `#`. The page reads it there, in the browser, shows what the template holds, and sends the visitor on to the create-server page of their own dashboard, with the template after `#` again. Browsers never send what follows `#`, and the page makes no requests, so templates never reach this server. The visitor's dashboard address is remembered in their browser, nowhere else. The template format is in `internal/templates`.
 
 `sizing.html` and `sizing-data.js` are generated: `make sizing` (`go run ./cmd/sizing-guide`) writes them from `sizing.html.tmpl` and the numbers in `internal/sizing`. Change those, not the generated files, then run it and commit the result; `make check` fails while they are out of date. The table works without JavaScript; the questions need it.
 
@@ -69,7 +72,7 @@ curl -sI https://playkeeper.io/install   # a 302, with location: https://github.
 curl -s https://playkeeper.io/healthz    # ok
 ```
 
-Then open `https://playkeeper.io` in a browser: you should see the install page. Open `https://playkeeper.io/demo/` too: you should see the dashboard with its sample servers and the amber "Live demo · resets every hour" line under the brand.
+Then open `https://playkeeper.io` in a browser: you should see the install page. `https://playkeeper.io/t` should say that the address has no template in it. Open `https://playkeeper.io/demo/` too: you should see the dashboard with its sample servers and the amber "Live demo · resets every hour" line under the brand.
 
 ### Already hosting the site? Switch it to the repository root
 
@@ -93,7 +96,7 @@ Until the live demo, Coolify built the image from the `site` folder alone. The i
 With Docker installed, from the repository root:
 
 ```bash
-scripts/site-check.sh                         # builds the image and checks /, /sizing, /demo/, /healthz, /install and the headers
+scripts/site-check.sh                         # builds the image and checks /, /sizing, /demo/, /t, /healthz, /install and the headers; with Chrome installed, opens /sizing and /t in it
 docker build -f site/Dockerfile -t playkeeper-site . && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080 and http://localhost:8080/demo/
 ```
 

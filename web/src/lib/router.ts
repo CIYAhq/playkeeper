@@ -26,12 +26,15 @@ export type Route =
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
+  // A friends' pack page, public; token is "" for a link that can't be one.
+  | { name: 'pack'; token: string }
   // Wave 8: AI agents, and the machines beyond the dashboard's own.
   | { name: 'ai-agents' }
   | { name: 'machines' }
   | { name: 'machine-details'; id: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
+const rePackToken = /^[A-Za-z0-9]{22}$/
 const reMachineId = /^[a-z2-9]{10}$/
 
 /** The machine a new server goes on, from ?machine= in the address. */
@@ -81,6 +84,8 @@ export function parse(pathname: string, search = ''): Route {
         if (third === 'settings' && parts.length === 3) return { name: 'machine-settings', id: second }
       }
       return { name: 'home' }
+    case 'packs':
+      return { name: 'pack', token: second && rePackToken.test(second) && !third ? second : '' }
   }
   return { name: 'home' }
 }
@@ -114,6 +119,8 @@ export function href(route: Route): string {
       return '/more'
     case 'legacy':
       return `/${route.tab}`
+    case 'pack':
+      return `/packs/${route.token}`
     case 'ai-agents':
       return '/settings/ai-agents'
     case 'machines':

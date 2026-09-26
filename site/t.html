@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Server template — Playkeeper</title>
+  <meta name="description" content="A Minecraft server setup shared from Playkeeper. Open it in your own Playkeeper dashboard to create a server like it.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="t.js" defer></script>
+</head>
+<body data-state="loading">
+  <main>
+    <div class="brand"><img src="favicon.svg" alt="" width="36" height="36"><span>Playkeeper</span></div>
+    <h1>Server template</h1>
+    <p class="lead">Someone shared the setup of a Minecraft server made with Playkeeper: its server software, settings and add-ons. Open it in your own Playkeeper dashboard to create a server like it.</p>
+
+    <noscript><p class="note">This page needs JavaScript to read the template. Without it, add <b>/servers/new#template=</b> and everything after # in this page's address to your dashboard's address, or ask for the template file and choose it under <b>New server › A template</b>.</p></noscript>
+    <p class="status" data-show="loading" hidden>Reading the template…</p>
+    <p class="note" data-show="empty" hidden>This address has no template in it. Template links start with https://playkeeper.io/t# and go on with a long run of letters; ask whoever shared yours for the whole link, or for the template file.</p>
+    <p class="note" data-show="incomplete" hidden>This template link is cut off. Copy the whole link again, or ask whoever shared it for the template file.</p>
+    <p class="note" data-show="damaged" hidden>This template link is damaged. Copy it again, or ask whoever shared it for a new link or the template file.</p>
+    <p class="note" data-show="newer" hidden>This template was made by a newer Playkeeper, so this page cannot show what is in it. Your dashboard can open it once its Playkeeper is up to date.</p>
+    <p class="note" data-show="nopreview" hidden>This browser cannot show what is in the template, but your dashboard can open it.</p>
+
+    <section id="template" data-show="ready" hidden aria-labelledby="t-name">
+      <h2 id="t-name"></h2>
+      <p id="t-description"></p>
+      <dl class="facts">
+        <div><dt>Server</dt><dd id="t-server"></dd></div>
+        <div id="row-modpack"><dt>Modpack</dt><dd id="t-modpack"></dd></div>
+        <div><dt>Add-ons</dt><dd id="t-addons"></dd></div>
+        <div id="row-packs"><dt>Packs</dt><dd id="t-packs"></dd></div>
+      </dl>
+      <p class="hint">The world, the allowlist, operators and the server's address stay with whoever shared it.</p>
+    </section>
+
+    <form id="open" data-show="ready newer nopreview" hidden novalidate>
+      <h2>Open it in your dashboard</h2>
+      <label for="dashboard">Your dashboard's address</label>
+      <div class="cmd">
+        <input id="dashboard" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://203.0.113.7:8443">
+        <button type="submit">Open</button>
+      </div>
+      <p class="status" id="open-status" role="status"></p>
+      <p class="hint">Your dashboard shows everything the template would create and installs nothing until you confirm. The template stays in your browser on the way: browsers never send the part of a link after #. This browser remembers your dashboard's address for next time.</p>
+    </form>
+
+    <nav aria-label="Project">
+      <a href="/">What is Playkeeper?</a>
+      <a href="/#install">Install it on your server</a>
+      <a href="https://github.com/CIYAhq/playkeeper">Source code</a>
+    </nav>
+  </main>
+  <footer>Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</footer>
+</body>
+</html>

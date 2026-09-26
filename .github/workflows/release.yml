@@ -11,6 +11,8 @@ name: Release
 # Pull requests that touch the release path, and manual runs, are dry runs:
 # the same build and install check, signed with a throwaway key, with the
 # assets uploaded as a workflow artifact instead of released.
+# The optional CURSEFORGE_API_KEY secret is CurseForge's API key for owners
+# without their own; only tag pushes build it into the binary.
 
 on:
   push:
@@ -88,6 +90,7 @@ jobs:
       - name: make package
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          CURSEFORGE_API_KEY: ${{ github.event_name == 'push' && secrets.CURSEFORGE_API_KEY || '' }}
         run: make package
       - name: Sign the release manifest
         env:

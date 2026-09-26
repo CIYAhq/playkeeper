@@ -21,6 +21,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
 
 // Server layouts. v1 is the single server of 0.1.0 and 0.2.0, kept exactly as
@@ -101,6 +102,13 @@ type server struct {
 
 	checks addonChecks
 	pg     pregenCache
+
+	// softwareChanged is set, under mu, when a start found the server's
+	// software changed since Playkeeper installed it; a reinstall clears it.
+	// manifest caches the record of the installed software (types other
+	// than Paper), also under mu.
+	softwareChanged *api.SoftwareChange
+	manifest        *software.Manifest
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -551,6 +559,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
 		`DELETE FROM addons WHERE server_id = ?`, `DELETE FROM pregen WHERE server_id = ?`,
+		`DELETE FROM modpacks WHERE server_id = ?`, `DELETE FROM template_installs WHERE server_id = ?`,
 		`DELETE FROM gc_windows WHERE server_id = ?`, `DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {

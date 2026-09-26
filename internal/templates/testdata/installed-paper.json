@@ -1,0 +1,54 @@
+[
+  {
+    "source": "modrinth",
+    "projectId": "fALzjamp",
+    "slug": "chunky",
+    "name": "Chunky",
+    "iconUrl": "https://cdn.modrinth.com/data/fALzjamp/e1954413665e57b7bae1feef44eda530270c7d47_96.webp",
+    "versionId": "MdY6JATr",
+    "versionNumber": "1.5.3",
+    "channel": "release",
+    "published": "2026-05-04T05:46:08.712785Z",
+    "fileName": "Chunky-Bukkit-1.5.3.jar",
+    "hashAlgo": "sha512",
+    "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422",
+    "size": 304616,
+    "installedAt": "2026-09-25T12:00:00Z"
+  },
+  {
+    "source": "hangar",
+    "projectId": "12",
+    "slug": "ViaBackwards",
+    "name": "ViaBackwards",
+    "iconUrl": "https://hangarcdn.papermc.io/avatars/project/12.webp?v=1",
+    "versionId": "30818",
+    "versionNumber": "5.12.1-SNAPSHOT+635",
+    "channel": "beta",
+    "published": "2026-09-25T13:03:10.227632Z",
+    "fileName": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+    "hashAlgo": "sha256",
+    "hash": "5aa7e357a2325216e3449688895ff808bd3a98fcf36924a7dd196d18806a029b",
+    "size": 1433039,
+    "requires": [
+      "31"
+    ],
+    "installedAt": "2026-09-25T12:00:00Z"
+  },
+  {
+    "source": "hangar",
+    "projectId": "31",
+    "slug": "ViaVersion",
+    "name": "ViaVersion",
+    "iconUrl": "https://hangarcdn.papermc.io/avatars/project/31.webp?v=1",
+    "versionId": "30566",
+    "versionNumber": "5.12.1-SNAPSHOT+1069",
+    "channel": "beta",
+    "published": "2026-09-20T12:56:41.657559Z",
+    "fileName": "ViaVersion-5.12.1-SNAPSHOT.jar",
+    "hashAlgo": "sha256",
+    "hash": "d3bd99c2c492367e39a3e09761d95b911f7a904af4fd08efc97548c987830fcb",
+    "size": 6504194,
+    "dependencyOf": "12",
+    "installedAt": "2026-09-25T12:00:00Z"
+  }
+]

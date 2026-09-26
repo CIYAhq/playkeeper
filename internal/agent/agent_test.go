@@ -42,7 +42,9 @@ type agentEnv struct {
 	a    *Agent
 	ts   *httptest.Server
 	fill *fakeFill
-	mu   sync.Mutex
+	// up stands in for Mojang and the other upstreams of the server types.
+	up *fakeUpstream
+	mu sync.Mutex
 	// clockOffset moves the agent's clock and crashBackoff, when set, replaces
 	// the zero backoff (both taken at start); diskFree, when set, is the free
 	// space the agent measures.
@@ -104,6 +106,8 @@ func newAgentEnvWith(t *testing.T, setup func(e *agentEnv)) *agentEnv {
 	e.fd = startFakeDocker(t, filepath.Join(dir, "docker.sock"))
 	sum := sha256.Sum256(e.fd.jarContent)
 	e.fill = startFakeFill(t, hex.EncodeToString(sum[:]))
+	e.up = startFakeUpstream(t)
+	e.up.serveMojang()
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = filepath.Join(dir, "agent.sock")
@@ -170,10 +174,11 @@ func (e *agentEnv) start() {
 			}
 			return 50 << 30, 100 << 30, nil
 		},
-		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
+		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false }, UDPPortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 		Addons: e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
+		UpstreamClient: e.up.client(), PackClient: e.up.client(),
 		// No public DNS and no certificate authority in these tests.
 		Resolver: &fakeResolver{}, Issue: noCA, AddressInterval: -1, PublishPoll: 10 * time.Millisecond,
 		PublicAddrs: func() []netip.Addr { return []netip.Addr{testIP} },
@@ -435,7 +440,10 @@ func TestInvalidInputsAndUnknownVerbsAreRejected(t *testing.T) {
 		{"control char MOTD", "POST", "/v1/servers", create(map[string]any{"motd": "a\nb"}), 400},
 		{"control char name", "POST", "/v1/servers", create(map[string]any{"name": "a\nb"}), 400},
 		{"name too long", "POST", "/v1/servers", create(map[string]any{"name": strings.Repeat("a", 33)}), 400},
-		{"type not available yet", "POST", "/v1/servers", create(map[string]any{"type": "fabric"}), 400},
+		{"unknown type", "POST", "/v1/servers", create(map[string]any{"type": "forge"}), 400},
+		{"another type's version", "POST", "/v1/servers", create(map[string]any{"type": "vanilla"}), 400},
+		{"a build for Paper", "POST", "/v1/servers", create(map[string]any{"build": "41"}), 400},
+		{"a build for Vanilla", "POST", "/v1/servers", create(map[string]any{"type": "vanilla", "versionId": "vanilla-26.2", "build": "1"}), 400},
 		{"unknown play style", "POST", "/v1/servers", create(map[string]any{"playStyle": "chaos"}), 400},
 		{"unknown difficulty", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"difficulty": "insane"}}), 400},
 		{"view distance too far", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"viewDistance": 99}}), 400},
@@ -1262,6 +1270,31 @@ func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.dataDir(), "paper-26.1.2-74.jar")); err == nil {
 		t.Fatal("the unverified jar must be deleted")
+	}
+}
+
+func TestSetupStillRunningWhenItsOutputEndsFails(t *testing.T) {
+	old := setupExitWait
+	setupExitWait = time.Second
+	t.Cleanup(func() { setupExitWait = old })
+	e := newAgentEnv(t)
+	e.fd.setupHangs = true
+	code, out := e.startCreate(nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "still running") {
+		t.Fatalf("a setup container that hasn't finished must not count as done: %+v", op)
+	}
+	if e.fd.containerCount(e.cname()+"-setup") != 0 {
+		t.Fatal("the setup container must be stopped and removed")
+	}
+	e.fd.mu.Lock()
+	_, created := e.fd.byName[e.cname()]
+	e.fd.mu.Unlock()
+	if created {
+		t.Fatal("the server container must not be created from an unfinished setup")
 	}
 }
 

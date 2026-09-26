@@ -244,7 +244,7 @@ const sampleServer = "abcdefghjk"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI").Replace(p)
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001").Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {
