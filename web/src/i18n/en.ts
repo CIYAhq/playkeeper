@@ -768,7 +768,6 @@ export const en = {
   'world.emptyBody': 'Make one now, then download it to keep it safe.',
   'world.emptyButton': 'Make my first backup',
   'world.emptyNote': 'About 15 seconds.',
-  'world.emptyNoteOnline': 'About 15 seconds. Players stay online.',
 
   // Online backups: saving paused, and backing up with the server stopped
   'backup.savingPaused': 'World saving is paused',

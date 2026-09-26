@@ -1046,7 +1046,8 @@ describe('Backups with players online', () => {
   it('makes the first backup without a warning in chat', async () => {
     answer({ '/backups': [] })
     const text = await render(<WorldPage server={server({ players: { online: 2, max: 10, names: ['mara_k', 'tobi2009'], source: 'rcon list', at: '' } })} />)
-    expect(text).toContain('About 15 seconds. Players stay online.')
+    expect(text).toContain('About 15 seconds.')
+    expect(text).not.toContain('About 15 seconds. Players stay online.')
     expect(text).not.toContain('heads-up')
     expect(await render(<Overview server={server()} />)).toContain('Make your first backupTakes about 15 s.')
   })
