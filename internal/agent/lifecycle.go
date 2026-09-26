@@ -122,6 +122,7 @@ var opLabels = map[string]string{
 	"reinstall": "reinstalling its server software",
 	// Wave 7 (0.4.0)
 	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy", "offsite-check": "checking a copy",
+	"offsite-recover": "restoring from a recovery key",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide

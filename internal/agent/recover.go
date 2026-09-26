@@ -205,7 +205,7 @@ func (a *Agent) hRecoverRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := offsite.CopyName(archive)
-	op, err := a.beginMachineOp("offsite-recover", actor, func(ctx context.Context, h *opHandle) error {
+	op, err := a.beginStagingOp("offsite-recover", actor, func(ctx context.Context, h *opHandle) error {
 		defer os.RemoveAll(spool)
 		h.set("name", name)
 		h.set("server", rec.Server)

@@ -3140,6 +3140,17 @@ control "machine operations keep their deadline" internal/agent/agent.go \
   'ctx, cancel := context.WithCancel(a.ctx)' \
   ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_machine_operation$'
 
+# Wave 7 before Bugbot: restoring from a recovery key holds no server.
+control "a restore from a recovery key holds no server" internal/agent/recover.go \
+  'op, err := a.beginStagingOp("offsite-recover", actor, func(' \
+  'op, err := a.beginMachineOp("offsite-recover", actor, func(' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+control "what waits for a restore from a recovery key says what for" internal/agent/lifecycle.go \
+  '	"offsite-recover": "restoring from a recovery key",
+' \
+  '' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.

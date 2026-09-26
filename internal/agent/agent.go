@@ -210,9 +210,12 @@ type Agent struct {
 
 	// mopLock and mop are the machine-wide operation (a Playkeeper update).
 	// It runs only while every server is idle, and servers wait for it.
+	// sop is one that only writes to staging (a restore from a recovery
+	// key): it holds mopLock too, but no server waits for it.
 	mopLock chan struct{}
 	mopMu   sync.Mutex
 	mop     *api.Operation
+	sop     *api.Operation
 
 	srvMu   sync.Mutex
 	servers map[string]*server
@@ -511,6 +514,22 @@ func (a *Agent) machineOp() *api.Operation {
 	return copyOp(a.mop)
 }
 
+// stagingOp is the machine-wide operation writing to staging, if any.
+func (a *Agent) stagingOp() *api.Operation {
+	a.mopMu.Lock()
+	defer a.mopMu.Unlock()
+	return copyOp(a.sop)
+}
+
+// mopBusy refuses a machine-wide operation while another runs.
+func (a *Agent) mopBusy() error {
+	cur := a.machineOp()
+	if cur == nil {
+		cur = a.stagingOp()
+	}
+	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + opLabels[opKind(cur, "update")] + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+}
+
 // currentOp is the machine-wide operation, or else the first server
 // operation in progress (tests and the update refusal message use it).
 func (a *Agent) currentOp() *api.Operation {
@@ -535,7 +554,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 	select {
 	case a.mopLock <- struct{}{}:
 	default:
-		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + opLabels[opKind(a.machineOp(), "update")] + ".", Hint: "Wait for it to finish, then try again.", Op: a.machineOp()}
+		return nil, a.mopBusy()
 	}
 	if v := a.installingUpdate(); v != "" {
 		<-a.mopLock
@@ -585,6 +604,48 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 		a.mopMu.Lock()
 		done := finishOp(op, h, err, a.now().UTC())
 		a.mop = nil
+		a.mopMu.Unlock()
+		a.finishOperation("", "machine", &done)
+		if err != nil {
+			a.log.Warn("operation failed", "kind", kind, "err", err)
+		}
+	}()
+	return snap, nil
+}
+
+// beginStagingOp runs fn as a machine-wide operation that only writes to
+// staging, such as a restore from a recovery key downloading and checking a
+// copy. It waits for, and keeps out, the other machine-wide operations, but
+// holds no server's operation lock: the servers go on starting, waking and
+// backing up meanwhile, and a server made from what it staged gets an
+// operation of its own.
+func (a *Agent) beginStagingOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+	select {
+	case a.mopLock <- struct{}{}:
+	default:
+		return nil, a.mopBusy()
+	}
+	if v := a.installingUpdate(); v != "" {
+		<-a.mopLock
+		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
+	}
+	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}
+	a.mopMu.Lock()
+	a.sop = op
+	snap := copyOp(op)
+	a.mopMu.Unlock()
+	a.saveOperation(snap)
+	h := &opHandle{save: a.saveOperation, op: op, mu: func() func() { a.mopMu.Lock(); return a.mopMu.Unlock }}
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		defer func() { <-a.mopLock }()
+		ctx, cancel := opContext(a.ctx, kind)
+		defer cancel()
+		err := runOp(ctx, h, fn)
+		a.mopMu.Lock()
+		done := finishOp(op, h, err, a.now().UTC())
+		a.sop = nil
 		a.mopMu.Unlock()
 		a.finishOperation("", "machine", &done)
 		if err != nil {

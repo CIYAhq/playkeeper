@@ -889,6 +889,10 @@ func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, cur)
 		return
 	}
+	if cur := a.stagingOp(); cur != nil && cur.ID == id {
+		writeJSON(w, http.StatusOK, cur)
+		return
+	}
 	if cur := a.addressOp(); cur != nil && cur.ID == id {
 		writeJSON(w, http.StatusOK, cur)
 		return
