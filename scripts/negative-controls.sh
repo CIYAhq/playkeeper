@@ -1512,10 +1512,14 @@ control "the CurseForge key file is readable by root only" internal/agent/addons
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)' \
   ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
-control "only who manages the machine changes its CurseForge key" internal/panel/server.go \
-  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+control "a member can't change the CurseForge key" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
-  ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
+  ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
+control "only the owner changes the CurseForge key, not an admin of all servers" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+  ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
 control "an exported template names no one" internal/agent/templates.go \
   '	file, err := templates.MarshalFile(t)' \
   '	t.Author = q.Get("author")

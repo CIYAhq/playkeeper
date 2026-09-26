@@ -412,8 +412,8 @@ func (s *Server) Routes() []Route {
 		// Wave 4: add-on sources. The CurseForge key is the machine's, so only
 		// those who may manage the machine change it.
 		mg("/api/machines/{mid}/addon-sources", "/v1/addon-sources"),
-		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
-		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
+		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),
+		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),
 		// Wave 4: templates.
 		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
 		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),
