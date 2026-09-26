@@ -1804,6 +1804,10 @@ control "Discord hears a server stop" internal/agent/lifecycle.go \
   's.closeOpenSessions(fin, "server_stopped", false)
 	case graceful:' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^stopped$'
+control "a profile shows a player online only from a fresh sample" internal/agent/profile.go \
+  'if s.players != nil && s.fresh(s.players.At) {' \
+  'if s.players != nil {' \
+  ./internal/agent '^TestProfileShowsOnlineOnlyFromAFreshSample$'
 control "Discord hears a manual backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
 	return nil' \
