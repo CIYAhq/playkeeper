@@ -1635,6 +1635,7 @@ export type Action =
   | 'backups.copies.manage'
   | 'backups.recovery_key'
   | 'backups.recover'
+  | 'addon_sources.manage'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
