@@ -33,6 +33,8 @@ const (
 	opA   = "0123456789abcdef"
 	opB   = "fedcba9876543210"
 	actor = "token:t1"
+	// planFP is the fingerprint of chunky's plan.
+	planFP = "5d41402abc4b2a76b9719d911017c592"
 )
 
 var t0 = time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
@@ -220,6 +222,21 @@ func serve(a *fakeAgent, st api.ServerStatus, op string) {
 		{Start: t0.Add(-30 * time.Minute), State: "online", CPUAvg: new(80.0), PlayersMax: new(3)},
 	}})
 	a.on("GET", p+"/events", http.StatusOK, []api.Event{{ID: 1, TS: t0.Add(-2 * time.Hour), Kind: "server_crashed", Detail: "The server stopped unexpectedly."}})
+	a.on("GET", p+"/addons/project/modrinth/chunky", http.StatusOK, chunky())
+	a.on("POST", p+"/addons/install", http.StatusAccepted, started("addon-install"))
+}
+
+// chunky is Chunky's detail sheet on a server without it, looked up by its
+// slug: its plan installs Chunky alone.
+func chunky() api.AddonDetails {
+	return api.AddonDetails{
+		Card:   api.AddonCard{Source: "modrinth", ProjectID: "fALzjamp", Slug: "chunky", Name: "Chunky", Categories: []string{"utility"}},
+		Latest: &api.AddonVersion{VersionID: "dPliWter", VersionNumber: "1.4.40", Channel: "release"},
+		Plan: &api.AddonPlan{
+			Steps:  []api.AddonStep{{Action: "install", Source: "modrinth", ProjectID: "fALzjamp", Name: "Chunky", VersionNumber: "1.4.40", Channel: "release"}},
+			Manual: []api.AddonNotice{}, Blockers: []api.AddonNotice{}, Warnings: []api.AddonNotice{}, Ready: true, Fingerprint: planFP,
+		},
+	}
 }
 
 // newWorld is a dashboard with server A (Survival) on machine m1, my-vps,
@@ -264,6 +281,10 @@ func sampleArgs(t *testing.T, tool mcp.Tool, server string) map[string]any {
 			args[name] = "Steve_1"
 		case "operation":
 			args[name] = opA
+		case "source":
+			args[name] = "modrinth"
+		case "project":
+			args[name] = "chunky"
 		default:
 			t.Fatalf("%s: no sample value for its required argument %q; add one to sampleArgs", tool.Name, name)
 		}

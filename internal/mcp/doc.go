@@ -63,7 +63,8 @@
 //	get_lag_report         read    read-only    wave 3 lag helper, GET /v1/servers/{id}/metrics
 //	explain_crash          read    read-only    wave 3 crash helper, GET /v1/servers/{id}/events
 //	search_addons          read    read-only    internal/addons (open world), later
-//	install_addon          owner   additive     internal/addons (open world), later
+//	install_addon          owner   additive     GET /v1/servers/{id}/addons/project/{source}/{project} for the plan, then
+//	                                            POST /v1/servers/{id}/addons/install with its fingerprint (open world)
 //	remove_addon           owner   destructive  internal/addons, later
 //
 // Restoring or deleting backups, changing settings or versions, and applying

@@ -460,7 +460,7 @@ func getOperation(ctx context.Context, c *call) (*mcp.Result, error) {
 	if err != nil || op.ServerID != c.server.ID || op.ID != args.Operation {
 		return nil, &mcp.ToolError{Kind: "operation_not_found",
 			Msg:  fmt.Sprintf("There is no operation %s on %s.", args.Operation, c.server.Name),
-			Hint: "Use the id and server that start_server, stop_server, restart_server or create_backup returned."}
+			Hint: "Use the id and server that start_server, stop_server, restart_server, create_backup or install_addon returned."}
 	}
 	o := operationOf(&op)
 	var text string
