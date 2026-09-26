@@ -403,6 +403,8 @@ describe('how it’s running', () => {
     expect(causeText(distances, ctx).body).toBe('View distance is 16 and simulation distance 14 chunks, a lot of land per player.')
     const profiler = cause({ actions: [{ kind: 'run_profiler', title: '', recommended: true }] })
     expect(causeAction(profiler, ctx)).toMatchObject({ mode: 'later', label: 'Run a profiler' })
+    const land = cause({ kind: 'chunk_generation', actions: [{ kind: 'pregenerate_world', title: '', recommended: true }] })
+    expect(causeAction(land, ctx)).toMatchObject({ mode: 'link', label: 'Pre-generate the map', href: '/servers/survival/world/pregen' })
     const host = cause({ kind: 'host_cpu_busy', params: { busy_percent: 97 }, actions: [{ kind: 'upgrade_host', params: { resource: 'cpu' }, title: '', recommended: true }] })
     expect(causeAction(host, ctx)).toMatchObject({ mode: 'advice', label: 'Move to a faster machine', note: 'At your hosting provider' })
     expect(causeText(host, ctx)).toEqual({ title: 'The processor is fully busy', body: 'Playkeeper can’t tell how much of that is Survival.', evidence: 'Processor 97% busy' })

@@ -217,7 +217,7 @@ function actionView(a: DiagnosisAction, ctx: CauseContext): CauseAction {
       return { mode: 'later', kind: a.kind, label: to ? t('running.lowerSim', { to }) : a.title }
     }
     case 'pregenerate_world':
-      return { mode: 'later', kind: a.kind, label: t('running.pregen') }
+      return { mode: 'link', kind: a.kind, label: t('running.pregen'), href: `/servers/${ctx.slug}/world/pregen` }
     case 'run_profiler':
       return { mode: 'later', kind: a.kind, label: t('running.profiler') }
     case 'raise_cpu_limit':

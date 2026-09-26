@@ -331,10 +331,9 @@ describe('How it’s running', () => {
     expect(rows[2]).toContain('View distance is 16 chunks, a lot of land per player.')
     expect(rows[2]).toContain('1,089 chunks in view per player')
 
-    const pregen = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Pre-generate the map'))
-    expect(pregen?.disabled).toBe(true)
-    expect(pregen?.title).toBe('Coming later')
-    expect(rows[0]).toContain('Coming later')
+    expect(link('Pre-generate the map')).toBe('/servers/survival/world/pregen')
+    expect(rows[0]).not.toContain('Coming later')
+    expect(document.querySelector('ol > li a')?.className).toContain('bg-primary')
     expect(link('Give it 6 GB')).toBe('/servers/survival/settings?memory=6144#memory')
     expect(link('Lower view distance to 10')).toBe('/servers/survival/settings?view=10#game')
   })
