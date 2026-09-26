@@ -189,7 +189,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
 
   function blocked(): string | undefined {
     if (away) return away
-    if (!c) return t('common.loading')
+    if (!c || !target) return t('common.loading')
     if (world) {
       switch (step) {
         case 0:
