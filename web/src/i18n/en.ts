@@ -1032,6 +1032,8 @@ export const en = {
   'new.title': 'New server',
   'new.lead': 'On {machine}',
   'new.cancel': 'Cancel',
+  'new.machineGone': 'That machine isn’t connected to this dashboard',
+  'new.machineAwayBody': 'Create waits until it’s back.',
   'new.steps': 'Steps',
   'new.step.type': 'Game & type',
   'new.step.version': 'Version',
