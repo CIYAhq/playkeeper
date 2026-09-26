@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, CopyButton, Marker, Progress, SectionLabel, Spinner, copyText } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, Segmented } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -214,6 +215,8 @@ function stateOf(v: OffsiteView): CopyState {
 function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>) {
   const ws = useWorkspace()
   const canEdit = holdsBackupKeys(ws.me.user.role)
+  const readOnly = canEdit ? undefined : t('offsite.ownerOnly')
+  const keyReadOnly = canEdit ? undefined : t('offsite.key.ownerOnly')
   const [edits, setEdits] = useState<Draft>()
   const [test, setTest] = useState<{ result: OffsiteTestResult; at: string }>()
   const [problem, setProblem] = useState<Problem>()
@@ -361,6 +364,8 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
 
   return {
     canEdit,
+    readOnly,
+    keyReadOnly,
     draft,
     dirty,
     sshKey,
@@ -424,6 +429,7 @@ function DestFields({ c, v, phone }: { c: Copies; v: OffsiteView; phone?: boolea
       value={d[key]}
       onChange={(e) => c.set(key, e.target.value)}
       disabled={!c.canEdit}
+      title={c.readOnly}
       aria-invalid={c.problem?.field === key || undefined}
       spellCheck={false}
       autoComplete="off"
@@ -456,6 +462,7 @@ function DestFields({ c, v, phone }: { c: Copies; v: OffsiteView; phone?: boolea
               aria-description={v.s3?.secretKeySet ? t('offsite.savedSecret') : undefined}
               aria-invalid={c.problem?.field === 'secretKey' || undefined}
               disabled={!c.canEdit}
+              title={c.readOnly}
               autoComplete="new-password"
               size={size}
             />
@@ -488,7 +495,8 @@ function DestFields({ c, v, phone }: { c: Copies; v: OffsiteView; phone?: boolea
           className={phone ? 'grid h-11 grid-cols-2 [&>*]:h-10' : undefined}
           label={t('offsite.signInWith')}
           value={d.auth}
-          onChange={(a) => c.canEdit && c.set('auth', a)}
+          onChange={(a) => c.set('auth', a)}
+          disabledReason={c.readOnly}
           options={[
             { value: 'key', label: t('offsite.authKey') },
             { value: 'password', label: t('offsite.authPassword') },
@@ -521,6 +529,7 @@ function DestFields({ c, v, phone }: { c: Copies; v: OffsiteView; phone?: boolea
             aria-description={v.sftp?.passwordSet ? t('offsite.savedSecret') : undefined}
             aria-invalid={c.problem?.field === 'password' || undefined}
             disabled={!c.canEdit}
+            title={c.readOnly}
             autoComplete="new-password"
             size={size}
           />
@@ -651,7 +660,7 @@ function CopyStatus({ state, v, c, machine, onChangeRules, phone }: { state: Cop
           </p>
           {p.sent > 0 && <Progress value={pct} tone="muted" className="mt-2.5" label={title} />}
           <p className={cn('mt-2 text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')}>{sub}</p>
-          <Button size="sm" variant="outline" className="mt-3" loading={c.busy === 'retry'} disabled={!c.canEdit} onClick={() => void c.retry()}>
+          <Button size="sm" variant="outline" className="mt-3" loading={c.busy === 'retry'} disabledReason={c.readOnly} onClick={() => void c.retry()}>
             <RefreshCwIcon />
             {t('offsite.tryNow')}
           </Button>
@@ -669,7 +678,7 @@ function CopyStatus({ state, v, c, machine, onChangeRules, phone }: { state: Cop
           </p>
           {(full || p.hint) && <p className={cn('mt-1 ms-6 text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')}>{full ? t('offsite.fullHint') : p.hint}</p>}
           <div className="mt-3 flex items-center gap-2">
-            <Button size="sm" variant="outline" loading={c.busy === 'retry'} disabled={!c.canEdit} onClick={() => void c.retry()}>
+            <Button size="sm" variant="outline" loading={c.busy === 'retry'} disabledReason={c.readOnly} onClick={() => void c.retry()}>
               <RefreshCwIcon />
               {t('offsite.tryAgain')}
             </Button>
@@ -725,7 +734,7 @@ function KeyRow({ v, c, machine }: { v: OffsiteView; c: Copies; machine: string 
           <p className="text-[13px] font-semibold text-warning-foreground">{t(renewed ? 'offsite.key.newNotDownloaded' : 'offsite.key.notDownloaded')}</p>
           <p className="text-xs text-muted-foreground">{renewed ? t('offsite.key.newNotDownloadedHint') : t('offsite.key.notDownloadedHint', { machine })}</p>
         </div>
-        <Button size="sm" variant="outline" loading={c.busy === 'key'} disabled={!c.canEdit} onClick={() => void c.downloadKey()}>
+        <Button size="sm" variant="outline" loading={c.busy === 'key'} disabledReason={c.keyReadOnly} onClick={() => void c.downloadKey()}>
           <DownloadIcon />
           {t('common.download')}
         </Button>
@@ -739,12 +748,12 @@ function KeyRow({ v, c, machine }: { v: OffsiteView; c: Copies; machine: string 
         <p className="text-[13px] font-semibold">{t('offsite.key.row')}</p>
         <p className="text-xs text-muted-foreground">{t('offsite.key.downloadedAt', { date: formatDate(k.savedAt) })}</p>
       </div>
-      <Button size="sm" variant="outline" loading={c.busy === 'key'} disabled={!c.canEdit} onClick={() => void c.downloadKey()}>
+      <Button size="sm" variant="outline" loading={c.busy === 'key'} disabledReason={c.keyReadOnly} onClick={() => void c.downloadKey()}>
         <DownloadIcon />
         {t('offsite.key.downloadAgain')}
       </Button>
       <Menu>
-        <MenuTrigger render={<Button variant="outline" size="icon-sm" aria-label={t('offsite.key.menu')} disabled={!c.canEdit} />}>
+        <MenuTrigger render={<Button variant="outline" size="icon-sm" aria-label={t('offsite.key.menu')} disabledReason={c.keyReadOnly} />}>
           <EllipsisIcon />
         </MenuTrigger>
         <MenuPopup align="end" className="min-w-52">
@@ -910,7 +919,12 @@ export function CopiesCard({ server: s, onChangeRules }: { server: ServerStatus;
       </Card>
     )
   }
-  return <Skeleton className="h-[440px] rounded-3xl" />
+  return (
+    <>
+      <LoadingLabel />
+      <Skeleton className="h-[440px] rounded-3xl" />
+    </>
+  )
 }
 
 function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server: ServerStatus; view: OffsiteView; refresh: () => Promise<void>; onChangeRules: () => void }) {
@@ -922,7 +936,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
   const state = stateOf(v)
   const editing = !v.enabled || c.dirty
   const testButton = (primary: boolean) => (
-    <Button size="sm" variant={primary ? 'default' : 'outline'} loading={c.busy === 'test'} disabled={!c.canEdit} onClick={() => void c.testNow()}>
+    <Button size="sm" variant={primary ? 'default' : 'outline'} loading={c.busy === 'test'} disabledReason={c.readOnly} onClick={() => void c.testNow()}>
       {t('offsite.test')}
     </Button>
   )
@@ -992,7 +1006,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
       <p className="mt-4 mb-1.5 text-[13px] font-medium">{t('offsite.whereTo')}</p>
       <CardGroup value={d.type} onChange={(x) => c.canEdit && c.set('type', x)} label={t('offsite.whereTo')} className="flex flex-col gap-2">
         {(['s3', 'sftp'] as const).map((x) => (
-          <ChoiceCard key={x} value={x} radio="start" disabled={!c.canEdit} className="gap-3 px-3.5 py-2.5">
+          <ChoiceCard key={x} value={x} radio="start" disabled={!c.canEdit} reason={c.readOnly} className="gap-3 px-3.5 py-2.5">
             <span className="block text-[13px] font-semibold">{t(x === 's3' ? 'offsite.s3' : 'offsite.sftp')}</span>
             <span className="block text-xs text-muted-foreground">{t(x === 's3' ? 'offsite.s3Hint' : 'offsite.sftpHint')}</span>
           </ChoiceCard>
@@ -1040,7 +1054,10 @@ export function CopiesPhonePage({ server: s }: { server: ServerStatus }) {
       ) : off.error ? (
         <p className="px-4 text-[15px] text-destructive-foreground">{off.error.message}</p>
       ) : (
-        <Skeleton className="h-80 rounded-3xl" />
+        <>
+          <LoadingLabel />
+          <Skeleton className="h-80 rounded-3xl" />
+        </>
       )}
     </>
   )
@@ -1057,6 +1074,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
   const state = stateOf(v)
   const changeRules = () => navigate({ name: 'server', slug: s.slug, tab: 'world', sub: 'backup-rules' })
   const done = (ok: boolean) => ok && setEditing(false)
+  const switchLocked = c.readOnly ?? (c.busy === 'test' ? t('offsite.testing') : c.busy === 'on' || c.busy === 'off' || c.busy === 'save' ? t('reason.saving') : undefined)
 
   let primary: ReactNode
   let secondary: ReactNode
@@ -1087,7 +1105,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
     )
   } else {
     primary = (
-      <Button size="touch" variant={form ? 'default' : 'outline'} loading={c.busy === 'test'} disabled={!c.canEdit} onClick={() => void c.testNow()}>
+      <Button size="touch" variant={form ? 'default' : 'outline'} loading={c.busy === 'test'} disabledReason={c.readOnly} onClick={() => void c.testNow()}>
         {t('offsite.test')}
       </Button>
     )
@@ -1116,7 +1134,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
             <span className="block text-base">{t('offsite.switch')}</span>
             <span className="block text-[13px] text-muted-foreground">{t('offsite.switchHint')}</span>
           </span>
-          <Switch checked={v.enabled} disabled={!c.canEdit || !!c.busy} onCheckedChange={(on) => void (on ? c.testThenTurnOn() : c.turnOff())} aria-label={t('offsite.switch')} />
+          <Switch checked={v.enabled} disabled={!!switchLocked} title={switchLocked} onCheckedChange={(on) => void (on ? c.testThenTurnOn() : c.turnOff())} aria-label={t('offsite.switch')} />
         </div>
       )}
       <SectionLabel className="mt-2 px-4">{t('offsite.whereTo')}</SectionLabel>
@@ -1127,6 +1145,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
             label={t('offsite.whereTo')}
             value={d.type}
             onChange={(x) => c.set('type', x)}
+            disabledReason={c.readOnly}
             options={[
               { value: 's3', label: t('offsite.s3') },
               { value: 'sftp', label: t('offsite.sftp') },
@@ -1135,7 +1154,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
           <DestFields c={c} v={v} phone />
         </div>
       ) : (
-        <button type="button" disabled={!c.canEdit} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 py-2 text-left" onClick={() => setEditing(true)}>
+        <button type="button" disabled={!c.canEdit} title={c.readOnly} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 py-2 text-left" onClick={() => setEditing(true)}>
           {v.type === 'sftp' ? <ServerIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /> : <HardDriveIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-base font-medium">{v.place}</span>
@@ -1195,12 +1214,12 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
                   </span>
                 </div>
               )}
-              <Button size="touch" variant="outline" loading={c.busy === 'key'} disabled={!c.canEdit} onClick={() => void c.downloadKey()}>
+              <Button size="touch" variant="outline" loading={c.busy === 'key'} disabledReason={c.keyReadOnly} onClick={() => void c.downloadKey()}>
                 <DownloadIcon />
                 {k.savedAt ? t('offsite.key.downloadAgain') : t('offsite.key.download')}
               </Button>
             </div>
-            <button type="button" disabled={!c.canEdit || c.busy === 'newKey'} className="flex min-h-14 w-full items-center gap-3 text-left" onClick={() => void c.newKey()}>
+            <button type="button" disabled={!c.canEdit || c.busy === 'newKey'} title={c.keyReadOnly ?? (c.busy === 'newKey' ? t('offsite.key.making') : undefined)} aria-busy={c.busy === 'newKey' || undefined} className="flex min-h-14 w-full items-center gap-3 text-left" onClick={() => void c.newKey()}>
               {c.busy === 'newKey' ? <Spinner className="size-5" /> : <RefreshCwIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
               <span className="flex-1 text-base">{t('offsite.key.makeNew')}</span>
               <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />

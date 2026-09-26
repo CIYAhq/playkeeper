@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, Segmented } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -99,6 +100,7 @@ export function BackupRulesPage({ server: s, copies }: { server: ServerStatus; c
             </Card>
           ) : (
             <>
+              <LoadingLabel />
               <Skeleton className="h-36 rounded-3xl" />
               <Skeleton className="h-60 rounded-3xl" />
             </>
@@ -137,7 +139,7 @@ function AutomaticCard({ server: s, view, onSaved }: { server: ServerStatus; vie
         </div>
         <Switch checked={auto.enabled} onCheckedChange={(c) => void save({ ...auto, enabled: c })} aria-label={t('backupRules.auto')} />
       </div>
-      <div className={cn('grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none', auto.enabled ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')} inert={!auto.enabled}>
+      <div className={cn('grid transition-[grid-template-rows,opacity] duration-(--motion-standard) ease-standard', auto.enabled ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')} inert={!auto.enabled}>
         <div className="overflow-hidden">
           <p className="mt-4 mb-1.5 text-[13px] font-medium">{t('backupRules.howOften')}</p>
           <ChoiceSelect
@@ -331,7 +333,10 @@ export function BackupRulesPhonePage({ server: s }: { server: ServerStatus }) {
       ) : rules.error ? (
         <p className="px-4 text-[15px] text-destructive-foreground">{rules.error.message}</p>
       ) : (
-        <Skeleton className="mx-0 h-80 rounded-3xl" />
+        <>
+          <LoadingLabel />
+          <Skeleton className="mx-0 h-80 rounded-3xl" />
+        </>
       )}
     </>
   )

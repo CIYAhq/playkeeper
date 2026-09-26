@@ -504,6 +504,9 @@ describe('Copies somewhere else', () => {
     expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(true)
     const download = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Download')
     expect(download?.disabled).toBe(true)
+    expect(download?.title).toBe('Only the owner can hold the recovery key.')
+    const test = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Test connection')
+    expect(test?.title).toBe('Only the owner can change where copies go.')
   })
 })
 
