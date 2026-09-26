@@ -147,6 +147,26 @@ func TestAlertEmbedsReadWell(t *testing.T) {
 	}
 }
 
+// The low disk alert is about the machine: without a server's name it says
+// "your servers", not "The Minecraft server" in the middle of a sentence.
+func TestLowDiskAlertWithAndWithoutAServerName(t *testing.T) {
+	const tail = " Backups and world saves fail when the disk is full: delete old backups or free up space."
+	for _, c := range []struct {
+		name string
+		e    Event
+		want string
+	}{
+		{"Creative", LowDisk(1536 << 20), "Only 1.5 GB of disk space is left on the machine that runs **Creative**."},
+		{"Creative", LowDisk(0), "The machine that runs **Creative** is almost out of disk space."},
+		{"", LowDisk(1536 << 20), "Only 1.5 GB of disk space is left on the machine that runs your servers."},
+		{"", LowDisk(0), "The machine that runs your servers is almost out of disk space."},
+	} {
+		if got := c.e.embed(ServerInfo{Name: c.name}).Description; got != c.want+tail {
+			t.Errorf("name %q, %d bytes free: %q, want %q", c.name, c.e.Bytes, got, c.want+tail)
+		}
+	}
+}
+
 func TestAlertEmbedsWithoutOptionalDetails(t *testing.T) {
 	info := ServerInfo{Name: "Creative"}
 	for _, c := range []struct {

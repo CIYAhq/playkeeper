@@ -1967,6 +1967,10 @@ control "Discord's live status is on until the owner turns it off" internal/disc
   'Settings{Alerts: DefaultAlerts(), LiveStatus: true}' \
   'Settings{Alerts: DefaultAlerts()}' \
   ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
+control "the low disk alert without a server's name is about your servers" internal/discord/alerts.go \
+  'runs = "your servers"' \
+  'runs = name' \
+  ./internal/discord '^TestLowDiskAlertWithAndWithoutAServerName$'
 control "Discord takes running out of memory, then Stopping server, for a crash" internal/agent/collector.go \
   's.sawCrash, s.lastError = true, "Java ran out of memory."' \
   's.sawCrash, s.lastError = false, "Java ran out of memory."' \
