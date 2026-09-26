@@ -1615,6 +1615,10 @@ control "a pack's plan names the port its voice chat would get" internal/agent/c
   'if p.voiceChat {' \
   'if false {' \
   ./internal/agent '^TestAPacksPreviewNamesVoiceChatsPort$'
+control "a pack's plan reads the held voice chat ports under their lock" internal/agent/curated.go \
+  'if port, err := a.freeVoicePort("", curated.VoiceChatPort); err == nil {' \
+  'if port, err := curated.PickPort(curated.VoiceChatPort, a.voicePortTaken("")); err == nil {' \
+  ./internal/agent '^TestAPacksPreviewReadsHeldVoicePortsUnderTheirLock$'
 control "voice chat in a CurseForge pack is known by CurseForge's project" internal/agent/curated.go \
   'return c.Project == curseForgeVoiceChat' \
   'return false' \
