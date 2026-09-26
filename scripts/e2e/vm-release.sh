@@ -212,7 +212,7 @@ owner() {
   offline_harness
   wait_panel
   phase "OWNER: a server with settings, a world marker and a backup, on $FROM"
-  python3 "$root/test/e2e/update.py" prepare --url "$url" --cacert "$cert" --code "$code" --out "$OUT/owner" | tee "$OUT/owner-prepare.txt"
+  checks owner-prepare --code "$code" | tee "$OUT/owner-prepare.txt"
   phase "OWNER: two players join, then a backup with a player online, on $FROM"
   checks owner-players --game-host "$ip" | tee "$OUT/owner-players.txt"
   phase "OWNER: the $FROM binary that installs the update trusts this run's signing key"
