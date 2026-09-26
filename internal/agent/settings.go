@@ -262,20 +262,20 @@ func (s *server) hIconSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(b) > maxIconBytes {
-		writeError(w, errInvalid("The picture can be at most 64 KB."))
+		writeError(w, errIcon("This one is larger."))
 		return
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(b))
 	if err != nil || format != "png" {
-		writeError(w, errInvalid("The server icon must be a PNG picture."))
+		writeError(w, errIcon("This one is not a PNG."))
 		return
 	}
 	if cfg.Width != 64 || cfg.Height != 64 {
-		writeError(w, errInvalid("The server icon must be 64 × 64 pixels; this one is %d × %d.", cfg.Width, cfg.Height))
+		writeError(w, errIcon("This one is %d × %d.", cfg.Width, cfg.Height))
 		return
 	}
 	if _, err := png.Decode(bytes.NewReader(b)); err != nil {
-		writeError(w, errInvalid("The picture could not be read: %v", err))
+		writeError(w, errIcon("This one could not be read."))
 		return
 	}
 	if err := s.saveIcon(b); err != nil {
@@ -284,6 +284,12 @@ func (s *server) hIconSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(actor, "settings.changed", "server", "succeeded", "server icon")
 	writeJSON(w, http.StatusOK, s.Status(r.Context()))
+}
+
+// errIcon refuses an upload before anything is written, so every icon saved
+// can be read back.
+func errIcon(format string, args ...any) *apiError {
+	return &apiError{Status: http.StatusBadRequest, Code: api.CodeIconInvalid, Msg: "Icons need to be 64 × 64 PNG pictures of at most 64 KB. " + fmt.Sprintf(format, args...)}
 }
 
 // saveIcon installs the icon and records when. It holds the server's

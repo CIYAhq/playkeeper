@@ -516,7 +516,9 @@ func lastNonEmpty(lines []string) string {
 
 // startServer brings the server to "online". It is idempotent: a container
 // already running with the desired spec is left alone.
-func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) error {
+func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
+	pastFiles := false
+	defer func() { s.noteRefusal(err, pastFiles) }()
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
@@ -544,6 +546,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
+	pastFiles = true
 	name := s.containerName()
 	spec, hash := s.containerSpec(sc, false)
 	c, err := s.docker.ContainerInspect(ctx, name)

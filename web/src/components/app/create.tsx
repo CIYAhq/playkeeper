@@ -5,7 +5,7 @@ import { PlayArt, TypeLogo, WorldArt } from '@/components/app/art'
 import { CardGroup, ChoiceCard } from '@/components/app/controls'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Combobox, ComboboxEmpty, ComboboxGroupLabel, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
+import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -77,6 +77,22 @@ export function createRequest(c: CreateChoices) {
   }
 }
 
+/** Why the chosen version can't be used yet; undefined when it can. */
+export function versionBlocked(c: CreateChoices, version: CatalogEntry | undefined): string | undefined {
+  if (!version) return t('reason.pickVersion')
+  return version.experimental && !c.acceptExperimental ? t('reason.experimental', { version: version.minecraftVersion }) : undefined
+}
+
+/** Why the name step isn't finished; undefined when it is. */
+export function nameBlocked(c: CreateChoices): string | undefined {
+  return !c.name.trim() ? t('reason.nameFirst') : c.eula ? undefined : t('reason.eula')
+}
+
+/** Why the server can't be created yet; undefined when it can. */
+export function createBlocked(c: CreateChoices, version: CatalogEntry | undefined): string | undefined {
+  return versionBlocked(c, version) ?? nameBlocked(c)
+}
+
 const typeKeys: Record<string, { long: MessageKey; short: MessageKey }> = {
   paper: { long: 'new.type.paper', short: 'new.type.paper.short' },
   vanilla: { long: 'new.type.vanilla', short: 'new.type.vanilla.short' },
@@ -96,24 +112,32 @@ export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalo
         const soon = !ty.available
         if (phone) {
           return (
-            <ChoiceCard key={ty.id} value={ty.id} disabled={soon} radio={soon ? 'none' : 'end'} className="min-h-[60px] items-center gap-3 px-3.5 py-2.5">
+            <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className="min-h-[60px] items-center gap-3 px-3.5 py-2.5">
               <span className="flex items-center gap-3">
                 <TypeLogo type={ty.id} size={40} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-base font-semibold">{typeName(ty.id)}</span>
                   {keys && <span className="block text-[13px] text-muted-foreground">{t(keys.short)}</span>}
                 </span>
-                {soon && <span className="text-xs text-muted-foreground">{t('common.soon')}</span>}
+                {soon && (
+                  <span className="text-xs text-muted-foreground" aria-hidden="true">
+                    {t('common.soon')}
+                  </span>
+                )}
               </span>
             </ChoiceCard>
           )
         }
         return (
-          <ChoiceCard key={ty.id} value={ty.id} disabled={soon} radio={soon ? 'none' : 'end'} className="min-h-[160px] gap-2 p-3.5">
+          <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className="min-h-[160px] gap-2 p-3.5">
             <span className="flex h-full flex-col">
               <span className="flex items-start justify-between">
                 <TypeLogo type={ty.id} size={36} />
-                {soon && <span className="text-xs text-muted-foreground">{t('common.comingSoon')}</span>}
+                {soon && (
+                  <span className="text-xs text-muted-foreground" aria-hidden="true">
+                    {t('common.comingSoon')}
+                  </span>
+                )}
               </span>
               <span className="mt-3.5 flex items-center gap-2 text-sm font-semibold">
                 {typeName(ty.id)}
@@ -222,7 +246,6 @@ export function VersionPicker({ catalog, servers, value, onChange, acceptExperim
               <ComboboxInput placeholder={t('new.olderSearch', { count: older.length, type: typeName(type) })} aria-label={t('new.older')} startAddon={<SearchIcon />} />
               <ComboboxPopup>
                 <ComboboxEmpty>{t('new.noMatch')}</ComboboxEmpty>
-                <ComboboxGroupLabel>{t('new.stable')}</ComboboxGroupLabel>
                 <ComboboxList>
                   {(item: (typeof items)[number]) => (
                     <ComboboxItem key={item.value} value={item}>
@@ -362,7 +385,7 @@ export function EulaCheck({ checked, onChange, short, className }: { checked: bo
                 ),
               })}
         </span>
-        <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{short ? t('eula.hintShort') : t('eula.hint')}</span>
+        <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('eula.hint')}</span>
       </span>
     </label>
   )

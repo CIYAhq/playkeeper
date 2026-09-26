@@ -32,16 +32,20 @@ export function Spinner({ className }: { className?: string }) {
 }
 
 export function Dot({ tone, className }: { tone: Tone; className?: string }) {
+  return <ToneDot key={tone} tone={tone} className={className} />
+}
+
+function ToneDot({ tone, className }: { tone: Tone; className?: string }) {
   switch (tone) {
     case 'online':
-      return <span className={cn('inline-block size-2 shrink-0 rounded-full bg-success ring-3 ring-success/20', className)} aria-hidden="true" />
+      return <span className={cn('inline-block size-2 shrink-0 animate-fade rounded-full bg-success ring-3 ring-success/20', className)} aria-hidden="true" />
     case 'crashed':
-      return <span className={cn('inline-block size-2 shrink-0 rounded-full bg-destructive', className)} aria-hidden="true" />
+      return <span className={cn('inline-block size-2 shrink-0 animate-fade rounded-full bg-destructive', className)} aria-hidden="true" />
     case 'busy':
       return <Spinner className={className} />
     case 'stopped':
     case 'unknown':
-      return <span className={cn('inline-block size-2 shrink-0 rounded-full border-[1.5px] border-muted-foreground/60', className)} aria-hidden="true" />
+      return <span className={cn('inline-block size-2 shrink-0 animate-fade rounded-full border-[1.5px] border-muted-foreground/60', className)} aria-hidden="true" />
     default: {
       const unreachable: never = tone
       return unreachable
@@ -83,7 +87,9 @@ export function StatusPill({ server, agentDown = false, elapsed, showDetail = tr
   return (
     <span className={cn('inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full border border-border bg-white px-2.5 text-[13px] font-semibold', className)}>
       <Dot tone={s.tone} />
-      <span className={labelClass}>{s.label}</span>
+      <span key={s.label} className={cn('animate-fade transition-colors duration-(--motion-standard)', labelClass)}>
+        {s.label}
+      </span>
       {showDetail && s.detail && (
         <span className="font-normal text-muted-foreground">
           {t('common.dot')}
@@ -247,7 +253,7 @@ export function Progress({ value, tone = 'primary', className, label }: { value:
   const pct = Math.max(0, Math.min(100, value))
   return (
     <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-foreground/8', className)} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label={label}>
-      <div className={cn('h-full rounded-full transition-[width]', tone === 'primary' ? 'bg-primary' : 'bg-info')} style={{ width: `${pct}%` }} />
+      <div className={cn('h-full rounded-full transition-[width,background-color] duration-(--motion-slow) ease-standard', tone === 'primary' ? 'bg-primary' : 'bg-info')} style={{ width: `${pct}%` }} />
     </div>
   )
 }

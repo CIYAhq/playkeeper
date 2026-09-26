@@ -62,12 +62,29 @@ export function relativeTime(iso: string | undefined, now: number = Date.now()):
   return t('time.daysAgo', { count: Math.floor(diff / 86400) })
 }
 
+// toLocaleTimeString builds a new formatter on every call, which the console
+// pays for every line; a formatter per locale formats the same text.
+const clocks = new Map<string, Intl.DateTimeFormat>()
+
+function clock(iso: string, seconds: boolean): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(d)
+  const locale = formatLocale()
+  const key = `${locale} ${seconds}`
+  let f = clocks.get(key)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: seconds ? '2-digit' : undefined, hour12: false })
+    clocks.set(key, f)
+  }
+  return f.format(d)
+}
+
 export function formatClock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(formatLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
+  return clock(iso, false)
 }
 
 export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(formatLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  return clock(iso, true)
 }
 
 export function formatDate(iso: string): string {

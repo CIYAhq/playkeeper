@@ -151,8 +151,18 @@ export interface ServerStatus {
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
+  /** The file that stopped the last start, while the server stays stopped. */
+  refusal?: FileRefusal
   /** Set when the server's software no longer matches what Playkeeper installed. */
   softwareChanged?: SoftwareChange
+}
+
+/** A file in the server's folder that Playkeeper would not follow or change. */
+export interface FileRefusal {
+  code: 'link' | 'special_file' | 'not_a_file' | 'not_a_folder' | 'too_large' | 'too_many_entries' | 'changed' | 'bad_name'
+  params: { path: string; type?: string; limit?: string }
+  message: string
+  hint?: string
 }
 
 export interface PreflightCheck {

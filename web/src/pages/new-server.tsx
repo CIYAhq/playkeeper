@@ -9,25 +9,25 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
-import { createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, type CreateChoices } from '@/components/app/create'
+import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
 import { ModpackPicker, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
+import { CardsSkeleton } from '@/components/app/skeletons'
 import { BuildSelect, TypeCompare } from '@/components/app/software'
 import { TemplatePicker, type TemplateChoice } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatMB } from '@/lib/format'
+import { formatList, formatMB } from '@/lib/format'
 import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { addonKind, hasBuilds, typeTexts } from '@/lib/software'
-import { preset } from '@/lib/styles'
+import { playersFor, preset } from '@/lib/styles'
 import { templateFromHash } from '@/lib/templates'
 import { cn } from '@/lib/utils'
 
@@ -127,20 +127,25 @@ export function NewServerPage() {
   const options = memoryOptions(catalog)
   const noMemory = !!catalog && options.length === 0
 
-  function canContinue(): boolean {
-    if (!c) return false
+  function blocked(): string | undefined {
+    if (!c) return t('common.loading')
     switch (step) {
       case 0:
-        if (from === 'template') return !!tpl && tpl.plan.ready && (!tpl.plan.experimental || c.acceptExperimental)
-        return from === 'modpack' ? !!pack : !!catalog?.types.some((ty) => ty.id === c.type && ty.available)
+        if (from === 'template') {
+          if (!tpl) return t('reason.templateFirst')
+          if (!tpl.plan.ready) return tpl.plan.blockers[0]?.message ?? t('reason.templateBlocked')
+          return tpl.plan.experimental && !c.acceptExperimental ? t('reason.experimental', { version: tpl.plan.minecraftVersion ?? '' }) : undefined
+        }
+        if (from === 'modpack') return pack ? undefined : t('reason.modpackFirst')
+        return catalog?.types.some((ty) => ty.id === c.type && ty.available) ? undefined : t('common.comingSoon')
       case 1:
-        return !!version && (!version.experimental || c.acceptExperimental)
+        return versionBlocked(c, version)
       case 2:
-        return true
+        return undefined
       case 3:
-        return !noMemory && c.memoryMB > 0
+        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: ws.machineName }) : undefined
       default:
-        return c.eula && c.name.trim().length > 0
+        return packed || templated ? nameBlocked(c) : createBlocked(c, version)
     }
   }
 
@@ -207,7 +212,7 @@ export function NewServerPage() {
       </Notice>
     )
   } else if (!c || !catalog) {
-    body = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+    body = <CardsSkeleton count={6} className={cn('grid gap-2.5', phone ? 'grid-cols-1' : 'grid-cols-2 xl:grid-cols-3')} card={phone ? 'h-16' : 'h-32'} />
   } else {
     switch (step) {
       case 0:
@@ -331,11 +336,7 @@ export function NewServerPage() {
             ) : typeCatalog ? (
               <VersionPicker catalog={typeCatalog} servers={ws.servers} value={c.versionId} onChange={(versionId) => update({ versionId, build: '', acceptExperimental: false })} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} phone={phone} />
             ) : (
-              <div className="flex flex-col gap-2.5" aria-busy="true">
-                {[0, 1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-[62px] rounded-2xl" />
-                ))}
-              </div>
+              <CardsSkeleton count={4} className="flex flex-col gap-2.5" card="h-[62px]" />
             )}
             {notListed && <p className="-mt-1 px-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{t('new.notListed', { version: latest, type: typeName(c.type) })}</p>}
             {hasBuilds(c.type) && version && <BuildSelect type={c.type} builds={builds.builds?.builds} loading={builds.loading} error={builds.error} onRetry={builds.reload} value={c.build} onChange={(build) => update({ build })} />}
@@ -367,7 +368,7 @@ export function NewServerPage() {
           <div className="flex flex-col gap-4">
             <div>
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('style.question')}</h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('style.leadPhone') : t('style.lead')}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('style.lead')}</p>
             </div>
             <StyleCards
               catalog={catalog}
@@ -385,14 +386,17 @@ export function NewServerPage() {
       case 3: {
         const packMB = templated ? (tpl?.plan.memoryMB ?? 0) : packed ? (pack?.memoryMB ?? 0) : 0
         const suggested = packMB ? (options.find((mb) => mb >= packMB) ?? options[options.length - 1] ?? 0) : styleMemory(catalog, c.style)
+        const largest = options[options.length - 1]
         const others = catalog.servers.filter((x) => !x.running)
         body = (
           <div className="flex flex-col gap-4">
             <div>
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
-                {templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { style: t(preset(c.style)?.title ?? 'style.friends.title').toLowerCase(), memory: formatMB(suggested) })}
-              </p>
+              {!noMemory && (
+                <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
+                  {templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { memory: formatMB(suggested), players: playersFor(suggested) })}
+                </p>
+              )}
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
@@ -407,14 +411,17 @@ export function NewServerPage() {
                 </Card>
                 <Card className="p-4">
                   <h3 className="text-sm font-semibold">{t('new.memoryFor')}</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{t('new.memoryForHint')}</p>
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
                       <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={c.style} />
                     </div>
                   </div>
-                  {c.memoryMB === options[options.length - 1] && <p className="mt-4 text-xs text-muted-foreground">{t('new.maxNote')}</p>}
+                  {largest !== undefined && (
+                    <p className="mt-4 text-xs text-muted-foreground">
+                      {catalog.servers.length > 0 ? t('new.maxNote', { memory: formatMB(largest), servers: formatList(catalog.servers.map((x) => x.name)) }) : t('new.maxNoteAlone', { memory: formatMB(largest), machine: ws.machineName })}
+                    </p>
+                  )}
                 </Card>
               </>
             )}
@@ -527,7 +534,7 @@ export function NewServerPage() {
         {body}
         <div className="mt-6">{restoreLink}</div>
         <PhoneActions>
-          <Button size="touch" onClick={next} disabled={!canContinue()} loading={busy}>
+          <Button size="touch" onClick={next} disabledReason={blocked()} loading={busy}>
             {continueLabel}
             <ArrowRightIcon />
           </Button>
@@ -571,7 +578,7 @@ export function NewServerPage() {
                 </Button>
               )}
               <span className="ml-auto text-xs text-muted-foreground">{nextHint}</span>
-              <Button onClick={next} disabled={!canContinue()} loading={busy}>
+              <Button onClick={next} disabledReason={blocked()} loading={busy}>
                 {continueLabel}
                 <ArrowRightIcon />
               </Button>

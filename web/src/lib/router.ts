@@ -102,9 +102,23 @@ export function href(route: Route): string {
 
 const listeners = new Set<() => void>()
 
+/** Pressing a link to the page you're on takes you back to its top, or to its section. */
+function revisit(path: string) {
+  const hash = path.split('#')[1]
+  const section = hash ? document.getElementById(hash) : null
+  const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+  if (section) section.scrollIntoView({ block: 'start', behavior })
+  else window.scrollTo({ top: 0, behavior })
+  const focus = section?.matches('input, textarea, select, button, a[href], [tabindex]') ? section : document.getElementById('main')
+  focus?.focus({ preventScroll: true })
+}
+
 export function navigate(to: Route | string, replace = false) {
   const path = typeof to === 'string' ? to : href(to)
-  if (path === window.location.pathname + window.location.hash && !replace) return
+  if (path === window.location.pathname + window.location.hash && !replace) {
+    revisit(path)
+    return
+  }
   if (replace) window.history.replaceState(null, '', path)
   else window.history.pushState(null, '', path)
   listeners.forEach((fn) => fn())

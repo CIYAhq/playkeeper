@@ -7,8 +7,9 @@ import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
+import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
+import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -158,7 +159,7 @@ export function AccountStep({ onDone }: { onDone: (m: Me) => void }) {
                 {error}
               </p>
             )}
-            <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={password.length < 10 || !username.trim() || !code.trim()}>
+            <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={!code.trim() || !username.trim() || !password ? t('reason.fillIn') : password.length < 10 ? t('reason.passwordShort') : undefined}>
               {busy ? t('onboarding.creating') : t('onboarding.create')}
               <ArrowRightIcon />
             </Button>
@@ -212,7 +213,7 @@ export function Onboarding() {
   )
 }
 
-function checkText(c: PreflightCheck, memoryMB: number | undefined, disk: number | undefined, port: number): { title: string; hint: string } {
+function checkText(c: PreflightCheck, memoryMB: number | undefined, disk: number | undefined, port: number): { title: string; hint?: string } {
   if (c.status === 'fail' || c.status === 'warn') return { title: c.label, hint: [c.detail, c.fix].filter(Boolean).join(' ') }
   switch (c.id) {
     case 'memory':
@@ -220,9 +221,9 @@ function checkText(c: PreflightCheck, memoryMB: number | undefined, disk: number
     case 'disk':
       return { title: t('onboarding.check.disk', { disk: formatBytes(disk) }), hint: t('onboarding.check.diskOk') }
     case 'docker':
-      return { title: t('onboarding.check.docker'), hint: t('onboarding.check.dockerHint') }
+      return { title: t('onboarding.check.docker') }
     case 'port':
-      return { title: c.detail.includes('Playkeeper server') ? t('onboarding.check.portOurs', { port }) : t('onboarding.check.port', { port }), hint: t('onboarding.check.portHint') }
+      return { title: c.detail.includes('Playkeeper server') ? t('onboarding.check.portOurs', { port }) : t('onboarding.check.port', { port }) }
     case 'egress':
       return { title: t('onboarding.check.egress'), hint: t('onboarding.check.egressHint') }
     default:
@@ -245,6 +246,9 @@ function CheckIcon({ status }: { status: PreflightCheck['status'] }) {
     }
   }
 }
+
+const checkListClass = 'mt-4 flex flex-col max-sm:rounded-3xl max-sm:border max-sm:border-border max-sm:bg-white max-sm:px-4'
+const checkRowClass = 'flex gap-3 border-t border-border py-3 first:border-t-0 sm:first:border-t'
 
 function CheckStage({ onNext }: { onNext: () => void }) {
   const ws = useWorkspace()
@@ -280,6 +284,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
     return out
   }, [pre, live, port])
   const ok = rows.filter((r) => r.status === 'pass').length
+  const checkBlocked = !pre ? t('onboarding.checking') : pre.ok ? undefined : t('onboarding.checkBlocked')
 
   return (
     <FrameCard wide className="max-w-[560px]">
@@ -295,30 +300,33 @@ function CheckStage({ onNext }: { onNext: () => void }) {
           {error}
         </p>
       )}
-      {!pre && !error && <p className="mt-6 text-[13px] text-muted-foreground">{t('onboarding.checking')}</p>}
-      <ul className="mt-4 flex flex-col max-sm:rounded-3xl max-sm:border max-sm:border-border max-sm:bg-white max-sm:px-4">
-        {rows.map((r) => (
-          <li key={r.key} className="flex gap-3 border-t border-border py-3 first:border-t-0 sm:first:border-t">
-            <span className="mt-px">
-              <CheckIcon status={r.status} />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13px] font-semibold max-sm:text-[15px]">{r.title}</span>
-              <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>
-              {r.key === 'firewall' && (
-                <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                  {t('onboarding.check.firewallLink')}
-                  <ExternalLinkIcon className="size-3" aria-hidden="true" />
-                </a>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {pre ? (
+        <ul className={checkListClass}>
+          {rows.map((r) => (
+            <li key={r.key} className={checkRowClass}>
+              <span className="mt-px">
+                <CheckIcon status={r.status} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-semibold max-sm:text-[15px]">{r.title}</span>
+                {r.hint && <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{r.hint}</span>}
+                {r.key === 'firewall' && (
+                  <a href={t('onboarding.check.firewallUrl')} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                    {t('onboarding.check.firewallLink')}
+                    <ExternalLinkIcon className="size-3" aria-hidden="true" />
+                  </a>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        !error && <ListSkeleton rows={7} face="mt-px size-[18px] rounded-full" rowClassName={checkRowClass} className={checkListClass} label={t('onboarding.checking')} />
+      )}
       {pre && !pre.ok && <p className="mt-3 text-[13px] text-destructive-foreground">{t('onboarding.checkBlocked')}</p>}
       {phone ? (
         <PhoneActions>
-          <Button size="touch" onClick={onNext} disabled={!pre?.ok}>
+          <Button size="touch" onClick={onNext} disabledReason={checkBlocked}>
             {t('onboarding.looksGood')}
             <ArrowRightIcon />
           </Button>
@@ -333,7 +341,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
             <RefreshCwIcon />
             {t('onboarding.checkAgain')}
           </Button>
-          <Button onClick={onNext} disabled={!pre?.ok}>
+          <Button onClick={onNext} disabledReason={checkBlocked}>
             {t('onboarding.looksGood')}
             <ArrowRightIcon />
           </Button>
@@ -356,11 +364,11 @@ function FirstStage({ onCreate }: { onCreate: () => void }) {
         <dl className="mt-6 flex flex-col gap-4">
           <div>
             <dt className="text-base font-semibold">{t('onboarding.createButton')}</dt>
-            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.createFirstHint')}</dd>
+            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.createFirstHintPhone')}</dd>
           </div>
           <div>
             <dt className="text-base font-semibold">{t('onboarding.skip')}</dt>
-            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.skipHint')}</dd>
+            <dd className="mt-0.5 text-[13px] text-muted-foreground">{t('onboarding.skipHintPhone')}</dd>
           </div>
         </dl>
         <PhoneActions>
@@ -451,19 +459,38 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
       </FrameCard>
     )
   }
-  if (!c || !catalog) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+  const heading = (
+    <>
+      <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em] sm:text-2xl sm:font-bold">{t('style.question')}</h1>
+      <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('style.lead')}</p>
+    </>
+  )
+  if (!c || !catalog) {
+    const loading = (
+      <>
+        {heading}
+        <CardsSkeleton count={cardStyles.length} className={cn('mt-4 grid gap-2.5', phone ? 'grid-cols-1' : 'grid-cols-3')} card={phone ? 'h-[70px]' : 'h-56'} />
+      </>
+    )
+    return phone ? (
+      <div className="w-full pb-28">{loading}</div>
+    ) : (
+      <FrameCard wide className="max-w-[640px]">
+        {loading}
+      </FrameCard>
+    )
+  }
 
   const summary = phone
     ? t('onboarding.summaryPhone', { type: typeName(c.type), version: version?.minecraftVersion ?? '', world: t(`style.world.${c.levelType}`).toLowerCase(), memory: formatMB(c.memoryMB) })
     : t('style.summary', { type: typeName(c.type), version: version?.minecraftVersion ?? '', memory: formatMB(c.memoryMB), total: formatMB(catalog.hostMemoryMB), name: c.name })
-  const ready = c.eula && !!version && (!version.experimental || c.acceptExperimental) && c.name.trim().length > 0
+  const blocked = createBlocked(c, version)
   const { cards, older } = versionCards(catalog.versions, ws.servers)
   const versionChoices = [...cards.map((x) => x.entry), ...older].map((e) => ({ value: e.id, label: e.minecraftVersion, hint: e.experimental ? t('common.experimental') : e.recommended ? t('new.latestStable') : t('new.build', { build: e.paperBuild }) }))
 
   const body = (
     <>
-      <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em] sm:text-2xl sm:font-bold">{t('style.question')}</h1>
-      <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{phone ? t('style.leadPhone') : t('style.lead')}</p>
+      {heading}
       <div className="mt-4 flex flex-col gap-3">
         <StyleCards
           catalog={catalog}
@@ -531,7 +558,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
           </button>
         </p>
         <PhoneActions>
-          <Button size="touch" onClick={create} loading={busy} disabled={!ready}>
+          <Button size="touch" onClick={create} loading={busy} disabledReason={blocked}>
             {t('onboarding.createMine')}
             <ArrowRightIcon />
           </Button>
@@ -552,7 +579,7 @@ function StyleStage({ onBack, onCreated }: { onBack: () => void; onCreated: (op:
         <button type="button" className="shrink-0 text-xs font-semibold text-primary hover:underline" onClick={() => setChanging(true)}>
           {t('common.change')}
         </button>
-        <Button onClick={create} loading={busy} disabled={!ready}>
+        <Button onClick={create} loading={busy} disabledReason={blocked}>
           {t('onboarding.createMine')}
           <ArrowRightIcon />
         </Button>
@@ -685,7 +712,7 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
       <Confetti />
       <Pip pose="cheer" size={phone ? 96 : 88} className="relative mx-auto mt-2" />
       <h1 className="relative mt-4 text-[28px] leading-9 font-extrabold tracking-[-0.02em]">{t('creating.online', { server: s.name })}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{t('creating.onlineLead', { type: typeName(s.type), version: s.config?.minecraftVersion ?? '', port: s.gamePort })}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{t('creating.onlineLead')}</p>
       <div className="mt-5 rounded-2xl border border-border bg-warm px-4 py-4">
         <div className="section-label">{t('onboarding.joinAddress')}</div>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
@@ -694,7 +721,7 @@ function OnlineStage({ server: s }: { server: ServerStatus }) {
           </span>
           <CopyButton text={address} variant="default" size="sm" toast={t('toast.copied')} />
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint', { port: s.gamePort })}</p>
+        <p className="mt-2 text-xs text-muted-foreground">{t('onboarding.joinHint')}</p>
       </div>
       <form onSubmit={invite} className="mt-5 text-left">
         <label htmlFor="invite" className="text-[13px] font-semibold">
