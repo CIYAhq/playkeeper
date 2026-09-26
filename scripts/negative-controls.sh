@@ -289,6 +289,10 @@ webcontrol "a toast wraps a long path" web/src/components/ui/toast.tsx \
   '<div className="flex min-w-0 flex-col gap-0.5 wrap-anywhere">' \
   '<div className="flex flex-col gap-0.5">' \
   web/src/lib/interaction.test.tsx 'wrap a long path'
+webcontrol "a notice wraps a long path" web/src/components/app/bits.tsx \
+  '<p className="min-w-0 flex-1 text-[13px] leading-5 wrap-anywhere">' \
+  '<p className="min-w-0 flex-1 text-[13px] leading-5">' \
+  web/src/pages/server/world.test.tsx 'previous world is when a restore'
 control "one admin from concurrent setups" internal/panel/auth.go \
   'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
   'SELECT ?, ?, ?, ?' \
