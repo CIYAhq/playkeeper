@@ -790,7 +790,11 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {
-		s.audit(actor, "server.deleted", s.id, "refused", "its recovery key was never downloaded")
+		detail := "its recovery key was never downloaded"
+		if ae, ok := err.(*apiError); ok && ae.Reason == reasonKeyUnknown {
+			detail = "the settings for its copies couldn't be read"
+		}
+		s.audit(actor, "server.deleted", s.id, "refused", detail)
 		writeError(w, err)
 		return
 	}

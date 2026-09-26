@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -457,9 +458,10 @@ func TestSavingCopySettingsNeverPutsAnOldKeyBack(t *testing.T) {
 	})
 }
 
-// Deleting a server deletes its recovery key with it. While copies only that
-// key opens are kept somewhere else, or still made, and the key was never
-// downloaded, the delete is refused with the reason, unless it is confirmed.
+// Deleting a server deletes its recovery key with it. While the server has
+// keys and the key was never downloaded, or the settings for its copies
+// can't be read, the delete is refused with the reason, unless it is
+// confirmed.
 func TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies(t *testing.T) {
 	turnOn := func(e *agentEnv) {
 		e.t.Helper()
@@ -493,19 +495,46 @@ func TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies(t *testing.T) {
 			e.t.Fatalf("recovery key: %d", resp.StatusCode)
 		}
 	}
+	movedForgetting := func(e *agentEnv) {
+		e.t.Helper()
+		s3 := map[string]any{"provider": "b2", "endpoint": "s3.eu-central-003.backblazeb2.com", "bucket": "siya-minecraft-2", "accessKeyId": "003a8f91c2"}
+		if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "owner", "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "wJalrXUtnFEMI-example-secret", "forgetCopies": true}); code != http.StatusOK {
+			e.t.Fatalf("move: %d %v", code, out)
+		}
+		if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE server_id = ?`, e.sid); n != 0 {
+			e.t.Fatalf("the move left %d copies recorded", n)
+		}
+	}
+	unreadable := func(e *agentEnv) {
+		e.t.Helper()
+		if _, err := e.a.db.Exec(`UPDATE offsite SET config = '{' WHERE server_id = ?`, e.sid); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	countFails := func(e *agentEnv) {
+		prev := recordedCopies
+		recordedCopies = func(*server) (int, error) { return 0, errors.New("disk I/O error") }
+		e.t.Cleanup(func() { recordedCopies = prev })
+	}
+	const notSaved, unknown = "recovery_key_not_saved", reasonKeyUnknown
 	cases := []struct {
 		name    string
 		setup   func(e *agentEnv)
 		confirm bool
-		copies  float64
-		refused bool
+		reason  string // of the refusal; empty when the delete goes ahead
+		copies  any    // the refusal's count of recorded copies, nil when it has none
 	}{
-		{name: "a copy kept, the key never downloaded", setup: copyKept, copies: 1, refused: true},
-		{name: "copies on but none made yet, the key never downloaded", setup: turnOn, refused: true},
-		{name: "a copy kept after copies were turned off, the key never downloaded", setup: func(e *agentEnv) { copyKept(e); turnOff(e) }, copies: 1, refused: true},
+		{name: "a copy kept, the key never downloaded", setup: copyKept, reason: notSaved, copies: 1.0},
+		{name: "copies on but none made yet, the key never downloaded", setup: turnOn, reason: notSaved, copies: 0.0},
+		{name: "a copy kept after copies were turned off, the key never downloaded", setup: func(e *agentEnv) { copyKept(e); turnOff(e) }, reason: notSaved, copies: 1.0},
+		{name: "copies turned off before any was made, the key never downloaded", setup: func(e *agentEnv) { turnOn(e); turnOff(e) }, reason: notSaved, copies: 0.0},
+		{name: "copies turned off, then forgotten by a change of place, the key never downloaded", setup: func(e *agentEnv) { copyKept(e); turnOff(e); movedForgetting(e) }, reason: notSaved, copies: 0.0},
 		{name: "a copy kept, the key downloaded", setup: func(e *agentEnv) { copyKept(e); downloadKey(e) }},
 		{name: "a copy kept, the key never downloaded, and the delete confirmed", setup: copyKept, confirm: true},
-		{name: "copies turned off before any was made", setup: func(e *agentEnv) { turnOn(e); turnOff(e) }},
+		{name: "the settings for copies unreadable", setup: func(e *agentEnv) { copyKept(e); unreadable(e) }, reason: unknown},
+		{name: "the settings for copies unreadable, and the delete confirmed", setup: func(e *agentEnv) { copyKept(e); unreadable(e) }, confirm: true},
+		{name: "the copies can't be counted, the key never downloaded", setup: func(e *agentEnv) { copyKept(e); turnOff(e); countFails(e) }, reason: notSaved},
+		{name: "the copies can't be counted, and the delete confirmed", setup: func(e *agentEnv) { copyKept(e); turnOff(e); countFails(e) }, confirm: true},
 		{name: "copies never turned on", setup: func(*agentEnv) {}},
 	}
 	for _, c := range cases {
@@ -518,15 +547,21 @@ func TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies(t *testing.T) {
 			e.create()
 			c.setup(e)
 			code, out := e.call("POST", e.sp("/delete"), map[string]any{"actor": "admin", "confirm": e.srv().name(), "forgetKey": c.confirm})
-			if c.refused {
+			if c.reason != "" {
 				params, _ := out["params"].(map[string]any)
-				if code != http.StatusConflict || out["reason"] != "recovery_key_not_saved" || params["place"] != "Backblaze B2" || params["copies"] != c.copies {
+				if code != http.StatusConflict || out["reason"] != c.reason || params["copies"] != c.copies {
 					t.Fatalf("delete: %d %v", code, out)
+				}
+				detail := "its recovery key was never downloaded"
+				if c.reason == unknown {
+					detail = "the settings for its copies couldn't be read"
+				} else if params["place"] != "Backblaze B2" {
+					t.Fatalf("the refusal names the place %v", params["place"])
 				}
 				if e.a.serverByID(e.sid) == nil || e.countRows(`SELECT COUNT(*) FROM offsite WHERE server_id = ? AND keys != ''`, e.sid) != 1 {
 					t.Fatal("a refused delete deleted the server or its key")
 				}
-				if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'server.deleted' AND result = 'refused' AND detail = 'its recovery key was never downloaded'`); n != 1 {
+				if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'server.deleted' AND result = 'refused' AND detail = ?`, detail); n != 1 {
 					t.Fatalf("audited %d refusals", n)
 				}
 				return
