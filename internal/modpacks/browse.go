@@ -92,9 +92,8 @@ type Detail struct {
 // first.
 const maxVersions = 100
 
-// Search finds packs in one source. Packs only for the game client, only
-// for Forge or only for Minecraft versions Playkeeper does not run are left
-// out.
+// Search finds packs in one source. Packs only for the game client or only
+// for Minecraft versions Playkeeper does not run are left out.
 func (l *Library) Search(ctx context.Context, q Query) (*Results, error) {
 	q.Text = strings.TrimSpace(q.Text)
 	switch {
@@ -299,6 +298,8 @@ func curseForgeLoader(typ string) int {
 		return curseforge.LoaderQuilt
 	case "neoforge":
 		return curseforge.LoaderNeoForge
+	case "forge":
+		return curseforge.LoaderForge
 	}
 	return curseforge.LoaderAny
 }
@@ -331,6 +332,8 @@ func (l *Library) curseForgeCard(m *curseforge.Mod) Card {
 				t = "quilt"
 			case curseforge.LoaderNeoForge:
 				t = "neoforge"
+			case curseforge.LoaderForge:
+				t = "forge"
 			default:
 				continue
 			}

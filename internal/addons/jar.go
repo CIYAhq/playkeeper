@@ -13,7 +13,7 @@ import (
 // JarMeta is what a plugin or mod jar says about itself.
 type JarMeta struct {
 	// ID is the plugin's name (Bukkit and Paper, also its settings folder
-	// under plugins/) or the mod's id (Fabric, Quilt, NeoForge).
+	// under plugins/) or the mod's id (Fabric, Quilt, NeoForge, Forge).
 	ID      string `json:"id,omitempty"`
 	Name    string `json:"name,omitempty"`
 	Version string `json:"version,omitempty"`

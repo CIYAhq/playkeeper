@@ -62,7 +62,7 @@ type Manifest struct {
 	TotalBytes       int64             `json:"totalBytes"`
 
 	// Build is the build of a type other than Paper: a Purpur build, a
-	// Fabric or Quilt loader, or a NeoForge version.
+	// Fabric or Quilt loader, or a NeoForge or Forge version.
 	Build string `json:"build,omitempty"`
 }
 

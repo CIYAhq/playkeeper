@@ -55,6 +55,7 @@ var consolePrefixes = map[string]string{
 	"fabric":   "",
 	"quilt":    "",
 	"neoforge": "",
+	"forge":    "",
 }
 
 func TestConsoleEnable(t *testing.T) {
@@ -223,7 +224,7 @@ func TestConsoleIDs(t *testing.T) {
 func TestConsoleUnsupported(t *testing.T) {
 	ctx := context.Background()
 	for typ, msg := range map[string]string{
-		"forge":  `Playkeeper can't manage data packs on "forge" servers.`,
+		"folia":  `Playkeeper can't manage data packs on "folia" servers.`,
 		"spigot": `Playkeeper can't manage data packs on "spigot" servers.`,
 		"":       "Playkeeper can't manage data packs on this server.",
 	} {

@@ -72,7 +72,8 @@ type server struct {
 	runStartedAt    time.Time
 	sawStopping     bool
 	sawCrash        bool
-	sawOOM          bool // the run logged Java's out-of-memory line
+	sawOOM          bool      // the run logged Java's out-of-memory line
+	crashLineAt     time.Time // when this run first logged that the server gave up
 	lastError       string
 	lastErrorHint   string
 	refusal         *api.FileRefusal

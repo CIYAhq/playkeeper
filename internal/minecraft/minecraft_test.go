@@ -40,6 +40,13 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{"[21:40:12 ERROR]: The server has stopped responding! This is (probably) not a Paper bug.", EventCrashed, ""},
 		{"[12:00:00] [Server Watchdog/FATAL]: A single server tick took 60.00 seconds (should be max 0.05)", EventCrashed, ""},
 		{"[12:00:00] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server", EventCrashed, ""},
+		// Real lines from Forge 65.1.0 for Minecraft 26.2 and Forge 61.1.1 for 1.21.11.
+		{"[13:43:58] [Server thread/INFO] [minecraft/MinecraftServer]: pkbotfriend joined the game", EventJoin, "pkbotfriend"},
+		{"[13:44:29] [Server thread/INFO] [minecraft/MinecraftServer]: pkbotfriend left the game", EventLeave, "pkbotfriend"},
+		{`[12:50:11] [Server thread/INFO] [minecraft/DedicatedServer]: Done (2.885s)! For help, type "help"`, EventReady, ""},
+		{"[12:50:08] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 26.2", EventStarting, ""},
+		{"[13:10:24] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt", EventCrashed, ""},
+		{"[13:10:24] [main/INFO] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt", EventNone, ""},
 		{"[03:11:30 INFO]: Encountered an unexpected exception", EventNone, ""},
 		{"[03:11:30 ERROR]: <PkBotFriend> Encountered an unexpected exception", EventNone, ""},
 	}
@@ -96,9 +103,11 @@ func TestRedactIPsKeepsVersionNumbers(t *testing.T) {
 		"[mc-image-helper] 00:32:24.817 INFO  : Running NeoForge 26.2.0.88 installer for Minecraft 26.2. This might take a while...": "",
 		"\t\tNeoForge 26.2.0.88 (neoforge)":  "",
 		"\t\tWaystones 21.1.0.4 (waystones)": "",
-		"[00:32:33] [main/INFO] [ne.ne.fm.lo.FMLLoader/]:  - ~libraries/net/neoforged/neoforge/26.2.0.88/neoforge-26.2.0.88-universal.jar > net.neoforged.neoforge-coremods-26.2.0.88.jar": "",
-		" - minecraft (jar(~libraries/net/neoforged/minecraft-server-patched/26.2-20260902.101010/minecraft-server-patched-26.2-20260902.101010.jar))":                                     "",
-		"[00:32:37] [modloading-worker-0/INFO] [ne.ne.ne.co.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 26.2.0.88, for MC 26.2":                                               "",
+		"[00:32:33] [main/INFO] [ne.ne.fm.lo.FMLLoader/]:  - ~libraries/net/neoforged/neoforge/26.2.0.88/neoforge-26.2.0.88-universal.jar > net.neoforged.neoforge-coremods-26.2.0.88.jar":                            "",
+		" - minecraft (jar(~libraries/net/neoforged/minecraft-server-patched/26.2-20260902.101010/minecraft-server-patched-26.2-20260902.101010.jar))":                                                                "",
+		"[00:32:37] [modloading-worker-0/INFO] [ne.ne.ne.co.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 26.2.0.88, for MC 26.2":                                                                          "",
+		"[12:50:06] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 65.1.0, for MC 26.2 with MCP 20260616.103818":                                                                 "",
+		"[12:50:09] [Netty Epoll Server IO #1/INFO] [ne.mi.se.ServerLifecycleHooks/SERVERHOOKS]: [/[::1]:60788] Disconnecting VANILLA connection attempt: Server is still starting! Please wait before reconnecting.": "[12:50:09] [Netty Epoll Server IO #1/INFO] [ne.mi.se.ServerLifecycleHooks/SERVERHOOKS]: [/[ip redacted]] Disconnecting VANILLA connection attempt: Server is still starting! Please wait before reconnecting.",
 		"Loading Minecraft 1.21.4 with Fabric Loader 0.16.10":                                                     "",
 		"[12:00:00 INFO]: PkSpikeBot[/203.0.113.7:50284] logged in with entity id 10 at ([world]1.5, 64.0, -3.5)": "[12:00:00 INFO]: PkSpikeBot[/[ip redacted]] logged in with entity id 10 at ([world]1.5, 64.0, -3.5)",
 		"[12:00:00 INFO]: Thread RCON Client /10.0.0.5 started":                                                   "[12:00:00 INFO]: Thread RCON Client /[ip redacted] started",
@@ -189,7 +198,7 @@ func TestHeapForModLoaders(t *testing.T) {
 				t.Errorf("%s at %d MB: heap %d, want the %d it always had", typ, b, got, HeapMB(b))
 			}
 		}
-		for _, typ := range []string{"fabric", "quilt", "neoforge"} {
+		for _, typ := range []string{"fabric", "quilt", "neoforge", "forge"} {
 			none, some, many := HeapFor(b, typ, 0), HeapFor(b, typ, 17), HeapFor(b, typ, 400)
 			if none > HeapMB(b) || some > none || many > some || many < b/2 {
 				t.Errorf("%s at %d MB: heap %d with no mods, %d with 17, %d with 400; Paper gets %d", typ, b, none, some, many, HeapMB(b))
@@ -208,6 +217,10 @@ func TestHeapForModLoaders(t *testing.T) {
 		{"neoforge", 3072, 1, 3072 - 1030},
 		{"fabric", 4096, 12, 3072},
 		{"neoforge", 6144, 150, 6144 - 1924},
+		// A Forge server keeps as much outside the heap as NeoForge.
+		{"forge", 2048, 0, 1024},
+		{"forge", 3072, 1, 3072 - 1030},
+		{"forge", 6144, 150, 6144 - 1924},
 	} {
 		if got := HeapFor(c.budget, c.typ, c.mods); got != c.want {
 			t.Errorf("%s at %d MB with %d mods: heap %d, want %d", c.typ, c.budget, c.mods, got, c.want)

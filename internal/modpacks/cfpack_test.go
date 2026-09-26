@@ -178,8 +178,8 @@ func TestRefusedCurseForgePacks(t *testing.T) {
 		{"no such project", func(f *fakes) Ref { return Ref{Source: CurseForge, Project: "1"} }, addons.KindNotFound, `CurseForge has no project "1".`},
 		{"slug", func(f *fakes) Ref { return Ref{Source: CurseForge, Project: "example-fabric-pack"} }, addons.KindInvalid, "The pack's project is not valid."},
 		{"not a file id", func(f *fakes) Ref { return cfRef("abc") }, addons.KindInvalid, "The pack's version is not valid."},
-		{"Forge in the manifest", func(f *fakes) Ref { return cfRef(strconv.FormatInt(f.cfAddFile(loader("forge-47.2.0")), 10)) },
-			KindForge, "Example Fabric Pack runs on Forge, and Playkeeper does not run Forge servers."},
+		{"a loader Playkeeper does not know in the manifest", func(f *fakes) Ref { return cfRef(strconv.FormatInt(f.cfAddFile(loader("liteloader-1.0")), 10)) },
+			KindUnknownLoader, "Example Fabric Pack needs a mod loader Playkeeper does not know (liteloader)."},
 		{"old Minecraft in the manifest", func(f *fakes) Ref {
 			return cfRef(strconv.FormatInt(f.cfAddFile(func(m obj) { m["minecraft"].(obj)["version"] = "1.20.1" }), 10))
 		}, KindMinecraft, "Example Fabric Pack is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer."},
@@ -345,5 +345,17 @@ func TestCurseForgeKey(t *testing.T) {
 	}
 	if lib := New(f.client, key); lib.CurseForge == nil || !slices.Equal(lib.Sources(), []addons.Source{addons.Modrinth, CurseForge}) {
 		t.Error("New does not offer CurseForge with a key")
+	}
+}
+
+// A CurseForge pack whose manifest names Forge runs on a Forge server, on
+// the Forge build the manifest names.
+func TestCurseForgeForgePack(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	id := f.cfAddFile(func(m obj) { m["minecraft"].(obj)["modLoaders"] = []any{obj{"id": "forge-65.1.3", "primary": true}} })
+	pl := mustPlan(t, l, newServer(t, "", ""), InstallRequest{Ref: cfRef(strconv.FormatInt(id, 10))})
+	if pl.Requirements != (Requirements{"forge", "26.2", "65.1.3"}) || !pl.Ready {
+		t.Errorf("requirements %+v, blockers %q", pl.Requirements, noticeList(pl.Blockers))
 	}
 }

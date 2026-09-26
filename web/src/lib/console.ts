@@ -10,7 +10,7 @@ export interface ParsedLine {
 
 // Paper and Purpur: "[18:41:07 INFO]: …".
 const reServer = /^\[(\d{2}:\d{2}:\d{2})(?: [^\]]*?)? ?(INFO|WARN|WARNING|ERROR|FATAL|DEBUG)\]:? ?(.*)$/
-// Vanilla, Fabric, Quilt and NeoForge: "[18:41:07] [Server thread/INFO]: …", where NeoForge adds its
+// Vanilla, Fabric, Quilt, NeoForge and Forge: "[18:41:07] [Server thread/INFO]: …", where NeoForge and Forge add their
 // logger, "[18:41:07] [Server thread/INFO] [minecraft/DedicatedServer]: …". A thread's name can
 // hold a slash and a redacted address, as in "[RCON Client /[ip redacted] #2/INFO]".
 const reThread = /^\[(\d{2}:\d{2}:\d{2})\] \[.+?\/(INFO|WARN|WARNING|ERROR|FATAL|DEBUG|TRACE)\](?: \[[^\]]*\])?: ?(.*)$/

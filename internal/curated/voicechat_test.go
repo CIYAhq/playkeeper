@@ -17,6 +17,7 @@ func TestVoiceChatConfigPath(t *testing.T) {
 		"fabric":   "config/voicechat/voicechat-server.properties",
 		"quilt":    "config/voicechat/voicechat-server.properties",
 		"neoforge": "config/voicechat/voicechat-server.properties",
+		"forge":    "config/voicechat/voicechat-server.properties",
 	} {
 		if got, err := VoiceChatConfigPath(typ); err != nil || got != want {
 			t.Errorf("VoiceChatConfigPath(%q) = %q, %v", typ, got, err)
@@ -24,7 +25,7 @@ func TestVoiceChatConfigPath(t *testing.T) {
 	}
 	_, err := VoiceChatConfigPath("vanilla")
 	wantKind(t, err, addons.KindNoAddons)
-	_, err = VoiceChatConfigPath("forge")
+	_, err = VoiceChatConfigPath("folia")
 	wantKind(t, err, addons.KindUnknownServerType)
 }
 

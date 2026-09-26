@@ -1749,9 +1749,32 @@ describe('Modpacks', () => {
     expect(await openPackPlan('VOIC0002')).not.toContain('Voice travels on its own port')
   })
 
+  it('lays out every server type in whole rows, Forge with its logo', async () => {
+    window.history.replaceState(null, '', '/servers/new')
+    const ids = ['paper', 'vanilla', 'purpur', 'fabric', 'quilt', 'neoforge', 'forge']
+    const names: Record<string, string> = { paper: 'Paper', vanilla: 'Vanilla', purpur: 'Purpur', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge', forge: 'Forge' }
+    const cards = () => [...document.querySelectorAll('[role="radiogroup"][aria-label="Server type"] label')]
+    const catalog: Catalog = { type: 'paper', types: [], versions: [], memoryOptionsMB: [2048, 3072, 4096], recommendedMemoryMB: 2048, hostMemoryMB: 16384, maxMemoryMB: 4096, systemReserveMB: 1536, memoryFreeMB: 10752, servers: [], image: '' }
+    answer({ '/catalog': { ...catalog, types: ids.map((id) => ({ id, name: names[id] ?? id, available: true })) } })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    const all = cards()
+    expect(all.map((c) => c.querySelector('.font-semibold')?.textContent?.replace('Recommended', ''))).toEqual(Object.values(names))
+    expect(all.map((c) => c.classList.contains('col-span-full'))).toEqual([true, false, false, false, false, false, false])
+    const forge = all[6]
+    expect(forge?.textContent).toContain('The original loader for Forge mods.')
+    expect(forge?.querySelector('img')?.getAttribute('src')).toContain('forge-apple-touch-icon')
+
+    answer({ '/catalog': { ...catalog, types: ids.slice(0, 6).map((id) => ({ id, name: names[id] ?? id, available: true })) } })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    expect(cards().some((c) => c.classList.contains('col-span-full'))).toBe(false)
+  })
+
   it('says what a pack’s server downloads, not Paper', () => {
     expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
     expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')
+    expect(createNote(4, 'modpack', 'forge')).toContain('downloads Forge and the pack’s mods')
     expect(createNote(4, 'modpack', '')).not.toContain('Paper')
     expect(createNote(4, 'type', 'purpur')).toContain('downloads Purpur, checks it')
     expect(createNote(0, 'modpack', 'fabric')).toBe('Friends install the same modpack. You get a link to send.')

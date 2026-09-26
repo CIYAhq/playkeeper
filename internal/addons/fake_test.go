@@ -583,6 +583,9 @@ func fakeJar(t testing.TB, path, name, id, version string, loaders []string) []b
 	if slices.Contains(loaders, "neoforge") {
 		entries["META-INF/neoforge.mods.toml"] = "[[mods]]\nmodId=\"" + id + "\"\nversion=\"" + version + "\"\ndisplayName=\"" + name + "\"\n"
 	}
+	if slices.Contains(loaders, "forge") {
+		entries["META-INF/mods.toml"] = "[[mods]]\nmodId=\"" + id + "\"\nversion=\"" + version + "\"\ndisplayName=\"" + name + "\"\n"
+	}
 	return makeJar(t, entries)
 }
 

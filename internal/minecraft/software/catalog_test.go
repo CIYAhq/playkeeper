@@ -18,7 +18,7 @@ const (
 	notOnMojang = "26.5"
 )
 
-var allTypes = []string{Vanilla, Purpur, Fabric, Quilt, NeoForge}
+var allTypes = []string{Vanilla, Purpur, Fabric, Quilt, NeoForge, Forge}
 
 // catalogFake serves Mojang and one type's upstream from the fixtures. With
 // reverse, every list comes in the opposite order. With newer, the type also
@@ -84,6 +84,21 @@ func catalogFake(t *testing.T, typeID string, reverse, newer bool) *fakeNet {
 			meta = reverseXMLVersions(meta)
 		}
 		f.serve(neoforgeMaven+"/maven-metadata.xml", meta)
+	case Forge:
+		meta := readFixture(t, "forge/maven-metadata.xml")
+		promos := readFixture(t, "forge/promotions_slim.json")
+		if newer {
+			meta = []byte(strings.Replace(string(meta), "<versions>", "<versions>\n      <version>26.4-67.0.1</version>\n      <version>26.5-68.0.1</version>", 1))
+			promos = editJSON(t, promos, func(v any) any {
+				obj(v, "promos")["26.4-recommended"], obj(v, "promos")["26.5-recommended"] = "67.0.1", "68.0.1"
+				return v
+			})
+		}
+		if reverse {
+			meta = reverseXMLVersions(meta)
+		}
+		f.serve(forgeMaven+"/maven-metadata.xml", meta)
+		f.serve(forgePromotions, promos)
 	}
 	return f
 }
@@ -98,6 +113,8 @@ func pinDetail(p Pin) string {
 		return " loader " + p.QuiltLoader
 	case p.NeoForgeVersion != "":
 		return " neoforge " + p.NeoForgeVersion
+	case p.ForgeVersion != "":
+		return " forge " + p.ForgeVersion
 	}
 	return ""
 }
@@ -121,6 +138,7 @@ func TestCatalog(t *testing.T) {
 		Fabric:   {"26.3 stable recommended loader 0.19.5", "26.2 stable loader 0.19.5", "26.1.2 stable loader 0.19.5", "1.21.11 stable loader 0.19.5"},
 		Quilt:    {"26.3 stable recommended loader 0.30.1", "26.2 stable loader 0.30.1", "26.1.2 stable loader 0.30.1", "1.21.11 stable loader 0.30.1"},
 		NeoForge: {"26.3 beta neoforge 26.3.0.16-beta", "26.2 stable recommended neoforge 26.2.0.88", "26.1.2 stable neoforge 26.1.2.109", "1.21.11 stable neoforge 21.11.45"},
+		Forge:    {"26.3 beta forge 66.0.4", "26.2 stable recommended forge 65.1.3", "26.1.2 stable forge 64.1.3", "1.21.11 stable forge 61.2.1"},
 	}
 	variants := []struct {
 		name           string
@@ -266,6 +284,12 @@ func TestCatalogUpstreamErrors(t *testing.T) {
 			"Quilt is limiting requests from this host, so Playkeeper could not load its list of loader versions (HTTP 429)."},
 		{"NeoForge sends a broken version list", NeoForge, func(f *fakeNet) { f.serve(neoforgeMaven+"/maven-metadata.xml", []byte("{}")) }, KindMalformed,
 			"NeoForge sent its version list in a form Playkeeper could not read"},
+		{"Forge sends a broken version list", Forge, func(f *fakeNet) { f.serve(forgeMaven+"/maven-metadata.xml", []byte("{}")) }, KindMalformed,
+			"Forge sent its version list in a form Playkeeper could not read"},
+		{"Forge sends a broken list of recommended builds", Forge, func(f *fakeNet) { f.serve(forgePromotions, []byte("<html>")) }, KindMalformed,
+			"Forge sent its list of recommended builds in a form Playkeeper could not read"},
+		{"Forge limits its list of recommended builds", Forge, func(f *fakeNet) { f.status(forgePromotions, 429) }, KindRateLimited,
+			"Forge is limiting requests from this host, so Playkeeper could not load its list of recommended builds (HTTP 429)."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -280,7 +304,7 @@ func TestCatalogUpstreamErrors(t *testing.T) {
 }
 
 func TestCatalogOfUnsupportedType(t *testing.T) {
-	for _, typeID := range []string{"paper", "forge", "", "../vanilla"} {
+	for _, typeID := range []string{"paper", "spigot", "", "../vanilla"} {
 		_, err := Sources{}.Catalog(context.Background(), typeID)
 		wantKind(t, err, KindUnsupported)
 	}
@@ -318,6 +342,10 @@ func TestBuilds(t *testing.T) {
 		{NeoForge, "26.3", []string{"26.3.0.16-beta beta", "26.3.0.14-beta beta", "26.3.0.0-beta beta"}},
 		{NeoForge, "1.21.1", []string{"21.1.251 stable recommended", "21.1.250 stable", "21.1.1 stable"}},
 		{NeoForge, "1.21", []string{"21.0.167 stable recommended", "21.0.166 stable", "21.0.0-beta beta"}},
+		{Forge, "26.2", []string{"65.1.3 stable recommended", "65.1.2 stable", "65.1.1 stable", "65.1.0 stable", "65.0.1 beta", "65.0.0 beta"}},
+		{Forge, "26.3", []string{"66.0.4 beta", "66.0.3 beta", "66.0.2 beta", "66.0.0 beta"}},
+		{Forge, "1.21.1", []string{"52.1.16 stable recommended", "52.1.0 stable", "52.0.1 beta"}},
+		{Forge, "1.21", []string{"51.0.33 beta"}},
 	}
 	for _, tt := range tests {
 		for _, reverse := range []bool{false, true} {
@@ -351,7 +379,9 @@ func TestBuildsErrors(t *testing.T) {
 		{Purpur, "1.20.4", KindUnsupported, `Playkeeper runs Minecraft releases from 1.21 on, not "1.20.4".`},
 		{Purpur, "1.21.9", KindNotFound, "Purpur does not have its build list for Minecraft 1.21.9."},
 		{NeoForge, "1.21.8", KindNoVersions, "NeoForge has no build for Minecraft 1.21.8 that Playkeeper can install."},
-		{"forge", "1.21.1", KindUnsupported, `Playkeeper does not install "forge" servers this way.`},
+		{Forge, "1.21.5", KindNoVersions, "Forge has no build for Minecraft 1.21.5 that Playkeeper can install."},
+		{Forge, "1.20.1", KindUnsupported, `Playkeeper runs Minecraft releases from 1.21 on, not "1.20.1".`},
+		{"spigot", "1.21.1", KindUnsupported, `Playkeeper does not install "spigot" servers this way.`},
 		{"paper", "26.2", KindUnsupported, `Playkeeper does not install "paper" servers this way.`},
 	}
 	for _, tt := range tests {

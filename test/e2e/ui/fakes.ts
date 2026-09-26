@@ -737,10 +737,13 @@ const routes: [string, RegExp, Handler][] = [
   [
     'POST',
     /^\/api\/servers\/(\w+)\/mods\/share$/,
-    ({ body }) => {
+    ({ body, params }, state) => {
       const on = (body as { public?: unknown } | null)?.public
       if (typeof on !== 'boolean') return invalid('Say whether to share the pack.')
-      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
+      // The pack of the server's own loader, as the panel last showed it: a Forge server's names Forge.
+      const read = lastRead(state, params[0], 'mods/share')
+      const share = read.share ?? { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] }
+      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: read.file ?? 'server.mrpack', size: read.size ?? 2048, loaderName: read.loaderName ?? 'Fabric', share } }
     },
   ],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
@@ -1016,7 +1019,7 @@ interface AddonRecord {
 
 const notManaged = refuse(404, 'not_managed', 'Playkeeper did not install this add-on, so it cannot manage it.', 'Scan the folder to let Playkeeper identify files added by hand.')
 
-/** What the page last got for a read of the server's add-ons, packs or pre-generation. */
+/** What the page last got for a read of the server's add-ons, packs, pre-generation or friends' pack. */
 function lastRead(state: FakeState, serverId: string | undefined, what: string): Record<string, unknown> {
   return state.reads.get(`/api/servers/${serverId}/${what}`) ?? {}
 }
@@ -1818,7 +1821,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
-        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
         if (path === '/api/discord') state.discord = laid as Record<string, unknown>
         const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
@@ -1849,7 +1852,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
-        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         const map = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))

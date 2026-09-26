@@ -4,7 +4,7 @@ import { formatBytes, relativeTime } from '@/lib/format'
 
 export type AddonKind = 'plugin' | 'mod'
 
-const kinds: Record<string, AddonKind> = { paper: 'plugin', purpur: 'plugin', fabric: 'mod', quilt: 'mod', neoforge: 'mod' }
+const kinds: Record<string, AddonKind> = { paper: 'plugin', purpur: 'plugin', fabric: 'mod', quilt: 'mod', neoforge: 'mod', forge: 'mod' }
 
 /** Whether a server type runs plugins or mods; undefined for types with neither, like Vanilla. */
 export function addonKind(serverType: string | undefined): AddonKind | undefined {

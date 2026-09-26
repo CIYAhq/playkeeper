@@ -80,6 +80,7 @@ describe('add-on kinds', () => {
     expect(addonKind('purpur')).toBe('plugin')
     expect(addonKind('fabric')).toBe('mod')
     expect(addonKind('neoforge')).toBe('mod')
+    expect(addonKind('forge')).toBe('mod')
     expect(addonKind('vanilla')).toBeUndefined()
     expect(addonKind(undefined)).toBeUndefined()
     expect(addonTab('paper')).toBe('plugins')

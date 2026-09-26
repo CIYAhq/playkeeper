@@ -52,7 +52,7 @@ export function packVoicePort(p: ModpackPreview | undefined): number | undefined
   return p?.ports?.find((x) => x.protocol === 'udp')?.port
 }
 
-/** "Fabric Loader 0.17.2", "NeoForge 21.1.72". */
+/** "Fabric Loader 0.17.2", "NeoForge 21.1.72", "Forge 65.1.3". */
 export function loaderLabel(type: string, version?: string): string {
   const name = type === 'fabric' ? t('modpacks.loader.fabric') : type === 'quilt' ? t('modpacks.loader.quilt') : typeName(type)
   return version ? `${name} ${version}` : name

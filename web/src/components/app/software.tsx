@@ -121,9 +121,10 @@ const buildLabels: Record<string, { label: MessageKey; hint: MessageKey }> = {
   fabric: { label: 'new.buildLabel.fabric', hint: 'new.buildHint.loader' },
   quilt: { label: 'new.buildLabel.quilt', hint: 'new.buildHint.loader' },
   neoforge: { label: 'new.buildLabel.neoforge', hint: 'new.buildHint.other' },
+  forge: { label: 'new.buildLabel.forge', hint: 'new.buildHint.other' },
 }
 
-/** The loader, Purpur build or NeoForge version to run, newest preselected. */
+/** The loader, Purpur build, or NeoForge or Forge version to run, newest preselected. */
 export function BuildSelect({ type, builds, loading, error, onRetry, value, onChange }: { type: string; builds: SoftwareBuild[] | undefined; loading: boolean; error?: string; onRetry: () => void; value: string; onChange: (build: string) => void }) {
   const keys = buildLabels[type]
   if (!keys) return null

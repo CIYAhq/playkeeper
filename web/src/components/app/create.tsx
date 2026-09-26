@@ -109,16 +109,20 @@ const typeKeys: Record<string, { long: MessageKey; short: MessageKey }> = {
   fabric: { long: 'new.type.fabric', short: 'new.type.mods.short' },
   quilt: { long: 'new.type.quilt', short: 'new.type.mods.short' },
   neoforge: { long: 'new.type.neoforge', short: 'new.type.mods.short' },
+  forge: { long: 'new.type.forge', short: 'new.type.mods.short' },
 }
 
 export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalog | undefined; value: string; onChange: (v: string) => void; phone?: boolean }) {
   const types = catalog?.types ?? [{ id: 'paper', name: 'Paper', available: true }]
   return (
     <CardGroup value={value} onChange={onChange} label={t('new.typeTitle')} className={cn('grid gap-2.5', phone ? 'grid-cols-1' : 'grid-cols-2 xl:grid-cols-3')}>
-      {types.map((ty) => {
+      {types.map((ty, i) => {
         const keys = typeKeys[ty.id]
         const runs = typeTexts(ty.id)?.runs
         const soon = !ty.available
+        // With an odd number of types, the first one takes a row of its own,
+        // so the rest fill whole rows of two or three.
+        const wide = i === 0 && types.length % 2 === 1
         if (phone) {
           return (
             <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className="min-h-[60px] items-center gap-3 px-3.5 py-2.5">
@@ -133,6 +137,23 @@ export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalo
                     {t('common.soon')}
                   </span>
                 )}
+              </span>
+            </ChoiceCard>
+          )
+        }
+        if (wide) {
+          return (
+            <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className="col-span-full gap-2 p-3.5">
+              <span className="flex items-start gap-3.5">
+                <TypeLogo type={ty.id} size={36} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    {typeName(ty.id)}
+                    {ty.id === 'paper' && <span className="text-xs font-medium text-muted-foreground">{t('common.recommended')}</span>}
+                  </span>
+                  {keys && <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{t(keys.long)}</span>}
+                  {runs && <span className="mt-2 block text-xs leading-4 text-muted-foreground">{t(runs)}</span>}
+                </span>
               </span>
             </ChoiceCard>
           )
@@ -459,7 +480,7 @@ export function MemorySlider({ options, value, onChange }: { options: number[]; 
 }
 
 /** What a mod loader keeps outside the heap before its mods, and what each mod adds; match the agent's minecraft package. */
-const loaderOverheadMB: Record<string, number> = { fabric: 768, quilt: 768, neoforge: 1024 }
+const loaderOverheadMB: Record<string, number> = { fabric: 768, quilt: 768, neoforge: 1024, forge: 1024 }
 const modOverheadMB = 6
 
 /** Java's share of a memory budget on a server of the type with that many mods; matches minecraft.HeapFor in the agent. */

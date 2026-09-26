@@ -16,7 +16,6 @@ type ServerType struct {
 // Types lists the server software Playkeeper knows, in the order the
 // dashboard shows it. Spigot, Bukkit and Folia are left out on purpose: Paper
 // runs Spigot and Bukkit plugins, and Folia only suits very large servers.
-// Forge stays out until its team allows the logo.
 var Types = []ServerType{
 	{ID: "paper", Name: "Paper", Available: true},
 	{ID: "vanilla", Name: "Vanilla", Available: true},
@@ -24,6 +23,7 @@ var Types = []ServerType{
 	{ID: "fabric", Name: "Fabric", Available: true},
 	{ID: "quilt", Name: "Quilt", Available: true},
 	{ID: "neoforge", Name: "NeoForge", Available: true},
+	{ID: "forge", Name: "Forge", Available: true},
 }
 
 // TypeByID finds a server type.

@@ -6,7 +6,7 @@ import { errorText, machineApi } from './workspace'
 const cache = new Map<string, { at: number; data: SoftwareBuilds }>()
 const maxAge = 5 * 60_000
 
-/** A type's builds for one Minecraft version: Purpur builds, loaders or NeoForge versions. */
+/** A type's builds for one Minecraft version: Purpur builds, loaders, or NeoForge or Forge versions. */
 export function useBuilds(machineId: string | undefined, type: string, version: string | undefined) {
   const path = machineId && version ? machineApi(machineId, `/catalog/builds?${new URLSearchParams({ type, version }).toString()}`) : ''
   const [data, setData] = useState<{ path: string; builds?: SoftwareBuilds; error?: string }>({ path: '' })
