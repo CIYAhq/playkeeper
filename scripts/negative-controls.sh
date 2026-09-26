@@ -3054,8 +3054,8 @@ control "a failed wake sleeps again when Docker can't say whether the server run
   'rerr == nil && !running {' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_fails_while_Docker_can.t_say_whether_the_server_runs$'
 control "a wake waits for a backup to end" internal/agent/sleeping.go \
-  'ae.Code != api.CodeBusy || time.Now().After(deadline)' \
-  'ae.Code == api.CodeBusy || time.Now().After(deadline)' \
+  'ae.Code != api.CodeBusy {' \
+  'ae.Code == api.CodeBusy {' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
 control "turning sleep off lets go of the game port when the server can't start" internal/agent/lifecycle.go \
   '		_ = s.setDesired(api.DesiredStopped)
