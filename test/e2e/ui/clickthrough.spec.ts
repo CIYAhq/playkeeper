@@ -108,7 +108,9 @@ function pageOf(c: { route: string; view?: View }): string {
  * The fewest controls a page must have pressed, a little under what it has
  * now, so a page that stops showing its controls fails even when nothing on
  * it is broken. A page's count leaves out controls pressed on an earlier
- * page, such as the sidebar. A page that isn't listed needs one.
+ * page, such as the sidebar. A page that isn't listed needs one. The add-on
+ * library shows the recorded fixtures' cards (addon-fixtures.ts), so its
+ * count doesn't move with what Modrinth and Hangar list.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -119,8 +121,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/console': 12,
     '/servers/*/players': 9,
     '/servers/*/world': 14,
+    '/servers/*/plugins': 1,
     '/servers/*/settings': 36,
     '/servers/new': 36,
+    '/servers/*/plugins/browse': 107,
     '/machines/*': 3,
     '/settings': 6,
     '/ (stopped)': 3,
@@ -145,8 +149,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/console': 9,
     '/servers/*/players': 5,
     '/servers/*/world': 9,
+    '/servers/*/plugins': 1,
     '/servers/*/settings': 34,
     '/servers/new': 29,
+    '/servers/*/plugins/browse': 81,
     '/machines/*': 1,
     '/settings': 5,
     '/more': 5,
