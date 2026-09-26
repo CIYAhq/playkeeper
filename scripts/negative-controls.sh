@@ -2210,6 +2210,14 @@ control "each start waits for squaremap afresh before the first render" internal
 		return
 	}' \
   ./internal/agent '^TestAStartDuringTheFirstRenderWaitWaitsAgain$'
+control "a restart is put off only while squaremap needs it" internal/agent/maps.go \
+  'if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {' \
+  'if l := s.mapLive(r.Context(), true); false && !rec.pendingRestart(l) {' \
+  ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
+control "a restart put off is dropped once squaremap is loaded" internal/agent/maps.go \
+  'if !rec.pendingRestart(l) {' \
+  'if false && !rec.pendingRestart(l) {' \
+  ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

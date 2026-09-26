@@ -788,6 +788,64 @@ func TestAStartDuringTheFirstRenderWaitWaitsAgain(t *testing.T) {
 	}
 }
 
+// Putting off the restart that loads the map until nobody plays is taken
+// only while squaremap needs that restart. A server that has loaded
+// squaremap, or isn't running, is refused and not restarted for it; a
+// restart put off before a start some other way loaded squaremap is dropped
+// once nobody plays, not done.
+func TestRestartLaterOnlyWhileSquaremapNeedsARestart(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		playing bool // Alex plays as the map is turned on, so squaremap waits for a restart
+		stopped bool
+		earlier bool // the restart was put off before squaremap was loaded
+		code    int
+		says    string
+		kept    int
+	}{
+		{name: "squaremap needs a restart", playing: true, code: http.StatusOK, kept: 1},
+		{name: "squaremap loaded", code: http.StatusConflict, says: "The server has already loaded the map, so it doesn't need a restart."},
+		{name: "server stopped", stopped: true, code: http.StatusConflict, says: "The server isn't running. It loads the map when it starts."},
+		{name: "put off before squaremap was loaded", earlier: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, _, _ := newMapEnv(t)
+			e.create()
+			if c.playing {
+				e.rcon.setOnline("Alex")
+				e.waitFor("Alex to be seen", func() bool { return e.srv().playersOnline() == 1 })
+			}
+			if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+				t.Fatalf("enable: %+v", op)
+			}
+			if c.stopped {
+				code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+				if code != http.StatusAccepted || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
+					t.Fatalf("stop: %d %v", code, out)
+				}
+			}
+			started := e.startedAt()
+			if c.earlier {
+				if _, err := e.a.db.Exec(`UPDATE maps SET restart_when_empty = 'admin'`); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				code, out := e.call("POST", e.sp("/map/restart-later"), map[string]any{"actor": "admin"})
+				if code != c.code || (c.says != "" && out["error"] != c.says) || (code == http.StatusOK && out["restartWhenEmpty"] != true) {
+					t.Fatalf("restart later: %d %v", code, out)
+				}
+			}
+			time.Sleep(5 * e.a.opts.SampleInterval)
+			if !e.startedAt().Equal(started) {
+				t.Fatal("the server was restarted")
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM maps WHERE restart_when_empty != ''`); n != c.kept {
+				t.Fatalf("%d restarts put off, want %d", n, c.kept)
+			}
+		})
+	}
+}
+
 func (f *fakeSquaremapWeb) asked(path string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

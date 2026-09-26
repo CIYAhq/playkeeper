@@ -512,13 +512,22 @@ func (s *server) firstRender(ctx context.Context) {
 }
 
 // restartMapWhenEmpty restarts an online server nobody is playing on when
-// its owner put off the restart that loads the map.
+// its owner put off the restart that loads the map. One that has loaded
+// squaremap since, started some other way, isn't restarted.
 func (s *server) restartMapWhenEmpty(online bool, snap *api.PlayerSnapshot) {
 	if !online || snap == nil || snap.Online > 0 {
 		return
 	}
 	rec, err := s.activeMap()
 	if err != nil || rec == nil || rec.restartWhenEmpty == "" || s.busy() {
+		return
+	}
+	l := s.mapLive(s.ctx, false)
+	if l.startedAt.IsZero() {
+		return
+	}
+	if !rec.pendingRestart(l) {
+		s.db.Exec(`UPDATE maps SET restart_when_empty = '' WHERE server_id = ?`, s.id)
 		return
 	}
 	if _, err := s.restart(rec.restartWhenEmpty); err != nil {
@@ -870,18 +879,29 @@ func onOff(v bool) string {
 }
 
 // hMapRestartLater restarts the server to load the map once nobody is
-// playing, instead of now.
+// playing, instead of now. It is refused while squaremap needs no restart
+// to load.
 func (s *server) hMapRestartLater(w http.ResponseWriter, r *http.Request) {
 	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if rec, err := s.activeMap(); err != nil {
+	rec, err := s.activeMap()
+	if err != nil {
 		writeError(w, err)
 		return
-	} else if rec == nil {
+	}
+	if rec == nil {
 		writeError(w, errConflict("Turn on the map first.", ""))
+		return
+	}
+	if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {
+		msg := "The server has already loaded the map, so it doesn't need a restart."
+		if l.startedAt.IsZero() {
+			msg = "The server isn't running. It loads the map when it starts."
+		}
+		writeError(w, errConflict(msg, ""))
 		return
 	}
 	res, err := s.db.Exec(`UPDATE maps SET restart_when_empty = ? WHERE server_id = ?`, actor, s.id)
