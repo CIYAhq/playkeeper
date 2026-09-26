@@ -133,7 +133,7 @@ function ConnectCard({ onConnected }: { onConnected: (s: DiscordSettings) => Pro
         ))}
       </ol>
       <form onSubmit={connect} className="mt-4 flex gap-2 max-sm:flex-col" noValidate>
-        <InputGroup className="flex-1 max-sm:h-11">
+        <InputGroup className="max-sm:h-11 sm:flex-1">
           <InputGroupAddon>
             <LinkIcon aria-hidden="true" />
           </InputGroupAddon>

@@ -188,8 +188,8 @@ function KeyForm({ locked, onSaved, onCancel }: { locked?: string; onSaved: (s: 
 
   return (
     <form onSubmit={save} className="mt-3">
-      <div className="flex flex-wrap gap-2">
-        <InputGroup className="min-w-[240px] flex-1">
+      <div className="flex gap-2 max-sm:flex-col sm:flex-wrap">
+        <InputGroup className="max-sm:h-11 sm:min-w-[240px] sm:flex-1">
           <InputGroupAddon>
             <KeyRoundIcon aria-hidden="true" />
           </InputGroupAddon>
@@ -210,11 +210,11 @@ function KeyForm({ locked, onSaved, onCancel }: { locked?: string; onSaved: (s: 
           />
         </InputGroup>
         {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel}>
+          <Button type="button" variant="ghost" onClick={onCancel} className="max-sm:h-11">
             {t('common.cancel')}
           </Button>
         )}
-        <Button type="submit" loading={busy} disabledReason={locked ?? (key.trim() ? undefined : t('reason.pasteKey'))}>
+        <Button type="submit" loading={busy} disabledReason={locked ?? (key.trim() ? undefined : t('reason.pasteKey'))} className="max-sm:h-11">
           {t('sources.save')}
         </Button>
       </div>

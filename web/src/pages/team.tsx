@@ -543,7 +543,7 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
         {editing.kind === 'add' && (
           <label className="flex flex-col gap-1.5">
             <span className="text-[13px] font-semibold">{t('invites.nameLabel')}</span>
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={64} placeholder={t('team.namePlaceholder')} autoComplete="off" />
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={64} placeholder={t('team.namePlaceholder')} autoComplete="off" className="max-sm:h-11 max-sm:[&>input]:h-full" />
             <span className="text-xs text-muted-foreground">{t('invites.nameHint')}</span>
           </label>
         )}

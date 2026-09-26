@@ -258,7 +258,7 @@ function NewInviteForm({ server, data, onClose, onCreated }: { server: ServerSta
       <DialogPanel className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] font-semibold">{t('invites.nameLabel')}</span>
-          <Input value={spec.label} onChange={(e) => setSpec({ ...spec, label: e.target.value })} maxLength={64} placeholder={t('invites.namePlaceholder')} autoComplete="off" autoFocus={!phone} />
+          <Input value={spec.label} onChange={(e) => setSpec({ ...spec, label: e.target.value })} maxLength={64} placeholder={t('invites.namePlaceholder')} autoComplete="off" autoFocus={!phone} className="max-sm:h-11 max-sm:[&>input]:h-full" />
           <span className="text-xs text-muted-foreground">{t('invites.nameHint')}</span>
         </label>
         <div className="grid gap-4 sm:grid-cols-2">
