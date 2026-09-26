@@ -186,6 +186,18 @@ control "nether and end folders missing beside the world don't void a chunk coun
   'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
   'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
+control "running out of memory, then Stopping server, is still a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = false, "Java ran out of memory."' \
+  ./internal/agent '^TestAnOutOfMemoryErrorThenStoppingServerIsACrash$'
+control "the GC log's folder is given to the game user on every start" internal/agent/lifecycle.go \
+  'return f.Chown(uid, gid)' \
+  'return nil' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
+control "giving the GC log's folder never follows a link at logs" internal/agent/lifecycle.go \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK' \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'graceful := s.sawStopping && !s.sawCrash' \
   'graceful := s.sawStopping' \
