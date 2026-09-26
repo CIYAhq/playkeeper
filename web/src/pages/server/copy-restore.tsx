@@ -120,7 +120,9 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
     setHidden(undefined)
     setLoadError(undefined)
   }
-  const op = job && (s.operation?.id === job.id ? s.operation : s.lastOperation?.id === job.id ? s.lastOperation : job)
+  const live = job && (s.operation?.id === job.id ? s.operation : s.lastOperation?.id === job.id ? s.lastOperation : undefined)
+  if (live && live !== job) setJob(live)
+  const op = live ?? job
   const name = typeof op?.detail?.name === 'string' ? op.detail.name : started && started.id === op?.id ? started.name : undefined
   const open = !!op && hidden !== `${op.id}:${op.status}`
   const restoreId = op?.status === 'succeeded' && typeof op.detail?.restoreId === 'string' ? op.detail.restoreId : undefined

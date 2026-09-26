@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Backup, MachineView, Me, OffsiteCopy, OffsiteTestResult, OffsiteView, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Backup, MachineView, Me, OffsiteCopy, OffsiteTestResult, OffsiteView, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -446,6 +446,16 @@ describe('World backups with copies', () => {
     expect(text).toContain('The copy couldn’t be restored')
     expect(text).toContain('That copy is no longer there.')
     expect(text).toContain('Restore another copy.')
+  })
+
+  it('stays closed once the restore that follows takes over the status', async () => {
+    await restoreOldCopy()
+    const preview: RestorePreview = { id: 'r1', serverId: 'abcdefghjk', source: 'copy survival-b1.tar.zst.age', receivedAt: '2026-09-25T18:51:00Z', sizeBytes: 305e6, sha256: 'b'.repeat(64), compatible: true, problems: [], warnings: [], currentWorld: { exists: true, levelName: 'world', sizeBytes: 311e6 }, willCreateRollback: true, needsEula: false, memoryMB: 2048, confirmPhrase: 'replace world', steps: [], notRestored: [] }
+    answer({ '/restore/r1': preview, '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await rerender(server({ lastOperation: { ...started, status: 'succeeded', phase: 'checking', detail: { name: 'survival-b1.tar.zst.age', restoreId: 'r1' } } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
+    await rerender(server({ lastOperation: { id: 'op-restore', kind: 'restore', status: 'succeeded', phase: 'starting', actor: 'siya', startedAt: '2026-09-25T18:52:00Z' } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
   })
 })
 
