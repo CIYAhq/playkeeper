@@ -1,0 +1,9 @@
+[13:10:41] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forge_server]
+[13:10:41] [main/ERROR] [ne.mi.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:
+	Mod ID: 'minecraft', Requested by: 'chunky', Expected range: '[1.21.11,1.22)', Actual version: '26.2'
+[13:10:41] [main/INFO] [cp.mo.mo.LaunchServiceHandler/MODLAUNCHER]: Launching target 'forge_server' with arguments []
+[13:10:44] [main/FATAL] [ne.mi.fm.ModLoader/CORE]: Error during pre-loading phase
+net.minecraftforge.fml.ModLoadingException: Mod chunky requires minecraft 1.21.11 or above, and below 1.22
+Currently, minecraft is 26.2
+[13:10:44] [main/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (21/23)
+[13:10:44] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.44-fml.txt

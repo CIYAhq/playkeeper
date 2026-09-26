@@ -286,6 +286,47 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			evidence: []string{"java.lang.NullPointerException: Cannot invoke"},
 		},
 		{
+			name: "Forge mod missing a dependency",
+			in:   moddedCrash("forge", "26.2", crashConsole(t, "forge_missing.txt"), "BiomesOPlenty-forge-26.2-26.2.0.0.28.jar"),
+			kind: CrashMissingDependency, certain: true, params: map[string]any{"addon": "biomesoplenty", "dependency": "terrablender", "jar": "BiomesOPlenty-forge-26.2-26.2.0.0.28.jar"},
+			fixes:       "install_addon* name=terrablender; remove_addon jar=BiomesOPlenty-forge-26.2-26.2.0.0.28.jar",
+			explanation: []string{"Forge refused to start because biomesoplenty requires terrablender 26.2.0.0.1 or above, and it isn't installed."},
+			evidence:    []string{"Mod biomesoplenty requires terrablender 26.2.0.0.1 or above", "Currently, terrablender is not installed"},
+		},
+		{
+			name: "Forge mod missing a dependency, from the crash report alone",
+			in: with(moddedCrash("forge", "26.2", []string{"[13:10:24] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt"},
+				"BiomesOPlenty-forge-26.2-26.2.0.0.28.jar"), func(in *CrashInput) {
+				in.CrashReport, in.CrashReportName = strings.Join(crashConsole(t, "crash-2026-09-26_13.10.24-fml.txt"), "\n"), "crash-2026-09-26_13.10.24-fml.txt"
+			}),
+			kind: CrashMissingDependency, certain: true, params: map[string]any{"addon": "biomesoplenty", "dependency": "terrablender"},
+			fixes:       "install_addon* name=terrablender; remove_addon jar=BiomesOPlenty-forge-26.2-26.2.0.0.28.jar",
+			explanation: []string{"Forge refused to start because biomesoplenty requires terrablender 26.2.0.0.1 or above"},
+		},
+		{
+			name: "Forge mod made for another Minecraft",
+			in:   moddedCrash("forge", "26.2", crashConsole(t, "forge_wrong_minecraft.txt"), "Chunky-Forge-1.4.55.jar"),
+			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"addon": "chunky", "dependency": "minecraft", "jar": "Chunky-Forge-1.4.55.jar"},
+			fixes:       "update_addon* jar=Chunky-Forge-1.4.55.jar; remove_addon jar=Chunky-Forge-1.4.55.jar",
+			explanation: []string{"Forge refused to start because chunky requires Minecraft 1.21.11 or above, and below 1.22, but this server has 26.2."},
+		},
+		{
+			name: "Forge jar it can't open",
+			in:   moddedCrash("forge", "26.2", crashConsole(t, "forge_broken_jar.txt"), "Jade-26.2-Forge-21.0.1.jar", "Chunky-Forge-1.5.4.jar"),
+			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"jar": "Jade-26.2-Forge-21.0.1.jar", "reason": "invalid"},
+			fixes:       "update_addon* jar=Jade-26.2-Forge-21.0.1.jar; remove_addon jar=Jade-26.2-Forge-21.0.1.jar",
+			explanation: []string{"Forge refused to start because it can't open Jade-26.2-Forge-21.0.1.jar"},
+			evidence:    []string{`Failed to create secure jar for "/data/mods/Jade-26.2-Forge-21.0.1.jar" - zip END header not found`},
+		},
+		{
+			name: "Forge mod failing in its setup",
+			in:   moddedCrash("forge", "26.2", crashConsole(t, "forge_mod_failed.txt"), "wthit-26.1-forge-19.0.1.jar", "badpackets-forge-0.12.2.jar"),
+			kind: CrashAddonFailed, certain: true, params: map[string]any{"addon": "waila", "jar": "wthit-26.1-forge-19.0.1.jar"},
+			fixes:       "update_addon* jar=wthit-26.1-forge-19.0.1.jar; remove_addon jar=wthit-26.1-forge-19.0.1.jar",
+			explanation: []string{"Forge stopped because the mod waila hit an error while starting."},
+			evidence:    []string{"Mod 'waila' encountered an error in a deferred task:", "java.lang.NoSuchFieldError: Class net.minecraft.world.entity.EntityType"},
+		},
+		{
 			name: "data pack with errors", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_datapack.txt")),
 			kind: CrashDatapack, certain: true, params: map[string]any{"pack": "Terralith_1.21.x_v2.5.8.zip"},
 			fixes:       "remove_datapack* pack=Terralith_1.21.x_v2.5.8.zip",
@@ -416,7 +457,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 func TestExplainCrashIgnoresCausesPlayersTypeInChat(t *testing.T) {
 	console := crashConsole(t, "paper_chat_spoof.txt")
 	jars := []string{"EssentialsX-2.21.0.jar", "FarmersDelight-1.21.1-1.2.7.jar", "better-end-4.0.11.jar", "Shopkeepers-2.23.3.jar"}
-	for _, serverType := range []string{"paper", "fabric", "neoforge", "vanilla"} {
+	for _, serverType := range []string{"paper", "fabric", "neoforge", "forge", "vanilla"} {
 		d := ExplainCrash(moddedCrash(serverType, "1.21.4", console, jars...))
 		if d.Kind != CrashUnknown || len(d.Evidence) != 1 || d.Evidence[0].Kind != EvidenceExitCode {
 			t.Errorf("%s: chat lines were taken as evidence: %s %s\n%s", serverType, d.Kind, d.Explanation, evidenceText(d))
