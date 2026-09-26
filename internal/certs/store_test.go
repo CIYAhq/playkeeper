@@ -195,6 +195,82 @@ func TestStoreReloads(t *testing.T) {
 	}
 }
 
+func TestStoreTrusted(t *testing.T) {
+	f := newStoreFixture(t)
+	now := f.clock.now()
+	week := 7 * 24 * time.Hour
+	f.save("mc.example.com.pem", []string{"mc.example.com"}, now.Add(-time.Hour), now.Add(30*24*time.Hour))
+	f.save("www.example.com.pem", []string{"www.example.com", "shop.example.com"}, now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	saveBundle(t, f.dir, "other.example.com.pem", newTestCA(t).bundle(t, []string{"other.example.com"}, now.Add(-time.Hour), now.Add(90*24*time.Hour)))
+	f.open()
+	roots := f.ca.pool()
+
+	for name, want := range map[string]bool{
+		"mc.example.com":    true,
+		"MC.Example.COM.":   true,
+		"shop.example.com":  true,
+		"other.example.com": false,
+		"example.com":       false,
+		"new.example.com":   false,
+		"":                  false,
+	} {
+		if got := f.store.Trusted(name, roots, week); got != want {
+			t.Errorf("Trusted(%q) = %v, want %v", name, got, want)
+		}
+	}
+	if f.store.Trusted("mc.example.com", nil, week) {
+		t.Error("the system's roots trust the test authority")
+	}
+
+	f.clock.add(30*24*time.Hour - week - time.Minute)
+	if !f.store.Trusted("mc.example.com", roots, week) {
+		t.Error("with a week and a minute left, not trusted for a week")
+	}
+	f.clock.add(2 * time.Minute)
+	if f.store.Trusted("mc.example.com", roots, week) {
+		t.Error("with less than a week left, trusted for a week")
+	}
+	if !f.store.Trusted("mc.example.com", roots, 0) {
+		t.Error("a valid certificate is not trusted now")
+	}
+	f.clock.add(week)
+	if f.store.Trusted("mc.example.com", roots, 0) {
+		t.Error("an expired certificate is trusted")
+	}
+}
+
+func TestStoreCanLookEveryTime(t *testing.T) {
+	f := newStoreFixture(t)
+	s, err := NewStore(StoreOptions{Dir: f.dir, Now: f.clock.now, RecheckEvery: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, now := f.ca.pool(), f.clock.now()
+	if s.Trusted("mc.example.com", roots, 0) {
+		t.Fatal("trusted without a certificate")
+	}
+	f.save("mc.example.com.pem", []string{"mc.example.com"}, now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	if !s.Trusted("mc.example.com", roots, 0) {
+		t.Error("a new certificate was not seen at once")
+	}
+	if err := os.Remove(filepath.Join(f.dir, "mc.example.com.pem")); err != nil {
+		t.Fatal(err)
+	}
+	if s.Trusted("mc.example.com", roots, 0) {
+		t.Error("a removed certificate is still trusted")
+	}
+
+	s.reloadMu.Lock()
+	f.save("mc.example.com.pem", []string{"mc.example.com"}, now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	trusted := make(chan bool)
+	go func() { trusted <- s.Trusted("mc.example.com", roots, 0) }()
+	time.Sleep(50 * time.Millisecond)
+	s.reloadMu.Unlock()
+	if !<-trusted {
+		t.Error("a look in progress from before the certificate came hid it")
+	}
+}
+
 func TestStoreSkipsOtherFiles(t *testing.T) {
 	f := newStoreFixture(t)
 	now := f.clock.now()

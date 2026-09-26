@@ -7,6 +7,7 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -122,6 +123,9 @@ type Options struct {
 	// PublicAddrs are the public addresses of the machine's network
 	// interfaces (tests).
 	PublicAddrs func() []netip.Addr
+	// CertRoots are the certificate authorities players' games trust, for
+	// resource pack links (tests); nil means the system's.
+	CertRoots *x509.CertPool
 }
 
 // Retention bounds stored analytics and audit data.
@@ -186,6 +190,9 @@ type Agent struct {
 	// packMu serializes changes to the resource pack store with pruning it.
 	packMu sync.Mutex
 	addr   addressRuntime
+	// panelCerts are the certificates the panel serves, looked at afresh
+	// for every resource pack link.
+	panelCerts *certs.Store
 }
 
 func New(opts Options) (*Agent, error) {
@@ -287,20 +294,25 @@ func New(opts Options) (*Agent, error) {
 	if opts.DataPackWait == 0 {
 		opts.DataPackWait = time.Minute
 	}
+	panelCerts, err := certs.NewStore(certs.StoreOptions{Dir: cfg.CertsDir(), Now: opts.Now, RecheckEvery: -1})
+	if err != nil {
+		return nil, err
+	}
 	db, err := store.Open(filepath.Join(cfg.AgentDir(), "agent.db"), migrations)
 	if err != nil {
 		return nil, err
 	}
 	a := &Agent{
-		cfg:     cfg,
-		opts:    opts,
-		db:      db,
-		docker:  docker.New(cfg.DockerSocket),
-		log:     opts.Logger,
-		now:     opts.Now,
-		started: opts.Now(),
-		mopLock: make(chan struct{}, 1),
-		servers: map[string]*server{},
+		cfg:        cfg,
+		opts:       opts,
+		db:         db,
+		docker:     docker.New(cfg.DockerSocket),
+		log:        opts.Logger,
+		now:        opts.Now,
+		started:    opts.Now(),
+		mopLock:    make(chan struct{}, 1),
+		servers:    map[string]*server{},
+		panelCerts: panelCerts,
 	}
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	if a.opts.Issue == nil {

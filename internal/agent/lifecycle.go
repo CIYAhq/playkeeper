@@ -261,7 +261,7 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
-	pack, err := resourcePackEnv(sc.ResourcePack)
+	pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))
 	if err != nil {
 		pack = keptPackEnv(current)
 	}

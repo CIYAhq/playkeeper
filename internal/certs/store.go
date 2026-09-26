@@ -2,6 +2,7 @@ package certs
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -31,7 +32,8 @@ type StoreOptions struct {
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 	// RecheckEvery is how often a handshake looks for changed files; 0 means
-	// every 5 seconds.
+	// every 5 seconds. A negative value means every time, waiting for a look
+	// in progress, so each use sees every change made before it.
 	RecheckEvery time.Duration
 }
 
@@ -83,27 +85,63 @@ func NewStore(opts StoreOptions) (*Store, error) {
 func (s *Store) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	s.maybeReload()
 	st := s.state.Load()
-	now := s.now()
-	name := strings.TrimSuffix(strings.ToLower(hello.ServerName), ".")
-	var best *storeEntry
-	if name != "" {
-		for i := range st.entries {
-			e := &st.entries[i]
-			if !slices.Contains(e.info.Names, name) || now.Before(e.info.NotBefore) || !now.Before(e.info.NotAfter) {
-				continue
-			}
-			if best == nil || e.info.NotAfter.After(best.info.NotAfter) {
-				best = e
-			}
-		}
-	}
-	switch {
+	switch best := st.serving(storeName(hello.ServerName), s.now()); {
 	case best != nil:
 		return best.cert, nil
 	case st.fallback != nil:
 		return st.fallback, nil
 	}
 	return nil, fmt.Errorf("certs: no certificate for %q", displayName(hello.ServerName))
+}
+
+// Trusted reports whether a client that trusts roots (nil: the system's)
+// accepts the certificate the store serves for name, now and still after
+// margin. Like the store, it matches the name exactly, never by a wildcard.
+func (s *Store) Trusted(name string, roots *x509.CertPool, margin time.Duration) bool {
+	s.maybeReload()
+	name, now := storeName(name), s.now()
+	e := s.state.Load().serving(name, now)
+	if e == nil {
+		return false
+	}
+	inter := x509.NewCertPool()
+	for _, der := range e.cert.Certificate[1:] {
+		c, err := x509.ParseCertificate(der)
+		if err != nil {
+			return false
+		}
+		inter.AddCert(c)
+	}
+	for _, at := range []time.Time{now, now.Add(margin)} {
+		opts := x509.VerifyOptions{DNSName: name, Roots: roots, Intermediates: inter, CurrentTime: at}
+		if _, err := e.cert.Leaf.Verify(opts); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func storeName(serverName string) string {
+	return strings.TrimSuffix(strings.ToLower(serverName), ".")
+}
+
+// serving is the certificate served for name at now: one that covers the
+// name and is valid, the one valid longest if several do.
+func (st *storeState) serving(name string, now time.Time) *storeEntry {
+	if name == "" {
+		return nil
+	}
+	var best *storeEntry
+	for i := range st.entries {
+		e := &st.entries[i]
+		if !slices.Contains(e.info.Names, name) || now.Before(e.info.NotBefore) || !now.Before(e.info.NotAfter) {
+			continue
+		}
+		if best == nil || e.info.NotAfter.After(best.info.NotAfter) {
+			best = e
+		}
+	}
+	return best
 }
 
 // Loaded describes the certificates loaded from Dir, including any that
@@ -136,10 +174,16 @@ func (s *Store) now() time.Time {
 }
 
 // maybeReload reloads changed files at most every RecheckEvery. A handshake
-// never waits for another one's reload.
+// never waits for another one's reload, unless RecheckEvery is negative.
 func (s *Store) maybeReload() {
 	every := s.opts.RecheckEvery
-	if every <= 0 {
+	if every < 0 {
+		s.reloadMu.Lock()
+		defer s.reloadMu.Unlock()
+		s.reload(false)
+		return
+	}
+	if every == 0 {
 		every = 5 * time.Second
 	}
 	now := s.now().UnixNano()

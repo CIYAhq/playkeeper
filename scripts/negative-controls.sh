@@ -1179,6 +1179,22 @@ control "refused server addresses are asked for again only when due" internal/ag
   'if st.Free.ServersWait != "" && !now.Before(st.Free.ServersRetry) {' \
   'if st.Free.ServersWait != "" {' \
   ./internal/agent '^TestServerAddressesWaitForTheNamesService$'
+control "resource pack links: HTTPS only with a certificate players' games trust" internal/certs/store.go \
+  'if _, err := e.cert.Leaf.Verify(opts); err != nil {' \
+  'if _, err := e.cert.Leaf.Verify(opts); err != nil && at.IsZero() {' \
+  ./internal/certs '^TestStoreTrusted$'
+control "resource pack links: a look at the certificates in progress doesn't hide a new one" internal/certs/store.go \
+  'if every < 0 {' \
+  'if every < 0 && false {' \
+  ./internal/certs '^TestStoreCanLookEveryTime$'
+control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
+  'const packCertMargin = 7 * 24 * time.Hour' \
+  'const packCertMargin = 0' \
+  ./internal/agent '^TestResourcePackLinksUseHTTPSWithATrustedCertificate$'
+control "resource pack links: a start offers the link the certificate allows now" internal/agent/lifecycle.go \
+  'pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))' \
+  'pack, err := resourcePackEnv(sc.ResourcePack)' \
+  ./internal/agent '^TestResourcePackLinksUseHTTPSWithATrustedCertificate$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

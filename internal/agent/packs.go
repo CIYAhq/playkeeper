@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -460,6 +461,54 @@ func offerOf(o *api.ResourcePackOffer) packs.Offer {
 	return packs.Offer{URL: o.URL, SHA1: o.SHA1, Required: o.Required, Prompt: o.Prompt}
 }
 
+// packCertMargin is how long the panel's certificate must stay valid for
+// pack links to use it. A running server offers the link it started with
+// until it restarts, so links go back to plain HTTP a week before a
+// certificate that failed to renew expires, while the HTTPS link works.
+const packCertMargin = 7 * 24 * time.Hour
+
+// packHTTPS reports whether players' games can download packs from host
+// over HTTPS: the panel serves a publicly trusted certificate for exactly
+// that host, valid for packCertMargin more. They refuse any other, and the
+// SHA-1 check keeps plain HTTP safe.
+func (a *Agent) packHTTPS(host string) bool {
+	return a.panelCerts.Trusted(host, a.opts.CertRoots, packCertMargin)
+}
+
+// currentOffer is o as a start offers it now. A link to a pack the panel
+// serves uses HTTPS while packHTTPS allows it for the link's host and plain
+// HTTP otherwise, so it follows certificates that arrive or lapse without
+// restarting a server that runs. Other links stay as they are.
+func (a *Agent) currentOffer(o *api.ResourcePackOffer) *api.ResourcePackOffer {
+	if o == nil || o.SHA1 == "" {
+		return o
+	}
+	u, err := url.Parse(o.URL)
+	if err != nil {
+		return o
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		port = map[string]int{"http": 80, "https": 443}[u.Scheme]
+	}
+	origin := packs.Origin{Host: u.Hostname(), Port: port}
+	plain, err := origin.PackURL(o.SHA1)
+	if err != nil {
+		return o
+	}
+	origin.HTTPS = true
+	secure, _ := origin.PackURL(o.SHA1)
+	if o.URL != plain && o.URL != secure {
+		return o
+	}
+	next := *o
+	next.URL = plain
+	if a.packHTTPS(origin.Host) {
+		next.URL = secure
+	}
+	return &next
+}
+
 // packEnv picks the resource pack variables out of a container's
 // environment.
 func packEnv(env []string) map[string]string {
@@ -504,11 +553,12 @@ func (s *server) hResourcePack(w http.ResponseWriter, r *http.Request) {
 // and a restart doesn't change that.
 func (s *server) resourcePackView(ctx context.Context, sc *api.ServerConfig) api.ResourcePack {
 	var out api.ResourcePack
-	if o := sc.ResourcePack; o != nil && o.SHA1 != "" {
+	o := s.currentOffer(sc.ResourcePack)
+	if o != nil && o.SHA1 != "" {
 		offer := *o
 		out.Offer = &offer
 	}
-	env, err := resourcePackEnv(sc.ResourcePack)
+	env, err := resourcePackEnv(o)
 	if err != nil {
 		out.Problem = offerProblem(err)
 		return out
@@ -540,7 +590,8 @@ func packFileName(upload string) string {
 
 // hResourcePackSet stores an uploaded resource pack and offers it to
 // players instead of the previous one, keeping that offer's settings. The
-// panel says where players' games reach it: host, port and https.
+// panel says where players' games reach it, host and port; currentOffer
+// picks HTTPS or plain HTTP wherever the offer is used.
 func (s *server) hResourcePackSet(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromHeader(r)
 	if actor == "unknown" {
@@ -549,7 +600,7 @@ func (s *server) hResourcePackSet(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	port, _ := strconv.Atoi(q.Get("port"))
-	origin := packs.Origin{Host: q.Get("host"), Port: port, HTTPS: q.Get("https") == "true"}
+	origin := packs.Origin{Host: q.Get("host"), Port: port}
 	if _, err := origin.PackURL(strings.Repeat("0", 40)); err != nil {
 		writeError(w, packError(err))
 		return
