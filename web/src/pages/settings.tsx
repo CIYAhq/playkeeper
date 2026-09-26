@@ -109,7 +109,7 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
             </a>
           ))}
         </nav>
-        <div key={current} className="flex min-w-0 animate-page flex-col gap-5">
+        <div key={current} className="flex min-w-0 animate-page flex-col gap-4">
           {children}
         </div>
       </PageBody>

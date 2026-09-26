@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { CheckIcon, ChevronRightIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
 import { del, get, post, put } from '@/api/client'
 import type { CreatedTeamInvite, Grant, ProjectRole, Scope, TeamInvite, TeamMember, TeamResponse } from '@/api/types'
@@ -19,6 +19,7 @@ import { rich } from '@/i18n/rich'
 import { can, projectRoles, roleHint, roleName, scopeText } from '@/lib/access'
 import { relativeTime, timeUntil } from '@/lib/format'
 import { usePending } from '@/lib/optimistic'
+import { presenceProps, useListPresence, type Present } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -47,6 +48,9 @@ function avatarTone(name: string): string {
   return cn('bg-primary/10 ring-0', avatarLetters[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % avatarLetters.length])
 }
 
+type TeamRow = { kind: 'member'; key: string; member: TeamMember } | { kind: 'invite'; key: string; invite: TeamInvite }
+const rowKey = (r: TeamRow) => r.key
+
 function inviteName(inv: TeamInvite): string {
   return inv.label || t('team.inviteLink')
 }
@@ -59,6 +63,8 @@ export function TeamSection() {
   const [grantOpen, setGrantOpen] = useState(false)
   const [removing, setRemoving] = useState<TeamMember>()
   const data = team.data
+  const listed = useMemo<TeamRow[] | undefined>(() => data && [...data.members.map((member) => ({ kind: 'member' as const, key: `m${member.id}`, member })), ...data.invites.map((invite) => ({ kind: 'invite' as const, key: `i${invite.id}`, invite }))], [data])
+  const rows = useListPresence(listed, rowKey)
 
   function edit(editing: Editing) {
     setGrant((g) => ({ editing, n: (g?.n ?? 0) + 1 }))
@@ -124,7 +130,7 @@ export function TeamSection() {
     </>
   )
 
-  if (phone) return <PhoneTeam team={data} notice={notice} dialogs={dialogs} onEdit={edit} />
+  if (phone) return <PhoneTeam team={data} rows={rows} notice={notice} dialogs={dialogs} onEdit={edit} />
 
   return (
     <>
@@ -132,18 +138,19 @@ export function TeamSection() {
       <Card aria-labelledby="team-title">
         <div className="flex items-center justify-between gap-3">
           <CardTitle id="team-title">{t('team.title')}</CardTitle>
-          <Button size="sm" onClick={() => edit({ kind: 'add' })}>
+          <Button onClick={() => edit({ kind: 'add' })}>
             <UserPlusIcon />
             {t('team.add')}
           </Button>
         </div>
         <ul className="mt-2 flex flex-col">
-          {data.members.map((m) => (
-            <MemberRow key={m.id} member={m} team={data} onChanged={team.refresh} onEdit={edit} onConfirm={confirm} onRemove={setRemoving} />
-          ))}
-          {data.invites.map((inv) => (
-            <InviteRow key={inv.id} invite={inv} team={data} onChanged={team.refresh} onEdit={edit} onTurnOff={turnOff} />
-          ))}
+          {rows.map(({ key, item, state }) =>
+            item.kind === 'member' ? (
+              <MemberRow key={key} member={item.member} team={data} onChanged={team.refresh} onEdit={edit} onConfirm={confirm} onRemove={setRemoving} presence={presenceProps(state)} />
+            ) : (
+              <InviteRow key={key} invite={item.invite} team={data} onChanged={team.refresh} onEdit={edit} onTurnOff={turnOff} presence={presenceProps(state)} />
+            ),
+          )}
         </ul>
       </Card>
       <RoleTable />
@@ -189,19 +196,33 @@ export function ConfirmAdminNotice({ member, onConfirmed }: { member: TeamMember
 function TeamSkeleton({ phone }: { phone: boolean }) {
   const rows = [0, 1, 2].map((i) => (
     <div key={i} className="flex min-h-[60px] items-center gap-3 border-t border-border first:border-t-0">
-      <Skeleton className="size-7 rounded-full max-sm:size-9" />
+      <Skeleton className="size-8 rounded-full" />
       <span className="flex flex-1 flex-col gap-1.5">
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-2.5 w-40" />
       </span>
     </div>
   ))
-  if (phone) return <div className="rounded-3xl border border-border bg-white px-4" aria-busy="true">{rows}</div>
+  if (phone) {
+    return (
+      <>
+        <div className="rounded-3xl border border-border bg-white px-4" aria-busy="true">
+          {rows}
+        </div>
+        <p className="px-1 text-[13px] text-muted-foreground">{t('team.adminsTwoFactor')}</p>
+      </>
+    )
+  }
   return (
-    <Card aria-busy="true">
-      <Skeleton className="h-4 w-16" />
-      <div className="mt-3">{rows}</div>
-    </Card>
+    <>
+      <Card aria-labelledby="team-title" aria-busy="true">
+        <div className="flex min-h-8 items-center">
+          <CardTitle id="team-title">{t('team.title')}</CardTitle>
+        </div>
+        <div className="mt-2">{rows}</div>
+      </Card>
+      <RoleTable />
+    </>
   )
 }
 
@@ -237,12 +258,12 @@ function useRole(saved: ProjectRole, save: (role: ProjectRole) => Promise<unknow
   return { role: pending.changes.at(-1)?.role ?? saved, pick }
 }
 
-function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void }) {
+function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, presence }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void; presence?: ReturnType<typeof presenceProps> }) {
   const { role, pick } = useRole(m.role, (r) => put(`/api/team/members/${m.id}`, { role: r, servers: m.servers } satisfies Grant), onChanged)
   return (
-    <li className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
+    <li {...presence} className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
       <span className="flex min-w-0 items-center gap-3">
-        <Avatar name={m.username} className={avatarTone(m.username)} />
+        <Avatar name={m.username} className={cn('size-8', avatarTone(m.username))} />
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-semibold">{m.username}</span>
           <span className={cn('block truncate text-xs', m.waiting ? 'text-warning-foreground' : 'text-muted-foreground')}>{memberLine(m)}</span>
@@ -290,14 +311,14 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove }: 
   )
 }
 
-function InviteRow({ invite: inv, team, onChanged, onEdit, onTurnOff }: { invite: TeamInvite; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onTurnOff: (inv: TeamInvite) => Promise<void> }) {
+function InviteRow({ invite: inv, team, onChanged, onEdit, onTurnOff, presence }: { invite: TeamInvite; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onTurnOff: (inv: TeamInvite) => Promise<void>; presence?: ReturnType<typeof presenceProps> }) {
   const name = inviteName(inv)
   const saved = inv.role ?? 'viewer'
   const { role, pick } = useRole(saved, (r) => put(`/api/team/invites/${inv.id}`, { role: r, servers: inv.servers ?? {} } satisfies Grant), onChanged)
   return (
-    <li className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
+    <li {...presence} className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
       <span className="flex min-w-0 items-center gap-3">
-        <Avatar name={name} className={avatarTone(name)} />
+        <Avatar name={name} className={cn('size-8', avatarTone(name))} />
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-semibold">{name}</span>
           <span className="block truncate text-xs text-muted-foreground">{inv.expiresAt ? t('team.inviteLine', { when: timeUntil(inv.expiresAt) }) : t('team.inviteWaiting')}</span>
@@ -336,7 +357,7 @@ function InviteRow({ invite: inv, team, onChanged, onEdit, onTurnOff }: { invite
 function RoleTable() {
   const columns = [...projectRoles].reverse()
   return (
-    <section aria-labelledby="roles-title" className="mt-1">
+    <section aria-labelledby="roles-title">
       <h2 id="roles-title" className="text-[15px] font-semibold">
         {t('team.rolesTitle')}
       </h2>
@@ -345,11 +366,11 @@ function RoleTable() {
         <table className="w-full text-[13px]">
           <thead className="bg-muted text-xs text-muted-foreground">
             <tr className="h-9">
-              <th className="px-3 text-left font-medium">
+              <th className="pr-3 pl-4 text-left font-medium">
                 <span className="sr-only">{t('team.col.ability')}</span>
               </th>
               {columns.map((r) => (
-                <th key={r} className="w-[104px] px-3 text-center font-medium">
+                <th key={r} className="w-[104px] px-3 text-center font-medium last:pr-4">
                   {roleName(r)}
                 </th>
               ))}
@@ -358,11 +379,11 @@ function RoleTable() {
           <tbody>
             {abilities.map((a) => (
               <tr key={a.key} className="h-10 border-t border-border">
-                <td className="px-3">{t(a.key)}</td>
+                <td className="pr-3 pl-4">{t(a.key)}</td>
                 {columns.map((r) => {
                   const yes = rank[r] >= rank[a.role]
                   return (
-                    <td key={r} className="px-3 text-center">
+                    <td key={r} className="px-3 text-center last:pr-4">
                       {yes ? <CheckIcon className="mx-auto size-4 text-success-foreground" aria-hidden="true" /> : <span className="text-muted-foreground" aria-hidden="true">–</span>}
                       <span className="sr-only">{yes ? t('team.yesSr') : t('team.noSr')}</span>
                     </td>
@@ -377,22 +398,28 @@ function RoleTable() {
   )
 }
 
-function PhoneTeam({ team, notice, dialogs, onEdit }: { team: TeamResponse; notice: ReactNode; dialogs: ReactNode; onEdit: (e: Editing) => void }) {
+function PhoneTeam({ team, rows: listed, notice, dialogs, onEdit }: { team: TeamResponse; rows: Present<TeamRow>[]; notice: ReactNode; dialogs: ReactNode; onEdit: (e: Editing) => void }) {
   const tabs = !!usePhoneServer()
-  const rows = [
-    ...team.members.map((m) => ({
-      key: `m${m.id}`,
-      name: m.username,
-      line: m.owner ? t('team.phone.owner') : `${roleName(m.role)}${t('common.dot')}${m.waiting ? t('team.waiting') : scopeText(m.servers, team.servers)}`,
-      edit: m.canEdit && !m.owner ? ({ kind: 'member', member: m } as const) : undefined,
-    })),
-    ...team.invites.map((inv) => ({
-      key: `i${inv.id}`,
+  const rows = listed.map(({ key, item, state }) => {
+    if (item.kind === 'member') {
+      const m = item.member
+      return {
+        key,
+        state,
+        name: m.username,
+        line: m.owner ? t('team.phone.owner') : `${roleName(m.role)}${t('common.dot')}${m.waiting ? t('team.waiting') : scopeText(m.servers, team.servers)}`,
+        edit: m.canEdit && !m.owner ? ({ kind: 'member', member: m } as const) : undefined,
+      }
+    }
+    const inv = item.invite
+    return {
+      key,
+      state,
       name: inviteName(inv),
       line: `${roleName(inv.role ?? 'viewer')}${t('common.dot')}${t('team.phone.invite')}`,
       edit: inv.canEdit ? ({ kind: 'invite', invite: inv } as const) : undefined,
-    })),
-  ]
+    }
+  })
   return (
     <>
       {notice}
@@ -400,7 +427,7 @@ function PhoneTeam({ team, notice, dialogs, onEdit }: { team: TeamResponse; noti
         {rows.map((r) => {
           const inner = (
             <>
-              <Avatar name={r.name} className={cn('size-9 text-[15px]', avatarTone(r.name))} />
+              <Avatar name={r.name} className={cn('size-8 text-[15px]', avatarTone(r.name))} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[17px] leading-6">{r.name}</span>
                 <span className="block truncate text-[13px] text-muted-foreground">{r.line}</span>
@@ -409,7 +436,7 @@ function PhoneTeam({ team, notice, dialogs, onEdit }: { team: TeamResponse; noti
             </>
           )
           return (
-            <li key={r.key} className="border-b border-border last:border-b-0">
+            <li key={r.key} {...presenceProps(r.state)} className="border-b border-border last:border-b-0">
               {r.edit ? (
                 <button type="button" onClick={() => r.edit && onEdit(r.edit)} className="flex min-h-[60px] w-full items-center gap-3 px-4 py-2 text-left active:bg-muted">
                   {inner}
@@ -423,7 +450,7 @@ function PhoneTeam({ team, notice, dialogs, onEdit }: { team: TeamResponse; noti
       </ul>
       <p className="px-1 text-[13px] text-muted-foreground">{t('team.adminsTwoFactor')}</p>
       <div className="h-16" aria-hidden="true" />
-      <div className={cn('fixed inset-x-4 z-30', tabs ? 'bottom-[calc(64px+env(safe-area-inset-bottom))]' : 'bottom-[max(env(safe-area-inset-bottom),16px)]')}>
+      <div className={cn('fixed inset-x-4 z-30', tabs ? 'bottom-[calc(68px+env(safe-area-inset-bottom))]' : 'bottom-[max(env(safe-area-inset-bottom),16px)]')}>
         <Button size="touch" className="w-full" onClick={() => onEdit({ kind: 'add' })}>
           <UserPlusIcon />
           {t('team.add')}
@@ -551,7 +578,7 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
           <legend className="mb-1.5 text-[13px] font-semibold">{t('team.role')}</legend>
           <CardGroup value={role} onChange={setRole} label={t('team.role')} className="flex flex-col gap-2">
             {projectRoles.map((r) => (
-              <ChoiceCard key={r} value={r} radio="start" disabled={ownerOnly(team, r, start.role)} reason={t('team.ownerOnly')} className="gap-3 px-3.5 py-3">
+              <ChoiceCard key={r} value={r} radio="start" disabled={ownerOnly(team, r, start.role)} reason={t('team.ownerOnly')} className="gap-3 px-3.5 py-3.5">
                 <span className="block text-[13px] font-semibold">{roleName(r)}</span>
                 <span className="block text-xs text-muted-foreground">{roleHint(r)}</span>
               </ChoiceCard>
@@ -593,7 +620,7 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
           </p>
         )}
       </DialogPanel>
-      <DialogFooter variant="bare" className="items-center border-t border-border pt-4 sm:justify-between">
+      <DialogFooter variant="bare" className="border-t border-border pt-4 sm:mx-6 sm:items-center sm:justify-between sm:px-0">
         {editing.kind === 'add' ? (
           <span className="text-xs text-muted-foreground max-sm:order-last max-sm:text-center">{t('team.linkRule')}</span>
         ) : phone && editing.kind === 'member' ? (
