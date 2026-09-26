@@ -329,7 +329,9 @@ func TestRestoredWorldThatDoesNotStartIsSwappedBackOut(t *testing.T) {
 			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.applied'`); n != 0 {
 				t.Fatalf("an undone restore was audited as applied %d times", n)
 			}
-			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore' AND result = 'failed'`); n != 1 {
+			failedRestores := func() int { return e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore' AND result = 'failed'`) }
+			e.waitFor("the restore audited as failed", func() bool { return failedRestores() > 0 })
+			if n := failedRestores(); n != 1 {
 				t.Fatalf("want the restore audited once as failed, got %d", n)
 			}
 			e.waitFor("the previous world running again", e.onlineIdle)
