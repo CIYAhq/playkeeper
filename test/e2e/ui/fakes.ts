@@ -32,11 +32,25 @@ interface DialAddress {
   address: string
 }
 
+interface AddonKey {
+  source?: unknown
+  projectId?: unknown
+}
+
+interface AddonFileView {
+  fileName: string
+  addon?: { source: string; projectId: string; name: string }
+}
+
 interface FakeState {
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
   opSeq: number
+  /** The operations the fakes started, for the dialogs that follow one by its id. */
+  ops: Map<string, Record<string, unknown>>
+  /** Each server's add-on files as the panel last listed them, the ones its checks identified too. */
+  addons: Map<string, AddonFileView[]>
   /** What GET /api/machines/link last said: the addresses a joining machine can dial and the dashboard's fingerprint. */
   link: { addresses?: DialAddress[]; fingerprint?: string }
   machines: { id: string; kind: string }[]
@@ -47,6 +61,9 @@ const name = /^[A-Za-z0-9_]{3,16}$/
 const prefKey = /^[a-z][a-z0-9.:_-]{0,63}$/
 const id = /^[a-z2-9]{10}$/
 const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
+const projectRef = /^[A-Za-z0-9._-]{1,64}$/
+const planFingerprint = /^[0-9a-f]{32}$/
+const maxAddonKeys = 200
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
@@ -54,7 +71,38 @@ function invalid(error: string): Reply {
 
 function op(state: FakeState, kind: string, serverId?: string): Reply {
   state.opSeq++
-  return { status: 202, body: { id: `fake-op-${state.opSeq}`, serverId, kind, status: 'running', phase: '', actor: 'admin', startedAt: new Date().toISOString() } }
+  const body = { id: `fake-op-${state.opSeq}`, serverId, kind, status: 'running', phase: '', actor: 'admin', startedAt: new Date().toISOString() }
+  state.ops.set(body.id, body)
+  return { status: 202, body }
+}
+
+/** Why the agent would refuse an add-on's source and project id, or undefined. */
+function badAddonKey(k: AddonKey | null | undefined): string | undefined {
+  if (k?.source !== 'modrinth' && k?.source !== 'hangar') return 'Add-ons come from Modrinth or Hangar.'
+  if (typeof k.projectId !== 'string' || !projectRef.test(k.projectId) || k.projectId === '.' || k.projectId === '..') return 'That is not a valid project id.'
+  return undefined
+}
+
+/** Why the agent would refuse a list of add-ons, or undefined. */
+function badAddonKeys(keys: unknown): string | undefined {
+  if (keys === undefined) return undefined
+  if (!Array.isArray(keys) || keys.length > maxAddonKeys) return `At most ${maxAddonKeys} add-ons can be changed at once.`
+  for (const k of keys) {
+    const bad = badAddonKey(k as AddonKey)
+    if (bad) return bad
+  }
+  return undefined
+}
+
+function badFingerprint(body: unknown): string | undefined {
+  const f = (body as { fingerprint?: unknown } | null)?.fingerprint
+  return typeof f === 'string' && planFingerprint.test(f) ? undefined : "This request doesn't include the plan you confirmed."
+}
+
+/** An add-on's name as the panel last listed it on the server. */
+function addonName(state: FakeState, serverId: string, k: AddonKey): string {
+  const file = state.addons.get(serverId)?.find((f) => f.addon?.source === k.source && f.addon?.projectId === k.projectId)
+  return file?.addon?.name ?? String(k.projectId)
 }
 
 function playerName(body: unknown): string | undefined {
@@ -234,6 +282,52 @@ const routes: [string, RegExp, Handler][] = [
     (r, state) => (state.machines.find((m) => m.id === r.params[0])?.kind === 'local' ? invalid('This is the dashboard’s own machine, so it can’t be removed.') : { status: 204 }),
   ],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
+  // Wave 1: plugins and mods. Installs and updates carry the plan they confirm.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/install$/,
+    (r, state) => {
+      const bad = badAddonKey(r.body as AddonKey) ?? badFingerprint(r.body)
+      return bad ? invalid(bad) : op(state, 'addon-install', r.params[0])
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/update$/,
+    (r, state) => {
+      const bad = badAddonKeys((r.body as { addons?: unknown } | null)?.addons) ?? badFingerprint(r.body)
+      return bad ? invalid(bad) : op(state, 'addon-update', r.params[0])
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/remove$/,
+    (r, state) => {
+      const b = r.body as (AddonKey & { orphans?: unknown }) | null
+      const bad = badAddonKey(b) ?? badAddonKeys(b?.orphans)
+      if (bad) return invalid(bad)
+      const keys = [b as AddonKey, ...((b?.orphans as AddonKey[] | undefined) ?? [])]
+      return { status: 200, body: { removed: keys.map((k) => addonName(state, r.params[0] ?? '', k)), warnings: [] } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/forget$/,
+    (r, state) => {
+      const bad = badAddonKey(r.body as AddonKey)
+      return bad ? invalid(bad) : { status: 200, body: { removed: [addonName(state, r.params[0] ?? '', r.body as AddonKey)], warnings: [] } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/adopt$/,
+    (r, state) => {
+      const f = (r.body as { fileName?: unknown } | null)?.fileName
+      if (typeof f !== 'string' || !f || f.length > 255 || /[/\\]/.test(f) || !f.endsWith('.jar')) return invalid('That is not a file in the add-on folder.')
+      const addon = state.addons.get(r.params[0] ?? '')?.find((x) => x.fileName === f)?.addon
+      return addon ? { status: 200, body: { ...addon, fileName: f, installedAt: new Date().toISOString() } } : invalid('Playkeeper doesn’t know which add-on this file is.')
+    },
+  ],
 ]
 
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
@@ -290,7 +384,7 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0, link: {}, machines: [], seq: 0 }
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0, ops: new Map(), addons: new Map(), link: {}, machines: [], seq: 0 }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -321,6 +415,15 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([leftoverWorld]) })
         return
       }
+      const fakeOp = /^\/api\/machines\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
+      if (fakeOp?.[1]) {
+        const started = state.ops.get(fakeOp[1])
+        const status = started ? 200 : 404
+        calls.push({ method, path, status, faked: true, at })
+        const body = started ? { ...started, status: 'succeeded', finishedAt: new Date().toISOString() } : { error: 'Operation not found.', code: 'not_found' }
+        await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+        return
+      }
       const res = await route.fetch().catch(() => null)
       if (!res) {
         await route.abort().catch(() => {})
@@ -334,8 +437,26 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
         if (path === '/api/machines') state.machines = await res.json().catch(() => [])
+        const addons = /^\/api\/servers\/(\w+)\/addons(?:\/checks)?$/.exec(path)
+        if (addons?.[1]) {
+          const got = (await res.json().catch(() => ({}))) as { files?: AddonFileView[]; identified?: AddonFileView[] }
+          const files = new Map((state.addons.get(addons[1]) ?? []).map((f) => [f.fileName, f]))
+          for (const f of [...(got.files ?? []), ...(got.identified ?? [])]) files.set(f.fileName, { ...files.get(f.fileName), ...f })
+          state.addons.set(addons[1], [...files.values()])
+        }
       }
       // The page may have moved on and cancelled the request meanwhile.
+      await route.fulfill({ response: res }).catch(() => {})
+      return
+    }
+    // Planning an update changes nothing, so the real panel makes the plan, with its real fingerprint.
+    if (method === 'POST' && /^\/api\/servers\/\w+\/addons\/update\/plan$/.test(path)) {
+      const res = await route.fetch().catch(() => null)
+      if (!res) {
+        await route.abort().catch(() => {})
+        return
+      }
+      calls.push({ method, path, status: res.status(), faked: false, at })
       await route.fulfill({ response: res }).catch(() => {})
       return
     }
