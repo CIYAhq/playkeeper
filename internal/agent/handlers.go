@@ -219,12 +219,18 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Operation = s.machineOp()
 	}
 	st.LastOperation = s.lastFinishedOperation()
+	if st.Operation == nil && sc != nil {
+		st.WorldMissing = s.worldMissing()
+		if unsettled, _ := s.restoreUnsettled(); unsettled {
+			st.RestoreUnsettled = &api.RestoreUnsettled{Problem: sentence(s.settleProblemNow())}
+		}
+	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	s.mu.Lock()
 	runPhase, detail := s.runPhase, s.runPhaseDetail
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
 	refusal := s.refusal
-	crashed, crash := s.crashed, s.crash
+	crashed, crash, recovered := s.crashed, s.crash, s.recovered
 	st.CrashCount = len(s.crashes)
 	if s.softwareChanged != nil {
 		change := *s.softwareChanged
@@ -301,6 +307,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {
 			st.Crash = crash
 		}
+	}
+	if recovered != nil && running && s.now().Sub(recovered.At) < recoveredFor {
+		st.RecoveredCrash = recovered
 	}
 	s.automationStatus(&st)
 	return st
@@ -518,7 +527,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	now := a.now().UTC()
 	base := api.ServerConfig{
-		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
+		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapFor(req.MemoryMB, typ, 0),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
 		PlayStyle: req.PlayStyle, Gameplay: gp,
 	}
@@ -607,9 +616,11 @@ func (s *server) forgetCrashes() {
 
 // startNow is a start someone asked for: the server is to keep running, or
 // stays stopped if it does not come up. The crash policy starts over only
-// once the start goes ahead, so a refused request, or work before the start
-// that failed, keeps the crash that says why the server is down.
+// once the start goes ahead (see opHandle.askedFor), so a refused request,
+// or work before the start that failed, keeps the crash that says why the
+// server is down.
 func (s *server) startNow(ctx context.Context, h *opHandle) error {
+	s.settleBeforeStart(ctx)
 	if err := s.setDesired(api.DesiredRunning); err != nil {
 		return err
 	}
@@ -617,7 +628,7 @@ func (s *server) startNow(ctx context.Context, h *opHandle) error {
 	if cur == nil {
 		return errNotCreated()
 	}
-	s.forgetCrashes()
+	h.askedFor = true
 	if err := s.startServer(ctx, h, *cur); err != nil {
 		s.startFailed(ctx)
 		return err
@@ -767,6 +778,7 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 		return errNotCreated()
 	}
 	var changed []string
+	memoryChanged := false
 	old := s.name()
 	name := old
 	if req.Name != nil {
@@ -786,8 +798,9 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 		}
 		if sc.MemoryMB != *req.MemoryMB {
 			changed = append(changed, fmt.Sprintf("memoryMB %d→%d", sc.MemoryMB, *req.MemoryMB))
+			memoryChanged = true
+			sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))
 		}
-		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapMB(*req.MemoryMB)
 	}
 	if req.MOTD != nil {
 		m, err := validMOTD(*req.MOTD)
@@ -825,6 +838,11 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 	}
 	if err := s.saveServerConfig(*sc); err != nil {
 		return err
+	}
+	if memoryChanged {
+		s.mu.Lock()
+		s.recovered = nil
+		s.mu.Unlock()
 	}
 	s.audit(actor, "settings.changed", "server", "succeeded", strings.Join(changed, ", "))
 	return nil
@@ -1239,6 +1257,13 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		writeError(w, errInvalid("X-Playkeeper-Actor header is required"))
 		return
 	}
+	if target != nil {
+		if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(target.id, actor, "restore.uploaded", "", "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+	}
 	p, err := a.stageArchive(r.Body, "upload", a.uploadLimit(), target)
 	if err != nil {
 		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
@@ -1264,6 +1289,11 @@ func (s *server) hRestoreFromBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := s.getBackup(r.PathValue("bid"))
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.restoreRefusal("restore again"); err != nil {
+		s.audit(actor, "restore.staged", b.ID, "refused", err.Error())
 		writeError(w, err)
 		return
 	}
@@ -1314,6 +1344,18 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := st.preview
+	target := a.serverByID(p.ServerID)
+	if p.ServerID != "" && target == nil {
+		writeError(w, errNotFound("Server"))
+		return
+	}
+	if target != nil {
+		if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+	}
 	if !p.Compatible {
 		writeError(w, errConflict("This backup cannot be restored here: "+strings.Join(p.Problems, " "), ""))
 		return
@@ -1333,11 +1375,6 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-	}
-	target := a.serverByID(p.ServerID)
-	if p.ServerID != "" && target == nil {
-		writeError(w, errNotFound("Server"))
-		return
 	}
 	if req.MemoryMB != 0 {
 		if err := a.validMemory(req.MemoryMB, p.ServerID); err != nil {

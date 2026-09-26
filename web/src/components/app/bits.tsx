@@ -134,7 +134,7 @@ export function StatusPill({
 }
 
 /** A long job, shrunk into a pill with a timer; the whole pill opens its page. */
-export function JobPill({ op, server, onClick }: { op: Operation; server: string; onClick?: () => void }) {
+export function JobPill({ op, server, onClick }: { op: Operation; server: ServerStatus; onClick?: () => void }) {
   return (
     <button type="button" onClick={onClick} className="inline-flex h-[26px] items-center gap-1.5 rounded-full border border-border bg-white px-2.5 text-[13px] font-semibold text-foreground shadow-outline hover:bg-accent/50">
       <Spinner />
@@ -254,7 +254,7 @@ export function Notice({ title, children, action, tone = 'default', stacked, cla
   const titleColor = { default: 'text-foreground', warning: 'text-warning-foreground', error: 'text-destructive-foreground' }[tone]
   return (
     <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-2', className)} role={tone === 'error' ? 'alert' : 'status'}>
-      <p className="min-w-0 flex-1 text-[13px] leading-5">
+      <p className="min-w-0 flex-1 text-[13px] leading-5 wrap-anywhere">
         <strong className={cn('font-semibold', titleColor)}>{title}</strong>
         {children && (stacked ? <span className="mt-0.5 block text-xs text-muted-foreground">{children}</span> : <span className="text-muted-foreground"> {children}</span>)}
       </p>

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -214,6 +215,49 @@ func TestAnOutOfMemoryErrorThenStoppingServerIsACrash(t *testing.T) {
 	}
 }
 
+// Forge logs that the server failed to start when a mod fails in its setup,
+// then keeps running: the start stops it after a short wait and explains
+// why, instead of waiting out ReadyTimeout. The next start forgets it.
+func TestAStartThatGaveUpButKeptRunningIsStoppedAndExplained(t *testing.T) {
+	old := hungStartWait
+	hungStartWait = 500 * time.Millisecond
+	t.Cleanup(func() { hungStartWait = old })
+	e := crashEnv(t)
+	run := func(verb string) *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", verb, code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	run("stop")
+	e.fd.mu.Lock()
+	e.fd.hangsAfterFailing = true
+	e.fd.mu.Unlock()
+	began := time.Now()
+	op := run("start")
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "The server stopped while starting") {
+		t.Fatalf("start: %+v", op)
+	}
+	if took := time.Since(began); took > 20*time.Second {
+		t.Fatalf("the start waited %s for a server that had given up", took)
+	}
+	if c, err := e.a.docker.ContainerInspect(context.Background(), e.srv().containerName()); err != nil || c.State.Running {
+		t.Fatalf("the server that gave up is still running: %v %v", c.State.Running, err)
+	}
+	c := e.waitCrash()
+	if !c.Start || c.Kind != "addon_failed" || c.Params["addon"] != "waila" {
+		t.Fatalf("got %s start %v params %v:\n%s", c.Kind, c.Start, c.Params, crashLines(c))
+	}
+	e.fd.mu.Lock()
+	e.fd.hangsAfterFailing = false
+	e.fd.mu.Unlock()
+	if op := run("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("the next start: %+v", op)
+	}
+}
+
 // A start Docker refused because the game port is taken names the program
 // holding the port, when the agent can see it; one it can't see is left out.
 // A start that failed for another reason doesn't look.
@@ -360,6 +404,93 @@ func TestPortCrashNamesTheDockerContainerHoldingThePort(t *testing.T) {
 	}
 }
 
+// When Docker kills a server for memory and an automatic restart brings it
+// back, the status keeps saying why, with the memory to give it, through a
+// restart, until its memory changes or a day has passed; the activity says
+// it ran out of memory.
+func TestAMemoryKillIsExplainedAfterTheServerComesBack(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"memoryMB": 2048})
+	e.fd.oomKill()
+	e.waitFor("the automatic restart", func() bool { return e.crashEvents() == 1 && e.onlineIdle() })
+	st := e.status()
+	c := st.RecoveredCrash
+	if c == nil || c.Kind != "container_memory_limit" || !c.Certain || st.Crash != nil {
+		t.Fatalf("after the automatic restart: recovered %+v, crash %+v", c, st.Crash)
+	}
+	if len(c.Fixes) == 0 || c.Fixes[0].Kind != "raise_memory" || c.Fixes[0].Params["to_mb"] != 3072 {
+		t.Fatalf("fixes: %+v", c.Fixes)
+	}
+	acts, err := e.a.Activity(e.sid, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := make([]string, 0, len(acts))
+	for _, a := range acts {
+		kinds = append(kinds, a.Kind)
+	}
+	if !slices.Contains(kinds, "crashed_memory") || slices.Contains(kinds, "crashed") {
+		t.Fatalf("activity: %v", kinds)
+	}
+
+	if op := e.runOp("POST", "/restart"); op.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if e.status().RecoveredCrash == nil {
+		t.Fatal("a restart that left its memory as it was forgot why it crashed")
+	}
+	e.skew.Add(int64(recoveredFor))
+	if e.status().RecoveredCrash != nil {
+		t.Fatal("still shown a day later")
+	}
+	e.skew.Add(-int64(recoveredFor))
+	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": 3072, "actor": "admin"}); code != 200 {
+		t.Fatalf("settings: %d %v", code, out)
+	}
+	if c := e.status().RecoveredCrash; c != nil {
+		t.Fatalf("still shown after its memory changed: %+v", c)
+	}
+}
+
+// Java running out of memory and stopping the server is a crash for memory,
+// as Docker's kill is: the error says so, and so does the activity. The next
+// run that crashes without that line is a plain crash.
+func TestJavaRunningOutOfMemoryIsAMemoryCrash(t *testing.T) {
+	e := crashEnv(t)
+	kinds := func() []string {
+		acts, err := e.a.Activity(e.sid, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, a := range acts {
+			out = append(out, a.Kind)
+		}
+		return out
+	}
+	e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+	e.fd.addLog("[03:11:31 INFO]: Stopping server")
+	e.fd.crash(1)
+	e.waitCrash()
+	if st := e.status(); st.LastError != heapCrash {
+		t.Fatalf("the error says %q, want %q", st.LastError, heapCrash)
+	}
+	if k := kinds(); !slices.Contains(k, "crashed_memory") || slices.Contains(k, "crashed") {
+		t.Fatalf("activity after running out of memory: %v", k)
+	}
+
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	e.fd.crash(1)
+	e.waitFor("the second crash", func() bool { return e.crashEvents() == 2 })
+	if k := kinds(); len(k) == 0 || k[0] != "crashed" || !slices.Contains(k, "crashed_memory") {
+		t.Fatalf("activity after a crash without the line: %v", k)
+	}
+}
+
 // A start that isn't accepted, and a remove-and-start whose remove fails,
 // leave the crash and the crash count as they were: nothing started, so the
 // crash still says why the server is down.
@@ -414,6 +545,96 @@ func TestAStartThatDoesNotGoAheadKeepsTheCrash(t *testing.T) {
 	kept("a remove-and-start whose remove failed")
 	if st := e.status(); st.Crash == nil || st.Crash.Kind != crash.Kind {
 		t.Fatalf("status after the failed remove: %+v", st.Crash)
+	}
+}
+
+// A Start someone asks for starts the crash policy over only once it goes
+// ahead. One refused for a restore that isn't finished, for the world folder
+// a restore left missing, for another job or during an update keeps the
+// crash card, the crash count and the wait before the next automatic start;
+// one that goes ahead forgets them.
+func TestAStartForgetsTheCrashOnlyOnceItGoesAhead(t *testing.T) {
+	stopped := func(t *testing.T, e *agentEnv) {
+		e.create()
+		if op := e.runOp("POST", "/stop"); op.Status != api.OpSucceeded {
+			t.Fatalf("stop: %+v", op)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		// setup says whether the start is accepted as an operation (true) or
+		// refused before it (409).
+		setup func(t *testing.T, e *agentEnv) (accepted bool)
+		// errorKind is how an accepted start fails; "" for one that goes ahead.
+		errorKind string
+		kept      bool
+	}{
+		{"a restore that isn't finished", func(t *testing.T, e *agentEnv) bool {
+			_, aside := restoreLeftUnsettled(t, e)
+			e.failConfigSaves()
+			if err := os.Rename(aside, e.dataDir()); err != nil {
+				t.Fatal(err)
+			}
+			return true
+		}, codeRestoreUnsettled, true},
+		{"the world folder a restore left missing", func(t *testing.T, e *agentEnv) bool {
+			restoreLeftUnsettled(t, e)
+			return true
+		}, "world_missing", true},
+		{"another job", func(t *testing.T, e *agentEnv) bool {
+			e.create()
+			release, ok := e.srv().holdOpLock()
+			if !ok {
+				t.Fatal("the operation lock is taken")
+			}
+			t.Cleanup(release)
+			return false
+		}, "", true},
+		{"an update", func(t *testing.T, e *agentEnv) bool {
+			stopped(t, e)
+			e.a.upd.mu.Lock()
+			e.a.upd.installing = "0.4.1"
+			e.a.upd.mu.Unlock()
+			return false
+		}, "", true},
+		{"nothing: the start goes ahead", func(t *testing.T, e *agentEnv) bool {
+			stopped(t, e)
+			return true
+		}, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) {
+				e.tweak = func(o *Options) { o.ReconcileInterval = time.Hour }
+			})
+			e.withSources()
+			accepted := tc.setup(t, e)
+			s := e.srv()
+			crash, next := &api.Crash{Kind: "heap_out_of_memory", Title: "Your Paper server ran out of memory"}, time.Now().Add(time.Hour)
+			s.mu.Lock()
+			s.crash, s.crashes, s.crashed, s.nextAutoRestart = crash, []time.Time{time.Now()}, true, next
+			s.mu.Unlock()
+
+			code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+			switch {
+			case accepted && code == 202:
+				op := e.waitOp(out["id"].(string))
+				if tc.errorKind == "" && op.Status != api.OpSucceeded || tc.errorKind != "" && (op.Status != api.OpFailed || op.Detail["errorKind"] != tc.errorKind) {
+					t.Fatalf("the start: %+v, want error kind %q", op, tc.errorKind)
+				}
+			case !accepted && code == 409:
+			default:
+				t.Fatalf("start: %d %v", code, out)
+			}
+			s.mu.Lock()
+			c, n, at := s.crash, len(s.crashes), s.nextAutoRestart
+			s.mu.Unlock()
+			if tc.kept && (c != crash || n != 1 || !at.Equal(next)) {
+				t.Fatalf("after the refused start: crash %v, %d counted, next automatic start %v; want them kept", c, n, at)
+			}
+			if !tc.kept && (c != nil || n != 0 || !at.IsZero()) {
+				t.Fatalf("after the start: crash %v, %d counted, next automatic start %v; want them forgotten", c, n, at)
+			}
+		})
 	}
 }
 

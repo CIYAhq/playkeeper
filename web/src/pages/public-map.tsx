@@ -14,12 +14,6 @@ import { cn } from '@/lib/utils'
 /** A shared map's link token: 22 letters and digits, like invite codes. */
 const reToken = /^[A-Za-z0-9]{22}$/
 
-/** The link token in a shared map page's path, or undefined for any other page. */
-export function publicMapToken(pathname: string): string | undefined {
-  const m = /^\/map\/([^/]*)\/?$/.exec(pathname)
-  return m ? (m[1] ?? '') : undefined
-}
-
 /**
  * The shared map at /map/<link token>, for anyone with the link and no
  * sign-in. A map that is turned off, a stopped server and a link that
@@ -29,11 +23,13 @@ export function PublicMapPage({ token }: { token: string }) {
   const valid = reToken.test(token)
   const base = `/api/public/map/${token}`
   const map = usePoll(() => (valid ? get<PublicMap>(base) : Promise.reject(new ApiError(404, { error: '', code: 'not_found' }))), 30_000, token)
-  const off = !valid || map.error?.status === 404
   const [last, setLast] = useState<PublicMap>()
   useEffect(() => {
     if (map.data) setLast(map.data)
   }, [map.data])
+  // Any failure before the map was ever shown, a proxy's 502 or a dropped
+  // connection too, reads as unavailable until an answer comes.
+  const off = !valid || map.error?.status === 404 || (!!map.error && !last)
   const shown = off ? undefined : (map.data ?? last)
 
   useEffect(() => {

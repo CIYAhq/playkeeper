@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArchiveIcon, ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArchiveIcon, ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, SlidersHorizontalIcon, Trash2Icon } from 'lucide-react'
 import { ApiError, del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
@@ -10,6 +10,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
+import { RestoreUnsettledNotice, WorldMissingNotice } from '@/components/app/world-missing'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -20,13 +21,13 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
-import { busyReason, failedJob, whyNot } from '@/lib/phase'
+import { busyReason, failedJob, restoreUnsettledReason, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
-import { linkPath, linkProps } from '@/lib/router'
+import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { CopyRestoreDialog, CopyRow, phoneStored, storedCell, storedRows, useCopyRestore, useStoredCopies, type StoredRow } from './copy-restore'
-import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
+import { OwnWorldLink, phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
 
 const newestShown = 6
 
@@ -50,14 +51,17 @@ function onlineBody(backups: Backup[]): string {
 }
 
 /**
- * World saving paused, scheduled backups refused since the last backup, a
- * backup that just failed, or a world a restore left behind, above the rest.
- * Refused scheduled backups stay until a backup succeeds.
+ * A world folder a restore left missing, alone; or world saving paused, with
+ * scheduled backups refused since the last backup beside it. Otherwise a
+ * restore that isn't settled, refused scheduled backups and a backup that just
+ * failed, above the world a restore left behind, whose Discard they never
+ * hide. Refused scheduled backups stay until a backup succeeds.
  */
 function WorldNotice({ server: s, className }: { server: ServerStatus; className?: string }) {
   const { stale } = useServerMachine(s)
   const [dismissed, setDismissed] = useState<string>()
   if (stale) return null
+  if (s.worldMissing) return <WorldMissingNotice server={s} className={className} />
   const refused = s.backupRefused
   const refusedNotice = refused && <BackupRefusedNotice server={s} refusal={refused} className={className} />
   if (s.savingPausedSince)
@@ -70,6 +74,7 @@ function WorldNotice({ server: s, className }: { server: ServerStatus; className
   const failed = failedJob(s)
   return (
     <>
+      <RestoreUnsettledNotice server={s} className={className} />
       {refusedNotice}
       {failed?.kind === 'backup' && failed.id !== refused?.operationId && dismissed !== failed.id && <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />}
       <LeftoverCopy server={s} className={className} />
@@ -89,7 +94,7 @@ function useReloadAfterJobs(s: ServerStatus, reload: () => Promise<void>) {
 
 export function WorldPage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
-  const { stale } = useServerMachine(s)
+  const { stale, offline } = useServerMachine(s)
   const phone = useIsPhone()
   const backups = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 10_000, s.id)
   useReloadAfterJobs(s, backups.refresh)
@@ -105,6 +110,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   const all = useMemo(() => storedRows(backups.data ?? [], stored.data?.copies ?? [], stored.data?.view), [backups.data, stored.data])
   const rows = useListPresence(backups.data ? (showAll ? all : all.slice(0, newestShown)) : undefined, rowKey)
   const restore = useCopyRestore(s, setPreview)
+  const restoreBlocked = whyNot(s, 'restore', offline)
   const jobDialog = <CopyRestoreDialog restore={restore} copies={copies} place={place} />
   const more =
     all.length > newestShown ? (
@@ -154,7 +160,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
                       <span className="block text-[13px] text-muted-foreground">{[formatBytes(r.copy.sizeBytes), phoneStored(r, place)].join(t('common.dot'))}</span>
                     </span>
                     {can(ws.me, 'backups.restore') && (
-                      <Button size="lg" variant="outline" onClick={() => void restore.start(r.copy)}>
+                      <Button size="lg" variant="outline" disabledReason={restoreBlocked} onClick={() => void restore.start(r.copy)}>
                         <RotateCcwIcon />
                         {t('world.restoreCopyShort')}
                       </Button>
@@ -188,7 +194,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             </a>
           </li>
           <li className="border-b border-border">
-            <button type="button" onClick={() => setRestoreSheet(true)} className={phoneRow}>
+            <button type="button" disabled={!!restoreBlocked} title={restoreBlocked} onClick={() => setRestoreSheet(true)} className={cn(phoneRow, 'disabled:cursor-not-allowed disabled:opacity-64')}>
               <RotateCcwIcon aria-hidden="true" />
               <span className="min-w-0 flex-1 text-base">{t('world.restorePhone')}</span>
               <ChevronRightIcon aria-hidden="true" />
@@ -209,7 +215,9 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
                     <li key={r.kind === 'there' ? r.copy.name : r.backup.id} className="border-b border-border last:border-b-0">
                       <button
                         type="button"
-                        className="flex min-h-14 w-full items-center gap-3 px-4 text-left"
+                        disabled={!!restoreBlocked}
+                        title={restoreBlocked}
+                        className="flex min-h-14 w-full items-center gap-3 px-4 text-left disabled:cursor-not-allowed disabled:opacity-64"
                         onClick={() => {
                           setRestoreSheet(false)
                           void (r.kind === 'there' ? restore.start(r.copy) : restoreFrom(r.backup))
@@ -228,6 +236,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
               <RestoreDropZone
                 server={s}
                 compact
+                disabledReason={restoreBlocked}
                 onPreview={(p) => {
                   setRestoreSheet(false)
                   setPreview(p)
@@ -245,7 +254,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   return (
     <>
       <WorldNotice server={s} />
-      <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <MakeBackup server={s} backups={backups.data ?? []} onDone={refresh} />
         <WorldInfo server={s} backups={backups.data} />
       </div>
@@ -289,8 +298,8 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
       </section>
       <Card className="mt-2">
         <CardTitle>{t('world.restore')}</CardTitle>
-        <div className="mt-4 grid items-center gap-5 md:grid-cols-[1.6fr_1fr]">
-          <RestoreDropZone server={s} onPreview={setPreview} />
+        <div className="mt-4 grid grid-cols-1 items-center gap-5 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <RestoreDropZone server={s} onPreview={setPreview} disabledReason={restoreBlocked} />
           <p className="text-[13px] text-muted-foreground">{t('world.restoreNote')}</p>
         </div>
       </Card>
@@ -307,7 +316,7 @@ function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatu
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
-  const blocked = whyNot(s, 'change', offline)
+  const blocked = whyNot(s, 'backup', offline)
   if (!can(ws.me, 'backups.make')) return null
 
   async function backup() {
@@ -386,27 +395,17 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
       </dl>
       <ul className="mt-3 flex flex-col">
         <WorldLinks server={s} />
-        <li>
-          <a
-            {...linkPath('/servers/new#world')}
-            className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-          >
-            <UploadIcon />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-semibold">{t('world.ownWorld')}</span>
-              <span className="block text-xs text-muted-foreground">{t('world.ownWorldHint')}</span>
-            </span>
-            <ChevronRightIcon className="transition-transform duration-(--motion-fast) ease-standard group-hover:translate-x-0.5" aria-hidden="true" />
-          </a>
-        </li>
+        <OwnWorldLink />
       </ul>
     </Card>
   )
 }
 
 function BackupRow({ server: s, backup: b, state, newest, copiesOn, stored, onRestore, onChanged }: { server: ServerStatus; backup: Backup; state: Presence; newest: boolean; copiesOn?: boolean; stored?: ReactNode; onRestore: () => void; onChanged: () => void }) {
+  const { offline } = useServerMachine(s)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
+  const restoreBlocked = whyNot(s, 'restore', offline)
 
   async function verify() {
     try {
@@ -476,7 +475,7 @@ function BackupRow({ server: s, backup: b, state, newest, copiesOn, stored, onRe
               <EllipsisIcon />
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-60">
-              <MenuItem onClick={onRestore} className="items-start py-1.5">
+              <MenuItem disabled={!!restoreBlocked} title={restoreBlocked} onClick={onRestore} className={cn('items-start py-1.5', restoreBlocked && 'data-disabled:pointer-events-auto')}>
                 <HistoryIcon className="mt-0.5" />
                 <span>
                   <span className="block">{t('world.restoreThis')}</span>
@@ -551,7 +550,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
           size={phone ? 'touch' : 'lg'}
           className="mt-5 max-sm:w-full"
           loading={busy || running}
-          disabledReason={whyNot(s, 'change', offline)}
+          disabledReason={whyNot(s, 'backup', offline)}
           onClick={async () => {
             setBusy(true)
             try {
@@ -635,7 +634,7 @@ function LeftoverNotice({ server: s, copy: c, state, onDiscarded, className }: {
       <Notice
         title={leftoverTitle(c)}
         action={
-          <Button variant="outline" size="sm" disabledReason={busyReason(s)} onClick={() => setConfirm(true)}>
+          <Button variant="outline" size="sm" disabledReason={busyReason(s) ?? restoreUnsettledReason(s)} onClick={() => setConfirm(true)}>
             <Trash2Icon />
             {t('world.leftoverDiscard')}
           </Button>

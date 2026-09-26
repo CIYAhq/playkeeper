@@ -9,7 +9,7 @@
   var FORMAT = 1; // templates.Format
   var STORE = 'playkeeper.dashboard';
   var HANDOFF = ['ready', 'newer', 'nopreview'];
-  var TYPES = { paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge' };
+  var TYPES = { paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge', forge: 'Forge' };
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   var form = document.getElementById('open');

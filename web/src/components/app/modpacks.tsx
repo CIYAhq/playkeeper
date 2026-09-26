@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { ArrowUpRightIcon, PackageIcon, RefreshCwIcon, SearchIcon } from 'lucide-react'
 import { modpackIcon, useModpackDetail, useModpackPreview, useModpacks, type ModpackSort } from '@/api/modpacks'
-import type { ModpackCard, ModpackDetail, ModpackSource } from '@/api/types'
+import type { ModpackCard, ModpackDetail, ModpackPreview, ModpackSource } from '@/api/types'
 import { TypeLogo } from '@/components/app/art'
 import { Notice } from '@/components/app/bits'
 import { ChoiceSelect } from '@/components/app/controls'
@@ -12,10 +12,12 @@ import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/c
 import { Skeleton } from '@/components/ui/skeleton'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatBytes, formatCompact, formatMB, relativeTime } from '@/lib/format'
+import { compactCount } from '@/lib/addons'
+import { formatBytes, formatMB, relativeTime } from '@/lib/format'
 import { linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
+import { useWorkspace } from '@/api/workspace'
 
 /** The pack a new server is made from. */
 export interface ModpackChoice {
@@ -27,7 +29,7 @@ export interface ModpackChoice {
   type: string
   minecraftVersion: string
   memoryMB: number
-  /** How many mods the chosen version brings, when the source says. */
+  /** How many mods the chosen version, or else the pack, brings, when the source says. */
   mods?: number
 }
 
@@ -41,11 +43,16 @@ function choiceOf(card: ModpackCard, detail?: ModpackDetail): ModpackChoice {
     type: newest?.type ?? card.types[0] ?? '',
     minecraftVersion: newest?.minecraftVersion ?? card.minecraftVersions[0] ?? '',
     memoryMB: detail?.memoryMB ?? card.memoryMB ?? 0,
-    mods: newest?.mods || undefined,
+    mods: newest?.mods || detail?.mods || card.mods || undefined,
   }
 }
 
-/** "Fabric Loader 0.17.2", "NeoForge 21.1.72". */
+/** The UDP port a new server opens for the pack's voice chat, when the pack brings it. */
+export function packVoicePort(p: ModpackPreview | undefined): number | undefined {
+  return p?.ports?.find((x) => x.protocol === 'udp')?.port
+}
+
+/** "Fabric Loader 0.17.2", "NeoForge 21.1.72", "Forge 65.1.3". */
 export function loaderLabel(type: string, version?: string): string {
   const name = type === 'fabric' ? t('modpacks.loader.fabric') : type === 'quilt' ? t('modpacks.loader.quilt') : typeName(type)
   return version ? `${name} ${version}` : name
@@ -183,7 +190,7 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
   const version = card.minecraftVersions[0] ?? ''
   const memory = card.memoryMB ? formatMB(card.memoryMB) : ''
   const facts = phone
-    ? [[typeName(type), version].filter(Boolean).join(' '), memory && t('modpacks.needsPhone', { memory }), formatCompact(card.downloads)]
+    ? [[typeName(type), version].filter(Boolean).join(' '), memory && t('modpacks.needsPhone', { memory }), compactCount(card.downloads)]
     : [version && t('server.minecraft', { version }), card.mods ? t('modpacks.mods', { count: card.mods }) : '']
   return (
     <div className={cn('flex items-center rounded-2xl border transition-[box-shadow,border-color,background-color]', selected ? 'border-primary/55 bg-selected shadow-selected' : 'border-border bg-card hover:border-input', card.unavailable && 'opacity-60')}>
@@ -207,7 +214,7 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
         {!phone && (
           <span className="shrink-0 pl-3 text-right">
             {memory && <span className="block text-[13px] font-semibold">{t('modpacks.needs', { memory })}</span>}
-            <span className="block text-xs text-muted-foreground">{t('modpacks.downloads', { count: formatCompact(card.downloads) })}</span>
+            <span className="block text-xs text-muted-foreground">{t('modpacks.downloads', { count: compactCount(card.downloads) })}</span>
           </span>
         )}
       </button>
@@ -229,10 +236,12 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
 }
 
 function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: string; card?: ModpackCard; phone: boolean; onClose: () => void; onUse: (c: ModpackChoice) => void }) {
+  const ws = useWorkspace()
   const detail = useModpackDetail(machineId, card?.source, card?.projectId)
   const d = detail.data
   const preview = useModpackPreview(machineId, card?.source, card?.projectId, d?.newest)
   const p = preview.data
+  const voicePort = packVoicePort(p)
   const newest = d?.versions.find((v) => v.id === d.newest)
   const source = card ? sourceName(card.source) : ''
   const blocker = p && !p.ready ? p.blockers[0] : undefined
@@ -289,6 +298,12 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
                 <h3 className="text-sm font-semibold">{t('modpacks.friends')}</h3>
                 <p className="mt-1 text-[13px] text-muted-foreground">{t('modpacks.friendsBody')}</p>
               </section>
+              {voicePort !== undefined && (
+                <section className="animate-fade">
+                  <h3 className="text-sm font-semibold">{t('voice.ownPort')}</h3>
+                  <p className="mt-1 text-[13px] text-muted-foreground">{t('voice.firewall', { machine: ws.machineName, port: voicePort })}</p>
+                </section>
+              )}
               <a href={card.pageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 self-start text-[13px] font-semibold text-success-strong hover:underline">
                 {t('modpacks.open', { source })}
                 <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />

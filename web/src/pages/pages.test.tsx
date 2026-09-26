@@ -23,6 +23,7 @@ import type {
   Me,
   MemoryAdvice,
   MetricsResponse,
+  ModpackCard,
   ModpackDetail,
   ModpackResults,
   OffsiteCopy,
@@ -55,14 +56,14 @@ import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
-import { formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { formatClock, formatDate, formatDuration, formatLongDate } from '@/lib/format'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
 import { JoinPage } from './join'
 import { DashboardMachineOnly, MachinePage } from './machine'
 import { MachineSettingsPage } from './machine-settings'
-import { forgetJoinCode, MachinesSection } from './machines'
+import { forgetJoinCode, MachineDetailsSection, MachinesSection } from './machines'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { RecoverPage } from './recover'
@@ -305,6 +306,16 @@ describe('Home', () => {
     const text = await render(<HomePage />, workspace({ servers: [] }))
     expect(text).toContain('No servers yet')
     for (const step of ['Create your first server', 'Invite a friend', 'A friend joins', 'Make a backup', 'Download it']) expect(text).toContain(step)
+  })
+
+  it('shows a sleeping server, the memory it gave back, and wakes it', async () => {
+    const asleep = server({ phase: 'asleep', desired: 'sleeping', sleep: { enabled: true, idleMinutes: 15, listening: true } })
+    const sleeping = { ...machine, live: machine.live && { ...machine.live, sleepingMemoryMB: 4096 } }
+    const text = await render(<HomePage />, workspace({ machine: sleeping, machines: [sleeping], servers: [asleep] }))
+    expect(text).toContain('Asleep · wakes on join')
+    expect(text).toContain('Survival gave back 4 GB')
+    await click(button('Wake up'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/start', {})
   })
 
   it('shows each server with who is playing and its address', async () => {
@@ -566,6 +577,54 @@ describe('Overview notices', () => {
   it('asks for a restart when settings changed', async () => {
     expect(await render(<Overview server={server({ pendingRestart: true })} />)).toContain('Restart Survival to use them.')
   })
+
+  const memoryKill = (over: Partial<Crash>): Crash => ({
+    at: new Date(Date.now() - 60_000).toISOString(),
+    start: false,
+    kind: 'container_memory_limit',
+    params: { budget_mb: 2048, heap_mb: 1268 },
+    certain: true,
+    title: 'It ran out of memory',
+    explanation: '',
+    evidence: [],
+    fixes: [
+      { kind: 'raise_memory', params: { from_mb: 2048, to_mb: 3072 }, title: 'Give it 3 GB instead of 2 GB', recommended: true },
+      { kind: 'restart', title: 'Start the server again' },
+    ],
+    lines: [],
+    roomMB: 1280,
+    ...over,
+  })
+  const noticeButton = (label: string) => {
+    const notice = [...document.querySelectorAll('[role="status"]')].find((n) => n.textContent?.includes('ran out of memory'))
+    return [...(notice?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.includes(label))
+  }
+
+  it('says a server that came back on its own had run out of memory, and gives it more with a restart', async () => {
+    vi.mocked(client.post).mockClear()
+    const recoveredCrash = memoryKill({})
+    const text = await render(<Overview server={server({ recoveredCrash })} />)
+    expect(text).toContain(`Survival ran out of memory at ${formatClock(recoveredCrash.at)}`)
+    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again.')
+    await press('Give Survival 3 GB')
+    expect(posts()).toEqual([['/settings', { memoryMB: 3072, restart: true }]])
+    await act(async () => noticeButton('Dismiss')?.click())
+    expect(document.body.textContent).not.toContain('ran out of memory')
+  })
+
+  it('says when the machine has no memory to give a server that ran out of it', async () => {
+    const recoveredCrash = memoryKill({
+      roomMB: 0,
+      fixes: [
+        { kind: 'lower_view_distance', params: { from: 12, to: 8 }, title: 'Lower the view distance from 12 to 8', recommended: true },
+        { kind: 'upgrade_host', params: { resource: 'memory' }, title: 'Move to a machine with more memory' },
+      ],
+    })
+    const text = await render(<Overview server={server({ recoveredCrash })} />)
+    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again. my-vps has no memory to spare for more.')
+    expect(noticeButton('Lower view distance to 8')).toBeDefined()
+    expect(await render(<Overview server={server({ recoveredCrash: memoryKill({ kind: 'port_in_use', params: { port: 25565 } }) })} />)).not.toContain('ran out of memory')
+  })
 })
 
 describe('Overview', () => {
@@ -591,6 +650,24 @@ describe('Overview', () => {
     expect(steps[2]?.querySelector('.text-destructive-foreground')).toBeNull()
     expect(steps[1]?.textContent).not.toContain('Checksum matched')
     expect(text).not.toContain('Checksum matched')
+  })
+
+  // A create that failed before the server ever started shows this card on every
+  // tab, Settings too, so its Delete server… has to open the dialog right here.
+  it('deletes a server whose create never started from the card', async () => {
+    const s = server({ phase: 'stopped', startedAt: undefined, lastOperation: failed('create', 'downloading_server', 'Downloading the Minecraft server software failed (exit code 1).') })
+    vi.mocked(client.post).mockClear()
+    await render(<Overview server={s} />)
+    await press('Delete server')
+    expect(document.body.textContent).toContain('Delete Survival?')
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')
+    if (!input) throw new Error('no name field in the delete dialog')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'Survival')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await press('Delete Survival')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/delete', { confirm: 'Survival' })
   })
 
   it('keeps a template’s skipped add-on on the Overview after setup, with Try again', async () => {
@@ -876,6 +953,13 @@ describe('Settings › Memory', () => {
     expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('33')
     expect(text).toContain('Day 1 of 3')
     expect(document.querySelector('[role="img"]')).toBeNull()
+  })
+
+  it('counts fewer friends for a mod loader until it can suggest a size', async () => {
+    const early: MemoryAdvice = { ...keep, verdict: 'not_enough_data', params: { days: 1, min_days: 3, min_span_days: 7, span_days: 1 }, recommendedMB: undefined, options: options.map((o) => ({ ...o, fit: undefined })) }
+    answer({ '/memory': early })
+    const text = await render(<ServerSettingsPage server={server({ type: 'neoforge' })} />)
+    expect(text).toContain('Suggests a size after 3 days of play. Until then, 4 GB suits up to 4 friends.')
   })
 
   it('keeps the section in the address current in the nav while the one above it is still in view', async () => {
@@ -1432,6 +1516,18 @@ describe('Templates', () => {
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
   })
 
+  it('sizes a mod loader template’s memory for its type and mods', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValue({ ...plan, type: 'quilt', versionId: 'quilt-26.1.2', contents: { ...contents, type: 'quilt' } })
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    await click('Continue to memory')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Room for about 4 players')
+    expect(text).toContain('Java gets 2.2 GB of it')
+  })
+
   it('says on which day a template was made, and never who made it', async () => {
     window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
     vi.mocked(client.api).mockResolvedValue({ ...plan, contents: { ...contents, author: 'siya', created: '2026-09-25' } })
@@ -1639,9 +1735,56 @@ describe('Modpacks', () => {
     expect(document.body.textContent).toContain('Playkeeper can’t set up this pack')
   })
 
+  /** Opens the details of a pack whose plan has these ports, on a machine of its own: modpack answers are kept for a few minutes. */
+  async function openPackPlan(projectId: string, ports?: { protocol: 'udp'; port: number }[]): Promise<string> {
+    const plan = { type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', files: 17, downloadSize: 16_000_000, ready: true, blockers: [], warnings: [], manual: [], ports }
+    const card = { ...results.cards[0], projectId, name: `Voice Pack ${projectId}` } as ModpackCard
+    const detail: ModpackDetail = { ...card, versions: [{ id: `${projectId}V`, number: '1.2', channel: 'release', published: '2026-09-01T00:00:00Z', size: 16_000_000, type: 'fabric', minecraftVersion: '26.2', mods: 17 }], newest: `${projectId}V` }
+    answer({ '/preview': plan, [`/modpacks/modrinth/${projectId}`]: detail, '/modpacks?': { ...results, cards: [card] } })
+    await render(<ModpackPicker machineId={`m${projectId.toLowerCase()}`} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith(card.name))
+    await act(async () => row?.click())
+    for (let i = 0; i < 4; i++) await act(async () => {})
+    expect([...document.querySelectorAll('button')].find((b) => b.textContent === 'Use this modpack')?.disabled).toBe(false)
+    return document.body.textContent ?? ''
+  }
+
+  it('names the UDP port voice chat needs in the pack’s plan', async () => {
+    const text = await openPackPlan('VOIC0001', [{ protocol: 'udp', port: 24455 }])
+    expect(text).toContain('Voice travels on its own port')
+    expect(text).toContain('Playkeeper opens it on my-vps. Open UDP 24455 in your provider’s firewall too.')
+  })
+
+  it('says nothing about a port for a pack without voice chat', async () => {
+    expect(await openPackPlan('VOIC0002')).not.toContain('Voice travels on its own port')
+  })
+
+  it('lays out every server type in whole rows, Forge with its logo', async () => {
+    window.history.replaceState(null, '', '/servers/new')
+    const ids = ['paper', 'vanilla', 'purpur', 'fabric', 'quilt', 'neoforge', 'forge']
+    const names: Record<string, string> = { paper: 'Paper', vanilla: 'Vanilla', purpur: 'Purpur', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge', forge: 'Forge' }
+    const cards = () => [...document.querySelectorAll('[role="radiogroup"][aria-label="Server type"] label')]
+    const catalog: Catalog = { type: 'paper', types: [], versions: [], memoryOptionsMB: [2048, 3072, 4096], recommendedMemoryMB: 2048, hostMemoryMB: 16384, maxMemoryMB: 4096, systemReserveMB: 1536, memoryFreeMB: 10752, servers: [], image: '' }
+    answer({ '/catalog': { ...catalog, types: ids.map((id) => ({ id, name: names[id] ?? id, available: true })) } })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    const all = cards()
+    expect(all.map((c) => c.querySelector('.font-semibold')?.textContent?.replace('Recommended', ''))).toEqual(Object.values(names))
+    expect(all.map((c) => c.classList.contains('col-span-full'))).toEqual([true, false, false, false, false, false, false])
+    const forge = all[6]
+    expect(forge?.textContent).toContain('The original loader for Forge mods.')
+    expect(forge?.querySelector('img')?.getAttribute('src')).toContain('forge-apple-touch-icon')
+
+    answer({ '/catalog': { ...catalog, types: ids.slice(0, 6).map((id) => ({ id, name: names[id] ?? id, available: true })) } })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    expect(cards().some((c) => c.classList.contains('col-span-full'))).toBe(false)
+  })
+
   it('says what a pack’s server downloads, not Paper', () => {
     expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
     expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')
+    expect(createNote(4, 'modpack', 'forge')).toContain('downloads Forge and the pack’s mods')
     expect(createNote(4, 'modpack', '')).not.toContain('Paper')
     expect(createNote(4, 'type', 'purpur')).toContain('downloads Purpur, checks it')
     expect(createNote(0, 'modpack', 'fabric')).toBe('Friends install the same modpack. You get a link to send.')
@@ -2665,6 +2808,49 @@ describe('World backups with copies', () => {
     await rerender(server({ lastOperation: { id: 'op-restore', kind: 'restore', status: 'succeeded', phase: 'starting', actor: 'siya', startedAt: '2026-09-25T18:52:00Z' } }))
     expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
   })
+
+  it('won’t restore a copy while a restore left the world folder missing, and says why', async () => {
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing })} />)
+    const restore = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore…')
+    expect(restore?.disabled).toBe(true)
+    expect(restore?.title).toBe('Its world folder is missing. Move the previous world back first.')
+  })
+
+  const onPhone = () => vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+
+  it('won’t restore a copy from a phone while a restore left the world folder missing, and says why', async () => {
+    const phone = onPhone()
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing })} />)
+    const restore = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore')
+    expect(restore?.disabled).toBe(true)
+    expect(restore?.title).toBe('Its world folder is missing. Move the previous world back first.')
+    phone.mockRestore()
+  })
+
+  it('stops offering restores in the phone’s sheet once a restore isn’t finished, and says why', async () => {
+    const why = 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'
+    const phone = onPhone()
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore a world')?.click())
+    await act(async () => {})
+    await rerender(server({ phase: 'stopped', restoreUnsettled: {} }))
+    const sheet = document.querySelector('[role="dialog"]')
+    const choose = [...(sheet?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'choose a file')
+    expect(choose?.disabled).toBe(true)
+    expect(choose?.title).toBe(why)
+    const rows = [...(sheet?.querySelectorAll<HTMLButtonElement>('ul li button') ?? [])]
+    expect(rows).toHaveLength(2)
+    expect(rows.map((b) => [b.disabled, b.title])).toEqual([
+      [true, why],
+      [true, why],
+    ])
+    phone.mockRestore()
+  })
 })
 
 describe('Restore from a recovery key', () => {
@@ -2903,6 +3089,22 @@ describe('Machines and AI agents', () => {
     expect(copy?.title).toBe(reason)
   })
 
+  it('says on a joined machine’s details that its agent stopped answering, as the sidebar does', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      error: { error: 'The agent on home-server isn’t answering.', code: 'agent_unavailable' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), rttMs: 0.5, problems: [] },
+    }
+    const silent = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, home] }))
+    expect(silent).toContain('The agent on home-server stopped answering')
+    expect(silent).toContain('Restart it on home-server: sudo systemctl restart playkeeper-agent')
+    const answering = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, { ...home, error: undefined, live: machine.live }] }))
+    expect(answering).not.toContain('stopped answering')
+  })
+
   it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {
     const home: MachineView = {
       id: 'h2345abcde',
@@ -3050,5 +3252,198 @@ describe('Backup upload', () => {
     expect(client.api).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith({ title: 'That file is too big to be a Playkeeper backup.', type: 'error' })
     toast.mockRestore()
+  })
+})
+
+// Found checking the restore path on a real server.
+describe('A restore that didn’t finish', () => {
+  const missing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+  const copies = [
+    { name: 'data.failed-restore-20260926-103028', kind: 'failed_restore', createdAt: '2026-09-26T10:30:28Z', sizeBytes: 70 * 2 ** 20 },
+    { name: 'data.replaced-20260926-103028', kind: 'previous', createdAt: '2026-09-26T10:30:28Z', sizeBytes: 16 * 2 ** 20 },
+  ]
+  const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+
+  it('says where the previous world is while the world folder is missing, long after the restore failed', async () => {
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString()
+    const restore: Operation = { ...failed('restore', 'reverting', 'The restored world did not start. Putting the previous world back failed.'), startedAt: hourAgo, finishedAt: hourAgo }
+    const s = server({ phase: 'stopped', worldMissing: missing, lastOperation: restore })
+    const overview = await render(<Overview server={s} />)
+    expect(overview).toContain('A restore didn’t finish, so Survival has no world folder')
+    expect(overview).toContain(`Your previous world is safe in ${missing.previous}. Move it back to ${missing.dataDir}, then press Start.`)
+    answer({ '/world-copies': copies, '/backups': [] })
+    const world = await render(<WorldPage server={s} />)
+    expect(world).toContain('A restore didn’t finish, so Survival has no world folder')
+    expect(world).not.toContain('A restored world that didn’t start is still on this VPS')
+  })
+
+  it('drops a start or a backup refused for the missing world folder once the world is back', async () => {
+    const refused = failed('backup', '', `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`, { errorKind: 'world_missing' })
+    answer({ '/world-copies': copies, '/backups': [] })
+    expect(await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing, lastOperation: refused })} />)).toContain('A restore didn’t finish, so Survival has no world folder')
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [] })
+    const back = await render(<WorldPage server={server({ phase: 'stopped', lastOperation: refused })} />)
+    expect(back).not.toContain('Backing up Survival failed')
+    expect(back).toContain('A restored world that didn’t start is still on this VPS')
+    const start = failed('start', '', 'The world folder is missing because a restore did not finish.', { errorKind: 'world_missing' })
+    expect(await render(<Overview server={server({ phase: 'stopped', lastOperation: start })} />)).not.toContain('Starting Survival failed')
+  })
+
+  it('drops a start refused while a restore wasn’t finished once it is', async () => {
+    const start = failed('start', '', "A restore isn't finished, so Survival can't start until it is.", { errorKind: 'restore_unsettled' })
+    expect(await render(<Overview server={server({ phase: 'stopped', restoreUnsettled: {}, lastOperation: start })} />)).toContain('Starting Survival failed')
+    expect(await render(<Overview server={server({ phase: 'stopped', lastOperation: start })} />)).not.toContain('Starting Survival failed')
+  })
+
+  it('keeps a world copy’s Discard under a backup that just failed', async () => {
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [] })
+    const text = await render(<WorldPage server={server({ lastOperation: failed('backup', '', 'Not enough disk space for a backup.', { neededBytes: 2 ** 40 }) })} />)
+    expect(text).toContain('Backing up Survival failed')
+    expect(text).toContain('A restored world that didn’t start is still on this VPS')
+    expect(button('Discard')).toBeDefined()
+  })
+
+  it('says on Home that the world folder is missing, and lets only a stopped server nap', async () => {
+    const stoppedAt = new Date(Date.now() - 5 * 60_000).toISOString()
+    const text = await render(<HomePage />, workspace({ servers: [server({ phase: 'stopped', stoppedAt, worldMissing: missing })] }))
+    expect(text).toContain('World folder missing')
+    expect(text).not.toContain('Napping')
+    expect(button('Start')).toBeUndefined()
+    expect(await render(<HomePage />, workspace({ servers: [server({ phase: 'stopped', stoppedAt })] }))).toContain('Napping for 5 minutes')
+  })
+
+  it('doesn’t offer a backup while the world folder is missing, and says why', async () => {
+    const why = 'Its world folder is missing. Move the previous world back first.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies, '/backups': [] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Make my first backup')?.disabled).toBe(true)
+    expect(button('Make my first backup')?.title).toBe(why)
+    answer({ '/world-copies': copies, '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Back up now')?.disabled).toBe(true)
+    expect(button('Back up now')?.title).toBe(why)
+    answer({ '/world-copies': [], '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    expect(button('Back up now')?.disabled).toBe(false)
+
+    await render(<ServerPage slug="survival" tab="overview" />, workspace({ servers: [server({ phase: 'stopped', worldMissing: missing })] }))
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="More actions"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === 'Back up now')
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
+  })
+
+  it('doesn’t offer a restore while the world folder is missing, and says why', async () => {
+    const why = 'Its world folder is missing. Move the previous world back first.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies, '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('choose a file')?.disabled).toBe(true)
+    expect(button('choose a file')?.title).toBe(why)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.startsWith('Restore this backup'))
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
+
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Restore a world')?.disabled).toBe(true)
+    expect(button('Restore a world')?.title).toBe(why)
+    phone.mockRestore()
+
+    answer({ '/world-copies': [], '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    expect(button('choose a file')?.disabled).toBe(false)
+  })
+
+  it('doesn’t offer a restore while another isn’t finished, and says why', async () => {
+    const why = 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', restoreUnsettled: {} })} />)
+    expect(button('choose a file')?.disabled).toBe(true)
+    expect(button('choose a file')?.title).toBe(why)
+    expect(button('Back up now')?.disabled).toBe(false)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.startsWith('Restore this backup'))
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
+  })
+
+  it('says on the World tab when a restore isn’t finished, and what finishes it', async () => {
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    const stuck = "The swap journal in /var/lib/playkeeper/restore-staging/8fae916f8b8f5482 can't be read (unreadable swap journal: unexpected end of JSON input)."
+    const cases: { name: string; over: Partial<ServerStatus>; phone?: boolean; notice?: string }[] = [
+      { name: 'stopped', over: { phase: 'stopped', restoreUnsettled: {} }, notice: 'A restore isn’t finished. Playkeeper finishes it in a moment.' },
+      { name: 'running', over: { phase: 'online', restoreUnsettled: {} }, notice: 'A restore isn’t finished. Stop Survival and Playkeeper finishes it.' },
+      { name: 'running, on a phone', over: { phase: 'online', restoreUnsettled: {} }, phone: true, notice: 'A restore isn’t finished. Stop Survival and Playkeeper finishes it.' },
+      { name: 'stuck', over: { phase: 'stopped', restoreUnsettled: { problem: stuck } }, notice: `A restore isn’t finished, and Playkeeper couldn’t finish it.${stuck}` },
+      { name: 'world folder missing', over: { phase: 'stopped', restoreUnsettled: {}, worldMissing: missing } },
+      { name: 'settled', over: { phase: 'stopped' } },
+    ]
+    for (const c of cases) {
+      const phone = c.phone ? vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false })) : undefined
+      answer({ '/world-copies': [], '/backups': [made] })
+      await render(<WorldPage server={server(c.over)} />)
+      const shown = [...document.querySelectorAll('[role="status"], [role="alert"]')].map((el) => el.textContent ?? '').find((text) => text.startsWith('A restore isn’t finished'))
+      expect(shown, c.name).toBe(c.notice)
+      phone?.mockRestore()
+    }
+  })
+
+  it('keeps a world copy’s Discard off while a restore isn’t finished, and says why', async () => {
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    const operation: Operation = { id: 'backup-1', kind: 'backup', status: 'running', phase: 'archiving', actor: 'siya', startedAt: new Date().toISOString() }
+    const cases: { name: string; over: Partial<ServerStatus>; discard: [boolean, string] }[] = [
+      { name: 'a restore isn’t finished', over: { phase: 'stopped', restoreUnsettled: {} }, discard: [true, 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'] },
+      { name: 'a restore Playkeeper couldn’t finish', over: { phase: 'stopped', restoreUnsettled: { problem: 'Saving the settings failed: disk I/O error.' } }, discard: [true, 'A restore isn’t finished, and Playkeeper couldn’t finish it.'] },
+      { name: 'another job runs', over: { phase: 'stopped', operation }, discard: [true, 'Backing up Survival. Try again when it’s done.'] },
+      { name: 'nothing to wait for', over: { phase: 'stopped' }, discard: [false, ''] },
+    ]
+    for (const c of cases) {
+      answer({ '/world-copies': copies.slice(0, 1), '/backups': [made] })
+      await render(<WorldPage server={server(c.over)} />)
+      const discard = button('Discard')
+      expect([discard?.disabled, discard?.title], c.name).toEqual(c.discard)
+    }
+  })
+
+  it('says what to do when a new icon is refused for the missing world folder', async () => {
+    const message = `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`
+    const hint = `Move that folder back to ${missing.dataDir}, then upload the icon again.`
+    vi.mocked(client.api).mockImplementation(((_method: string, path: string) => (path.endsWith('/icon') ? Promise.reject(new client.ApiError(409, { error: message, code: 'world_missing', hint })) : new Promise(() => {}))) as typeof client.api)
+    // happy-dom has no images or canvas, so the picture comes out of stand-ins as a 64 × 64 PNG header.
+    const png = new Blob([Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 64, 0, 0, 0, 64)], { type: 'image/png' })
+    vi.stubGlobal('createImageBitmap', async () => ({ width: 64, height: 64 }))
+    const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => ({ drawImage: () => {} })) as unknown as HTMLCanvasElement['getContext'])
+    const dataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,')
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((done: BlobCallback) => done(png))
+    const toast = vi.spyOn(toastManager, 'add')
+    await render(<ServerSettingsPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    const input = document.querySelector<HTMLInputElement>('input[type=file][aria-label="Upload picture"]')
+    if (!input) throw new Error('no icon upload')
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'icon.png', { type: 'image/png' })], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await act(async () => {})
+    expect(toast).toHaveBeenCalledWith({ title: message, description: hint, type: 'error' })
+    for (const spy of [toast, toBlob, dataURL, context]) spy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('shortens a long activity line instead of widening the page', async () => {
+    answer({ '/activity': [{ ts: new Date().toISOString(), serverId: 'abcdefghjk', kind: 'restored_after_restart' }] })
+    await render(<HomePage />)
+    const line = [...document.querySelectorAll('li > span')].find((el) => el.textContent === 'Survival restored after Playkeeper restarted')
+    // happy-dom has no layout. A line with no width of its own can't push its card past a phone's screen.
+    expect(line?.className.split(' ')).toContain('w-0')
   })
 })

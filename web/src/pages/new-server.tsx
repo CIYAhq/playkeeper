@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
+import { useModpackDetail, useModpackPreview } from '@/api/modpacks'
 import { useBuilds } from '@/api/software'
 import { planTemplate } from '@/api/templates'
 import type { MachineView, Operation, RestorePreview, ServerStatus, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
@@ -9,9 +10,9 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
-import { budgetAdvice, createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
+import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
-import { ModpackPicker, type ModpackChoice } from '@/components/app/modpacks'
+import { ModpackPicker, packVoicePort, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
 import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
@@ -27,6 +28,7 @@ import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { demo } from '@/lib/demo'
 import { formatList, formatMB } from '@/lib/format'
+import { playersFor } from '@/lib/memory'
 import { isAway, machineLabel } from '@/lib/machines'
 import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
@@ -55,10 +57,13 @@ const allStartFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[]
 ]
 const startFroms = allStartFroms.filter((f) => f.value === 'type' || f.value === 'world' || demo?.templates !== false)
 
-/** A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped. */
-export function packRequest(c: CreateChoices, pack: ModpackChoice) {
+/**
+ * A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped.
+ * openPorts is set once the pack's plan named the port its voice chat needs, next to the Create button.
+ */
+export function packRequest(c: CreateChoices, pack: ModpackChoice, openPorts = false) {
   const { name, acceptEula, memoryMB, motd, maxPlayers } = createRequest(c)
-  return { name, acceptEula, memoryMB, motd, maxPlayers, acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId } }
+  return { name, acceptEula, memoryMB, motd, maxPlayers, acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId, ...(openPorts ? { openPorts } : {}) } }
 }
 
 /** The template decides the type, version and settings: the request names only the plan the user saw. */
@@ -144,6 +149,11 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const [from, setFrom] = useState<StartFrom>(() => (handoff ? 'template' : window.location.hash === '#world' ? 'world' : 'type'))
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
+  // The chosen pack's plan says whether it brings voice chat, whose port the last step names.
+  const packDetail = useModpackDetail(packed ? target?.id : undefined, pack?.source, pack?.projectId)
+  const packPlan = useModpackPreview(packed ? target?.id : undefined, pack?.source, pack?.projectId, pack?.versionId || packDetail.data?.newest)
+  const voicePort = packed ? packVoicePort(packPlan.data) : undefined
+  const planPending = packed && !packPlan.data && !packPlan.error && !packDetail.error
   // A pack's mods size its memory options, as the sizing guide does.
   const { catalog, error, reload } = useCatalog(target?.id, { type: c?.type ?? 'paper', mods: packed ? pack.mods : undefined, fresh: true })
   const [tpl, setTpl] = useState<TemplateChoice>()
@@ -187,6 +197,8 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const update = (patch: Partial<CreateChoices>) => setC((prev) => (prev ? { ...prev, ...patch } : prev))
   const options = memoryOptions(catalog)
   const noMemory = !!catalog && options.length === 0
+  const runsType = from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type
+  const runsMods = from === 'modpack' ? (pack?.mods ?? 0) : from === 'template' ? (tpl?.plan.contents.addons.length ?? 0) : 0
 
   function blocked(): string | undefined {
     if (away) return away
@@ -219,7 +231,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       case 3:
         return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: machineName }) : undefined
       default:
-        return packed || templated ? nameBlocked(c) : createBlocked(c, version)
+        return (packed || templated ? nameBlocked(c) : createBlocked(c, version)) ?? (planPending ? t('reason.checkingPack') : undefined)
     }
   }
 
@@ -239,7 +251,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
         })
         upload.keep()
       } else {
-        const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack) : createRequest(c)
+        const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack, voicePort !== undefined) : createRequest(c)
         op = await post<Operation>(machineApi(target.id, '/servers'), body)
       }
       await openCreated(op, ws.refresh)
@@ -533,7 +545,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
               </div>
             )}
             {mods ? (
-              <p className="text-xs text-muted-foreground max-sm:text-[13px]">{t(c.type === 'neoforge' ? 'new.friendsNeoForge' : 'new.friendsLoader')}</p>
+              <p className="text-xs text-muted-foreground max-sm:text-[13px]">{t(c.type === 'neoforge' ? 'new.friendsNeoForge' : c.type === 'forge' ? 'new.friendsForge' : 'new.friendsLoader')}</p>
             ) : phone ? (
               <p className="mt-2 text-[13px] text-muted-foreground">{t('new.forwardBody')}</p>
             ) : (
@@ -586,7 +598,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
                       ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) })
                       : packMB && pack
                         ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) })
-                        : t('new.memoryLead', { memory: formatMB(suggested), players: budgetAdvice(catalog, suggested)?.players || (preset(c.style)?.players ?? 10) })}
+                        : t('new.memoryLead', { memory: formatMB(suggested), count: playersFor(suggested, catalog?.sizing, runsType) })}
                 </p>
               )}
             </div>
@@ -606,7 +618,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} advice={budgetAdvice(catalog, c.memoryMB)} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing} type={runsType} mods={runsMods} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
                     </div>
                   </div>
                   {largest !== undefined && (
@@ -648,6 +660,12 @@ export function NewServerPage({ machine }: { machine?: string }) {
               </label>
             )}
             <EulaCheck checked={c.eula} onChange={(eula) => update({ eula })} className="mt-2 rounded-2xl border border-border p-3.5 max-sm:bg-white" />
+            {voicePort !== undefined && (
+              <div className="animate-fade rounded-2xl border border-border p-3.5 max-sm:bg-white">
+                <p className="text-[13px] font-semibold max-sm:text-[15px]">{t('voice.ownPort')}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground max-sm:text-[13px]">{t('voice.firewall', { machine: machineName, port: voicePort })}</p>
+              </div>
+            )}
             {createError && (
               <p className="text-[13px] text-destructive-foreground" role="alert">
                 {createError}
@@ -658,7 +676,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
     }
   }
 
-  const note = createNote(step, from, from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type)
+  const note = createNote(step, from, runsType)
   const worldSummary = world ? { from: sourceFrom(source), name: upload.state.phase === 'idle' ? '' : uploadName(upload.state.files), upload: upload.state, version: inspected ? versionChange(inspected.preview) : '' } : undefined
   const stepBody = (
     <div key={step} className={cn(stepped && 'animate-page')}>
@@ -673,7 +691,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const worldKeys = world ? worldStepKeys[step] : undefined
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
   const continueLabel =
-    step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : worldKeys && (!phone || step === 0) ? t(worldKeys.button) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
+    step === 4 ? (voicePort !== undefined ? t('new.createOpenPort') : t('new.create', { name: c?.name.trim() || t('nav.newServer') })) : worldKeys && (!phone || step === 0) ? t(worldKeys.button) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
   const nextHint = worldKeys ? t(worldKeys.next) : step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
@@ -789,7 +807,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       />
       <PageBody className="flex flex-col gap-5">
         <Stepper steps={stepTitles} current={step} label={t('new.steps')} skip={world ? 2 : undefined} />
-        <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
           <div className="flex min-w-0 flex-col">
             {stepBody}
             <div className="mt-6 flex items-center gap-3 border-t border-border pt-4">
@@ -807,7 +825,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
             </div>
             {!world && <div className="mt-4">{restoreLink}</div>}
           </div>
-          <aside className="self-start">
+          <aside className="self-start" aria-label={t('new.summary')}>
             {summary}
           </aside>
         </div>

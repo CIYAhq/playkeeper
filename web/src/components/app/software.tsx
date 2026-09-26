@@ -121,9 +121,10 @@ const buildLabels: Record<string, { label: MessageKey; hint: MessageKey }> = {
   fabric: { label: 'new.buildLabel.fabric', hint: 'new.buildHint.loader' },
   quilt: { label: 'new.buildLabel.quilt', hint: 'new.buildHint.loader' },
   neoforge: { label: 'new.buildLabel.neoforge', hint: 'new.buildHint.other' },
+  forge: { label: 'new.buildLabel.forge', hint: 'new.buildHint.other' },
 }
 
-/** The loader, Purpur build or NeoForge version to run, newest preselected. */
+/** The loader, Purpur build, or NeoForge or Forge version to run, newest preselected. */
 export function BuildSelect({ type, builds, loading, error, onRetry, value, onChange }: { type: string; builds: SoftwareBuild[] | undefined; loading: boolean; error?: string; onRetry: () => void; value: string; onChange: (build: string) => void }) {
   const keys = buildLabels[type]
   if (!keys) return null
@@ -231,7 +232,7 @@ export function SoftwareChangedView({ server: s, change }: { server: ServerStatu
     </>
   )
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
       <Card className="p-6 max-sm:p-4">
         <div className="flex items-start gap-5 max-sm:gap-3">
           <Pip pose="search" size={phone ? 56 : 80} />

@@ -22,7 +22,7 @@ import { PhoneActionBar, WorldSubHeader } from './world-sub'
 
 const presetNames: Record<PregenPresetId, MessageKey> = { small: 'pregen.small', medium: 'pregen.medium', large: 'pregen.large', huge: 'pregen.huge' }
 const actingKeys: Record<'pause' | 'continue' | 'cancel', MessageKey> = { pause: 'pregen.pausing', continue: 'pregen.resuming', cancel: 'pregen.cancelling' }
-const modServers = new Set(['fabric', 'quilt', 'neoforge'])
+const modServers = new Set(['fabric', 'quilt', 'neoforge', 'forge'])
 
 /** A length of time, rounded the way people say it: minutes, half hours under ten hours, hours, then days. */
 export function roughTime(seconds: number): { unit: 'min' | 'h' | 'days'; count: number } {
@@ -191,7 +191,7 @@ function PregenSkeleton() {
   const phone = useIsPhone()
   if (phone) {
     return (
-      <div className="flex flex-col gap-3 pt-1">
+      <div className="flex flex-col gap-3">
         <p className="px-1 text-[15px] leading-5 text-muted-foreground">{t('pregen.hint')}</p>
         <section>
           <SectionLabel className="px-4">{t('pregen.howFar')}</SectionLabel>
@@ -240,7 +240,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   const [busy, setBusy] = useState(false)
   const chosen = pg.presets.find((p) => p.id === preset)
   const otherJob = s.operation && s.operation.kind !== 'pregen-start' ? s.operation : undefined
-  const blocked = whyNot({ ...s, operation: otherJob }, 'change', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
+  const blocked = whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
 
   async function start() {
     setBusy(true)
@@ -275,7 +275,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   )
   const failed = pg.error && <Notice tone="error" title={t('pregen.failed')}>{pg.error}</Notice>
   const startButton = (
-    <Button size={phone ? 'touch' : 'default'} className={phone ? 'w-full' : undefined} onClick={start} loading={busy} disabledReason={blocked}>
+    <Button size={phone ? 'touch' : 'lg'} className={phone ? 'w-full' : undefined} onClick={start} loading={busy} disabledReason={blocked}>
       <PlayIcon />
       {t('pregen.start')}
     </Button>
@@ -283,7 +283,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   const note = otherJob ? (
     <span className="inline-flex items-center gap-1.5">
       <Spinner />
-      {opLabel(otherJob, s.name)}
+      {opLabel(otherJob, s)}
     </span>
   ) : pg.diskFreeBytes !== undefined ? (
     t('pregen.diskFree', { machine: ws.machineName, free: formatBytes(pg.diskFreeBytes) })
@@ -296,11 +296,11 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
         {failed}
         <section aria-labelledby="pregen-far">
           <SectionLabel className="px-4">
-            <span id="pregen-far">{t('pregen.howFar')}</span>
+            <span id="pregen-far">{t('pregen.howFarShort')}</span>
           </SectionLabel>
           <CardGroup value={preset} onChange={setPreset} label={t('pregen.howFar')} className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
             {pg.presets.map((p) => (
-              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60" title={p.fits ? undefined : t('pregen.noRoom')}>
+              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2 last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60" title={p.fits ? undefined : t('pregen.noRoom')}>
                 <span className="min-w-0 flex-1">
                   {name(p)}
                   <span className="block text-[13px] text-muted-foreground">{[t('pregen.blocks', { radius: p.radius }), estimate(p)].join(t('common.dot'))}</span>
@@ -311,12 +311,12 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
           </CardGroup>
         </section>
         <label className="flex min-h-14 cursor-pointer items-center gap-3 rounded-3xl border border-border bg-white px-4">
-          <span className="min-w-0 flex-1 text-base">{t('pregen.pauseForPlayers')}</span>
+          <span className="min-w-0 flex-1 text-base">{t('pregen.pauseForPlayersShort')}</span>
           <Switch checked={pause} onCheckedChange={setPause} />
         </label>
         {chunky}
         {otherJob && <p className="px-1 text-[13px] text-muted-foreground">{note}</p>}
-        <PhoneActionBar>{startButton}</PhoneActionBar>
+        <PhoneActionBar label={t('pregen.phoneTitle')}>{startButton}</PhoneActionBar>
       </div>
     )
   }
@@ -424,7 +424,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
           {reading}
         </Card>
         {pauses && <p className="px-1 text-[13px] text-muted-foreground">{pauses}</p>}
-        {actions && <PhoneActionBar>{actions}</PhoneActionBar>}
+        {actions && <PhoneActionBar label={t('pregen.phoneTitle')}>{actions}</PhoneActionBar>}
       </div>
     )
   }

@@ -1,5 +1,6 @@
 import type { Operation, Phase, ServerStatus } from '@/api/types'
 import { t, type MessageKey } from '@/i18n'
+import { addonKind } from '@/lib/software'
 
 export type Tone = 'online' | 'busy' | 'stopped' | 'crashed' | 'unknown'
 
@@ -105,10 +106,21 @@ export function controls(st: ServerStatus) {
 
 /** "Backing up Survival. Try again when it's done." while a job runs; undefined otherwise. */
 export function busyReason(st: ServerStatus): string | undefined {
-  return st.operation ? t('reason.busy', { what: opLabel(st.operation, st.name) }) : undefined
+  return st.operation ? t('reason.busy', { what: opLabel(st.operation, st) }) : undefined
 }
 
-export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change'
+/** "Its world folder is missing…" while a restore that didn't finish left it missing; undefined otherwise. */
+export function worldMissingReason(st: ServerStatus): string | undefined {
+  return st.worldMissing ? t('reason.worldMissing') : undefined
+}
+
+/** "A restore isn’t finished…" while a restore that didn't finish keeps its journal; undefined otherwise. */
+export function restoreUnsettledReason(st: ServerStatus): string | undefined {
+  if (!st.restoreUnsettled) return undefined
+  return st.restoreUnsettled.problem ? t('reason.restoreStuck') : t('reason.restoreUnsettled')
+}
+
+export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change' | 'backup' | 'pregen' | 'restore'
 
 /**
  * Why an action can't run on a server right now, in a few plain words;
@@ -126,6 +138,7 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean | 
   switch (action) {
     case 'start':
       if (st.softwareChanged) return t('reason.softwareChanged')
+      if (st.worldMissing) return t('reason.worldMissing')
       return c.canStart ? undefined : (settling ?? t('reason.running', { server: st.name }))
     case 'stop':
       return c.canStop ? undefined : (settling ?? t('reason.stopped', { server: st.name }))
@@ -134,6 +147,11 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean | 
       return st.phase === 'online' ? undefined : (settling ?? t('reason.startFirst', { server: st.name }))
     case 'change':
       return undefined
+    case 'backup':
+    case 'pregen':
+      return worldMissingReason(st)
+    case 'restore':
+      return worldMissingReason(st) ?? restoreUnsettledReason(st)
     default: {
       const unreachable: never = action
       return unreachable
@@ -170,14 +188,20 @@ const opKeys: Record<string, MessageKey> = {
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */
-export function opLabel(op: Operation, server: string): string {
-  return t(opKeys[op.kind] ?? 'op.other', { server })
+export function opLabel(op: Operation, server: Pick<ServerStatus, 'name' | 'type'>): string {
+  const key = op.kind === 'remove-addon' && addonKind(server.type) === 'mods' ? 'op.remove-mod' : (opKeys[op.kind] ?? 'op.other')
+  return t(key, { server: server.name })
 }
 
 const recentMs = 15 * 60_000
 
 /** Whether what a failed job wanted has happened since, so its notice can go. */
 function recovered(s: ServerStatus, op: Operation): boolean {
+  // Refused because a restore left the world folder missing, or isn't
+  // settled: its own notice says so until that's over, and then so is the
+  // refusal.
+  if (op.detail?.errorKind === 'world_missing') return !s.worldMissing
+  if (op.detail?.errorKind === 'restore_unsettled') return !s.restoreUnsettled
   if (['create', 'start', 'restart', 'recover', 'auto-restart'].includes(op.kind)) return s.phase === 'online'
   if (op.kind !== 'backup') return false
   const needed = op.detail?.neededBytes

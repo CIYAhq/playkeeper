@@ -53,6 +53,12 @@ func (s *server) serverConfig() (*api.ServerConfig, error) {
 
 func (s *server) saveServerConfig(sc api.ServerConfig) error { return saveConfig(s.db, s.id, sc) }
 
+// execer runs a statement: the database, or a transaction a change is part
+// of.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // saveConfig saves the settings of the server with id through ex.
 func saveConfig(ex execer, id string, sc api.ServerConfig) error {
 	b, err := json.Marshal(sc)
@@ -110,11 +116,6 @@ func (a *Agent) auditFor(serverID, actor, action, target, result, detail string)
 	if err := a.insertAudit(a.db, serverID, actor, action, target, result, detail); err != nil {
 		a.log.Error("audit write failed", "err", err)
 	}
-}
-
-// execer is the database or a transaction on it.
-type execer interface {
-	Exec(query string, args ...any) (sql.Result, error)
 }
 
 func (a *Agent) insertAudit(ex execer, serverID, actor, action, target, result, detail string) error {

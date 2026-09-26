@@ -1270,6 +1270,34 @@ func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
 	})
 }
 
+// Docker's health is the machine's: a machine without servers says Docker
+// answers when it does, and says it doesn't when the daemon stops answering.
+func TestDockerHealthNeedsNoServer(t *testing.T) {
+	e := newAgentEnv(t)
+	e.start()
+	docker := func() (bool, string) {
+		m := e.a.Machine(context.Background())
+		return m.Docker, m.DockerVersion
+	}
+	e.waitFor("Docker reported up with no servers", func() bool { ok, _ := docker(); return ok })
+	if _, v := docker(); v != "29.0.0-fake" || len(e.a.serverList()) != 0 {
+		t.Fatalf("Docker %q with %d servers", v, len(e.a.serverList()))
+	}
+	var h api.Health
+	e.decode("GET", "/v1/health", &h)
+	if !h.Docker {
+		t.Fatalf("health says Docker is down with no servers: %+v", h)
+	}
+	e.fd.mu.Lock()
+	e.fd.versionDown = true
+	e.fd.mu.Unlock()
+	e.waitFor("Docker reported down", func() bool { ok, _ := docker(); return !ok })
+	e.fd.mu.Lock()
+	e.fd.versionDown = false
+	e.fd.mu.Unlock()
+	e.waitFor("Docker reported up again", func() bool { ok, _ := docker(); return ok })
+}
+
 // The Overview warns about low disk space with the preflight's thresholds and
 // advice, and a backup refused for space records how much it needed, so its
 // failure can be dropped once that much is free again.
@@ -1550,9 +1578,19 @@ func TestCoverageCountsTimeNotSamples(t *testing.T) {
 func TestRetentionBoundsTables(t *testing.T) {
 	e := newAgentEnv(t)
 	e.stop()
+	// The limits are set before the start: the agent's first prune reads
+	// them. New fills in defaults only for a zero Retention, so this starts
+	// from them.
+	prev := e.tweak
+	e.tweak = func(o *Options) {
+		if prev != nil {
+			prev(o)
+		}
+		o.Retention = DefaultRetention()
+		o.Retention.MaxSamples = 100
+		o.Retention.MaxEvents = 50
+	}
 	e.start()
-	e.a.opts.Retention.MaxSamples = 100
-	e.a.opts.Retention.MaxEvents = 50
 	old := time.Now().Add(-400 * 24 * time.Hour).UnixMilli()
 	for i := 0; i < 300; i++ {
 		e.a.db.Exec(`INSERT OR IGNORE INTO samples(ts, state) VALUES(?, 'online')`, time.Now().UnixMilli()-int64(i))
@@ -2372,28 +2410,6 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 	for k, v := range want {
 		if !v {
 			t.Errorf("missing audit row %s", k)
-		}
-	}
-}
-
-func TestAMachineWithoutServersSaysWhetherDockerAnswers(t *testing.T) {
-	e := newAgentEnv(t)
-	docker := func() (bool, bool) {
-		_, h := e.call("GET", "/v1/health", nil)
-		return e.a.Machine(context.Background()).Docker, h["docker"] == true
-	}
-	for _, want := range []bool{true, false, true} {
-		e.fd.dockerDown.Store(!want)
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			m, h := docker()
-			if m == want && h == want {
-				break
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("docker answering=%v: machine says %v, health says %v", want, m, h)
-			}
-			time.Sleep(20 * time.Millisecond)
 		}
 	}
 }

@@ -32,6 +32,7 @@ func TestLayoutForRefusesVanillaAndUnknownTypes(t *testing.T) {
 		kind       Kind
 	}{
 		{"vanilla", "vanilla", KindUnsupported},
+		{"forge", "forge", KindUnsupported},
 		{"spigot", "spigot", KindUnknownType},
 		{"", "", KindUnknownType},
 		{"forge\n" + strings.Repeat("x", 60), "forge?" + strings.Repeat("x", 34) + "…", KindUnknownType},

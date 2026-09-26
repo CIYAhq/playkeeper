@@ -128,6 +128,9 @@ type Options struct {
 	// NamesHTTP carries requests to the free address service (tests); nil
 	// uses the names client's own, which never use a proxy.
 	NamesHTTP *http.Client
+	// NamesCheckWait bounds a look at whether a name is free, which the
+	// dashboard shows as it is typed (default 10s).
+	NamesCheckWait time.Duration
 	// Resolver looks up the machine's names as the public sees them
 	// (default: public DNS-over-HTTPS resolvers).
 	Resolver certs.Resolver
@@ -154,7 +157,7 @@ type Options struct {
 	// (default: read from /proc).
 	PortHolder func(port int) (name string, pid int, ok bool)
 	// UpstreamClient reads the server software and modpack upstreams
-	// (Mojang, Fabric, Quilt, NeoForge, Purpur, Modrinth, CurseForge) at
+	// (Mojang, Fabric, Quilt, NeoForge, Forge, Purpur, Modrinth, CurseForge) at
 	// their fixed HTTPS hosts; tests swap its transport. It defaults to
 	// HTTPClient.
 	UpstreamClient *http.Client
@@ -257,7 +260,7 @@ type Agent struct {
 	keyFileMu        sync.Mutex
 	packSearches     *ttlCache[*api.ModpackResults]
 	packDetails      *ttlCache[*api.ModpackDetail]
-	packPreviews     *ttlCache[*api.ModpackPreview]
+	packPreviews     *ttlCache[packPreview]
 	packPreviewSlots chan struct{}
 
 	// Wave 4: templates planned on this machine, by their plan's
@@ -372,6 +375,9 @@ func New(opts Options) (*Agent, error) {
 	if opts.PublishPoll == 0 {
 		opts.PublishPoll = 30 * time.Second
 	}
+	if opts.NamesCheckWait == 0 {
+		opts.NamesCheckWait = 10 * time.Second
+	}
 	if opts.PublicAddrs == nil {
 		opts.PublicAddrs = func() []netip.Addr { return certs.ExpectedAddrs() }
 	}
@@ -429,7 +435,7 @@ func New(opts Options) (*Agent, error) {
 
 		packSearches:     newTTLCache[*api.ModpackResults](5*time.Minute, 64),
 		packDetails:      newTTLCache[*api.ModpackDetail](10*time.Minute, 64),
-		packPreviews:     newTTLCache[*api.ModpackPreview](30*time.Minute, 32),
+		packPreviews:     newTTLCache[packPreview](30*time.Minute, 32),
 		packPreviewSlots: make(chan struct{}, 2),
 		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
 		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),

@@ -15,6 +15,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/curated"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
@@ -671,5 +672,120 @@ func TestTemplateVoiceChatTriedAgainGetsItsPort(t *testing.T) {
 	}
 	if got := e.published(); !slices.Equal(got, []string{"24454/udp→24454", "25565/tcp→" + strconv.Itoa(e.srv().gamePort)}) {
 		t.Fatalf("the restart publishes voice chat's port: %v", got)
+	}
+}
+
+// A pack that brings Simple Voice Chat names, in its preview, the UDP port a
+// new server made from it would open for voice chat: the next free one.
+// Packs without it, and Vanilla packs that can't load it, name none.
+func TestAPacksPreviewNamesVoiceChatsPort(t *testing.T) {
+	path := "/v1/modpacks/modrinth/" + fakePackID + "/versions/" + fakePackVersion + "/preview"
+	fabric := fakePackSpec{mc: "26.2", loader: "fabric-loader", loaderVersion: "0.17.2"}
+	for _, tc := range []struct {
+		name  string
+		spec  fakePackSpec
+		voice bool
+		want  []api.AddonPort
+	}{
+		{"a Fabric pack with voice chat", fabric, true, []api.AddonPort{{Protocol: "udp", Port: curated.VoiceChatPort + 1}}},
+		{"a Fabric pack without it", fabric, false, nil},
+		{"a Vanilla pack carrying its jar", fakePackSpec{mc: "26.2"}, true, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			tc.spec.voiceChat = tc.voice
+			e.up.servePackOf(tc.spec)
+			e.a.opts.UDPPortInUse = func(p int) bool { return p == curated.VoiceChatPort }
+			var p api.ModpackPreview
+			e.decode("GET", path, &p)
+			if !p.Ready || !slices.Equal(p.Ports, tc.want) {
+				t.Fatalf("want ports %v in the preview: %+v", tc.want, p)
+			}
+		})
+	}
+}
+
+// voicePackPlan plans the Fabric pack with voice chat onto a stopped Fabric
+// server, as its first start would.
+func (e *agentEnv) voicePackPlan() (*server, *api.ServerConfig, *modpacks.Plan) {
+	e.t.Helper()
+	e.up.servePackOf(fakePackSpec{mc: "26.2", loader: "fabric-loader", loaderVersion: "0.17.2", voiceChat: true})
+	e.addIdleServer()
+	s := e.srv()
+	sc, err := s.serverConfig()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	sc.Type = "fabric"
+	if err := s.saveServerConfig(*sc); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := os.MkdirAll(s.dataDir(), 0o750); err != nil {
+		e.t.Fatal(err)
+	}
+	pl, err := e.a.packs().PlanInstall(e.t.Context(), modpacks.Server{Server: addons.Server{Dir: s.dataDir()}}, nil,
+		modpacks.InstallRequest{Ref: modpacks.Ref{Source: addons.Modrinth, Project: fakePackID, Version: fakePackVersion}})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return s, sc, pl
+}
+
+// A pack's voice chat gets its UDP port at the pack's install only when the
+// owner agreed to it when creating the server, after the preview named it;
+// otherwise the port stays closed.
+func TestAPacksVoiceChatGetsItsPortOnlyWithLeave(t *testing.T) {
+	for _, leave := range []bool{true, false} {
+		t.Run("leave "+strconv.FormatBool(leave), func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.a.opts.UDPPortInUse = func(int) bool { return false }
+			s, sc, pl := e.voicePackPlan()
+			h := &opHandle{save: func(*api.Operation) {}, op: &api.Operation{Actor: "admin", Detail: map[string]any{}}, mu: func() func() { return func() {} }}
+			if err := s.packVoiceChat(h, sc, api.ServerModpack{OpenPorts: leave}, pl); err != nil {
+				t.Fatal(err)
+			}
+			saved, _ := s.serverConfig()
+			b, err := os.ReadFile(filepath.Join(s.dataDir(), "config", "voicechat", "voicechat-server.properties"))
+			opened := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'addon.port_opened'`)
+			if !leave {
+				if sc.VoiceChatPort != 0 || saved.VoiceChatPort != 0 || err == nil || opened != 0 {
+					t.Fatalf("without leave the port stays closed: %d, %d, %q, %d audited", sc.VoiceChatPort, saved.VoiceChatPort, b, opened)
+				}
+				return
+			}
+			if sc.VoiceChatPort != curated.VoiceChatPort || saved.VoiceChatPort != curated.VoiceChatPort || opened != 1 || h.op.Detail["voiceChatPort"] != curated.VoiceChatPort {
+				t.Fatalf("with leave the server keeps voice chat's port: %d, %d, %d audited, %v", sc.VoiceChatPort, saved.VoiceChatPort, opened, h.op.Detail)
+			}
+			if err != nil || !strings.Contains(string(b), "port=24454\n") || !strings.Contains(string(b), "bind_address=*\n") {
+				t.Fatalf("voice chat's settings: %q %v", b, err)
+			}
+		})
+	}
+}
+
+// Simple Voice Chat is found in a pack by the project its source knows it
+// as: Modrinth's in a Modrinth pack, CurseForge's in a CurseForge pack.
+func TestVoiceChatIsFoundInPacksFromEitherSource(t *testing.T) {
+	plan := func(src addons.Source, typ string, c modpacks.Change) *modpacks.Plan {
+		return &modpacks.Plan{Pack: addons.Installed{Source: src}, Requirements: modpacks.Requirements{Type: typ}, Changes: []modpacks.Change{c}}
+	}
+	add := func(project string) modpacks.Change {
+		return modpacks.Change{Path: "mods/voicechat.jar", Action: modpacks.ActionAdd, Project: project}
+	}
+	for _, tc := range []struct {
+		name string
+		plan *modpacks.Plan
+		want bool
+	}{
+		{"Modrinth", plan(addons.Modrinth, "fabric", add(voiceChatProject)), true},
+		{"CurseForge", plan(modpacks.CurseForge, "neoforge", add(curseForgeVoiceChat)), true},
+		{"CurseForge's id in a Modrinth pack", plan(addons.Modrinth, "fabric", add(curseForgeVoiceChat)), false},
+		{"Modrinth's id in a CurseForge pack", plan(modpacks.CurseForge, "fabric", add(voiceChatProject)), false},
+		{"a file the pack removes", plan(addons.Modrinth, "fabric", modpacks.Change{Path: "mods/voicechat.jar", Action: modpacks.ActionRemove, Project: voiceChatProject}), false},
+		{"a Vanilla pack", plan(addons.Modrinth, "vanilla", add(voiceChatProject)), false},
+	} {
+		if got := voiceChatInPack(tc.plan); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

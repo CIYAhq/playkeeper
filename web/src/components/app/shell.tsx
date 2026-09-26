@@ -362,8 +362,8 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  // The machine's pages, the account and Settings' sections open from More (More › my-vps › Disk space).
-  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account' || (inSettings(route) && route.name !== 'settings')
+  // Settings and its sections, the machine's pages and the account open from More (More › my-vps › Disk space).
+  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account' || inSettings(route)
   const inServer = route.name === 'server' || route.name === 'player' || (underMore && !!phoneServer)
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
   const current: ServerTab | 'more' | undefined =

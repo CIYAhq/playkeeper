@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArchiveIcon, ArchiveXIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MoonIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveXIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MemoryStickIcon, MoonIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
@@ -15,9 +15,13 @@ function icon(kind: ActivityKind): ReactNode {
       return <LogInIcon />
     case 'crashed':
       return <CircleAlertIcon />
+    case 'crashed_memory':
+      return <MemoryStickIcon />
     case 'created':
       return <SproutIcon />
     case 'restored':
+    case 'restored_after_restart':
+    case 'put_back':
       return <HistoryIcon />
     case 'version':
       return <CircleArrowUpIcon />
@@ -99,10 +103,16 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return here ? t('activity.joinedHere', { player }) : t('activity.joined', { player, server })
     case 'crashed':
       return t('activity.crashed', { server })
+    case 'crashed_memory':
+      return t('activity.crashedMemory', { server })
     case 'created':
       return a.detail ? t('activity.created', { server, detail: a.detail }) : t('activity.createdPlain', { server })
     case 'restored':
       return t('activity.restored', { server })
+    case 'restored_after_restart':
+      return t('activity.restoredAfterRestart', { server })
+    case 'put_back':
+      return t('activity.putBack', { server })
     case 'version':
       return a.detail ? t('activity.version', { server, detail: a.detail }) : t('activity.versionPlain', { server })
     case 'stopped_outside':
@@ -159,7 +169,7 @@ export function ActivityList({ items, servers, here, empty, className }: { items
             <span className="shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden="true">
               {icon(a.kind)}
             </span>
-            <span className="min-w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
+            <span className="w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
             <time dateTime={a.ts} className="shrink-0 text-xs text-muted-foreground">
               {relativeTime(a.ts)}
             </time>

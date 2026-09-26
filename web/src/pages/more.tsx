@@ -168,7 +168,7 @@ export function MorePage() {
           <Row icon={<Avatar name={ws.me.user.username} className="size-7" />} title={ws.me.user.username} hint={t('more.accountHint', { role: roleLabel(ws.me) })} to={{ name: 'account' }} />
         </li>
         <li>
-          <Row icon={<SettingsIcon />} title={t('nav.settings')} hint={t('more.globalHint')} to={{ name: 'settings' }} />
+          <Row icon={<SettingsIcon />} title={t('global.playkeeper')} hint={t('more.globalHint')} to={{ name: 'settings' }} />
         </li>
         <li>
           <Row icon={<CircleHelpIcon />} title={t('nav.help')} href={t('nav.helpUrl')} />

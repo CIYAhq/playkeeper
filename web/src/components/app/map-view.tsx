@@ -354,6 +354,20 @@ export function MapView({ world, tileSize, tileURL, players, faceURL, focus, coo
     if (focus) centreOn(focus.x, focus.z)
   }, [focus, centreOn])
 
+  // A player's marker brings them to the middle; pressed there, it zooms in on them.
+  const showPlayer = useCallback(
+    (x: number, z: number) => {
+      const { width, height } = sizeRef.current
+      const w = worldRef.current
+      const v = animTarget.current ?? viewRef.current
+      const at = worldToScreen(v, width, height, w, x, z)
+      const centred = Math.abs(at.left - width / 2) < 2 && Math.abs(at.top - height / 2) < 2
+      if (centred && Math.round(v.zoom) < maxZoom(w)) animateTo({ x, z, zoom: clampZoom(Math.round(v.zoom) + 1, w) })
+      else centreOn(x, z)
+    },
+    [animateTo, centreOn],
+  )
+
   useLayoutEffect(() => {
     const el = box.current
     if (!el) return
@@ -534,7 +548,7 @@ export function MapView({ world, tileSize, tileURL, players, faceURL, focus, coo
             <button
               type="button"
               key={p.uuid || p.name}
-              onClick={() => centreOn(p.x, p.z)}
+              onClick={() => showPlayer(p.x, p.z)}
               aria-label={t('map.find', { name: p.name })}
               className={cn(
                 'absolute top-0 left-0 inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-white py-[3px] pr-2.5 pl-[3px] text-xs font-semibold whitespace-nowrap text-foreground shadow-popup outline-none focus-visible:ring-2 focus-visible:ring-ring',

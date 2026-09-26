@@ -38,6 +38,9 @@ type opHandle struct {
 	cancel      context.CancelFunc
 	cancellable bool
 	cancelled   bool
+	// askedFor is set by a start someone asked for (startNow): startServer
+	// starts the crash policy over once the start is past every refusal.
+	askedFor bool
 }
 
 // allowCancel lets the operation be cancelled until it commits.
@@ -336,7 +339,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 	env := append([]string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}, typeEnv...)
 	env = append(env,
 		"SKIP_DOWNLOAD_DEFAULTS=TRUE",
-		"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",
+		"MEMORY="+strconv.Itoa(heapMB(sc))+"M",
 		"MOTD="+sc.MOTD,
 		"MAX_PLAYERS="+strconv.Itoa(sc.MaxPlayers),
 		"ONLINE_MODE="+online,
@@ -449,14 +452,14 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 	return nil
 }
 
-func (s *server) ensureDirs() error {
+// ensureDirs makes the server's folders. then is what to do once the world
+// folder is back, for the refusal while a restore left it missing.
+func (s *server) ensureDirs(then string) error {
 	data := s.dataDir()
 	// A server started without its world directory generates a new world, so
 	// never recreate one a restore moved aside and could not put back.
-	if _, err := os.Stat(data); errors.Is(err, os.ErrNotExist) {
-		if prev := s.newestPreviousWorld(); prev != "" {
-			return &apiError{Msg: "The world folder is missing because a restore did not finish; the previous world is at " + prev + ".", Hint: "Move that folder back to " + data + ", then press Start."}
-		}
+	if m := s.worldMissing(); m != nil {
+		return errWorldMissing(m, then)
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
@@ -680,8 +683,16 @@ func lastNonEmpty(lines []string) string {
 func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("press Start"); err != nil {
+		markRestoreRefusal(h, err)
 		return err
+	}
+	if err := s.startRefusal(h); err != nil {
+		markRestoreRefusal(h, err)
+		return err
+	}
+	if h.askedFor {
+		s.forgetCrashes()
 	}
 	if err := s.ensureOriginalSaved(h, sc); err != nil {
 		return err
@@ -713,10 +724,16 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.writeMapConfig(); err != nil {
 		return err
 	}
-	pastFiles = true
 	name := s.containerName()
 	c, err := s.docker.ContainerInspect(ctx, name)
 	spec, hash := s.containerSpec(sc, false, c.Config.Env)
+	if !(err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash) {
+		if err := s.sizeHeap(&sc); err != nil {
+			return err
+		}
+		spec, hash = s.containerSpec(sc, false, c.Config.Env)
+	}
+	pastFiles = true
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
 		return &apiError{Msg: "A container named " + name + " exists but was not created by Playkeeper.", Hint: "Playkeeper will not touch it. Rename or remove that container, then press Start."}
@@ -780,7 +797,7 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 	reported := ""
 	for {
 		s.mu.Lock()
-		phase, lastErr, hint := s.runPhase, s.lastError, s.lastErrorHint
+		phase, lastErr, hint, gaveUp := s.runPhase, s.lastError, s.lastErrorHint, s.crashLineAt
 		s.mu.Unlock()
 		if phase == api.PhaseOnline {
 			h.phase(string(api.PhaseOnline))
@@ -791,6 +808,15 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 			h.phase(reported)
 		}
 		c, err := s.docker.ContainerInspect(ctx, id)
+		// Forge logs that the server failed to start when a mod fails in its
+		// setup, then keeps running without ever starting.
+		if err == nil && c.State.Running && !gaveUp.IsZero() && s.now().Sub(gaveUp) >= hungStartWait {
+			s.log.Warn("the server gave up starting but kept running; stopping it", "server", s.id)
+			if err := s.docker.ContainerStop(ctx, id, 10*time.Second); err != nil && !docker.IsNotFound(err) {
+				return s.dockerErr(err)
+			}
+			c, err = s.docker.ContainerInspect(ctx, id)
+		}
 		if err == nil && !c.State.Running {
 			// This start reports the exit; the reconcile loop must not count
 			// it a second time as a crash.
@@ -821,6 +847,10 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 		}
 	}
 }
+
+// hungStartWait is how long a start waits for a server that logged it gave
+// up to exit on its own; tests shorten it.
+var hungStartWait = 20 * time.Second
 
 // waitOnline waits until the server is online. startServer returns at once
 // for a container that was already running, which after an agent restart may
@@ -899,7 +929,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping, s.sawCrash = false, false
+	s.sawStopping, s.sawCrash, s.sawOOM, s.crashLineAt = false, false, false, time.Time{}
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }
@@ -924,6 +954,13 @@ const (
 	crashWindow   = 15 * time.Minute
 	maxCrashes    = 3
 	followerGrace = 20 * time.Second
+	// recoveredFor is how long the status keeps saying why a server that
+	// came back on its own had crashed.
+	recoveredFor = 24 * time.Hour
+	// oomCrash starts the event detail of a server Docker killed for memory,
+	// heapCrash that of one whose Java ran out of memory and stopped it.
+	oomCrash  = "The server ran out of memory and was killed."
+	heapCrash = "Java ran out of memory and the server stopped."
 )
 
 // stoppedCleanly reports whether the run that ended logged a clean shutdown.
@@ -936,6 +973,7 @@ func (s *server) reconcile(ctx context.Context) {
 	if s.busy() {
 		return
 	}
+	s.settleWhenBack(ctx)
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil {
 		return
@@ -1069,10 +1107,14 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	n := len(s.crashes)
 	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
-	if st.OOMKilled {
-		s.lastError = "The server ran out of memory and was killed."
+	switch {
+	case st.OOMKilled:
+		s.lastError = oomCrash
 		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
-	} else {
+	case s.sawOOM:
+		s.lastError = heapCrash
+		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
+	default:
 		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
 		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
@@ -1084,12 +1126,14 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 		s.nextAutoRestart = s.now().Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
 	}
 	detail := s.lastError
-	oom := st.OOMKilled
-	s.mu.Unlock()
 	kind := "exit"
-	if oom {
+	switch {
+	case st.OOMKilled:
 		kind = "oom"
+	case s.sawOOM:
+		kind = "java_oom"
 	}
+	s.mu.Unlock()
 	s.recordEvent(fin, "server_crashed", "", "docker", detail)
 	s.log.Warn("server crashed", "server", s.id, "exit", st.ExitCode, "cause", kind, "crashes", n)
 	return cause

@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
@@ -31,6 +32,21 @@ func TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo(t *testing.T) {
 	}
 	if got := apiNotice(addons.Notice{Kind: addons.KindPrerelease, Hint: "kept"}).Hint; got != "kept" {
 		t.Errorf("another notice's hint became %q", got)
+	}
+	// A modpack with only betas says what a pack can do: its own line, with no toggle or picker the pack sheet lacks.
+	pack := addons.Notice{Kind: addons.KindOnlyPrerelease, Params: map[string]string{"pack": "Create+"}, Msg: "Create+ has only beta or alpha versions Playkeeper can run.",
+		Hint: "Pre-releases can be unstable. Allow pre-releases, or choose a version yourself."}
+	for what, n := range map[string]api.AddonNotice{"a pack's notice": apiNotice(pack), "a pack's error": *noticeOf(&addons.Error{Notice: pack})} {
+		if n.Hint != onlyPrereleasePackHint || strings.Contains(n.Hint, "Minecraft version") || strings.Contains(strings.ToLower(n.Hint), "allow pre-releases") || n.Message != pack.Msg {
+			t.Errorf("%s: %+v, want the message kept and the pack's own hint", what, n)
+		}
+	}
+	// An error the agent answers with, as a pack's preview does, says the same.
+	for what, lib := range map[string]addons.Notice{"an add-on's": lib, "a pack's": pack} {
+		var ae *apiError
+		if !errors.As(addonError(&addons.Error{Notice: lib}), &ae) || ae.Msg != lib.Msg || ae.Hint != apiNotice(lib).Hint {
+			t.Errorf("%s answer: %+v, want the notice's message and Playkeeper's hint", what, ae)
+		}
 	}
 }
 

@@ -1,28 +1,63 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { ApiError, get, onUnauthorized, setCsrfToken } from '@/api/client'
 import type { Me, SetupStatus } from '@/api/types'
 import { useWorkspace, WorkspaceProvider } from '@/api/workspace'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { AppShell } from '@/components/app/shell'
+import { PageSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
-import { AccountPage } from '@/pages/account'
-import { DiskPage } from '@/pages/disk'
-import { HomePage } from '@/pages/home'
-import { JoinPage } from '@/pages/join'
-import { LoginPage } from '@/pages/login'
-import { DashboardMachineOnly, MachinePage } from '@/pages/machine'
-import { MachineSettingsPage } from '@/pages/machine-settings'
-import { MorePage } from '@/pages/more'
-import { NewServerPage } from '@/pages/new-server'
-import { RecoverPage } from '@/pages/recover'
-import { AccountStep, Onboarding } from '@/pages/onboarding'
-import { PackPage } from '@/pages/pack'
-import { ServerPage } from '@/pages/server'
-import { GlobalSettingsPage } from '@/pages/settings'
+
+// Each page's code loads the first time it shows, so the first screen doesn't
+// wait for the others; once signed in, the rest load while the browser is idle.
+const pages = {
+  account: () => import('@/pages/account'),
+  disk: () => import('@/pages/disk'),
+  home: () => import('@/pages/home'),
+  join: () => import('@/pages/join'),
+  login: () => import('@/pages/login'),
+  machine: () => import('@/pages/machine'),
+  machineSettings: () => import('@/pages/machine-settings'),
+  more: () => import('@/pages/more'),
+  newServer: () => import('@/pages/new-server'),
+  onboarding: () => import('@/pages/onboarding'),
+  pack: () => import('@/pages/pack'),
+  recover: () => import('@/pages/recover'),
+  server: () => import('@/pages/server'),
+  settings: () => import('@/pages/settings'),
+}
+const AccountPage = lazy(() => pages.account().then((m) => ({ default: m.AccountPage })))
+const DiskPage = lazy(() => pages.disk().then((m) => ({ default: m.DiskPage })))
+const HomePage = lazy(() => pages.home().then((m) => ({ default: m.HomePage })))
+const JoinPage = lazy(() => pages.join().then((m) => ({ default: m.JoinPage })))
+const LoginPage = lazy(() => pages.login().then((m) => ({ default: m.LoginPage })))
+const MachinePage = lazy(() => pages.machine().then((m) => ({ default: m.MachinePage })))
+const DashboardMachineOnly = lazy(() => pages.machine().then((m) => ({ default: m.DashboardMachineOnly })))
+const MachineSettingsPage = lazy(() => pages.machineSettings().then((m) => ({ default: m.MachineSettingsPage })))
+const MorePage = lazy(() => pages.more().then((m) => ({ default: m.MorePage })))
+const NewServerPage = lazy(() => pages.newServer().then((m) => ({ default: m.NewServerPage })))
+const AccountStep = lazy(() => pages.onboarding().then((m) => ({ default: m.AccountStep })))
+const Onboarding = lazy(() => pages.onboarding().then((m) => ({ default: m.Onboarding })))
+const PackPage = lazy(() => pages.pack().then((m) => ({ default: m.PackPage })))
+const RecoverPage = lazy(() => pages.recover().then((m) => ({ default: m.RecoverPage })))
+const ServerPage = lazy(() => pages.server().then((m) => ({ default: m.ServerPage })))
+const GlobalSettingsPage = lazy(() => pages.settings().then((m) => ({ default: m.GlobalSettingsPage })))
+
+function preloadPages() {
+  for (const load of Object.values(pages)) void load().catch(() => {})
+}
+
+/** While a first page's code loads, the same spinner as while signing in is checked. */
+function Booting() {
+  return (
+    <Frame>
+      <Spinner className="size-6 text-muted-foreground" aria-label={t('common.loading')} />
+    </Frame>
+  )
+}
 
 type AuthState = 'loading' | 'setup' | 'login' | 'ready' | 'offline'
 
@@ -78,23 +113,21 @@ export function App() {
 
   if (route.name === 'join') {
     return (
-      <JoinPage
-        code={route.code}
-        onSignedIn={(m, to) => {
-          signedIn(m)
-          navigate(to ?? '/', true)
-        }}
-      />
+      <Suspense fallback={<Booting />}>
+        <JoinPage
+          code={route.code}
+          onSignedIn={(m, to) => {
+            signedIn(m)
+            navigate(to ?? '/', true)
+          }}
+        />
+      </Suspense>
     )
   }
 
   switch (state) {
     case 'loading':
-      return (
-        <Frame>
-          <Spinner className="size-6 text-muted-foreground" aria-label={t('common.loading')} />
-        </Frame>
-      )
+      return <Booting />
     case 'offline':
       return (
         <Frame>
@@ -109,23 +142,27 @@ export function App() {
       )
     case 'setup':
       return (
-        <AccountStep
-          onDone={(m) => {
-            signedIn(m)
-            navigate('/welcome', true)
-          }}
-        />
+        <Suspense fallback={<Booting />}>
+          <AccountStep
+            onDone={(m) => {
+              signedIn(m)
+              navigate('/welcome', true)
+            }}
+          />
+        </Suspense>
       )
     case 'login':
       return (
-        <LoginPage
-          machine={status?.machine}
-          version={status?.version}
-          onDone={(m) => {
-            signedIn(m)
-            navigate(afterSignIn(window.location), true)
-          }}
-        />
+        <Suspense fallback={<Booting />}>
+          <LoginPage
+            machine={status?.machine}
+            version={status?.version}
+            onDone={(m) => {
+              signedIn(m)
+              navigate(afterSignIn(window.location), true)
+            }}
+          />
+        </Suspense>
       )
     case 'ready':
       if (!me) return null
@@ -155,8 +192,27 @@ function Routes({ route }: { route: Route }) {
     navigate(first ? { name: 'server', slug: first.slug, tab: route.tab } : { name: 'home' }, true)
   }, [route, servers])
 
-  if (route.name === 'welcome') return <Onboarding />
-  return <AppShell route={route}>{page(route)}</AppShell>
+  useEffect(() => {
+    const idle = window.requestIdleCallback?.(preloadPages, { timeout: 5000 })
+    const timer = idle === undefined ? window.setTimeout(preloadPages, 2000) : undefined
+    return () => {
+      if (idle !== undefined) window.cancelIdleCallback(idle)
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  if (route.name === 'welcome') {
+    return (
+      <Suspense fallback={<Booting />}>
+        <Onboarding />
+      </Suspense>
+    )
+  }
+  return (
+    <AppShell route={route}>
+      <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+    </AppShell>
+  )
 }
 
 function page(route: Route) {

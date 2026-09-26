@@ -7,6 +7,7 @@ import { Pip } from '@/components/app/art'
 import { CopyButton } from '@/components/app/bits'
 import { CodeField } from '@/components/app/code-field'
 import { useIsPhone } from '@/components/app/controls'
+import { PasswordField } from '@/components/app/password-field'
 import { PhoneBackHeader } from '@/components/app/shell'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
@@ -16,7 +17,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { PasswordField } from './onboarding'
 
 /** How many recovery codes a new set has (twofactor.RecoveryCodeCount). */
 export const recoveryCodeCount = 10
@@ -333,7 +333,7 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
         <>
           <p className="px-1 pt-1 text-[13px] text-muted-foreground">{t('twofa.step', { n: stage.step === 'scan' ? 2 : 1, total: setupSteps })}</p>
           {stage.step === 'password' ? (
-            <form onSubmit={s.start} noValidate className="mt-2 flex flex-1 flex-col">
+            <form onSubmit={s.start} noValidate aria-label={t('twofa.phoneTitle')} className="mt-2 flex flex-1 flex-col">
               <section className="rounded-3xl border border-border bg-white p-4">
                 <PasswordField
                   id={passwordId}

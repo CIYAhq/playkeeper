@@ -50,6 +50,12 @@ export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 const rePackToken = /^[A-Za-z0-9]{22}$/
 const reMachineId = /^[a-z2-9]{10}$/
 
+/** The link token of the shared map at /map/<token>, or undefined on any other page. */
+export function publicMapToken(pathname: string): string | undefined {
+  const m = /^\/map\/([^/]*)\/?$/.exec(pathname)
+  return m ? (m[1] ?? '') : undefined
+}
+
 /** The machine a new server goes on, from ?machine= in the address. */
 function targetMachine(search: string): { machine?: string } {
   const id = new URLSearchParams(search).get('machine')

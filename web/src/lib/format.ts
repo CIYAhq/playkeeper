@@ -174,8 +174,3 @@ export function relativeAge(iso: string | undefined, now: number = Date.now()): 
   if (days < 730) return t('time.monthsAgo', { count: Math.floor(days / 30) })
   return t('time.yearsAgo', { count: Math.floor(days / 365) })
 }
-
-/** A big count for lists: "3.1M", "640K". */
-export function formatCompact(n: number): string {
-  return new Intl.NumberFormat(formatLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
-}

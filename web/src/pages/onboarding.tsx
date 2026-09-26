@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, KeyRoundIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, ExternalLinkIcon, RefreshCwIcon, UserPlusIcon, UserRoundIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
 import type { LogsResponse, Me, Operation, Preflight, PreflightCheck, ServerStatus } from '@/api/types'
@@ -9,6 +9,7 @@ import { CopyButton } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
 import { cardStyles, createBlocked, createRequest, EulaCheck, freeName, memoryOptions, MoreOptions, recommendedVersion, StyleCards, styleMemory, versionCards, type CreateChoices } from '@/components/app/create'
 import { Frame, FrameCard, PhoneActions } from '@/components/app/frame'
+import { PasswordField } from '@/components/app/password-field'
 import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
@@ -32,91 +33,8 @@ function codeFromHash(): string {
   return m?.[1] ?? ''
 }
 
-type Strength = 'short' | 'weak' | 'okay' | 'strong'
-
-export function passwordStrength(pw: string): Strength {
-  if (pw.length < 10) return 'short'
-  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(pw)).length
-  if (pw.length >= 16 || (pw.length >= 12 && classes >= 3)) return 'strong'
-  if (pw.length >= 12 || classes >= 3) return 'okay'
-  return 'weak'
-}
-
-const strengthWidth: Record<Strength, number> = { short: 15, weak: 35, okay: 65, strong: 90 }
-
-export function PasswordField({
-  id,
-  value,
-  onChange,
-  autoComplete,
-  meter,
-  label,
-  labelClassName,
-  autoFocus,
-  error,
-}: {
-  id: string
-  value: string
-  onChange: (v: string) => void
-  autoComplete: string
-  meter?: boolean
-  label: string
-  labelClassName?: string
-  autoFocus?: boolean
-  /** Shown under the field, which is then marked invalid. */
-  error?: string
-}) {
-  const [show, setShow] = useState(false)
-  const s = passwordStrength(value)
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className={cn('text-[13px] font-medium max-sm:text-[15px]', labelClassName)}>
-        {label}
-      </label>
-      <InputGroup className="max-sm:h-11">
-        <InputGroupAddon>
-          <KeyRoundIcon aria-hidden="true" />
-        </InputGroupAddon>
-        <InputGroupInput
-          id={id}
-          type={show ? 'text' : 'password'}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoComplete={autoComplete}
-          required
-          minLength={meter ? 10 : undefined}
-          maxLength={256}
-          autoFocus={autoFocus}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
-        />
-        <InputGroupAddon align="inline-end">
-          <Button type="button" variant="ghost" size="icon-xs" onClick={() => setShow((v) => !v)} aria-label={show ? t('onboarding.hidePassword') : t('onboarding.showPassword')}>
-            {show ? <EyeOffIcon /> : <EyeIcon />}
-          </Button>
-        </InputGroupAddon>
-      </InputGroup>
-      {meter && (
-        <>
-          <p className="text-xs text-muted-foreground">{t('onboarding.passwordHint')}</p>
-          {value && (
-            <div className="mt-1 flex items-center gap-3">
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/8" role="meter" aria-label={t('onboarding.strength')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={strengthWidth[s]} aria-valuetext={t(`onboarding.strength.${s}`)}>
-                <div className={cn('h-full rounded-full transition-[width]', s === 'short' || s === 'weak' ? 'bg-warning' : 'bg-primary')} style={{ width: `${strengthWidth[s]}%` }} />
-              </div>
-              <span className={cn('w-14 text-right text-xs font-medium', s === 'short' || s === 'weak' ? 'text-warning-foreground' : 'text-success-foreground')}>{t(`onboarding.strength.${s}`)}</span>
-            </div>
-          )}
-        </>
-      )}
-      {error && (
-        <p id={`${id}-error`} className="text-[13px] text-destructive-foreground" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
-  )
-}
+// Other pages still find these here.
+export { PasswordField, passwordStrength } from '@/components/app/password-field'
 
 /** Step 1, before anyone is signed in: the admin account, with the installer's setup code. */
 export function AccountStep({ onDone }: { onDone: (m: Me) => void }) {
@@ -148,7 +66,7 @@ export function AccountStep({ onDone }: { onDone: (m: Me) => void }) {
   ]
   return (
     <Frame step={0}>
-      <div className="grid w-full max-w-[920px] items-center gap-12 md:grid-cols-[1.1fr_1fr] max-sm:gap-6">
+      <div className="grid w-full max-w-[920px] grid-cols-1 items-center gap-12 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] max-sm:gap-6">
         <div>
           <Pip pose="wave" size={phone ? 80 : 112} />
           <h1 className="mt-5 text-display font-extrabold tracking-[-0.025em] max-sm:mt-3 max-sm:text-[28px] max-sm:leading-[34px]">{t('onboarding.hi')}</h1>

@@ -1032,10 +1032,10 @@ func TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver(t *testing.T) {
 		}
 		return e.call("DELETE", "/v1/servers/"+sv.id+"/world-copies/"+name+"?actor=admin", nil)
 	}
-	refused := func(what string, sv *server) {
+	refused := func(what string, sv *server, hint string) {
 		t.Helper()
 		code, out := discard(sv)
-		if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "restore isn't finished") || !strings.Contains(fmt.Sprint(out["hint"]), "systemctl restart playkeeper-agent") {
+		if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "restore isn't finished") || !strings.HasPrefix(fmt.Sprint(out["hint"]), hint) {
 			t.Fatalf("%s: discarding %s's world copy: %d %v", what, sv.name(), code, out)
 		}
 		if !dirExists(filepath.Join(sv.dir(), name)) {
@@ -1059,15 +1059,16 @@ func TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver(t *testing.T) {
 	if err := writeSwapJournal(dir, j); err != nil {
 		t.Fatal(err)
 	}
-	refused("with its swap journal", s)
+	refused("with its swap journal", s, "Playkeeper finishes it once the server is stopped, then try again.")
 	discarded("with another server's swap journal", other)
 
 	journal := filepath.Join(dir, swapJournalFile)
 	if err := os.WriteFile(journal, []byte(`{"serverId":"`+s.id+`","opId":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	refused("with a swap journal that can't be read", s)
-	refused("with a swap journal that can't be read", other)
+	unreadable := "Playkeeper couldn't finish it: the swap journal in " + dir + " can't be read ("
+	refused("with a swap journal that can't be read", s, unreadable)
+	refused("with a swap journal that can't be read", other, unreadable)
 
 	if err := os.Remove(journal); err != nil {
 		t.Fatal(err)

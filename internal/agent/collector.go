@@ -184,7 +184,7 @@ func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
 		return
 	}
 	s.runStartedAt = runStart
-	s.sawStopping, s.sawCrash, s.runReady = false, false, false
+	s.sawStopping, s.sawCrash, s.sawOOM, s.runReady, s.crashLineAt = false, false, false, false, time.Time{}
 	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
 		s.runPhase = api.PhaseStartingContainer
 	}
@@ -252,6 +252,11 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 			take := fresh || !s.runReady
 			recovered := take && s.runCrashed
 			if take {
+				// A start someone asked for forgets the crash first, so one
+				// still here is what an automatic restart came back from.
+				if s.crash != nil {
+					s.recovered = s.crash
+				}
 				s.runReady, s.runPhase = true, api.PhaseOnline
 				s.crashed, s.runCrashed, s.crash = false, false, nil
 				s.lastError, s.lastErrorHint = "", ""
@@ -300,6 +305,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		if current {
 			s.mu.Lock()
 			s.sawCrash = true
+			if s.crashLineAt.IsZero() {
+				s.crashLineAt = s.now()
+			}
 			s.mu.Unlock()
 		}
 	case minecraft.EventOOM:
@@ -308,6 +316,7 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 			// Java can log "Stopping server" after this with no crash line of
 			// its own, and the run has still crashed.
 			s.sawCrash, s.lastError = true, "Java ran out of memory."
+			s.sawOOM = true
 			s.lastErrorHint = "Choose a larger memory budget in Settings."
 			s.mu.Unlock()
 		}
@@ -450,11 +459,17 @@ func (s *server) reconcileWithList(ts time.Time, names []string) {
 const worldEvery = 5 * time.Minute
 
 // measureWorld adds up the files of the world's dimensions every few minutes.
+// A world that isn't there, before a new server's first start or while a
+// restore swaps it, is looked for again at the next sample.
 func (s *server) measureWorld(now time.Time, level string) {
 	s.mu.Lock()
 	due := now.Sub(s.worldAt) >= worldEvery
 	s.mu.Unlock()
 	if !due || level == "" {
+		return
+	}
+	if !dirExists(filepath.Join(s.dataDir(), level)) {
+		s.worldChanged()
 		return
 	}
 	total := s.worldSize(level)
@@ -464,6 +479,14 @@ func (s *server) measureWorld(now time.Time, level string) {
 	if n, ok := s.countChunks(level); ok {
 		s.recordChunks(now, n)
 	}
+}
+
+// worldChanged forgets the world's size, so the next sample measures it
+// again: a restore put another world in place, or there is none yet.
+func (s *server) worldChanged() {
+	s.mu.Lock()
+	s.worldBytes, s.worldAt = 0, time.Time{}
+	s.mu.Unlock()
 }
 
 // worldSize adds up the files of the world's three dimensions.
@@ -527,16 +550,12 @@ func (s *server) sample(ctx context.Context) {
 	reachable := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
-		s.setDockerOK(false)
 		row.state = "docker_unavailable"
 	case sc == nil:
-		s.setDockerOK(true)
 		row.state = "not_created"
 	case err != nil:
-		s.setDockerOK(true)
 		row.state = "stopped"
 	case c.State.Running:
-		s.setDockerOK(true)
 		if st, err := s.docker.ContainerStats(ctx, c.ID); err == nil {
 			s.mu.Lock()
 			row.cpu = cpuPercent(s.prevCPU, &st)
@@ -581,7 +600,6 @@ func (s *server) sample(ctx context.Context) {
 			row.online, row.max = &snap.Online, &snap.Max
 		}
 	default:
-		s.setDockerOK(true)
 		s.mu.Lock()
 		if s.crashed {
 			row.state = "crashed"
@@ -632,12 +650,6 @@ func cpuPercent(prev, cur *docker.Stats) *float64 {
 	}
 	v := dCPU / dSys * cpus * 100
 	return &v
-}
-
-func (a *Agent) setDockerOK(ok bool) {
-	a.mu.Lock()
-	a.dockerOK = ok
-	a.mu.Unlock()
 }
 
 // rconCommand sends one console command, waiting up to 10 seconds.

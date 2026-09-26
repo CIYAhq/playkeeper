@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t, type MessageKey } from '@/i18n'
-import { alsoInstalls, appendCards, browseSorts, compactCount, footerFor, maxSearch, searchPath, type BrowseSort } from '@/lib/addons'
+import { alsoInstalls, appendCards, browseSorts, compactCount, footerFor, maxSearch, searchPath, sourceNames, type BrowseSort } from '@/lib/addons'
 import { busyReason } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
@@ -149,7 +149,7 @@ export function BrowseView() {
 
   const filters = (
     <div className={cn('flex gap-2', phone && 'flex-col')}>
-      <InputGroup className={cn('flex-1', phone && 'h-11')}>
+      <InputGroup className={phone ? 'h-11' : 'flex-1'}>
         <InputGroupAddon>
           <SearchIcon aria-hidden="true" />
         </InputGroupAddon>
@@ -180,7 +180,7 @@ export function BrowseView() {
       </Notice>
     )
   } else if (!cards) {
-    results = <ResultsSkeleton phone={phone} />
+    results = <ResultsSkeleton phone={phone} compact={picks} />
   } else if (cards.length === 0) {
     results = (
       <div className="flex animate-fade flex-col items-center py-14 text-center">
@@ -195,9 +195,9 @@ export function BrowseView() {
     results = (
       <div className={cn('transition-opacity duration-(--motion-standard) ease-standard', loading && 'opacity-60')} aria-busy={loading}>
         {unanswered.length > 0 && <p className="mb-3 text-[13px] text-muted-foreground">{unanswered.map((n) => n.message).join(' ')}</p>}
-        <CardList key={listId} cards={cards} installed={installed} phone={phone} />
+        <CardList key={listId} cards={cards} installed={installed} phone={phone} compact={picks} />
         {more && <div ref={sentinel} className="h-1" aria-hidden="true" />}
-        {loadingMore && <ResultsSkeleton phone={phone} count={phone ? 2 : 3} className="mt-3" />}
+        {loadingMore && <ResultsSkeleton phone={phone} count={phone ? 2 : 3} compact={picks} className="mt-3" />}
       </div>
     )
   }
@@ -212,7 +212,7 @@ export function BrowseView() {
           <h2 id="browse-title" className="text-lg font-bold tracking-[-0.01em]">
             {a.kind === 'mod' ? t('addons.browseMods') : t('addons.browse')}
           </h2>
-          <span className="text-[13px] text-muted-foreground">{t('addons.forSoftware', { software: softwareLabel(a.server) })}</span>
+          {!picks && <span className="text-[13px] text-muted-foreground">{t('addons.forSoftware', { software: softwareLabel(a.server) })}</span>}
         </div>
       )}
       {filters}
@@ -244,7 +244,8 @@ function useQuickInstall(card: AddonCard) {
   return { busy, run, open: () => a.openDetail({ key }), blocked: busyReason(a.server) }
 }
 
-function CardList({ cards, installed, phone }: { cards: AddonCard[]; installed: (c: AddonCard) => boolean; phone: boolean }) {
+/** `compact`: the list before a search, under the picks, in the design's shorter cards. */
+function CardList({ cards, installed, phone, compact }: { cards: AddonCard[]; installed: (c: AddonCard) => boolean; phone: boolean; compact: boolean }) {
   const rows = useListPresence(cards, cardKey)
   return phone ? (
     <ul className="animate-fade overflow-hidden rounded-3xl border border-border bg-white">
@@ -255,26 +256,27 @@ function CardList({ cards, installed, phone }: { cards: AddonCard[]; installed: 
   ) : (
     <ul className="grid animate-fade grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       {rows.map((p) => (
-        <DesktopCard key={p.key} card={p.item} installed={installed(p.item)} presence={p.state} />
+        <DesktopCard key={p.key} card={p.item} installed={installed(p.item)} presence={p.state} compact={compact} />
       ))}
     </ul>
   )
 }
 
-function DesktopCard({ card: c, installed, presence }: { card: AddonCard; installed: boolean; presence: Presence }) {
+function DesktopCard({ card: c, installed, presence, compact }: { card: AddonCard; installed: boolean; presence: Presence; compact: boolean }) {
   const q = useQuickInstall(c)
+  const downloads = t('addons.downloadsCount', { count: c.downloads, value: compactCount(c.downloads) })
   return (
-    <li {...presenceProps(presence)} className="flex min-h-[172px] flex-col rounded-2xl border border-border bg-card p-4 shadow-card transition-shadow duration-(--motion-fast) ease-standard hover:shadow-[0_2px_8px_rgba(29,33,28,0.08)]">
+    <li {...presenceProps(presence)} className={cn('flex flex-col rounded-2xl border border-border bg-card p-4 shadow-card transition-shadow duration-(--motion-fast) ease-standard hover:shadow-[0_2px_8px_rgba(29,33,28,0.08)]', compact ? 'min-h-[120px]' : 'min-h-[172px]')}>
       <button type="button" onClick={q.open} className="-m-1 flex min-w-0 items-start gap-3 rounded-lg p-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <AddonIcon url={c.iconUrl} />
         <span className="min-w-0 pt-0.5">
           <span className="block truncate text-[15px] leading-5 font-semibold">{c.name}</span>
-          {c.author && <span className="block truncate text-xs text-muted-foreground">{t('addons.by', { author: c.author })}</span>}
+          {compact ? <span className="line-clamp-2 text-xs text-muted-foreground">{c.summary}</span> : c.author && <span className="block truncate text-xs text-muted-foreground">{t('addons.by', { author: c.author })}</span>}
         </span>
       </button>
-      <p className="mt-3 line-clamp-2 text-[13px] leading-[18px] text-foreground/80">{c.summary}</p>
-      <div className="mt-auto flex items-center justify-between gap-2 pt-4">
-        <span className="text-xs text-muted-foreground">{t('addons.downloadsCount', { count: c.downloads, value: compactCount(c.downloads) })}</span>
+      {!compact && <p className="mt-3 line-clamp-2 text-[13px] leading-[18px] text-foreground/80">{c.summary}</p>}
+      <div className={cn('mt-auto flex items-center justify-between gap-2', compact ? 'pt-3' : 'pt-4')}>
+        <span className="text-xs text-muted-foreground">{compact ? [downloads, sourceNames[c.source]].join(t('common.dot')) : downloads}</span>
         {installed ? (
           <Marker tone="green" className="text-[13px]">
             {t('addons.installed')}
@@ -317,7 +319,7 @@ function PhoneCard({ card: c, installed, presence }: { card: AddonCard; installe
 const phoneCardClass = 'flex min-h-16 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0'
 
 /** Grey cards, or rows on a phone, where the results will be. */
-function ResultsSkeleton({ phone, count = 6, className }: { phone: boolean; count?: number; className?: string }) {
+function ResultsSkeleton({ phone, count = 6, compact = false, className }: { phone: boolean; count?: number; compact?: boolean; className?: string }) {
   if (phone) {
     return <ListSkeleton rows={count} face="size-10 rounded-[10px]" trailing={<Skeleton className="h-11 w-[72px] shrink-0 rounded-xl" />} className={cn('overflow-hidden rounded-3xl border border-border bg-white', className)} rowClassName={phoneCardClass} />
   }
@@ -325,7 +327,7 @@ function ResultsSkeleton({ phone, count = 6, className }: { phone: boolean; coun
     <div className={cn('grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3', className)}>
       <LoadingLabel />
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="flex min-h-[172px] flex-col rounded-2xl border border-border bg-card p-4">
+        <div key={i} className={cn('flex flex-col rounded-2xl border border-border bg-card p-4', compact ? 'min-h-[120px]' : 'min-h-[172px]')}>
           <div className="flex items-center gap-3">
             <Skeleton className="size-10 rounded-[10px]" />
             <div className="flex-1">
@@ -333,9 +335,13 @@ function ResultsSkeleton({ phone, count = 6, className }: { phone: boolean; coun
               <Skeleton className="mt-1.5 h-3 w-20" />
             </div>
           </div>
-          <Skeleton className="mt-4 h-3 w-full" />
-          <Skeleton className="mt-2 h-3 w-2/3" />
-          <div className="mt-auto flex items-center justify-between pt-4">
+          {!compact && (
+            <>
+              <Skeleton className="mt-4 h-3 w-full" />
+              <Skeleton className="mt-2 h-3 w-2/3" />
+            </>
+          )}
+          <div className={cn('mt-auto flex items-center justify-between', compact ? 'pt-3' : 'pt-4')}>
             <Skeleton className="h-3 w-24" />
             <Skeleton className="h-7 w-20 rounded-lg" />
           </div>

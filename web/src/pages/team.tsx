@@ -4,6 +4,7 @@ import { del, get, post, put } from '@/api/client'
 import type { CreatedTeamInvite, Grant, ProjectRole, Scope, TeamInvite, TeamMember, TeamResponse } from '@/api/types'
 import { errorText, usePhoneServer, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, CopyButton, Notice } from '@/components/app/bits'
+import { confirmAdmin, ConfirmAdminNotice } from '@/components/app/confirm-admin'
 import { CardGroup, ChoiceCard, ChoiceSelect, useIsPhone } from '@/components/app/controls'
 import { Avatar } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
@@ -149,40 +150,6 @@ export function TeamSection() {
       <RoleTable />
       {dialogs}
     </>
-  )
-}
-
-async function confirmAdmin(m: TeamMember) {
-  try {
-    await post(`/api/team/members/${m.id}/confirm-admin`)
-    toastManager.add({ title: t('team.confirmedToast', { name: m.username }), type: 'success' })
-  } catch (e) {
-    toastManager.add({ title: errorText(e), type: 'error' })
-  }
-}
-
-/** A member who turned on two-factor sign-in and waits for their Admin rights: one click confirms them. */
-export function ConfirmAdminNotice({ member, onConfirmed }: { member: TeamMember; onConfirmed: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false)
-  async function confirm() {
-    setBusy(true)
-    await confirmAdmin(member)
-    await onConfirmed()
-    setBusy(false)
-  }
-  return (
-    <Notice
-      title={t('team.confirmTitle', { name: member.username })}
-      className="animate-enter"
-      action={
-        <Button size="sm" loading={busy} onClick={() => void confirm()}>
-          <ShieldCheckIcon />
-          {t('team.confirm')}
-        </Button>
-      }
-    >
-      {t('team.confirmBody')}
-    </Notice>
   )
 }
 

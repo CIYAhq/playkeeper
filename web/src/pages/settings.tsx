@@ -7,7 +7,7 @@ import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
-import { InlineSkeleton, TableSkeleton } from '@/components/app/skeletons'
+import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { UpdateDialog, useUpdateInfo } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
@@ -129,15 +129,15 @@ function GeneralSettings() {
   }, [hash])
   return (
     <>
-      {phone && <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} />}
-      <PageHeader title={t('global.title')} subtitle={t('global.lead')} />
+      {phone ? <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('global.title')} /> : <PageHeader title={t('global.title')} />}
       <PageBody className="flex max-w-[860px] flex-col gap-4">
         <PlaykeeperCard />
-        {can(ws.me, 'audit.view') && <AuditCard />}
+        {can(ws.me, 'audit.view') && <AuditCard phone={phone} />}
         <Card as="section" aria-labelledby="about-title">
           <CardTitle id="about-title">{t('global.about')}</CardTitle>
           <p className="mt-1 text-[13px] text-muted-foreground">{t('global.aboutBody')}</p>
-          <p className="mt-3 text-xs text-muted-foreground">{t('footer.notOfficial')}</p>
+          {/* Desktop pages carry this line in the footer; phones have none. */}
+          {phone && <p className="mt-3 text-xs text-muted-foreground">{t('footer.notOfficial')}</p>}
           <a href={t('global.noticesUrl')} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
             {t('global.notices')}
             <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
@@ -215,15 +215,46 @@ function PlaykeeperCard() {
   )
 }
 
-function AuditCard() {
+function AuditCard({ phone }: { phone: boolean }) {
   const ws = useWorkspace()
   const audit = usePoll(() => get<AuditEntry[]>('/api/audit'), 30_000)
   const serverName = (id?: string) => (id ? (ws.servers?.find((s) => s.id === id)?.name ?? '') : '')
   // With more than one machine, an agent's row says whose it is.
   const machineName = (e: AuditEntry) => (e.source === 'agent' && ws.machines.length > 1 ? machineLabel(ws.machines.find((m) => m.id === e.machineId)) : '')
   const rows = audit.data ?? []
+  const tone = (e: AuditEntry) => (e.result === 'succeeded' ? 'text-success-foreground' : e.result === 'failed' || e.result === 'refused' ? 'text-destructive-foreground' : 'text-muted-foreground')
+  if (phone) {
+    return (
+      <Card as="section" id="audit" className="scroll-mt-4">
+        <CardTitle id="audit-title">{t('global.audit')}</CardTitle>
+        <CardHint>{t('global.auditHint')}</CardHint>
+        <div className="mt-3 max-h-[480px] overflow-auto" tabIndex={0} role="region" aria-labelledby="audit-title">
+          {!audit.data ? (
+            <ListSkeleton rows={5} rowClassName="flex min-h-14 items-center gap-3 border-t border-border py-2" />
+          ) : rows.length === 0 ? (
+            <p className="border-t border-border py-3 text-[13px] text-muted-foreground">{t('global.auditEmpty')}</p>
+          ) : (
+            <ul>
+              {rows.map((e) => (
+                <li key={`${e.source}-${e.id}`} className="border-t border-border py-2 text-[13px]">
+                  <p className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-mono text-xs">{e.action}</span>
+                    {serverName(e.serverId) && <span>{serverName(e.serverId)}</span>}
+                    {machineName(e) && <span className="text-muted-foreground">{t('machines.onMachine', { name: machineName(e) })}</span>}
+                    <span className={cn('ml-auto', tone(e))}>{e.result}</span>
+                  </p>
+                  <p className="text-muted-foreground">{[e.actor, formatDateTime(e.ts)].filter(Boolean).join(t('common.dot'))}</p>
+                  {e.detail && <p className="break-words text-muted-foreground">{e.detail}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
+    )
+  }
   return (
-    <Card as="section" aria-labelledby="audit-title" id="audit" className="scroll-mt-4">
+    <Card as="section" id="audit" className="scroll-mt-4">
       <CardTitle id="audit-title">{t('global.audit')}</CardTitle>
       <CardHint>{t('global.auditHint')}</CardHint>
       <div className="mt-4 max-h-[480px] overflow-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-labelledby="audit-title">
@@ -265,7 +296,7 @@ function AuditCard() {
                   {serverName(e.serverId)}
                   {machineName(e) && <span className="block text-xs text-muted-foreground">{t('machines.onMachine', { name: machineName(e) })}</span>}
                 </td>
-                <td className={cn('px-3 py-2', e.result === 'succeeded' ? 'text-success-foreground' : e.result === 'failed' || e.result === 'refused' ? 'text-destructive-foreground' : 'text-muted-foreground')}>{e.result}</td>
+                <td className={cn('px-3 py-2', tone(e))}>{e.result}</td>
                 <td className="max-w-[280px] px-3 py-2 break-words text-muted-foreground">{e.detail}</td>
               </tr>
             ))}

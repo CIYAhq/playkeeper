@@ -164,6 +164,10 @@ export interface ServerStatus {
   lastBackup?: Backup
   /** The world's size on disk, measured every few minutes. */
   worldBytes?: number
+  /** Set for as long as the world folder is missing because a restore didn't finish. */
+  worldMissing?: WorldMissing
+  /** A restore that didn't finish keeps its journal until the agent settles it, once the world folder is back and the server is stopped, or first thing on Start; no other restore starts meanwhile. */
+  restoreUnsettled?: RestoreUnsettled
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
@@ -181,6 +185,8 @@ export interface ServerStatus {
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */
   crash?: Crash
+  /** Why the server last stopped unexpectedly, when an automatic restart brought it back; kept a day at most, until its memory changes. */
+  recoveredCrash?: Crash
   /** Set when the server's software no longer matches what Playkeeper installed. */
   softwareChanged?: SoftwareChange
   // Wave 7: sleep when nobody's playing.
@@ -718,8 +724,11 @@ export interface PlayersSummary {
 export type ActivityKind =
   | 'joined'
   | 'crashed'
+  | 'crashed_memory'
   | 'created'
   | 'restored'
+  | 'restored_after_restart'
+  | 'put_back'
   | 'version'
   | 'stopped_outside'
   | 'allowlisted'
@@ -1032,6 +1041,20 @@ export interface WorldCopy {
   sizeBytes: number
 }
 
+/** Where a server's world is while its world folder is missing because a restore didn't finish. */
+export interface WorldMissing {
+  /** The folder the restore set the previous world aside in. */
+  previous: string
+  /** The world folder it goes back to. */
+  dataDir: string
+  setAsideAt: string
+}
+
+export interface RestoreUnsettled {
+  /** Why the agent can't settle it by itself, as a sentence: a journal it can't read, or why its last try failed. */
+  problem?: string
+}
+
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.
 
 export type AddonSource = 'modrinth' | 'hangar'
@@ -1308,6 +1331,7 @@ export interface SoftwarePin {
   fabricLoader?: string
   quiltLoader?: string
   neoforgeVersion?: string
+  forgeVersion?: string
 }
 
 export interface SoftwareBuild {
@@ -1413,12 +1437,15 @@ export interface ModpackPreview {
   blockers: AddonNotice[]
   warnings: AddonNotice[]
   manual: AddonNotice[]
+  /** Voice chat's UDP port, when the pack brings it: a server created with openPorts opens it. */
+  ports?: AddonPort[]
 }
 
 export interface ModpackRef {
   source: ModpackSource
   projectId: string
   versionId: string
+  openPorts?: boolean
 }
 
 // Wave 4: sharing a modded server's pack with friends.
@@ -1534,6 +1561,7 @@ export interface ServerModpack {
   iconUrl?: string
   mods?: number
   pending?: boolean
+  openPorts?: boolean
 }
 
 // Wave 4: templates.
@@ -1635,6 +1663,7 @@ export type Action =
   | 'backups.copies.manage'
   | 'backups.recovery_key'
   | 'backups.recover'
+  | 'addon_sources.manage'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 

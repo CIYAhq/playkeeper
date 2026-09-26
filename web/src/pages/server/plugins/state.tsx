@@ -328,7 +328,8 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
 
   useEffect(() => {
     if (!highlight) return
-    document.getElementById(rowDomId(highlight))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById(rowDomId(highlight))?.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' })
   }, [highlight])
 
   const value: AddonsState = {

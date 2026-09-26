@@ -6,11 +6,16 @@ import { keyFrom, libraryMatch, sameKey, searchPath } from '@/lib/addons'
 import { formatClock, formatDate, formatList, formatMB, sameDay } from '@/lib/format'
 import { num, str, strs } from '@/lib/params'
 
+/** Whether the server ran out of the memory its budget gives it, which more memory fixes. */
+export function isMemoryCrash(c: Crash): boolean {
+  return c.kind === 'container_memory_limit' || c.kind === 'heap_out_of_memory'
+}
+
 /**
  * What happened, in one line. Kinds without a line of their own, or without
  * the params it needs, fall back to the agent's English explanation.
  */
-export function crashSummary(c: Crash, server: string, machine: string): string {
+export function crashSummary(c: Crash, server: string, machine: string, lookups: AddonLookups = {}): string {
   const p = c.params
   switch (c.kind) {
     case 'container_memory_limit':
@@ -47,6 +52,9 @@ export function crashSummary(c: Crash, server: string, machine: string): string 
     case 'addon_failed': {
       const addon = str(p, 'addon')
       const jar = str(p, 'jar')
+      // An update made for this Minecraft says the installed version is the problem.
+      const update = jar ? lookups[`update:${jar}`] : undefined
+      if (addon && update?.state === 'ready') return t('crash.addonOutdated', { addon: update.installed ? `${addon} ${update.installed}` : addon, minecraft: update.madeFor })
       if (addon) return t('crash.addonFailed', { addon })
       return jar ? t('crash.addonLoad', { jar }) : c.explanation
     }
@@ -149,7 +157,7 @@ export type FixPlan =
 /** What the library says about updating or installing an add-on for a fix. */
 export type AddonLookup =
   | { state: 'checking' }
-  | { state: 'ready'; key: AddonKey; name: string; version: string; fingerprint: string; madeFor: string }
+  | { state: 'ready'; key: AddonKey; name: string; version: string; fingerprint: string; madeFor: string; installed?: string }
   | { state: 'unavailable'; reason: string }
 
 /** Lookups by the fix they are for; see lookupKey. */
@@ -186,7 +194,8 @@ export async function lookUpAddonFixes(serverId: string, keys: string[], minecra
           continue
         }
         const k = keyFrom(file.addon)
-        out[key] = fromPlan(await post<AddonPlan>(serverApi(serverId, '/addons/update/plan'), { addons: [k] }), k, minecraft)
+        const found = fromPlan(await post<AddonPlan>(serverApi(serverId, '/addons/update/plan'), { addons: [k] }), k, minecraft)
+        out[key] = found.state === 'ready' ? { ...found, installed: file.addon.versionNumber } : found
       } else if (what === 'install') {
         const card = libraryMatch((await get<AddonBrowse>(searchPath(serverId, { q: target, category: '', sort: 'downloads' }))).cards, target)
         if (!card) {

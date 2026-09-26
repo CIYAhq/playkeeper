@@ -5,7 +5,7 @@ import { defineConfig } from '@playwright/test'
 // test browser accepts it without a trust store entry.
 export default defineConfig({
   testDir: '.',
-  timeout: 90 * 60_000,
+  timeout: 150 * 60_000,
   workers: 1,
   reporter: [['list']],
   use: { baseURL: process.env.PK_URL, ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'UTC', actionTimeout: 30_000, navigationTimeout: 60_000 },

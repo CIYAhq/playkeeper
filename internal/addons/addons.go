@@ -45,7 +45,7 @@ type Server struct {
 	// mods/ folder. The game may write here, so every file operation stays
 	// inside it (os.Root) and never follows links out.
 	Dir              string
-	Type             string // paper, purpur, fabric, quilt, neoforge or vanilla
+	Type             string // paper, purpur, fabric, quilt, neoforge, forge or vanilla
 	MinecraftVersion string
 	// Owner, when set, owns the files and folders the library creates (the
 	// agent runs as root, the game as an unprivileged user).

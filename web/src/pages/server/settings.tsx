@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArchiveIcon, CircleArrowUpIcon, DownloadIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
-import { api, ApiError, download, get, post } from '@/api/client'
-import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, MemoryAdvice, OffsiteView, ServerStatus } from '@/api/types'
+import { api, ApiError, get, post } from '@/api/client'
+import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, MemoryAdvice, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
-import { Emblem, Pip } from '@/components/app/art'
-import { Card, CardHint, CardTitle, Notice, Progress, SectionLabel } from '@/components/app/bits'
+import { Emblem } from '@/components/app/art'
+import { DeleteServerDialog } from '@/components/app/delete-server'
+import { Card, CardHint, CardTitle, Progress, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
 import { InlineSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
@@ -18,12 +19,9 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { rich } from '@/i18n/rich'
-import { can } from '@/lib/access'
 import { formatDate, formatMB, localTimeZone } from '@/lib/format'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress } from '@/lib/memory'
 import { busyReason, whyNot } from '@/lib/phase'
-import { navigate } from '@/lib/router'
 import { iconURL, newerStable, typeName } from '@/lib/servers'
 import { buildLabel, configBuild } from '@/lib/software'
 import { cn } from '@/lib/utils'
@@ -217,11 +215,11 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
     }
   }
 
-  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, machineName, catalog?.sizing), disabled: !o.fits }))
+  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, machineName, catalog?.sizing, s.type), disabled: !o.fits }))
   const progress = advice && memoryProgress(advice)
   const memoryHint = advice ? (
     <>
-      {memoryAdviceLine(advice, machineName, catalog?.sizing)}
+      {memoryAdviceLine(advice, machineName, catalog?.sizing, s.type)}
       {advice.verdict !== 'not_enough_data' && advice.days.length > 0 && <MemoryDays advice={advice} />}
       {progress && (
         <div className="mt-2 flex items-center gap-3">
@@ -353,7 +351,7 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[160px_1fr]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[160px_minmax(0,1fr)]">
       <nav aria-label={t('settings.sections')} className="sticky top-4 hidden flex-col gap-0.5 self-start lg:flex">
         {sections.map((x) => (
           <a
@@ -490,7 +488,7 @@ function IconRow({ server: s }: { server: ServerStatus }) {
     } catch (e) {
       setPreview(undefined)
       if (e instanceof ApiError && e.code === 'icon_invalid') setProblem(t('settings.iconRefused'))
-      else toastManager.add({ title: errorText(e), type: 'error' })
+      else toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })
     } finally {
       setBusy(false)
     }
@@ -682,61 +680,12 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
   )
 }
 
-/** Copies somewhere else, kept or still made, that only the server's recovery key opens, while the key was never downloaded. */
-function keyNotSaved(v: OffsiteView | undefined): boolean {
-  return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)
-}
-
 function DangerRows({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
   const { offline } = useServerMachine(s)
   const [open, setOpen] = useState(false)
-  const [typed, setTyped] = useState('')
-  const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const [withoutKey, setWithoutKey] = useState(false)
-  const [savingKey, setSavingKey] = useState(false)
-  // The agent's refusal when the key wasn't downloaded, for when the page's view of the copies is older.
-  const [refused, setRefused] = useState<ApiError>()
   const list = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 30_000, s.id)
-  const off = usePoll(() => (open ? get<OffsiteView>(serverApi(s.id, '/offsite')) : Promise.resolve(undefined)), 30_000, open ? s.id : '')
   const backups = list.data?.length ?? 0
-  const keyRisk = keyNotSaved(off.data) || !!refused
-  const place = off.data?.place || String(refused?.params?.place ?? '')
-  const copies = off.data?.copies ?? Number(refused?.params?.copies ?? 0)
-  function close() {
-    setOpen(false)
-    setWithoutKey(false)
-    setRefused(undefined)
-  }
-  async function remove() {
-    setBusy(true)
-    try {
-      await post(serverApi(s.id, '/delete'), keyRisk && withoutKey ? { confirm: typed.trim(), forgetKey: true } : { confirm: typed.trim() })
-      close()
-      navigate({ name: 'home' })
-    } catch (e) {
-      if (e instanceof ApiError && e.reason === 'recovery_key_not_saved') setRefused(e)
-      else toastManager.add({ title: errorText(e), type: 'error' })
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function saveKey() {
-    const file = off.data?.key?.fileName
-    if (!file) return
-    setSavingKey(true)
-    try {
-      const name = await download(serverApi(s.id, '/offsite/recovery-key'), file)
-      toastManager.add({ title: t('offsite.key.saved', { file: name }), type: 'success' })
-      setRefused(undefined)
-      await off.refresh()
-    } catch (e) {
-      toastManager.add({ title: errorText(e), type: 'error' })
-    } finally {
-      setSavingKey(false)
-    }
-  }
   return (
     <>
       <SettingRow
@@ -769,60 +718,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
           </Button>
         }
       />
-      <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : close())}>
-        <DialogPopup className="sm:max-w-[480px]">
-          <div className="flex items-start gap-4 px-6 pt-6 pb-2">
-            <Pip pose="hurt" size={52} />
-            <div className="min-w-0 pt-1">
-              <DialogTitle className="text-lg font-bold">{t('settings.deleteDialog', { server: s.name })}</DialogTitle>
-              <DialogDescription className="mt-0.5 text-[13px]">{t('settings.deleteDialogBody')}</DialogDescription>
-            </div>
-          </div>
-          <DialogPanel className="flex flex-col gap-4 pt-3">
-            {keyRisk && (
-              <div className="flex flex-col gap-3 rounded-2xl border border-border p-3.5">
-                <Notice
-                  tone="warning"
-                  stacked
-                  title={t('settings.deleteKeyTitle')}
-                  action={
-                    off.data?.key && (
-                      <Button size="sm" variant="outline" loading={savingKey} disabledReason={can(ws.me, 'backups.recovery_key') ? undefined : t('offsite.key.holdersOnly')} onClick={() => void saveKey()}>
-                        <DownloadIcon />
-                        {t('offsite.key.download')}
-                      </Button>
-                    )
-                  }
-                >
-                  {t('settings.deleteKeyBody', { count: copies, server: s.name, place })}
-                </Notice>
-                <label className="flex items-start gap-2.5 text-[13px]">
-                  <Checkbox checked={withoutKey} onCheckedChange={(c) => setWithoutKey(c === true)} className="mt-0.5" />
-                  {t('settings.deleteWithoutKey')}
-                </label>
-              </div>
-            )}
-            <label className="flex flex-col gap-1.5 text-[13px]">
-              <span>{rich('settings.deleteType', { b: (chunk) => <strong className="font-semibold">{chunk}</strong> }, { server: s.name })}</span>
-              <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
-            </label>
-          </DialogPanel>
-          <DialogFooter variant="bare" className="border-t border-border pt-4">
-            <Button variant="ghost" onClick={close}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={remove}
-              loading={busy}
-              disabledReason={typed.trim() !== s.name ? t('settings.deleteTypeFirst', { server: s.name }) : keyRisk && !withoutKey ? t('settings.deleteKeyFirst') : undefined}
-            >
-              <Trash2Icon />
-              {t('settings.deleteConfirm', { server: s.name })}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
+      <DeleteServerDialog server={s} open={open} onOpenChange={setOpen} />
     </>
   )
 }

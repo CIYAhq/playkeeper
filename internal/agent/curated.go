@@ -16,6 +16,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/curated"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
@@ -325,6 +326,52 @@ func (s *server) templateVoiceChat(h *opHandle, sc *api.ServerConfig, planned []
 		return err
 	}
 	h.phase("opening_port")
+	return s.setUpVoiceChat(h, sc, srv, h.op.Actor)
+}
+
+// curseForgeVoiceChat is Simple Voice Chat's project on CurseForge, as a
+// CurseForge modpack names it.
+const curseForgeVoiceChat = "416089"
+
+// voiceChatInPack reports whether a pack's plan puts Simple Voice Chat on
+// a server that loads it.
+func voiceChatInPack(pl *modpacks.Plan) bool {
+	if _, err := addons.TargetFor(pl.Requirements.Type); err != nil {
+		return false
+	}
+	return slices.ContainsFunc(pl.Changes, func(c modpacks.Change) bool {
+		switch {
+		case c.Action == modpacks.ActionRemove:
+			return false
+		case pl.Pack.Source == modpacks.CurseForge:
+			return c.Project == curseForgeVoiceChat
+		}
+		return voiceChat(addons.Key{Source: pl.Pack.Source, ProjectID: c.Project})
+	})
+}
+
+// withPackPorts is a pack's preview with the ports its add-ons would get on
+// a new server now: voice chat's, when the pack brings it.
+func (a *Agent) withPackPorts(p packPreview) *api.ModpackPreview {
+	out := *p.preview
+	if p.voiceChat {
+		if port, err := curated.PickPort(curated.VoiceChatPort, a.voicePortTaken("")); err == nil {
+			out.Ports = []api.AddonPort{{Protocol: "udp", Port: port}}
+		}
+	}
+	return &out
+}
+
+// packVoiceChat opens voice chat's UDP port when a pack brought the add-on
+// and the owner agreed when creating the server, after the pack's preview
+// named the port (withPackPorts), before the server's container is made.
+// Without that agreement the port stays closed.
+func (s *server) packVoiceChat(h *opHandle, sc *api.ServerConfig, p api.ServerModpack, pl *modpacks.Plan) error {
+	if !p.OpenPorts || sc.VoiceChatPort > 0 || !voiceChatInPack(pl) {
+		return nil
+	}
+	h.phase("opening_port")
+	srv := addons.Server{Dir: s.dataDir(), Type: s.serverType(sc), MinecraftVersion: sc.MinecraftVersion, Owner: s.gameOwner()}
 	return s.setUpVoiceChat(h, sc, srv, h.op.Actor)
 }
 

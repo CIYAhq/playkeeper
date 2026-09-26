@@ -6,8 +6,10 @@ import type { Activity, CatalogEntry, MachineView, ProjectRole, ServerStatus, Te
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
+import { AsleepDetail, gaveBackText } from '@/components/app/asleep'
 import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, PlayerFace, Spinner, StatusPill } from '@/components/app/bits'
 import { EmptySteps } from '@/components/app/checklist'
+import { ConfirmAdminNotice } from '@/components/app/confirm-admin'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
 import { SignInNotice } from '@/components/app/sign-in-notice'
@@ -27,8 +29,6 @@ import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { AsleepDetail, gaveBackText } from '@/pages/server/sleep'
-import { ConfirmAdminNotice } from './team'
 
 export function HomePage() {
   const ws = useWorkspace()
@@ -94,7 +94,7 @@ export function HomePage() {
           sections.map(({ key, item: m, state }) => (
             <section key={key} {...presenceProps(state)} aria-labelledby={`on-${m.id}`} className="flex flex-col gap-3">
               <MachineHeading machine={m} />
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {byMachine(servers, ws.machines)
                   .find((g) => g.machine.id === m.id)
                   ?.servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />)}
@@ -103,12 +103,12 @@ export function HomePage() {
             </section>
           ))
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
             {demo ? <demo.HomeCard /> : <NewServerCard />}
           </div>
         )}
-        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.23fr)_minmax(0,1fr)]">
           <Card>
             <CardTitle>{t('home.activityTitle')}</CardTitle>
             <ActivityList items={activity.data} servers={servers ?? []} empty={t('home.activityEmpty')} className="mt-3 flex-1" />
@@ -301,6 +301,13 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
     case 'stopped':
     case 'unknown':
       if (s.phase === 'asleep') return <AsleepDetail server={s} />
+      if (s.worldMissing)
+        return (
+          <span className="flex items-center gap-2 text-[13px] text-destructive-foreground">
+            <CircleAlertIcon className="size-4" aria-hidden="true" />
+            {t('card.worldMissing')}
+          </span>
+        )
       return (
         <>
           <Pip pose="sleep" size={40} />

@@ -5,21 +5,23 @@ import type { Activity, AddonNotice, Crash, LagStatus, LogsResponse, MachineView
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
+import { DeleteServerDialog } from '@/components/app/delete-server'
 import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel, useNow } from '@/components/app/bits'
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { loaderLabel } from '@/components/app/modpacks'
-import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
+import { FailedJobNotice, MemoryCrashNotice, SavingPausedNotice } from '@/components/app/notices'
 import { PlayersChart } from '@/components/app/players-chart'
 import { RestoreDialog } from '@/components/app/restore'
 import { SignInNotice } from '@/components/app/sign-in-notice'
 import { SoftwareChangedView } from '@/components/app/software'
 import { JobSteps, type StepState } from '@/components/app/update'
+import { WorldMissingNotice } from '@/components/app/world-missing'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
-import { crashDetail, crashFixes, crashSummary, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
+import { crashDetail, crashFixes, crashSummary, isMemoryCrash, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, sameDay } from '@/lib/format'
 import { awayLong, joinOf, machineLabel, machineRoute } from '@/lib/machines'
 import { busyReason, createStepOf, failedJob, isSettingUp, packStepOf, phaseLabel, statusTone, templateStepOf, whyNot } from '@/lib/phase'
@@ -54,12 +56,12 @@ function Running({ server: s }: { server: ServerStatus }) {
       <ServerNotices server={s} />
       {asleep && <AsleepCard server={s} />}
       <FirstStepsCard server={s} phone={phone} onBackup={() => void serverAction(s, 'backups')} />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <JoinCard server={s} />
         <PlayingCard server={s} />
         {!(asleep && phone) && <RunningCard server={s} />}
       </div>
-      <div className={cn('grid gap-4 lg:grid-cols-[1.45fr_1fr]', asleep && phone && 'hidden')}>
+      <div className={cn('grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]', asleep && phone && 'hidden')}>
         <PlayersChart server={s} />
         <Card>
           <CardTitle>{t('overview.activity')}</CardTitle>
@@ -76,20 +78,24 @@ function Running({ server: s }: { server: ServerStatus }) {
   )
 }
 
-/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, or settings waiting for a restart. */
+/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, a run out of memory, or settings waiting for a restart. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
   const { stale, offline, machine } = useServerMachine(s)
   const { refresh } = useWorkspace()
   const [dismissed, setDismissed] = useState<string>()
+  const [dismissedCrash, setDismissedCrash] = useState<string>()
   const [busy, setBusy] = useState(false)
   if (stale) return null
   if (s.offlineModeTest) return <Notice tone="error" title={t('error.notice')}>{t('error.noticeBody')}</Notice>
   if (s.phase === 'docker_unavailable') return <Notice tone="warning" title={s.lastError ?? t('status.docker')}>{s.lastErrorHint}</Notice>
+  if (s.worldMissing) return <WorldMissingNotice server={s} />
   if (s.savingPausedSince) return <SavingPausedNotice server={s} />
   const disk = machine?.live?.diskWarning
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   const failed = failedJob(s)
   if (failed && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} />
+  const recovered = s.recoveredCrash
+  if (recovered && isMemoryCrash(recovered) && dismissedCrash !== recovered.at) return <MemoryCrashNotice server={s} crash={recovered} onDismiss={() => setDismissedCrash(recovered.at)} />
 
   if (s.pendingRestart && s.phase === 'online') {
     return (
@@ -413,6 +419,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const op = s.operation ?? s.lastOperation
   const failed = !s.operation && op?.status === 'failed'
   const [busy, setBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const cfg = s.config
   const type = typeName(s.type)
   const version = cfg?.minecraftVersion ?? ''
@@ -503,7 +510,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         {failed ? (
           <>
-            <Button variant="outline" render={<a {...linkPath(`/servers/${s.slug}/settings#danger`)} />}>
+            <Button variant="outline" onClick={() => setDeleting(true)}>
               <Trash2Icon />
               {t('server.deleteMenu')}
             </Button>
@@ -526,6 +533,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
           </Button>
         )}
       </div>
+      {failed && <DeleteServerDialog server={s} open={deleting} onOpenChange={setDeleting} />}
     </Card>
   )
 }
@@ -565,10 +573,10 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   const [picked, setPicked] = useState<string>()
   const [preview, setPreview] = useState<RestorePreview>()
   const [busy, setBusy] = useState(false)
-  const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, place.name) : (s.lastError ?? t('crash.generic', { server: s.name }))
+  const lookups = useAddonLookups(s)
+  const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, place.name, lookups) : (s.lastError ?? t('crash.generic', { server: s.name }))
   const detail = refusal ? undefined : s.crash ? crashDetail(s.crash) : s.lastErrorHint
   const lines: ConsoleLine[] = refusal ? [] : s.crash ? s.crash.lines : (logs.data?.lines ?? []).map((l) => parseLine(l.text))
-  const lookups = useAddonLookups(s)
   const options = refusal ? refusalFixes(refusal, s.name) : crashFixes(s.crash ?? fallbackCrash(s), s.name, place.name, phone, new Date(), lookups)
   const choice = options.find((o) => o.id === picked && o.plan) ?? preselect(options)
 
@@ -766,7 +774,7 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
           </Button>
         </div>
       </Card>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="max-sm:text-[17px]">{t('overview.join')}</CardTitle>

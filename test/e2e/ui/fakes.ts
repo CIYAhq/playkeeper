@@ -747,10 +747,13 @@ const routes: [string, RegExp, Handler][] = [
   [
     'POST',
     /^\/api\/servers\/(\w+)\/mods\/share$/,
-    ({ body }) => {
+    ({ body, params }, state) => {
       const on = (body as { public?: unknown } | null)?.public
       if (typeof on !== 'boolean') return invalid('Say whether to share the pack.')
-      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
+      // The pack of the server's own loader, as the panel last showed it: a Forge server's names Forge.
+      const read = lastRead(state, params[0], 'mods/share')
+      const share = read.share ?? { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] }
+      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: read.file ?? 'server.mrpack', size: read.size ?? 2048, loaderName: read.loaderName ?? 'Fabric', share } }
     },
   ],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
@@ -1026,7 +1029,7 @@ interface AddonRecord {
 
 const notManaged = refuse(404, 'not_managed', 'Playkeeper did not install this add-on, so it cannot manage it.', 'Scan the folder to let Playkeeper identify files added by hand.')
 
-/** What the page last got for a read of the server's add-ons, packs or pre-generation. */
+/** What the page last got for a read of the server's add-ons, packs, pre-generation or friends' pack. */
 function lastRead(state: FakeState, serverId: string | undefined, what: string): Record<string, unknown> {
   return state.reads.get(`/api/servers/${serverId}/${what}`) ?? {}
 }
@@ -1076,7 +1079,7 @@ const running = ['online', 'starting', 'starting_container', 'preparing_world', 
 function addonWorld(state: FakeState, serverId: string | undefined): World {
   const path = `/api/servers/${serverId}/addons`
   const folder = recordedFolder()
-  const addons = state.reads.get(path) ?? ((lay(state.view(), path, folder) as Record<string, unknown> | undefined) ?? folder)
+  const addons = state.reads.get(path) ?? ((lay(state.view(), path, folder, new URL(state.origin).host) as Record<string, unknown> | undefined) ?? folder)
   return { addons, running: running.includes(state.phases.get(serverId ?? '') ?? '') }
 }
 
@@ -1230,10 +1233,37 @@ const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous',
  * click-through reaches the controls only they show: its servers stopped,
  * crashed (out of memory, as the agent reports it) or busy with a backup;
  * no players, sessions or backups; no servers at all; a newer Playkeeper to
- * update to; space to free on the machine's disk; or a panel that still
- * needs its admin account.
+ * update to; space to free on the machine's disk; a panel that still needs
+ * its admin account; a server set up to look after itself (schedules, one
+ * of them paused, copies on another machine and sleep on) or asleep because
+ * nobody played; a server that's been in use (plugins with an update, a
+ * changed file, one added by hand and one gone, data packs, a resource pack
+ * and the map being pre-generated); or its pre-generation paused while
+ * people play; friends invited to it, one waiting for a yes, a team and
+ * Discord connected; its map being drawn and shared, or waiting for a restart
+ * to start; or, signed out, an account with two-factor sign-in, whose right
+ * password leads to the second step, or the links friends get: a friend link,
+ * a friends' pack and a shared map (sharedLinks).
  */
-export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'space to free' | 'first run'
+export type View =
+  | 'live'
+  | 'stopped'
+  | 'crashed'
+  | 'busy'
+  | 'empty lists'
+  | 'no servers'
+  | 'update available'
+  | 'space to free'
+  | 'first run'
+  | 'looks after itself'
+  | 'asleep'
+  | 'in use'
+  | 'paused'
+  | 'friends and team'
+  | 'map on'
+  | 'map restart'
+  | 'second step'
+  | 'shared links'
 
 type Json = Record<string, unknown>
 
@@ -1287,11 +1317,21 @@ function server(view: View, s: Json): Json {
       return { ...s, operation: { id: 'fake-op-busy', serverId: s.id, kind: 'backup', status: 'running', phase: 'copying', actor: 'admin', startedAt: ago(20) } }
     case 'empty lists':
       return { ...s, players: s.players ? { ...(s.players as Json), online: 0, names: [] } : undefined }
+    case 'asleep':
+      return { ...stopped(s), desired: 'running', phase: 'asleep', sleep: { enabled: true, idleMinutes: 30, asleepSince: ago(40 * 60), listening: true } }
     case 'live':
     case 'no servers':
     case 'update available':
     case 'space to free':
     case 'first run':
+    case 'looks after itself':
+    case 'in use':
+    case 'paused':
+    case 'friends and team':
+    case 'map on':
+    case 'map restart':
+    case 'second step':
+    case 'shared links':
       return s
     default: {
       const unreachable: never = view
@@ -1302,6 +1342,233 @@ function server(view: View, s: Json): Json {
 
 /** The version the 'update available' view offers. */
 export const newerRelease = '0.3.2'
+
+/** A plugin Playkeeper installed from Modrinth. Real projects, so their details load from the real panel. */
+function modrinthAddon(projectId: string, slug: string, name: string, versionNumber: string, fileName: string, size: number, days: number): Json {
+  return { source: 'modrinth', projectId, slug, name, versionId: `fake${slug.replace(/-/g, '')}`, versionNumber, channel: 'release', published: ago((days + 30) * 86_400), fileName, size, installedAt: ago(days * 86_400) }
+}
+
+const inUse = {
+  luckperms: modrinthAddon('Vebnzrzj', 'luckperms', 'LuckPerms', '5.5.17', 'LuckPerms-Bukkit-5.5.17.jar', 1_900_000, 1),
+  chunky: modrinthAddon('fALzjamp', 'chunky', 'Chunky', '1.4.28', 'Chunky-Bukkit-1.4.28.jar', 520_000, 40),
+  coreprotect: modrinthAddon('Lu3KuzdV', 'coreprotect', 'CoreProtect', '23.0', 'CoreProtect-23.0.jar', 1_100_000, 25),
+  viaversion: modrinthAddon('P1OZGk5p', 'viaversion', 'ViaVersion', '5.4.1', 'ViaVersion-5.4.1.jar', 5_300_000, 12),
+  voicechat: modrinthAddon('9eGKb6K1', 'simple-voice-chat', 'Simple Voice Chat', 'bukkit-2.6.1', 'voicechat-bukkit-2.6.1.jar', 2_400_000, 60),
+}
+/** The newer versions the checks find: two, so "Update all" shows. */
+const inUseLatest = new Map<Json, Json>([
+  [inUse.chunky, { versionId: 'fakechunky1440', versionNumber: '1.4.40', channel: 'release', published: ago(3 * 86_400), fileName: 'Chunky-Bukkit-1.4.40.jar', size: 530_000 }],
+  [inUse.luckperms, { versionId: 'fakeluckperms5520', versionNumber: '5.5.20', channel: 'release', published: ago(2 * 86_400), fileName: 'LuckPerms-Bukkit-5.5.20.jar', size: 1_950_000 }],
+])
+/** The records Playkeeper keeps in the 'in use' view: LuckPerms just installed, both it and Chunky with an update, CoreProtect changed on disk and voice chat whose file is gone. ViaVersion is a file added by hand. */
+const inUseManaged = [inUse.luckperms, inUse.chunky, inUse.coreprotect, inUse.voicechat]
+
+function inUseRead(path: string, body: Json, host: string): unknown {
+  if (/^\/api\/servers\/\w+\/addons$/.test(path)) {
+    const file = (a: Json, status: string, extra: Json = {}) => ({ fileName: a.fileName, size: a.size, status, addon: a, ...extra })
+    const files = [
+      file(inUse.luckperms, 'managed', { pending: true }),
+      file(inUse.chunky, 'managed'),
+      file(inUse.coreprotect, 'modified'),
+      { fileName: inUse.viaversion.fileName, size: inUse.viaversion.size, status: 'unknown' },
+      { fileName: 'HomeTeleports.jar', size: 48_000, status: 'unknown', name: 'HomeTeleports', version: '2.1' },
+    ]
+    return { ...body, files, missing: [inUse.voicechat], warnings: [], restartNeeded: false }
+  }
+  if (/^\/api\/servers\/\w+\/addons\/checks$/.test(path)) {
+    return {
+      updates: [...inUseLatest].map(([a, latest]) => ({ source: 'modrinth', projectId: a.projectId, latest, available: true })),
+      identified: [{ fileName: inUse.viaversion.fileName, size: inUse.viaversion.size, status: 'identified', addon: inUse.viaversion }],
+      checkedAt: ago(10 * 60),
+    }
+  }
+  if (/^\/api\/servers\/\w+\/datapacks$/.test(path)) {
+    return {
+      ...body,
+      added: undefined,
+      notEnabled: undefined,
+      problem: undefined,
+      packs: [
+        { name: 'more-mob-heads.zip', description: 'Mobs sometimes drop their heads', size: 182_000, enabled: true, addedAt: ago(5 * 86_400) },
+        { name: 'coordinates-hud.zip', size: 46_000, enabled: false, addedAt: ago(9 * 86_400) },
+      ],
+    }
+  }
+  if (/^\/api\/servers\/\w+\/resourcepack$/.test(path)) {
+    const sha1 = '5e3c0b7d9a1f2e4c6b8a0d2f4e6c8a0b2d4f6e8a'
+    return { ...body, pending: false, problem: undefined, offer: { sha1, fileName: 'faithful-32x.zip', size: 24_500_000, description: 'Faithful 32x', addedAt: ago(2 * 86_400), url: `http://${host}/resource-packs/${sha1}.zip`, required: true, prompt: 'Sharper textures for this server' } }
+  }
+  return undefined
+}
+
+/** The map being pre-generated ('in use'), or paused while people play ('paused'). */
+function pregenIn(view: 'in use' | 'paused', body: Json): Json {
+  const base = { ...body, error: undefined, preset: 'medium', radius: 2500, total: 98_000, pauseForPlayers: true, installed: true, startedAt: ago(20 * 60), diskBytes: 999_000_000 }
+  return view === 'paused'
+    ? { ...base, state: 'paused', pausedBy: 'players', chunks: 41_000, percent: 42, rate: undefined, etaSeconds: 2_400, elapsedSeconds: 1_150 }
+    : { ...base, state: 'running', pausedBy: undefined, chunks: 11_800, percent: 12, rate: 42, etaSeconds: 2_100, elapsedSeconds: 280 }
+}
+
+/** An add-on's details as the panel gives them, for the 'in use' view's plugins, without asking Modrinth. */
+function inUseDetails(a: Json): Json {
+  const managed = inUseManaged.includes(a)
+  const newer = inUseLatest.get(a)
+  const latest = newer ?? { versionId: a.versionId, versionNumber: a.versionNumber, channel: 'release', published: a.published, fileName: a.fileName, size: a.size }
+  const card = { source: 'modrinth', projectId: a.projectId, slug: a.slug, name: a.name, summary: `${String(a.name)}, a plugin for Paper servers.`, categories: ['utility'], downloads: 1_200_000, updated: a.published, pageUrl: `https://modrinth.com/plugin/${String(a.slug)}`, installed: managed }
+  if (managed) return { card, latest, installed: a, changed: a === inUse.coreprotect, missing: a === inUse.voicechat, updateAvailable: !!newer }
+  const install = { action: 'install', source: 'modrinth', projectId: a.projectId, name: a.name, versionNumber: a.versionNumber, channel: 'release', fileName: a.fileName, size: a.size }
+  return { card, latest, plan: { steps: [install], manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'a1b2c3d4e5f60718293a4b5c6d7e8f90' } }
+}
+
+/**
+ * What the real panel can't answer for the 'in use' view's made-up plugins:
+ * their details (without asking Modrinth, so it works offline), what removing
+ * one would do and what updating them would install. The panel would refuse
+ * the last two, since it never installed them.
+ */
+function inUseAnswer(method: string, path: string, body: unknown): Reply | undefined {
+  const details = method === 'GET' ? /^\/api\/servers\/\w+\/addons\/project\/modrinth\/([^/]+)$/.exec(path) : null
+  const known = details && [...inUseManaged, inUse.viaversion].find((a) => a.projectId === decodeURIComponent(details[1] ?? ''))
+  if (known) return { status: 200, body: inUseDetails(known) }
+  const removal = method === 'GET' ? /^\/api\/servers\/\w+\/addons\/project\/modrinth\/([^/]+)\/removal$/.exec(path) : null
+  const gone = removal && inUseManaged.find((a) => a.projectId === decodeURIComponent(removal[1] ?? ''))
+  if (gone) return { status: 200, body: { addon: gone, neededBy: [], orphans: [], configFolder: `plugins/${String(gone.name)}`, changed: gone === inUse.coreprotect, missing: gone === inUse.voicechat } }
+  if (method !== 'POST' || !/^\/api\/servers\/\w+\/addons\/update\/plan$/.test(path)) return undefined
+  const b = (body ?? {}) as { addons?: { source?: unknown; projectId?: unknown }[]; changed?: unknown }
+  const picked = b.addons ? inUseManaged.filter((a) => b.addons?.some((k) => sameAddon(a as unknown as AddonRecord, k))) : [...inUseLatest.keys()]
+  if (picked.length === 0 || (b.addons && picked.length !== b.addons.length)) return undefined
+  const steps = picked.map((a) => {
+    const to = (!b.changed && inUseLatest.get(a)) || a
+    return { action: 'update', source: a.source, projectId: a.projectId, name: a.name, versionNumber: to.versionNumber, channel: 'release', fileName: to.fileName, size: to.size, was: a.versionNumber }
+  })
+  return { status: 200, body: { steps, manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'f0e1d2c3b4a5968778695a4b3c2d1e0f' } }
+}
+
+/** The right password for an account with two-factor sign-in: the second step asks for a code. */
+function secondStep(body: unknown): Reply {
+  const username = (body as { username?: unknown } | null)?.username
+  if (typeof username !== 'string' || !username) return invalid('Type your username.')
+  return { status: 200, body: { secondFactor: { methods: ['app_code', 'recovery_code'], appCodesBlocked: false }, user: { username }, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() } }
+}
+
+const later = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString()
+
+/** A friend link on the Players tab. Ids and codes have the panel's shapes, so the fakes of turning one off accept them. */
+function friendLink(serverId: string, id: string, label: string, code: string, over: Json = {}): Json {
+  return { id, kind: 'player', projectId: 'default', serverId, approval: 'right_away', label, createdBy: 1, createdAt: ago(2 * 86_400), expiresAt: later(5 * 86_400), maxUses: 5, uses: 2, usesLeft: 3, status: 'active', path: `/join/${code}`, ...over }
+}
+
+/** Wave 5's reads in the 'friends and team' view: links friends joined by, one waiting for a yes, a team of three with an unused invite, and Discord connected. */
+function friendsRead(path: string, body: Json): unknown {
+  const links = /^\/api\/servers\/(\w+)\/invites$/.exec(path)
+  if (links?.[1]) {
+    const id = links[1]
+    return {
+      ...body,
+      invites: [
+        friendLink(id, 'fridaycrew', 'Friday crew', 'Fk7Friday0Crew0Link0Ab'),
+        friendLink(id, 'weekendfun', 'Weekend crew', 'Fk7Weekend0Crew0Link0A', { approval: 'after_yes', maxUses: 0, uses: 1, usesLeft: undefined, expiresAt: undefined }),
+        friendLink(id, 'kickstarts', 'Launch night', 'Fk7Launch0Night0Link0A', { status: 'used_up', uses: 5, usesLeft: 0, path: undefined }),
+      ],
+    }
+  }
+  const asking = /^\/api\/servers\/(\w+)\/join-requests$/.exec(path)
+  if (asking?.[1]) {
+    const request = { id: 'pixpiawait', inviteId: 'weekendfun', serverId: asking[1], playerName: 'Pixel_Pia', playerUuid: '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f', state: 'pending', createdAt: ago(120) }
+    return [{ request, notice: { title: { key: 'joinRequest.title', params: { player: 'Pixel_Pia' }, text: 'Pixel_Pia wants to join' }, detail: { key: 'joinRequest.detail', params: { link: 'Weekend crew' }, text: 'Through the link “Weekend crew”, 2 min ago' } } }]
+  }
+  if (path === '/api/team') {
+    const all = (body.servers ?? []) as { id: string }[]
+    const members = [
+      ...((body.members ?? []) as Json[]),
+      { id: 7, username: 'alex', owner: false, you: false, role: 'moderator', servers: { servers: all.slice(0, 1).map((x) => x.id) }, twoFactor: false, addedAt: ago(9 * 86_400), canEdit: true },
+      { id: 8, username: 'sam', owner: false, you: false, role: 'viewer', servers: { all: true }, twoFactor: true, addedAt: ago(20 * 86_400), canEdit: true },
+    ]
+    const invite = { id: 'jamiejumps', kind: 'member', projectId: 'default', role: 'moderator', servers: { all: true }, label: 'Jamie', createdBy: 1, createdAt: ago(3600), expiresAt: later(6 * 86_400), maxUses: 1, uses: 0, usesLeft: 1, status: 'active', canEdit: true }
+    return { ...body, members, invites: [invite] }
+  }
+  if (path === '/api/discord') {
+    const kinds = (body.kinds ?? []) as string[]
+    return { ...body, connected: true, webhookName: 'Playkeeper alerts', connectedAt: ago(3 * 86_400), alerts: kinds.filter((k) => k !== 'player_joined' && k !== 'player_left'), liveStatus: true, delivery: { sent: ago(3600) } }
+  }
+  return undefined
+}
+
+/** Wave 6's map in the 'map on' view (drawn, shared, with a player out exploring) or the 'map restart' view (installed, waiting for a restart). */
+function mapRead(view: 'map on' | 'map restart', body: Json): Json {
+  const on = { ...body, supported: true, enabled: true, missing: false, hint: undefined, restartWhenEmpty: false }
+  if (view === 'map restart') return { ...on, state: 'needs_restart', message: 'The map starts drawing when Survival restarts.', progress: undefined, public: false, publicPlayers: false, path: '' }
+  return { ...on, state: 'ready', message: 'The map is up to date', progress: undefined, areas: 4800, bytes: 190_000_000, lastDrawn: ago(10 * 60), public: true, publicPlayers: true, path: '/map/Fk3dEf6hIj9lMn2pQr5tUv', link: undefined }
+}
+
+/** The map's worlds, players and tiles in the 'map on' view, which the real panel refuses while its map is off, and on the shared map of the 'shared links' view. */
+function mapAnswer(path: string): Reply | undefined {
+  const rest = /^\/api\/(?:servers\/\w+\/map|public\/map\/\w+)\/(.+)$/.exec(path)?.[1] ?? ''
+  if (rest === 'worlds') {
+    const world = (name: string, dimension: string, label: string) => ({ name, dimension, label, spawn: { x: 0, z: 0 }, zoom: { max: 3, default: 2, extra: 1 }, refreshSeconds: 60 })
+    return { status: 200, body: { worlds: [world('world', 'overworld', 'Overworld'), world('world_nether', 'nether', 'Nether'), world('world_the_end', 'end', 'The End')], tileSize: 256 } }
+  }
+  if (rest === 'players') {
+    // Far from spawn, so finding them moves the map onto tiles it hasn't loaded.
+    return { status: 200, body: { players: [{ name: 'Pixel_Pia', uuid: '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f', world: 'world', dimension: 'overworld', x: 3200, z: -2100, place: { kind: 'exploring', text: 'Exploring' } }], updatedAt: new Date().toISOString() } }
+  }
+  // Nothing is drawn yet: a tile nobody has explored is a 404 the map leaves blank.
+  if (rest.startsWith('tiles/')) return { status: 404, body: { error: 'Not drawn yet.', code: 'not_found' }, expected: true }
+  return undefined
+}
+
+/** The links of the 'shared links' view, in the shapes the panel makes them: a friend link, a friends' pack page and a shared map. */
+export const sharedLinks = { join: 'Fk7Friday0Crew0Link0Ab', pack: 'Pk7Friends0Pack0Link0A', map: 'Fk3dEf6hIj9lMn2pQr5tUv' }
+
+/** A modded server's friends' pack page, as GET /packs/<token>/page answers it: a Modrinth pack, a mod added to it, and two mods friends get themselves. */
+function sharedPackPage(): Json {
+  const text = (key: string, english: string, params?: Record<string, string>) => ({ key, text: english, params })
+  const needed = text('share.need.required', 'Friends need it')
+  const optional = text('share.need.optional', 'Optional for friends')
+  const file = 'cobblemon.mrpack'
+  const launcher = (id: string, name: string, site: string, steps: string[]) => ({ id, name, site, steps: steps.map((k) => text(`share.launcher.${id.replace('-', '_')}.${k}`, '', { file })) })
+  return {
+    server: 'Cobblemon',
+    minecraftVersion: '26.1.2',
+    loader: 'fabric',
+    loaderName: 'Fabric',
+    loaderVersion: '0.17.2',
+    pack: { name: 'Cobblemon Modpack', version: '26.1.2-5', source: 'modrinth', page: 'https://modrinth.com/modpack/cobblemon-fabric', need: 'required', label: needed },
+    notice: text('share.notice.pack_one', 'Friends need the pack plus Waystones', { pack: 'Cobblemon Modpack', mod: 'Waystones' }),
+    steps: [],
+    launchers: [launcher('modrinth-app', 'Modrinth App', 'https://modrinth.com/app', ['add', 'pick', 'play']), launcher('prism', 'Prism Launcher', 'https://prismlauncher.org', ['add', 'pick', 'launch'])],
+    mods: [
+      { name: 'Balm', version: '21.0.20', from: 'user', need: 'required', label: needed, inFile: true, neededBy: 'Waystones' },
+      { name: 'Chunky', version: '1.4.40', from: 'user', need: 'optional', label: optional, inFile: true },
+      { name: 'Emote Wheel', version: '1.2', from: 'user', need: 'required', label: needed, inFile: false },
+      { name: 'Waystones', version: '21.1.4', from: 'user', need: 'required', label: needed, inFile: true },
+      { name: 'Cobblemon', version: '1.7.1', from: 'pack', need: 'required', label: needed, inFile: true },
+      { name: 'Sodium', version: '0.9.2', from: 'pack', need: 'optional', label: optional, inFile: true },
+      { name: 'Trainer HUD', from: 'pack', need: 'required', label: needed, inFile: false },
+    ],
+    yourself: [
+      { name: 'Emote Wheel', path: 'mods/emote-wheel-1.2.jar', page: 'https://www.curseforge.com/minecraft/mc-mods/emote-wheel', need: 'required', reason: text('share.yourself.curseforge', 'Emote Wheel comes from CurseForge.', { name: 'Emote Wheel', folder: 'mods' }) },
+      { name: 'Trainer HUD', path: 'mods/trainer-hud.jar', page: 'https://modrinth.com/modpack/cobblemon-fabric', need: 'required', reason: text('share.yourself.inside_pack', 'Trainer HUD only comes inside the pack.', { name: 'Trainer HUD', pack: 'Cobblemon Modpack', folder: 'mods' }) },
+    ],
+    download: { url: `/packs/${sharedLinks.pack}/${file}`, name: file, size: 38_912, type: 'application/x-modrinth-modpack+zip' },
+    address: 'cobblemon.example.playkeeper.io',
+    hasIcon: false,
+  }
+}
+
+/** What the panel would answer the pages behind sharedLinks, which it has no record of; anything else goes to the panel. */
+function sharedAnswer(method: string, path: string, body: unknown): Reply | undefined {
+  if (method === 'POST' && path === '/api/public/join/preview') {
+    if ((body as { code?: unknown } | undefined)?.code !== sharedLinks.join) return undefined
+    return { status: 200, body: { kind: 'player', inviter: '', server: 'Survival', version: '26.1.2', online: true, playing: 3, approval: 'right_away' } }
+  }
+  if (method !== 'GET') return undefined
+  const map = `/api/public/map/${sharedLinks.map}`
+  if (path === map) return { status: 200, body: { name: 'Survival', players: true } }
+  if (path.startsWith(`${map}/`)) return mapAnswer(path)
+  if (path === `/packs/${sharedLinks.pack}/page`) return { status: 200, body: sharedPackPage() }
+  return undefined
+}
 
 /**
  * What a disk scan finds on a machine that has run for a while: two backups
@@ -1338,9 +1605,80 @@ function spaceToFree(report: Json): Json | undefined {
   return { ...report, candidates: [...backups, ...logs, ...setAside], ways, freeable: ways.reduce((n, w) => n + w.bytes, 0) }
 }
 
+/**
+ * A server set up to look after itself: a daily restart, backups every six
+ * hours that wait while people play (the last one skipped), a paused
+ * announcement, copies on another machine over SFTP with a recovery key,
+ * and sleep after half an hour with nobody on. A fresh install has none of
+ * them, so their rows' controls would never be pressed.
+ */
+function selfCareRead(path: string, body: Json): unknown {
+  const sid = /^\/api\/servers\/(\w+)\//.exec(path)?.[1] ?? ''
+  const hour = 3600
+  if (/^\/api\/servers\/\w+\/schedules$/.test(path)) {
+    const schedule = (id: string, kind: string, timing: Json, payload: Json, summary: string, extra: Json = {}) => ({
+      id, serverId: sid, kind, timing: { timeZone: 'UTC', ...timing }, payload, enabled: true, summary,
+      createdAt: ago(20 * 24 * hour), updatedAt: ago(3 * 24 * hour), createdBy: 'admin', updatedBy: 'admin', ...extra,
+    })
+    return {
+      schedules: [
+        schedule('fakerestart', 'restart', { kind: 'daily', at: '05:00' }, { warnSeconds: [300, 60] }, 'Every day at 05:00', {
+          nextRun: new Date(Date.now() + 10 * hour * 1000).toISOString(),
+          lastRun: { due: ago(14 * hour), started: ago(14 * hour), finished: ago(14 * hour - 90), result: 'succeeded', players: 0 },
+        }),
+        schedule('fakebackups', 'backup', { kind: 'interval', everyHours: 6 }, { skipIfPlaying: true }, 'Every 6 hours', {
+          nextRun: new Date(Date.now() + 4 * hour * 1000).toISOString(),
+          lastRun: { due: ago(2 * hour), result: 'skipped', reason: 'players', players: 3, retryAt: new Date(Date.now() + hour * 1000).toISOString() },
+        }),
+        schedule('fakecontest', 'announcement', { kind: 'weekly', days: ['sat'], at: '18:00' }, { message: 'Build contest tonight at 8!' }, 'Saturdays at 18:00', { enabled: false }),
+      ],
+    }
+  }
+  if (/^\/api\/servers\/\w+\/schedules\/runs$/.test(path)) {
+    return {
+      runs: [
+        { scheduleId: 'fakebackups', kind: 'backup', due: ago(2 * hour), result: 'skipped', reason: 'players', players: 3 },
+        { scheduleId: 'fakerestart', kind: 'restart', due: ago(14 * hour), startedAt: ago(14 * hour), finishedAt: ago(14 * hour - 90), result: 'succeeded' },
+        { scheduleId: 'fakebackups', kind: 'backup', due: ago(8 * hour), startedAt: ago(8 * hour), finishedAt: ago(8 * hour - 40), result: 'succeeded', backup: { id: 'fakebackup8h', sizeBytes: 412_000_000, verified: true, downtimeMs: 900 } },
+      ],
+    }
+  }
+  const copy = (hours: number) => {
+    const at = ago(hours * hour)
+    const stamp = at.slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
+    const fileName = `playkeeper-${stamp}.tar.gz`
+    return { backupId: `${stamp}-fake`, kind: 'scheduled', createdAt: at, fileName, name: `${fileName}.age`, sizeBytes: 412_000_000, copySizeBytes: 398_000_000, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: ago(hours * hour - 300), checked: ago(hours * hour - 600), onHost: hours < 48 }
+  }
+  const copies = [copy(8), copy(32), copy(56)]
+  if (/^\/api\/servers\/\w+\/offsite$/.test(path)) {
+    return {
+      ...body,
+      enabled: true,
+      configured: true,
+      type: 'sftp',
+      place: 'backup.example.net',
+      sftp: { host: 'backup.example.net', port: 22, user: 'playkeeper', folder: '/srv/backups/survival', auth: 'key', hostKey: standInHostKey.key, hostKeyType: standInHostKey.type, hostKeyFingerprint: standInHostKey.fingerprint },
+      sshKey: { publicKey: standInPublicKey, authorizedKey: standInPublicKey, fingerprint: 'SHA256:c3RhbmQtaW4ga2V5IGZvciB0aGUgY2xpY2stdGhyb3U' },
+      key: { recipient: 'age1standin', createdAt: ago(20 * 24 * hour), oldKeys: 0, savedAt: ago(20 * 24 * hour), fileName: `playkeeper-recovery-key-${sid}.txt` },
+      lastCopy: copies[0],
+      copies: copies.length,
+      copiesBytes: copies.reduce((n, c) => n + c.copySizeBytes, 0),
+      queued: 0,
+    }
+  }
+  if (/^\/api\/servers\/\w+\/offsite\/copies$/.test(path)) return { copies }
+  if (/^\/api\/servers\/\w+\/sleep$/.test(path)) return { ...body, enabled: true, idleMinutes: 30, listening: false, today: { count: 2, seconds: 5400 } }
+  return undefined
+}
+
 /** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
-function lay(view: View, path: string, body: unknown): unknown {
+function lay(view: View, path: string, body: unknown, host: string): unknown {
   if (view === 'live' || body === undefined) return undefined
+  if ((view === 'map on' || view === 'map restart') && /^\/api\/servers\/\w+\/map$/.test(path)) return mapRead(view, body as Json)
+  if (view === 'friends and team') return friendsRead(path, body as Json)
+  if (view === 'looks after itself') return selfCareRead(path, body as Json)
+  if ((view === 'in use' || view === 'paused') && /^\/api\/servers\/\w+\/pregen$/.test(path)) return pregenIn(view, body as Json)
+  if (view === 'in use') return inUseRead(path, body as Json, host)
   if (view === 'first run') return path === '/api/setup/status' ? { needsSetup: true } : undefined
   if (path === '/api/servers' && Array.isArray(body)) return view === 'no servers' ? [] : body.map((s) => server(view, s as Json))
   if (view === 'empty lists') {
@@ -1402,7 +1740,10 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
   }
 }
 
-/** Writes that only work out what another write would do and change nothing, so they're answered like reads. */
+/** Writes made before signing in finishes, which have no security token yet: the panel checks the origin and the header instead. */
+const signedOutWrites = new Set(['/api/auth/login', '/api/setup', '/api/auth/second-factor', '/api/auth/second-factor/cancel', '/api/public/join/preview'])
+
+/** Writes that only work out what another write would do and change nothing, so they're answered like reads: add-on update plans from the fixtures, the rest by the real panel. */
 const plans = [
   // Wave 1: what updating plugins or mods would do, from the recorded fixtures.
   /^\/api\/servers\/\w+\/addons\/update\/plan$/,
@@ -1411,11 +1752,13 @@ const plans = [
   // Wave 7: a schedule's next runs and what backup rules would keep.
   /^\/api\/servers\/\w+\/schedules\/preview$/,
   /^\/api\/servers\/\w+\/backup-rules\/estimate$/,
+  // Wave 5: what an invite link opens, before anyone joins.
+  /^\/api\/public\/join\/preview$/,
 ]
 
 /** The panel's refusal of a write without its CSRF headers; signing in and setting up come before there's a token. */
 function csrfRefusal(path: string, headers: Record<string, string>): Reply | undefined {
-  if (headers['x-requested-with'] === 'playkeeper' && (path === '/api/auth/login' || path === '/api/setup' || headers['x-csrf-token'])) return undefined
+  if (headers['x-requested-with'] === 'playkeeper' && (signedOutWrites.has(path) || headers['x-csrf-token'])) return undefined
   return { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
 }
 
@@ -1486,6 +1829,19 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     // Planning changes nothing, so it's answered like a read once it passes the panel's CSRF check.
     const planning = method === 'POST' && plans.some((re) => re.test(path)) && !csrfRefusal(path, request.headers())
     if (method === 'GET' || method === 'HEAD' || planning) {
+      const made =
+        view() === 'in use'
+          ? inUseAnswer(method, path, planning ? request.postDataJSON() : undefined)
+          : view() === 'map on' && method === 'GET'
+            ? mapAnswer(path)
+            : view() === 'shared links'
+              ? sharedAnswer(method, path, planning ? posted(request) : undefined)
+              : undefined
+      if (made) {
+        calls.push({ method, path, status: made.status, faked: true, expected: made.expected, at })
+        await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
+        return
+      }
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
@@ -1544,7 +1900,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
           return
         }
         const image = Buffer.isBuffer(answer.body)
-        const body = image || answer.status !== 200 ? answer.body : (lay(view(), path, answer.body) ?? answer.body)
+        const body = image || answer.status !== 200 ? answer.body : (lay(view(), path, answer.body, url.host) ?? answer.body)
         if (answer.status === 200 && /^\/api\/servers\/\w+\/addons(\/checks)?$/.test(path)) state.reads.set(path, body as Record<string, unknown>)
         const error = answer.status >= 400 ? String((body as { error?: string }).error ?? '') : undefined
         // An icon the proxy refuses shows a stand-in, so its error is expected.
@@ -1558,13 +1914,20 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.abort().catch(() => {})
         return
       }
-      const laid = res.ok() ? lay(view(), path, await res.json().catch(() => undefined)) : undefined
+      const laid = res.ok() ? lay(view(), path, await res.json().catch(() => undefined), url.host) : undefined
       if (laid !== undefined) {
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
-        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
+        if (path === '/api/discord') state.discord = laid as Record<string, unknown>
+        const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
+        if (laidMap?.[1]) state.maps.set(laidMap[1], laid as Record<string, unknown>)
+        const laidSchedules = /^\/api\/servers\/(\w+)\/schedules$/.exec(path)
+        if (laidSchedules?.[1]) state.schedules.set(laidSchedules[1], (laid as { schedules?: Record<string, unknown>[] }).schedules ?? [])
+        const laidPlace = /^\/api\/servers\/(\w+)\/offsite$/.exec(path)
+        if (laidPlace?.[1]) state.offsite.set(laidPlace[1], laid as Record<string, unknown>)
         if (path === '/api/machines/link') state.link = laid as FakeState['link']
         if (path === '/api/machines') state.machines = laid as FakeState['machines']
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
@@ -1582,7 +1945,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
-        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$|^\/api\/machines\/\w+\/addon-sources$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$|^\/api\/machines\/\w+\/addon-sources$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         const map = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
@@ -1617,11 +1980,14 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         // An upload's body is the file itself.
         body = request.postDataBuffer()
       }
-      for (const [m, re, handle] of routes) {
-        const hit = m === method ? re.exec(path) : null
-        if (hit) {
-          reply = handle({ method, path, url, body, params: hit.slice(1) }, state)
-          break
+      if (method === 'POST' && path === '/api/auth/login' && view() === 'second step') reply = secondStep(body)
+      else {
+        for (const [m, re, handle] of routes) {
+          const hit = m === method ? re.exec(path) : null
+          if (hit) {
+            reply = handle({ method, path, url, body, params: hit.slice(1) }, state)
+            break
+          }
         }
       }
     }
@@ -1632,6 +1998,15 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     const error = reply.status >= 400 ? String((reply.body as { error?: string } | undefined)?.error ?? '') : undefined
     calls.push({ method, path, status: reply.status, faked: true, error, expected: reply.expected, at })
     await route.fulfill({ status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers }, body: reply.status === 204 ? '' : (reply.raw ?? JSON.stringify(reply.body ?? {})) })
+  })
+
+  // A friends' pack page reads its pack from outside /api.
+  await page.route(`${origin}/packs/*/page`, async (route: Route, request: Request) => {
+    const path = new URL(request.url()).pathname
+    const made = view() === 'shared links' ? sharedAnswer(request.method(), path, undefined) : undefined
+    if (!made) return route.fallback()
+    calls.push({ method: request.method(), path, status: made.status, faked: true, at: Date.now() })
+    await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
   })
   return { calls, unfaked, unrecorded }
 }

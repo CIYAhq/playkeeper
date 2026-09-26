@@ -77,6 +77,15 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// WorldMissing is set while no operation runs and the world folder is
+	// missing because a restore didn't finish. It stays until the previous
+	// world is back, however long that takes.
+	WorldMissing *WorldMissing `json:"worldMissing,omitempty"`
+	// RestoreUnsettled is set while no operation runs and a restore that
+	// didn't finish keeps its swap journal. No other restore starts until the
+	// agent settles it, which it does once the world folder is back and the
+	// server is stopped, and a start does first.
+	RestoreUnsettled *RestoreUnsettled `json:"restoreUnsettled,omitempty"`
 	// Refusal is the file that stopped the server's last start, while the
 	// server stays stopped.
 	Refusal *FileRefusal `json:"refusal,omitempty"`
@@ -87,6 +96,10 @@ type ServerStatus struct {
 	// Crash is why the server last stopped unexpectedly or could not start,
 	// shown while it is stopped and no operation runs.
 	Crash *Crash `json:"crash,omitempty"`
+	// RecoveredCrash is why the server last stopped unexpectedly when an
+	// automatic restart brought it back, shown while it runs, for a day at
+	// most, until its memory changes.
+	RecoveredCrash *Crash `json:"recoveredCrash,omitempty"`
 	// SoftwareChanged is set when the server's software no longer matches
 	// what Playkeeper installed, so it was not started.
 	SoftwareChanged *SoftwareChange `json:"softwareChanged,omitempty"`
@@ -106,6 +119,25 @@ type FileRefusal struct {
 	Params  map[string]string `json:"params"`
 	Message string            `json:"message"`
 	Hint    string            `json:"hint,omitempty"`
+}
+
+// WorldMissing says where a server's world is while its world folder is
+// missing because a restore didn't finish.
+type WorldMissing struct {
+	// Previous is the folder the restore set the previous world aside in.
+	Previous string `json:"previous"`
+	// DataDir is the world folder it goes back to.
+	DataDir string `json:"dataDir"`
+	// SetAsideAt is when the restore set it aside.
+	SetAsideAt time.Time `json:"setAsideAt"`
+}
+
+// RestoreUnsettled is a restore whose swap journal is kept because it isn't
+// settled yet.
+type RestoreUnsettled struct {
+	// Problem says, as a sentence, why the agent can't settle it by itself:
+	// a journal it can't read, or why its last try failed.
+	Problem string `json:"problem,omitempty"`
 }
 
 // Crash explains a run that ended unexpectedly: a crash, or a start that
@@ -340,7 +372,7 @@ type CreateServerRequest struct {
 	Gameplay           *Gameplay `json:"gameplay,omitempty"`
 	Actor              string    `json:"actor"`
 	// Build is the build of a type's software to pin (a Purpur build, a
-	// Fabric or Quilt loader, a NeoForge version); empty takes the one the
+	// Fabric or Quilt loader, a NeoForge or Forge version); empty takes the one the
 	// catalog recommends. Paper and Vanilla have none.
 	Build string `json:"build,omitempty"`
 	// Modpack creates the server from a pack (wave 4), which decides the
@@ -1666,10 +1698,11 @@ type SoftwarePin struct {
 	FabricLoader     string `json:"fabricLoader,omitempty"`
 	QuiltLoader      string `json:"quiltLoader,omitempty"`
 	NeoForgeVersion  string `json:"neoforgeVersion,omitempty"`
+	ForgeVersion     string `json:"forgeVersion,omitempty"`
 }
 
 // SoftwareBuild is one build of a type's software for a Minecraft version:
-// a Purpur build, a Fabric or Quilt loader, or a NeoForge version.
+// a Purpur build, a Fabric or Quilt loader, or a NeoForge or Forge version.
 type SoftwareBuild struct {
 	Version     string `json:"version"`
 	Channel     string `json:"channel"`
@@ -1770,7 +1803,7 @@ type ModpackDetail struct {
 type ModpackPreview struct {
 	Type             string `json:"type"`
 	MinecraftVersion string `json:"minecraftVersion"`
-	// LoaderVersion is the Fabric Loader, Quilt Loader or NeoForge version;
+	// LoaderVersion is the Fabric Loader, Quilt Loader, NeoForge or Forge version;
 	// empty for vanilla packs.
 	LoaderVersion string `json:"loaderVersion,omitempty"`
 	// Java is set when the pack's Minecraft version runs on an older Java
@@ -1785,6 +1818,11 @@ type ModpackPreview struct {
 	Blockers     []AddonNotice `json:"blockers"`
 	Warnings     []AddonNotice `json:"warnings"`
 	Manual       []AddonNotice `json:"manual"`
+	// Ports are the ports the pack's add-ons need of their own, as a new
+	// server made from it would get them now: voice chat's UDP port when
+	// the pack brings Simple Voice Chat. A server created with OpenPorts
+	// opens them.
+	Ports []AddonPort `json:"ports,omitempty"`
 }
 
 // ModpackRef names a pack version to create a server from.
@@ -1792,6 +1830,9 @@ type ModpackRef struct {
 	Source    string `json:"source"`
 	ProjectID string `json:"projectId"`
 	VersionID string `json:"versionId"`
+	// OpenPorts says the owner agreed to open the ports the pack's preview
+	// named.
+	OpenPorts bool `json:"openPorts,omitempty"`
 }
 
 // ServerModpack is the pack a server runs.
@@ -1808,6 +1849,9 @@ type ServerModpack struct {
 	// Pending is set until the pack's files are in place; the next start
 	// puts them there.
 	Pending bool `json:"pending,omitempty"`
+	// OpenPorts is the create request's: the install opens the ports the
+	// pack's add-ons need.
+	OpenPorts bool `json:"openPorts,omitempty"`
 }
 
 // Wave 4: templates.

@@ -1,14 +1,14 @@
-import { useId, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, HouseIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SquareIcon, Trash2Icon } from 'lucide-react'
-import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
-import { errorText, serverApi, useServer, useServerMachine, useWorkspace } from '@/api/workspace'
+import { useServer, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { serverAction } from '@/components/app/server-action'
 import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
-import { LoadingLabel } from '@/components/app/skeletons'
+import { LoadingLabel, TabSkeleton } from '@/components/app/skeletons'
 import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -24,30 +24,28 @@ import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } fro
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
-import { ConsolePage } from './console'
-import { MapPage } from './map'
 import { Overview } from './overview'
-import { PlayersPage } from './players'
-import { PlayerProfilePage } from './profile'
-import { BackupRulesPage, BackupRulesPhonePage } from './backups'
-import { CopiesCard, CopiesPhonePage } from './copies'
-import { PluginsPage, PluginsPhoneHeader } from './plugins'
-import { RunningPage } from './running'
-import { SchedulesPhonePage } from './schedules'
-import { ServerSettingsPage } from './settings'
-import { WorldPage } from './world'
-import { PacksPage } from './world-packs'
-import { PregenPage } from './world-pregen'
+import { PluginsPhoneHeader } from './plugins/header'
 
-export async function serverAction(server: ServerStatus, action: 'start' | 'stop' | 'restart' | 'backups', body: unknown = {}): Promise<boolean> {
-  try {
-    await post(serverApi(server.id, `/${action}`), body)
-    return true
-  } catch (e) {
-    toastManager.add({ title: errorText(e), type: 'error' })
-    return false
-  }
-}
+// The Overview comes with the server page; each other tab's code loads the
+// first time it shows.
+const BackupRulesPage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPage })))
+const BackupRulesPhonePage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPhonePage })))
+const ConsolePage = lazy(() => import('./console').then((m) => ({ default: m.ConsolePage })))
+const CopiesCard = lazy(() => import('./copies').then((m) => ({ default: m.CopiesCard })))
+const CopiesPhonePage = lazy(() => import('./copies').then((m) => ({ default: m.CopiesPhonePage })))
+const MapPage = lazy(() => import('./map').then((m) => ({ default: m.MapPage })))
+const PlayersPage = lazy(() => import('./players').then((m) => ({ default: m.PlayersPage })))
+const PlayerProfilePage = lazy(() => import('./profile').then((m) => ({ default: m.PlayerProfilePage })))
+const PluginsPage = lazy(() => import('./plugins').then((m) => ({ default: m.PluginsPage })))
+const RunningPage = lazy(() => import('./running').then((m) => ({ default: m.RunningPage })))
+const SchedulesPhonePage = lazy(() => import('./schedules').then((m) => ({ default: m.SchedulesPhonePage })))
+const ServerSettingsPage = lazy(() => import('./settings').then((m) => ({ default: m.ServerSettingsPage })))
+const WorldPage = lazy(() => import('./world').then((m) => ({ default: m.WorldPage })))
+const PacksPage = lazy(() => import('./world-packs').then((m) => ({ default: m.PacksPage })))
+const PregenPage = lazy(() => import('./world-pregen').then((m) => ({ default: m.PregenPage })))
+
+export { serverAction }
 
 export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running'; player?: string }) {
   const ws = useWorkspace()
@@ -136,7 +134,7 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
       <PageBody key={view} className="flex flex-1 animate-page flex-col gap-4">
-        {body}
+        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
       </PageBody>
     </>
   )
@@ -224,7 +222,7 @@ function MoreMenu({ server }: { server: ServerStatus }) {
   const remove = can(me, 'servers.create')
   const share = can(me, 'view') && demo?.templates !== false
   const [sharing, setSharing] = useState(false)
-  const backUpBlocked = whyNot(server, 'change', offline)
+  const backUpBlocked = whyNot(server, 'backup', offline)
   if (!run && !backUp && !remove && !share) return null
   return (
     <Menu>
@@ -321,7 +319,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </nav>
         {op && (
           <div className="ml-auto">
-            <JobPill op={op} server={s.name} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' || op.kind === 'offsite-restore' ? 'world' : 'overview' })} />
+            <JobPill op={op} server={s} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' || op.kind === 'offsite-restore' ? 'world' : 'overview' })} />
           </div>
         )}
       </div>

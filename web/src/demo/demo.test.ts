@@ -331,7 +331,7 @@ it('picks a few plugins for Paper servers, and none for Fabric', async () => {
 it('offers every server type, with its builds, and makes a Fabric server as asked', async () => {
   const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
   const paper = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog`)
-  expect(paper.types.map((x) => x.id)).toEqual(['paper', 'purpur', 'fabric', 'quilt', 'neoforge', 'vanilla'])
+  expect(paper.types.map((x) => x.id)).toEqual(['paper', 'purpur', 'fabric', 'quilt', 'neoforge', 'forge', 'vanilla'])
   const fabric = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog?type=fabric`)
   expect(fabric.type).toBe('fabric')
   expect(fabric.versions.every((v) => v.software?.type === 'fabric')).toBe(true)
@@ -365,15 +365,16 @@ it('keeps a Fabric server on Fabric: its versions, its upgrades and a version ch
   expect((await server('cobblemon')).config).toMatchObject({ type: 'fabric', versionId: 'fabric-26.2.1', minecraftVersion: '26.2.1', software: { type: 'fabric' } })
 })
 
-it('gives Quilt and NeoForge servers mods, not plugins', async () => {
+it('gives Quilt, NeoForge and Forge servers mods, not plugins', async () => {
   const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
-  for (const type of ['quilt', 'neoforge']) {
+  for (const type of ['quilt', 'neoforge', 'forge']) {
     await ask('POST', `/api/machines/${m?.id}/servers`, { name: `A ${type} world`, type, memoryMB: 2048 })
     const { id } = await server(`a-${type}-world`)
     expect((await ask<Addons>('GET', `/api/servers/${id}/addons`)).target.kind).toBe('mod')
     expect((await ask<AddonBrowse>('GET', `/api/servers/${id}/addons/search`)).cards.every((c) => ['Fabric API', 'Cobblemon', 'Lithium'].includes(c.name))).toBe(true)
   }
   expect((await ask<PackShare>('GET', `/api/servers/${(await server('a-quilt-world')).id}/mods/share`)).loaderName).toBe('Quilt')
+  expect(await ask<PackShare>('GET', `/api/servers/${(await server('a-forge-world')).id}/mods/share`)).toMatchObject({ loaderName: 'Forge', share: { type: 'forge', loaderVersion: '64.1.3' } })
 })
 
 it('keeps every type’s version, build and loader in step with the catalog entry chosen, through create and a version change', async () => {
@@ -391,7 +392,7 @@ it('keeps every type’s version, build and loader in step with the catalog entr
     expect(pinBuild(srv.config?.software), where).toBe(build ?? entry.build ?? '')
   }
   let n = 0
-  for (const type of ['paper', 'purpur', 'fabric', 'quilt', 'neoforge', 'vanilla']) {
+  for (const type of ['paper', 'purpur', 'fabric', 'quilt', 'neoforge', 'forge', 'vanilla']) {
     const catalog = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog?type=${type}`)
     expect(catalog.versions.every((v) => hasBuilds(type) === !!v.build), type).toBe(true)
     const newest = catalog.versions[0]!

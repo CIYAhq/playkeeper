@@ -67,9 +67,36 @@ func (f *fakeUpstream) servePackWith(extra map[string][]byte) *fakePack {
 // servePackFor is servePackWith for Minecraft version mc.
 func (f *fakeUpstream) servePackFor(mc string, extra map[string][]byte) *fakePack {
 	f.t.Helper()
+	return f.servePackOf(fakePackSpec{mc: mc, extra: extra})
+}
+
+// fakePackSpec is what servePackOf puts in the pack.
+type fakePackSpec struct {
+	mc string
+	// loader is the mod loader the pack depends on, as its index names it
+	// ("fabric-loader"), with loaderVersion; without one it's a Vanilla
+	// pack.
+	loader, loaderVersion string
+	// voiceChat adds Simple Voice Chat to the mods it downloads.
+	voiceChat bool
+	extra     map[string][]byte
+}
+
+// servePackOf serves the pack spec describes.
+func (f *fakeUpstream) servePackOf(spec fakePackSpec) *fakePack {
+	f.t.Helper()
+	mc, extra := spec.mc, spec.extra
+	loaders, deps := []string{"minecraft"}, map[string]string{"minecraft": mc}
+	if spec.loader != "" {
+		loaders, deps[spec.loader] = []string{strings.TrimSuffix(spec.loader, "-loader")}, spec.loaderVersion
+	}
+	mods := []struct{ project, name string }{{"WAYS0001", "waystones"}, {"CHNK0001", "chunky"}}
+	if spec.voiceChat {
+		mods = append(mods, struct{ project, name string }{voiceChatProject, "voicechat-fabric-26.2-2.6.18"})
+	}
 	p := &fakePack{mods: map[string][]byte{}}
 	var files []map[string]any
-	for _, m := range []struct{ project, name string }{{"WAYS0001", "waystones"}, {"CHNK0001", "chunky"}} {
+	for _, m := range mods {
 		body := []byte("fake mod " + m.name)
 		u := "https://cdn.modrinth.com/data/" + m.project + "/versions/v1/" + m.name + ".jar"
 		p.mods[u] = body
@@ -81,7 +108,7 @@ func (f *fakeUpstream) servePackFor(mc string, extra map[string][]byte) *fakePac
 		})
 	}
 	index, err := json.Marshal(map[string]any{"formatVersion": 1, "game": "minecraft", "versionId": "1.0.0", "name": "Test Pack",
-		"files": files, "dependencies": map[string]string{"minecraft": mc}})
+		"files": files, "dependencies": deps})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -105,14 +132,14 @@ func (f *fakeUpstream) servePackFor(mc string, extra map[string][]byte) *fakePac
 
 	version := map[string]any{
 		"id": fakePackVersion, "project_id": fakePackID, "name": "Test Pack 1.0.0", "version_number": "1.0.0", "version_type": "release",
-		"status": "listed", "game_versions": []string{mc}, "loaders": []string{"minecraft"}, "date_published": "2026-09-20T10:00:00Z",
+		"status": "listed", "game_versions": []string{mc}, "loaders": loaders, "date_published": "2026-09-20T10:00:00Z",
 		"files": []map[string]any{{"url": p.archiveURL, "filename": "test-pack-1.0.0.mrpack", "primary": true, "size": len(archive),
 			"hashes": map[string]string{"sha1": sha1Hex(archive), "sha512": sha512Hex(archive)}}},
 		"dependencies": []map[string]any{{"project_id": "WAYS0001", "dependency_type": "embedded"}, {"project_id": "CHNK0001", "dependency_type": "embedded"}},
 	}
 	project := map[string]any{
 		"id": fakePackID, "slug": "testpack", "project_type": "modpack", "title": "Waystones Pack", "description": "Teleport with friends.",
-		"categories": []string{"adventure"}, "loaders": []string{"minecraft"}, "game_versions": []string{mc}, "client_side": "required",
+		"categories": []string{"adventure"}, "loaders": loaders, "game_versions": []string{mc}, "client_side": "required",
 		"server_side": "required", "status": "approved", "downloads": 1234, "icon_url": "https://cdn.modrinth.com/data/" + fakePackID + "/icon.png",
 		"license": map[string]string{"id": "MIT"}, "updated": "2026-09-20T10:00:00Z", "versions": []string{fakePackVersion},
 	}

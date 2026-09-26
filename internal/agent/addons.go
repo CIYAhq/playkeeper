@@ -253,11 +253,18 @@ func apiNotice(n addons.Notice) api.AddonNotice {
 	hint := n.Hint
 	if n.Kind == addons.KindOnlyPrerelease {
 		hint = onlyPrereleaseHint
+		// A modpack's notice names the pack: it waits for the pack's release, not the server's version's.
+		if n.Params["pack"] != "" {
+			hint = onlyPrereleasePackHint
+		}
 	}
 	return api.AddonNotice{Kind: string(n.Kind), Params: n.Params, Message: n.Msg, Hint: hint}
 }
 
-const onlyPrereleaseHint = "Playkeeper installs releases only, so this waits for a release that runs on this Minecraft version."
+const (
+	onlyPrereleaseHint     = "Playkeeper installs releases only, so this waits for a release that runs on this Minecraft version."
+	onlyPrereleasePackHint = "Playkeeper installs releases only, so choose another pack or wait for its next release."
+)
 
 func apiNotices(ns []addons.Notice) []api.AddonNotice {
 	out := make([]api.AddonNotice, 0, len(ns))
@@ -394,7 +401,8 @@ func addonError(err error) error {
 	case addons.KindUnreachable, addons.KindUpstream, addons.KindRedirectRefused:
 		status = http.StatusBadGateway
 	}
-	return &apiError{Status: status, Code: string(e.Kind), Msg: e.Msg, Hint: e.Hint}
+	n := apiNotice(e.Notice)
+	return &apiError{Status: status, Code: string(e.Kind), Msg: n.Message, Hint: n.Hint}
 }
 
 // Reading.
@@ -923,7 +931,7 @@ func (s *server) installAddons(ctx context.Context, h *opHandle, actor string, r
 	if err != nil {
 		return err
 	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("try again"); err != nil {
 		return err
 	}
 	installed, err := s.installedAddons()
