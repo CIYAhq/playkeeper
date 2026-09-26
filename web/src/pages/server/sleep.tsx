@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { SunIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { Operation, ServerStatus, SessionsResponse, SleepStatus, SleepView } from '@/api/types'
@@ -72,24 +72,30 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
 
   const toggle = <Switch checked={enabled} onCheckedChange={(c) => void save({ enabled: c, idleMinutes: idle })} disabled={!!locked} title={locked} aria-label={t('settings.sleep')} />
   const after = <ChoiceSelect value={String(idle)} onChange={(v) => void save({ enabled, idleMinutes: Number(v) })} options={choices} label={t('sleep.after')} disabledReason={locked} className={phone ? undefined : 'mt-1.5 w-[240px]'} />
+  // The rows below the switch open and close with it, so it never has a line under it of its own.
+  const reveal = (children: ReactNode) => (
+    <div className={cn('grid transition-[grid-template-rows,opacity] duration-(--motion-standard) ease-standard', enabled ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')} inert={!enabled}>
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  )
   if (phone) {
     return (
       <>
-        <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} />
-        {enabled && (
+        <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} className="border-b-0" />
+        {reveal(
           <>
-            <SettingRow label={t('sleep.after')} control={after} className="animate-enter" />
-            <SettingRow label={t('sleep.friendsSee')} hint={t('sleep.friendsSeeBody')} control={null} className="animate-enter" />
-          </>
+            <SettingRow label={<span className="whitespace-nowrap">{t('sleep.after')}</span>} control={after} className="border-t" />
+            <SettingRow label={t('sleep.friendsSee')} hint={t('sleep.friendsSeeBody')} control={null} />
+          </>,
         )}
       </>
     )
   }
   return (
     <>
-      <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} className={enabled ? 'border-b-0' : undefined} />
-      {enabled && (
-        <div className="grid grid-cols-2 gap-6 pb-3.5 animate-enter">
+      <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} className="border-b-0" />
+      {reveal(
+        <div className="grid grid-cols-[240px_minmax(0,1fr)] gap-6 pb-3.5">
           <div>
             <div className="text-[13px] font-semibold">{t('sleep.after')}</div>
             {after}
@@ -98,7 +104,7 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
             <div className="text-[13px] font-semibold">{t('sleep.friendsSee')}</div>
             <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{t('sleep.friendsSeeBody')}</p>
           </div>
-        </div>
+        </div>,
       )}
     </>
   )
@@ -202,7 +208,7 @@ export function SleepToday({ server: s }: { server: ServerStatus }) {
   const view = useSleep(s.id)
   const today = view.data?.today
   if (!today) return view.loading ? <InlineSkeleton className="w-48" /> : null
-  return <>{today.count === 0 ? t('sleep.allDay') : t('sleep.today', { count: today.count, time: formatDuration(today.seconds) })}</>
+  return <>{today.count === 0 ? t('sleep.allDay') : t('sleep.today', { count: today.count, time: formatDuration(Math.max(60, today.seconds)) })}</>
 }
 
 /** Home's card detail for a sleeping server: "Asleep · wakes on join" and Wake up. */
