@@ -181,9 +181,11 @@ type VersionList struct {
 type VersionFilter struct {
 	Platform        string
 	PlatformVersion string
-	Channel         string
-	Offset          int
-	Limit           int // 1 to MaxLimit
+	// Channel is a channel's name, which Hangar matches ignoring case. It
+	// filters for one channel only; Hangar ignores a second.
+	Channel string
+	Offset  int
+	Limit   int // 1 to MaxLimit
 }
 
 // Search runs a project search.

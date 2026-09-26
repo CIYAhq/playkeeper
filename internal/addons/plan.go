@@ -446,7 +446,7 @@ func (r *resolver) version(ctx context.Context, parent Step, p *project, pinned 
 			return c, nil, nil
 		}
 	}
-	cands, err := r.l.candidates(ctx, r.t, mc, p)
+	cands, err := r.l.candidates(ctx, r.t, mc, p, true)
 	if err != nil {
 		return candidate{}, nil, err
 	}

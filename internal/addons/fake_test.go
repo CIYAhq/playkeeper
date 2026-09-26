@@ -471,6 +471,55 @@ func (f *fakes) onHangarList(fn func(v obj)) {
 	f.hListed = fn
 }
 
+// hangarSnapshots adds snapshot builds of a Hangar project, newer ones in
+// front of its versions and older ones after them, the way a project that
+// publishes a build a day fills page after page of Hangar's version list.
+func (f *fakes) hangarSnapshots(project string, newer, older int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	pid := num(f.hProjects[project]["id"])
+	i := slices.IndexFunc(f.hOrder, func(id string) bool {
+		ch, _ := f.hVersions[id]["channel"].(obj)
+		return num(f.hVersions[id]["projectId"]) == pid && str(ch["name"]) == "Snapshot"
+	})
+	if i < 0 {
+		f.t.Fatalf("Hangar project %s has no snapshot to copy", project)
+	}
+	tmpl := f.hVersions[f.hOrder[i]]
+	build := func(at time.Time) string {
+		id := strconv.Itoa(100000 + len(f.hVersions))
+		v := maps.Clone(tmpl)
+		v["id"], v["name"], v["createdAt"] = json.Number(id), "SNAPSHOT+"+id, at.Format(time.RFC3339)
+		f.hVersions[id] = v
+		return id
+	}
+	var front []string
+	for n := range newer {
+		front = append(front, build(time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC).Add(-time.Duration(n)*time.Minute)))
+	}
+	for n := range older {
+		f.hOrder = append(f.hOrder, build(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).Add(-time.Duration(n)*time.Minute)))
+	}
+	f.hOrder = append(front, f.hOrder...)
+}
+
+// hangarVersionRequests describes each request for a Hangar project's
+// version list so far: the channel it asked for, or the page's offset.
+func (f *fakes) hangarVersionRequests(projectID string) []string {
+	var out []string
+	for _, r := range f.sentTo("hangar", "/api/v1/projects/"+projectID+"/versions") {
+		d := "offset " + r.query.Get("offset")
+		if r.query.Get("offset") == "" {
+			d = "offset 0"
+		}
+		if ch := r.query.Get("channel"); ch != "" {
+			d = "channel " + ch
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
 func (f *fakes) addModrinthProject(p obj) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
