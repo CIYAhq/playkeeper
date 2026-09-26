@@ -1,12 +1,23 @@
 // The live demo's sample data: a made-up VPS with two Paper servers, their
-// players, console, backups and history. Every GET the dashboard makes is
-// answered from `reads` at the bottom; a path that isn't there gets "no
-// sample data" and its screen shows its empty state. To give a screen sample
-// data, add what it needs to DemoState and sample(), and its path to reads.
+// players, console, backups, plugins, map pre-generation, packs and history.
+// Every GET the dashboard makes is answered from `reads` at the bottom; a
+// path that isn't there gets "no sample data" and its screen shows its empty
+// state. To give a screen sample data, add what it needs to DemoState and
+// sample(), and its path to reads.
 
 import { ApiError } from '@/api/client'
 import type {
   Activity,
+  Addon,
+  AddonBrowse,
+  AddonCard,
+  AddonChecks,
+  AddonDetails,
+  AddonFile,
+  AddonRemovePreview,
+  AddonSource,
+  AddonVersion,
+  Addons,
   AgentActivity,
   ApiToken,
   AuditEntry,
@@ -14,6 +25,8 @@ import type {
   Catalog,
   CatalogEntry,
   DailyActivity,
+  DataPack,
+  DataPacks,
   LogLine,
   LogsResponse,
   MachineLinkInfo,
@@ -26,6 +39,11 @@ import type {
   PlayerStat,
   PlayersSummary,
   Preflight,
+  Pregen,
+  PregenPreset,
+  PregenPresetId,
+  ResourcePack,
+  ResourcePackOffer,
   ServerConfig,
   ServerStatus,
   Session,
@@ -37,7 +55,7 @@ import { t } from '@/i18n'
 import { faceCount, faceIndex } from './faces'
 
 /** Bump when DemoState changes shape, so sessions saved by an older demo start over. */
-export const sampleVersion = 1
+export const sampleVersion = 2
 export const demoVersion = '0.4.0'
 export const demoUser = 'siya'
 export const machineId = 'q7m2vk9xpd'
@@ -111,6 +129,49 @@ export interface DemoState {
   agentActivity: AgentActivity[]
   prefs: Record<string, string>
   jobs: Record<string, Job>
+  addons: Record<string, ServerAddons>
+  pregen: Record<string, PregenTask>
+  packs: Record<string, ServerPacks>
+}
+
+/** A library plugin on a server, at the version Playkeeper installed. */
+export interface InstalledAddon {
+  source: AddonSource
+  projectId: string
+  version: string
+  /** When that version came out, and when it went in the plugins folder. */
+  published: number
+  installedAt: number
+}
+
+/** A jar someone put in the plugins folder themselves, as its plugin.yml names it. */
+export interface HandAddon {
+  fileName: string
+  name: string
+  version: string
+  size: number
+}
+
+export interface ServerAddons {
+  installed: InstalledAddon[]
+  byHand: HandAddon[]
+}
+
+/** A pre-generation of the map, which runs at a steady rate while its server is online. */
+export interface PregenTask {
+  preset: PregenPresetId
+  radius: number
+  total: number
+  /** Chunks a second. */
+  rate: number
+  startedAt: number
+  pauseForPlayers: boolean
+}
+
+export interface ServerPacks {
+  /** The resource pack players are offered; its address comes from the one the demo is open at. */
+  resource?: Omit<ResourcePackOffer, 'url'>
+  data: DataPack[]
 }
 
 export const iso = (ms: number) => new Date(ms).toISOString()
@@ -347,6 +408,34 @@ export function sample(now: number): DemoState {
     ],
     prefs: {},
     jobs: {},
+    addons: {
+      [survivalId]: {
+        installed: [
+          // The pre-generation put Chunky in just before it started.
+          install(now, 'chunky', now - 21 * minute - 40_000),
+          install(now, 'luckperms', now - 29 * day, { version: '5.5.10', published: now - 30 * day }),
+          install(now, 'coreprotect', created + 2 * day),
+          install(now, 'bluemap', now - 17 * day),
+          install(now, 'ViaVersion', now - 8 * day),
+        ],
+        byHand: [{ fileName: 'FriendsWelcome.jar', name: 'FriendsWelcome', version: '1.0', size: 14_336 }],
+      },
+      [creativeId]: { installed: [install(now, 'worldedit', creativeCreated + hour)], byHand: [] },
+    },
+    pregen: {
+      [survivalId]: { preset: 'medium', radius: 2500, total: squareChunks(2500), rate: 27.5, startedAt: now - 21 * minute, pauseForPlayers: false },
+    },
+    packs: {
+      [survivalId]: {
+        resource: { sha1: fakeSha(3201).slice(0, 40), fileName: 'Cosy_Blocks_32x.zip', size: 19_480_000, description: 'Softer, warmer blocks for a friendly survival world', addedAt: iso(now - 9 * day), required: false },
+        data: [
+          { name: 'Coordinates_HUD.zip', description: 'Shows where you are above the hotbar', size: 24_576, enabled: true, addedAt: iso(created + 3 * day) },
+          { name: 'Multiplayer_Sleep.zip', description: 'Skips the night once half the players sleep', size: 18_432, enabled: true, addedAt: iso(created + 3 * day) },
+          { name: 'More_Mob_Heads.zip', description: 'Mobs sometimes drop their heads', size: 1_310_720, enabled: false, addedAt: iso(now - 12 * day) },
+        ],
+      },
+      [creativeId]: { data: [] },
+    },
   }
 }
 
@@ -538,6 +627,226 @@ const link: MachineLinkInfo = {
   codes: [],
 }
 
+// Plugins, the map's pre-generation, and packs.
+
+/** A plugin as its library lists it, with its newest version. */
+interface LibraryAddon {
+  source: AddonSource
+  projectId: string
+  slug: string
+  /** Hangar's owner, which its page's address starts with. */
+  owner?: string
+  name: string
+  author: string
+  summary: string
+  categories: string[]
+  license: string
+  downloads: number
+  version: string
+  /** How many days ago the newest version came out, and what its page says about it. */
+  daysOld: number
+  notes: string
+  /** The jar's name, with {v} for the version. */
+  jar: string
+  size: number
+  /** Its drawing in the demo, and the folder of plugins/ its settings live in. */
+  icon: number
+  folder: string
+}
+
+/** Every plugin the demo's library has: the sample servers' own, and more to browse. */
+export const library: LibraryAddon[] = [
+  { source: 'modrinth', projectId: 'fALzjamp', slug: 'chunky', name: 'Chunky', author: 'pop4959', summary: 'Pre-generates chunks, quickly and efficiently', categories: ['world', 'optimization'], license: 'GPL-3.0-only', downloads: 2_830_000, version: '1.5.3', daysOld: 12, notes: 'Generates faster on Paper and reports progress more often.', jar: 'Chunky-Bukkit-{v}.jar', size: 304_616, icon: 0, folder: 'Chunky' },
+  { source: 'modrinth', projectId: 'Vebnzrzj', slug: 'luckperms', name: 'LuckPerms', author: 'Luck', summary: 'A permissions plugin for Minecraft servers', categories: ['admin'], license: 'MIT', downloads: 4_260_000, version: '5.5.11', daysOld: 2, notes: 'Fixes the web editor’s link on servers behind a proxy, and updates translations.', jar: 'LuckPerms-Bukkit-{v}.jar', size: 1_734_000, icon: 1, folder: 'LuckPerms' },
+  { source: 'modrinth', projectId: 'Lu3KuzdV', slug: 'coreprotect', name: 'CoreProtect', author: 'Intelli', summary: 'Fast, efficient block logging, rollbacks and restores', categories: ['admin', 'protection'], license: 'Artistic-2.0', downloads: 1_870_000, version: '23.1', daysOld: 41, notes: 'Supports Minecraft 26.1 and logs item frames again.', jar: 'CoreProtect-{v}.jar', size: 1_062_000, icon: 2, folder: 'CoreProtect' },
+  { source: 'modrinth', projectId: 'swbUV1cr', slug: 'bluemap', name: 'BlueMap', author: 'Blue', summary: 'A 3D map of your world that players open in a browser', categories: ['world', 'utility'], license: 'MIT', downloads: 1_120_000, version: '5.13', daysOld: 18, notes: 'Renders 26.1’s new blocks and opens large maps faster.', jar: 'bluemap-{v}-paper.jar', size: 3_950_000, icon: 3, folder: 'BlueMap' },
+  { source: 'hangar', projectId: 'ViaVersion', slug: 'ViaVersion', owner: 'ViaVersion', name: 'ViaVersion', author: 'ViaVersion', summary: 'Lets players on newer Minecraft versions join your server', categories: ['utility', 'library'], license: 'GPL-3.0', downloads: 6_140_000, version: '5.5.1', daysOld: 9, notes: 'Lets 26.2 players join.', jar: 'ViaVersion-{v}.jar', size: 5_380_000, icon: 4, folder: 'ViaVersion' },
+  { source: 'modrinth', projectId: '1u6JkXh5', slug: 'worldedit', name: 'WorldEdit', author: 'EngineHub', summary: 'An in-game map editor for building and shaping land', categories: ['world', 'utility'], license: 'GPL-3.0-only', downloads: 7_950_000, version: '7.3.17', daysOld: 23, notes: 'Knows the blocks added in Minecraft 26.2.', jar: 'worldedit-bukkit-{v}.jar', size: 4_120_000, icon: 5, folder: 'WorldEdit' },
+  { source: 'hangar', projectId: 'Geyser', slug: 'Geyser', owner: 'GeyserMC', name: 'Geyser', author: 'GeyserMC', summary: 'Lets Bedrock players on phones and consoles join your Java server', categories: ['utility'], license: 'MIT', downloads: 3_480_000, version: '2.9.0', daysOld: 4, notes: 'Supports the latest Bedrock release.', jar: 'Geyser-Spigot-{v}.jar', size: 17_400_000, icon: 6, folder: 'Geyser-Spigot' },
+  { source: 'hangar', projectId: 'Essentials', slug: 'Essentials', owner: 'EssentialsX', name: 'EssentialsX', author: 'EssentialsX', summary: 'Homes, warps, kits and the everyday commands most servers want', categories: ['admin', 'utility'], license: 'GPL-3.0', downloads: 2_290_000, version: '2.21.2', daysOld: 33, notes: 'Fixes /home on servers with several worlds.', jar: 'EssentialsX-{v}.jar', size: 3_210_000, icon: 7, folder: 'Essentials' },
+  { source: 'modrinth', projectId: 'l6YH9Als', slug: 'spark', name: 'spark', author: 'lucko', summary: 'Finds out what makes your server lag', categories: ['optimization', 'utility'], license: 'GPL-3.0-only', downloads: 5_320_000, version: '1.10.142', daysOld: 6, notes: 'Samples Paper’s new chunk system.', jar: 'spark-{v}-bukkit.jar', size: 2_060_000, icon: 8, folder: 'spark' },
+  { source: 'modrinth', projectId: '3wmN97b8', slug: 'multiverse-core', name: 'Multiverse-Core', author: 'Multiverse', summary: 'Adds more worlds to one server, each with its own settings', categories: ['world', 'admin'], license: 'BSD-3-Clause', downloads: 1_540_000, version: '5.3.1', daysOld: 27, notes: 'Keeps each world’s game rules when it is loaded again.', jar: 'multiverse-core-{v}.jar', size: 1_380_000, icon: 9, folder: 'Multiverse-Core' },
+  { source: 'modrinth', projectId: 'TsLS8Py5', slug: 'skinsrestorer', name: 'SkinsRestorer', author: 'SkinsRestorer', summary: 'Keeps players’ skins and lets them pick new ones', categories: ['utility'], license: 'GPL-3.0-only', downloads: 1_010_000, version: '15.8.2', daysOld: 15, notes: 'Loads skins faster when many players join at once.', jar: 'SkinsRestorer-{v}.jar', size: 2_540_000, icon: 10, folder: 'SkinsRestorer' },
+  { source: 'modrinth', projectId: 'UmLGoGij', slug: 'discordsrv', name: 'DiscordSRV', author: 'Scarsz', summary: 'Links your server’s chat to a Discord channel', categories: ['chat'], license: 'GPL-3.0-only', downloads: 860_000, version: '1.30.1', daysOld: 38, notes: 'Shows players’ faces next to their messages again.', jar: 'DiscordSRV-Build-{v}.jar', size: 9_870_000, icon: 11, folder: 'DiscordSRV' },
+]
+
+/** The library's categories, in the order the dashboard lists them. */
+const addonCategories = ['admin', 'chat', 'economy', 'gameplay', 'minigames', 'world', 'protection', 'optimization', 'utility', 'library', 'adventure', 'technology', 'magic', 'storage', 'mobs']
+
+function iconUrlOf(a: LibraryAddon): string {
+  return a.source === 'modrinth' ? `https://cdn.modrinth.com/data/${a.projectId}/icon.png` : `https://hangarcdn.papermc.io/avatars/project/${a.icon + 1}.webp`
+}
+
+/** The demo's drawing for an add-on icon's address, when the add-on is one of the library's. */
+export function addonIconOf(url: string): number | undefined {
+  return library.find((a) => iconUrlOf(a) === url)?.icon
+}
+
+/** A library plugin at installedAt: its newest version, or an older one that came out at `older.published`. */
+function install(now: number, slug: string, installedAt: number, older?: { version: string; published: number }): InstalledAddon {
+  const a = library.find((x) => x.slug === slug)
+  if (!a) throw new Error(`the demo's library has no ${slug}`)
+  return { source: a.source, projectId: a.projectId, version: older?.version ?? a.version, published: older?.published ?? now - a.daysOld * day, installedAt }
+}
+
+function libraryAddon(source: string | undefined, projectId: string | undefined): LibraryAddon | undefined {
+  return library.find((a) => a.source === source && a.projectId === projectId)
+}
+
+/** A server's library plugins, each with its library entry. */
+function installedOn(s: DemoState, serverId: string): { a: LibraryAddon; inst: InstalledAddon }[] {
+  return (s.addons[serverId]?.installed ?? []).flatMap((inst) => {
+    const a = libraryAddon(inst.source, inst.projectId)
+    return a ? [{ a, inst }] : []
+  })
+}
+
+function versionOf(a: LibraryAddon, version: string, published: number): AddonVersion {
+  const versionId = a.source === 'modrinth' ? fakeSha(published % 1_000_000).slice(0, 8) : version
+  return { versionId, versionNumber: version, channel: 'release', published: iso(published), fileName: a.jar.replace('{v}', version), size: a.size }
+}
+
+const latestOf = (a: LibraryAddon, now: number) => versionOf(a, a.version, now - a.daysOld * day)
+
+function record(a: LibraryAddon, inst: InstalledAddon): Addon {
+  const v = versionOf(a, inst.version, inst.published)
+  return { source: a.source, projectId: a.projectId, slug: a.slug, name: a.name, summary: a.summary, iconUrl: iconUrlOf(a), versionId: v.versionId, versionNumber: v.versionNumber, channel: v.channel, published: v.published, fileName: v.fileName ?? '', size: a.size, installedAt: iso(inst.installedAt) }
+}
+
+function card(a: LibraryAddon, now: number, installed: boolean): AddonCard {
+  const pageUrl = a.source === 'modrinth' ? `https://modrinth.com/plugin/${a.slug}` : `https://hangar.papermc.io/${a.owner ?? a.slug}/${a.slug}`
+  return { source: a.source, projectId: a.projectId, slug: a.slug, name: a.name, author: a.author, summary: a.summary, categories: a.categories, license: a.license, downloads: a.downloads, iconUrl: iconUrlOf(a), updated: iso(now - a.daysOld * day), pageUrl, installed }
+}
+
+function addons(s: DemoState, r: Request): Addons {
+  const srv = serverOf(s, r)
+  const files: AddonFile[] = installedOn(s, srv.id).map(({ a, inst }) => {
+    const addon = record(a, inst)
+    return { fileName: addon.fileName, size: addon.size, status: 'managed', addon }
+  })
+  for (const h of s.addons[srv.id]?.byHand ?? []) files.push({ fileName: h.fileName, size: h.size, status: 'unknown', name: h.name, version: h.version })
+  return {
+    target: { kind: 'plugin', folder: 'plugins', sources: ['modrinth', 'hangar'], categories: addonCategories, minecraftVersion: srv.config?.minecraftVersion ?? '' },
+    files,
+    missing: [],
+    warnings: [],
+    restartNeeded: false,
+  }
+}
+
+function addonChecks(s: DemoState, r: Request): AddonChecks {
+  const srv = serverOf(s, r)
+  const updates = installedOn(s, srv.id).map(({ a, inst }) => ({ source: a.source, projectId: a.projectId, latest: latestOf(a, r.now), available: inst.version !== a.version }))
+  return { updates, identified: [], checkedAt: iso(r.now - 20 * minute) }
+}
+
+const words = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+
+function addonSearch(s: DemoState, r: Request): AddonBrowse {
+  const srv = serverOf(s, r)
+  const q = words(r.query.get('q') ?? '')
+  const category = r.query.get('category') ?? ''
+  const mine = new Set(installedOn(s, srv.id).map(({ a }) => a))
+  const found = library.filter((a) => (!q || [a.name, a.summary, a.author].some((x) => words(x).includes(q))) && (!category || a.categories.includes(category)))
+  const byDownloads = (x: LibraryAddon, y: LibraryAddon) => y.downloads - x.downloads
+  switch (r.query.get('sort')) {
+    case 'updated':
+      found.sort((x, y) => x.daysOld - y.daysOld)
+      break
+    case 'relevance':
+      found.sort((x, y) => Number(words(y.name).startsWith(q)) - Number(words(x.name).startsWith(q)) || byDownloads(x, y))
+      break
+    default:
+      found.sort(byDownloads)
+  }
+  const first = !Number(r.query.get('page') ?? 0)
+  return { cards: first ? found.map((a) => card(a, r.now, mine.has(a))) : [], more: false, unanswered: [] }
+}
+
+function addonDetails(s: DemoState, r: Request): AddonDetails {
+  const srv = serverOf(s, r)
+  const a = libraryAddon(r.params.source, r.params.project)
+  if (!a) throw new ApiError(404, { error: t('error.http', { status: '404' }), code: 'not_found' })
+  const inst = installedOn(s, srv.id).find((x) => x.a === a)?.inst
+  const latest = latestOf(a, r.now)
+  const out: AddonDetails = { card: card(a, r.now, !!inst), latest, notes: a.notes }
+  if (inst) return { ...out, installed: record(a, inst), updateAvailable: inst.version !== a.version }
+  const step = { action: 'install' as const, source: a.source, projectId: a.projectId, name: a.name, versionNumber: a.version, channel: 'release', fileName: latest.fileName ?? '', size: a.size }
+  return { ...out, plan: { steps: [step], manual: [], blockers: [], warnings: [], ready: true, fingerprint: fakeSha(a.icon + 1).slice(0, 32) } }
+}
+
+function addonRemoval(s: DemoState, r: Request): AddonRemovePreview {
+  const srv = serverOf(s, r)
+  const found = installedOn(s, srv.id).find(({ a }) => a.source === r.params.source && a.projectId === r.params.project)
+  if (!found) throw new ApiError(404, { error: t('error.http', { status: '404' }), code: 'not_found' })
+  return { addon: record(found.a, found.inst), neededBy: [], orphans: [], configFolder: `plugins/${found.a.folder}`, changed: false, missing: false }
+}
+
+/** The chunks in a square this far out from spawn, as Chunky counts them. */
+export function squareChunks(radius: number): number {
+  return (2 * Math.ceil(radius / 16) + 1) ** 2
+}
+
+/** What a generated chunk takes on disk, in the middle of Playkeeper's estimate. */
+const chunkBytes = 9.82 * 1024 * 1.05
+
+const pregenPresets: [PregenPresetId, number][] = [
+  ['small', 1_000],
+  ['medium', 2_500],
+  ['large', 5_000],
+  ['huge', 10_000],
+]
+
+/** The sizes on offer: at the rate the last task ran, or else as long as the agent estimates for this machine's cores. */
+function presets(s: DemoState, rate?: number): PregenPreset[] {
+  const cpus = s.machine.live?.cpus ?? 4
+  const free = s.machine.live?.diskFreeBytes ?? 0
+  return pregenPresets.map(([id, radius]) => {
+    const chunks = squareChunks(radius)
+    const seconds = rate ? chunks / rate : Math.sqrt((chunks / (12 * cpus)) * (chunks / (4 * cpus)))
+    const diskBytes = Math.round(chunks * chunkBytes)
+    return { id, radius, chunks, seconds: Math.round(seconds), diskBytes, fits: diskBytes * 1.4 < free }
+  })
+}
+
+function pregen(s: DemoState, r: Request): Pregen {
+  const srv = serverOf(s, r)
+  const task = s.pregen[srv.id]
+  const chunky = installedOn(s, srv.id).some(({ a }) => a.slug === 'chunky')
+  const world = srv.config?.levelName ?? 'world'
+  const diskFreeBytes = s.machine.live?.diskFreeBytes
+  if (!task) return { state: 'idle', world, chunks: 0, total: 0, percent: 0, etaSeconds: -1, pauseForPlayers: true, installed: chunky, presets: presets(s), diskFreeBytes }
+  const base = { world, preset: task.preset, radius: task.radius, total: task.total, pauseForPlayers: task.pauseForPlayers, startedAt: iso(task.startedAt), installed: true, presets: presets(s, task.rate), diskFreeBytes }
+  // It runs while the server is online, and stops where it was when the server stopped.
+  const online = srv.phase === 'online'
+  const until = online ? r.now : Math.min(r.now, Date.parse(srv.stoppedAt ?? '') || r.now)
+  const took = (task.total / task.rate) * 1000
+  if (until >= task.startedAt + took) {
+    return { ...base, state: 'finished', chunks: task.total, percent: 100, etaSeconds: -1, elapsedSeconds: Math.round(took / 1000), finishedAt: iso(task.startedAt + took), diskBytes: Math.round(task.total * chunkBytes) }
+  }
+  const chunks = Math.floor((Math.max(0, until - task.startedAt) / 1000) * task.rate)
+  const percent = (chunks / task.total) * 100
+  if (!online) return { ...base, state: 'paused', pausedBy: 'server', chunks, percent, etaSeconds: -1, elapsedSeconds: Math.round(chunks / task.rate) }
+  return { ...base, state: 'running', chunks, percent, rate: task.rate, etaSeconds: Math.round((task.total - chunks) / task.rate) }
+}
+
+function resourcePack(s: DemoState, r: Request): ResourcePack {
+  const offer = s.packs[serverOf(s, r).id]?.resource
+  if (!offer) return { pending: false }
+  // Players' games download the pack from the address the dashboard is open at,
+  // which the demo build names demo.playkeeper.io, as it does game addresses.
+  const host = typeof window === 'undefined' ? 'demo.playkeeper.io' : window.location.hostname
+  return { offer: { ...offer, url: `http://${host}:8443/resource-packs/${offer.sha1}.zip` }, pending: false }
+}
+
+function dataPacks(s: DemoState, r: Request): DataPacks {
+  const srv = serverOf(s, r)
+  // Only a running server says which of its packs are on.
+  const live = srv.phase === 'online'
+  const packs = (s.packs[srv.id]?.data ?? []).map((p) => (live ? p : { ...p, enabled: undefined }))
+  return { packs, live }
+}
+
 /** GET paths the demo has sample data for. */
 export const reads: Routes = {
   'GET /api/setup/status': () => ({ needsSetup: false }),
@@ -562,4 +871,12 @@ export const reads: Routes = {
   'GET /api/servers/:id/whitelist': (s, r) => s.whitelist[serverOf(s, r).id] ?? [],
   'GET /api/servers/:id/operators': (s, r) => s.operators[serverOf(s, r).id] ?? [],
   'GET /api/servers/:id/backups': (s, r) => s.backups[serverOf(s, r).id] ?? [],
+  'GET /api/servers/:id/addons': addons,
+  'GET /api/servers/:id/addons/checks': addonChecks,
+  'GET /api/servers/:id/addons/search': addonSearch,
+  'GET /api/servers/:id/addons/project/:source/:project': addonDetails,
+  'GET /api/servers/:id/addons/project/:source/:project/removal': addonRemoval,
+  'GET /api/servers/:id/pregen': pregen,
+  'GET /api/servers/:id/resourcepack': resourcePack,
+  'GET /api/servers/:id/datapacks': dataPacks,
 }

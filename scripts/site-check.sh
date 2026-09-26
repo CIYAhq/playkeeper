@@ -2,11 +2,11 @@
 # Builds the playkeeper.io image the way Coolify does (site/Dockerfile, from
 # the repository root), runs it, and checks what it serves: / (the page and
 # the install command), /sizing (the sizing guide, its table and the /sizing/
-# redirect), /demo/ (the live demo: its page, its files, the players' faces,
-# deep links answered by the app, a missing file still a 404, and that it is
-# the demo build), every file those pages use (200, with the content type
-# nosniff needs), /healthz, the /install redirect to get.sh of the latest
-# release, the security headers on each of them, and the container's own
+# redirect), /demo/ (the live demo: its page, its files, the players' faces
+# and the plugins' icons, deep links answered by the app, a missing file still
+# a 404, and that it is the demo build), every file those pages use (200, with
+# the content type nosniff needs), /healthz, the /install redirect to get.sh of
+# the latest release, the security headers on each of them, and the container's own
 # health check. With Chrome or Chromium installed, it also opens /sizing in
 # headless Chrome with an answer in its address, and with one it can't read,
 # and checks the answer the page shows. Needs Docker. The image stays, as
@@ -101,9 +101,11 @@ for deep in /demo/servers/survival/console /demo/settings/audit; do
   [ "$code" = 200 ] || fail "$deep answered $code, not 200"
   cmp -s "$page" "$work/deep.html" || fail "$deep is not answered by the demo's page"
 done
-read -r code type < <(curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' "$base/demo/faces/0.svg")
-[ "$code" = 200 ] || fail "/demo/faces/0.svg answered $code, not 200"
-[[ $type == *image/svg+xml* ]] || fail "/demo/faces/0.svg is served as '$type', not image/svg+xml"
+for drawing in /demo/faces/0.svg /demo/icons/0.svg; do
+  read -r code type < <(curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' "$base$drawing")
+  [ "$code" = 200 ] || fail "$drawing answered $code, not 200"
+  [[ $type == *image/svg+xml* ]] || fail "$drawing is served as '$type', not image/svg+xml"
+done
 code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/demo/assets/missing.js")
 [ "$code" = 404 ] || fail "/demo/assets/missing.js answered $code; a missing file must stay a 404"
 headers=$(curl -sS -D - -o /dev/null "$base/demo/")
@@ -111,7 +113,7 @@ grep -qi '^cache-control: no-cache' <<<"$headers" || fail "/demo/ can be cached,
 headers=$(curl -sS -D - -o /dev/null "$base$script")
 grep -qi '^cache-control: max-age=31536000' <<<"$headers" || fail "$script is not cached for a year"
 
-for path in / /sizing /install /demo/ /demo/servers/survival "$script" /demo/faces/0.svg; do
+for path in / /sizing /install /demo/ /demo/servers/survival "$script" /demo/faces/0.svg /demo/icons/0.svg; do
   headers=$(curl -sS -D - -o /dev/null "$base$path")
   for h in "content-security-policy: default-src 'none'" 'x-content-type-options: nosniff' 'x-frame-options: DENY' \
     'referrer-policy: no-referrer' 'strict-transport-security: max-age='; do

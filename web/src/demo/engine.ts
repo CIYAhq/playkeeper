@@ -593,7 +593,7 @@ const writes: Routes = {
     if (srv.operation) throw busy(srv)
     s.servers = s.servers.filter((x) => x !== srv)
     s.activity = s.activity.filter((a) => a.serverId !== srv.id)
-    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs] as Record<string, unknown>[]) delete table[srv.id]
+    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs, s.addons, s.pregen, s.packs] as Record<string, unknown>[]) delete table[srv.id]
     audit(s, r.now, 'server.deleted', srv)
     demoToast('delete')
     return {}

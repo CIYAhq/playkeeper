@@ -3,7 +3,7 @@
 
 import type * as real from '@/api/client'
 import { ApiError, onUnauthorized, setCsrfToken } from '@/api/client'
-import { faceOf } from './data'
+import { addonIconOf, faceOf } from './data'
 import { answer } from './engine'
 
 export { ApiError, onUnauthorized, setCsrfToken }
@@ -16,8 +16,14 @@ export const del = <T>(path: string) => api<T>('DELETE', path)
 /** A player's face: one of the demo's own, so the page never asks another site. */
 export const playerHeadUrl = (name: string) => `${import.meta.env.BASE_URL}faces/${faceOf(name)}.svg`
 
+/** A sample add-on's icon: one of the demo's own, for the same reason. */
+export const addonIconUrl = (_serverId: string, url: string) => {
+  const n = addonIconOf(url)
+  return n === undefined ? undefined : `${import.meta.env.BASE_URL}icons/${n}.svg`
+}
+
 // Type-checks that this module stands in for every export of the real client.
-void ({ ApiError, onUnauthorized, setCsrfToken, api, get, post, del, playerHeadUrl } satisfies typeof real)
+void ({ ApiError, onUnauthorized, setCsrfToken, api, get, post, del, playerHeadUrl, addonIconUrl } satisfies typeof real)
 
 // Links straight to the API, like a backup's Download, have no file behind
 // them here: the demo answers them itself.

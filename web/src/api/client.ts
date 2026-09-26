@@ -72,3 +72,6 @@ export const del = <T>(path: string) => api<T>('DELETE', path)
 
 /** A player's face, which the panel draws from their own skin. */
 export const playerHeadUrl = (name: string, uuid?: string) => `/api/players/${encodeURIComponent(name)}/head${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`
+
+/** An add-on's icon, which the panel fetches from its library; undefined when there is none to show. */
+export const addonIconUrl = (serverId: string, url: string): string | undefined => `/api/servers/${serverId}/addons/icon?url=${encodeURIComponent(url)}`

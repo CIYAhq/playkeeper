@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
 import { faceCount, faceSvg } from './faces.ts'
+import { iconCount, iconSvg } from './icons.ts'
 import { demoMarker } from './marker.ts'
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url))
@@ -10,10 +11,17 @@ const swaps = new Map([
   [here('../lib/demo.ts'), here('./parts.tsx')],
 ])
 
+// The pictures the demo draws itself: the folder, how many, and number n.
+const drawings: [string, number, (n: number) => string][] = [
+  ['faces', faceCount, faceSvg],
+  ['icons', iconCount, iconSvg],
+]
+
 /**
  * `vite build --mode demo`: every import of the API client and of lib/demo
- * gets the demo's own, and the players' faces are written to faces/. The
- * demo's modules themselves still reach the real client, for ApiError.
+ * gets the demo's own, and the players' faces and plugins' icons are written
+ * to faces/ and icons/. The demo's modules themselves still reach the real
+ * client, for ApiError.
  */
 export function demoBuild(): Plugin {
   return {
@@ -26,15 +34,19 @@ export function demoBuild(): Plugin {
       return swap ?? resolved
     },
     generateBundle() {
-      for (let n = 0; n < faceCount; n++) this.emitFile({ type: 'asset', fileName: `faces/${n}.svg`, source: faceSvg(n) })
+      for (const [folder, count, svg] of drawings) {
+        for (let n = 0; n < count; n++) this.emitFile({ type: 'asset', fileName: `${folder}/${n}.svg`, source: svg(n) })
+      }
     },
     configureServer(server) {
-      server.middlewares.use(`${server.config.base}faces`, (req, res, next) => {
-        const n = Number(/^\/(\d+)\.svg$/.exec(req.url ?? '')?.[1] ?? NaN)
-        if (!(n < faceCount)) return next()
-        res.setHeader('Content-Type', 'image/svg+xml')
-        res.end(faceSvg(n))
-      })
+      for (const [folder, count, svg] of drawings) {
+        server.middlewares.use(`${server.config.base}${folder}`, (req, res, next) => {
+          const n = Number(/^\/(\d+)\.svg$/.exec(req.url ?? '')?.[1] ?? NaN)
+          if (!(n < count)) return next()
+          res.setHeader('Content-Type', 'image/svg+xml')
+          res.end(svg(n))
+        })
+      }
     },
   }
 }

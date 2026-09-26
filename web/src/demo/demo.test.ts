@@ -2,10 +2,11 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { LogsResponse, ServerStatus } from '@/api/types'
-import { faceOf, samplePlayers } from './data'
+import type { AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, DataPacks, LogsResponse, Pregen, ResourcePack, ServerStatus } from '@/api/types'
+import { addonIconOf, faceOf, library, samplePlayers } from './data'
 import { answer, resetDemo } from './engine'
 import { faceCount } from './faces'
+import { iconCount, iconSvg } from './icons'
 import { demoMarker } from './marker'
 import { demoToast } from './toast'
 import { noDemo } from './vite'
@@ -58,6 +59,13 @@ it('gives every sample player a face of their own, and anyone else one of the sa
   }
 })
 
+it('draws every plugin in the library an icon of its own', () => {
+  const icons = library.map((a) => a.icon)
+  expect(icons.every((n) => n >= 0 && n < iconCount)).toBe(true)
+  expect(new Set(icons.map(iconSvg)).size).toBe(library.length)
+  expect(addonIconOf('https://cdn.modrinth.com/data/elsewhere/icon.png')).toBeUndefined()
+})
+
 async function ask<T>(method: string, path: string, body?: unknown, raw?: Blob): Promise<T> {
   const reply = answer(method, path, body, raw).then(
     (value) => ({ value }),
@@ -69,12 +77,14 @@ async function ask<T>(method: string, path: string, body?: unknown, raw?: Blob):
   return settled.value as T
 }
 
-async function survival(): Promise<ServerStatus> {
+async function server(slug: string): Promise<ServerStatus> {
   const servers = await ask<ServerStatus[]>('GET', '/api/servers')
-  const found = servers.find((s) => s.slug === 'survival')
-  if (!found) throw new Error('no Survival in the sample data')
+  const found = servers.find((s) => s.slug === slug)
+  if (!found) throw new Error(`no ${slug} in the sample data`)
   return found
 }
+
+const survival = () => server('survival')
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -134,4 +144,111 @@ it('starts over on the hour', async () => {
 
   vi.setSystemTime(new Date('2026-09-25T13:00:05Z'))
   expect((await survival()).phase).toBe('online')
+})
+
+it('lists Survival’s plugins as a small server has them: from both libraries, one behind, one added by hand', async () => {
+  const { id } = await survival()
+  const list = await ask<Addons>('GET', `/api/servers/${id}/addons`)
+  expect(list.target).toMatchObject({ kind: 'plugin', folder: 'plugins', minecraftVersion: '26.1.2' })
+  const managed = list.files.filter((f) => f.status === 'managed')
+  expect(managed.length).toBeGreaterThanOrEqual(4)
+  expect(new Set(managed.map((f) => f.addon?.source))).toEqual(new Set(['modrinth', 'hangar']))
+  expect(managed.every((f) => addonIconOf(f.addon?.iconUrl ?? '') !== undefined)).toBe(true)
+  expect(list.files.filter((f) => f.status === 'unknown').map((f) => f.fileName)).toEqual(['FriendsWelcome.jar'])
+
+  const checks = await ask<AddonChecks>('GET', `/api/servers/${id}/addons/checks`)
+  expect(checks.updates.filter((u) => u.available).map((u) => [u.projectId, u.latest?.versionNumber])).toEqual([['Vebnzrzj', '5.5.11']])
+  const luckPerms = await ask<AddonDetails>('GET', `/api/servers/${id}/addons/project/modrinth/Vebnzrzj`)
+  expect(luckPerms).toMatchObject({ installed: { versionNumber: '5.5.10' }, latest: { versionNumber: '5.5.11' }, updateAvailable: true })
+  const removal = await ask<AddonRemovePreview>('GET', `/api/servers/${id}/addons/project/modrinth/Vebnzrzj/removal`)
+  expect(removal).toMatchObject({ addon: { name: 'LuckPerms' }, neededBy: [], configFolder: 'plugins/LuckPerms' })
+  const geyser = await ask<AddonDetails>('GET', `/api/servers/${id}/addons/project/hangar/Geyser`)
+  expect(geyser.installed).toBeUndefined()
+  expect(geyser.plan).toMatchObject({ ready: true, steps: [{ action: 'install', name: 'Geyser' }] })
+  await expect(ask('GET', `/api/servers/${id}/addons/project/modrinth/elsewhere`)).rejects.toMatchObject({ status: 404 })
+})
+
+it('searches the library by words, category and order, and marks what the server has', async () => {
+  const { id } = await survival()
+  const search = (query = '') => ask<AddonBrowse>('GET', `/api/servers/${id}/addons/search${query}`)
+  const all = await search()
+  expect(all.cards).toHaveLength(library.length)
+  const downloads = all.cards.map((c) => c.downloads)
+  expect(downloads).toEqual([...downloads].sort((a, b) => b - a))
+  expect(all.cards.find((c) => c.slug === 'chunky')?.installed).toBe(true)
+  expect(all.cards.find((c) => c.slug === 'Geyser')?.installed).toBe(false)
+  expect((await search('?q=perms')).cards.map((c) => c.name)).toEqual(['LuckPerms'])
+  const chat = (await search('?category=chat')).cards
+  expect(chat.length).toBeGreaterThan(0)
+  expect(chat.every((c) => c.categories.includes('chat'))).toBe(true)
+  expect((await search('?sort=updated')).cards[0]?.name).toBe('LuckPerms')
+  expect((await search('?page=1')).cards).toEqual([])
+})
+
+it('pre-generates Survival’s map while it runs, and finishes it', async () => {
+  const { id } = await survival()
+  const pregen = () => ask<Pregen>('GET', `/api/servers/${id}/pregen`)
+  const first = await pregen()
+  expect(first).toMatchObject({ state: 'running', preset: 'medium', radius: 2500, installed: true, total: 99_225 })
+  expect(first.percent).toBeGreaterThan(0)
+  expect(first.percent).toBeLessThan(100)
+  expect(first.presets.map((p) => p.id)).toEqual(['small', 'medium', 'large', 'huge'])
+
+  await vi.advanceTimersByTimeAsync(5 * 60_000)
+  const later = await pregen()
+  expect(later.chunks).toBeGreaterThan(first.chunks)
+  expect(later.etaSeconds).toBeLessThan(first.etaSeconds)
+
+  await vi.advanceTimersByTimeAsync(40 * 60_000)
+  const done = await pregen()
+  expect(done).toMatchObject({ state: 'finished', percent: 100, chunks: 99_225 })
+  expect(done.diskBytes).toBeGreaterThan(0)
+})
+
+it('pauses the pre-generation where it was while its server is stopped', async () => {
+  const { id } = await survival()
+  await ask('POST', `/api/servers/${id}/stop`)
+  await vi.advanceTimersByTimeAsync(20_000)
+  const stopped = await ask<Pregen>('GET', `/api/servers/${id}/pregen`)
+  expect(stopped).toMatchObject({ state: 'paused', pausedBy: 'server' })
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect((await ask<Pregen>('GET', `/api/servers/${id}/pregen`)).chunks).toBe(stopped.chunks)
+})
+
+it('offers a resource pack from the address the demo is open at, and three data packs', async () => {
+  const { id } = await survival()
+  const rp = await ask<ResourcePack>('GET', `/api/servers/${id}/resourcepack`)
+  expect(rp.offer?.fileName).toBe('Cosy_Blocks_32x.zip')
+  expect(new URL(rp.offer?.url ?? '').hostname).toBe('demo.playkeeper.io')
+  const dp = await ask<DataPacks>('GET', `/api/servers/${id}/datapacks`)
+  expect(dp.live).toBe(true)
+  expect(dp.packs.map((p) => p.enabled)).toEqual([true, true, false])
+})
+
+it('gives Creative WorldEdit, and no pre-generation or packs yet', async () => {
+  const { id } = await server('creative')
+  const list = await ask<Addons>('GET', `/api/servers/${id}/addons`)
+  expect(list.files.map((f) => f.addon?.name)).toEqual(['WorldEdit'])
+  expect(await ask<Pregen>('GET', `/api/servers/${id}/pregen`)).toMatchObject({ state: 'idle', installed: false })
+  expect((await ask<ResourcePack>('GET', `/api/servers/${id}/resourcepack`)).offer).toBeUndefined()
+  expect(await ask<DataPacks>('GET', `/api/servers/${id}/datapacks`)).toEqual({ packs: [], live: false })
+})
+
+it('fails soft when asked to change plugins, the pre-generation or packs', async () => {
+  const { id } = await survival()
+  const writes: [string, string][] = [
+    ['POST', '/addons/install'],
+    ['POST', '/addons/update/plan'],
+    ['POST', '/addons/update'],
+    ['POST', '/addons/remove'],
+    ['POST', '/addons/forget'],
+    ['POST', '/pregen/pause'],
+    ['POST', '/pregen/cancel'],
+    ['POST', '/datapacks/More_Mob_Heads.zip/enable'],
+    ['POST', '/resourcepack/settings'],
+    ['DELETE', '/resourcepack'],
+  ]
+  for (const [method, path] of writes) await expect(ask(method, `/api/servers/${id}${path}`, {})).rejects.toMatchObject({ status: 400, code: 'demo' })
+  await expect(ask('POST', `/api/servers/${id}/datapacks?name=pack.zip`, undefined, new Blob(['x']))).rejects.toMatchObject({ status: 400, code: 'demo' })
+  expect((await ask<Addons>('GET', `/api/servers/${id}/addons`)).files).toHaveLength(6)
 })
