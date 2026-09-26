@@ -5,8 +5,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type {
   Action,
-  Address,
   AddonSources,
+  Address,
   Backup,
   Candidate,
   Catalog,
@@ -37,6 +37,7 @@ import type {
   TemplateContents,
   TemplateExport,
   TemplatePlan,
+  TwoFactorSetup,
 } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { AddonSourcesCard } from '@/components/app/addon-sources'
@@ -1827,10 +1828,19 @@ describe('Invite page', () => {
     expect(onSignedIn).toHaveBeenCalledWith(signedIn)
   })
 
-  it('offers a new admin two-factor sign-in, or Moderator rights until it’s on', async () => {
+  it('has a new admin turn on two-factor sign-in with the password just chosen, or go on as a Moderator', async () => {
     const preview: JoinPreview = { kind: 'member', inviter: '', role: 'admin', servers: { all: true }, expiresAt: '2026-10-02T12:00:00Z', serverNames: [], team: 'Friends' }
     const signedIn = member('admin', moderatorCan, { servers: { all: true }, needsTwoFactor: true })
-    answerPosts({ '/preview': preview, '/accept': signedIn, '/2fa/setup': new client.ApiError(404, { error: 'Not found.', code: 'not_found' }) })
+    const setup: TwoFactorSetup = {
+      qrCodeSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"/>',
+      manualKey: '4KQZ 7MXP 2RDN 6WYA 5HTB 3JCE LN2V QF7S',
+      uri: 'otpauth://totp/Playkeeper:alex?secret=4KQZ7MXP2RDN6WYA5HTB3JCELN2VQF7S&issuer=Playkeeper',
+      issuer: 'Playkeeper',
+      account: 'alex',
+      expiresAt: '2026-10-02T12:15:00Z',
+    }
+    const codes = ['k7qm-4tzd-9hxw-2rbn', 'p3vc-8jwa-6fke-5msy', 'x2nd-7gqr-4bzh-9tce', 'm9wf-3kpa-8vrn-6dqj', 'c4ht-9xme-2qwz-7bnk', 'r6ya-5dkq-3pjw-8fmx', 'v8bn-2tce-7hqk-4wzr', 'e5jx-6mra-9dvf-3kpt', 'h3wq-8zcn-5tbm-2yja', 'z7kp-4fve-6xrd-9qhm']
+    answerPosts({ '/preview': preview, '/accept': signedIn, '/2fa/setup': setup, '/2fa/confirm': { recoveryCodes: codes } })
     const join = async (onSignedIn: (me: Me, to?: string) => void) => {
       const text = await render(<JoinPage code={code} onSignedIn={onSignedIn} />)
       expect(text).toContain('Help run Friends as Admin')
@@ -1839,22 +1849,42 @@ describe('Invite page', () => {
       await typeInto('#join-again', 'correct horse battery')
       await click(button('Join as Admin'))
     }
+    const current = () => document.querySelector('[aria-current="step"]')?.textContent
 
     const later = vi.fn()
     await join(later)
     expect(later).not.toHaveBeenCalled()
+    expect(client.post).toHaveBeenCalledWith('/api/auth/2fa/setup', { password: 'correct horse battery' })
     expect(page()).toContain('One more step: two-factor sign-in')
     expect(page()).toContain('Admins must use it. Until then, you have Moderator rights.')
-    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain('Two-factor')
+    expect(page()).toContain(setup.manualKey)
+    expect(page()).toContain('Next: save your recovery codes')
+    expect(document.querySelector('img[alt="QR code for your authenticator app"]')).not.toBeNull()
+    expect(current()).toContain('Two-factor')
     await click(button('Not now, continue as Moderator'))
+    expect(client.del).toHaveBeenCalledWith('/api/auth/2fa/setup')
     expect(later).toHaveBeenCalledWith(signedIn)
-    expect(client.post).not.toHaveBeenCalledWith('/api/auth/2fa/setup', expect.anything())
 
-    const setUp = vi.fn()
-    await join(setUp)
-    await click(button('Set up two-factor'))
-    expect(client.post).toHaveBeenCalledWith('/api/auth/2fa/setup', { password: 'correct horse battery' })
-    expect(setUp).toHaveBeenCalledWith(signedIn, '/account/two-factor')
+    const confirmed = member('admin', moderatorCan, { servers: { all: true }, twoFactor: true, awaitingConfirmation: true })
+    answer({ '/api/auth/me': confirmed })
+    const done = vi.fn()
+    await join(done)
+    for (const [i, digit] of [...'482913'].entries()) {
+      const box = document.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]')[i]
+      if (!box) throw new Error(`no code box ${i}`)
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(box, digit)
+        box.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    expect(client.post).toHaveBeenCalledWith('/api/auth/2fa/confirm', { code: '482913' })
+    expect(page()).toContain('Save your recovery codes')
+    expect(page()).toContain('Step 3 of 3')
+    for (const c of codes) expect(page()).toContain(c)
+    expect(current()).toContain('Recovery codes')
+    expect(done).not.toHaveBeenCalled()
+    await click(button('I’ve saved them'))
+    expect(done).toHaveBeenCalledWith(confirmed)
   })
 
   it('says when a link can’t be used, offering sign-in only for team links', async () => {

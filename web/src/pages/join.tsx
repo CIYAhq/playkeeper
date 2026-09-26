@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent, type HTMLAttributes, type ReactNode } from 'react'
-import { ExternalLinkIcon, KeyRoundIcon, ShieldCheckIcon, UserRoundIcon, UsersRoundIcon } from 'lucide-react'
-import { ApiError, post, setCsrfToken } from '@/api/client'
+import { useEffect, useId, useState, type FormEvent, type HTMLAttributes, type ReactNode } from 'react'
+import { ChevronRightIcon, ExternalLinkIcon, KeyRoundIcon, QrCodeIcon, UserRoundIcon, UsersRoundIcon } from 'lucide-react'
+import { ApiError, get, post, setCsrfToken } from '@/api/client'
 import type { AcceptResponse, Candidate, JoinInfo, JoinPreview, Me, MemberPreview, PlayerPreview } from '@/api/types'
 import { BrandMark, Emblem, Pip, type PipPose } from '@/components/app/art'
 import { CopyButton, Dot } from '@/components/app/bits'
+import { CodeField } from '@/components/app/code-field'
 import { Stepper, useIsPhone } from '@/components/app/controls'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -14,6 +16,7 @@ import { formatDate, formatList } from '@/lib/format'
 import { linkPath, rePlayerName } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { PasswordField } from './onboarding'
+import { CodesView, ErrorLine, KeyBox, QrImage, useSetup } from './two-factor'
 
 // The page an invite link opens, for friends and new team members alike. It
 // needs no account: the code travels only in POST bodies, and the page never
@@ -72,13 +75,7 @@ export function JoinPage({ code, onSignedIn }: { code: string; onSignedIn: (me: 
     }
   }, [code, attempt])
 
-  if (admin) {
-    return (
-      <JoinShell step={1}>
-        <AdminStep me={admin.me} password={admin.password} onSignedIn={onSignedIn} />
-      </JoinShell>
-    )
-  }
+  if (admin) return <AdminStep me={admin.me} password={admin.password} onSignedIn={onSignedIn} />
 
   let body: ReactNode
   if (!code) body = <RefusalCard refusal="not_working" />
@@ -504,42 +501,184 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
   )
 }
 
-/** After an Admin invite: two-factor sign-in, which admins must use, or Moderator rights until it's on. */
+/**
+ * After an Admin invite: turning on two-factor sign-in, which admins must
+ * use, started with the password just chosen; or Moderator rights until it's
+ * on. The owner or an admin then confirms their Admin rights.
+ */
 function AdminStep({ me, password, onSignedIn }: { me: Me; password: string; onSignedIn: (me: Me, to?: string) => void }) {
   const phone = useIsPhone()
-  const [busy, setBusy] = useState(false)
+  const s = useSetup(false, undefined, password)
+  const [qr, setQr] = useState(false)
+  const passwordId = useId()
+  const labelId = useId()
+  const { stage } = s
 
-  async function setUp() {
-    setBusy(true)
-    // A setup started with the password they just chose opens at its scan
-    // step, so they aren't asked for it again.
-    await post('/api/auth/2fa/setup', { password }).catch(() => undefined)
-    onSignedIn(me, '/account/two-factor')
+  function later() {
+    s.discard()
+    onSignedIn(me)
+  }
+  async function saved() {
+    onSignedIn(await get<Me>('/api/auth/me').catch(() => me))
   }
 
-  return (
-    <div className="flex w-full max-w-[520px] flex-col">
-      {phone && <p className="mb-2 px-1 text-[13px] text-muted-foreground">{t('join.stepOf', { n: 2, total: 3, step: t('join.stepTwoFactor') })}</p>}
-      <JoinCard className="max-w-none">
-        <div className="flex items-center gap-4 max-sm:gap-3.5">
-          <Pip pose="hardhat" size={phone ? 48 : 52} />
-          <div className="min-w-0">
-            <h1 className="text-xl leading-7 font-bold tracking-[-0.01em] max-sm:text-[17px] max-sm:leading-[22px]">{t('join.adminTitle')}</h1>
-            {!phone && <p className="mt-0.5 text-[13px] text-muted-foreground">{t('join.adminBody')}</p>}
+  if (stage.step === 'codes') {
+    return (
+      <JoinShell step={2}>
+        <JoinCard className="max-w-[560px]">
+          <CodesView codes={stage.codes} name={me.user.username} step onSaved={() => void saved()} />
+        </JoinCard>
+      </JoinShell>
+    )
+  }
+  const heading = (
+    <>
+      <div className="flex items-center gap-4 max-sm:gap-3.5">
+        <Pip pose="hardhat" size={phone ? 48 : 52} />
+        <div className="min-w-0">
+          <h1 className="text-xl leading-7 font-bold tracking-[-0.01em] max-sm:text-[17px] max-sm:leading-[22px]">{t('join.adminTitle')}</h1>
+          {!phone && <p className="mt-0.5 text-[13px] text-muted-foreground">{t('join.adminBody')}</p>}
+        </div>
+      </div>
+      {phone && <p className="mt-3 text-sm text-muted-foreground">{t('join.adminBody')}</p>}
+    </>
+  )
+  const laterButton = (
+    <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} className={cn('text-muted-foreground', phone && 'w-full')} onClick={later}>
+      {t('join.adminLater')}
+    </Button>
+  )
+  const confirmButton = (
+    <Button type="submit" size={phone ? 'touch' : 'default'} className={cn(phone && 'w-full')} loading={s.busy} disabledReason={s.code.length < 6 ? t('reason.sixDigits') : undefined}>
+      {t('twofa.confirm')}
+    </Button>
+  )
+  let body: ReactNode
+  switch (stage.step) {
+    case 'loading':
+      body = (
+        <JoinCard className="max-w-none">
+          {heading}
+          <LoadingLabel />
+          <div className="mt-5 flex items-center gap-4 max-sm:flex-col max-sm:items-stretch">
+            <Skeleton className="size-[120px] shrink-0 rounded-2xl max-sm:h-12 max-sm:w-full" />
+            <div className="min-w-0 flex-1">
+              <Skeleton className="h-3 w-3/5" />
+              <Skeleton className="mt-4 h-11 rounded-xl" />
+            </div>
           </div>
-        </div>
-        {phone && <p className="mt-3 text-sm text-muted-foreground">{t('join.adminBody')}</p>}
-        <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4 max-sm:mt-5 max-sm:flex-col-reverse max-sm:items-stretch max-sm:gap-2 max-sm:border-t-0 max-sm:pt-0">
-          <Button variant="ghost" size={phone ? 'touch' : 'default'} className="text-muted-foreground" disabledReason={busy ? t('join.openingSetup') : undefined} onClick={() => onSignedIn(me)}>
-            {t('join.adminLater')}
-          </Button>
-          <Button size={phone ? 'touch' : 'default'} loading={busy} onClick={() => void setUp()}>
-            <ShieldCheckIcon aria-hidden="true" />
-            {t('join.adminSetUp')}
-          </Button>
-        </div>
-      </JoinCard>
-    </div>
+          <Skeleton className="mt-5 h-[52px] w-72 max-w-full rounded-[10px]" />
+          <div className="mt-5 border-t border-border pt-4 max-sm:border-t-0">{laterButton}</div>
+        </JoinCard>
+      )
+      break
+    case 'password':
+      body = (
+        <JoinCard className="max-w-none">
+          <form onSubmit={s.start} noValidate>
+            {heading}
+            <div className="mt-5">
+              <PasswordField id={passwordId} label={t('twofa.passwordLabel')} value={s.password} onChange={s.setPassword} autoComplete="current-password" autoFocus error={s.passwordError} />
+            </div>
+            <ErrorLine text={s.error} />
+            <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4 max-sm:flex-col-reverse max-sm:items-stretch max-sm:gap-2 max-sm:border-t-0">
+              {laterButton}
+              <Button type="submit" size={phone ? 'touch' : 'default'} loading={s.busy} disabledReason={s.password ? undefined : t('reason.passwordFirst')}>
+                {t('common.continue')}
+              </Button>
+            </div>
+          </form>
+        </JoinCard>
+      )
+      break
+    case 'scan':
+      body = (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void s.confirm(s.code)
+          }}
+          noValidate
+          className={cn('flex flex-col', phone && 'flex-1')}
+        >
+          <JoinCard className="max-w-none">
+            {heading}
+            {phone ? (
+              <>
+                <Button size="touch" className="mt-4 w-full" render={<a href={stage.setup.uri} />}>
+                  {t('twofa.openApp')}
+                  <ExternalLinkIcon />
+                </Button>
+                <p className="mt-3 text-[13px] text-muted-foreground">{t('twofa.orType')}</p>
+                <KeyBox value={stage.setup.manualKey} className="mt-2" />
+              </>
+            ) : (
+              <div className="mt-5 flex items-center gap-4">
+                <QrImage svg={stage.setup.qrCodeSvg} className="size-[120px] shrink-0 rounded-2xl border border-border bg-white p-2" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-semibold">{t('twofa.scan')}</p>
+                  <p className="mt-4 text-xs font-semibold">{t('twofa.cantScan')}</p>
+                  <KeyBox value={stage.setup.manualKey} className="mt-2" />
+                </div>
+              </div>
+            )}
+            {!phone && (
+              <>
+                <p id={labelId} className="mt-5 text-[13px] font-semibold">
+                  {t('twofa.typeCode')}
+                </p>
+                <CodeField value={s.code} onChange={s.setCode} onComplete={(v) => void s.confirm(v)} invalid={s.wrong} autoFocus labelledBy={labelId} className="mt-2 justify-start" />
+                <ErrorLine text={s.wrong ? t('signin.wrong') : s.error} />
+                <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4">
+                  {laterButton}
+                  <span className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">{t('join.adminNext')}</span>
+                    {confirmButton}
+                  </span>
+                </div>
+              </>
+            )}
+          </JoinCard>
+          {phone && (
+            <>
+              <div className="mt-3 overflow-hidden rounded-3xl border border-border bg-white">
+                <button type="button" aria-expanded={qr} onClick={() => setQr((v) => !v)} className="flex min-h-14 w-full items-center gap-3.5 px-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+                  <QrCodeIcon className="size-[22px] shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 text-base">{t('twofa.showQr')}</span>
+                  <ChevronRightIcon className={cn('size-5 text-muted-foreground transition-transform duration-(--motion-standard) ease-standard', qr && 'rotate-90')} aria-hidden="true" />
+                </button>
+                {qr && (
+                  <div className="flex justify-center border-t border-border p-4">
+                    <QrImage svg={stage.setup.qrCodeSvg} className="size-48" />
+                  </div>
+                )}
+              </div>
+              <p id={labelId} className="mt-5 px-1 text-[15px] font-semibold">
+                {t('twofa.typeCode')}
+              </p>
+              <CodeField value={s.code} onChange={s.setCode} onComplete={(v) => void s.confirm(v)} invalid={s.wrong} labelledBy={labelId} className="mt-3" />
+              <ErrorLine text={s.wrong ? t('signin.wrong') : s.error} className="text-center" />
+              <div className="mt-auto flex flex-col gap-1 pt-6">
+                {confirmButton}
+                {laterButton}
+              </div>
+            </>
+          )}
+        </form>
+      )
+      break
+    default: {
+      const unreachable: never = stage
+      body = unreachable
+    }
+  }
+  return (
+    <JoinShell step={1}>
+      <div className={cn('flex w-full max-w-[510px] flex-col', phone && 'flex-1')}>
+        {phone && <p className="mb-2 px-1 text-[13px] text-muted-foreground">{t('join.stepOf', { n: 2, total: 3, step: t('join.stepTwoFactor') })}</p>}
+        {body}
+      </div>
+    </JoinShell>
   )
 }
 
