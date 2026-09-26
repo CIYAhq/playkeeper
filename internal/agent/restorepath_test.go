@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -109,5 +111,54 @@ func TestARestoreSettledAtStartSaysSo(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.settled' AND result = 'succeeded'`); n != 1 {
 		t.Fatalf("want what the start did audited once, got %d", n)
+	}
+}
+
+// A restore the next agent process finished has its own line in the
+// activity, and a restore that finished by itself keeps the usual one.
+func TestARestoreFinishedAfterARestartSaysSo(t *testing.T) {
+	kinds := func(e *agentEnv) []string {
+		t.Helper()
+		acts, err := e.a.Activity(e.sid, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, a := range acts {
+			if strings.HasPrefix(a.Kind, "restored") {
+				out = append(out, a.Kind)
+			}
+		}
+		return out
+	}
+
+	e := newAgentEnv(t)
+	id, phrase, _, _ := e.restoreScenario()
+	reached := make(chan struct{})
+	setRestoreStep(t, func(ctx context.Context, step string) {
+		if step == "moved" {
+			close(reached)
+			runtime.Goexit()
+		}
+	})
+	opID := e.startRestore(id, phrase)
+	waitClosed(t, reached, "the restored world to be moved into place")
+	e.stop()
+	restoreStep = func(context.Context, string) {}
+	e.start()
+	if op := e.waitOp(opID); op.Status != api.OpSucceeded || op.Detail["resumedAfterRestart"] != true {
+		t.Fatalf("the next agent process must finish the restore: %+v", op)
+	}
+	if got := kinds(e); len(got) != 1 || got[0] != "restored_after_restart" {
+		t.Fatalf("want one line for a restore finished after a restart, got %v", got)
+	}
+
+	e = newAgentEnv(t)
+	id, phrase, _, _ = e.restoreScenario()
+	if op := e.applyRestore(id, phrase); op.Status != api.OpSucceeded {
+		t.Fatalf("restore: %+v", op)
+	}
+	if got := kinds(e); len(got) != 1 || got[0] != "restored" {
+		t.Fatalf("want the usual line for a restore that finished by itself, got %v", got)
 	}
 }

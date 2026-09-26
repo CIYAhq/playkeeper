@@ -1464,12 +1464,13 @@ func (s *server) keepRestore(h *opHandle, j *swapJournal, keepCopy bool) error {
 	}
 	s.forgetPregen()
 	j.State = swapDone
-	detail := j.Detail
+	detail, kind := j.Detail, "world_restored"
 	if h.get("resumedAfterRestart") == true {
 		detail += "; finished after the Playkeeper agent restarted"
+		kind = "world_restored_after_restart"
 	}
 	h.set("downtimeMs", s.now().Sub(j.StartedAt).Milliseconds())
-	s.recordEvent(s.now(), "world_restored", "", "playkeeper", detail)
+	s.recordEvent(s.now(), kind, "", "playkeeper", detail)
 	s.audit(j.Actor, "restore.applied", shortSum(j.SHA256), "succeeded", detail)
 	return nil
 }
