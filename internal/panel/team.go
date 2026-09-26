@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -136,10 +137,19 @@ type grantBody struct {
 func (s *Server) existingServers(w http.ResponseWriter, r *http.Request) ([]serverRef, bool) {
 	servers, err := s.listServers(r.Context())
 	if err != nil {
-		s.agentFailure(w, err)
+		s.listFailure(w, err)
 		return nil, false
 	}
 	return servers, true
+}
+
+// listFailure answers a request that needed the list of servers.
+func (s *Server) listFailure(w http.ResponseWriter, err error) {
+	if errors.Is(err, errDB) {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	s.agentFailure(w, err)
 }
 
 // hTeamInviteCreate makes a team invite link. The link is shown once: only
@@ -296,12 +306,17 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		writeRefusal(w, err)
 		return
 	}
-	servers, ok := s.existingServers(w, r)
-	if !ok {
-		return
-	}
-	if err := s.checkGrant(sess.Access, req, servers); err != nil {
-		writeRefusal(w, err)
+	// Taking rights away never waits for a machine: the servers a member
+	// keeps are ones they had.
+	servers, err := s.listServers(r.Context())
+	switch {
+	case err == nil:
+		if err := s.checkGrant(sess.Access, req, servers); err != nil {
+			writeRefusal(w, err)
+			return
+		}
+	case !invites.Narrows(t.Account, req.Role, req.Servers):
+		s.listFailure(w, err)
 		return
 	}
 	// Only the owner makes admins, so making someone an admin confirms the

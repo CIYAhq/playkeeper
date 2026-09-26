@@ -3267,6 +3267,36 @@ control "a duplicate's number skips slugs another server has" internal/panel/wor
   'if next := fmt.Sprintf("%s-%d", slug, i); !taken[next] {' \
   'if next := fmt.Sprintf("%s-%d", slug, i); true {' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "a joined machine that can't answer holds up no team change" internal/panel/join.go \
+  'all, _, err := s.allServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]serverRef, 0, len(all))
+	for _, sv := range all {
+		id, _ := sv["id"].(string)
+		name, _ := sv["name"].(string)
+		out = append(out, serverRef{ID: id, Name: name})
+	}
+	return out, nil' \
+  'list, err := s.machines()
+	if err != nil {
+		return nil, err
+	}
+	var out []serverRef
+	for _, m := range list {
+		var servers []serverRef
+		if _, err := m.agent.Do(ctx, "GET", "/v1/servers", nil, nil, &servers); err != nil {
+			return nil, err
+		}
+		out = append(out, servers...)
+	}
+	return out, nil' \
+  ./internal/panel '^TestAMachineThatCantAnswerHoldsUpNoTeamChange$'
+control "taking a member's rights away never waits for a machine" internal/panel/team.go \
+  'case !invites.Narrows(t.Account, req.Role, req.Servers):' \
+  'case true:' \
+  ./internal/panel '^TestAMachineThatCantAnswerHoldsUpNoTeamChange$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

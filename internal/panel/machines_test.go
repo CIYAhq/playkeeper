@@ -238,8 +238,9 @@ func (rl *runningLink) ended(t *testing.T) error {
 }
 
 // joinMachine joins ra to the dashboard as home-server over a real link and
-// returns its machine id once it's connected. The dashboard needs a domain.
-func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) string {
+// returns its machine id and link once it's connected. The dashboard needs a
+// domain.
+func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) (string, *runningLink) {
 	t.Helper()
 	addr := e.sharePort(t)
 	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
@@ -250,9 +251,9 @@ func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) st
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
-	e.runLink(t, d, id, ra)
+	link := e.runLink(t, d, id, ra)
 	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
-	return d.MachineID
+	return d.MachineID, link
 }
 
 // auditHas reports whether the panel's audit log has a row with these
@@ -734,7 +735,7 @@ func TestEveryChangeOnAMachineNamesWhoMakesIt(t *testing.T) {
 	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
 	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
 	ra := newRemoteAgent()
-	rid := e.joinMachine(t, cookie, csrf, ra)
+	rid, _ := e.joinMachine(t, cookie, csrf, ra)
 	var list []map[string]any
 	if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk rstuvwxyzq" {
 		t.Fatalf("servers: %d %v", r, list)
@@ -1732,6 +1733,79 @@ func TestEveryServerInTheListHasItsOwnSlug(t *testing.T) {
 			}
 			if strings.Join(got, " ") != tc.want {
 				t.Fatalf("servers %q, want %q", strings.Join(got, " "), tc.want)
+			}
+		})
+	}
+}
+
+// A machine that can't answer holds up no change on the Team page. With a
+// joined machine away, demoting a member (whose admin token stops at once),
+// making a team invite, and previewing and accepting it go by the servers
+// the dashboard knows, the joined machine's as it last listed them. With no
+// machine to answer, taking rights away still works.
+func TestAMachineThatCantAnswerHoldsUpNoTeamChange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		away  func(t *testing.T, e *env, cookie, csrf string)
+		known bool // whether the dashboard still knows its servers
+	}{
+		{"a joined machine that never connected", func(t *testing.T, e *env, cookie, csrf string) {
+			e.srv.claimServers(e.addRemote(t, "alphaalpha", "alpha"), serverList("xxxxxxxxxx"))
+		}, true},
+		{"a joined machine that went away", func(t *testing.T, e *env, cookie, csrf string) {
+			_, link := e.joinMachine(t, cookie, csrf, newRemoteAgent())
+			var list []map[string]any
+			if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" {
+				t.Fatalf("servers before it went away: %v", list)
+			}
+			link.stop()
+		}, true},
+		{"a joined machine whose agent answers with an error", func(t *testing.T, e *env, cookie, csrf string) {
+			ra := newRemoteAgent()
+			ra.handle("GET /v1/servers", func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"error":"Something went wrong.","code":"internal"}`, http.StatusInternalServerError)
+			})
+			e.joinMachine(t, cookie, csrf, ra)
+		}, true},
+		{"the dashboard's own agent, with no joined machine", func(t *testing.T, e *env, cookie, csrf string) {
+			e.agent.mu.Lock()
+			e.agent.statuses["GET /v1/servers"] = http.StatusInternalServerError
+			e.agent.mu.Unlock()
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnvConfig(t, withDomain, nil)
+			own := owner(t, e)
+			e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+			e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+			alex := addAdmin(t, e, "alex", "*")
+			token, _ := e.newToken(t, alex.cookie, alex.csrf, `{"name":"Alex's agent","role":"admin","allServers":true}`)
+			tc.away(t, e, own.cookie, own.csrf)
+
+			if r := e.do(t, "PUT", alex.path(), `{"role":"moderator","servers":{"all":true}}`, own.auth()); r.status != http.StatusOK {
+				t.Fatalf("demote an admin: %d %v", r.status, r.body)
+			}
+			var revoked int64
+			if err := e.srv.db.QueryRow(`SELECT revoked_at FROM api_tokens WHERE id = ?`, token).Scan(&revoked); err != nil || revoked == 0 {
+				t.Fatalf("the demoted admin's token still works (%v)", err)
+			}
+			if !tc.known {
+				if r := e.do(t, "PUT", alex.path(), `{"role":"admin","servers":{"all":true}}`, own.auth()); r.status/100 == 2 {
+					t.Fatalf("a wider role without the servers: %d %v", r.status, r.body)
+				}
+				return
+			}
+			r := e.do(t, "POST", "/api/team/invites", `{"role":"viewer","servers":{"servers":["abcdefghjk"]}}`, own.auth())
+			path, _ := r.body["path"].(string)
+			code, ok := strings.CutPrefix(path, invites.JoinPath+"/")
+			if r.status != http.StatusCreated || !ok {
+				t.Fatalf("make a team invite: %d %v", r.status, r.body)
+			}
+			if r := e.public(t, "preview", codeBody(code)); r.status != http.StatusOK {
+				t.Fatalf("preview the invite: %d %v", r.status, r.body)
+			}
+			if r := e.public(t, "accept", codeBody(code, "username", "sam", "password", "member password 1")); r.status != http.StatusOK {
+				t.Fatalf("accept the invite: %d %v", r.status, r.body)
 			}
 		})
 	}
