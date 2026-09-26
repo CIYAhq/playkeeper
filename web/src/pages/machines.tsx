@@ -262,7 +262,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
         </Step>
         <Step n={2} title={t('machines.connect.step2')}>
           <div className="flex items-center gap-3">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('machines.connect.namePlaceholder')} aria-label={t('machines.connect.name')} maxLength={63} autoComplete="off" spellCheck={false} className="w-[170px]" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('machines.connect.namePlaceholder')} aria-label={t('machines.connect.name')} maxLength={40} autoComplete="off" spellCheck={false} className="w-[170px]" />
             <span className="text-xs text-muted-foreground">{t('machines.connect.optional')}</span>
           </div>
         </Step>
