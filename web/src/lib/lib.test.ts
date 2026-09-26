@@ -18,7 +18,7 @@ import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadli
 import { newerStable, softwareLabel, softwareName } from './servers'
 import { addonKind, formatReleased, shortHash } from './software'
 import { memoryForStyle } from './styles'
-import { addonsLine, afterSignIn, leftOutAddons, madeBy, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
+import { addonsLine, afterSignIn, leftOutAddons, madeOn, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
 import { upgradeTargets } from './versions'
 
 function server(over: Partial<ServerStatus> = {}): ServerStatus {
@@ -536,13 +536,13 @@ describe('templates', () => {
     ...over,
   })
 
-  it('says who made a template and on which day only when it says both', () => {
+  it('says on which day a template was made, and never who made it', () => {
     const now = new Date('2026-09-26T04:00:00Z')
-    expect(madeBy(contents({ author: 'siya', created: '2026-09-25' }), now)).toMatch(/^from siya · made (25 Sep|Sep 25)$/)
-    expect(madeBy(contents({ author: 'siya', created: '2025-12-31' }), now)).toMatch(/^from siya · made (31 Dec 2025|Dec 31, 2025)$/)
-    expect(madeBy(contents({ author: 'siya' }), now)).toBeUndefined()
-    expect(madeBy(contents({ created: '2026-09-25' }), now)).toBeUndefined()
-    expect(madeBy(contents({ author: 'siya', created: 'yesterday' }), now)).toBeUndefined()
+    expect(madeOn(contents({ created: '2026-09-25' }), now)).toMatch(/^made (25 Sep|Sep 25)$/)
+    expect(madeOn(contents({ created: '2025-12-31' }), now)).toMatch(/^made (31 Dec 2025|Dec 31, 2025)$/)
+    expect(madeOn({ ...contents({ created: '2026-09-25' }), author: 'siya' } as TemplateContents, now)).toMatch(/^made (25 Sep|Sep 25)$/)
+    expect(madeOn(contents(), now)).toBeUndefined()
+    expect(madeOn(contents({ created: 'yesterday' }), now)).toBeUndefined()
   })
 
   it('names the settings a template carries, four at most', () => {

@@ -19,16 +19,16 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-/** "Difficulty, PvP, view distance, server list message": the settings a template carries, four at most. */
-/** "from siya · made 25 Sep", when the template says both who made it and when. */
-export function madeBy(c: TemplateContents, now: Date = new Date()): string | undefined {
-  if (!c.author || !c.created) return undefined
+/** "made 25 Sep", when the template says which day it was made. */
+export function madeOn(c: TemplateContents, now: Date = new Date()): string | undefined {
+  if (!c.created) return undefined
   const day = new Date(`${c.created}T00:00:00Z`)
   if (Number.isNaN(day.getTime())) return undefined
   const date = day.toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: day.getUTCFullYear() === now.getUTCFullYear() ? undefined : 'numeric', timeZone: 'UTC' })
-  return [t('template.from', { author: c.author }), t('template.made', { date })].join(t('common.dot'))
+  return t('template.made', { date })
 }
 
+/** "Difficulty, PvP, view distance, server list message": the settings a template carries, four at most. */
 export function settingNames(s: TemplateSettings): string {
   const names = settingKeys.filter(([k]) => s[k] !== undefined && s[k] !== '').map(([, key]) => t(key))
   if (names.length === 0) return ''

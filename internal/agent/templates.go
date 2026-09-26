@@ -134,11 +134,9 @@ func (s *server) hTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	// The panel names the signed-in account as the author.
-	author, _ := validActor(q.Get("author"))
 	t, rep, err := templates.Export(st, templates.ExportOptions{
 		WithoutAddons: q.Get("addons") == "off", WithoutSettings: q.Get("settings") == "off", WithoutPacks: q.Get("packs") == "off", Latest: latest,
-		Author: author, Created: s.now(),
+		Created: s.now(),
 	})
 	if err != nil {
 		writeError(w, addonError(err))
@@ -168,7 +166,7 @@ func (s *server) hTemplate(w http.ResponseWriter, r *http.Request) {
 func templateContents(t *templates.Template) api.TemplateContents {
 	st := t.Settings
 	c := api.TemplateContents{
-		Name: t.Name, Author: t.Author, Created: t.Created, Type: t.Server.Type, MinecraftVersion: t.Server.MinecraftVersion, Build: t.Server.Build[templateBuildKey],
+		Name: t.Name, Created: t.Created, Type: t.Server.Type, MinecraftVersion: t.Server.MinecraftVersion, Build: t.Server.Build[templateBuildKey],
 		Settings: api.TemplateSettings{
 			Difficulty: st.Difficulty, PVP: st.PVP, GameMode: st.GameMode, Hardcore: st.Hardcore, ViewDistance: st.ViewDistance,
 			LevelType: st.LevelType, MaxPlayers: st.MaxPlayers, MOTD: st.MOTD, PlayStyle: st.PlayStyle, MemoryMB: st.MemoryMB,
@@ -399,12 +397,16 @@ func (a *Agent) confirmTemplate(ctx context.Context, fingerprint string) (*templ
 }
 
 // fill sets what the template decides on a create request: the type,
-// version and build, or the modpack that decides them, and the settings.
-func (ti *templateImport) fill(req *api.CreateServerRequest) {
+// version and build, or the modpack that decides them, and the settings. A
+// plan without either, which Confirm refuses too, creates nothing.
+func (ti *templateImport) fill(req *api.CreateServerRequest) error {
 	p := ti.p
 	if m := p.Modpack; m != nil {
 		req.Modpack = &api.ModpackRef{Source: string(m.Source), ProjectID: m.Project, VersionID: m.Pin.VersionID}
 	} else {
+		if p.Version == nil {
+			return errConflict("Playkeeper can't choose a version for this template's server, so nothing was created.", "Choose the template again.")
+		}
 		req.Type, req.VersionID = p.Type.ID, p.Version.ID
 		if p.Type.ID != api.TypePaper {
 			req.Build = p.Version.Build[templateBuildKey]
@@ -416,6 +418,7 @@ func (ti *templateImport) fill(req *api.CreateServerRequest) {
 	if gp != (api.Gameplay{}) {
 		req.Gameplay = &gp
 	}
+	return nil
 }
 
 // installPendingTemplate installs the add-ons of the template a server was

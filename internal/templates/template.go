@@ -53,8 +53,9 @@ type Template struct {
 	Format      int    `json:"playkeeperTemplate"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// Author is who shared it: their sign-in name on the Playkeeper it came
-	// from. It is only shown, as "from siya", and anyone can edit it.
+	// Author is left for a name the sharer chooses to show, once Playkeeper
+	// has such names. Until then exports write none and imports show none:
+	// a sign-in name is half of the login, and a file can say anything.
 	Author string `json:"author,omitempty"`
 	// Created is the day it was made, YYYY-MM-DD in UTC.
 	Created string `json:"created,omitempty"`

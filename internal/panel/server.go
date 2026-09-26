@@ -326,7 +326,7 @@ func (s *Server) Routes() []Route {
 		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
 		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
 		// Wave 4: templates.
-		{"GET", "/api/servers/{id}/template", needSession, actView, s.templateExport},
+		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
 		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),
 		{"POST", "/api/machines/{mid}/templates/plan", needSessionCSRF, actManageServers, s.rawUpload("/v1/templates/plan", "text/plain")},
 		// Wave 4: sharing the pack with friends; the public page is in
@@ -929,15 +929,6 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (machine, bool) 
 
 func (s *Server) serverProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
 	return s.forward(method, pattern)
-}
-
-// templateExport forwards a template export with the signed-in account as
-// the template's author, whatever the request says.
-func (s *Server) templateExport(w http.ResponseWriter, r *http.Request, sess *session) {
-	q := r.URL.Query()
-	q.Set("author", sess.User.Username)
-	r.URL.RawQuery = q.Encode()
-	s.forward("GET", "/v1/servers/{id}/template")(w, r, sess)
 }
 
 func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
