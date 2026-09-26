@@ -534,20 +534,19 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
   const { offline } = useServerMachine(s)
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
-  const online = s.phase === 'online'
   const steps = [
     { title: t('world.emptyStep1'), hint: t('world.emptyStep1Hint') },
     { title: t('world.emptyStep2'), hint: t('world.emptyStep2Hint') },
     { title: t('world.emptyStep3'), hint: t('world.emptyStep3Hint') },
   ]
   return (
-    <div className="flex flex-1 flex-col items-center py-6 text-center max-sm:py-2">
-      <EmptyArt kind="backups" scale={phone ? 6 : 5} />
+    <div className="flex flex-1 animate-fade flex-col items-center py-6 text-center max-sm:py-2">
+      <EmptyArt kind="backups" scale={6} />
       <h2 className="mt-5 text-title font-extrabold tracking-[-0.015em] max-sm:text-[22px]">{t('world.emptyTitle')}</h2>
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('world.emptyBody')}</p>
       {can(ws.me, 'backups.make') && (
         <Button
-          size={phone ? 'touch' : 'lg'}
+          size={phone ? 'touch' : 'xl'}
           className="mt-5 max-sm:w-full"
           loading={busy || running}
           disabledReason={whyNot(s, 'backup', offline)}
@@ -566,7 +565,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
           {running ? t('world.backingUp') : t('world.emptyButton')}
         </Button>
       )}
-      <p className="mt-3 text-xs text-muted-foreground">{online ? t('world.emptyNoteOnline') : t('world.emptyNote')}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{t('world.emptyNote')}</p>
       <ol className="mt-8 grid w-full max-w-[720px] gap-4 border-t border-border pt-5 text-left sm:grid-cols-3">
         {steps.map((st, i) => (
           <li key={st.title}>

@@ -73,11 +73,11 @@ function Loading() {
 function Footer() {
   return (
     <footer className="mt-4 flex items-center justify-between gap-4 text-xs text-muted-foreground max-sm:mt-9 max-sm:flex-col max-sm:gap-0.5 max-sm:text-center">
-      <span className="inline-flex items-center gap-2 text-[13px] text-foreground/80">
+      <span className="inline-flex items-center gap-2 text-[13px]">
         <BrandMark size={18} className="max-sm:size-4" />
         {t('publicMap.madeWith')}
       </span>
-      <p className="max-sm:text-[11px] max-sm:leading-[13px]">{t('footer.notOfficial')}</p>
+      <p className="text-[11px] text-muted-foreground/80 max-sm:leading-[13px]">{t('footer.notOfficial')}</p>
     </footer>
   )
 }

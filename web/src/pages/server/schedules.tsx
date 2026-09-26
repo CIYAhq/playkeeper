@@ -657,7 +657,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   const label = 'text-[13px] font-medium'
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[560px]">
+      <DialogPopup className="sm:max-w-[560px]" showCloseButton={phone}>
         <div className="px-6 pt-6 pb-1 max-sm:px-5">
           <DialogTitle className="text-lg leading-6 font-bold">{existing ? t('schedules.editTitle') : t('schedules.newTitle', { server: server.name })}</DialogTitle>
         </div>
@@ -682,7 +682,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
                 {form.often.startsWith('interval:') ? t('schedules.from') : t('schedules.at')}
               </label>
               {/* Left to its own width, a time field fits its locale's format, 12- or 24-hour. */}
-              <Input id="schedule-at" type="time" value={form.at} onChange={(e) => set('at', e.target.value)} className="mt-1.5 w-auto sm:min-w-40" required />
+              <Input id="schedule-at" type="time" value={form.at} onChange={(e) => set('at', e.target.value)} className="mt-1.5 w-auto max-sm:h-11 max-sm:[&>input]:h-full sm:min-w-40" required />
             </div>
           </div>
           {form.kind === 'restart' && (
@@ -705,7 +705,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
           )}
           {form.kind === 'backup' && (
             <>
-              <SwitchRow checked={form.onlyIfPlayed} onChange={(c) => set('onlyIfPlayed', c)} title={t('schedules.onlyIfPlayed')} hint={t('schedules.onlyIfPlayedHint')} />
+              <SwitchRow checked={form.onlyIfPlayed} onChange={(c) => set('onlyIfPlayed', c)} title={t('schedules.onlyIfPlayed')} />
               <SwitchRow checked={form.skipIfPlaying} onChange={(c) => set('skipIfPlaying', c)} title={t('schedules.skip')} hint={t('schedules.skipBackupHint')} />
             </>
           )}
@@ -715,7 +715,6 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
                 {t('schedules.command')}
               </label>
               <Input id="schedule-command" value={form.command} onChange={(e) => set('command', e.target.value)} maxLength={256} placeholder={t('schedules.commandPlaceholder')} spellCheck={false} autoComplete="off" className="mt-1.5 font-mono" />
-              <p className="mt-1 text-xs text-muted-foreground">{t('schedules.commandHint')}</p>
             </div>
           )}
         </DialogPanel>
@@ -752,13 +751,13 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   )
 }
 
-function SwitchRow({ checked, onChange, title, hint }: { checked: boolean; onChange: (v: boolean) => void; title: string; hint: string }) {
+function SwitchRow({ checked, onChange, title, hint }: { checked: boolean; onChange: (v: boolean) => void; title: string; hint?: string }) {
   return (
     <label className="flex items-start gap-3 border-t border-border pt-4">
       <Switch checked={checked} onCheckedChange={onChange} className="mt-0.5" />
       <span>
         <span className="block text-[13px] font-semibold">{title}</span>
-        <span className="block text-xs text-muted-foreground">{hint}</span>
+        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
       </span>
     </label>
   )

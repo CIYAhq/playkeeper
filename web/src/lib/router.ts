@@ -206,10 +206,12 @@ export function navigate(to: Route | string, replace = false) {
     revisit(path)
     return
   }
+  // Only a #section on the page you're on keeps the scroll; another page starts at its top and scrolls to its own section.
+  const samePage = path.split('#')[0] === window.location.pathname
   if (replace) window.history.replaceState(null, '', path)
   else window.history.pushState(null, '', path)
   listeners.forEach((fn) => fn())
-  if (!path.includes('#')) window.scrollTo(0, 0)
+  if (!(samePage && path.includes('#'))) window.scrollTo(0, 0)
 }
 
 export function useRoute(): Route {

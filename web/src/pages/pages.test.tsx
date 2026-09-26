@@ -355,10 +355,10 @@ describe('Home', () => {
     const atticCard = [...document.querySelectorAll('article')].find((a) => a.textContent?.includes('Attic'))?.textContent ?? ''
     expect(atticCard).toContain('No live status')
     expect(atticCard).toContain('Can’t reach attic')
-    const activity = [...document.querySelectorAll('li')].map((li) => li.textContent ?? '')
-    const at = (line: string) => activity.findIndex((l) => l.includes(line))
-    expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
-    expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
+    // As designed, the machine groups end the page: no activity or one machine's meters after them.
+    expect(text).not.toContain('Across your servers')
+    expect(text).not.toContain('Memory reserved')
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/activity'))).toBe(false)
     expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
   })
 
@@ -1055,7 +1055,8 @@ describe('Backups with players online', () => {
   it('makes the first backup without a warning in chat', async () => {
     answer({ '/backups': [] })
     const text = await render(<WorldPage server={server({ players: { online: 2, max: 10, names: ['mara_k', 'tobi2009'], source: 'rcon list', at: '' } })} />)
-    expect(text).toContain('About 15 seconds. Players stay online.')
+    expect(text).toContain('About 15 seconds.')
+    expect(text).not.toContain('About 15 seconds. Players stay online.')
     expect(text).not.toContain('heads-up')
     expect(await render(<Overview server={server()} />)).toContain('Make your first backupTakes about 15 s.')
   })
@@ -1599,12 +1600,21 @@ describe('Add-on sources', () => {
     answer({ '/addon-sources': none })
     await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />)
     const nav = document.querySelector('nav[aria-label="Settings sections"]')
-    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines'])
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines', 'Playkeeper'])
     expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/addon-sources')
     expect(document.getElementById('addon-sources')).not.toBeNull()
     const moderator = await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />, workspace({ me: member('moderator', moderatorCan) }))
     expect(moderator).not.toContain('CurseForge')
     window.history.replaceState(null, '', '/')
+  })
+
+  it('lists the general page as Playkeeper, last in the Settings sections', async () => {
+    await render(<GlobalSettingsPage page={{ name: 'settings' }} />)
+    const nav = document.querySelector('nav[aria-label="Settings sections"]')
+    const current = nav?.querySelector('[aria-current="page"]')
+    expect(current?.textContent).toBe('Playkeeper')
+    expect(current?.getAttribute('href')).toBe('/settings')
+    expect(document.querySelector('h1')?.textContent).toBe('Settings')
   })
 
   it('lands on its own section, with Modrinth and Hangar built in and CurseForge asking for a key', async () => {
@@ -3022,7 +3032,8 @@ describe('Machines and AI agents', () => {
     vi.mocked(client.get).mockClear()
     await render(<HomePage />, ws)
     expect(asked(), 'Home asks home-server for its activity').toEqual([])
-    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${machine.id}/activity`))).toBe(true)
+    // Home grouped by machine shows no activity, so it asks no machine for it.
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/activity'))).toBe(false)
   })
 
   it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {

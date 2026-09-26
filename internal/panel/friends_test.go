@@ -191,7 +191,7 @@ func TestFriendInviteLetsFriendsIn(t *testing.T) {
 	e := newJoinEnv(t)
 	own := owner(t, e.env)
 	id, code := friendInvite(t, e.env, own, `{"label":"Discord crew","expiry":"7d","maxUses":2,"approval":"right_away"}`)
-	if rows := e.auditRows(t, "invite.create"); len(rows) != 1 || strings.Contains(rows[0], code) || !strings.Contains(rows[0], "Survival; works 7d; 2 friends; right_away") {
+	if rows := e.auditRows(t, "invite.create"); len(rows) != 1 || strings.Contains(rows[0], code) || !strings.Contains(rows[0], "Survival; works 7 days; 2 friends; right away") {
 		t.Fatalf("audit: %v", rows)
 	}
 
