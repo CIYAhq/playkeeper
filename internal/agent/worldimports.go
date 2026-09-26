@@ -57,9 +57,11 @@ type importRegistry struct {
 	mu   sync.Mutex
 	byID map[string]*worldImport
 	// announce makes announcing files take turns, so each announce sees the
-	// allowance the others left. It is taken before mu and the imports'
-	// locks, never while holding one.
+	// allowance the others left, and space makes imports claim disk space
+	// in turn. Both are taken before mu and the imports' locks, never while
+	// holding one.
 	announce sync.Mutex
+	space    sync.Mutex
 }
 
 // worldImport is one upload of world archives, for a new server or to replace
@@ -78,6 +80,9 @@ type worldImport struct {
 	busy    string
 	touched time.Time
 	gone    bool
+	// reserved is the disk space the operation using the import claimed,
+	// until it releases the import.
+	reserved int64
 }
 
 type importFile struct {
@@ -133,7 +138,7 @@ func (imp *worldImport) claim(what string, now time.Time) error {
 
 func (imp *worldImport) release() {
 	imp.mu.Lock()
-	imp.busy = ""
+	imp.busy, imp.reserved = "", 0
 	imp.mu.Unlock()
 }
 
@@ -238,7 +243,7 @@ func (a *Agent) dropImport(imp *worldImport) {
 	}
 	a.imports.mu.Unlock()
 	imp.mu.Lock()
-	imp.gone = true
+	imp.gone, imp.reserved = true, 0
 	for _, f := range imp.files {
 		if f.stop != nil {
 			f.stop()
@@ -882,15 +887,36 @@ func (a *Agent) hWorldImportPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.WorldImportPreview{ID: imp.id, Preview: p, Versions: versions, VersionID: chosen.ID, KeepsOriginal: upgrades(p), MemoryMB: mem})
 }
 
-// importSpace refuses an import that needs more disk space than is free.
-func (a *Agent) importSpace(need int64) error {
-	free, _, err := a.opts.DiskUsage(a.cfg.StagingDir())
-	if err != nil || free >= need+minFreeAfterBackup {
-		return nil
+// reserveImportSpace claims need bytes of disk space for the operation imp
+// was claimed for, or refuses when the free space, less what the other
+// imports' operations claimed, can't spare them. Imports claim in turn, so
+// two never count the same free space; a claim lasts until the operation
+// releases or drops the import.
+func (a *Agent) reserveImportSpace(imp *worldImport, need int64) error {
+	a.imports.space.Lock()
+	defer a.imports.space.Unlock()
+	a.imports.mu.Lock()
+	var claimed int64
+	for _, o := range a.imports.byID {
+		o.mu.Lock()
+		claimed += o.reserved
+		o.mu.Unlock()
 	}
-	return &apiError{Status: http.StatusInsufficientStorage, Code: api.CodeInsufficientSpace,
-		Msg:  fmt.Sprintf("Importing this world needs about %s of free disk space; %s is free.", humanBytes(need+minFreeAfterBackup), humanBytes(free)),
-		Hint: "Free disk space and try again."}
+	a.imports.mu.Unlock()
+	free, _, err := a.opts.DiskUsage(a.cfg.StagingDir())
+	if err == nil && free-claimed < need+minFreeAfterBackup {
+		msg := fmt.Sprintf("Importing this world needs about %s of free disk space; %s is free.", humanBytes(need+minFreeAfterBackup), humanBytes(free))
+		hint := "Free disk space and try again."
+		if claimed > 0 {
+			msg = fmt.Sprintf("Importing this world needs about %s of free disk space; %s is free, and the imports under way need %s of it.", humanBytes(need+minFreeAfterBackup), humanBytes(free), humanBytes(claimed))
+			hint = "Try again once they finish, or free disk space."
+		}
+		return &apiError{Status: http.StatusInsufficientStorage, Code: api.CodeInsufficientSpace, Msg: msg, Hint: hint}
+	}
+	imp.mu.Lock()
+	imp.reserved = need
+	imp.mu.Unlock()
+	return nil
 }
 
 // hWorldImportApply replaces the server's world with the upload.
@@ -934,11 +960,12 @@ func (a *Agent) hWorldImportApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Type \"%s\" to confirm the import.", pv.ConfirmPhrase))
 		return
 	}
-	if err := a.importSpace(pv.Preview.SizeBytes + pv.CurrentWorld.SizeBytes); err != nil {
+	if err := imp.claim("applying", a.now()); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := imp.claim("applying", a.now()); err != nil {
+	if err := a.reserveImportSpace(imp, pv.Preview.SizeBytes+pv.CurrentWorld.SizeBytes); err != nil {
+		imp.release()
 		writeError(w, err)
 		return
 	}
@@ -1006,11 +1033,12 @@ func (a *Agent) hWorldImportCreate(w http.ResponseWriter, r *http.Request) {
 	if keep {
 		need *= 2
 	}
-	if err := a.importSpace(need); err != nil {
+	if err := imp.claim("creating", a.now()); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := imp.claim("creating", a.now()); err != nil {
+	if err := a.reserveImportSpace(imp, need); err != nil {
+		imp.release()
 		writeError(w, err)
 		return
 	}

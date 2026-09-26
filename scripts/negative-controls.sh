@@ -2781,6 +2781,20 @@ control "a create that can't move the world in drops the upload" internal/agent/
   '		// upload again, so it goes with what is left of its unpacked copy.
 		imp.release()' \
   ./internal/agent '^TestACreateThatCantMoveTheWorldInDropsTheUpload$'
+control "imports count the space the others claimed" internal/agent/worldimports.go \
+  'if err == nil && free-claimed < need+minFreeAfterBackup {' \
+  'if err == nil && free < need+minFreeAfterBackup {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "an import records the space it claimed" internal/agent/worldimports.go \
+  '	imp.reserved = need
+' \
+  '' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "a create refused for space doesn't keep the upload" internal/agent/worldimports.go \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {
+		imp.release()' \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
 control "turning the map off stops squaremap before deleting what it drew" internal/agent/maps.go \
   '		if running {
 			h.phase("stopping")

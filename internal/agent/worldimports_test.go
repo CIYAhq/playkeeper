@@ -1170,6 +1170,94 @@ func TestACreateThatCantMoveTheWorldInDropsTheUpload(t *testing.T) {
 	}
 }
 
+// Imports claim the disk space they need in turn, so two at once never
+// count the same free space: while one is under way, another gets only what
+// is left, and all of it again once the first is done.
+func TestImportsClaimDiskSpaceInTurn(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		room func(need int64) int64 // free space beyond the reserve
+		// done: the first import finished before the second is asked for.
+		done bool
+		want int
+	}{
+		{name: "room for one while the other is under way", room: func(n int64) int64 { return n + n/2 }, want: 507},
+		{name: "room for both", room: func(n int64) int64 { return 3 * n }, want: 202},
+		{name: "room for one once the other is done", room: func(n int64) int64 { return n + n/2 }, done: true, want: 202},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) {
+				e.tweak = func(o *Options) { o.HostMemoryMB = func() int { return 16384 } }
+			})
+			e.fill.set("", append(defaultFill(), fillVersionSpec{"1.21.4", "UNSUPPORTED", []fillBuildSpec{{232, "STABLE"}}}))
+			archive, _ := singleplayerUpload(t)
+			first := e.uploadWorld("/v1/world-imports", "Survival-2024.zip", archive)
+			second := e.uploadWorld("/v1/world-imports", "Survival-2024.zip", archive)
+			pv := e.importPreview(first, map[string]any{"versionId": "paper-1.21.4"})
+			if pv.KeepsOriginal {
+				t.Fatalf("the world on its own version needs no copy: %+v", pv)
+			}
+			need := pv.Preview.SizeBytes
+			// The first import holds on as it moves the world in.
+			reached, goOn := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			renameDir = func(from, to string) error {
+				if strings.Contains(from, "import-"+first+string(filepath.Separator)) {
+					once.Do(func() {
+						close(reached)
+						<-goOn
+					})
+				}
+				return os.Rename(from, to)
+			}
+			var goOnce sync.Once
+			release := func() { goOnce.Do(func() { close(goOn) }) }
+			t.Cleanup(func() {
+				release()
+				renameDir = os.Rename
+			})
+			create := func(imp, name string) (int, map[string]any) {
+				return e.call("POST", importPath(imp, "/create"), map[string]any{"versionId": "paper-1.21.4", "name": name, "memoryMB": 1536, "acceptEula": true, "actor": "admin"})
+			}
+			e.diskFree.Store(minFreeAfterBackup + c.room(need))
+			code, out := create(first, "First")
+			if code != 202 {
+				t.Fatalf("the first create: %d %v", code, out)
+			}
+			firstOp := out["id"].(string)
+			select {
+			case <-reached:
+			case <-time.After(20 * time.Second):
+				t.Fatal("the first import never moved its world in")
+			}
+			if c.done {
+				release()
+				e.waitOp(firstOp)
+			}
+			code, out = create(second, "Second")
+			e.diskFree.Store(0)
+			release()
+			if code != c.want {
+				t.Fatalf("the second create: %d %v, want %d", code, out, c.want)
+			}
+			if code == 507 {
+				if !strings.Contains(fmt.Sprint(out["error"]), "imports under way") {
+					t.Fatalf("the refusal must name the import under way: %v", out)
+				}
+				if exists(filepath.Join(e.cfg.StagingDir(), "import-"+second, "data")) {
+					t.Fatal("the refused import was unpacked")
+				}
+				if code, out := e.call("DELETE", importPath(second, "?actor=admin"), nil); code != 204 {
+					t.Fatalf("the refused upload stayed claimed: %d %v", code, out)
+				}
+			} else {
+				e.waitOp(out["id"].(string))
+			}
+			e.waitOp(firstOp)
+		})
+	}
+}
+
 // Uploads live in the staging folder, which the agent clears when it starts.
 func TestAgentRestartForgetsWorldUploads(t *testing.T) {
 	e := newAgentEnv(t)
