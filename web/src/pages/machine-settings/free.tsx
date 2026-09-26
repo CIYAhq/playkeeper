@@ -149,8 +149,9 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   const problem = nameProblem(name)
   const mine = !!current && name === current
   const { answer, forget } = useLookup(problem || mine ? '' : name, (n) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`)), checkDelayMs)
-  const available = !problem && !mine && !!answer && !isFailure(answer) && answer.available
   const address = `${name}.${a.base}`
+  const reason = claimReason(address, problem, mine, answer)
+  const available = !reason
 
   const claimFailed = claim.state.status === 'failed' ? claim.state : undefined
   let failed: { failure: Failure; retry: () => void } | undefined
@@ -228,7 +229,7 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
             <>
               <TermsLine a={a} className="text-center" />
               {changeHint}
-              <Button size="touch" className="w-full" disabled={!available} onClick={submit}>
+              <Button size="touch" className="w-full" disabledReason={reason} onClick={submit}>
                 {claimLabel}
               </Button>
             </>
@@ -281,7 +282,7 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
                 {t('common.cancel')}
               </Button>
             )}
-            <Button disabled={!available} onClick={submit}>
+            <Button disabledReason={reason} onClick={submit}>
               {claimLabel}
             </Button>
           </>
@@ -299,6 +300,29 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
 /** The servers in the agent's order with the slugs they'd get, which the address only lists once there is a name. */
 function previewServers(a: Address, servers: { id: string; slug: string }[] | undefined): { id: string; name: string; slug: string }[] {
   return (a.servers ?? []).map((s) => ({ id: s.serverId, name: s.name, slug: servers?.find((x) => x.id === s.serverId)?.slug ?? s.label }))
+}
+
+/** Why the name can't be claimed yet, in the words of the line under it; undefined when it can. */
+function claimReason(address: string, problem: NameProblem | undefined, mine: boolean, answer: NameAvailability | Failure | undefined): string | undefined {
+  switch (problem) {
+    case 'empty':
+      return t('reason.typeName')
+    case 'characters':
+      return t('address.notAllowed')
+    case 'short':
+    case 'long':
+      return t('address.nameRule')
+    case undefined:
+      break
+    default: {
+      const unreachable: never = problem
+      return unreachable
+    }
+  }
+  if (mine) return t('address.yours', { address })
+  if (!answer) return t('address.checking', { address })
+  if (isFailure(answer) || !answer.available) return t('reason.pickFreeName')
+  return undefined
 }
 
 /** The line under the name: checking, free, taken, not allowed, held or reserved; null when there's nothing to say. */
@@ -439,7 +463,8 @@ function ClaimFailure({ failure, machine, onRetry, onUseOwn, touch }: { failure:
 function RateLimited({ until, touch, onRetry }: { until?: number; touch: boolean; onRetry: () => void }) {
   const now = useNow()
   const left = until ? Math.max(0, (until - now) / 1000) : 0
-  return <ResultBlock title={t('address.tooMany')} actions={<RetryButton touch={touch} disabled={left > 0} label={left > 0 ? t('address.tryAgainIn', { time: formatCountdown(left) }) : undefined} onClick={onRetry} />} />
+  const wait = left > 0 ? t('address.tryAgainIn', { time: formatCountdown(left) }) : undefined
+  return <ResultBlock title={t('address.tooMany')} actions={<RetryButton touch={touch} disabledReason={wait} label={wait} onClick={onRetry} />} />
 }
 
 /** The claim's three steps; `step` is the one in progress. */

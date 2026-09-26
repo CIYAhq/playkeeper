@@ -128,12 +128,14 @@ describe('second sign-in step', () => {
 
   it('pauses app codes with a countdown while a recovery code still works', async () => {
     const onDone = await secondStep()
+    expect(button('Sign in').title).toBe('Type all six digits first.')
     vi.mocked(client.post).mockRejectedValueOnce(refusal(429, 'app_codes_locked', 120))
     await type(box(0), '482913')
     expect(text()).toContain('Too many tries')
     expect(text()).toContain('Try again in 2:00, or use a recovery code.')
     expect(boxes().every((b) => b.disabled)).toBe(true)
     expect(button('Sign in').disabled).toBe(true)
+    expect(button('Sign in').title).toBe('Try again in 2:00, or use a recovery code.')
     await click(button('Use a recovery code instead'))
     expect(text()).toContain('Use a recovery code')
     await type(need(document.querySelector<HTMLInputElement>('#recovery-code'), 'recovery code'), ' abcd-efgh-jkmn-pqrs ')
@@ -162,6 +164,7 @@ describe('second sign-in step', () => {
     await secondStep(asked({ appCodesBlocked: true, methods: ['app_code'] }))
     expect(text()).toContain('No recovery codes are left. On the VPS run sudo playkeeper reset-2fa siya.')
     expect(button('Sign in').disabled).toBe(true)
+    expect(button('Sign in').title).toBe('Run the command above on the VPS first.')
   })
 
   it('says a wrong recovery code plainly', async () => {

@@ -4,13 +4,15 @@ import { ApiError, del, get, post } from '@/api/client'
 import type { TwoFactorSetup } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
-import { CopyButton, Spinner } from '@/components/app/bits'
+import { CopyButton } from '@/components/app/bits'
 import { CodeField } from '@/components/app/code-field'
 import { useIsPhone } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -193,9 +195,20 @@ function SetupSteps({ pending, onCodes, onClose, onDone }: { pending: boolean; o
   switch (stage.step) {
     case 'loading':
       return (
-        <div className="flex h-40 items-center justify-center sm:w-[480px]">
-          <DialogTitle className="sr-only">{t('twofa.setupTitle')}</DialogTitle>
-          <Spinner className="size-5" />
+        <div className="px-6 pt-6 pb-6 sm:w-[600px]">
+          <DialogTitle className="text-lg leading-6 font-bold">{t('twofa.setupTitle')}</DialogTitle>
+          <LoadingLabel />
+          <Skeleton className="mt-1.5 h-2.5 w-20" />
+          <div className="mt-4 flex items-start gap-5">
+            <Skeleton className="size-44 shrink-0 rounded-2xl" />
+            <div className="min-w-0 flex-1 pt-5">
+              <Skeleton className="h-3 w-3/5" />
+              <Skeleton className="mt-6 h-3 w-2/5" />
+              <Skeleton className="mt-2 h-11 rounded-xl" />
+            </div>
+          </div>
+          <Skeleton className="mt-5 h-3 w-40" />
+          <Skeleton className="mt-2 h-[52px] w-80 max-w-full rounded-[10px]" />
         </div>
       )
     case 'password':
@@ -210,7 +223,7 @@ function SetupSteps({ pending, onCodes, onClose, onDone }: { pending: boolean; o
             <Button type="button" variant="ghost" onClick={onClose}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" loading={s.busy} disabled={!s.password}>
+            <Button type="submit" loading={s.busy} disabledReason={s.password ? undefined : t('reason.passwordFirst')}>
               {t('common.continue')}
               <ArrowRightIcon />
             </Button>
@@ -252,7 +265,7 @@ function SetupSteps({ pending, onCodes, onClose, onDone }: { pending: boolean; o
             >
               {t('common.cancel')}
             </Button>
-            <Button type="submit" loading={s.busy} disabled={s.code.length < 6}>
+            <Button type="submit" loading={s.busy} disabledReason={s.code.length < 6 ? t('reason.sixDigits') : undefined}>
               {t('twofa.confirm')}
             </Button>
           </DialogButtons>
@@ -282,9 +295,9 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
       </div>
     )
   }
-  const bottom = (label: ReactNode, disabled: boolean) => (
+  const bottom = (label: ReactNode, reason: string | undefined) => (
     <div className="mt-auto pt-6">
-      <Button type="submit" size="touch" className="w-full" loading={s.busy} disabled={disabled}>
+      <Button type="submit" size="touch" className="w-full" loading={s.busy} disabledReason={reason}>
         {label}
       </Button>
     </div>
@@ -293,9 +306,7 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
     <div className="flex flex-1 flex-col pb-4">
       <PhoneBackHeader to={{ name: 'account' }} label={t('account.phoneTitle')} title={t('twofa.phoneTitle')} />
       {stage.step === 'loading' ? (
-        <div className="flex flex-1 items-center justify-center">
-          <Spinner className="size-5" />
-        </div>
+        <SetupPageSkeleton />
       ) : (
         <>
           <p className="px-1 pt-1 text-[13px] text-muted-foreground">{t('twofa.step', { n: stage.step === 'scan' ? 2 : 1, total: setupSteps })}</p>
@@ -319,7 +330,7 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
                   {t('common.continue')}
                   <ArrowRightIcon />
                 </>,
-                !s.password,
+                s.password ? undefined : t('reason.passwordFirst'),
               )}
             </form>
           ) : (
@@ -344,7 +355,7 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
                 <button type="button" aria-expanded={qr} onClick={() => setQr((v) => !v)} className="flex min-h-14 w-full items-center gap-3.5 px-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
                   <QrCodeIcon className="size-[22px] shrink-0 text-muted-foreground" aria-hidden="true" />
                   <span className="min-w-0 flex-1 text-base">{t('twofa.showQr')}</span>
-                  <ChevronRightIcon className={cn('size-5 text-muted-foreground transition-transform motion-reduce:transition-none', qr && 'rotate-90')} aria-hidden="true" />
+                  <ChevronRightIcon className={cn('size-5 text-muted-foreground transition-transform duration-(--motion-standard) ease-standard', qr && 'rotate-90')} aria-hidden="true" />
                 </button>
                 {qr && (
                   <div className="flex justify-center border-t border-border p-4">
@@ -357,11 +368,25 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
               </p>
               <CodeField value={s.code} onChange={s.setCode} onComplete={(v) => void s.confirm(v)} invalid={s.wrong} labelledBy={labelId} className="mt-3" />
               <ErrorLine text={s.wrong ? t('signin.wrong') : s.error} className="text-center" />
-              {bottom(t('twofa.confirm'), s.code.length < 6)}
+              {bottom(t('twofa.confirm'), s.code.length < 6 ? t('reason.sixDigits') : undefined)}
             </form>
           )}
         </>
       )}
+    </div>
+  )
+}
+
+/** The phone setup while a started setup loads: the step line, the app card and the code boxes. */
+function SetupPageSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col">
+      <LoadingLabel />
+      <Skeleton className="mx-1 mt-2 h-3 w-20" />
+      <Skeleton className="mt-3 h-[196px] rounded-3xl" />
+      <Skeleton className="mt-3 h-14 rounded-3xl" />
+      <Skeleton className="mx-1 mt-6 h-3.5 w-44" />
+      <Skeleton className="mt-3 h-[52px] rounded-[10px]" />
     </div>
   )
 }
@@ -455,7 +480,8 @@ function ProofForm({ label, icon, destructive, onSubmit, onCancel }: { label: st
   const [wrong, setWrong] = useState(false)
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
-  const ready = !!password && (recovery ? !!recoveryCode.trim() : code.length === 6)
+  const reason = !password ? t('reason.passwordFirst') : recovery ? (recoveryCode.trim() ? undefined : t('reason.recoveryCode')) : code.length < 6 ? t('reason.sixDigits') : undefined
+  const ready = !reason
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -551,7 +577,7 @@ function ProofForm({ label, icon, destructive, onSubmit, onCancel }: { label: st
             {t('common.cancel')}
           </Button>
         )}
-        <Button type="submit" variant={destructive ? 'destructive' : 'default'} size={phone ? 'touch' : 'default'} loading={busy} disabled={!ready}>
+        <Button type="submit" variant={destructive ? 'destructive' : 'default'} size={phone ? 'touch' : 'default'} loading={busy} disabledReason={reason}>
           {!phone && icon}
           {label}
         </Button>

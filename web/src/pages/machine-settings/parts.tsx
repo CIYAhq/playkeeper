@@ -168,10 +168,10 @@ export function ResultBlock({ tone = 'default', spinner, title, children, footer
   )
 }
 
-export function RetryButton({ label = t('common.tryAgain'), busy, disabled, touch, onClick }: { label?: string; busy?: boolean; disabled?: boolean; touch?: boolean; onClick: () => void }) {
+export function RetryButton({ label = t('common.tryAgain'), busy, disabledReason, touch, onClick }: { label?: string; busy?: boolean; disabledReason?: string; touch?: boolean; onClick: () => void }) {
   return (
-    <Button variant="outline" size={touch ? 'touch' : 'sm'} className={cn(touch && 'w-full')} loading={busy} disabled={disabled} onClick={onClick}>
-      {!disabled && <RefreshCwIcon />}
+    <Button variant="outline" size={touch ? 'touch' : 'sm'} className={cn(touch && 'w-full')} loading={busy} disabledReason={disabledReason} onClick={onClick}>
+      {!disabledReason && <RefreshCwIcon />}
       {label}
     </Button>
   )
@@ -282,7 +282,7 @@ export const aliveCheckPort = 8443
 export function DoneHeader({ pip, spinner, title, sub, open, openLabel, openEnabled }: { pip: PipPose; spinner?: boolean; title: string; sub?: string; open: string; openLabel: string; openEnabled: boolean }) {
   const phone = useIsPhone()
   const button = (
-    <Button size={phone ? 'touch' : 'default'} className={cn(phone && 'mt-4 w-full')} disabled={!openEnabled} render={openEnabled ? <a href={open} target="_blank" rel="noreferrer" /> : undefined}>
+    <Button size={phone ? 'touch' : 'default'} className={cn(phone && 'mt-4 w-full')} disabledReason={openEnabled ? undefined : t('reason.published')} render={openEnabled ? <a href={open} target="_blank" rel="noreferrer" /> : undefined}>
       {openLabel}
       <ExternalLinkIcon />
     </Button>

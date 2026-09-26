@@ -128,7 +128,7 @@ export function CodeField({
             aria-invalid={invalid || undefined}
             aria-label={t('code.digit', { n: i + 1, total: length })}
             className={cn(
-              'h-[52px] w-11 min-w-0 rounded-[10px] border bg-white text-center text-[22px] leading-none font-semibold tabular-nums shadow-xs/5 caret-primary outline-none transition-[border-color,box-shadow] max-sm:w-[42px] motion-reduce:transition-none',
+              'h-[52px] w-11 min-w-0 rounded-[10px] border bg-white text-center text-[22px] leading-none font-semibold tabular-nums shadow-xs/5 caret-primary outline-none transition-[border-color,box-shadow,background-color] duration-(--motion-fast) ease-standard max-sm:w-[42px]',
               invalid ? 'border-destructive/64 ring-[3px] ring-destructive/12' : 'border-input focus:border-ring focus:ring-[3px] focus:ring-ring/24',
               disabled && 'border-border bg-muted text-muted-foreground shadow-none',
             )}

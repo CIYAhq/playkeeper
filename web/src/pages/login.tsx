@@ -206,6 +206,11 @@ function SecondStep({ username, challenge, onDone, onBack }: Pending & { onDone:
   )
 
   const link = 'self-center rounded-md px-1 text-xs font-medium text-success-strong hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none max-sm:text-[13px]'
+  const wait = formatCountdown((lockedUntil - now) / 1000)
+  let reason: string | undefined
+  if (byRecovery) reason = blocked && !hasRecovery ? t('reason.resetTwoFactor') : !recoveryCode.trim() ? t('reason.recoveryCode') : undefined
+  else if (locked) reason = hasRecovery ? t('signin.locked', { time: wait }) : t('signin.lockedNoRecovery', { time: wait })
+  else if (code.length < 6) reason = t('reason.sixDigits')
 
   return (
     <Frame>
@@ -272,7 +277,7 @@ function SecondStep({ username, challenge, onDone, onBack }: Pending & { onDone:
           {locked && !byRecovery && (
             <div className="mt-4 text-[13px]" role="status">
               <p className="font-semibold">{t('signin.lockedTitle')}</p>
-              <p className="mt-0.5 text-muted-foreground">{hasRecovery ? t('signin.locked', { time: formatCountdown((lockedUntil - now) / 1000) }) : t('signin.lockedNoRecovery', { time: formatCountdown((lockedUntil - now) / 1000) })}</p>
+              <p className="mt-0.5 text-muted-foreground">{hasRecovery ? t('signin.locked', { time: wait }) : t('signin.lockedNoRecovery', { time: wait })}</p>
             </div>
           )}
           {blocked && !hasRecovery && (
@@ -283,7 +288,7 @@ function SecondStep({ username, challenge, onDone, onBack }: Pending & { onDone:
               {error}
             </p>
           )}
-          <Button type="submit" size={phone ? 'touch' : 'lg'} className="mt-5" loading={busy} disabled={byRecovery ? !recoveryCode.trim() || (blocked && !hasRecovery) : code.length < 6 || locked}>
+          <Button type="submit" size={phone ? 'touch' : 'lg'} className="mt-5" loading={busy} disabledReason={reason}>
             {t('login.submit')}
           </Button>
           {!blocked && (byRecovery || hasRecovery) && (

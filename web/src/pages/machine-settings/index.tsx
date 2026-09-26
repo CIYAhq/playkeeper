@@ -5,6 +5,7 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { Card, Notice } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
@@ -29,10 +30,17 @@ export function MachineSettingsPage({ id }: { id: string }) {
   useEffect(() => setBusy(running), [running])
 
   const m = ws.machines.find((x) => x.id === id) ?? (ws.machine?.id === id ? ws.machine : undefined)
+  if (!m && ws.machines.length) {
+    return (
+      <PageBody>
+        <p className="text-sm text-muted-foreground">{t('machine.notFound')}</p>
+      </PageBody>
+    )
+  }
   if (!m) {
     return (
       <PageBody>
-        <p className="text-sm text-muted-foreground">{ws.machines.length ? t('machine.notFound') : t('common.loading')}</p>
+        <Loading phone={phone} />
       </PageBody>
     )
   }
@@ -92,6 +100,7 @@ function Loading({ phone }: { phone: boolean }) {
   if (phone) {
     return (
       <div className="flex flex-col gap-5 pt-2" aria-busy="true">
+        <LoadingLabel />
         <Skeleton className="h-[120px] rounded-3xl" />
         <Skeleton className="h-11 rounded-xl" />
         <Skeleton className="h-[168px] rounded-3xl" />
@@ -100,6 +109,7 @@ function Loading({ phone }: { phone: boolean }) {
   }
   return (
     <Card aria-busy="true">
+      <LoadingLabel />
       <Skeleton className="h-5 w-24" />
       <Skeleton className="mt-2 h-4 w-80 max-w-full" />
       <div className="mt-4 grid gap-3 md:grid-cols-2">

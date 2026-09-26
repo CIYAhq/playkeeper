@@ -3,9 +3,10 @@ import { ChevronRightIcon, KeyRoundIcon, LogOutIcon, RefreshCwIcon } from 'lucid
 import { ApiError, get, post } from '@/api/client'
 import type { TwoFactorStatus } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
-import { Card, CardTitle, Marker, Spinner } from '@/components/app/bits'
+import { Card, CardTitle, Marker } from '@/components/app/bits'
 import { SettingRow, useIsPhone } from '@/components/app/controls'
 import { Avatar, PageBody, PageHeader, PhoneBackHeader, roleLabel } from '@/components/app/shell'
+import { InlineSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogPopup } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -81,8 +82,10 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
             </Button>
           </div>
         ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <Spinner className="size-5" />
+          <div className="flex flex-col pt-1">
+            <LoadingLabel />
+            <Skeleton className="mx-1 h-3 w-20" />
+            <Skeleton className="mt-3 h-[124px] rounded-3xl" />
           </div>
         )}
       </>
@@ -120,7 +123,7 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
               </li>
               <li>
                 {!status ? (
-                  <PhoneRow title={t('account.twoFactor')} hint={loadError} value={loadError ? t('common.tryAgain') : <Skeleton className="h-4 w-12" />} onClick={loadError ? () => void refresh() : undefined} />
+                  <PhoneRow title={t('account.twoFactor')} hint={loadError} value={loadError ? t('common.tryAgain') : <InlineSkeleton className="h-4 w-12" />} onClick={loadError ? () => void refresh() : undefined} />
                 ) : on ? (
                   <PhoneRow title={t('account.twoFactor')} hint={status.confirmedAt && t('account.onSinceShort', { date: formatDate(status.confirmedAt) })} value={t('account.on')} />
                 ) : (
@@ -167,7 +170,17 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
                   }
                 />
                 {!status ? (
-                  <SettingRow label={t('account.twoFactor')} hint={loadError ? <span className="text-destructive-foreground">{loadError}</span> : t('account.twoFactorHint')} control={loadError ? retry : <Skeleton className="h-7 w-20 rounded-lg" />} />
+                  <SettingRow label={t('account.twoFactor')} hint={loadError ? <span className="text-destructive-foreground">{loadError}</span> : t('account.twoFactorHint')} control={
+                      loadError ? (
+                        retry
+                      ) : (
+                        <>
+                          <LoadingLabel />
+                          <Skeleton className="h-7 w-20 rounded-lg" />
+                        </>
+                      )
+                    }
+                  />
                 ) : on ? (
                   <SettingRow
                     label={
@@ -279,7 +292,8 @@ function ChangePassword({ onClose }: { onClose: () => void }) {
   const [currentError, setCurrentError] = useState<string>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
-  const ready = !!current && next.length >= 10
+  const reason = !current || !next ? t('reason.fillIn') : next.length < 10 ? t('reason.passwordShort') : undefined
+  const ready = !reason
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -324,7 +338,7 @@ function ChangePassword({ onClose }: { onClose: () => void }) {
             {t('common.cancel')}
           </Button>
         )}
-        <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabled={!ready}>
+        <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={reason}>
           {t('account.changePassword')}
         </Button>
       </DialogButtons>

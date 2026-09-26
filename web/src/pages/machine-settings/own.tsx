@@ -69,6 +69,7 @@ export function OwnSteps({ id, a, refresh, onCancel, onChecked, footer }: Addres
   const planError = !saved && isFailure(answer) ? refusal(answer.error) : undefined
   const loading = !!domain && !saved && !answer
   const check = saved ? a.check : undefined
+  const checkReason = plan ? undefined : loading ? t('address.checking', { address: domain }) : (planError ?? t('reason.domainFirst'))
 
   async function runCheck() {
     if (!plan || checking) return
@@ -142,7 +143,7 @@ export function OwnSteps({ id, a, refresh, onCancel, onChecked, footer }: Addres
         <div className="mt-auto flex flex-col gap-3 pt-2">
           <ErrorLine text={checkError} className="mt-0 text-center" />
           <TermsLine a={a} className="text-center" />
-          <Button size="touch" className="w-full" disabled={!plan} loading={checking} onClick={() => void runCheck()}>
+          <Button size="touch" className="w-full" disabledReason={checkReason} loading={checking} onClick={() => void runCheck()}>
             <RefreshCwIcon />
             {check ? t('address.checkAgain') : t('address.checkRecords')}
           </Button>
@@ -172,7 +173,7 @@ export function OwnSteps({ id, a, refresh, onCancel, onChecked, footer }: Addres
         <Step n={3} title={t('address.checkThem')}>
           {results || (
             <div className="mt-2 flex flex-col items-start gap-2">
-              <Button disabled={!plan} loading={checking} onClick={() => void runCheck()}>
+              <Button disabledReason={checkReason} loading={checking} onClick={() => void runCheck()}>
                 <RefreshCwIcon />
                 {t('address.checkRecords')}
               </Button>

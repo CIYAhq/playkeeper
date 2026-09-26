@@ -201,6 +201,7 @@ describe('choosing an address', () => {
     expect(text()).toContain('Use a–z, 0–9 and single dashes, like alex-mc.')
     expect(field('Pick a name').getAttribute('aria-invalid')).toBe('true')
     expect(button('Claim').disabled).toBe(true)
+    expect(button('Claim').title).toBe('Use a–z, 0–9 and single dashes, like alex-mc.')
 
     await type(field('Pick a name'), 'alex')
     expect(text()).toContain('Checking alex.playkeeper.io…')
@@ -208,6 +209,7 @@ describe('choosing an address', () => {
     expect(text()).toContain('Someone already has alex.playkeeper.io.')
     expect(text()).toContain('Free right now:')
     expect(button('Claim alex.playkeeper.io').disabled).toBe(true)
+    expect(button('Claim alex.playkeeper.io').title).toBe('Pick a name that’s free.')
     await click(button('alex-mc'))
     expect(field('Pick a name').value).toBe('alex-mc')
     await settle()
@@ -255,6 +257,7 @@ describe('choosing an address', () => {
     await click(button('Claim siya.playkeeper.io'))
     expect(text()).toContain('Too many tries from this machine')
     expect(button('Try again in 44:12').disabled).toBe(true)
+    expect(button('Try again in 44:12').title).toBe('Try again in 44:12')
 
     vi.mocked(client.post).mockRejectedValueOnce(refusal(507, 'zone_full', 'Full.'))
     await type(field('Pick a name'), 'alex')
@@ -348,6 +351,7 @@ describe('a free address', () => {
     expect(text()).toContain('published')
     expect(text()).toContain('publishing…')
     expect(button('Open https://alex.playkeeper.io:8443').disabled).toBe(true)
+    expect(button('Open https://alex.playkeeper.io:8443').title).toBe('Opens once it’s published.')
   })
 
   it('warns when it lapsed, and Refresh brings it back', async () => {
@@ -463,6 +467,7 @@ describe('an own domain', () => {
     await click(radio('Your own domain'))
     expect(text()).toContain('Add these records at your DNS provider')
     expect(button('Check records').disabled).toBe(true)
+    expect(button('Check records').title).toBe('Type your domain first.')
     await type(field('Your domain'), 'https://Play.Example.com/')
     await settle()
     expect(text()).toContain('Add these records where you manage example.com')

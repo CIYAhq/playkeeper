@@ -1163,6 +1163,16 @@ export const en = {
   'twofa.turnOffBody': 'Signing in will need only your password.',
   'twofa.offToast': 'Two-factor sign-in is off.',
 
+  // Why an address or sign-in control can't be used right now
+  'reason.sixDigits': 'Type all six digits first.',
+  'reason.recoveryCode': 'Type a recovery code first.',
+  'reason.passwordFirst': 'Enter your password first.',
+  'reason.resetTwoFactor': 'Run the command above on the VPS first.',
+  'reason.typeName': 'Type a name first.',
+  'reason.pickFreeName': 'Pick a name that’s free.',
+  'reason.domainFirst': 'Type your domain first.',
+  'reason.published': 'Opens once it’s published.',
+
   // Global settings
   'global.title': 'Settings',
   'global.lead': 'Playkeeper itself and the audit log.',
