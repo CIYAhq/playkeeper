@@ -31,7 +31,8 @@ func TestTheToolsRegister(t *testing.T) {
 	}
 	want := []string{"list_servers", "get_server_status", "start_server", "stop_server", "restart_server", "read_console",
 		"send_chat_message", "run_console_command", "list_online_players", "list_whitelist", "add_to_whitelist",
-		"remove_from_whitelist", "list_backups", "create_backup", "get_operation", "get_lag_report", "explain_crash", "install_addon"}
+		"remove_from_whitelist", "list_backups", "create_backup", "get_operation", "get_lag_report", "explain_crash", "search_addons",
+		"install_addon", "remove_addon"}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools %v\nwant %v", names, want)
 	}
@@ -288,7 +289,7 @@ func TestEveryRequestIsMadeAsTheCaller(t *testing.T) {
 		t.Errorf("console commands %q, want %q", commands, want)
 	}
 	wantChanges := []string{"POST /start", "POST /stop", "POST /restart", "POST /command", "POST /command",
-		"POST /whitelist", "DELETE /whitelist/Steve_1", "POST /backups", "POST /addons/install"}
+		"POST /whitelist", "DELETE /whitelist/Steve_1", "POST /backups", "POST /addons/install", "POST /addons/remove"}
 	if !slices.Equal(changes, wantChanges) {
 		t.Errorf("changes %v\nwant %v", changes, wantChanges)
 	}
