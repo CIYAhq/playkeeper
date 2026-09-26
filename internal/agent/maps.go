@@ -408,14 +408,6 @@ func mapErr(err error, status int) error {
 	return err
 }
 
-func addonErr(err error) error {
-	var e *addons.Error
-	if errors.As(err, &e) {
-		return &apiError{Status: http.StatusBadGateway, Code: api.CodeInvalid, Msg: e.Msg, Hint: e.Hint}
-	}
-	return err
-}
-
 // writeMapConfig writes squaremap's config before a start of a server whose
 // map is on: squaremap reads it once at startup, and a restored backup or a
 // hand edit may have changed it. A config that cannot be written stops the
@@ -623,7 +615,7 @@ func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webma
 	}
 	res, err := s.lib().Install(ctx, srv, nil, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
 	if err != nil {
-		return addonErr(err)
+		return addonError(err)
 	}
 	now := s.now().UTC()
 	rec := &mapRecord{addons: res.Installed, installedAt: now}
@@ -755,7 +747,7 @@ func (s *server) removeMapAddons(ctx context.Context, srv addons.Server, recs []
 	for len(left) > 0 {
 		rec := left[0]
 		if _, err := s.lib().Uninstall(ctx, srv, left, rec.Key(), addons.UninstallOptions{RemoveConfig: removeConfig && rec.DependencyOf == "", Force: true}); err != nil {
-			return addonErr(err)
+			return addonError(err)
 		}
 		left = left[1:]
 	}

@@ -8,6 +8,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -398,6 +399,29 @@ func TestPluginsTabLeavesTheMapsSquaremapToTheMap(t *testing.T) {
 	}
 	if list := e.addonList(); len(list.Files) != 0 || len(list.Missing) != 0 {
 		t.Fatalf("after turning the map off: %+v", list)
+	}
+}
+
+// A failed removal keeps the add-on error's own status and kind.
+func TestMapAddonErrorsKeepTheirStatus(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.create()
+	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+		t.Fatalf("enable: %+v", op)
+	}
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "plugins", squaremapFile), []byte("changed by hand"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := e.srv()
+	rec, err := s.loadMap()
+	if err != nil || rec == nil {
+		t.Fatalf("map: %v", err)
+	}
+	sc, _ := s.serverConfig()
+	err = s.removeMapAddons(context.Background(), s.addonServer(s.serverType(nil), *sc), rec.addons, false)
+	var ae *apiError
+	if !errors.As(err, &ae) || ae.Status != http.StatusConflict || ae.Code != string(addons.KindModified) || !strings.Contains(ae.Msg, "has changed since Playkeeper installed it") {
+		t.Fatalf("removing a squaremap changed by hand: %#v", err)
 	}
 }
 
