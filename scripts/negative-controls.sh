@@ -942,8 +942,8 @@ control "voice chat installs only with leave to open its port" internal/agent/ad
   'if false && voice && !req.OpenPorts {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "removing voice chat closes its port" internal/agent/addons.go \
-  'if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {' \
-  'if false && (voiceChat(key) || slices.ContainsFunc(extra, voiceChat)) {' \
+  'if slices.ContainsFunc(drop, voiceChat) {' \
+  'if false && slices.ContainsFunc(drop, voiceChat) {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "voice chat gets a UDP port nothing on the machine uses" internal/agent/curated.go \
   'return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }' \
@@ -976,15 +976,17 @@ control "an ask for a share that waited reads the setup again" internal/agent/pa
 	for {
 		fs.mu.Lock()' \
   ./internal/agent '^TestFriendsShareKeepsTheNewestBuild$'
-control "removing voice chat closes its port before anything is removed" internal/agent/addons.go \
-  'if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {' \
-  'if false && (voiceChat(key) || slices.ContainsFunc(extra, voiceChat)) {' \
-  ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
-control "voice chat that a removal leaves gets its port back" internal/agent/addons.go \
-  '		s.reopenVoiceChat(voicePort, actor)
-		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
-  '		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
-  ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
+control "voice chat's port closes in the transaction that drops its record" internal/agent/addons.go \
+  'if err := saveConfig(tx, s.id, *sc); err != nil {' \
+  'if err := saveConfig(s.db, s.id, *sc); err != nil {' \
+  ./internal/agent '^TestVoiceChatRecordAndPortNeverDisagree$'
+control "a removal closes voice chat's port only with its record" internal/agent/addons.go \
+  '	target := string(key.Source) + ":" + key.ProjectID
+	rm, err := lib.Uninstall(' \
+  '	_ = s.closeVoiceChat(actor)
+	target := string(key.Source) + ":" + key.ProjectID
+	rm, err := lib.Uninstall(' \
+  ./internal/agent '^TestVoiceChatRecordAndPortNeverDisagree$'
 control "each version list is fetched on its own" internal/agent/software.go \
   'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, typ, func() ([]api.CatalogEntry, time.Time, error) {' \
   'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, "", func() ([]api.CatalogEntry, time.Time, error) {' \
@@ -1043,14 +1045,6 @@ control "a restore holds voice chat's port until the restored settings are saved
   '	defer releasePort()' \
   '	releasePort()' \
   ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
-control "a removal holds the voice chat port it closes" internal/agent/curated.go \
-  'release = s.voicePorts.hold(port, s.id)' \
-  'release = func() {}' \
-  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
-control "a finished removal frees voice chat's port" internal/agent/addons.go \
-  '		defer releasePort()' \
-  '		_ = releasePort' \
-  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
 control "a restore the agent restarted in holds voice chat's port until the restored settings are saved" internal/agent/recovery.go \
   'p.releasePort = a.voicePorts.hold(j.Restored.VoiceChatPort, s.id)' \
   '_ = j.Restored.VoiceChatPort' \
@@ -1071,9 +1065,9 @@ control "voice chat's port opens before voice chat installs" internal/agent/cura
   ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
 control "a voice chat install that fails closes the port it opened" internal/agent/curated.go \
   '		if opened {
-			_, release, cerr := s.closeVoiceChat(actor)' \
+			if cerr := s.closeVoiceChat(actor); cerr != nil {' \
   '		if false && opened {
-			_, release, cerr := s.closeVoiceChat(actor)' \
+			if cerr := s.closeVoiceChat(actor); cerr != nil {' \
   ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
 control "a running server restarts to publish voice chat's port" internal/agent/curated.go \
   '	if !running {
@@ -1760,6 +1754,22 @@ control "resource pack links: a look at the certificates in progress doesn't hid
   'if every < 0 {' \
   'if every < 0 && false {' \
   ./internal/certs '^TestStoreCanLookEveryTime$'
+control "certificate issuance: a long Retry-After waits no longer than maxPollWait" internal/certs/acme.go \
+  'if resp.StatusCode < 300 && retryAfter(' \
+  'if false && retryAfter(' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: a look at the order that gets no answer is tried again" internal/certs/acme.go \
+  'case ctx.Err() != nil || !unreachable(err):' \
+  'case true:' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: running out of time waiting for the certificate is a timeout, not a refusal" internal/certs/acme.go \
+  'return nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  'return nil, explain(err, s, is.now())' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
+control "certificate issuance: the wait for the certificate ends validationWait after the finalize request" internal/certs/acme.go \
+  'c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)' \
+  'c.CreateOrderCert(ctx, ready.FinalizeURL, csr, true)' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
 control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
   'const packCertMargin = 7 * 24 * time.Hour' \
   'const packCertMargin = 0' \
