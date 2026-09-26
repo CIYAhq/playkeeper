@@ -198,6 +198,26 @@ describe('Plugins tab', () => {
     expect(text.indexOf('Chunky')).toBeLessThan(text.indexOf('Vault'))
   })
 
+  it('shows the heading at once and grey rows while the list loads', async () => {
+    const text = await render(server())
+    expect(text).toContain('Plugins on Survival')
+    expect(text.match(/Loading…/g)).toHaveLength(1)
+    expect(document.querySelectorAll('[data-slot=skeleton]').length).toBeGreaterThanOrEqual(8)
+  })
+
+  it('says why Update all, Restart now and Reinstall wait while another job runs', async () => {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    await render(server({ operation: { id: 'b1', kind: 'backup', status: 'running', phase: '', actor: 'siya', startedAt: '' } }))
+    for (const name of ['Update all', 'Restart now', 'Reinstall']) {
+      const b = button(name) as HTMLButtonElement
+      expect(b.disabled).toBe(true)
+      expect(b.title).toBe('Backing up Survival. Try again when it’s done.')
+    }
+  })
+
   it('updates all unchanged add-ons and follows the job', async () => {
     answer([
       ['/addons/checks', checks],

@@ -5,15 +5,18 @@ import type { AddonBrowse, AddonCard, AddonDetails, AddonNotice } from '@/api/ty
 import { Pip } from '@/components/app/art'
 import { Marker, Notice } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
+import { ListSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t, type MessageKey } from '@/i18n'
 import { alsoInstalls, appendCards, browseSorts, compactCount, footerFor, maxSearch, searchPath, type BrowseSort } from '@/lib/addons'
+import { busyReason } from '@/lib/phase'
+import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
-import { AddonIcon, detailsPath, motion, useAddons } from './state'
+import { AddonIcon, detailsPath, useAddons } from './state'
 
 const categoryKeys: Record<string, MessageKey> = {
   admin: 'addons.category.admin',
@@ -41,6 +44,7 @@ const sortKeys: Record<BrowseSort, MessageKey> = {
 
 const allCategories = 'all'
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+const cardKey = (c: AddonCard) => `${c.source}:${c.projectId}`
 
 /** Library errors that mean the sources didn't answer, rather than a bad request. */
 function unreachable(e: ApiError): boolean {
@@ -61,6 +65,8 @@ export function BrowseView() {
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  // Each new search is a new list that fades in as a whole; later pages join it row by row.
+  const [listId, setListId] = useState(0)
   const req = useRef(0)
 
   useEffect(() => {
@@ -78,6 +84,7 @@ export function BrowseView() {
         const res = await get<AddonBrowse>(searchPath(serverId, { q: text, category: category === allCategories ? '' : category, sort }, p))
         if (id !== req.current) return
         setCards((prev) => (p === 0 ? appendCards([], res.cards) : appendCards(prev ?? [], res.cards)))
+        if (p === 0) setListId((n) => n + 1)
         setMore(res.more)
         setUnanswered(res.unanswered)
         setPage(p)
@@ -155,7 +162,7 @@ export function BrowseView() {
   let results
   if (error) {
     results = unreachable(error) ? (
-      <div className={cn('flex flex-col items-center py-14 text-center', motion.fade)}>
+      <div className="flex animate-fade flex-col items-center py-14 text-center">
         <Pip pose="sleep" size={88} />
         <h3 className="mt-4 text-lg font-bold">{a.kind === 'mod' ? t('addons.unreachableMods') : t('addons.unreachable')}</h3>
         <p className="mt-1 text-sm text-muted-foreground">{a.kind === 'mod' ? t('addons.keepWorkingMods') : t('addons.keepWorking')}</p>
@@ -170,10 +177,10 @@ export function BrowseView() {
       </Notice>
     )
   } else if (!cards) {
-    results = <CardsSkeleton phone={phone} />
+    results = <ResultsSkeleton phone={phone} />
   } else if (cards.length === 0) {
     results = (
-      <div className={cn('flex flex-col items-center py-14 text-center', motion.fade)}>
+      <div className="flex animate-fade flex-col items-center py-14 text-center">
         <Pip pose="search" size={88} />
         <h3 className="mt-4 text-lg font-bold">{text.trim() ? t('addons.nothingMatches', { q: text.trim() }) : t('cmd.emptyPlain')}</h3>
         <button type="button" onClick={clear} className="mt-2 text-sm font-medium text-success-strong hover:underline">
@@ -183,23 +190,11 @@ export function BrowseView() {
     )
   } else {
     results = (
-      <div className={cn('transition-opacity duration-200', loading && 'opacity-60')} aria-busy={loading}>
+      <div className={cn('transition-opacity duration-(--motion-standard) ease-standard', loading && 'opacity-60')} aria-busy={loading}>
         {unanswered.length > 0 && <p className="mb-3 text-[13px] text-muted-foreground">{unanswered.map((n) => n.message).join(' ')}</p>}
-        {phone ? (
-          <ul className="overflow-hidden rounded-3xl border border-border bg-white">
-            {cards.map((c) => (
-              <PhoneCard key={`${c.source}:${c.projectId}`} card={c} installed={installed(c)} />
-            ))}
-          </ul>
-        ) : (
-          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {cards.map((c) => (
-              <DesktopCard key={`${c.source}:${c.projectId}`} card={c} installed={installed(c)} />
-            ))}
-          </ul>
-        )}
+        <CardList key={listId} cards={cards} installed={installed} phone={phone} />
         {more && <div ref={sentinel} className="h-1" aria-hidden="true" />}
-        {loadingMore && <CardsSkeleton phone={phone} count={phone ? 2 : 3} className="mt-3" />}
+        {loadingMore && <ResultsSkeleton phone={phone} count={phone ? 2 : 3} className="mt-3" />}
       </div>
     )
   }
@@ -241,13 +236,30 @@ function useQuickInstall(card: AddonCard) {
       setBusy(false)
     }
   }
-  return { busy, run, open: () => a.openDetail({ key }), disabled: !!a.server.operation }
+  return { busy, run, open: () => a.openDetail({ key }), blocked: busyReason(a.server) }
 }
 
-function DesktopCard({ card: c, installed }: { card: AddonCard; installed: boolean }) {
+function CardList({ cards, installed, phone }: { cards: AddonCard[]; installed: (c: AddonCard) => boolean; phone: boolean }) {
+  const rows = useListPresence(cards, cardKey)
+  return phone ? (
+    <ul className="animate-fade overflow-hidden rounded-3xl border border-border bg-white">
+      {rows.map((p) => (
+        <PhoneCard key={p.key} card={p.item} installed={installed(p.item)} presence={p.state} />
+      ))}
+    </ul>
+  ) : (
+    <ul className="grid animate-fade grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {rows.map((p) => (
+        <DesktopCard key={p.key} card={p.item} installed={installed(p.item)} presence={p.state} />
+      ))}
+    </ul>
+  )
+}
+
+function DesktopCard({ card: c, installed, presence }: { card: AddonCard; installed: boolean; presence: Presence }) {
   const q = useQuickInstall(c)
   return (
-    <li className={cn('flex min-h-[172px] flex-col rounded-2xl border border-border bg-card p-4 shadow-card transition-shadow duration-150 hover:shadow-[0_2px_8px_rgba(29,33,28,0.08)]', motion.fade)}>
+    <li {...presenceProps(presence)} className="flex min-h-[172px] flex-col rounded-2xl border border-border bg-card p-4 shadow-card transition-shadow duration-(--motion-fast) ease-standard hover:shadow-[0_2px_8px_rgba(29,33,28,0.08)]">
       <button type="button" onClick={q.open} className="-m-1 flex min-w-0 items-start gap-3 rounded-lg p-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <AddonIcon url={c.iconUrl} />
         <span className="min-w-0 pt-0.5">
@@ -263,7 +275,7 @@ function DesktopCard({ card: c, installed }: { card: AddonCard; installed: boole
             {t('addons.installed')}
           </Marker>
         ) : (
-          <Button variant="outline" size="sm" onClick={() => void q.run()} loading={q.busy} disabled={q.disabled} aria-label={t('addons.install', { name: c.name })}>
+          <Button variant="outline" size="sm" onClick={() => void q.run()} loading={q.busy} disabledReason={q.blocked} aria-label={t('addons.install', { name: c.name })}>
             <DownloadIcon />
             {t('addons.installShort')}
           </Button>
@@ -273,10 +285,10 @@ function DesktopCard({ card: c, installed }: { card: AddonCard; installed: boole
   )
 }
 
-function PhoneCard({ card: c, installed }: { card: AddonCard; installed: boolean }) {
+function PhoneCard({ card: c, installed, presence }: { card: AddonCard; installed: boolean; presence: Presence }) {
   const q = useQuickInstall(c)
   return (
-    <li className={cn('flex min-h-16 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0', motion.fade)}>
+    <li {...presenceProps(presence)} className={phoneCardClass}>
       <button type="button" onClick={q.open} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <AddonIcon url={c.iconUrl} />
         <span className="min-w-0 flex-1">
@@ -289,7 +301,7 @@ function PhoneCard({ card: c, installed }: { card: AddonCard; installed: boolean
           {t('addons.installed')}
         </Marker>
       ) : (
-        <Button variant="outline" className="h-11 rounded-xl px-3 text-[15px]" onClick={() => void q.run()} loading={q.busy} disabled={q.disabled} aria-label={t('addons.install', { name: c.name })}>
+        <Button variant="outline" className="h-11 rounded-xl px-3 text-[15px]" onClick={() => void q.run()} loading={q.busy} disabledReason={q.blocked} aria-label={t('addons.install', { name: c.name })}>
           {t('addons.installShort')}
         </Button>
       )}
@@ -297,25 +309,16 @@ function PhoneCard({ card: c, installed }: { card: AddonCard; installed: boolean
   )
 }
 
-function CardsSkeleton({ phone, count = 6, className }: { phone: boolean; count?: number; className?: string }) {
+const phoneCardClass = 'flex min-h-16 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0'
+
+/** Grey cards, or rows on a phone, where the results will be. */
+function ResultsSkeleton({ phone, count = 6, className }: { phone: boolean; count?: number; className?: string }) {
   if (phone) {
-    return (
-      <div className={cn('overflow-hidden rounded-3xl border border-border bg-white', className)} aria-busy="true">
-        {Array.from({ length: count }, (_, i) => (
-          <div key={i} className="flex min-h-16 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0">
-            <Skeleton className="size-10 rounded-[10px]" />
-            <div className="flex-1">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="mt-2 h-3 w-48" />
-            </div>
-            <Skeleton className="h-11 w-24 rounded-xl" />
-          </div>
-        ))}
-      </div>
-    )
+    return <ListSkeleton rows={count} face="size-10 rounded-[10px]" trailing={<Skeleton className="h-11 w-[72px] shrink-0 rounded-xl" />} className={cn('overflow-hidden rounded-3xl border border-border bg-white', className)} rowClassName={phoneCardClass} />
   }
   return (
-    <div className={cn('grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3', className)} aria-busy="true">
+    <div className={cn('grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3', className)}>
+      <LoadingLabel />
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="flex min-h-[172px] flex-col rounded-2xl border border-border bg-card p-4">
           <div className="flex items-center gap-3">

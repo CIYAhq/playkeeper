@@ -10,13 +10,6 @@ import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
-/** Motion for the tab in one place, so the shared motion tokens can replace it. */
-export const motion = {
-  enter: 'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out',
-  fade: 'animate-in fade-in-0 duration-200 ease-out',
-  press: 'transition-[background-color,box-shadow,opacity] duration-150 active:scale-[0.99]',
-}
-
 /** An install or update the dialog follows. */
 export interface Job {
   /** Absent while a new plan waits for a yes. */
@@ -354,7 +347,7 @@ export function AddonIcon({ url, size = 40, dim, className }: { url?: string; si
   const show = url && failed !== url
   return (
     <span
-      className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-border bg-muted text-muted-foreground transition-opacity', dim && 'opacity-50', className)}
+      className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-border bg-muted text-muted-foreground transition-opacity duration-(--motion-standard) ease-standard', dim && 'opacity-50', className)}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >

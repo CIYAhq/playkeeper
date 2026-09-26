@@ -9,10 +9,10 @@ import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/c
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { alsoInstalls, compactCount, footerFor, keyFrom, libraryMatch, searchPath, sourceNames, updatedAgo, versionPage } from '@/lib/addons'
-import { opLabel } from '@/lib/phase'
+import { busyReason, opLabel } from '@/lib/phase'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
-import { AddonIcon, detailsPath, motion, useAddons, type Detail } from './state'
+import { AddonIcon, detailsPath, useAddons, type Detail } from './state'
 
 /** The add-on's details: a sheet on the right, or from the bottom on phone. */
 export function DetailSheet() {
@@ -106,7 +106,7 @@ function DetailBody({ detail }: { detail: Detail }) {
   const warnings = inst || detail.adoptFile ? [] : (d.plan?.warnings ?? [])
 
   return (
-    <div className={cn('flex min-h-0 flex-1 flex-col', motion.fade)}>
+    <div className="flex min-h-0 flex-1 animate-fade flex-col">
       <div className={cn('flex items-center gap-3.5', pad, phone ? 'pt-3' : 'pt-6 pr-14')}>
         <AddonIcon url={d.card.iconUrl} size={56} className="rounded-[14px]" />
         <div className="min-w-0">
@@ -205,6 +205,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
   const key = keyFrom(d.card)
   const name = d.card.name
   const op = a.server.operation
+  const blocked = busyReason(a.server)
   const size = phone ? 'touch' : 'lg'
   // Installs and updates wait for the server's current job; the line under
   // the button says which.
@@ -225,7 +226,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
       case 'install':
         body = (
           <>
-            <Button size={size} className="w-full" onClick={() => void run('install', () => a.install(key, name, f.fingerprint))} loading={busy === 'install'} disabled={!!op}>
+            <Button size={size} className="w-full" onClick={() => void run('install', () => a.install(key, name, f.fingerprint))} loading={busy === 'install'} disabledReason={blocked}>
               <DownloadIcon />
               <span className="truncate">{t('addons.install', { name })}</span>
             </Button>
@@ -289,7 +290,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
                 <Button variant="outline" size={size} className={phone ? 'w-full' : ''} onClick={() => void run('forget', () => a.forget(key))} loading={busy === 'forget'}>
                   {t('addons.forget')}
                 </Button>
-                <Button size={size} className={phone ? 'w-full' : 'flex-1'} onClick={() => void run('update', () => a.update([key], t('addons.installing', { name })))} loading={busy === 'update'} disabled={!!op}>
+                <Button size={size} className={phone ? 'w-full' : 'flex-1'} onClick={() => void run('update', () => a.update([key], t('addons.installing', { name })))} loading={busy === 'update'} disabledReason={blocked}>
                   <DownloadIcon />
                   {t('addons.reinstall')}
                 </Button>
@@ -317,7 +318,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
                   f.changed ? a.askUpdate({ key, name, version: up.versionNumber }) : void run('update', () => a.update([key], t('addons.updatingOne', { name })))
                 }
                 loading={busy === 'update'}
-                disabled={!!op}
+                disabledReason={blocked}
               >
                 <CircleArrowUpIcon />
                 <span className="truncate">{t('addons.updateTo', { version: up.versionNumber })}</span>

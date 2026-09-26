@@ -6,6 +6,7 @@ import { errorText, serverApi } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Notice } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { InlineSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -16,6 +17,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { checksumFailed, downloadProgress, keyFrom, keyOf, opFiles, opNotice, opRestartNeeded, sameKey } from '@/lib/addons'
 import { formatList } from '@/lib/format'
+import { busyReason } from '@/lib/phase'
 import { cn } from '@/lib/utils'
 import { useAddons, type Ask, type Job } from './state'
 
@@ -95,7 +97,7 @@ function JobBody({ job }: { job: Job }) {
         : (notice?.message ?? op?.error ?? '')
     steps.push({ title, hint: removed ?? notice?.hint ?? op?.hint, state: 'failed' })
   } else {
-    if (files.length === 0 && running) steps.push({ title: t('common.loading'), state: 'current' })
+    if (files.length === 0 && running) steps.push({ title: <InlineSkeleton className="w-44" />, hint: <Skeleton className="mt-1.5 h-2.5 w-28" />, state: 'current' })
     for (const f of files) {
       const pct = f.size > 0 ? (f.received / f.size) * 100 : 0
       steps.push({ title: fileTitle(f), hint: fileHint(f), state: fileState[f.state], progress: f.state === 'downloading' ? pct : undefined })
@@ -141,7 +143,7 @@ function JobBody({ job }: { job: Job }) {
               {t('common.close')}
             </Button>
             {online && (
-              <Button size={size} disabled>
+              <Button size={size} disabledReason={t('reason.busy', { what: job.title })}>
                 <RotateCwIcon />
                 {t('addons.restartNow')}
               </Button>
@@ -174,7 +176,7 @@ function JobBody({ job }: { job: Job }) {
             <Button variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
               {t('common.close')}
             </Button>
-            <Button size={size} onClick={() => void confirm()} loading={confirming} disabled={!job.confirm || !!a.server.operation}>
+            <Button size={size} onClick={() => void confirm()} loading={confirming} disabledReason={busyReason(a.server)}>
               <CircleArrowUpIcon />
               {t('addons.update')}
             </Button>
@@ -184,7 +186,7 @@ function JobBody({ job }: { job: Job }) {
             <Button variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
               {t('common.later')}
             </Button>
-            <Button size={size} onClick={() => void restart()} loading={restarting} disabled={!!a.server.operation && a.server.operation.id !== op?.id}>
+            <Button size={size} onClick={() => void restart()} loading={restarting} disabledReason={a.server.operation && a.server.operation.id !== op?.id ? busyReason(a.server) : undefined}>
               <RotateCwIcon />
               {t('addons.restartNow')}
             </Button>
@@ -323,7 +325,8 @@ function RemoveBody({ target }: { target: AddonKey }) {
             {error.hint}
           </Notice>
         ) : !preview ? (
-          <div className="flex flex-col gap-2 py-2" aria-busy="true">
+          <div className="flex flex-col gap-2 py-2">
+            <LoadingLabel />
             <Skeleton className="h-3.5 w-40" />
             <Skeleton className="h-3 w-56" />
           </div>
@@ -343,7 +346,7 @@ function RemoveBody({ target }: { target: AddonKey }) {
       <DialogFooter variant="bare" className={cn('border-t border-border pt-4', neededBy.length > 0 && 'sm:justify-between')}>
         {neededBy.length > 0 ? (
           <>
-            <Button variant="destructive-outline" size={size} onClick={() => void remove(true)} loading={busy === 'force'} disabled={!!busy}>
+            <Button variant="destructive-outline" size={size} onClick={() => void remove(true)} loading={busy === 'force'}>
               {t('addons.removeAnyway')}
             </Button>
             <Button size={size} onClick={() => a.askRemove(undefined)}>
@@ -355,7 +358,7 @@ function RemoveBody({ target }: { target: AddonKey }) {
             <Button variant={phone ? 'outline' : 'ghost'} size={size} onClick={() => a.askRemove(undefined)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" size={size} onClick={() => void remove(false)} loading={busy === 'remove'} disabled={!preview || !!busy}>
+            <Button variant="destructive" size={size} onClick={() => void remove(false)} loading={busy === 'remove'} disabledReason={preview ? undefined : (error?.message ?? t('common.loading'))}>
               <Trash2Icon />
               {removeLabel}
             </Button>
@@ -402,7 +405,7 @@ function AskBody({ ask }: { ask: Ask }) {
         <Button variant={phone ? 'outline' : 'ghost'} size={size} onClick={() => a.askUpdate(undefined)}>
           {t('common.cancel')}
         </Button>
-        <Button size={size} onClick={() => void update()} loading={busy} disabled={!!a.server.operation}>
+        <Button size={size} onClick={() => void update()} loading={busy} disabledReason={busyReason(a.server)}>
           {t('addons.updateTo', { version: ask.version })}
         </Button>
       </DialogFooter>

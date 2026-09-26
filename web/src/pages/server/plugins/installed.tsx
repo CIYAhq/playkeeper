@@ -4,15 +4,19 @@ import { useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Marker, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { ListSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
-import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { pendingCount, sourceNames, updatableRows, updateKeys, type AddonRow } from '@/lib/addons'
 import { formatList } from '@/lib/format'
+import { busyReason } from '@/lib/phase'
+import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
-import { AddonIcon, motion, rowDomId, useAddons } from './state'
+import { AddonIcon, rowDomId, useAddons } from './state'
+
+const rowId = (r: AddonRow) => r.id
 
 export function InstalledView() {
   const a = useAddons()
@@ -20,7 +24,7 @@ export function InstalledView() {
   const browse: Route = { name: 'server', slug: a.server.slug, tab: a.tab, sub: 'browse' }
   const browseLabel = a.kind === 'mod' ? t('addons.browseMods') : t('addons.browse')
 
-  if (a.loading) return <InstalledSkeleton phone={phone} />
+  if (a.loading) return <InstalledSkeleton phone={phone} browse={browse} browseLabel={browseLabel} />
   if (!a.addons) {
     return (
       <Notice tone="error" title={a.error?.message ?? ''} action={<Button variant="outline" onClick={() => void a.refresh()}>{t('common.tryAgain')}</Button>}>
@@ -30,7 +34,7 @@ export function InstalledView() {
   }
   if (a.rows.length === 0) {
     return (
-      <div className={cn('flex flex-1 flex-col items-center justify-center py-16 text-center', motion.fade)}>
+      <div className="flex flex-1 animate-fade flex-col items-center justify-center py-16 text-center">
         <Pip pose="search" size={96} />
         <h2 className="mt-4 text-xl font-bold">{a.kind === 'mod' ? t('addons.emptyTitleMods') : t('addons.emptyTitle')}</h2>
         <p className="mt-1 max-w-[380px] text-sm text-muted-foreground">{t('addons.emptyBody')}</p>
@@ -52,7 +56,7 @@ function useListActions() {
   const pending = pendingCount(a.rows)
   const running = !ws.stale && a.server.phase === 'online'
   const restartLine = running && pending > 0 ? t(a.kind === 'mod' ? 'addons.restartToLoadMods' : 'addons.restartToLoad', { server: a.server.name, count: pending }) : undefined
-  const busyOp = !!a.server.operation
+  const blocked = busyReason(a.server)
   const restart = async () => {
     setBusy('restart')
     await a.restart()
@@ -63,42 +67,52 @@ function useListActions() {
     await a.update(updateKeys(a.rows), t(a.kind === 'mod' ? 'addons.updatingManyMods' : 'addons.updatingMany', { count: updatable.length }))
     setBusy(undefined)
   }
-  return { updatable, restartLine, restart, updateAll, busy, busyOp }
+  return { updatable, restartLine, restart, updateAll, busy, blocked }
+}
+
+function DesktopHeading({ browse, browseLabel, children }: { browse: Route; browseLabel: string; children?: ReactNode }) {
+  const a = useAddons()
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <h2 id="addons-title" className="mr-auto text-lg font-bold tracking-[-0.01em]">
+        {a.kind === 'mod' ? t('addons.titleMods', { server: a.server.name }) : t('addons.title', { server: a.server.name })}
+      </h2>
+      {children}
+      <Button render={<a {...linkProps(browse)} />}>
+        <SearchIcon />
+        {browseLabel}
+      </Button>
+    </div>
+  )
 }
 
 function DesktopList({ browse, browseLabel }: { browse: Route; browseLabel: string }) {
   const a = useAddons()
-  const { updatable, restartLine, restart, updateAll, busy, busyOp } = useListActions()
+  const { updatable, restartLine, restart, updateAll, busy, blocked } = useListActions()
+  const rows = useListPresence(a.rows, rowId)
   return (
     <section className="flex flex-col gap-4" aria-labelledby="addons-title">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 id="addons-title" className="mr-auto text-lg font-bold tracking-[-0.01em]">
-          {a.kind === 'mod' ? t('addons.titleMods', { server: a.server.name }) : t('addons.title', { server: a.server.name })}
-        </h2>
+      <DesktopHeading browse={browse} browseLabel={browseLabel}>
         {updatable.length >= 2 && (
-          <Button variant="outline" onClick={() => void updateAll()} loading={busy === 'updates'} disabled={busyOp}>
+          <Button variant="outline" className="animate-fade" onClick={() => void updateAll()} loading={busy === 'updates'} disabledReason={blocked}>
             <CircleArrowUpIcon />
             {t('addons.updateAll')}
           </Button>
         )}
-        <Button render={<a {...linkProps(browse)} />}>
-          <SearchIcon />
-          {browseLabel}
-        </Button>
-      </div>
+      </DesktopHeading>
       {restartLine && (
-        <div className={cn('flex items-center gap-3', motion.enter)} role="status">
+        <div className="flex animate-enter items-center gap-3" role="status">
           <span className="size-2 shrink-0 rounded-full bg-warning" aria-hidden="true" />
           <p className="min-w-0 flex-1 text-sm font-semibold">{restartLine}</p>
-          <Button variant="outline" size="sm" onClick={() => void restart()} loading={busy === 'restart'} disabled={busyOp}>
+          <Button variant="outline" size="sm" onClick={() => void restart()} loading={busy === 'restart'} disabledReason={blocked}>
             <RotateCwIcon />
             {t('addons.restartNow')}
           </Button>
         </div>
       )}
       <ul className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
-        {a.rows.map((r) => (
-          <DesktopRow key={r.id} row={r} />
+        {rows.map((p) => (
+          <DesktopRow key={p.key} row={p.item} presence={p.state} />
         ))}
       </ul>
     </section>
@@ -114,7 +128,7 @@ function openRow(a: ReturnType<typeof useAddons>, r: AddonRow) {
   a.openDetail(r.state === 'identified' ? { key: r.addon, adoptFile: r.fileName } : { key: r.addon })
 }
 
-function DesktopRow({ row: r }: { row: AddonRow }) {
+function DesktopRow({ row: r, presence }: { row: AddonRow; presence: Presence }) {
   const a = useAddons()
   const main = (
     <>
@@ -131,11 +145,11 @@ function DesktopRow({ row: r }: { row: AddonRow }) {
   return (
     <li
       id={rowDomId(r.id)}
+      {...presenceProps(presence)}
       className={cn(
-        'grid min-h-16 grid-cols-[minmax(0,1fr)_88px_minmax(0,230px)_32px] items-center gap-4 border-b border-border px-4 py-2.5 transition-colors duration-300 last:border-b-0 xl:grid-cols-[minmax(0,1fr)_110px_330px_32px]',
+        'grid min-h-16 grid-cols-[minmax(0,1fr)_88px_minmax(0,230px)_32px] items-center gap-4 border-b border-border px-4 py-2.5 transition-colors duration-(--motion-standard) ease-standard last:border-b-0 xl:grid-cols-[minmax(0,1fr)_110px_330px_32px]',
         openable(r) && 'hover:bg-accent/40',
         a.highlight === r.id && 'bg-warning/10',
-        motion.fade,
       )}
     >
       {openable(r) ? (
@@ -163,12 +177,13 @@ function TwoLines({ first, second, className }: { first: string; second: string;
 
 function RowStatus({ row: r }: { row: AddonRow }) {
   const a = useAddons()
-  const [busy, setBusy] = useState(false)
-  const run = async (fn: () => Promise<boolean>) => {
-    setBusy(true)
+  const [busy, setBusy] = useState<'forget' | 'reinstall' | 'adopt'>()
+  const run = async (what: NonNullable<typeof busy>, fn: () => Promise<boolean>) => {
+    setBusy(what)
     await fn()
-    setBusy(false)
+    setBusy(undefined)
   }
+  const waitFor = (what: NonNullable<typeof busy>) => (busy === what ? t('reason.busy', { what: what === 'forget' ? t('addons.forgetting', { name: r.name }) : t('addons.installing', { name: r.name }) }) : undefined)
   let body: ReactNode
   switch (r.state) {
     case 'managed':
@@ -190,10 +205,16 @@ function RowStatus({ row: r }: { row: AddonRow }) {
           <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-destructive-foreground">{t('addons.fileMissing')}</span>
           {key && (
             <>
-              <Button variant="ghost" size="sm" onClick={() => void run(() => a.forget(key))} disabled={busy}>
+              <Button variant="ghost" size="sm" onClick={() => void run('forget', () => a.forget(key))} loading={busy === 'forget'} disabledReason={waitFor('reinstall')}>
                 {t('addons.forget')}
               </Button>
-              <Button variant="outline" size="sm" onClick={() => void run(() => a.update([key], t('addons.installing', { name: r.name })))} disabled={busy || !!a.server.operation}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void run('reinstall', () => a.update([key], t('addons.installing', { name: r.name })))}
+                loading={busy === 'reinstall'}
+                disabledReason={waitFor('forget') ?? busyReason(a.server)}
+              >
                 <DownloadIcon />
                 {t('addons.reinstall')}
               </Button>
@@ -207,7 +228,7 @@ function RowStatus({ row: r }: { row: AddonRow }) {
       body = (
         <>
           <TwoLines first={t('addons.addedByHand')} second={t('addons.foundOnModrinth')} />
-          <Button variant="outline" size="sm" onClick={() => void run(() => a.adopt(r.fileName))} loading={busy}>
+          <Button variant="outline" size="sm" onClick={() => void run('adopt', () => a.adopt(r.fileName))} loading={busy === 'adopt'}>
             {t('addons.manage')}
           </Button>
         </>
@@ -230,6 +251,7 @@ function RowMenu({ row: r }: { row: AddonRow }) {
   if (!key || r.state === 'unknown') return <span />
   const installed = r.state === 'managed' || r.state === 'changed'
   const update = r.update
+  const blocked = busyReason(a.server)
   return (
     <Menu>
       <MenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t('addons.menuFor', { name: r.name })} />}>
@@ -238,7 +260,8 @@ function RowMenu({ row: r }: { row: AddonRow }) {
       <MenuPopup align="end" className="min-w-52">
         {installed && update && (
           <MenuItem
-            disabled={!!a.server.operation}
+            disabled={!!blocked}
+            title={blocked}
             onClick={() => (r.state === 'changed' ? a.askUpdate({ key, name: r.name, version: update.versionNumber }) : void a.update([key], t('addons.updatingOne', { name: r.name })))}
           >
             <CircleArrowUpIcon />
@@ -265,25 +288,26 @@ function RowMenu({ row: r }: { row: AddonRow }) {
 
 function PhoneList({ browse, browseLabel }: { browse: Route; browseLabel: string }) {
   const a = useAddons()
-  const { updatable, restartLine, restart, updateAll, busy, busyOp } = useListActions()
+  const { updatable, restartLine, restart, updateAll, busy, blocked } = useListActions()
+  const rows = useListPresence(a.rows, rowId)
   return (
     <div className="flex flex-col gap-4 pb-20">
       {restartLine && (
-        <div className={cn('flex items-center gap-3', motion.enter)} role="status">
+        <div className="flex animate-enter items-center gap-3" role="status">
           <p className="min-w-0 flex-1 text-[15px] leading-5 font-semibold">{restartLine}</p>
-          <Button variant="outline" className="h-11 rounded-xl px-3.5 text-[15px]" onClick={() => void restart()} loading={busy === 'restart'} disabled={busyOp}>
+          <Button variant="outline" className="h-11 rounded-xl px-3.5 text-[15px]" onClick={() => void restart()} loading={busy === 'restart'} disabledReason={blocked}>
             <RotateCwIcon />
             {t('server.restart')}
           </Button>
         </div>
       )}
       {updatable.length >= 2 && (
-        <div className={cn('flex items-center gap-3', motion.enter)}>
+        <div className="flex animate-enter items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-[15px] leading-5 font-semibold">{t('addons.updates', { count: updatable.length })}</p>
             <p className="truncate text-[13px] text-muted-foreground">{formatList(updatable.map((r) => r.name))}</p>
           </div>
-          <Button variant="outline" className="h-11 rounded-xl px-3.5 text-[15px]" onClick={() => void updateAll()} loading={busy === 'updates'} disabled={busyOp}>
+          <Button variant="outline" className="h-11 rounded-xl px-3.5 text-[15px]" onClick={() => void updateAll()} loading={busy === 'updates'} disabledReason={blocked}>
             <CircleArrowUpIcon />
             {t('addons.updateAll')}
           </Button>
@@ -291,18 +315,27 @@ function PhoneList({ browse, browseLabel }: { browse: Route; browseLabel: string
       )}
       <section>
         <SectionLabel className="px-4 pb-2">{t('addons.onServer', { server: a.server.name })}</SectionLabel>
-        <ul className="overflow-hidden rounded-3xl border border-border bg-white">
-          {a.rows.map((r) => (
-            <PhoneRow key={r.id} row={r} />
+        <ul className={phoneListClass}>
+          {rows.map((p) => (
+            <PhoneRow key={p.key} row={p.item} presence={p.state} />
           ))}
         </ul>
       </section>
-      <div className="fixed inset-x-0 bottom-[calc(52px+env(safe-area-inset-bottom))] z-30 bg-gradient-to-t from-sidebar via-sidebar/95 to-sidebar/0 px-4 pt-4 pb-3">
-        <Button size="touch" className="w-full" render={<a {...linkProps(browse)} />}>
-          <SearchIcon />
-          {browseLabel}
-        </Button>
-      </div>
+      <PhoneBrowse browse={browse} browseLabel={browseLabel} />
+    </div>
+  )
+}
+
+const phoneListClass = 'overflow-hidden rounded-3xl border border-border bg-white'
+const phoneRowClass = 'flex min-h-14 w-full items-center gap-3 px-3 py-2'
+
+function PhoneBrowse({ browse, browseLabel }: { browse: Route; browseLabel: string }) {
+  return (
+    <div className="fixed inset-x-0 bottom-[calc(52px+env(safe-area-inset-bottom))] z-30 bg-gradient-to-t from-sidebar via-sidebar/95 to-sidebar/0 px-4 pt-4 pb-3">
+      <Button size="touch" className="w-full" render={<a {...linkProps(browse)} />}>
+        <SearchIcon />
+        {browseLabel}
+      </Button>
     </div>
   )
 }
@@ -336,7 +369,7 @@ function PhoneMark({ row: r }: { row: AddonRow }) {
   return <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
 }
 
-function PhoneRow({ row: r }: { row: AddonRow }) {
+function PhoneRow({ row: r, presence }: { row: AddonRow; presence: Presence }) {
   const a = useAddons()
   const body = (
     <>
@@ -348,39 +381,37 @@ function PhoneRow({ row: r }: { row: AddonRow }) {
     </>
   )
   return (
-    <li id={rowDomId(r.id)} className={cn('border-b border-border last:border-b-0', a.highlight === r.id && 'bg-warning/10', motion.fade)}>
+    <li id={rowDomId(r.id)} {...presenceProps(presence)} className={cn('border-b border-border transition-colors duration-(--motion-standard) ease-standard last:border-b-0', a.highlight === r.id && 'bg-warning/10')}>
       {openable(r) ? (
-        <button type="button" onClick={() => openRow(a, r)} className={cn('flex min-h-14 w-full items-center gap-3 px-3 py-2 text-left active:bg-accent/60', motion.press)}>
+        <button type="button" onClick={() => openRow(a, r)} className={cn(phoneRowClass, 'text-left')}>
           {body}
           <PhoneMark row={r} />
         </button>
       ) : (
-        <div className="flex min-h-14 items-center gap-3 px-3 py-2">{body}</div>
+        <div className={phoneRowClass}>{body}</div>
       )}
     </li>
   )
 }
 
-function InstalledSkeleton({ phone }: { phone: boolean }) {
-  return (
-    <div className="flex flex-col gap-4" aria-busy="true">
-      {!phone && (
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-6 w-56" />
-          <Skeleton className="h-8 w-36 rounded-lg" />
-        </div>
-      )}
-      <div className={cn('overflow-hidden border border-border bg-card', phone ? 'rounded-3xl' : 'rounded-2xl')}>
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex min-h-16 items-center gap-3 border-b border-border px-4 py-3 last:border-b-0">
-            <Skeleton className="size-10 rounded-[10px]" />
-            <div className="flex-1">
-              <Skeleton className="h-3.5 w-40" />
-              <Skeleton className="mt-2 h-3 w-64 max-w-full" />
-            </div>
-          </div>
-        ))}
+/** The list's heading straight away, and grey rows where the add-ons will be. */
+function InstalledSkeleton({ phone, browse, browseLabel }: { phone: boolean; browse: Route; browseLabel: string }) {
+  const a = useAddons()
+  if (phone) {
+    return (
+      <div className="flex flex-col gap-4 pb-20">
+        <section>
+          <SectionLabel className="px-4 pb-2">{t('addons.onServer', { server: a.server.name })}</SectionLabel>
+          <ListSkeleton rows={4} face="size-10 rounded-[10px]" className={phoneListClass} rowClassName={cn(phoneRowClass, 'border-b border-border last:border-b-0')} />
+        </section>
+        <PhoneBrowse browse={browse} browseLabel={browseLabel} />
       </div>
-    </div>
+    )
+  }
+  return (
+    <section className="flex flex-col gap-4" aria-labelledby="addons-title">
+      <DesktopHeading browse={browse} browseLabel={browseLabel} />
+      <ListSkeleton rows={4} face="size-10 rounded-[10px]" className="overflow-hidden rounded-2xl border border-border bg-card shadow-card" rowClassName="flex min-h-16 items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0" />
+    </section>
   )
 }

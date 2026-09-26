@@ -1152,4 +1152,5 @@ export const en = {
   'addons.neededByBody': '{names} won’t load after the restart.',
   'addons.removeAnyway': 'Remove anyway',
   'addons.keep': 'Keep {name}',
+  'addons.forgetting': 'Forgetting {name}',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>
