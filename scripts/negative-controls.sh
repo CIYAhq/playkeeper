@@ -2927,8 +2927,9 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 	var c *uploadClaim' \
   ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
 
-# Wave 7 after Bugbot's finding on e6a1dfc7: a scheduled restart's countdown
-# keeps an empty server awake.
+# Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
+# keeps an empty server awake, and with the allowlist off anyone who isn't
+# banned wakes a sleeping server by joining.
 control "a scheduled restart's countdown keeps an empty server awake" internal/agent/sleeping.go \
   'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
   'Busy: s.busy() || s.pregenRunning(),' \
@@ -2937,6 +2938,22 @@ control "a restart schedule counts as working while it counts down" internal/age
   'return ok && (act.Job.Schedule.Kind == schedule.KindRestart || act.Job.Schedule.Kind == schedule.KindBackup)' \
   'return ok && act.Job.Schedule.Kind == schedule.KindBackup' \
   ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
+control "with the allowlist off, anyone who isn't banned wakes a sleeping server" internal/agent/sleeping.go \
+  'if allowlistOff(readProperties(s.dataDir())) {' \
+  'if false && allowlistOff(readProperties(s.dataDir())) {' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_off$'
+control "a banned player doesn't wake a server whose allowlist is off" internal/agent/sleeping.go \
+  'if strings.EqualFold(name, player) {' \
+  'if false && strings.EqualFold(name, player) {' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_off$'
+control "white-list=true turns the allowlist on in any case" internal/agent/sleeping.go \
+  '!strings.EqualFold(props["white-list"], "true")' \
+  'props["white-list"] != "true"' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_on,_in_capitals$'
+control "a server.properties that can't be read keeps the allowlist rule" internal/agent/sleeping.go \
+  'return props != nil && !strings.EqualFold' \
+  'return !strings.EqualFold' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^no_server.properties$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
