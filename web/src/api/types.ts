@@ -1391,8 +1391,7 @@ export interface TemplateAddon {
 
 export interface TemplateContents {
   name: string
-  /** Who made the template and on which day (YYYY-MM-DD); older templates have neither. */
-  author?: string
+  /** The day the template was made (YYYY-MM-DD); older templates don't say. */
   created?: string
   type: string
   minecraftVersion: string

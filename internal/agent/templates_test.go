@@ -543,23 +543,37 @@ func TestTemplateRequestsAreChecked(t *testing.T) {
 	}
 }
 
-// The panel names who exports a template; the template also says on which
-// day it was made, and planning it shows both.
-func TestTemplateExportNamesItsAuthorAndDay(t *testing.T) {
+// A template names no one, as a sign-in name is half of the login: an export
+// writes no author whatever the request says, and planning a file whose
+// author was filled in by hand doesn't pass it on. Both say on which day the
+// template was made.
+func TestTemplatesNameNoOne(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	today := e.a.now().UTC().Format(time.DateOnly)
+	code, _, body := e.getBytes(e.sp("/template?author=siya"))
 	var exp api.TemplateExport
-	e.decode("GET", e.sp("/template?author=siya"), &exp)
-	if exp.Contents.Author != "siya" || exp.Contents.Created != today {
-		t.Fatalf("the export's author and day: %q %q", exp.Contents.Author, exp.Contents.Created)
+	if err := json.Unmarshal(body, &exp); code != 200 || err != nil {
+		t.Fatalf("export: %d %v %s", code, err, body)
 	}
-	if code, plan, raw := e.planTemplate(exp.File); code != 200 || plan.Contents.Author != "siya" || plan.Contents.Created != today {
-		t.Fatalf("planning it shows who made it and when: %d %+v %v", code, plan.Contents, raw)
+	if exp.Contents.Created != today || strings.Contains(string(body), "siya") || strings.Contains(exp.File, `"author"`) {
+		t.Fatalf("the export names no one and says its day: %s", body)
 	}
-	var unnamed api.TemplateExport
-	e.decode("GET", e.sp("/template?author=%0A"), &unnamed)
-	if unnamed.Contents.Author != "" || unnamed.Contents.Created != today {
-		t.Fatalf("an author that isn't a name is left out: %q %q", unnamed.Contents.Author, unnamed.Contents.Created)
+	if l, err := templates.DecodeLink(exp.Link); err != nil || l.Author != "" {
+		t.Fatalf("the export's link names no one: %+v %v", l, err)
+	}
+
+	signed, err := templates.ParseFile([]byte(exp.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed.Author = "siya"
+	file, err := templates.MarshalFile(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, plan, raw := e.planTemplate(string(file))
+	if shown, _ := json.Marshal(raw); code != 200 || !plan.Ready || plan.Contents.Created != today || strings.Contains(string(shown), "siya") {
+		t.Fatalf("planning a file that names its author shows no name: %d %s", code, shown)
 	}
 }

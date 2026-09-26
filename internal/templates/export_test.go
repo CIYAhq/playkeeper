@@ -111,40 +111,37 @@ func TestExportPaperServer(t *testing.T) {
 	}
 }
 
-// A template says who made it and on which day, when asked to, and a
-// template without either still reads.
-func TestExportNamesItsAuthorAndDay(t *testing.T) {
+// A template says on which day it was made, when asked to, and names no
+// one. A template without a day still reads, and so does one whose author
+// was filled in by hand.
+func TestExportSaysItsDayAndNamesNoOne(t *testing.T) {
 	made := time.Date(2026, 9, 25, 23, 30, 0, 0, time.FixedZone("CEST", 2*60*60))
-	tp, _, err := Export(paperSetup(t), ExportOptions{Author: " §asiya\n", Created: made})
+	tp, _, err := Export(paperSetup(t), ExportOptions{Created: made})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tp.Author != "siya" || tp.Created != "2026-09-25" {
-		t.Fatalf("author %q, made %q: want the name as plain text and the day in UTC", tp.Author, tp.Created)
+	if tp.Author != "" || tp.Created != "2026-09-25" {
+		t.Fatalf("author %q, made %q: want no author and the day in UTC", tp.Author, tp.Created)
 	}
 	roundTrip(t, tp)
 	file, err := MarshalFile(tp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(file), `"author": "siya",`) || !strings.Contains(string(file), `"created": "2026-09-25",`) {
-		t.Fatalf("the file says who and when after its name: %s", file)
-	}
-	back, err := DecodeLink(mustLink(t, tp).URL)
-	if err != nil || back.Author != "siya" || back.Created != "2026-09-25" {
-		t.Fatalf("the link carries who and when: %+v %v", back, err)
+	if strings.Contains(string(file), `"author"`) || !strings.Contains(string(file), `"created": "2026-09-25",`) {
+		t.Fatalf("the file says when after its name, and names no one: %s", file)
 	}
 
 	old := fixture(t, "paper-server.json")
 	if old.Author != "" || old.Created != "" {
-		t.Fatalf("the fixture from before authors and days: %+v", old)
+		t.Fatalf("the fixture from before days: %+v", old)
 	}
 	if err := old.Validate(); err != nil {
-		t.Fatalf("a template without an author or day is still valid: %v", err)
+		t.Fatalf("a template without a day is still valid: %v", err)
 	}
-	tp, _, err = Export(paperSetup(t), ExportOptions{})
-	if err != nil || tp.Author != "" || tp.Created != "" {
-		t.Fatalf("an export not asked to name them leaves both out: %+v %v", tp, err)
+	old.Author = "siya"
+	if back, err := DecodeLink(mustLink(t, old).URL); err != nil || back.Author != "siya" {
+		t.Fatalf("a template with an author filled in by hand still reads: %+v %v", back, err)
 	}
 }
 
