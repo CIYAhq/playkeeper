@@ -577,6 +577,8 @@ export type ActivityKind =
   | 'stopped'
   | 'restarted'
   | 'settings'
+  // Wave 5: someone joined the team with a team invite; detail is their role.
+  | 'team_joined'
 
 export interface Activity {
   ts: string
@@ -1440,4 +1442,276 @@ export interface TemplatePlan {
   blockers: AddonNotice[]
   ready: boolean
   fingerprint: string
+}
+
+// Wave 5: invite links, the team, Discord and player profiles.
+
+export type Action =
+  | 'view'
+  | 'account.manage'
+  | 'servers.run'
+  | 'servers.console'
+  | 'players.manage'
+  | 'backups.make'
+  | 'backups.restore'
+  | 'servers.manage'
+  | 'servers.create'
+  | 'team.manage'
+  | 'machine.manage'
+  | 'audit.view'
+
+export type ProjectRole = 'admin' | 'moderator' | 'viewer'
+
+/** Which servers an account or invite covers: all of them, or these. */
+export interface Scope {
+  all?: boolean
+  servers?: string[]
+}
+
+/** What the signed-in account may do; the panel checks every request anyway. */
+export interface Access {
+  projectId?: string
+  /** The team's name; empty while it has the default one. */
+  team?: string
+  role: ProjectRole
+  servers: Scope
+  twoFactor: boolean
+  /** An admin whose Admin rights wait for two-factor sign-in. */
+  needsTwoFactor?: boolean
+  /** An admin with two-factor on, waiting for the owner or an admin to confirm them. */
+  awaitingConfirmation?: boolean
+  can: Action[]
+}
+
+export interface Me {
+  access: Access
+}
+
+/** A sentence the UI shows; text is the backend's English. */
+export interface Phrase {
+  key: string
+  params?: Record<string, string>
+  text: string
+  at?: string
+}
+
+export interface WhitelistEntry {
+  /** How they got in, when an invite link let them in. */
+  joined?: Phrase
+}
+
+export type InviteStatus = 'active' | 'used_up' | 'expired' | 'revoked'
+export type Expiry = '1d' | '7d' | '30d' | 'until_turned_off'
+export type Approval = 'right_away' | 'after_yes'
+
+export interface Invite {
+  id: string
+  kind: 'player' | 'member'
+  projectId: string
+  serverId?: string
+  role?: ProjectRole
+  servers?: Scope
+  approval?: Approval
+  label?: string
+  createdBy: number
+  createdAt: string
+  expiresAt?: string
+  /** 0 for a friend link with no limit. */
+  maxUses: number
+  uses: number
+  revokedAt?: string
+  status: InviteStatus
+  usesLeft?: number
+  /** /join/<code>; only for links whose code is still known. */
+  path?: string
+}
+
+/** Where invite links start: base is https://host:port; friendly is false for a bare address. */
+export interface LinkBase {
+  base: string
+  friendly: boolean
+}
+
+export interface InvitesResponse {
+  invites: Invite[]
+  expiries: Expiry[]
+  link: LinkBase
+}
+
+export interface NewInvite {
+  label: string
+  expiry: Expiry
+  maxUses: number
+  unlimited: boolean
+  approval: Approval
+}
+
+export interface JoinRequest {
+  id: string
+  inviteId: string
+  serverId: string
+  playerName: string
+  playerUuid: string
+  state: 'pending' | 'approved' | 'declined'
+  createdAt: string
+  decidedAt?: string
+  decidedBy?: number
+}
+
+export interface JoinRequestView {
+  request: JoinRequest
+  notice: { title: Phrase; detail: Phrase }
+}
+
+export interface PlayerDay {
+  date: string
+  playtimeSeconds: number
+}
+
+export interface PlayerProfile {
+  name: string
+  uuid?: string
+  online: boolean
+  onlineSince?: string
+  allowlisted: boolean
+  operator: boolean
+  /** On the server's ban list. */
+  banned?: boolean
+  firstSeen?: string
+  sessions: number
+  playtimeSeconds: number
+  longestSeconds: number
+  playtimeUncertain?: boolean
+  tz: string
+  /** The last 14 days, oldest first. */
+  days: PlayerDay[]
+  mostly?: 'morning' | 'afternoon' | 'evening' | 'night'
+  /** Newest first. */
+  recent: Session[]
+  joined?: Phrase
+}
+
+export interface TeamMember {
+  id: number
+  username: string
+  owner: boolean
+  you: boolean
+  role: ProjectRole
+  servers: Scope
+  twoFactor: boolean
+  addedAt: string
+  canEdit: boolean
+  /** An admin with two-factor on whose Admin rights wait for confirmation. */
+  waiting?: boolean
+  canConfirm?: boolean
+}
+
+export interface TeamInvite extends Invite {
+  canEdit: boolean
+}
+
+export interface TeamResponse {
+  projectId: string
+  project: string
+  members: TeamMember[]
+  invites: TeamInvite[]
+  grantableRoles: ProjectRole[]
+  servers: { id: string; name: string }[]
+}
+
+export interface Grant {
+  role: ProjectRole
+  servers: Scope
+  label?: string
+}
+
+/** A new team invite: its link is link.base + path, shown only now. */
+export interface CreatedTeamInvite {
+  invite: Invite
+  path: string
+  link: LinkBase
+}
+
+export type DiscordKind =
+  | 'crash'
+  | 'recovered'
+  | 'low_disk'
+  | 'backup_failed'
+  | 'backup_succeeded'
+  | 'update_available'
+  | 'started'
+  | 'stopped'
+  | 'player_joined'
+  | 'player_left'
+  | 'join_requested'
+
+export interface DiscordDelivery {
+  sent?: string
+  failed?: string
+  code?: string
+  msg?: string
+  hint?: string
+  retryAfterSeconds?: number
+  stopped?: boolean
+}
+
+export interface DiscordSettings {
+  connected: boolean
+  webhookName?: string
+  connectedAt?: string
+  alerts: string[]
+  liveStatus: boolean
+  delivery: DiscordDelivery
+  kinds: string[]
+}
+
+export interface PlayerPreview {
+  kind: 'player'
+  inviter: string
+  server: string
+  version?: string
+  online: boolean
+  playing: number
+  approval: Approval
+}
+
+/** A condition the new account has, such as turning on two-factor sign-in. */
+export interface Requirement {
+  code: string
+  text: string
+  hint: string
+}
+
+export interface MemberPreview {
+  kind: 'member'
+  inviter: string
+  role: ProjectRole
+  servers: Scope
+  expiresAt: string
+  requires?: Requirement[]
+  team?: string
+  serverNames: string[]
+}
+
+export type JoinPreview = PlayerPreview | MemberPreview
+
+export interface Candidate {
+  name: string
+  uuid: string
+  /** A data: URL of their face. */
+  face?: string
+}
+
+export interface JoinInfo {
+  player: string
+  server: string
+  address: string
+  version?: string
+  /** An invite that needs a yes: they're waiting for it. */
+  waiting?: boolean
+  steps: Phrase[]
+}
+
+export interface AcceptResponse extends Me {
+  requires?: Requirement[]
 }

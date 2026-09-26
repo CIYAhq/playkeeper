@@ -74,10 +74,10 @@ control "restore undoes the swap when settings cannot be saved" internal/agent/b
   'if rerr := renameDir(live, failedAt); rerr != nil {' \
   'if rerr := error(nil); rerr != nil {' \
   ./internal/agent '^TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved$'
-control "one admin from concurrent setups" internal/panel/auth.go \
-  'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
-  'SELECT ?, ?, ?, ?' \
-  ./internal/panel '^TestConcurrentSetupsCreateOneAdmin$' 3
+control "the first admin only on an empty install" internal/panel/auth.go \
+  'SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
+  'SELECT ?, ?, ?, ?, ?' \
+  ./internal/panel '^(TestConcurrentSetupsCreateOneAdmin|TestFirstAdminOnlyOnAnEmptyInstall)$' 3
 control "archive per-file checksums" internal/backup/archive.go \
   'if got.Size != f.Size || got.SHA256 != f.SHA256 {' \
   'if false && (got.Size != f.Size || got.SHA256 != f.SHA256) {' \
@@ -219,8 +219,8 @@ control "giving the GC log's folder never follows a link at logs" internal/agent
   'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK' \
   ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
-  'graceful := s.sawStopping && !s.sawCrash' \
-  'graceful := s.sawStopping' \
+  'return s.sawStopping && !s.sawCrash' \
+  'return s.sawStopping' \
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
 control "a log line Docker sends again changes nothing" internal/agent/collector.go \
   'if mark.next(c.ID, runStart, l) {' \
@@ -2268,6 +2268,239 @@ control "free address: publishing waits only for the servers it synced" internal
   'for !freePublished(a.address(), synced) && time.Since(start) < publishWait {' \
   'for !freePublished(a.address(), a.joinServers()) && len(synced) >= 0 && time.Since(start) < publishWait {' \
   ./internal/agent '^TestFreeAddressPublishingSkipsServersAddedMeanwhile$'
+# Wave 5: roles and server scopes, the team, invite links and Discord.
+control "an account uses only its own servers" internal/panel/workspace.go \
+  'case serverID != "" && !a.covers(serverID):' \
+  'case false && serverID != "" && !a.covers(serverID):' \
+  ./internal/panel '^TestEveryServerRouteChecksTheServer$'
+control "machine-wide actions need every server" internal/panel/workspace.go \
+  'case machineWide[act] && !a.Servers.All:' \
+  'case false && machineWide[act] && !a.Servers.All:' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "the server list shows only the account's servers" internal/panel/workspace.go \
+  'if !sess.Access.covers(id) {' \
+  'if false && !sess.Access.covers(id) {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "the single-server view shows only the account's servers" internal/panel/workspace.go \
+  'if id, _ := sv["id"].(string); sess.Access.covers(id) {' \
+  'if id, _ := sv["id"].(string); id != "" || sess.Access.covers(id) {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "restore uploads check the server" internal/panel/team.go \
+  'if err := permit(sess.Access, act, p.ServerID); err != nil {' \
+  'if err := permit(sess.Access, act, p.ServerID); false && err != nil {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "only owners are added to the workspace at start" internal/panel/workspace.go \
+  "'*', ? FROM users WHERE role = ?\`" \
+  "'*', ? FROM users WHERE role = ? OR 1\`" \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "a membership without servers has none" internal/panel/auth.go \
+  "ALTER TABLE project_members ADD COLUMN servers TEXT NOT NULL DEFAULT '';" \
+  "ALTER TABLE project_members ADD COLUMN servers TEXT NOT NULL DEFAULT '*';" \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "removing a member deletes their account" internal/panel/team.go \
+  'DELETE FROM users WHERE id = ? AND role = ?' \
+  'DELETE FROM project_members WHERE user_id = ? AND role != ?' \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "admin rights wait for a confirmation" internal/panel/workspace.go \
+  'a.TwoFactor = a.FactorOn && (!invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) || factor == adminFactor)' \
+  'a.TwoFactor = a.FactorOn' \
+  ./internal/panel '^TestAdminRightsWaitForConfirmation$'
+control "only an admin of the member's servers confirms" internal/panel/team.go \
+  'case !t.Servers.Within(a.Servers):' \
+  'case false:' \
+  ./internal/panel '^TestAdminRightsWaitForConfirmation$'
+control "sign-in lockouts are per account and address" internal/panel/server.go \
+  'key := account + "@" + s.addressKey(r)' \
+  'key := account' \
+  ./internal/panel '^TestFailedSignInsLockOnlyTheirOwnAddress$'
+control "guesses from many addresses are slowed per account" internal/panel/server.go \
+  'locked = !ready' \
+  'locked = false && !ready' \
+  ./internal/panel '^TestGuessesFromManyAddressesAreSlowedPerAccount$'
+control "one owner per install" internal/panel/auth.go \
+  'CREATE UNIQUE INDEX users_one_owner' \
+  'CREATE INDEX users_one_owner' \
+  ./internal/panel '^TestThereIsOnlyEverOneOwner$'
+control "team changes follow the rules" internal/panel/team.go \
+  'if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); err != nil {' \
+  'if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); false && err != nil {' \
+  ./internal/panel '^TestTeamChangesFollowTheRules$'
+control "team removals follow the rules" internal/panel/team.go \
+  'if err := invites.CanRemove(sess.Access.Account, t.Account); err != nil {' \
+  'if err := invites.CanRemove(sess.Access.Account, t.Account); false && err != nil {' \
+  ./internal/panel '^TestTeamChangesFollowTheRules$'
+control "public pages never show a username" internal/panel/join.go \
+  'a.Name = ""' \
+  '_ = a.Name' \
+  ./internal/panel '^(TestFriendInviteLetsFriendsIn|TestTeamInvitesMakeMembers)$'
+control "invite codes are kept out of the log" internal/panel/server.go \
+  '"path", s.public.logPath(invites.RedactPath(r.URL.Path))' \
+  '"path", r.URL.Path' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the join page is never stored" internal/panel/public.go \
+  '{prefix: invites.JoinPath + "/", limits: joinPageLimits, ownRefusals: true, handler: join},' \
+  '{prefix: invites.JoinPath + "/", limits: joinPageLimits, cache: "private, max-age=60", ownRefusals: true, handler: join},' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the invite pages answer their own refusals" internal/panel/public.go \
+  '{prefix: joinCallPrefix, limits: joinCallLimits, ownRefusals: true, handler: join},' \
+  '{prefix: joinCallPrefix, limits: joinCallLimits, handler: join},' \
+  ./internal/panel '^(TestFriendInviteLetsFriendsIn|TestInvitePagesArePublicAndNothingElse)$'
+control "the join page is limited per address by the public group" internal/panel/join.go \
+  'joinPageLimits = publicLimits{perMinute: 60,' \
+  'joinPageLimits = publicLimits{perMinute: 6000,' \
+  ./internal/panel '^TestInvitePagesArePublicAndNothingElse$'
+control "the join calls need the same-origin marker" internal/panel/join.go \
+  '{"POST", joinCallPrefix + "preview", publicMutation, "", s.hJoinPreview},' \
+  '{"POST", joinCallPrefix + "preview", public, "", s.hJoinPreview},' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "nothing under the join path is stored" internal/panel/server.go \
+  'cache = "no-store"' \
+  'cache = "no-cache"' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "public invite calls are limited per address" internal/panel/join.go \
+  'if err := s.joinGuard.Address(ip); err != nil {' \
+  'if err := s.joinGuard.Address(ip); false && err != nil {' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the last use of a link goes to one friend" internal/panel/friends.go \
+  'AND (max_uses = 0 OR uses < max_uses)' \
+  'AND (max_uses = 0 OR 1)' \
+  ./internal/panel '^TestTheLastUseGoesToOneFriend$' 3
+control "one join request per player" internal/panel/join.go \
+  'if waiting > 0 {' \
+  'if false && waiting > 0 {' \
+  ./internal/panel '^TestJoinRequestsWaitForAYes$'
+control "a role change checks the member's links against their new rights" internal/panel/team.go \
+  'after, err := s.access(user{ID: t.UserID, Username: t.Name, Role: t.InstallRole})' \
+  'after, err := t, error(nil)' \
+  ./internal/panel '^TestRoleChangesTurnOffOnlyTheLinksTheNewRightsForbid$'
+control "two-factor changes reach Discord whatever the switches say" internal/discord/alerts.go \
+  'return a.Has(k) || k.always()' \
+  'return a.Has(k)' \
+  ./internal/discord '^TestTwoFactorChangesArePostedWhateverTheSwitches$'
+control "the agent checks the member name it posts to Discord" internal/agent/discord.go \
+  'if invites.ValidUsername(req.Member) != nil {' \
+  'if false && invites.ValidUsername(req.Member) != nil {' \
+  ./internal/agent '^TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff$'
+control "a server's state change reaches the live status message within seconds" internal/discord/notifier.go \
+  'case states != n.shownStates:' \
+  'case false && states != n.shownStates:' \
+  ./internal/discord '^TestStateChangesReachTheStatusMessageWithinSeconds$'
+control "a failed let in declines a request whose link was turned off meanwhile" internal/panel/friends.go \
+  'SELECT EXISTS (SELECT 1 FROM invites WHERE id = ? AND revoked_at = 0)' \
+  'SELECT EXISTS (SELECT 1 FROM invites WHERE id = ?)' \
+  ./internal/panel '^TestAFailedApprovePutsBackOnlyTheRequestItLeft$'
+control "a failed let in puts back only a request still as it left it" internal/panel/friends.go \
+  'address = ?
+				WHERE id = ? AND state = '"'"'approved'"'"' AND decided_at = ? AND decided_by = ?' \
+  'address = ?
+				WHERE id = ?' \
+  ./internal/panel '^TestAFailedApprovePutsBackOnlyTheRequestItLeft$'
+control "the burst guard on live status updates" internal/discord/notifier.go \
+  'due = later(due, later(n.statusAt.Add(n.gap), n.burstEnds()))' \
+  'due = later(due, n.statusAt.Add(n.gap))' \
+  ./internal/discord '^TestStateChangesStayInsideDiscordsRateLimits$'
+control "the agent looks at its servers for Discord as often as it reconciles" internal/agent/discord.go \
+  't := time.NewTicker(a.opts.ReconcileInterval)' \
+  't := time.NewTicker(a.opts.SampleInterval)' \
+  ./internal/agent '^TestDiscordLiveStatusShowsCrashesWithinSeconds$'
+control "Discord shows a crash the reconcile loop has yet to count" internal/agent/discord.go \
+  'crashed := s.crashed || err == nil && !busy && s.pendingCrash(c)' \
+  'crashed := s.crashed || false && err == nil && !busy && s.pendingCrash(c)' \
+  ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "a clean shutdown the reconcile loop has yet to handle is not a crash" internal/agent/discord.go \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
+  '&& !s.intentional[c.ID]' \
+  ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "the live status tells a clean stop from a crash as the reconcile loop does" internal/agent/discord.go \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
+  '&& !s.intentional[c.ID] && !s.sawStopping' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash_that_logged_a_shutdown,_before_the_reconcile_loop_sees_it$'
+control "Discord hears a server come online" internal/agent/collector.go \
+  '} else if fresh {' \
+  '} else if false && fresh {' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
+control "Discord hears Playkeeper stop a server, restarts too" internal/agent/lifecycle.go \
+  '	s.alert(discord.Stopped())
+	return nil' \
+  '	return nil' \
+  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart)$/^every_alert$'
+control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle.go \
+  '		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
+		s.recordEvent(fin, "server_stopped_externally"' \
+  '		s.recordEvent(fin, "server_stopped_externally"' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_clean_stop_outside_Playkeeper$/^every_alert$'
+control "a start after failed starts is not a recovery" internal/agent/collector.go \
+  'recovered := take && s.runCrashed' \
+  'recovered := take && s.crashed' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "a Discord settings save that leaves out live status keeps it" internal/agent/discord.go \
+  'if req.LiveStatus != nil {
+		s.LiveStatus = *req.LiveStatus
+	}' \
+  's.LiveStatus = req.LiveStatus != nil && *req.LiveStatus' \
+  ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
+control "Discord's live status is on until the owner turns it off" internal/discord/settings.go \
+  'Settings{Alerts: DefaultAlerts(), LiveStatus: true}' \
+  'Settings{Alerts: DefaultAlerts()}' \
+  ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
+control "connecting the same Discord webhook again keeps its live status message" internal/agent/discord.go \
+  "status_message_id = CASE WHEN webhook_url = excluded.webhook_url THEN status_message_id ELSE '' END," \
+  "status_message_id = ''," \
+  ./internal/agent '^TestDiscordReconnectKeepsTheLiveStatusMessageOfTheSameWebhook$'
+control "the low disk alert without a server's name is about your servers" internal/discord/alerts.go \
+  'runs = "your servers"' \
+  'runs = name' \
+  ./internal/discord '^TestLowDiskAlertWithAndWithoutAServerName$'
+control "Discord takes running out of memory, then Stopping server, for a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = false, "Java ran out of memory."' \
+  ./internal/agent '^TestDiscordAlertSequences$/^out_of_memory,_then_Stopping_server'
+control "a Done line delivered again changes nothing" internal/agent/collector.go \
+  'take := fresh || !s.runReady' \
+  'take := true' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash,_its_Done_line_delivered_again,_then_a_restart$'
+control "a profile shows a player online only from a fresh sample" internal/agent/profile.go \
+  'if s.players != nil && s.fresh(s.players.At) {' \
+  'if s.players != nil {' \
+  ./internal/agent '^TestProfileShowsOnlineOnlyFromAFreshSample$'
+control "Discord hears a manual backup finish" internal/agent/backups.go \
+  '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
+	return nil' \
+  '	return nil' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/backup$'
+control "Discord hears an automatic backup finish" internal/agent/backups.go \
+  '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
+	return vb, nil' \
+  '	return vb, nil' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^automatic_backup_before_an_update$'
+control "a start that never came up is not a crash loop" internal/agent/lifecycle.go \
+  's.alert(discord.StartFailed(err.Error()))' \
+  's.alert(discord.Crashed("Playkeeper could not start it: "+err.Error(), false))' \
+  ./internal/agent '^TestDiscordStartFailuresAreNotCrashLoops$'
+control "a crash of a server meant to be off is not a give-up" internal/agent/lifecycle.go \
+  'GaveUp: wanted && !restarting' \
+  'GaveUp: !restarting' \
+  ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
+control "Discord counts a server's slots before its first sample" internal/agent/discord.go \
+  'if st.MaxPlayers == 0 && sc != nil {' \
+  'if false && st.MaxPlayers == 0 && sc != nil {' \
+  ./internal/agent '^TestDiscordLiveStatusCountsSlotsBeforeTheFirstSample$'
+control "a Minecraft update alert goes out once per version for each server" internal/agent/discord.go \
+  'WHERE id = ? AND minecraft_update_alerted != ?' \
+  'WHERE id = ? AND ? IS NOT NULL' \
+  ./internal/agent '^TestMinecraftUpdateAlertGoesOutOncePerVersion$'
+control "Minecraft update alerts are about stable versions only" internal/agent/versions.go \
+  '|| e.Experimental || !e.Supported ||' \
+  '|| !e.Supported ||' \
+  ./internal/agent '^TestNewerStableMatchesTheDashboard$'
+control "a Minecraft update is one of the server's own type" internal/agent/versions.go \
+  'if entryType(e) != typ || e.Experimental' \
+  'if false && entryType(e) != typ || e.Experimental' \
+  ./internal/agent '^TestNewerStableMatchesTheDashboard$'
+control "Minecraft update alerts read each server type's own versions" internal/agent/discord.go \
+  'versions, _, _ = a.typeCatalog(ctx, typ)' \
+  'versions, _, _ = a.versionCatalog(ctx)' \
+  ./internal/agent '^TestMinecraftUpdateAlertsReadEachTypesOwnVersions$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

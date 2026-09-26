@@ -304,6 +304,7 @@ export class Crawler {
       if (hint.phrase) value = hint.phrase
       else if (hint.type === 'password') value = 'sample-password-2026'
       else if (hint.type === 'number') value = hint.min || '1'
+      else if (/webhook/.test(hint.text)) value = `https://discord.com/api/webhooks/123456789012345678/${'sample_token_'.repeat(6)}`
       else if (/minecraft|player|username|friend/.test(hint.text)) value = 'Pixel_Pia'
       else if (/command/.test(hint.text)) value = 'list'
       else if (/note/.test(hint.text)) value = 'Before the update'

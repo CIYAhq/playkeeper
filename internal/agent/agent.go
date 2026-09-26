@@ -78,6 +78,16 @@ type Options struct {
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
 	ReadyTimeout time.Duration
+	// ReadyPoll is how often a start looks whether the server is up
+	// (default 500ms).
+	ReadyPoll time.Duration
+	// FollowRetry is how long the log follower waits before looking again
+	// when there's no container, its log can't be read, or its run has
+	// ended (default 2s).
+	FollowRetry time.Duration
+	// DiscordStatusGap is the least time between two edits of Discord's
+	// live status message (0: the notifier's two seconds).
+	DiscordStatusGap time.Duration
 	// ReconcileInterval is how often desired and observed state are compared.
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
@@ -100,6 +110,9 @@ type Options struct {
 	HTTPClient *http.Client
 	// FillURL is PaperMC's Fill API (default https://fill.papermc.io).
 	FillURL string
+	// DiscordClient sends Discord requests (tests); nil means discord.com,
+	// or the test endpoint in DiscordURLEnv.
+	DiscordClient *http.Client
 	// Addons is the plugin and mod library (default: Modrinth and Hangar
 	// through HTTPClient, downloading into the staging folder).
 	Addons *addons.Library
@@ -211,6 +224,7 @@ type Agent struct {
 
 	upd     updateState
 	catalog catalogCache
+	disc    discordState
 	browse  browseCache
 	// curatedPicks are the curated add-ons that fit a type and Minecraft
 	// version (wave 4).
@@ -291,6 +305,12 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.ReadyTimeout == 0 {
 		opts.ReadyTimeout = 10 * time.Minute
+	}
+	if opts.ReadyPoll == 0 {
+		opts.ReadyPoll = 500 * time.Millisecond
+	}
+	if opts.FollowRetry == 0 {
+		opts.FollowRetry = 2 * time.Second
 	}
 	if opts.ReconcileInterval == 0 {
 		opts.ReconcileInterval = 3 * time.Second
@@ -415,6 +435,10 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := a.initDiscord(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
 	a.loadAddress()
@@ -436,6 +460,8 @@ func (a *Agent) Start() {
 	a.loop(a.updateLoop)
 	a.loop(a.hostLoop)
 	a.loop(a.addressLoop)
+	a.loop(a.disc.n.Run)
+	a.loop(a.discordLoop)
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -727,6 +753,16 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+		// wave 5: player profiles, messages and bans; Discord.
+		{"GET", "/v1/servers/{id}/players/profile", srv((*server).hProfile)},
+		{"POST", "/v1/servers/{id}/players/message", srv((*server).hMessage)},
+		{"POST", "/v1/servers/{id}/ban", srv((*server).hBan)},
+		{"GET", "/v1/discord", a.hDiscord},
+		{"POST", "/v1/discord/connect", a.hDiscordConnect},
+		{"PUT", "/v1/discord", a.hDiscordSettings},
+		{"DELETE", "/v1/discord", a.hDiscordDisconnect},
+		{"POST", "/v1/discord/test", a.hDiscordTest},
+		{"POST", "/v1/discord/notify", a.hDiscordNotify},
 		// Follow-ups after 0.3.0.
 		{"GET", "/v1/servers/{id}/world-copies", srv((*server).hWorldCopies)},
 		{"DELETE", "/v1/servers/{id}/world-copies/{name}", srv((*server).hWorldCopyDelete)},

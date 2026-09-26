@@ -141,10 +141,37 @@ func checkNewer(cur api.ServerConfig, e api.CatalogEntry) error {
 	return nil
 }
 
+// newerStable is the update a server's Settings tab offers: the newest
+// stable, supported Minecraft version of its own type newer than the one it
+// runs, on its newest build. It must match the dashboard's newerStable.
+func newerStable(cur api.ServerConfig, versions []api.CatalogEntry) (api.CatalogEntry, bool) {
+	typ := configType(cur)
+	var best api.CatalogEntry
+	found := false
+	for _, e := range versions {
+		if entryType(e) != typ || e.Experimental || !e.Supported || minecraft.CompareMinecraft(e.MinecraftVersion, cur.MinecraftVersion) <= 0 {
+			continue
+		}
+		c := minecraft.CompareMinecraft(e.MinecraftVersion, best.MinecraftVersion)
+		if !found || c > 0 || c == 0 && e.PaperBuild > best.PaperBuild {
+			best, found = e, true
+		}
+	}
+	return best, found
+}
+
 // configType is the server type a config runs.
 func configType(sc api.ServerConfig) string {
 	if sc.Software != nil {
 		return sc.Software.Type
+	}
+	return api.TypePaper
+}
+
+// entryType is the server type a catalog entry is for.
+func entryType(e api.CatalogEntry) string {
+	if e.Software != nil {
+		return e.Software.Type
 	}
 	return api.TypePaper
 }
