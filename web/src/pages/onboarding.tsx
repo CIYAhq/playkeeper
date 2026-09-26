@@ -196,19 +196,22 @@ export function Onboarding() {
   const step = stage === 'check' ? 1 : 2
   return (
     <Frame step={step} version={ws.me.version}>
-      {stage === 'check' && <CheckStage onNext={() => setStage('first')} />}
-      {stage === 'first' && <FirstStage onCreate={() => setStage('style')} />}
-      {stage === 'style' && (
-        <StyleStage
-          onBack={() => setStage('first')}
-          onCreated={(op) => {
-            setServerId(op.serverId)
-            setStage('creating')
-          }}
-        />
-      )}
-      {stage === 'creating' && server && <CreatingStage server={server} />}
-      {stage === 'online' && server && <OnlineStage server={server} />}
+      {/* The check comes in with the frame; each later stage animates in itself. */}
+      <div key={stage} className={cn('flex w-full flex-col items-center', stage !== 'check' && 'animate-page')}>
+        {stage === 'check' && <CheckStage onNext={() => setStage('first')} />}
+        {stage === 'first' && <FirstStage onCreate={() => setStage('style')} />}
+        {stage === 'style' && (
+          <StyleStage
+            onBack={() => setStage('first')}
+            onCreated={(op) => {
+              setServerId(op.serverId)
+              setStage('creating')
+            }}
+          />
+        )}
+        {stage === 'creating' && server && <CreatingStage server={server} />}
+        {stage === 'online' && server && <OnlineStage server={server} />}
+      </div>
     </Frame>
   )
 }
