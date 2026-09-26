@@ -233,11 +233,11 @@ function RuleField({ label, unit, value, max, onChange, phone }: { label: string
   return (
     <div className={cn('flex items-center justify-between gap-3', phone ? 'min-h-[60px] border-b border-border py-2 last:border-b-0' : 'py-1.5')}>
       <span className={phone ? 'text-base' : 'text-[13px]'}>{label}</span>
-      <NumberField value={value} onValueChange={(n) => onChange(Math.max(0, Math.min(max, n ?? 0)))} min={0} max={max} step={1} size={phone ? 'lg' : 'sm'}>
-        <NumberFieldGroup className={phone ? 'w-[156px]' : 'w-[108px]'}>
+      <NumberField className="w-auto shrink-0" value={value} onValueChange={(n) => onChange(Math.max(0, Math.min(max, n ?? 0)))} min={0} max={max} step={1} size={phone ? 'lg' : 'sm'}>
+        <NumberFieldGroup className={phone ? 'w-[156px]' : 'w-[148px]'}>
           <NumberFieldDecrement aria-label={t('common.decrease')} />
           <span className="flex min-w-0 flex-1 items-center justify-center gap-1 border-x border-input">
-            <NumberFieldInput className={cn('w-7 grow-0 px-0 text-right font-semibold tabular-nums', phone && 'w-8 text-base')} aria-label={label} />
+            <NumberFieldInput className={cn('w-7 shrink-0 grow-0 px-0 text-right font-semibold tabular-nums', phone && 'w-8 text-base')} aria-label={label} />
             <span className={cn('text-muted-foreground', phone ? 'text-sm' : 'text-xs')}>{unit}</span>
           </span>
           <NumberFieldIncrement aria-label={t('common.increase')} />
@@ -263,7 +263,7 @@ function RulesDialog({ server: s, view, onClose, onSaved }: { server: ServerStat
   const d = useRulesDraft(s, view)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="max-w-[596px]">
+      <DialogPopup className="max-w-[838px]">
         <DialogHeader>
           <DialogTitle>{t('backupRules.editTitle')}</DialogTitle>
         </DialogHeader>
