@@ -285,6 +285,10 @@ webcontrol "a refused server icon says what to do next" web/src/pages/server/set
   "else toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })" \
   "else toastManager.add({ title: errorText(e), type: 'error' })" \
   web/src/pages/pages.test.tsx 'new icon is refused'
+webcontrol "a toast wraps a long path" web/src/components/ui/toast.tsx \
+  '<div className="flex min-w-0 flex-col gap-0.5 wrap-anywhere">' \
+  '<div className="flex flex-col gap-0.5">' \
+  web/src/lib/interaction.test.tsx 'wrap a long path'
 control "one admin from concurrent setups" internal/panel/auth.go \
   'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
   'SELECT ?, ?, ?, ?' \
