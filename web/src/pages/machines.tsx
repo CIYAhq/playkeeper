@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
+import { demo } from '@/lib/demo'
 import { formatBytes, formatClock, formatDate, formatList, formatWhen, relativeTime } from '@/lib/format'
 import { agentSilent, byMachine, countdown, groupFingerprint, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
 import { presenceProps, useListPresence } from '@/lib/presence'
@@ -156,7 +157,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
         setCancelled(false)
         if (old && old.id !== next.id) void del(`/api/join-codes/${old.id}`).catch(() => undefined)
       } catch (e) {
-        if (!(e instanceof ApiError && e.status === 429)) setError({ text: errorText(e), quiet: e instanceof ApiError && e.code === 'demo' })
+        if (!(e instanceof ApiError && e.status === 429)) setError({ text: errorText(e), quiet: !!demo })
       } finally {
         setBusy(false)
         void refresh()
