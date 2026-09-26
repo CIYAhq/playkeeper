@@ -1,6 +1,7 @@
 package worldimport
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -540,6 +542,132 @@ func TestPlanChecksLimits(t *testing.T) {
 		if !equalLists(kinds(p.Problems), []string{c.want}) {
 			t.Errorf("%+v: problems %v, want %s", c.lim, kinds(p.Problems), c.want)
 		}
+	}
+}
+
+// gnuSparseTar is a tar of files with one more member, name, stored in
+// GNU's old sparse format: data at its start, then zeros up to size that
+// aren't in the archive.
+func gnuSparseTar(t *testing.T, files []tf, name, data string, size int64) []byte {
+	t.Helper()
+	b := tarBytes(t, files)
+	b = b[:len(b)-1024]
+	var h [512]byte
+	copy(h[0:], name)
+	copy(h[100:], "0000644\x00")
+	copy(h[108:], "0000000\x00")
+	copy(h[116:], "0000000\x00")
+	copy(h[124:], fmt.Sprintf("%011o\x00", len(data)))
+	copy(h[136:], fmt.Sprintf("%011o\x00", testTime.Unix()))
+	h[156] = tar.TypeGNUSparse
+	copy(h[257:], "ustar  \x00")
+	copy(h[386:], fmt.Sprintf("%011o\x00%011o\x00", 0, len(data)))
+	copy(h[483:], fmt.Sprintf("%011o\x00", size))
+	copy(h[148:], "        ")
+	sum := 0
+	for _, c := range h {
+		sum += int(c)
+	}
+	copy(h[148:], fmt.Sprintf("%06o\x00 ", sum))
+	b = append(b, h[:]...)
+	body := make([]byte, (len(data)+511)/512*512)
+	copy(body, data)
+	b = append(b, body...)
+	return append(b, make([]byte, 1024)...)
+}
+
+// The expansion limits hold for every archive format: a zip file that
+// expands more than 100 times its size is refused, and so is a sparse file
+// in a tar or tar.gz, whose zeros aren't in the archive at all. A normal
+// world goes in from each format.
+func TestExpansionLimitsHoldForEveryFormat(t *testing.T) {
+	lv := levelDat(t, legacyLevel("world", "1.21.4", 4189))
+	world := withPrefix("world/", legacyWorldFiles(lv, false, false))
+	bomb := join(world, []tf{f("world/region/r.1.0.mca", strings.Repeat("\x00", 2<<20))})
+	sparse := gnuSparseTar(t, world, "world/region/r.1.0.mca", strings.Repeat("r", 512), 4<<20)
+	target := Target{Type: TypeVanilla, MinecraftVersion: "1.21.4"}
+	for _, c := range []struct {
+		name, file string
+		data       []byte
+		// want is the refusal's kind, or "" for a world that goes in.
+		want string
+	}{
+		{"a world in a zip", "world.zip", zipBytes(t, world), ""},
+		{"a world in a tar", "world.tar", tarBytes(t, world), ""},
+		{"a world in a tar.gz", "world.tar.gz", gzipBytes(t, tarBytes(t, world)), ""},
+		{"a zip bomb", "world.zip", zipBytes(t, bomb), KindRatio},
+		{"a sparse file in a tar", "world.tar", sparse, KindSparseFile},
+		{"a sparse file in a tar.gz", "world.tar.gz", gzipBytes(t, sparse), KindSparseFile},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "staging")
+			in, err := Inspect(context.Background(), []Source{upload(t, c.file, c.data)}, Limits{})
+			if err == nil {
+				_, err = in.Stage(context.Background(), dir, target, Options{})
+			}
+			if c.want != "" {
+				if got := refusalKind(t, err); got != c.want {
+					t.Fatalf("got %s (%v), want %s", got, err, c.want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("a normal world: %v", err)
+			}
+			if got, err := os.ReadFile(filepath.Join(dir, "world", "level.dat")); err != nil || string(got) != lv {
+				t.Fatalf("the world wasn't staged: %v", err)
+			}
+		})
+	}
+}
+
+// Staging counts what it actually reads and writes, whatever the plan
+// worked out from the archive's headers: a zip file past its own
+// allowance, zip files past their archive's allowance together, and
+// writing more than MaxTotalBytes each stop it.
+func TestStagingCountsWhatItWrites(t *testing.T) {
+	lv := levelDat(t, legacyLevel("world", "1.21.4", 4189))
+	world := withPrefix("world/", legacyWorldFiles(lv, false, false))
+	zeros := func(n int) string { return strings.Repeat("\x00", n) }
+	// A log the import leaves out, which doesn't compress, gives the
+	// archive room, so only the file's own allowance runs out.
+	noise := make([]byte, 2<<20)
+	for i := range noise {
+		noise[i] = byte(i*2654435761>>13 ^ i)
+	}
+	one := join(world, []tf{f("server.properties", "level-name=world\n"), f("logs/latest.log", string(noise)), f("world/region/r.1.0.mca", zeros(2<<20))})
+	many := slices.Clone(world)
+	for i := 0; i < 8; i++ {
+		many = append(many, f(fmt.Sprintf("world/region/r.%d.1.mca", i), zeros(512<<10)))
+	}
+	target := Target{Type: TypeVanilla, MinecraftVersion: "1.21.4"}
+	for _, c := range []struct {
+		name, file string
+		data       []byte
+		// tighten sets the limit staging must keep to, given how many
+		// bytes the plan writes.
+		tighten func(l *Limits, size int64)
+		want    string
+	}{
+		{"a zip file past its own allowance", "server.zip", zipBytes(t, one), func(l *Limits, _ int64) { l.MaxRatio = 100 }, KindRatio},
+		{"zip files past their archive's allowance", "world.zip", zipBytes(t, many), func(l *Limits, _ int64) { l.MaxRatio = 100 }, KindRatio},
+		{"more than MaxTotalBytes", "world.tar", tarBytes(t, world), func(l *Limits, size int64) { l.MaxTotalBytes = size - 1 }, KindTooLarge},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := inspect(t, Limits{MaxRatio: 1 << 20}, upload(t, c.file, c.data))
+			p, ops, err := in.plan(target, Options{})
+			if err != nil || !p.OK() {
+				t.Fatalf("plan with room to spare: %v %v", err, p.Problems)
+			}
+			c.tighten(&in.lim, p.SizeBytes)
+			dir := filepath.Join(t.TempDir(), "staging")
+			if err := os.Mkdir(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if got := refusalKind(t, in.write(context.Background(), dir, ops)); got != c.want {
+				t.Fatalf("got %s, want %s", got, c.want)
+			}
+		})
 	}
 }
 

@@ -58,7 +58,9 @@ func (e *stageError) Unwrap() error { return e.err }
 
 // write copies each archive's planned entries; an entry can go to several
 // places, like the level.dat that Paper's Nether and End folders get a copy
-// of.
+// of. What it writes counts against MaxTotalBytes as it is written, and
+// what it reads from an archive against the archive's ratio allowance,
+// whatever the archive's headers say.
 func (in *Inspection) write(ctx context.Context, dir string, ops []copyOp) error {
 	byArc := make([]map[int][]string, len(in.ix.arcs))
 	for _, op := range ops {
@@ -68,18 +70,19 @@ func (in *Inspection) write(ctx context.Context, dir string, ops []copyOp) error
 		}
 		byArc[a][op.e] = append(byArc[a][op.e], op.dest)
 	}
+	b := &stageBudget{left: in.lim.MaxTotalBytes, limit: in.lim.MaxTotalBytes}
 	for a, want := range byArc {
 		if len(want) == 0 {
 			continue
 		}
-		if err := in.writeArchive(ctx, dir, &in.ix.arcs[a], want); err != nil {
+		if err := in.writeArchive(ctx, dir, &in.ix.arcs[a], want, b); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (in *Inspection) writeArchive(ctx context.Context, dir string, info *ArchiveInfo, want map[int][]string) error {
+func (in *Inspection) writeArchive(ctx context.Context, dir string, info *ArchiveInfo, want map[int][]string, b *stageBudget) error {
 	f, err := os.Open(info.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return changedError(info.Name)
@@ -95,15 +98,17 @@ func (in *Inspection) writeArchive(ctx context.Context, dir string, info *Archiv
 	if !fi.Mode().IsRegular() || fi.Size() != info.Bytes || !fi.ModTime().Equal(info.modTime) {
 		return changedError(info.Name)
 	}
+	arc := &readCap{n: ratioAllowance(info.Bytes, in.lim.MaxRatio), err: ratioError(info.Name, in.lim.MaxRatio)}
 	if info.Format == FormatZip {
-		return in.writeZip(ctx, dir, f, info, want)
+		return in.writeZip(ctx, dir, f, info, want, arc, b)
 	}
-	return in.writeTar(ctx, dir, f, info, want)
+	return in.writeTar(ctx, dir, f, info, want, arc, b)
 }
 
 // writeZip re-reads the zip's directory and checks every planned entry
-// against what Inspect saw before writing it.
-func (in *Inspection) writeZip(ctx context.Context, dir string, f *os.File, info *ArchiveInfo, want map[int][]string) error {
+// against what Inspect saw before writing it. Each entry may expand only to
+// its own allowance, counted in the bytes it gives.
+func (in *Inspection) writeZip(ctx context.Context, dir string, f *os.File, info *ArchiveInfo, want map[int][]string, arc *readCap, b *stageBudget) error {
 	zr, err := openZip(ctx, f, info, in.lim, in.lim.MaxEntries)
 	if err != nil {
 		return err
@@ -131,7 +136,8 @@ func (in *Inspection) writeZip(ctx context.Context, dir string, f *os.File, info
 		if err != nil {
 			return readError(ctx, info, in.lim, err)
 		}
-		err = writeEntry(ctx, dir, want[i], e.size, rc)
+		own := &readCap{n: entryAllowance(e.csize, in.lim.MaxRatio), err: arc.err}
+		err = writeEntry(ctx, dir, want[i], e.size, &capReader{r: rc, caps: []*readCap{own, arc}}, b)
 		rc.Close()
 		if err != nil {
 			return readError(ctx, info, in.lim, err)
@@ -142,7 +148,7 @@ func (in *Inspection) writeZip(ctx context.Context, dir string, f *os.File, info
 
 // writeTar reads the tar from the start again, since a tar can't be read
 // out of order, and checks every header against what Inspect saw.
-func (in *Inspection) writeTar(ctx context.Context, dir string, f *os.File, info *ArchiveInfo, want map[int][]string) error {
+func (in *Inspection) writeTar(ctx context.Context, dir string, f *os.File, info *ArchiveInfo, want map[int][]string, arc *readCap, b *stageBudget) error {
 	byPos := make(map[int]int, len(want))
 	for i := range want {
 		byPos[int(in.ix.entries[i].pos)] = i
@@ -160,7 +166,7 @@ func (in *Inspection) writeTar(ctx context.Context, dir string, f *os.File, info
 			return changedError(info.Name)
 		}
 		found++
-		return writeEntry(ctx, dir, want[i], e.size, r)
+		return writeEntry(ctx, dir, want[i], e.size, &capReader{r: r, caps: []*readCap{arc}}, b)
 	})
 	if err != nil {
 		return err
@@ -171,16 +177,55 @@ func (in *Inspection) writeTar(ctx context.Context, dir string, f *os.File, info
 	return nil
 }
 
-func writeEntry(ctx context.Context, root string, dests []string, size int64, r io.Reader) error {
-	if err := writeFile(ctx, root, dests[0], size, r); err != nil {
+func writeEntry(ctx context.Context, root string, dests []string, size int64, r io.Reader, b *stageBudget) error {
+	if err := writeFile(ctx, root, dests[0], size, r, b); err != nil {
 		return err
 	}
 	for _, d := range dests[1:] {
-		if err := copyStaged(ctx, root, dests[0], d, size); err != nil {
+		if err := copyStaged(ctx, root, dests[0], d, size, b); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// readCap is how many more bytes a reader may give, and the error once it
+// has given more.
+type readCap struct {
+	n   int64
+	err error
+}
+
+// capReader reads from r while every cap allows, counting what it reads
+// against each.
+type capReader struct {
+	r    io.Reader
+	caps []*readCap
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	for _, cp := range c.caps {
+		if cp.n < int64(len(p))-1 {
+			p = p[:cp.n+1]
+		}
+	}
+	n, err := c.r.Read(p)
+	for _, cp := range c.caps {
+		if cp.n -= int64(n); cp.n < 0 {
+			return 0, cp.err
+		}
+	}
+	return n, err
+}
+
+// stageBudget is what Stage may still write of MaxTotalBytes, copies
+// included.
+type stageBudget struct{ left, limit int64 }
+
+func writtenTooLarge(limit int64) *Error {
+	return refuse(KindTooLarge, "Free up disk space on the server, or leave out plugins, mods and other worlds.",
+		fmt.Sprintf("The import would write more than the %s this server has room for.", humanBytes(limit)),
+		"limit", limit)
 }
 
 var errSizeMismatch = errors.New("worldimport: file is longer than the archive says")
@@ -188,7 +233,7 @@ var errSizeMismatch = errors.New("worldimport: file is longer than the archive s
 // writeFile writes exactly size bytes from r to a new file at dest inside
 // root. Errors of the staging directory come back as *stageError; anything
 // else is an error reading the upload.
-func writeFile(ctx context.Context, root, dest string, size int64, r io.Reader) error {
+func writeFile(ctx context.Context, root, dest string, size int64, r io.Reader, b *stageBudget) error {
 	p, err := stagedPath(root, dest)
 	if err != nil {
 		return err
@@ -200,7 +245,7 @@ func writeFile(ctx context.Context, root, dest string, size int64, r io.Reader) 
 	if err != nil {
 		return &stageError{err}
 	}
-	n, err := io.Copy(stageWriter{f}, ctxReader{ctx, io.LimitReader(r, size+1)})
+	n, err := io.Copy(stageWriter{f, b}, ctxReader{ctx, io.LimitReader(r, size+1)})
 	if cerr := f.Close(); err == nil && cerr != nil {
 		err = &stageError{cerr}
 	}
@@ -210,7 +255,7 @@ func writeFile(ctx context.Context, root, dest string, size int64, r io.Reader) 
 	return err
 }
 
-func copyStaged(ctx context.Context, root, from, to string, size int64) error {
+func copyStaged(ctx context.Context, root, from, to string, size int64, b *stageBudget) error {
 	src, err := stagedPath(root, from)
 	if err != nil {
 		return err
@@ -220,9 +265,10 @@ func copyStaged(ctx context.Context, root, from, to string, size int64) error {
 		return &stageError{err}
 	}
 	defer f.Close()
-	err = writeFile(ctx, root, to, size, f)
+	err = writeFile(ctx, root, to, size, f, b)
 	var se *stageError
-	if err != nil && !errors.As(err, &se) && ctx.Err() == nil {
+	var we *Error
+	if err != nil && !errors.As(err, &se) && !errors.As(err, &we) && ctx.Err() == nil {
 		return &stageError{err}
 	}
 	return err
@@ -238,9 +284,17 @@ func stagedPath(root, dest string) (string, error) {
 	return p, nil
 }
 
-type stageWriter struct{ f *os.File }
+// stageWriter writes to a staged file, counting what it writes against
+// the import's MaxTotalBytes before it writes it.
+type stageWriter struct {
+	f *os.File
+	b *stageBudget
+}
 
 func (w stageWriter) Write(p []byte) (int, error) {
+	if w.b.left -= int64(len(p)); w.b.left < 0 {
+		return 0, writtenTooLarge(w.b.limit)
+	}
 	n, err := w.f.Write(p)
 	if err != nil {
 		return n, &stageError{err}
