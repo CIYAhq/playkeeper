@@ -2,14 +2,21 @@ package certs
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"path"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
 // fakeChallenger keeps TXT records in memory, the way a DNS provider would.
@@ -221,5 +228,104 @@ func TestDNS01KeepsTheChallengersProblem(t *testing.T) {
 	}
 	if p := CertificateLimit(refused, "alex.playkeeper.io", "name", retryAt); !strings.HasPrefix(p.Message, "alex.playkeeper.io has asked for as many certificates") || !p.RetryAt.Equal(retryAt) {
 		t.Errorf("one name's limit: %+v", p)
+	}
+}
+
+// namesService answers a names.Client's challenge requests the way the
+// playkeeper.io service does: Cloudflare may not have published a stored
+// record yet when the service answers, and the service keeps publishing it.
+type namesService struct {
+	mu      sync.Mutex
+	dns     string       // what the service says of a stored record
+	refuse  *names.Error // the answer to storing one, when it is refused
+	hidden  int          // lookups before a stored record shows
+	stored  []string
+	lookups int
+	calls   []string
+}
+
+func (s *namesService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, r.Method+" "+r.URL.Path)
+	value := path.Base(r.URL.Path)
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case r.Method == http.MethodDelete:
+		s.stored = slices.DeleteFunc(s.stored, func(v string) bool { return v == value })
+		w.WriteHeader(http.StatusNoContent)
+	case s.refuse != nil:
+		w.WriteHeader(s.refuse.Status)
+		json.NewEncoder(w).Encode(s.refuse.Body())
+	default:
+		s.stored = append(s.stored, value)
+		json.NewEncoder(w).Encode(names.Challenge{FQDN: alexTXT, Value: value, ExpiresAt: time.Now().Add(time.Hour), DNS: s.dns})
+	}
+}
+
+func (s *namesService) lookup(_ context.Context, name string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lookups++
+	if name != alexTXT+"." || s.lookups <= s.hidden || len(s.stored) == 0 {
+		return nil, &net.DNSError{Err: "no such host", Name: name, IsNotFound: true}
+	}
+	return slices.Clone(s.stored), nil
+}
+
+func (s *namesService) state() (calls, stored []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.calls), slices.Clone(s.stored)
+}
+
+func TestDNS01WaitsForAChallengeTheNamesServiceStored(t *testing.T) {
+	value := strings.Repeat("v", 43)
+	put := "PUT /v1/names/alex/acme-challenge/" + value
+	del := "DELETE /v1/names/alex/acme-challenge/" + value
+	for _, tc := range []struct {
+		name   string
+		dns    string
+		refuse *names.Error
+		hidden int
+		code   string   // the problem, or "" when the record is presented
+		calls  []string // until the record is presented or given up
+	}{
+		{name: "published", dns: names.DNSOK, calls: []string{put}},
+		{name: "pending then published", dns: names.DNSPending, hidden: 3, calls: []string{put}},
+		{name: "pending and never published", dns: names.DNSPending, hidden: 1 << 30, code: CodeDNS01NotVisible, calls: []string{put, del}},
+		{name: "refused", refuse: &names.Error{Status: http.StatusTooManyRequests, Code: names.CodeTooManyTXT, Message: "alex has too many challenge records."},
+			code: CodeDNS01PublishFailed, calls: []string{put, del}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &namesService{dns: tc.dns, refuse: tc.refuse, hidden: tc.hidden}
+			srv := httptest.NewServer(s)
+			defer srv.Close()
+			c := &names.Client{ServiceURL: srv.URL, Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), Name: "alex", HTTP: srv.Client()}
+			d := &DNS01{Challenger: c, LookupTXT: s.lookup, Interval: time.Millisecond, Timeout: time.Second}
+			remove, err := d.present(t.Context(), "alex.playkeeper.io", value)
+			if tc.code != "" {
+				wantProblem(t, err, tc.code, "")
+			} else if err != nil {
+				t.Fatalf("present = %v", err)
+			}
+			calls, stored := s.state()
+			if !slices.Equal(calls, tc.calls) {
+				t.Errorf("requests %q, want %q", calls, tc.calls)
+			}
+			if remove == nil {
+				if len(stored) != 0 {
+					t.Errorf("the record was left behind: %q", stored)
+				}
+				return
+			}
+			if !slices.Equal(stored, []string{value}) {
+				t.Errorf("stored %q while presented", stored)
+			}
+			remove()
+			if calls, stored := s.state(); !slices.Equal(calls, append(tc.calls, del)) || len(stored) != 0 {
+				t.Errorf("after remove: requests %q, stored %q", calls, stored)
+			}
+		})
 	}
 }
