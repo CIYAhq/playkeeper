@@ -519,6 +519,47 @@ func TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded(t *testing.T) {
 	}
 }
 
+// Announcing files takes turns with the upload allowance, so files announced
+// at the same time never add up to more than it allows.
+func TestAnnouncesTakeTurnsWithTheUploadAllowance(t *testing.T) {
+	e := newAgentEnv(t)
+	imp := e.openImport("/v1/world-imports")
+	// The allowance is half of what is free beyond the reserve, 1000 bytes,
+	// and looking at the disk takes a while, as on a busy machine.
+	e.a.opts.DiskUsage = func(string) (int64, int64, error) {
+		time.Sleep(20 * time.Millisecond)
+		return minFreeAfterBackup + 2000, 100 << 30, nil
+	}
+	const n = 8
+	codes := make(chan int, n)
+	begin := make(chan struct{})
+	url := e.ts.URL + importPath(imp, "/files")
+	for i := range n {
+		go func() {
+			<-begin
+			body, _ := json.Marshal(map[string]any{"name": fmt.Sprintf("part-%d.zip", i), "size": 600, "actor": "admin"})
+			resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+			if err != nil {
+				codes <- 0
+				return
+			}
+			resp.Body.Close()
+			codes <- resp.StatusCode
+		}()
+	}
+	close(begin)
+	counts := map[int]int{}
+	for range n {
+		counts[<-codes]++
+	}
+	if counts[http.StatusCreated] != 1 || counts[http.StatusRequestEntityTooLarge] != n-1 {
+		t.Fatalf("announces answered %v; the allowance has room for one", counts)
+	}
+	if files := e.importView(imp).Files; len(files) != 1 {
+		t.Fatalf("the upload holds %d files", len(files))
+	}
+}
+
 // Importing into a server works like a restore: the upload is unpacked
 // while the server runs, a verified rollback archive of the current world
 // is saved, and only the world folders are swapped, so the server keeps its

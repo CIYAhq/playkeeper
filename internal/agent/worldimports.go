@@ -51,6 +51,10 @@ const (
 type importRegistry struct {
 	mu   sync.Mutex
 	byID map[string]*worldImport
+	// announce makes announcing files take turns, so each announce sees the
+	// allowance the others left. It is taken before mu and the imports'
+	// locks, never while holding one.
+	announce sync.Mutex
 }
 
 // worldImport is one upload of world archives, for a new server or to replace
@@ -318,35 +322,40 @@ func (a *Agent) hWorldImportFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("%s is empty.", strconv.Quote(req.Name)))
 		return
 	}
-	if req.Size > a.uploadAllowance() {
-		writeError(w, &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: "The world is larger than the free disk space allows.", Hint: "Free disk space and try again."})
-		return
-	}
-	imp.mu.Lock()
-	switch {
-	case imp.gone:
-		err = errImportGone
-	case imp.busy != "" && imp.busy != "uploading":
-		err = importBusy(imp.busy)
-	case len(imp.files) >= maxImportFiles:
-		err = errConflict(fmt.Sprintf("One import can combine at most %d archives.", maxImportFiles), "Pack the world into one .zip file and upload that.")
-	}
-	if err == nil {
-		n := len(imp.files)
-		var f *os.File
-		if f, err = os.OpenFile(imp.uploadPath(n), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err == nil {
-			f.Close()
-			imp.files = append(imp.files, &importFile{name: req.Name, size: req.Size, hash: sha256.New()})
-			imp.inspection = nil
-			imp.touched = a.now()
-		}
-	}
-	imp.mu.Unlock()
-	if err != nil {
+	if err := a.announceFile(imp, req.Name, req.Size); err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, a.importView(imp))
+}
+
+// announceFile adds a file to an upload if the upload allowance has room
+// for it.
+func (a *Agent) announceFile(imp *worldImport, name string, size int64) error {
+	a.imports.announce.Lock()
+	defer a.imports.announce.Unlock()
+	if size > a.uploadAllowance() {
+		return &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: "The world is larger than the free disk space allows.", Hint: "Free disk space and try again."}
+	}
+	imp.mu.Lock()
+	defer imp.mu.Unlock()
+	switch {
+	case imp.gone:
+		return errImportGone
+	case imp.busy != "" && imp.busy != "uploading":
+		return importBusy(imp.busy)
+	case len(imp.files) >= maxImportFiles:
+		return errConflict(fmt.Sprintf("One import can combine at most %d archives.", maxImportFiles), "Pack the world into one .zip file and upload that.")
+	}
+	f, err := os.OpenFile(imp.uploadPath(len(imp.files)), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	imp.files = append(imp.files, &importFile{name: name, size: size, hash: sha256.New()})
+	imp.inspection = nil
+	imp.touched = a.now()
+	return nil
 }
 
 // idleReader reads a request body until it sends nothing for idle, or the
