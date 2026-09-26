@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, CopyButton, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
+import { ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -14,6 +15,8 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatDay, formatDuration, joinAddress, relativeTime } from '@/lib/format'
+import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, rePlayerName } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -50,19 +53,50 @@ export function PlayerLink({ server, name, className, children }: { server: Serv
   )
 }
 
-/** The "add a player" field and button, used on the page, in the empty state and on phones. */
-function AddPlayer({ server, onAdded, big, placeholder, iconButton, outline }: { server: ServerStatus; onAdded: () => void; big?: boolean; placeholder: string; iconButton?: boolean; outline?: boolean }) {
-  const ws = useWorkspace()
+/** Why the allowlist and operators can't change right now: they go through the running server. */
+function listLocked(server: ServerStatus, stale: boolean): string | undefined {
+  if (stale) return t('reason.noAgent')
+  return server.phase === 'online' ? undefined : t('players.startToChange', { server: server.name })
+}
+
+const nameKey = (p: { name: string }) => p.name.toLowerCase()
+
+type PlayerAction = 'op' | 'deop' | 'kick' | 'unlist'
+
+function actionText(action: PlayerAction, name: string): { done: string; failed: string } {
+  switch (action) {
+    case 'op':
+      return { done: t('players.opToast', { name }), failed: t('players.opFailed', { name }) }
+    case 'deop':
+      return { done: t('players.deopToast', { name }), failed: t('players.deopFailed', { name }) }
+    case 'kick':
+      return { done: t('players.kickedToast', { name }), failed: t('players.kickFailed', { name }) }
+    case 'unlist':
+      return { done: t('players.removedToast', { name }), failed: t('players.unlistFailed', { name }) }
+    default: {
+      const unreachable: never = action
+      return unreachable
+    }
+  }
+}
+
+interface AddForm {
+  name: string
+  setName: (name: string) => void
+  error: string | undefined
+  add: (e: FormEvent) => Promise<void>
+}
+
+/**
+ * The allowlist and operators with changes shown before the server confirms
+ * them, and the actions that change them. It lives on the page, so a name
+ * that couldn't be added is still in the field when the empty state returns.
+ */
+function usePlayerLists(server: ServerStatus, whitelist: WhitelistEntry[] | undefined, operators: OperatorEntry[] | undefined, reload: () => Promise<void>) {
+  const listing = usePending<ListChange<WhitelistEntry>>()
+  const opping = usePending<ListChange<OperatorEntry>>()
   const [name, setName] = useState('')
   const [error, setError] = useState<string>()
-  const [busy, setBusy] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
-  const online = !ws.stale && server.phase === 'online'
-  const hash = window.location.hash
-
-  useEffect(() => {
-    if (hash === '#add') input.current?.focus()
-  }, [hash])
 
   async function add(e: FormEvent) {
     e.preventDefault()
@@ -71,22 +105,62 @@ function AddPlayer({ server, onAdded, big, placeholder, iconButton, outline }: {
       setError(t('players.nameRule'))
       return
     }
-    setBusy(true)
     setError(undefined)
+    setName('')
     try {
-      await post(serverApi(server.id, '/whitelist'), { name: n })
+      await listing.run({ add: { name: n } }, () => post(serverApi(server.id, '/whitelist'), { name: n }), reload)
       toastManager.add({ title: t('players.addedToast', { name: n }), type: 'success' })
-      setName('')
-      onAdded()
     } catch (err) {
+      setName((typed) => typed || n)
       setError(errorText(err))
-    } finally {
-      setBusy(false)
     }
   }
 
+  function save(action: PlayerAction, who: string): Promise<void> {
+    const path = (list: string) => serverApi(server.id, `/${list}/${encodeURIComponent(who)}`)
+    switch (action) {
+      case 'op':
+        return opping.run({ add: { name: who, level: 4 } }, () => post(serverApi(server.id, '/operators'), { name: who }), reload)
+      case 'deop':
+        return opping.run({ remove: nameKey({ name: who }) }, () => del(path('operators')), reload)
+      case 'unlist':
+        return listing.run({ remove: nameKey({ name: who }) }, () => del(path('whitelist')), reload)
+      case 'kick':
+        return post(serverApi(server.id, '/kick'), { name: who }).then(reload)
+      default: {
+        const unreachable: never = action
+        return unreachable
+      }
+    }
+  }
+
+  async function act(action: PlayerAction, who: string) {
+    const text = actionText(action, who)
+    try {
+      await save(action, who)
+      toastManager.add({ title: text.done, type: 'success' })
+    } catch (e) {
+      toastManager.add({ title: text.failed, description: errorText(e), type: 'error' })
+    }
+  }
+
+  const form: AddForm = { name, setName, error, add }
+  return { whitelist: withChanges(whitelist, listing.changes, nameKey), operators: withChanges(operators, opping.changes, nameKey), form, act }
+}
+
+/** The "add a player" field and button, used on the page, in the empty state and on phones. */
+function AddPlayer({ server, form, big, placeholder, iconButton, outline }: { server: ServerStatus; form: AddForm; big?: boolean; placeholder: string; iconButton?: boolean; outline?: boolean }) {
+  const ws = useWorkspace()
+  const input = useRef<HTMLInputElement>(null)
+  const blocked = listLocked(server, ws.stale)
+  const hash = window.location.hash
+
+  useEffect(() => {
+    if (hash === '#add') input.current?.focus()
+  }, [hash])
+
   return (
-    <form onSubmit={add} className="flex flex-col gap-1.5" noValidate>
+    <form onSubmit={form.add} className="flex flex-col gap-1.5" noValidate>
       <div className="flex gap-2">
         <InputGroup className={cn('flex-1', big && 'max-sm:h-11')}>
           <InputGroupAddon>
@@ -94,31 +168,31 @@ function AddPlayer({ server, onAdded, big, placeholder, iconButton, outline }: {
           </InputGroupAddon>
           <InputGroupInput
             ref={input}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={online ? placeholder : t('players.startToChange', { server: server.name })}
+            value={form.name}
+            onChange={(e) => form.setName(e.target.value)}
+            placeholder={blocked ?? placeholder}
             aria-label={t('players.nameLabel')}
-            aria-invalid={error ? true : undefined}
-            disabled={!online}
+            aria-invalid={form.error ? true : undefined}
+            disabled={!!blocked}
             autoComplete="off"
             spellCheck={false}
             maxLength={16}
           />
         </InputGroup>
         {iconButton ? (
-          <Button type="submit" size="icon-xl" aria-label={t('players.add')} loading={busy} disabled={!online}>
+          <Button type="submit" size="icon-xl" aria-label={t('players.add')} disabledReason={blocked}>
             <PlusIcon />
           </Button>
         ) : (
-          <Button type="submit" variant={outline ? 'outline' : 'default'} loading={busy} disabled={!online}>
+          <Button type="submit" variant={outline ? 'outline' : 'default'} disabledReason={blocked}>
             <PlusIcon />
             {t('players.add')}
           </Button>
         )}
       </div>
-      {error && (
+      {form.error && (
         <p className="text-xs text-destructive-foreground" role="alert">
-          {error}
+          {form.error}
         </p>
       )}
     </form>
@@ -136,17 +210,17 @@ export async function playerAction(server: ServerStatus, method: 'POST' | 'DELET
   }
 }
 
-function PlayerMenu({ server, name, op, online, after, phone }: { server: ServerStatus; name: string; op: boolean; online: boolean; after: () => void; phone?: boolean }) {
+function PlayerMenu({ server, name, op, online, onAction, phone }: { server: ServerStatus; name: string; op: boolean; online: boolean; onAction: (action: PlayerAction) => void; phone?: boolean }) {
   const ws = useWorkspace()
-  const up = !ws.stale && server.phase === 'online'
+  const blocked = listLocked(server, ws.stale)
   return (
     <Menu>
-      <MenuTrigger render={<Button variant="ghost" size={phone ? 'icon-lg' : 'icon-sm'} aria-label={t('players.menuFor', { name })} disabled={!up} />}>
+      <MenuTrigger disabled={!!blocked} render={<Button variant="ghost" size={phone ? 'icon-lg' : 'icon-sm'} aria-label={t('players.menuFor', { name })} disabledReason={blocked} />}>
         <EllipsisIcon />
       </MenuTrigger>
       <MenuPopup align="end" className="min-w-60">
         {op ? (
-          <MenuItem onClick={() => void playerAction(server, 'DELETE', '/operators', name, t('players.deopToast', { name }), after)} className="items-start py-1.5">
+          <MenuItem onClick={() => onAction('deop')} className="items-start py-1.5">
             <ShieldOffIcon className="mt-0.5" />
             <span>
               <span className="block">{t('players.removeOp')}</span>
@@ -154,7 +228,7 @@ function PlayerMenu({ server, name, op, online, after, phone }: { server: Server
             </span>
           </MenuItem>
         ) : (
-          <MenuItem onClick={() => void playerAction(server, 'POST', '/operators', name, t('players.opToast', { name }), after)} className="items-start py-1.5">
+          <MenuItem onClick={() => onAction('op')} className="items-start py-1.5">
             <ShieldCheckIcon className="mt-0.5" />
             <span>
               <span className="block">{t('players.makeOp')}</span>
@@ -163,7 +237,7 @@ function PlayerMenu({ server, name, op, online, after, phone }: { server: Server
           </MenuItem>
         )}
         {online && (
-          <MenuItem onClick={() => void playerAction(server, 'POST', '/kick', name, t('players.kickedToast', { name }), after)} className="items-start py-1.5">
+          <MenuItem onClick={() => onAction('kick')} className="items-start py-1.5">
             <UserXIcon className="mt-0.5" />
             <span>
               <span className="block">{t('players.kick')}</span>
@@ -172,7 +246,7 @@ function PlayerMenu({ server, name, op, online, after, phone }: { server: Server
           </MenuItem>
         )}
         <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => void playerAction(server, 'DELETE', '/whitelist', name, t('players.removedToast', { name }), after)}>
+        <MenuItem variant="destructive" onClick={() => onAction('unlist')}>
           <UserMinusIcon />
           {t('players.unlist')}
         </MenuItem>
@@ -187,6 +261,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   const manage = can(ws.me, 'players.manage')
   const [days, setDays] = useState<Days>('7')
   const p = usePlayers(s, days)
+  const lists = usePlayerLists(s, p.whitelist, p.operators, p.refresh)
   const invites = useInvites(s, manage)
   const [newOpen, setNewOpen] = useState(false)
   const [fresh, setFresh] = useState<string>()
@@ -199,12 +274,17 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   const online = !ws.stale && s.phase === 'online'
   const onlineNames = online ? (s.players?.names ?? []) : []
   const isOnline = (n: string) => onlineNames.some((o) => o.toLowerCase() === n.toLowerCase())
-  const ops = new Set((p.operators ?? []).map((o) => o.name.toLowerCase()))
+  const ops = new Set((lists.operators ?? []).map(nameKey))
   const openFor = new Map((p.sessions?.sessions ?? []).filter((x) => !x.end).map((x) => [x.player.toLowerCase(), x.durationSeconds]))
   const addedAt = new Map<string, string>()
   for (const a of p.activity ?? []) if (a.kind === 'allowlisted' && a.player && !addedAt.has(a.player.toLowerCase())) addedAt.set(a.player.toLowerCase(), a.ts)
-  const whitelist = p.whitelist ?? []
+  const whitelist = lists.whitelist ?? []
   const played = p.summary?.players ?? []
+  const everyone: { name: string; uuid?: string }[] | undefined =
+    lists.whitelist && p.summary ? [...played, ...whitelist.filter((w) => !played.some((pl) => nameKey(pl) === nameKey(w)))].sort((a, b) => Number(isOnline(b.name)) - Number(isOnline(a.name))) : undefined
+  const listed = useListPresence(lists.whitelist, nameKey)
+  const everyoneRows = useListPresence(everyone, nameKey)
+  const playing = useListPresence(onlineNames, (n) => n.toLowerCase())
 
   const onCreated = async (inv: Invite) => {
     setFresh(inv.id)
@@ -218,7 +298,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
 
   if (p.loading || (manage && invites.loading && !invites.data)) return <PlayersSkeleton phone={phone} />
 
-  const empty = !!p.whitelist && !!p.summary && whitelist.length === 0 && played.length === 0 && !invites.data?.invites.length
+  const empty = !!lists.whitelist && !!p.summary && whitelist.length === 0 && played.length === 0 && !invites.data?.invites.length
 
   const onList = (n: string) => whitelist.some((w) => w.name.toLowerCase() === n.toLowerCase())
   const access = (n: string) => (ops.has(n.toLowerCase()) ? t('players.access.operator') : onList(n) ? t('players.access.allowed') : t('players.access.none'))
@@ -236,12 +316,8 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
 
   let body: ReactNode
   if (empty) {
-    body = <EmptyPlayers server={s} address={address} onAdded={p.refresh} phone={phone} manage={manage} onNewLink={() => setNewOpen(true)} />
+    body = <EmptyPlayers server={s} address={address} form={lists.form} phone={phone} manage={manage} onNewLink={() => setNewOpen(true)} />
   } else if (phone) {
-    const names = new Map<string, { name: string; uuid?: string }>()
-    for (const pl of played) names.set(pl.name.toLowerCase(), { name: pl.name, uuid: pl.uuid })
-    for (const w of whitelist) if (!names.has(w.name.toLowerCase())) names.set(w.name.toLowerCase(), { name: w.name, uuid: w.uuid })
-    const rows = [...names.values()].sort((a, b) => Number(isOnline(b.name)) - Number(isOnline(a.name)))
     body = (
       <>
         <Card className="p-4">
@@ -249,21 +325,21 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
           <p className="mt-2 text-[15px] leading-5 text-muted-foreground">{manage ? t('players.whoHintPhone') : t('players.whoHint')}</p>
           {manage && (
             <div className="mt-3">
-              <AddPlayer server={s} onAdded={p.refresh} placeholder={t('players.namePlaceholderShort')} iconButton big />
+              <AddPlayer server={s} form={lists.form} placeholder={t('players.namePlaceholderShort')} iconButton big />
             </div>
           )}
         </Card>
-        {rows.length > 0 && (
+        {everyoneRows.length > 0 && (
           <section aria-labelledby="everyone">
             <SectionLabel className="px-4">
               <span id="everyone">{t('players.everyone')}</span>
             </SectionLabel>
             <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-              {rows.map((r) => {
+              {everyoneRows.map(({ key, item: r, state }) => {
                 const stat = played.find((x) => x.name.toLowerCase() === r.name.toLowerCase())
                 const line = isOnline(r.name) ? onlineFor(r.name) : ops.has(r.name.toLowerCase()) ? t('players.access.operator') : stat ? t('players.lastSeen', { time: relativeTime(stat.lastSeen) }) : t('players.onList')
                 return (
-                  <li key={r.name} className="flex min-h-14 items-center gap-1 border-b border-border py-1.5 pr-1 pl-4 last:border-b-0">
+                  <li key={key} {...presenceProps(state)} className="flex min-h-14 items-center gap-1 border-b border-border py-1.5 pr-1 pl-4 last:border-b-0">
                     <PlayerLink server={s} name={r.name} className="flex min-w-0 flex-1 items-center gap-3 self-stretch hover:no-underline">
                       <PlayerFace name={r.name} uuid={r.uuid} size={36} />
                       <span className="min-w-0 flex-1">
@@ -271,7 +347,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
                         <span className="block truncate text-[13px] text-muted-foreground">{line}</span>
                       </span>
                     </PlayerLink>
-                    {manage && onList(r.name) && <PlayerMenu server={s} name={r.name} op={ops.has(r.name.toLowerCase())} online={isOnline(r.name)} after={p.refresh} phone />}
+                    {manage && onList(r.name) && <PlayerMenu server={s} name={r.name} op={ops.has(r.name.toLowerCase())} online={isOnline(r.name)} onAction={(a) => void lists.act(a, r.name)} phone />}
                   </li>
                 )
               })}
@@ -297,18 +373,18 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
             <CardHint>{t('players.whoHint')}</CardHint>
             {manage && (
               <div className="mt-3">
-                <AddPlayer server={s} onAdded={p.refresh} placeholder={t('players.namePlaceholder')} outline />
+                <AddPlayer server={s} form={lists.form} placeholder={t('players.namePlaceholder')} outline />
               </div>
             )}
             <ul className="mt-3 flex flex-col">
-              {whitelist.map((w) => (
-                <li key={w.name} className="flex min-h-12 items-center gap-3 border-t border-border py-2">
+              {listed.map(({ key, item: w, state }) => (
+                <li key={key} {...presenceProps(state)} className="flex min-h-12 items-center gap-3 border-t border-border py-2">
                   <PlayerFace name={w.name} uuid={w.uuid} size={28} />
                   <span className="min-w-0 flex-1">
                     <PlayerLink server={s} name={w.name} className="block w-fit max-w-full truncate text-[13px] font-semibold" />
                     <span className="block truncate text-xs text-muted-foreground">{listLine(w)}</span>
                   </span>
-                  {manage && <PlayerMenu server={s} name={w.name} op={ops.has(w.name.toLowerCase())} online={isOnline(w.name)} after={p.refresh} />}
+                  {manage && <PlayerMenu server={s} name={w.name} op={ops.has(w.name.toLowerCase())} online={isOnline(w.name)} onAction={(a) => void lists.act(a, w.name)} />}
                 </li>
               ))}
             </ul>
@@ -323,8 +399,8 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
             </div>
             <CardHint>{online ? t('players.playingMeta', { online: onlineNames.length, max: s.players?.max ?? 0, server: s.name }) : t('players.playingOffline', { server: s.name })}</CardHint>
             <ul className="mt-3 flex flex-col gap-3">
-              {onlineNames.map((n) => (
-                <li key={n} className="flex items-center gap-3">
+              {playing.map(({ key, item: n, state }) => (
+                <li key={key} {...presenceProps(state)} className="flex items-center gap-3">
                   <PlayerFace name={n} size={28} />
                   <span className="min-w-0">
                     <PlayerLink server={s} name={n} className="block w-fit max-w-full truncate text-[13px] font-semibold" />
@@ -332,7 +408,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
                   </span>
                 </li>
               ))}
-              {online && onlineNames.length === 0 && <li className="text-[13px] text-muted-foreground">{t('players.nobodyOnline')}</li>}
+              {online && playing.length === 0 && <li className="text-[13px] text-muted-foreground">{t('players.nobodyOnline')}</li>}
             </ul>
             {manage ? (
               <div className="mt-auto border-t border-border pt-4">
@@ -365,13 +441,10 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
         </div>
         {manage && <InviteLinks server={s} data={invites.data} onNew={() => setNewOpen(true)} onChanged={invites.refresh} fresh={fresh} />}
         <section aria-labelledby="everyone" className="mt-2">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 id="everyone" className="text-[15px] font-semibold">
-                {t('players.everyone')}
-              </h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t('players.everyoneHint')}</p>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="everyone" className="text-[15px] font-semibold">
+              {t('players.everyone')}
+            </h2>
             <Segmented
               value={days}
               onChange={setDays}
@@ -395,7 +468,8 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
                 </tr>
               </thead>
               <tbody>
-                {played.length === 0 && (
+                {!p.summary && <TableSkeleton cols={['start', 'start', 'end', 'end', 'start']} rowClassName="h-12 border-t border-border" />}
+                {p.summary && played.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-3 py-4 text-muted-foreground">
                       {t('players.noneYet')}
@@ -439,21 +513,11 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
 
 /** The Players tab while its lists load: the shapes of the cards, never a spinner. */
 function PlayersSkeleton({ phone }: { phone: boolean }) {
-  const rows = (n: number, face: number) =>
-    Array.from({ length: n }, (_, i) => (
-      <div key={i} className="flex items-center gap-3 py-2">
-        <Skeleton className="shrink-0 rounded-md" style={{ width: face, height: face }} />
-        <span className="flex flex-1 flex-col gap-1.5">
-          <Skeleton className="h-3 w-28" />
-          <Skeleton className="h-2.5 w-40" />
-        </span>
-      </div>
-    ))
   if (phone) {
     return (
       <div className="flex flex-col gap-4" aria-busy="true">
         <Skeleton className="h-36 w-full rounded-3xl" />
-        <div className="rounded-3xl border border-border bg-white px-4 py-1.5">{rows(4, 36)}</div>
+        <ListSkeleton rows={4} face="size-9 rounded-md" rowClassName="flex min-h-14 items-center gap-3 border-b border-border py-1.5 pr-1 pl-4 last:border-b-0" className="overflow-hidden rounded-3xl border border-border bg-white" />
       </div>
     )
   }
@@ -463,18 +527,18 @@ function PlayersSkeleton({ phone }: { phone: boolean }) {
         <Skeleton className="h-4 w-32" />
         <Skeleton className="mt-2 h-3 w-56" />
         <Skeleton className="mt-4 h-9 w-full" />
-        <div className="mt-2">{rows(4, 28)}</div>
+        <ListSkeleton rows={4} face="size-7 rounded-md" rowClassName="flex min-h-12 items-center gap-3 border-t border-border py-2" className="mt-3 flex flex-col" />
       </Card>
       <Card>
         <Skeleton className="h-4 w-28" />
         <Skeleton className="mt-2 h-3 w-44" />
-        <div className="mt-3">{rows(3, 28)}</div>
+        <ListSkeleton face="size-7 rounded-md" rowClassName="flex items-center gap-3" className="mt-3 flex flex-col gap-3" />
       </Card>
     </div>
   )
 }
 
-function EmptyPlayers({ server: s, address, onAdded, phone, manage, onNewLink }: { server: ServerStatus; address: string; onAdded: () => void; phone: boolean; manage: boolean; onNewLink: () => void }) {
+function EmptyPlayers({ server: s, address, form, phone, manage, onNewLink }: { server: ServerStatus; address: string; form: AddForm; phone: boolean; manage: boolean; onNewLink: () => void }) {
   const steps = [
     { title: t('players.step1'), hint: t('players.step1Hint') },
     { title: t('players.step2'), hint: t('players.step2Hint') },
@@ -484,10 +548,10 @@ function EmptyPlayers({ server: s, address, onAdded, phone, manage, onNewLink }:
     <div className="flex flex-1 flex-col items-center py-6 text-center max-sm:py-2">
       <EmptyArt kind="players" scale={phone ? 7 : 5} className="rounded-2xl" />
       <h2 className="mt-5 text-title font-extrabold tracking-[-0.015em] max-sm:text-[22px]">{t('players.emptyTitle')}</h2>
-      <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('players.emptyBody', { server: s.name })}</p>
+      <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('players.emptyBody')}</p>
       {manage && (
         <div className="mt-5 w-full max-w-[420px] text-left">
-          <AddPlayer server={s} onAdded={onAdded} placeholder={t('players.emptyPlaceholder')} big />
+          <AddPlayer server={s} form={form} placeholder={t('players.emptyPlaceholder')} big />
         </div>
       )}
       <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">

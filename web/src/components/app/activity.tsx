@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
+import { ListSkeleton } from '@/components/app/skeletons'
+import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { projectRoles, roleName } from '@/lib/access'
 import { relativeTime } from '@/lib/format'
@@ -104,7 +106,7 @@ export function activityText(a: Activity, server: string, me: string, here = fal
 
 export function ActivityList({ items, servers, here, empty, className }: { items: Activity[] | undefined; servers: ServerStatus[]; here?: boolean; empty: string; className?: string }) {
   const { me } = useWorkspace()
-  if (!items) return <div className={cn('flex-1', className)} />
+  if (!items) return <ListSkeleton rows={5} lines={1} face="size-4 rounded" rowClassName="flex min-h-[26px] items-center gap-3 py-[5px]" trailing={<Skeleton className="h-2.5 w-10 shrink-0" />} className={cn('flex flex-col', className)} />
   if (items.length === 0) return <p className={cn('flex-1 py-2 text-[13px] text-muted-foreground', className)}>{empty}</p>
   return (
     <ul className={cn('flex flex-col', className)}>

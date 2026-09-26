@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
@@ -369,26 +369,13 @@ const bStatsConfig = "# Written by Playkeeper: Paper's bStats usage statistics a
 // ensureTelemetryOff runs before every start because restored archives carry
 // the plugins directory, including whatever bStats setting they were made with.
 func (s *server) ensureTelemetryOff() error {
-	dir := filepath.Join(s.dataDir(), "plugins", "bStats")
-	path := filepath.Join(dir, "config.yml")
-	if b, err := os.ReadFile(path); err == nil && bStatsOff(b) {
-		return nil
-	}
-	for _, d := range []string{filepath.Dir(dir), dir} {
-		if err := os.MkdirAll(d, 0o750); err != nil {
-			return err
-		}
-		if os.Geteuid() == 0 {
-			if err := os.Chown(d, s.cfg.GameUID, s.cfg.GameGID); err != nil {
-				return err
-			}
-		}
-	}
-	if err := os.WriteFile(path, []byte(bStatsConfig), 0o640); err != nil {
+	d, err := s.gameFiles()
+	if err != nil {
 		return err
 	}
-	if os.Geteuid() == 0 {
-		return os.Chown(path, s.cfg.GameUID, s.cfg.GameGID)
+	defer d.Close()
+	if err := d.EnsureFile("plugins/bStats/config.yml", []byte(bStatsConfig), 0o640, bStatsOff); err != nil {
+		return gameFileError(err, "Paper's bStats usage statistics could not be switched off, so the server was not started.")
 	}
 	return nil
 }
@@ -415,17 +402,17 @@ func (s *server) jarPath(sc api.ServerConfig) string {
 	return filepath.Join(s.dataDir(), fmt.Sprintf("paper-%s-%d.jar", sc.MinecraftVersion, sc.PaperBuild))
 }
 
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
+// maxJarBytes is far above the size of any Paper jar (about 50 MB), so a
+// larger file is not one and is not read.
+const maxJarBytes = 256 << 20
+
+func (s *server) jarSHA256(ctx context.Context, sc api.ServerConfig) (string, error) {
+	d, err := s.gameFiles()
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	defer d.Close()
+	return d.SHA256(ctx, filepath.Base(s.jarPath(sc)), maxJarBytes)
 }
 
 // ensureServerSoftware downloads Paper with a setup-only container (the
@@ -438,7 +425,7 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 		return &apiError{Msg: "The server's software cannot be verified: " + err.Error() + ".", Hint: "Choose a version under Settings, or restore a backup."}
 	}
 	jar := s.jarPath(*sc)
-	if sum, err := fileSHA256(jar); err == nil && sum == want {
+	if sum, err := s.jarSHA256(ctx, *sc); err == nil && sum == want {
 		return nil
 	}
 	h.phase(string(api.PhaseDownloading))
@@ -487,7 +474,10 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 			Hint: "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."}
 	}
 	h.phase("verifying_download")
-	sum, err := fileSHA256(jar)
+	sum, err := s.jarSHA256(ctx, *sc)
+	if gamefiles.KindOf(err) != "" {
+		return gameFileError(err, "The server software could not be checked, so it was not run.")
+	}
 	if err != nil {
 		return &apiError{Msg: "The server software was not downloaded where expected (" + filepath.Base(jar) + ").", Hint: "Press Start to try again."}
 	}
@@ -517,7 +507,9 @@ func lastNonEmpty(lines []string) string {
 
 // startServer brings the server to "online". It is idempotent: a container
 // already running with the desired spec is left alone.
-func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) error {
+func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
+	pastFiles := false
+	defer func() { s.noteRefusal(err, pastFiles) }()
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
@@ -533,6 +525,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureTelemetryOff(); err != nil {
 		return err
 	}
+	pastFiles = true
 	name := s.containerName()
 	spec, hash := s.containerSpec(sc, false)
 	c, err := s.docker.ContainerInspect(ctx, name)

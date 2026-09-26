@@ -126,7 +126,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
     }
     go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate(settingsHome(ws.me)) })
     const help: PaletteItem[] = [
-      { value: 'help:backups', label: t('cmd.docBackups'), hint: t('cmd.docBackupsHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('cmd.docBackupsUrl'), '_blank', 'noreferrer') },
+      { value: 'help:backups', label: t('cmd.docBackups'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('cmd.docBackupsUrl'), '_blank', 'noreferrer') },
       { value: 'help:readme', label: t('cmd.docReadme'), hint: t('cmd.docReadmeHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('nav.helpUrl'), '_blank', 'noreferrer') },
     ]
     const actions = ws.agentDown ? [] : ordered.flatMap((s) => actionsFor(s, ws.me))

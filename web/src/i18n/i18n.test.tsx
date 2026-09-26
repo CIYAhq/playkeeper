@@ -72,7 +72,7 @@ describe('the English catalog', () => {
     const code = Object.values(import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.*', '!./en.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>).join('\n')
     const used = new Set([...code.matchAll(/['"]([a-zA-Z]+\.[\w.-]+)['"]/g)].map((m) => m[1]))
     // Keys built from a value, like `settings.difficulty.${d}`.
-    const families = ['settings.difficulty.', 'settings.mode.', 'style.world.', 'onboarding.strength.', 'overview.chartTitle.', 'overview.chartHint.']
+    const families = ['settings.difficulty.', 'settings.mode.', 'style.world.', 'onboarding.strength.', 'overview.chartTitle.']
     const unused = entries.map(([k]) => k).filter((k) => !used.has(k) && !families.some((f) => k.startsWith(f)))
     expect(unused).toEqual([])
   })

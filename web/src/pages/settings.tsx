@@ -6,6 +6,7 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader, roleLabel } from '@/components/app/shell'
+import { InlineSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { UpdateDialog, useUpdateInfo } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
@@ -81,7 +82,9 @@ function SettingsSection({ current, children }: { current: 'team' | 'discord'; c
             </a>
           ))}
         </nav>
-        <div className="flex min-w-0 flex-col gap-5">{children}</div>
+        <div key={current} className="flex min-w-0 animate-page flex-col gap-5">
+          {children}
+        </div>
       </PageBody>
     </>
   )
@@ -179,7 +182,7 @@ function AccountCard() {
           </p>
         )}
         <div className="sm:col-span-2">
-          <Button type="submit" variant="outline" loading={busy} disabled={!current || next.length < 10}>
+          <Button type="submit" variant="outline" loading={busy} disabledReason={!current || !next ? t('reason.fillIn') : next.length < 10 ? t('reason.passwordShort') : undefined}>
             {t('global.changePassword')}
           </Button>
         </div>
@@ -216,7 +219,7 @@ function PlaykeeperCard() {
           {error ? (
             <span className="text-destructive-foreground">{error}</span>
           ) : !info ? (
-            <span className="text-muted-foreground">{t('common.loading')}</span>
+            <InlineSkeleton className="w-48" />
           ) : !info.supported ? (
             <span className="text-muted-foreground">{info.reason ?? t('update.unsupported')}</span>
           ) : ws.updating ? (
@@ -237,7 +240,7 @@ function PlaykeeperCard() {
         </p>
         {info?.supported && can(ws.me, 'machine.manage') && (
           <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={check} loading={checking} disabled={!!ws.updating}>
+            <Button variant="ghost" size="sm" onClick={check} loading={checking} disabledReason={ws.updating ? t('reason.busy', { what: t('op.update') }) : undefined}>
               <RefreshCwIcon />
               {t('update.check')}
             </Button>
@@ -277,10 +280,11 @@ function AuditCard() {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {!audit.data && <TableSkeleton rows={5} cols={['start', 'start', 'start', 'start', 'start', 'start']} rowClassName="h-11 border-t border-border" />}
+            {audit.data && rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-3 py-4 text-muted-foreground">
-                  {audit.data ? t('global.auditEmpty') : t('common.loading')}
+                  {t('global.auditEmpty')}
                 </td>
               </tr>
             )}
