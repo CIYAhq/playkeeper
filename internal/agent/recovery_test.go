@@ -303,7 +303,7 @@ func TestRestoredWorldThatDoesNotStartIsSwappedBackOut(t *testing.T) {
 				e.start()
 			}
 			op := e.waitOp(opID)
-			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The restored world did not start (The server stopped while starting (exit code 1).") ||
+			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The restored world did not start (The server stopped while starting (exit code 1)).") ||
 				!strings.HasSuffix(op.Error, "). Your previous world was put back and is running.") {
 				t.Fatalf("the restore must say its world did not start and the previous one is back: %+v", op)
 			}
