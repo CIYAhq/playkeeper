@@ -202,9 +202,25 @@ func TestARefusedRestartReplacesTheCrash(t *testing.T) {
 		if err := os.Remove(config); err != nil {
 			t.Fatal(err)
 		}
-		if op := e.act("start"); op.Status != api.OpSucceeded {
-			t.Fatalf("start once the %s is gone: %+v", c.code, op)
-		}
+		// The refused restart lets go of the server just after its status
+		// shows no operation, and the automatic restart may try again once
+		// the file is gone: a start is told it's busy meanwhile, and finds
+		// the server running when the automatic restart got there first.
+		e.waitFor("the start once the "+c.code+" is gone", func() bool {
+			code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+			switch {
+			case code == http.StatusConflict && out["code"] == api.CodeBusy:
+				return false
+			case code == http.StatusOK && out["noop"] == true:
+				return true
+			case code != http.StatusAccepted:
+				t.Fatalf("start once the %s is gone: %d %v", c.code, code, out)
+			}
+			if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+				t.Fatalf("start once the %s is gone: %+v", c.code, op)
+			}
+			return true
+		})
 	}
 }
 
