@@ -256,6 +256,54 @@ ALTER TABLE servers ADD COLUMN packs_token TEXT NOT NULL DEFAULT '';
 	// Wave 4: the template's add-ons and data packs that could not be
 	// installed, as a JSON list, kept after the first start for Try again.
 	`ALTER TABLE template_installs ADD COLUMN skipped TEXT NOT NULL DEFAULT '[]';`,
+	// wave 5: Discord alerts and the live status message, one webhook for
+	// the whole machine. webhook_url is a secret: it never leaves the agent.
+	`
+CREATE TABLE discord (
+  id                INTEGER PRIMARY KEY CHECK (id = 1),
+  webhook_url       TEXT NOT NULL DEFAULT '',
+  webhook_name      TEXT NOT NULL DEFAULT '',
+  alerts            TEXT NOT NULL,
+  live_status       INTEGER NOT NULL DEFAULT 0,
+  status_message_id TEXT NOT NULL DEFAULT '',
+  public_host       TEXT NOT NULL DEFAULT '',
+  connected_at      INTEGER NOT NULL DEFAULT 0,
+  update_alerted    TEXT NOT NULL DEFAULT ''
+);
+`,
+	// wave 5: the Minecraft version each server's Discord update alert last
+	// went out for.
+	`
+ALTER TABLE servers ADD COLUMN minecraft_update_alerted TEXT NOT NULL DEFAULT '';
+`,
+	// Wave 6: each server's map. A row exists while the map is turned on. It
+	// keeps the add-on records of squaremap (and anything it needed) as JSON,
+	// the two sharing switches, when the first full drawing was asked for,
+	// and who asked for a restart once nobody is playing.
+	`
+CREATE TABLE maps (
+  server_id          TEXT PRIMARY KEY,
+  addons             TEXT NOT NULL DEFAULT '[]',
+  installed_at       INTEGER NOT NULL,
+  public             INTEGER NOT NULL DEFAULT 0,
+  public_players     INTEGER NOT NULL DEFAULT 0,
+  first_render_at    INTEGER,
+  restart_when_empty TEXT NOT NULL DEFAULT ''
+);
+`,
+	// Wave 6: the shared map's link token, new each time sharing is switched
+	// on. Maps shared before tokens existed have none, so they stop being
+	// shared until someone switches sharing on again.
+	`
+ALTER TABLE maps ADD COLUMN share_token TEXT NOT NULL DEFAULT '';
+UPDATE maps SET public = 0;
+`,
+	// Wave 6: the copy of the world as uploaded that a server made from an
+	// upload has to save before its first start upgrades the world, as JSON,
+	// or '' when none is due.
+	`
+ALTER TABLE servers ADD COLUMN original_due TEXT NOT NULL DEFAULT '';
+`,
 	// Wave 7 (0.4.0): schedules, sleep when nobody's playing, and backup rules
 	// with encrypted copies somewhere else. Off-site secrets and keys live in
 	// the offsite table, never in logs or responses.

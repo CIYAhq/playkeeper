@@ -16,6 +16,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/diagnose"
+	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
@@ -227,21 +228,33 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		s.mu.Unlock()
 		if s.insertEvent(ts, "join", p.Player, uuid, "server_log", "", key) {
 			s.openSession(ts, p.Player, uuid, "server_log", false)
+			if current {
+				s.alert(discord.Event{Kind: discord.KindPlayerJoined, Player: p.Player, At: ts})
+			}
 		}
 	case minecraft.EventLeave:
 		if s.insertEvent(ts, "leave", p.Player, "", "server_log", "", key) {
 			s.closeSession(ts, p.Player, "left", false)
+			if current {
+				s.alert(discord.Event{Kind: discord.KindPlayerLeft, Player: p.Player, At: ts})
+			}
 		}
 	case minecraft.EventReady:
-		s.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
+		fresh := s.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
 		// A run that had stopped when the follower attached is not coming up,
 		// whatever it logged, even a line Docker stamped after its end.
 		if current && ended.IsZero() {
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
-			s.crashed, s.crash = false, nil
+			recovered := s.runCrashed
+			s.crashed, s.runCrashed, s.crash = false, false, nil
 			s.lastError, s.lastErrorHint = "", ""
 			s.mu.Unlock()
+			if recovered && fresh {
+				s.alert(discord.Event{Kind: discord.KindRecovered, At: ts})
+			} else if fresh {
+				s.alert(discord.Event{Kind: discord.KindStarted, At: ts})
+			}
 		}
 	case minecraft.EventStopping:
 		s.insertEvent(ts, "server_stopping", "", "", "server_log", "", key)
@@ -583,12 +596,14 @@ func (s *server) sample(ctx context.Context) {
 	s.mu.Lock()
 	s.resources = res
 	s.players = snap
+	s.sampled = row.state
 	s.reachable = reachable
 	if reachable {
 		s.reachableAt = now
 	}
 	s.mu.Unlock()
 	s.setCollectingSince(now)
+	s.restartMapWhenEmpty(row.state == "online", snap)
 	s.observeSleep(now, row.state, snap)
 }
 

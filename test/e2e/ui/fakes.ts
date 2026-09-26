@@ -29,14 +29,21 @@ interface Reply {
 type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply
 
 interface FakeState {
+  origin: string
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
   /** The real panel's last answer to each read of a server's add-ons, packs and pre-generation, by path. */
   reads: Map<string, Record<string, unknown>>
+  discord: Record<string, unknown>
   opSeq: number
+  inviteSeq: number
   /** Each machine's address as the real panel last showed it; address changes answer with it. */
   addresses: Map<string, Record<string, unknown>>
+  /** Each server's map as the panel last described it. */
+  maps: Map<string, Record<string, unknown>>
+  /** World uploads opened on the fakes. */
+  imports: Map<string, WorldUpload>
   ops: Map<string, Record<string, unknown>>
   schedules: Map<string, Record<string, unknown>[]>
   backupRules: Map<string, Record<string, unknown>>
@@ -45,8 +52,34 @@ interface FakeState {
   sshKeys: Set<string>
 }
 
+interface UploadedFile {
+  index: number
+  name: string
+  size: number
+  received: number
+  sha256?: string
+}
+
+interface WorldUpload {
+  id: string
+  createdAt: string
+  files: UploadedFile[]
+  limitBytes: number
+  inspection?: unknown
+}
+
 const name = /^[A-Za-z0-9_]{3,16}$/
 const prefKey = /^[a-z][a-z0-9.:_-]{0,63}$/
+const inviteId = /^[a-kmnp-z2-9]{10}$/
+const day = 86_400_000
+const expiryDays = new Map([
+  ['1d', 1],
+  ['7d', 7],
+  ['30d', 30],
+  ['until_turned_off', 0],
+])
+const webhookHosts = new Set(['discord.com', 'canary.discord.com', 'ptb.discord.com', 'discordapp.com'])
+const badName = 'Minecraft usernames are 3–16 letters, numbers or underscores.'
 const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
 
 function invalid(error: string): Reply {
@@ -56,6 +89,12 @@ function invalid(error: string): Reply {
 function refuse(status: number, code: string, error: string, hint?: string): Reply {
   return { status, body: { error, code, hint } }
 }
+
+function notFound(error: string): Reply {
+  return { status: 404, body: { error, code: 'not_found' } }
+}
+
+const noContent: Reply = { status: 204, raw: '' }
 
 function op(state: FakeState, kind: string, serverId?: string, detail?: Record<string, unknown>): Reply {
   state.opSeq++
@@ -210,6 +249,84 @@ function backupFor(state: FakeState, serverId: string, backupId: string): Record
   return state.backups.get(serverId)?.find((b) => b.id === backupId)
 }
 
+/** A new invite's id and link path, shaped like the panel's. */
+function newInvite(state: FakeState): { id: string; path: string; createdAt: string } {
+  const n = ++state.inviteSeq
+  const a = 'abcdefghijkmnpqrstuvwxyz23456789'
+  return { id: `fakeinv${a[(n >> 10) & 31]}${a[(n >> 5) & 31]}${a[n & 31]}`, path: `/join/FakeInviteCode${String(n).padStart(8, '0')}`, createdAt: new Date().toISOString() }
+}
+
+function badLabel(label: unknown): boolean {
+  return label !== undefined && (typeof label !== 'string' || [...label].length > 64 || /\p{C}/u.test(label))
+}
+
+/** Why the panel would refuse a role and servers chosen on the Team page; only a new invite takes a label. */
+function grantProblem(body: unknown, labelled: boolean): string | undefined {
+  const b = body as { role?: unknown; servers?: { all?: unknown; servers?: unknown } | null; label?: unknown } | null
+  if (!b || !['viewer', 'moderator', 'admin'].includes(String(b.role)) || (labelled ? badLabel(b.label) : b.label !== undefined)) return 'Invalid request.'
+  const list = b.servers?.servers
+  const some = Array.isArray(list) ? list : []
+  if (b.servers?.all === true && some.length) return 'Choose all servers or some of them, not both.'
+  if (b.servers?.all !== true && !some.length) return 'Choose all servers, or at least one server.'
+  return undefined
+}
+
+function playerInvite(serverId: string, body: unknown, state: FakeState): Reply {
+  const b = (body ?? {}) as { label?: unknown; expiry?: unknown; maxUses?: unknown; unlimited?: unknown; approval?: unknown }
+  const days = expiryDays.get(String(b.expiry || '7d'))
+  if (days === undefined) return invalid('An invite link works for 1 day, 7 days, 30 days, or until you turn it off.')
+  const max = b.maxUses ?? 0
+  if (typeof max !== 'number' || !Number.isInteger(max)) return invalid('Invalid request.')
+  if (b.unlimited === true && max !== 0) return invalid('Choose a number of friends or no limit, not both.')
+  const uses = b.unlimited === true ? 0 : max || 5
+  if (b.unlimited !== true && (uses < 1 || uses > 100)) return invalid('An invite link can be for 1 to 100 friends, or have no limit.')
+  const approval = b.approval || 'right_away'
+  if (approval !== 'right_away' && approval !== 'after_yes') return invalid('An invite link lets people in right away or after you say yes.')
+  if (badLabel(b.label)) return invalid('A label is at most 64 characters, on one line.')
+  const inv = newInvite(state)
+  const expiresAt = days ? new Date(Date.parse(inv.createdAt) + days * day).toISOString() : undefined
+  return { status: 201, body: { ...inv, kind: 'player', projectId: 'fakeprojct', serverId, approval, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: uses, uses: 0, status: 'active', usesLeft: uses || undefined } }
+}
+
+function teamInvite(body: unknown, state: FakeState): Reply {
+  const why = grantProblem(body, true)
+  if (why) return invalid(why)
+  const b = body as { role: string; servers: unknown; label?: string }
+  const { path, ...inv } = newInvite(state)
+  const expiresAt = new Date(Date.parse(inv.createdAt) + 7 * day).toISOString()
+  return {
+    status: 201,
+    body: { invite: { ...inv, kind: 'member', projectId: 'fakeprojct', role: b.role, servers: b.servers, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: 1, uses: 0, status: 'active', usesLeft: 1 }, path, link: { base: state.origin, friendly: false } },
+  }
+}
+
+/** Why the agent would refuse a pasted Discord webhook URL. */
+function webhookProblem(raw: unknown): string | undefined {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (!text) return 'No webhook URL was given.'
+  let u: URL
+  try {
+    u = new URL(text)
+  } catch {
+    return text.includes('://') ? 'That is not a web address.' : 'A Discord webhook URL starts with https://.'
+  }
+  if (u.protocol !== 'https:') return 'A Discord webhook URL starts with https://.'
+  if (u.username || u.password || !webhookHosts.has(u.hostname.toLowerCase()) || u.port) return 'That address is not on discord.com, so it is not a Discord webhook URL.'
+  const m = /^\/api(?:\/v[0-9]{1,2})?\/webhooks\/([^/]+)\/([^/]+)\/?$/.exec(u.pathname)
+  if (!m) return 'That address is on Discord but is not a webhook URL.'
+  if (!/^[0-9]{17,20}$/.test(m[1] ?? '')) return 'The webhook URL is damaged: the number after /webhooks/ is not a Discord id.'
+  if (!/^[A-Za-z0-9_-]{60,100}$/.test(m[2] ?? '')) return 'The webhook URL looks cut off or changed: its secret last part is not valid.'
+  return undefined
+}
+
+function discordAlerts(body: unknown, state: FakeState): Reply {
+  const b = body as { alerts?: unknown; liveStatus?: unknown } | null
+  const alerts = b?.alerts
+  const kinds = Array.isArray(state.discord.kinds) ? (state.discord.kinds as unknown[]) : []
+  if (!Array.isArray(alerts) || !alerts.every((k) => kinds.includes(k)) || typeof b?.liveStatus !== 'boolean') return invalid('Choose alerts from the list.')
+  return { status: 200, body: { ...state.discord, alerts, liveStatus: b.liveStatus } }
+}
+
 const freeName = /^(?=.{3,32}$)[a-z0-9]+(-[a-z0-9]+)*$/
 const recoveryCodes = ['k7qm-4tzd-9hxw-2rbn', 'p3vc-8jwa-6fke-5msy', 'x2nd-7gqr-4bzh-9tce', 'm9wf-3kpa-8vrn-6dqj', 'c4ht-9xme-2qwz-7bnk', 'r6ya-5dkq-3pjw-8fmx', 'v8bn-2tce-7hqk-4wzr', 'e5jx-6mra-9dvf-3kpt', 'h3wq-8zcn-5tbm-2yja', 'z7kp-4fve-6xrd-9qhm']
 
@@ -295,8 +412,8 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { output: 'There are 0 of a max of 10 players online: ' } }
     },
   ],
-  ['POST', /^\/api\/servers\/(\w+)\/(whitelist|operators|kick)$/, ({ body }) => (playerName(body) ? { status: 200, body: {} } : invalid('Minecraft usernames are 3–16 letters, numbers or underscores.'))],
-  ['DELETE', /^\/api\/servers\/(\w+)\/(whitelist|operators)\/([^/]+)$/, (r) => (name.test(decodeURIComponent(r.params[2] ?? '')) ? { status: 200, body: {} } : invalid('Minecraft usernames are 3–16 letters, numbers or underscores.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/(whitelist|operators|kick)$/, ({ body }) => (playerName(body) ? { status: 200, body: {} } : invalid(badName))],
+  ['DELETE', /^\/api\/servers\/(\w+)\/(whitelist|operators)\/([^/]+)$/, (r) => (name.test(decodeURIComponent(r.params[2] ?? '')) ? { status: 200, body: {} } : invalid(badName))],
   [
     'POST',
     /^\/api\/servers\/(\w+)\/backups\/([\w-]+)\/verify$/,
@@ -321,6 +438,67 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
+  ['POST', /^\/api\/servers\/(\w+)\/invites$/, (r, state) => playerInvite(r.params[0] ?? '', r.body, state)],
+  ['DELETE', /^\/api\/servers\/(\w+)\/invites\/([^/]+)$/, (r) => (inviteId.test(r.params[1] ?? '') ? noContent : notFound('No such invite link.'))],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/join-requests\/([^/]+)\/(approve|decline)$/,
+    (r) =>
+      inviteId.test(r.params[1] ?? '')
+        ? { status: 200, body: { request: { id: r.params[1], serverId: r.params[0], state: r.params[2] === 'approve' ? 'approved' : 'declined', decidedAt: new Date().toISOString(), decidedBy: 1 } } }
+        : notFound('No such join request.'),
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/players\/message$/,
+    ({ body }) => {
+      if (!playerName(body)) return invalid(badName)
+      const m = (body as { message?: unknown }).message
+      const text = typeof m === 'string' ? m.trim() : ''
+      if (!text || [...text].length > 200 || /\p{C}|[^\S ]/u.test(text)) return invalid('Write a message of up to 200 characters on one line.')
+      return { status: 200, body: { message: 'Message sent.' } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/ban$/,
+    ({ body }) => {
+      const n = playerName(body)
+      return n ? { status: 200, body: { message: `Banned ${n}: Banned from the Playkeeper dashboard` } } : invalid(badName)
+    },
+  ],
+  ['POST', /^\/api\/team\/invites$/, (r, state) => teamInvite(r.body, state)],
+  [
+    'PUT',
+    /^\/api\/team\/invites\/([^/]+)$/,
+    (r) => {
+      if (!inviteId.test(r.params[0] ?? '')) return notFound('No such invite link.')
+      const why = grantProblem(r.body, false)
+      return why ? invalid(why) : { status: 200, body: { id: r.params[0], kind: 'member', ...(r.body as object), maxUses: 1, uses: 0, status: 'active', usesLeft: 1, canEdit: true } }
+    },
+  ],
+  ['DELETE', /^\/api\/team\/invites\/([^/]+)$/, (r) => (inviteId.test(r.params[0] ?? '') ? noContent : notFound('No such invite link.'))],
+  [
+    'PUT',
+    /^\/api\/team\/members\/(\d+)$/,
+    (r) => {
+      const why = grantProblem(r.body, false)
+      return why ? invalid(why) : { status: 200, body: { id: Number(r.params[0]), ...(r.body as object), owner: false, you: false, canEdit: true } }
+    },
+  ],
+  ['DELETE', /^\/api\/team\/members\/(\d+)$/, () => noContent],
+  ['POST', /^\/api\/team\/members\/(\d+)\/confirm-admin$/, (r) => ({ status: 200, body: { id: Number(r.params[0]), role: 'admin', owner: false, you: false, twoFactor: true, canEdit: true, waiting: false } })],
+  [
+    'POST',
+    /^\/api\/discord\/connect$/,
+    ({ body }, state) => {
+      const why = webhookProblem((body as { webhookUrl?: unknown } | null)?.webhookUrl)
+      return why ? invalid(why) : { status: 200, body: { ...state.discord, connected: true, webhookName: 'Server alerts', connectedAt: new Date().toISOString(), delivery: {} } }
+    },
+  ],
+  ['PUT', /^\/api\/discord$/, (r, state) => discordAlerts(r.body, state)],
+  ['DELETE', /^\/api\/discord$/, () => noContent],
+  ['POST', /^\/api\/discord\/test$/, (_r, state) => ({ status: 200, body: { ...state.discord, delivery: { sent: new Date().toISOString() } } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
   // Wave 1: the World tab's pre-generation and packs, and the Plugins and Mods tabs.
   [
@@ -462,6 +640,100 @@ const routes: [string, RegExp, Handler][] = [
       const on = (body as { public?: unknown } | null)?.public
       if (typeof on !== 'boolean') return invalid('Say whether to share the pack.')
       return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
+    },
+  ],
+  // Wave 6: the map's switches, and worlds uploaded for a new server.
+  ['POST', /^\/api\/servers\/(\w+)\/map\/enable$/, (r, state) => op(state, 'map_enable', r.params[0])],
+  ['POST', /^\/api\/servers\/(\w+)\/map\/disable$/, (r, state) => (typeof (r.body as { deleteMap?: unknown } | null)?.deleteMap === 'boolean' ? op(state, 'map_disable', r.params[0]) : invalid('Say whether to keep the drawn map.'))],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/map\/share$/,
+    (r, state) => {
+      const b = (r.body ?? {}) as { public?: unknown; players?: unknown }
+      if (b.public === undefined && b.players === undefined) return invalid('Say which switch to change.')
+      if ((b.public !== undefined && typeof b.public !== 'boolean') || (b.players !== undefined && typeof b.players !== 'boolean')) return invalid('Invalid request.')
+      const map = state.maps.get(r.params[0] ?? '') ?? {}
+      const shared = typeof b.public === 'boolean' ? b.public : map.public === true
+      const token = 'Fk3dEf6hIj9lMn2pQr5tUv'
+      return { status: 200, body: { ...map, public: shared, publicPlayers: typeof b.players === 'boolean' ? b.players : map.publicPlayers === true, path: shared ? `/map/${token}` : '', link: undefined } }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/map\/restart-later$/, (r, state) => ({ status: 200, body: { ...state.maps.get(r.params[0] ?? ''), restartWhenEmpty: true } })],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/world-imports$/,
+    (_r, state) => {
+      const id = `f${String(state.imports.size + 1).padStart(15, '0')}`
+      const imp: WorldUpload = { id, createdAt: new Date().toISOString(), files: [], limitBytes: 68_719_476_736 }
+      state.imports.set(id, imp)
+      return { status: 201, body: imp }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/world-imports\/(\w+)\/files$/,
+    (r, state) => {
+      const imp = state.imports.get(r.params[1] ?? '')
+      if (!imp) return importGone()
+      const b = (r.body ?? {}) as { name?: unknown; size?: unknown }
+      if (typeof b.name !== 'string' || !/\.(zip|tar\.gz|tgz|tar)$/i.test(b.name) || typeof b.size !== 'number' || b.size <= 0) return invalid('Choose a .zip, .tar.gz or .tar file.')
+      imp.files.push({ index: imp.files.length, name: b.name, size: b.size, received: 0 })
+      return { status: 201, body: imp }
+    },
+  ],
+  [
+    'PUT',
+    /^\/api\/machines\/(\w+)\/world-imports\/(\w+)\/files\/(\d+)$/,
+    (r, state) => {
+      const imp = state.imports.get(r.params[1] ?? '')
+      const f = imp?.files[Number(r.params[2])]
+      if (!imp || !f) return importGone()
+      f.received = f.size
+      f.sha256 = '0a1daf7328832d9ce31542d7458ffcc022d8f4b1092ce6195e97730795124709'
+      return { status: 200, body: imp }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/world-imports\/(\w+)\/inspect$/,
+    (r, state) => {
+      const imp = state.imports.get(r.params[1] ?? '')
+      const f = imp?.files[0]
+      if (!imp || !f) return importGone()
+      if (imp.files.some((x) => x.received < x.size)) return { status: 409, body: { error: 'The upload isn’t finished yet.', code: 'conflict' } }
+      imp.inspection = { archives: [{ name: f.name, format: 'zip', bytes: f.size, entries: 8 }], worlds: [sampleWorld(f.name)] }
+      return { status: 200, body: imp }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/world-imports\/(\w+)\/preview$/,
+    (r, state) => {
+      const imp = state.imports.get(r.params[1] ?? '')
+      const f = imp?.files[0]
+      if (!imp?.inspection || !f) return { status: 409, body: { error: 'Check the upload first.', code: 'conflict' } }
+      const versionId = (r.body as { versionId?: unknown } | null)?.versionId
+      if (versionId !== undefined && versionId !== 'paper-26.2' && versionId !== 'paper-1.21.4') return invalid('Pick one of the versions the preview offers.')
+      return { status: 200, body: samplePreview(imp.id, f.name, versionId === 'paper-1.21.4') }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/world-imports\/(\w+)\/create$/,
+    (r, state) => {
+      if (!state.imports.get(r.params[1] ?? '')?.inspection) return importGone()
+      const b = (r.body ?? {}) as { acceptEula?: unknown; name?: unknown; memoryMB?: unknown }
+      if (b.acceptEula !== true) return invalid('You must accept the Minecraft EULA before Playkeeper downloads or starts a server.')
+      if (typeof b.memoryMB !== 'number' || b.memoryMB <= 0) return invalid('Pick how much memory the server gets.')
+      return op(state, 'create', 'fakeserver')
+    },
+  ],
+  [
+    'DELETE',
+    /^\/api\/machines\/(\w+)\/world-imports\/(\w+)$/,
+    (r, state) => {
+      state.imports.delete(r.params[1] ?? '')
+      return { status: 204, raw: '' }
     },
   ],
   [
@@ -689,6 +961,121 @@ function confirmed(body: unknown): boolean {
   return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
 }
 
+function importGone(): Reply {
+  return { status: 404, body: { error: 'This upload isn’t here anymore.', hint: 'Upload the world again.', code: 'not_found' } }
+}
+
+/** A Minecraft 1.21.4 singleplayer world, as the agent describes it after checking an upload. */
+function sampleWorld(archive: string) {
+  return {
+    id: `${archive.replace(/\.(zip|tar\.gz|tgz|tar)$/i, '')}/Survival 2024`,
+    archive,
+    path: 'Survival 2024',
+    level: {
+      name: 'Survival 2024',
+      version: '1.21.4',
+      dataVersion: 4189,
+      series: 'main',
+      gameMode: 'survival',
+      hardcore: false,
+      difficulty: 'normal',
+      dataPacks: ['vanilla', 'file/Graves.zip'],
+      brands: ['vanilla'],
+      seed: '-4172144997902289642',
+      spawn: { x: 40, z: 12 },
+    },
+    origin: 'singleplayer',
+    default: true,
+    dimensions: ['minecraft:overworld', 'minecraft:the_nether', 'minecraft:the_end'],
+    players: 1,
+    sizeBytes: 5_767_513,
+    files: 8,
+  }
+}
+
+const paperVersions = [
+  {
+    id: 'paper-26.2',
+    label: 'Paper 26.2',
+    minecraftVersion: '26.2',
+    paperBuild: 129,
+    jarSha256: 'b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083',
+    java: 25,
+    recommended: true,
+    notes: 'Recommended: the newest stable Paper release. Java Edition 26.2 clients can join.',
+    channel: 'STABLE',
+    experimental: false,
+    supported: true,
+    keep: false,
+  },
+  {
+    id: 'paper-1.21.4',
+    label: 'Paper 1.21.4',
+    minecraftVersion: '1.21.4',
+    paperBuild: 232,
+    jarSha256: '5ee4f542f628a14c644410b08c94ea42e772ef4d29fe92973636b6813d4eaffc',
+    java: 21,
+    recommended: false,
+    notes: 'Older version that PaperMC no longer updates. Choose it for friends or plugins that still need 1.21.4.',
+    channel: 'STABLE',
+    experimental: false,
+    supported: false,
+    keep: true,
+  },
+]
+
+/** The agent's preview of the sample world on Paper 26.2, or kept on 1.21.4. */
+function samplePreview(id: string, archive: string, keep: boolean) {
+  const target = keep ? '1.21.4' : '26.2'
+  const upgrade = {
+    kind: 'world_upgrade',
+    params: { target, world: '1.21.4' },
+    text: `This world was saved by Minecraft 1.21.4. The server upgrades it to ${target} when it first starts, and an upgraded world can't be opened in 1.21.4 again.`,
+    hint: 'Keep your upload as a copy in case you want to go back.',
+  }
+  return {
+    id,
+    preview: {
+      world: sampleWorld(archive),
+      target: { type: 'paper', minecraftVersion: target, levelName: 'world' },
+      version: keep ? { compat: 'same', world: '1.21.4', dataVersion: 4189, target, targetDataVersion: 4189 } : { compat: 'upgrade', world: '1.21.4', dataVersion: 4189, target, targetDataVersion: 4903, warnings: [upgrade] },
+      folders: keep ? ['world', 'world_nether', 'world_the_end'] : ['world'],
+      fileCount: 7,
+      sizeBytes: 5_767_510,
+      dimensions: [
+        { id: 'minecraft:overworld', folder: 'world', files: 2, bytes: 4_194_304 },
+        { id: 'minecraft:the_nether', folder: keep ? 'world_nether/DIM-1' : 'world/DIM-1', files: 1, bytes: 1_048_576 },
+        { id: 'minecraft:the_end', folder: keep ? 'world_the_end/DIM1' : 'world/DIM1', files: 1, bytes: 524_288 },
+      ],
+      dataPacks: ['file/Graves.zip'],
+      players: 1,
+      settings: [
+        { key: 'level-seed', value: '-4172144997902289642', source: 'level.dat' },
+        { key: 'gamemode', value: 'survival', source: 'level.dat' },
+        { key: 'difficulty', value: 'normal', source: 'level.dat' },
+        { key: 'hardcore', value: 'false', source: 'level.dat' },
+      ],
+      leftOut: [{ kind: 'session_lock', files: 1, bytes: 3, examples: ['Survival 2024/session.lock'], text: 'session.lock is left out; it only marks a world as open.' }],
+      warnings: keep
+        ? [{ kind: 'bukkit_split', params: { levelName: 'world' }, text: 'Paper keeps the Nether and the End in their own folders, world_nether and world_the_end. Playkeeper moves them there.' }]
+        : [
+            upgrade,
+            {
+              kind: 'layout_upgrade',
+              params: { target },
+              text: `Minecraft ${target} keeps worlds in a newer folder layout. The server converts this world when it first starts.`,
+              hint: 'Big worlds can take several minutes; let the first start finish.',
+            },
+          ],
+    },
+    versions: paperVersions,
+    versionId: keep ? 'paper-1.21.4' : 'paper-26.2',
+    keepsOriginal: !keep,
+    willCreateRollback: false,
+    memoryMB: 8192,
+  }
+}
+
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
 const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
 
@@ -854,8 +1241,8 @@ const plans = [
 export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0, addresses: new Map(), ops: new Map(), schedules: new Map(), backupRules: new Map(), offsite: new Map(), sshKeys: new Set() }
   const origin = new URL(baseURL).origin
+  const state: FakeState = { origin, prefs: {}, backups: new Map(), update: {}, reads: new Map(), discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] }, opSeq: 0, inviteSeq: 0, addresses: new Map(), maps: new Map(), imports: new Map(), ops: new Map(), schedules: new Map(), backupRules: new Map(), offsite: new Map(), sshKeys: new Set() }
 
   // Links out of the dashboard open a stand-in page instead of the internet.
   await page.context().route(
@@ -930,18 +1317,23 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
       }
+      // A map tile nobody has explored yet is a 404 the map leaves blank.
+      const undrawn = res.status() === 404 && /^\/api\/(servers\/\w+\/map|public\/map\/\w+)\/tiles\//.test(path)
       // Add-on icons come from their sites through the panel, and one that
       // can't be had shows a stand-in, so its error is expected.
       const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
       // The records for a domain that isn't one are refused, like a wrong password.
       const refusedDomain = res.status() === 400 && /^\/api\/machines\/\w+\/address\/plan$/.test(path)
-      calls.push({ method, path, status: res.status(), faked: false, expected: (icon && !res.ok()) || refusedDomain || undefined, at })
+      calls.push({ method, path, status: res.status(), faked: false, expected: undrawn || (icon && !res.ok()) || refusedDomain || undefined, at })
       if (res.ok()) {
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
         if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
+        const map = /^\/api\/servers\/(\w+)\/map$/.exec(path)
+        if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
+        if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
         if (address?.[1]) state.addresses.set(address[1], await res.json().catch(() => ({})))
         const sched = /^\/api\/servers\/(\w+)\/schedules$/.exec(path)

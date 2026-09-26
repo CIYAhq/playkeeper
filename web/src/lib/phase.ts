@@ -153,6 +153,10 @@ const opKeys: Record<string, MessageKey> = {
   // Wave 4.
   reinstall: 'op.reinstall',
   'template-retry': 'op.templateRetry',
+  // Wave 6
+  world_import: 'op.world_import',
+  map_enable: 'op.map_enable',
+  map_disable: 'op.map_disable',
   // Wave 7
   sleep: 'op.sleep',
   wake: 'op.wake',

@@ -1,4 +1,4 @@
-import type { ElementHandle, Page, Request } from '@playwright/test'
+import type { ElementHandle, FileChooser, Page, Request } from '@playwright/test'
 import { breakControl, installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
 import { installFakes, type ApiCall, type View } from './fakes'
 
@@ -148,8 +148,9 @@ export class Crawler {
       this.downloads++
       void d.cancel().catch(() => {})
     })
-    page.on('filechooser', () => {
+    page.on('filechooser', (chooser) => {
       this.choosers++
+      void this.choose(chooser)
     })
     page.on('request', (r) => {
       const url = new URL(r.url())
@@ -161,6 +162,18 @@ export class Crawler {
     })
     page.on('requestfinished', (r) => this.pending.delete(r))
     page.on('requestfailed', (r) => this.pending.delete(r))
+  }
+
+  /**
+   * Picks a world archive in a picker that takes one, so the upload (to the
+   * fakes) and the steps after it can be pressed too. Other pickers are left
+   * empty.
+   */
+  private async choose(chooser: FileChooser) {
+    const accept = (await chooser.element().getAttribute('accept').catch(() => null)) ?? ''
+    if (!accept.split(',').includes('.zip')) return
+    const emptyZip = Buffer.from([0x50, 0x4b, 0x05, 0x06, ...new Array<number>(18).fill(0)])
+    await chooser.setFiles({ name: 'Survival-2024.zip', mimeType: 'application/zip', buffer: emptyZip }).catch(() => {})
   }
 
   /** API requests of the current page load that are still running. */
@@ -236,6 +249,10 @@ export class Crawler {
     this.loads++
     this.seen.clear()
     this.loadedAt = Date.now()
+    // Going to a #hash of the page that is open only scrolls it, so start from a blank page.
+    const to = new URL(route, this.baseURL)
+    const at = new URL(this.page.url(), this.baseURL)
+    if (to.hash && at.origin === to.origin && at.pathname === to.pathname) await this.page.goto('about:blank')
     await this.page.goto(route, { waitUntil: 'domcontentloaded' })
     await this.ready()
     let under: Snapshot | undefined
@@ -289,6 +306,7 @@ export class Crawler {
       if (hint.phrase) value = hint.phrase
       else if (hint.type === 'password') value = 'sample-password-2026'
       else if (hint.type === 'number') value = hint.min || '1'
+      else if (/webhook/.test(hint.text)) value = `https://discord.com/api/webhooks/123456789012345678/${'sample_token_'.repeat(6)}`
       else if (/minecraft|player|username|friend/.test(hint.text)) value = 'Pixel_Pia'
       else if (/command/.test(hint.text)) value = 'list'
       else if (/note/.test(hint.text)) value = 'Before the update'
@@ -432,7 +450,9 @@ export class Crawler {
     let revealed = false
     if (!opened && after && after.url === before.url && after.layers.join('|') === before.layers.join('|')) {
       const now = await this.controls()
-      revealed = now.some((x) => !keysBefore.has(x.key) && !x.isTarget)
+      // A new heading is a new step, such as the next page of a form, even when its controls have the same names.
+      const headings = (s: Snapshot) => s.fingerprint.filter((f) => f.startsWith('h:'))
+      revealed = now.some((x) => !keysBefore.has(x.key) && !x.isTarget) || diff(headings(before), headings(after)).some((d) => d.startsWith('+'))
     }
     return { result: this.record(route, via, c, status, effects, problems), opened, revealed, leadsTo: after ? signature(after) : undefined }
   }

@@ -34,6 +34,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
 const (
@@ -100,6 +101,9 @@ type Options struct {
 	HTTPClient *http.Client
 	// FillURL is PaperMC's Fill API (default https://fill.papermc.io).
 	FillURL string
+	// DiscordClient sends Discord requests (tests); nil means discord.com,
+	// or the test endpoint in DiscordURLEnv.
+	DiscordClient *http.Client
 	// Addons is the plugin and mod library (default: Modrinth and Hangar
 	// through HTTPClient, downloading into the staging folder).
 	Addons *addons.Library
@@ -152,6 +156,10 @@ type Options struct {
 	// public host but only over HTTPS to public addresses (default
 	// templates.PackClient); tests swap it.
 	PackClient *http.Client
+
+	// Wave 6: the live map.
+	// MapAddr maps the container address to squaremap's address (tests).
+	MapAddr func(containerIP string) string
 }
 
 // Retention bounds stored analytics and audit data.
@@ -211,6 +219,7 @@ type Agent struct {
 
 	upd     updateState
 	catalog catalogCache
+	disc    discordState
 	browse  browseCache
 	// curatedPicks are the curated add-ons that fit a type and Minecraft
 	// version (wave 4).
@@ -243,6 +252,11 @@ type Agent struct {
 
 	// Wave 4: each server's friends' share, built on the first ask.
 	shares friendsShares
+
+	// Wave 6: the live map, and servers started from a world.
+	maps      mapState
+	mapClient *http.Client
+	imports   importRegistry
 
 	// Wave 7 (0.4.0): the Disk space page's last scan.
 	disk diskCache
@@ -342,6 +356,9 @@ func New(opts Options) (*Agent, error) {
 	if opts.PackClient == nil {
 		opts.PackClient = templates.PackClient()
 	}
+	if opts.MapAddr == nil {
+		opts.MapAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(webmap.Port)) }
+	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -391,6 +408,8 @@ func New(opts Options) (*Agent, error) {
 		packPreviewSlots: make(chan struct{}, 2),
 		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
 		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),
+
+		mapClient: webmap.NewClient(),
 	}
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
@@ -420,6 +439,10 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := a.initDiscord(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
 	a.loadAddress()
@@ -441,6 +464,8 @@ func (a *Agent) Start() {
 	a.loop(a.updateLoop)
 	a.loop(a.hostLoop)
 	a.loop(a.addressLoop)
+	a.loop(a.disc.n.Run)
+	a.loop(a.discordLoop)
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -735,6 +760,16 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+		// wave 5: player profiles, messages and bans; Discord.
+		{"GET", "/v1/servers/{id}/players/profile", srv((*server).hProfile)},
+		{"POST", "/v1/servers/{id}/players/message", srv((*server).hMessage)},
+		{"POST", "/v1/servers/{id}/ban", srv((*server).hBan)},
+		{"GET", "/v1/discord", a.hDiscord},
+		{"POST", "/v1/discord/connect", a.hDiscordConnect},
+		{"PUT", "/v1/discord", a.hDiscordSettings},
+		{"DELETE", "/v1/discord", a.hDiscordDisconnect},
+		{"POST", "/v1/discord/test", a.hDiscordTest},
+		{"POST", "/v1/discord/notify", a.hDiscordNotify},
 		// Follow-ups after 0.3.0.
 		{"GET", "/v1/servers/{id}/world-copies", srv((*server).hWorldCopies)},
 		{"DELETE", "/v1/servers/{id}/world-copies/{name}", srv((*server).hWorldCopyDelete)},
@@ -771,6 +806,27 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/addon-sources", a.hAddonSources},
 		{"POST", "/v1/addon-sources/curseforge", a.hCurseForgeKeySet},
 		{"DELETE", "/v1/addon-sources/curseforge", a.hCurseForgeKeyRemove},
+
+		// Wave 6: the live map and the shared map.
+		{"GET", "/v1/servers/{id}/map", srv((*server).hMap)},
+		{"GET", "/v1/servers/{id}/map/{rest...}", srv((*server).hMapProxy)},
+		{"POST", "/v1/servers/{id}/map/enable", srv((*server).hMapEnable)},
+		{"POST", "/v1/servers/{id}/map/disable", srv((*server).hMapDisable)},
+		{"POST", "/v1/servers/{id}/map/share", srv((*server).hMapShare)},
+		{"POST", "/v1/servers/{id}/map/restart-later", srv((*server).hMapRestartLater)},
+		{"GET", "/v1/public-maps/{token}", a.hPublicMap},
+		{"GET", "/v1/public-maps/{token}/{rest...}", a.hPublicMapProxy},
+		// Wave 6: worlds people upload, for a new server or to replace one's world.
+		{"POST", "/v1/servers/{id}/world-imports", srv((*server).hWorldImportNew)},
+		{"POST", "/v1/world-imports", a.hWorldImportNewServer},
+		{"GET", "/v1/world-imports/{imp}", a.hWorldImport},
+		{"DELETE", "/v1/world-imports/{imp}", a.hWorldImportDelete},
+		{"POST", "/v1/world-imports/{imp}/files", a.hWorldImportFile},
+		{"PUT", "/v1/world-imports/{imp}/files/{n}", a.hWorldImportUpload},
+		{"POST", "/v1/world-imports/{imp}/inspect", a.hWorldImportInspect},
+		{"POST", "/v1/world-imports/{imp}/preview", a.hWorldImportPreview},
+		{"POST", "/v1/world-imports/{imp}/apply", a.hWorldImportApply},
+		{"POST", "/v1/world-imports/{imp}/create", a.hWorldImportCreate},
 	}, a.automationRoutes()...)
 }
 

@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { DiskCandidate, DiskReport, DiskWay, MachineView, Me, OffsiteView, Operation, ServerStatus } from '@/api/types'
+import type { Action, DiskCandidate, DiskReport, DiskWay, MachineView, Me, OffsiteView, Operation, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import * as controls from '@/components/app/controls'
 import { AppShell } from '@/components/app/shell'
@@ -33,7 +33,15 @@ const survival = 'abcdefghjk'
 const creative = 'bcdefghjkm'
 const hex = (n: number) => n.toString(16).padStart(32, '0')
 
-const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.4.0' }
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const me: Me = {
+  user: { username: 'siya', role: 'owner' },
+  csrfToken: 't',
+  expiresAt: '2026-09-26T00:00:00Z',
+  idleTimeoutSeconds: 43200,
+  version: '0.4.0',
+  access: { projectId: 'p2345abcde', role: 'admin', servers: { all: true }, twoFactor: false, can: everything },
+}
 
 const machine: MachineView = {
   id: 'm2345abcde',

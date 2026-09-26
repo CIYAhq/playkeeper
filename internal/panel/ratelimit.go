@@ -47,6 +47,21 @@ func (l *limiter) allow(key string) (bool, time.Duration) {
 	return false, wait
 }
 
+// ready reports whether key has a token left, without taking it.
+func (l *limiter) ready(key string) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b := l.buckets[key]
+	if b == nil {
+		return true, 0
+	}
+	tokens := math.Min(l.capacity, b.tokens+l.now().Sub(b.last).Seconds()*l.refill)
+	if tokens >= 1 {
+		return true, 0
+	}
+	return false, time.Duration((1 - tokens) / l.refill * float64(time.Second))
+}
+
 func (l *limiter) gc(now time.Time) {
 	for k, b := range l.buckets {
 		if now.Sub(b.last).Seconds()*l.refill >= l.capacity {
@@ -55,14 +70,19 @@ func (l *limiter) gc(now time.Time) {
 	}
 }
 
-// lockout tracks consecutive failed logins per account with exponential
-// back-off, independent of the client address.
+// lockout tracks consecutive failed logins per key with exponential
+// back-off. Sign-in keys it by account and address prefix, so failures
+// from one place can't keep a correct password out everywhere.
 type lockout struct {
 	mu       sync.Mutex
 	failures map[string]int
 	until    map[string]time.Time
 	now      func() time.Time
 }
+
+// maxLockoutKeys bounds the lockout's memory: past it, keys that aren't
+// locked right now are forgotten.
+const maxLockoutKeys = 10000
 
 func newLockout(now func() time.Time) *lockout {
 	return &lockout{failures: map[string]int{}, until: map[string]time.Time{}, now: now}
@@ -80,6 +100,15 @@ func (l *lockout) locked(key string) (bool, time.Duration) {
 func (l *lockout) fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if _, ok := l.failures[key]; !ok && len(l.failures) >= maxLockoutKeys {
+		now := l.now()
+		for k := range l.failures {
+			if u, ok := l.until[k]; !ok || !now.Before(u) {
+				delete(l.failures, k)
+				delete(l.until, k)
+			}
+		}
+	}
 	l.failures[key]++
 	if n := l.failures[key]; n >= 5 {
 		d := time.Minute << min(n-5, 4)

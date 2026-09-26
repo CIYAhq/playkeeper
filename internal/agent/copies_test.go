@@ -394,9 +394,9 @@ func TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart(t *testing.T)
 	}
 }
 
-// neededBy is the unfinished restore or update the rules keep a backup on
+// keptFor is the unfinished restore or update the rules keep a backup on
 // this machine for, if any.
-func neededBy(t *testing.T, s *server, id string) string {
+func keptFor(t *testing.T, s *server, id string) string {
 	t.Helper()
 	res, err := s.retentionPlan()
 	if err != nil {
@@ -464,7 +464,7 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 	if rollback == "" {
 		t.Fatal("the restore recorded no rollback archive")
 	}
-	if by := neededBy(t, s, rollback); by != "restore" {
+	if by := keptFor(t, s, rollback); by != "restore" {
 		t.Fatalf("while the restore runs, the rules keep its rollback archive for %q", by)
 	}
 	if l := e.a.diskLayout(context.Background()); !busy(l) || !slices.Equal(l.ActiveStages, []string{id}) {
@@ -474,7 +474,7 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 	if op := e.waitOp(opID); op.Status != api.OpSucceeded {
 		t.Fatalf("the restore: %+v", op)
 	}
-	if by := neededBy(t, s, rollback); by != "" {
+	if by := keptFor(t, s, rollback); by != "" {
 		t.Fatalf("once the restore is kept, the rules still keep its rollback archive for %q", by)
 	}
 
@@ -511,7 +511,7 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 		o := e.diskOffered()
 		return o[dir], o[aside]
 	}
-	if by := neededBy(t, s, rollback); by != "restore" {
+	if by := keptFor(t, s, rollback); by != "restore" {
 		t.Fatalf("with its journal left, the rules keep the rollback archive for %q", by)
 	}
 	if l := e.a.diskLayout(context.Background()); !busy(l) || !slices.Equal(l.ActiveStages, []string{stage}) {
@@ -525,7 +525,7 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	age()
-	if by := neededBy(t, s, rollback); by != "" {
+	if by := keptFor(t, s, rollback); by != "" {
 		t.Fatalf("without the journal, the rules keep the rollback archive for %q", by)
 	}
 	if st, cp := offered(); !st || !cp {
@@ -590,7 +590,7 @@ func TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed(t *testing.T) {
 		}
 		age()
 		logged := strings.Count(e.warnings.String(), "stage="+stage)
-		if by := neededBy(t, s, rollback); by != "restore" {
+		if by := keptFor(t, s, rollback); by != "restore" {
 			t.Fatalf("%s: the rules keep the rollback archive for %q", c.name, by)
 		}
 		l := e.a.diskLayout(context.Background())
@@ -613,7 +613,7 @@ func TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed(t *testing.T) {
 	}
 
 	age()
-	if by := neededBy(t, s, rollback); by != "" {
+	if by := keptFor(t, s, rollback); by != "" {
 		t.Fatalf("without the journal, the rules keep the rollback archive for %q", by)
 	}
 	if l := e.a.diskLayout(context.Background()); serverBusy(t, l, s.id) || serverBusy(t, l, other.id) {

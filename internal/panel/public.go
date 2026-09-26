@@ -4,30 +4,40 @@ import (
 	"maps"
 	"net/http"
 	"net/netip"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
 	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 )
 
 // publicRoutes is the public group: the only routes the panel answers
-// without a sign-in. Every one goes through publicGroup.guard, which limits
-// each address, caps downloads, sets deadlines and caching, and answers
-// what is unknown, switched off or on a stopped server with one 404; the
-// log shows only its prefix. A later route, such as /join/, /packs/ or
-// /map/, plugs in here with its prefix, limits, caching and handler, which
-// answers those cases with 404, 410 or the agent's 503 (see hidden).
+// without a sign-in, besides health, setup and sign-in. Every one goes
+// through publicGroup.guard, which limits each address, caps downloads,
+// sets deadlines and caching, and answers what is unknown, switched off or
+// on a stopped server with one 404; the log shows only its prefix. A later
+// route, such as /packs/ or /map/, plugs in here with its prefix, limits,
+// caching and handler, which answers those cases with 404, 410 or the
+// agent's 503 (see hidden).
 func (s *Server) publicRoutes() []publicRoute {
+	join := s.joinPages()
 	return []publicRoute{
 		{prefix: packs.PathPrefix, limits: packLimits, cache: packCache,
 			handler: packs.NewHandler(packs.Store{Dir: s.cfg.ResourcePacksDir()}, s.activePacks.has)},
 		{prefix: names.AlivePath, limits: aliveLimits, handler: s.aliveRoute()},
 		// Wave 4: the friends' pack pages, /packs/<token>.
 		{prefix: share.PathPrefix, limits: friendsPackLimits, handler: s.friendsPacks()},
+		// Wave 5: the page an invite link opens and the calls it makes.
+		{prefix: invites.JoinPath + "/", limits: joinPageLimits, ownRefusals: true, handler: join},
+		{prefix: joinCallPrefix, limits: joinCallLimits, ownRefusals: true, handler: join},
+		// Wave 6: the shared map's page and the calls it makes.
+		{prefix: mapPagePrefix, limits: mapPageLimits, handler: s.mapPage()},
+		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},
 	}
 }
 
@@ -56,8 +66,12 @@ type publicRoute struct {
 	limits publicLimits
 	// cache is the Cache-Control of the route's successful answers; every
 	// other answer, and every answer of a route without it, is no-store.
-	cache   string
-	handler http.Handler
+	cache string
+	// ownRefusals leaves the route's refusals to it instead of the one 404.
+	// The invite pages must tell an expired or used-up link from one that
+	// doesn't work, and answer unknown and turned-off links alike themselves.
+	ownRefusals bool
+	handler     http.Handler
 }
 
 // publicLimits bound what one address can make a public route do. An
@@ -104,10 +118,13 @@ func (g *publicGroup) handler(prefix string) http.Handler {
 }
 
 // logPath is p, or only its route's prefix when p is a public route's:
-// public paths may hold codes that work without a sign-in.
+// public paths may hold codes that work without a sign-in. p is cleaned
+// first, since a path like /api/public//map/<code> reaches the route after
+// a redirect.
 func (g *publicGroup) logPath(p string) string {
+	c := path.Clean("/" + p)
 	for _, rt := range g.routes {
-		if strings.HasPrefix(p, rt.prefix) {
+		if strings.HasPrefix(c, rt.prefix) {
 			return rt.prefix + "…"
 		}
 	}
@@ -144,7 +161,7 @@ func (g *publicGroup) guard(rt publicRoute, perMinute *limiter) http.Handler {
 		end := start.Add(rt.limits.write)
 		_ = rc.SetReadDeadline(start.Add(rt.limits.read))
 		_ = rc.SetWriteDeadline(end)
-		pw := &publicWriter{ResponseWriter: w, rc: rc, stall: rt.limits.stall, end: end, cache: rt.cache}
+		pw := &publicWriter{ResponseWriter: w, rc: rc, stall: rt.limits.stall, end: end, cache: rt.cache, own: rt.ownRefusals}
 		rt.handler.ServeHTTP(pw, r)
 		release()
 		if !pw.hidden {
@@ -216,8 +233,9 @@ func addressKey(remote string) string {
 }
 
 // publicWriter is what a public route answers through. It holds back the
-// answers hidden reports for the guard's 404, gives the others the route's
-// Cache-Control, and moves the write deadline on before each write, so
+// answers hidden reports for the guard's 404 (unless own says the route
+// answers its refusals), gives the others the route's Cache-Control, and
+// moves the write deadline on before each write, so
 // that a client that stops reading is dropped after stall, while one that
 // keeps reading has until end.
 type publicWriter struct {
@@ -226,6 +244,7 @@ type publicWriter struct {
 	stall time.Duration
 	end   time.Time
 	cache string
+	own   bool
 
 	wrote, hidden bool
 }
@@ -234,7 +253,7 @@ func (w *publicWriter) WriteHeader(status int) {
 	switch {
 	case w.wrote:
 		return
-	case hidden(status):
+	case hidden(status) && !w.own:
 		w.wrote, w.hidden = true, true
 		return
 	case status >= 200:

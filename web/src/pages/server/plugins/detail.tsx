@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { alsoInstalls, compactCount, footerFor, keyFrom, libraryMatch, searchPath, sourceNames, updatedAgo, versionPage } from '@/lib/addons'
 import { busyReason, opLabel } from '@/lib/phase'
+import { navigate } from '@/lib/router'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { AddonIcon, detailsPath, useAddons, type Detail } from './state'
@@ -334,6 +335,24 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
         )
         break
       }
+      case 'map':
+        body = (
+          <Blocked title={t('addons.usedByMap')} body={t('addons.usedByMapBody')}>
+            <Button
+              variant="outline"
+              size={size}
+              className="w-full"
+              onClick={() => {
+                a.openDetail(undefined)
+                navigate({ name: 'server', slug: a.server.slug, tab: 'map' })
+              }}
+            >
+              <span className="truncate">{t('addons.openMap')}</span>
+              <ArrowRightIcon />
+            </Button>
+          </Blocked>
+        )
+        break
       case 'blocked':
         // Installs can't allow pre-releases yet, so that hint has nothing to point at.
         body = f.notice ? <Blocked title={f.notice.message} body={f.notice.kind === 'only_prerelease' ? undefined : f.notice.hint} /> : null

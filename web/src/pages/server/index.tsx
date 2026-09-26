@@ -1,11 +1,12 @@
 import { useId, useState, type ReactNode } from 'react'
-import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, PuzzleIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
+import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, HouseIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SquareIcon, Trash2Icon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
@@ -14,16 +15,18 @@ import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
-import { t, type MessageKey } from '@/i18n'
+import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
-import { addonTab } from '@/lib/addons'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
+import { MapPage } from './map'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
+import { PlayerProfilePage } from './profile'
 import { BackupRulesPage, BackupRulesPhonePage } from './backups'
 import { CopiesCard, CopiesPhonePage } from './copies'
 import { PluginsPage, PluginsPhoneHeader } from './plugins'
@@ -33,16 +36,6 @@ import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
 import { PacksPage } from './world-packs'
 import { PregenPage } from './world-pregen'
-
-const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
-  { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
-  { tab: 'console', key: 'tab.console', icon: <SquareTerminalIcon /> },
-  { tab: 'players', key: 'tab.players', icon: <UsersIcon /> },
-  { tab: 'world', key: 'tab.world', icon: <GlobeIcon /> },
-  { tab: 'plugins', key: 'tab.plugins', icon: <PuzzleIcon /> },
-  { tab: 'mods', key: 'tab.mods', icon: <PuzzleIcon /> },
-  { tab: 'settings', key: 'tab.settings', icon: <SlidersHorizontalIcon /> },
-]
 
 export async function serverAction(server: ServerStatus, action: 'start' | 'stop' | 'restart' | 'backups', body: unknown = {}): Promise<boolean> {
   try {
@@ -54,7 +47,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running' }) {
+export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running'; player?: string }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -78,7 +71,7 @@ export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: Server
       body = <ConsolePage server={server} />
       break
     case 'players':
-      body = <PlayersPage server={server} />
+      body = player ? <PlayerProfilePage server={server} name={player} /> : <PlayersPage server={server} />
       break
     case 'world':
       if (phone && sub === 'backup-copies') body = <CopiesPhonePage server={server} />
@@ -92,6 +85,9 @@ export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: Server
     case 'mods':
       body = <PluginsPage server={server} tab={tab} sub={sub} />
       break
+    case 'map':
+      body = <MapPage server={server} />
+      break
     case 'settings':
       body = phone && sub === 'schedules' ? <SchedulesPhonePage server={server} /> : <ServerSettingsPage server={server} focus={sub} />
       break
@@ -100,7 +96,8 @@ export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: Server
       body = unreachable
     }
   }
-  if (settingUp && (page || (tab !== 'overview' && tab !== 'console'))) body = <Overview server={server} />
+  const locked = settingUp && (!!page || (tab !== 'overview' && tab !== 'console'))
+  if (locked) body = <Overview server={server} />
   // A page inside a tab animates in like a tab of its own. On desktop, both
   // backup pages are one page and Schedules is a section of Settings. The
   // Plugins tab keeps its running job and highlighted file across its views,
@@ -108,21 +105,24 @@ export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: Server
   const inner = sub ?? page
   let view = inner ? `${tab}/${inner}` : tab
   if (tab === 'plugins' || tab === 'mods') view = tab
+  else if (player) view = `${tab}/${player}`
   else if (!phone && sub === 'backup-copies') view = 'world/backup-rules'
   else if (!phone && tab === 'settings') view = 'settings'
   // Pages inside a tab bring their own phone header with a way back; the
   // Plugins tab's header serves all its views.
-  const ownHeader = phone && !settingUp && sub !== undefined && tab !== 'plugins' && tab !== 'mods'
+  const ownHeader = phone && !locked && sub !== undefined && tab !== 'plugins' && tab !== 'mods'
   return (
     <>
       {ownHeader ? null : phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
+        ) : player ? (
+          <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'players' }} label={t('tab.players')} title={player} />
         ) : page === 'running' && !settingUp ? (
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} />
-        ) : (tab === 'plugins' || tab === 'mods') && !settingUp ? (
+        ) : (tab === 'plugins' || tab === 'mods') && !locked ? (
           <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
-        ) : tab === 'world' && sub && !settingUp ? null : (
+        ) : (tab === 'world' && sub && !locked) || (tab === 'map' && !locked) ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (
@@ -173,13 +173,14 @@ function useCopyAddress(server: ServerStatus) {
 }
 
 function PrimaryAction({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale, me } = useWorkspace()
   const [busy, setBusy] = useState(false)
   const run = async (action: 'start' | 'restart') => {
     setBusy(true)
     await serverAction(server, action)
     setBusy(false)
   }
+  if (!can(me, 'servers.run')) return null
   // Asleep, Overview's card wakes it; there's nothing to restart.
   if (!stale && server.phase === 'asleep') return null
   const tone = statusTone(server)
@@ -200,38 +201,49 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 }
 
 function MoreMenu({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale, me } = useWorkspace()
   const c = controls(server)
+  const run = can(me, 'servers.run')
+  const backUp = can(me, 'backups.make')
+  const remove = can(me, 'servers.create')
+  const share = can(me, 'view')
   const [sharing, setSharing] = useState(false)
   const backUpBlocked = whyNot(server, 'change', stale)
+  if (!run && !backUp && !remove && !share) return null
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>
         <EllipsisIcon />
       </MenuTrigger>
       <MenuPopup align="end" className="min-w-52">
-        {c.canRestart && (
+        {run && c.canRestart && (
           <MenuItem onClick={() => void serverAction(server, 'restart')}>
             <RotateCwIcon />
             {t('server.restart')}
           </MenuItem>
         )}
-        {c.canStop && (
+        {run && c.canStop && (
           <MenuItem onClick={() => void serverAction(server, 'stop')}>
             <SquareIcon />
             {t('server.stop')}
           </MenuItem>
         )}
-        <MenuItem disabled={!!backUpBlocked} title={backUpBlocked} onClick={() => void serverAction(server, 'backups')}>
-          <ArchiveIcon />
-          {t('server.backUp')}
-        </MenuItem>
-        <TemplateMenuItem onClick={() => setSharing(true)} />
-        <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
-          <Trash2Icon />
-          {t('server.deleteMenu')}
-        </MenuItem>
+        {backUp && (
+          <MenuItem disabled={!!backUpBlocked} title={backUpBlocked} onClick={() => void serverAction(server, 'backups')}>
+            <ArchiveIcon />
+            {t('server.backUp')}
+          </MenuItem>
+        )}
+        {share && <TemplateMenuItem onClick={() => setSharing(true)} />}
+        {remove && (
+          <>
+            {(run || backUp || share) && <MenuSeparator />}
+            <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
+              <Trash2Icon />
+              {t('server.deleteMenu')}
+            </MenuItem>
+          </>
+        )}
       </MenuPopup>
       <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />
     </Menu>
@@ -277,11 +289,15 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
-              <MenuSeparator />
-              <MenuItem onClick={() => navigate({ name: 'new-server' })}>
-                <PlusIcon />
-                {t('nav.newServer')}
-              </MenuItem>
+              {can(ws.me, 'servers.create') && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem onClick={() => navigate({ name: 'new-server' })}>
+                    <PlusIcon />
+                    {t('nav.newServer')}
+                  </MenuItem>
+                </>
+              )}
             </MenuPopup>
           </Menu>
         </nav>
@@ -310,7 +326,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
-        {tabs.filter((x) => (x.tab !== 'plugins' && x.tab !== 'mods') || x.tab === addonTab(s.type)).map((x) => {
+        {serverTabsFor(ws.me, s).map((x) => {
           const active = x.tab === tab
           const cls = cn(
             'inline-flex h-10 shrink-0 items-center gap-2 border-b-2 text-sm font-medium outline-none [&_svg]:size-4',
@@ -416,16 +432,18 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           ))}
         </ul>
         <ul className="mt-3 mb-2 overflow-hidden rounded-3xl border border-border bg-white">
-          <li className="border-b border-border">
-            <button type="button" onClick={() => go({ name: 'new-server' })} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left">
-              <PlusIcon className="size-5 text-primary" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-base">{t('nav.newServer')}</span>
-                {live && <span className="block text-[13px] text-muted-foreground">{t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
-              </span>
-              <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-            </button>
-          </li>
+          {can(ws.me, 'servers.create') && (
+            <li className="border-b border-border">
+              <button type="button" onClick={() => go({ name: 'new-server' })} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left">
+                <PlusIcon className="size-5 text-primary" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base">{t('nav.newServer')}</span>
+                  {live && <span className="block text-[13px] text-muted-foreground">{t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
+                </span>
+                <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </li>
+          )}
           <li>
             <a {...linkPath('/')} onClick={(e) => { e.preventDefault(); go({ name: 'home' }) }} className="flex min-h-14 w-full items-center gap-3 px-4 py-2">
               <HouseIcon className="size-5 text-muted-foreground" aria-hidden="true" />

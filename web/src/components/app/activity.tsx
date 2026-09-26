@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MoonIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
-import type { Activity, ActivityKind, ServerStatus } from '@/api/types'
+import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
+import { projectRoles, roleName } from '@/lib/access'
 import { relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -44,6 +45,8 @@ function icon(kind: ActivityKind): ReactNode {
       return <RotateCwIcon />
     case 'settings':
       return <SlidersHorizontalIcon />
+    case 'team_joined':
+      return <UserPlusIcon />
     case 'fell_asleep':
       return <MoonIcon />
     case 'woke_up':
@@ -83,7 +86,7 @@ export function activityText(a: Activity, server: string, me: string, here = fal
     case 'stopped_outside':
       return t('activity.stopped_outside', { server })
     case 'allowlisted':
-      return t('activity.allowlisted', { actor, player })
+      return a.actor?.startsWith('invite:') ? t('activity.allowlistedByLink', { player }) : t('activity.allowlisted', { actor, player })
     case 'unlisted':
       return t('activity.unlisted', { actor, player })
     case 'operator':
@@ -104,6 +107,10 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return t('activity.restarted', { server })
     case 'settings':
       return t('activity.settings', { actor, server })
+    case 'team_joined': {
+      const role = projectRoles.find((r): r is ProjectRole => r === a.detail)
+      return t('activity.teamJoined', { name: a.actor ?? '', role: role ? roleName(role) : (a.detail ?? '') })
+    }
     case 'fell_asleep':
       return a.detail ? t('activity.fellAsleep', { server, minutes: Number(a.detail) }) : t('activity.fellAsleepPlain', { server })
     case 'woke_up':

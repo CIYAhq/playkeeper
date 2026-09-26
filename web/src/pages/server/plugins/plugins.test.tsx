@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, Address, CuratedAddons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, Address, CuratedAddons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import type { ServerSub } from '@/lib/router'
 import { PluginsPage } from '.'
@@ -14,7 +14,15 @@ vi.mock('@/api/client', async (importOriginal) => ({
   post: vi.fn(() => Promise.resolve({})),
 }))
 
-const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const me: Me = {
+  user: { username: 'siya', role: 'owner' },
+  csrfToken: 't',
+  expiresAt: '2026-09-26T00:00:00Z',
+  idleTimeoutSeconds: 43200,
+  version: '0.3.0',
+  access: { projectId: 'p2345abcde', role: 'admin', servers: { all: true }, twoFactor: false, can: everything },
+}
 const machine = { id: 'm2345abcde', projectId: 'p2345abcde', name: 'my-vps', kind: 'local' } as MachineView
 const config = { versionId: 'paper-26.1.2', minecraftVersion: '26.1.2', paperBuild: 74, memoryMB: 4096, heapMB: 3072, levelName: 'world', motd: 'Hi', maxPlayers: 10, whitelist: true } as ServerConfig
 
@@ -359,6 +367,41 @@ describe('Plugins tab', () => {
     expect(text).toContain('Downloaded LuckPerms 5.4.150')
     expect(text).toContain('Checksum matched')
     expect(text).not.toContain('Was 5.4.150')
+  })
+
+  it('shows what the Map installed as the Map’s, linked to it, with nothing to manage', async () => {
+    const squaremap = addon('squaremap', { projectId: 'PFb7ZqK6', versionNumber: '1.3.13.2', usedBy: 'map' })
+    answer([
+      ['/addons/checks', { updates: [], identified: [], checkedAt: '2026-09-25T00:00:00Z' }],
+      ['/addons', { ...installed, files: [{ fileName: squaremap.fileName, size: 1, status: 'managed', addon: squaremap, pending: true }], missing: [], restartNeeded: false }],
+    ])
+    const text = await render(server())
+    expect(text).toContain('squaremap1.3.13.2')
+    expect(text).toContain('Used by the Map')
+    expect(text).toContain('Modrinth')
+    for (const hidden of ['By hand', 'Added by hand', 'Let Playkeeper manage it', 'Restart Survival', 'Remove']) expect(text).not.toContain(hidden)
+    expect(document.querySelector('[aria-label="More actions for squaremap"]')).toBeNull()
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('squaremap'))).toBe(false)
+    expect(button('Used by the Map').getAttribute('href')).toBe('/servers/survival/map')
+  })
+
+  it('points to the Map from what it installed, without Remove or Update', async () => {
+    const squaremap = addon('squaremap', { projectId: 'PFb7ZqK6', versionNumber: '1.3.13.2', usedBy: 'map' })
+    const details: AddonDetails = { card: card('squaremap', { projectId: 'PFb7ZqK6', installed: true }), latest: version('1.3.14'), installed: squaremap }
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/search', { cards: [details.card], more: false, unanswered: [] }],
+      ['/addons/project/', details],
+      ['/addons', installed],
+    ])
+    await render(server(), 'plugins', 'browse')
+    const text = await click('squaremap')
+    expect(text).toContain('Used by the Map')
+    expect(text).toContain('Turning off the map removes it.')
+    expect(text).not.toContain('Update to 1.3.14')
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Remove')).toBe(false)
+    await click('Open the Map')
+    expect(window.location.pathname).toBe('/servers/survival/map')
   })
 
   it('says nothing is installed yet', async () => {

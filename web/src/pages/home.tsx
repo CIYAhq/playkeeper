@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, CatalogEntry, ServerStatus } from '@/api/types'
+import type { Activity, CatalogEntry, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
@@ -17,7 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatBytes, formatMB, formatPercent, formatSpan, serverJoinAddress } from '@/lib/format'
+import { can, welcomeKey } from '@/lib/access'
+import { formatBytes, formatList, formatMB, formatPercent, formatSpan, serverJoinAddress } from '@/lib/format'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
@@ -25,6 +26,7 @@ import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { holdsBackupKeys } from '@/pages/server/copies'
 import { AsleepDetail, gaveBackText } from '@/pages/server/sleep'
+import { ConfirmAdminNotice } from './team'
 
 export function HomePage() {
   const ws = useWorkspace()
@@ -34,7 +36,8 @@ export function HomePage() {
   const { catalog } = useCatalog(machine?.id)
   const activity = usePoll<Activity[] | undefined>(() => (machine ? get<Activity[]>(machineApi(machine.id, '/activity?limit=5')) : Promise.resolve(undefined)), 10000, machine?.id ?? '')
 
-  const newButton = (
+  const create = can(ws.me, 'servers.create')
+  const newButton = create && (
     <Button render={<a {...linkProps({ name: 'new-server' })} />}>
       <PlusIcon />
       {t('nav.newServer')}
@@ -48,15 +51,16 @@ export function HomePage() {
         <PageBody className="flex flex-1 flex-col items-center pt-10 text-center max-sm:pt-0">
           <Pip pose="wave" size={phone ? 104 : 96} />
           <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{t('home.emptyTitle')}</h2>
-          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{t('home.emptyBody')}</p>
-          {phone ? (
-            <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>
-              <PlusIcon />
-              {t('checklist.create')}
-            </Button>
-          ) : (
-            <div className="mt-5">{newButton}</div>
-          )}
+          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{create ? t('home.emptyBody') : t('home.emptyMember')}</p>
+          {create &&
+            (phone ? (
+              <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>
+                <PlusIcon />
+                {t('checklist.create')}
+              </Button>
+            ) : (
+              <div className="mt-5">{newButton}</div>
+            ))}
           {holdsBackupKeys(ws.me?.user.role ?? '') && (
             <p className="mt-3 text-xs text-muted-foreground max-sm:text-[13px]">
               {rich('recover.homeLink', {
@@ -68,7 +72,7 @@ export function HomePage() {
               })}
             </p>
           )}
-          <EmptySteps phone={phone} />
+          {create && <EmptySteps phone={phone} />}
         </PageBody>
       </>
     )
@@ -89,10 +93,12 @@ export function HomePage() {
           <Card>
             <CardTitle>{t('home.activityTitle')}</CardTitle>
             <ActivityList items={activity.data} servers={servers ?? []} empty={t('home.activityEmpty')} className="mt-3 flex-1" />
-            <a {...linkPath('/settings#audit')} className="mt-4 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
-              {t('home.auditLink')}
-              <ArrowRightIcon className="size-3.5" aria-hidden="true" />
-            </a>
+            {can(ws.me, 'audit.view') && (
+              <a {...linkPath('/settings#audit')} className="mt-4 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
+                {t('home.auditLink')}
+                <ArrowRightIcon className="size-3.5" aria-hidden="true" />
+              </a>
+            )}
           </Card>
           <MachineCard />
         </div>
@@ -101,14 +107,86 @@ export function HomePage() {
   )
 }
 
-/** At most one notice: the agent not answering, what to know after signing in, or disk space. */
+/**
+ * Home's one notice: the agent not answering, what to know after signing
+ * in, or disk space; else what a team member should know.
+ */
 function HomeNotice() {
   const ws = useWorkspace()
   const disk = ws.machine?.live?.diskWarning
   if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.body', { machine: ws.machineName })}</Notice>
   if (ws.signInNotice) return <SignInNotice />
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
-  return null
+  return can(ws.me, 'team.manage') ? <TeamNotice /> : <MemberNotice />
+}
+
+/** For whoever can confirm them, a member waiting for their Admin rights comes first. */
+function TeamNotice() {
+  const team = usePoll(() => get<TeamResponse>('/api/team'), 15_000)
+  const waiting = team.data?.members.find((m) => m.canConfirm)
+  return waiting ? <ConfirmAdminNotice member={waiting} onConfirmed={team.refresh} /> : <MemberNotice />
+}
+
+/** Admin rights waiting for two-factor sign-in or a confirmation, or the welcome after joining with an invite link. */
+function MemberNotice() {
+  const ws = useWorkspace()
+  const [dismissed, setDismissed] = useState(false)
+  const access = ws.me.access
+  if (access.needsTwoFactor) {
+    const turnOn = (
+      <Button variant="outline" size="sm" render={<a {...linkPath('/account/two-factor')} />}>
+        <ShieldCheckIcon />
+        {t('home.turnItOn')}
+      </Button>
+    )
+    return <TwoLineNotice tone="warning" title={t('home.adminLaterTitle')} body={t('home.adminLaterBody')} action={turnOn} />
+  }
+  if (access.awaitingConfirmation) return <TwoLineNotice tone="warning" title={t('home.adminWaitingTitle')} body={t('home.adminLaterBody')} />
+  if (dismissed || ws.prefs[welcomeKey] !== '1' || !ws.servers?.length) return null
+  const name = ws.me.user.username
+  const servers = access.servers.all ? t('home.welcomeAllServers') : formatList(ws.servers.map((s) => s.name))
+  const close = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={t('common.dismiss')}
+      onClick={() => {
+        setDismissed(true)
+        void ws.setPrefs({ [welcomeKey]: '' }).catch(() => undefined)
+      }}
+    >
+      <XIcon />
+    </Button>
+  )
+  return <TwoLineNotice pip title={access.team ? t('home.welcome', { team: access.team, name }) : t('home.welcomeAny', { name })} body={welcomeLine(access.role, servers)} action={close} />
+}
+
+function welcomeLine(role: ProjectRole, servers: string): string {
+  switch (role) {
+    case 'admin':
+      return t('home.welcomeAdmin', { servers })
+    case 'moderator':
+      return t('home.welcomeModerator', { servers })
+    case 'viewer':
+      return t('home.welcomeViewer', { servers })
+    default: {
+      const unreachable: never = role
+      return unreachable
+    }
+  }
+}
+
+function TwoLineNotice({ title, body, action, tone = 'default', pip }: { title: string; body: string; action?: ReactNode; tone?: 'default' | 'warning'; pip?: boolean }) {
+  return (
+    <div className="flex animate-enter items-center gap-3" role="status">
+      {pip && <Pip pose="wave" size={40} />}
+      <div className="min-w-0 flex-1">
+        <p className={cn('text-[13px] leading-5 font-semibold', tone === 'warning' && 'text-warning-foreground')}>{title}</p>
+        <p className="text-xs leading-4 text-muted-foreground max-sm:text-[13px] max-sm:leading-[18px]">{body}</p>
+      </div>
+      {action}
+    </div>
+  )
 }
 
 async function startServer(s: ServerStatus) {
@@ -121,6 +199,8 @@ async function startServer(s: ServerStatus) {
 
 function StartButton({ server, label }: { server: ServerStatus; label: string }) {
   const [busy, setBusy] = useState(false)
+  const { me } = useWorkspace()
+  if (!can(me, 'servers.run')) return null
   return (
     <Button
       size="sm"
@@ -263,6 +343,7 @@ function NewServerCard() {
   const ws = useWorkspace()
   const live = ws.machine?.live
   const full = !!live && live.memoryFreeMB <= 0
+  if (!can(ws.me, 'servers.create')) return null
   return (
     <a
       {...linkProps({ name: 'new-server' })}

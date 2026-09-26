@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 func TestWaveSevenRoutesReachTheAgent(t *testing.T) {
@@ -158,19 +160,19 @@ func TestOneCheckDecidesWhoHoldsBackupKeys(t *testing.T) {
 	if len(want) != 0 {
 		t.Errorf("routes missing: %v", want)
 	}
-	sessions := map[string]*session{
-		"nobody": nil,
-		"owner":  {User: user{Username: "siya", Role: roleOwner}},
-		"member": {User: user{Username: "friend", Role: roleMember}},
-		"admin":  {User: user{Username: "co", Role: "admin"}},
+	accounts := map[string]access{
+		"nobody": {},
+		"owner":  {Account: invites.Account{UserID: 1, Name: "siya", InstallRole: roleOwner}},
+		"member": {Account: invites.Account{UserID: 2, Name: "friend", InstallRole: roleMember, ProjectRole: invites.RoleViewer}},
+		"admin":  {Account: invites.Account{UserID: 3, Name: "co", InstallRole: roleMember, ProjectRole: invites.RoleAdmin}},
 	}
-	for who, sess := range sessions {
-		for _, a := range []action{actManageBackupCopies, actRecoveryKey} {
-			if permit(sess, a) != mayHoldBackupKeys(sess) {
-				t.Errorf("permit(%s, %q) disagrees with mayHoldBackupKeys", who, a)
+	for who, a := range accounts {
+		for _, act := range []action{actManageBackupCopies, actRecoveryKey} {
+			if (permit(a, act, "") == nil) != mayHoldBackupKeys(a) {
+				t.Errorf("permit(%s, %q) disagrees with mayHoldBackupKeys", who, act)
 			}
 		}
-		if got := mayHoldBackupKeys(sess); got != (who == "owner") {
+		if got := mayHoldBackupKeys(a); got != (who == "owner") {
 			t.Errorf("mayHoldBackupKeys(%s) = %v", who, got)
 		}
 	}

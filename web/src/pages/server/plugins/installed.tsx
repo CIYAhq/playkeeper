@@ -130,8 +130,10 @@ function DesktopList({ browse, browseLabel }: { browse: Route; browseLabel: stri
 }
 
 function openable(r: AddonRow): boolean {
-  return r.state !== 'unknown' && !!r.addon
+  return r.state !== 'unknown' && r.state !== 'map' && !!r.addon
 }
+
+const mapRoute = (slug: string): Route => ({ name: 'server', slug, tab: 'map' })
 
 function openRow(a: ReturnType<typeof useAddons>, r: AddonRow) {
   if (!r.addon) return
@@ -169,7 +171,7 @@ function DesktopRow({ row: r, presence }: { row: AddonRow; presence: Presence })
       ) : (
         <div className="flex min-w-0 items-center gap-3">{main}</div>
       )}
-      <span className="truncate text-[13px] text-muted-foreground">{r.addon && (r.state === 'managed' || r.state === 'changed' || r.state === 'missing') ? sourceNames[r.addon.source] : t('addons.byHand')}</span>
+      <span className="truncate text-[13px] text-muted-foreground">{r.addon && (r.state === 'managed' || r.state === 'changed' || r.state === 'missing' || r.state === 'map') ? sourceNames[r.addon.source] : t('addons.byHand')}</span>
       <RowStatus row={r} />
       <RowMenu row={r} />
     </li>
@@ -251,6 +253,13 @@ function RowStatus({ row: r }: { row: AddonRow }) {
     case 'unknown':
       body = <TwoLines first={t('addons.addedByHand')} second={t('addons.notInLibrary')} />
       break
+    case 'map':
+      body = (
+        <a {...linkProps(mapRoute(a.server.slug))} className="truncate text-[13px] font-medium text-primary hover:underline">
+          {t('addons.usedByMap')}
+        </a>
+      )
+      break
     default: {
       const unreachable: never = r.state
       body = unreachable
@@ -262,7 +271,7 @@ function RowStatus({ row: r }: { row: AddonRow }) {
 function RowMenu({ row: r }: { row: AddonRow }) {
   const a = useAddons()
   const key = r.addon
-  if (!key || r.state === 'unknown') return <span />
+  if (!key || r.state === 'unknown' || r.state === 'map') return <span />
   const installed = r.state === 'managed' || r.state === 'changed'
   const update = r.update
   const blocked = busyReason(a.server)
@@ -370,6 +379,8 @@ function phoneLine(r: AddonRow, friends?: FriendsLabel): string {
       return [t('addons.addedByHand'), t('addons.foundOnModrinth')].join(t('common.dot'))
     case 'unknown':
       return t('addons.addedByHand')
+    case 'map':
+      return t('addons.usedByMap')
     default: {
       const unreachable: never = r.state
       return unreachable
@@ -405,6 +416,11 @@ function PhoneRow({ row: r, presence }: { row: AddonRow; presence: Presence }) {
           {body}
           <PhoneMark row={r} />
         </button>
+      ) : r.state === 'map' ? (
+        <a {...linkProps(mapRoute(a.server.slug))} className={phoneRowClass}>
+          {body}
+          <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </a>
       ) : (
         <div className={phoneRowClass}>{body}</div>
       )}
