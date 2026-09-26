@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react'
-import { ChevronRightIcon, MapIcon, PackageIcon } from 'lucide-react'
+import { ChevronRightIcon, MapIcon, PackageIcon, SlidersHorizontalIcon, UploadIcon } from 'lucide-react'
 import type { Pregen, ServerStatus } from '@/api/types'
 import { Spinner } from '@/components/app/bits'
 import { InlineSkeleton } from '@/components/app/skeletons'
 import { t } from '@/i18n'
 import { worldMissingReason } from '@/lib/phase'
-import { linkProps, type ServerSub } from '@/lib/router'
+import { linkPath, linkProps, type ServerSub } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { usePacksLine } from './world-packs'
 import { pregenLine, usePregen } from './world-pregen'
@@ -124,11 +124,28 @@ export function PhoneWorldLinks({ server: s }: { server: ServerStatus }) {
   )
 }
 
-/** The tab's pages, for a world without backups yet. */
+/** The World card's row into New server's "Start from your own world". */
+export function OwnWorldLink() {
+  return (
+    <li>
+      <a {...linkPath('/servers/new#world')} className={cn(desktopRow, 'group outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent')}>
+        <UploadIcon />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-semibold">{t('world.ownWorld')}</span>
+          <span className="block text-xs text-muted-foreground">{t('world.ownWorldHint')}</span>
+        </span>
+        <ChevronRightIcon className="transition-transform duration-(--motion-fast) ease-standard group-hover:translate-x-0.5" aria-hidden="true" />
+      </a>
+    </li>
+  )
+}
+
+/** The tab's pages, for a world without backups yet: backup rules turn on automatic backups and copies before the first one. */
 export function WorldTools({ server, phone, className }: { server: ServerStatus; phone: boolean; className?: string }) {
   if (phone) {
     return (
       <ul className={cn('w-full overflow-hidden rounded-3xl border border-border bg-white text-left', className)}>
+        <PhoneLink server={server} sub="backup-rules" icon={<SlidersHorizontalIcon />} title={t('world.rules')} line={undefined} />
         <PhoneWorldLinks server={server} />
       </ul>
     )
@@ -136,6 +153,8 @@ export function WorldTools({ server, phone, className }: { server: ServerStatus;
   return (
     <ul className={cn('grid w-full max-w-[720px] gap-x-8 border-t border-border pt-3 text-left sm:grid-cols-2', className)}>
       <WorldLinks server={server} />
+      <DesktopLink server={server} sub="backup-rules" icon={<SlidersHorizontalIcon />} title={t('world.rules')} line={t('world.rulesLine')} />
+      <OwnWorldLink />
     </ul>
   )
 }

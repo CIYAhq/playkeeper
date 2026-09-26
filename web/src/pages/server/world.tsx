@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArchiveIcon, ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArchiveIcon, ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, SlidersHorizontalIcon, Trash2Icon } from 'lucide-react'
 import { ApiError, del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
@@ -23,11 +23,11 @@ import { can } from '@/lib/access'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
 import { busyReason, failedJob, restoreUnsettledReason, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
-import { linkPath, linkProps } from '@/lib/router'
+import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { CopyRestoreDialog, CopyRow, phoneStored, storedCell, storedRows, useCopyRestore, useStoredCopies, type StoredRow } from './copy-restore'
-import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
+import { OwnWorldLink, phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
 
 const newestShown = 6
 
@@ -395,19 +395,7 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
       </dl>
       <ul className="mt-3 flex flex-col">
         <WorldLinks server={s} />
-        <li>
-          <a
-            {...linkPath('/servers/new#world')}
-            className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-          >
-            <UploadIcon />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-semibold">{t('world.ownWorld')}</span>
-              <span className="block text-xs text-muted-foreground">{t('world.ownWorldHint')}</span>
-            </span>
-            <ChevronRightIcon className="transition-transform duration-(--motion-fast) ease-standard group-hover:translate-x-0.5" aria-hidden="true" />
-          </a>
-        </li>
+        <OwnWorldLink />
       </ul>
     </Card>
   )

@@ -3788,6 +3788,15 @@ webcontrol "a joined machine's details say its agent stopped answering" web/src/
   ": agentSilent(m) ? { title: t('machines.problem.agentDown', { name })" \
   ": false ? { title: t('machines.problem.agentDown', { name })" \
   web/src/pages/pages.test.tsx 'stopped answering, as the sidebar'
+webcontrol "a World tab without backups links to backup rules" web/src/pages/server/world-links.tsx \
+  '      <DesktopLink server={server} sub="backup-rules" icon={<SlidersHorizontalIcon />} title={t('"'"'world.rules'"'"')} line={t('"'"'world.rulesLine'"'"')} />
+' \
+  '' \
+  web/src/pages/server/world.test.tsx 'backup rules and your own world'
+webcontrol "a phone's World tab without backups links to backup rules" web/src/pages/server/world-links.tsx \
+  '        <PhoneLink server={server} sub="backup-rules"' \
+  '        <PhoneLink server={server} sub="packs"' \
+  web/src/pages/server/world.test.tsx 'backup rules and your own world'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -493,7 +493,7 @@ describe('Packs page', () => {
 })
 
 describe('World card rows', () => {
-  it('link to both pages with what each is doing now', async () => {
+  it('link to each page with what it’s doing now, and to backup rules and your own world before the first backup', async () => {
     answer({
       '/pregen': pregen({ state: 'running', percent: 42.7, etaSeconds: 5400 }),
       '/resourcepack': { offer, pending: false } satisfies ResourcePack,
@@ -502,7 +502,11 @@ describe('World card rows', () => {
     const text = await render(<WorldTools server={server()} phone={false} />)
     expect(text).toContain('Pre-generate the mapPre-generating · 42% · about 1.5 h left')
     expect(text).toContain('Resource and data packsFaithful 32x · 3 of 4 data packs on')
-    expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/servers/survival/world/pregen', '/servers/survival/world/packs'])
+    expect(text).toContain('Backup rulesAutomatic backups and copies somewhere else')
+    expect(text).toContain('Start from your own world')
+    expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/servers/survival/world/pregen', '/servers/survival/world/packs', '/servers/survival/world/backup-rules', '/servers/new#world'])
+    await render(<WorldTools server={server()} phone />)
+    expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/servers/survival/world/backup-rules', '/servers/survival/world/pregen', '/servers/survival/world/packs'])
   })
 
   it('don’t open pre-generating while a restore left the world folder missing, and say why', async () => {
@@ -513,7 +517,7 @@ describe('World card rows', () => {
       const row = document.querySelector('[role="link"][aria-disabled="true"]')
       expect(row?.textContent).toContain('Pre-generate the map')
       expect(row?.getAttribute('title')).toBe('Its world folder is missing. Move the previous world back first.')
-      expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/servers/survival/world/packs'])
+      expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href')), phone ? 'phone' : 'desktop').not.toContain('/servers/survival/world/pregen')
     }
   })
 })

@@ -779,7 +779,7 @@ export const en = {
   'world.emptyStep2': 'Checked after saving',
   'world.emptyStep2Hint': 'Checked after it’s written.',
   'world.emptyStep3': 'Keep one elsewhere',
-  'world.emptyStep3Hint': 'Backups live on this VPS until you download them.',
+  'world.emptyStep3Hint': 'Download one, or turn on copies in Backup rules.',
 
   // World: pre-generating the map and packs (wave 1)
   'pregen.phoneTitle': 'Pre-generate',
@@ -3316,6 +3316,7 @@ export const en = {
   'offsite.forget.back': 'They can still be brought back as a new server: Restore from a recovery key, with {place}’s settings.',
   'offsite.forget.confirm': 'Change where copies go',
   'world.rules': 'Backup rules',
+  'world.rulesLine': 'Automatic backups and copies somewhere else',
   'world.listHintCopies': 'Stored here and on {place}.',
   'world.storedBoth': 'Here and on {place}',
   'world.storedCopying': 'Here · copying',
