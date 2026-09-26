@@ -231,7 +231,8 @@ type Report struct {
 type Problem struct {
 	// Code is unreadable, missing, other_filesystem, too_deep,
 	// too_many_files, changed or disk_space (the disk's size is unknown),
-	// or the code of one of the layout's Problems.
+	// or the code of one of the layout's Problems, such as
+	// restores_unknown.
 	Code string `json:"code"`
 	Path string `json:"path"`
 	Text string `json:"text"`

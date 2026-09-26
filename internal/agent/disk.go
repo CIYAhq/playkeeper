@@ -25,11 +25,6 @@ import (
 // diskCacheFor is how long a scan answers the page before it scans again.
 const diskCacheFor = 15 * time.Second
 
-// diskRestoresUnknown is the code of the report's problem when the staging
-// folder can't be read, which the Disk space page shows as why nothing of
-// any server is offered.
-const diskRestoresUnknown = "restores_unknown"
-
 type diskCache struct {
 	scan sync.Mutex // one scan at a time
 	mu   sync.Mutex
@@ -56,7 +51,7 @@ func (a *Agent) diskLayout(ctx context.Context) diskusage.Layout {
 	swaps, err := a.unsettledSwaps()
 	if err != nil {
 		journals = append(journals, nil)
-		l.Problems = append(l.Problems, diskusage.Problem{Code: diskRestoresUnknown, Path: l.StagingDir,
+		l.Problems = append(l.Problems, diskusage.Problem{Code: diskusage.CodeRestoresUnknown, Path: l.StagingDir,
 			Text: "Playkeeper can't read its restore staging folder (" + err.Error() + "), so it can't tell whether a restore still needs a server's world copies or backups. Nothing of any server is offered until it can."})
 	}
 	for stage, j := range swaps {

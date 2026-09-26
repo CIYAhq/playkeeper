@@ -1929,3 +1929,62 @@ func TestARemovedMachinesServersShowNowhere(t *testing.T) {
 		}
 	}
 }
+
+// Approving a join request and making a friend invite answer a server the
+// dashboard can't reach as its other routes do: an unknown server is not
+// found, a disputed one says two machines list it, and only a machine that
+// can't be reached is down. A failed approval is put back.
+func TestJoinPathsSayWhyAServerCantBeReached(t *testing.T) {
+	record := func(t *testing.T, e *env, owner machine, disputedBy string) {
+		t.Helper()
+		if _, err := e.srv.db.Exec(`INSERT INTO server_machines(server_id, machine_id, seen_at, disputed_by) VALUES(?, ?, 0, ?)
+			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, disputed_by = excluded.disputed_by`, sampleServer, owner.ID, disputedBy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		reach  func(t *testing.T, e *env, alpha, beta machine)
+		status int
+		code   string
+	}{
+		{"a server whose machine was removed", func(t *testing.T, e *env, alpha, beta machine) {
+			e.srv.listings.note(e.localMachine(t), nil)
+			record(t, e, alpha, "")
+			e.removeMachine(t, alpha)
+		}, http.StatusNotFound, api.CodeNotFound},
+		{"a server two machines list", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, beta.ID)
+		}, http.StatusConflict, codeServerDisputed},
+		{"a server whose machine can't be reached", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, "")
+		}, http.StatusServiceUnavailable, machinelink.CodeNotConnected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newJoinEnv(t)
+			own := owner(t, e.env)
+			_, code := friendInvite(t, e.env, own, `{"label":"School friends","expiry":"30d","maxUses":3,"approval":"after_yes"}`)
+			if r := e.public(t, "redeem", codeBody(code, "name", "PixelPia")); r.status != http.StatusOK || r.body["waiting"] != true {
+				t.Fatalf("asking to join: %d %v", r.status, r.body)
+			}
+			var reqs []requestView
+			if st := e.get(t, "/api/servers/"+sampleServer+"/join-requests", own.cookie, &reqs); st != http.StatusOK || len(reqs) != 1 {
+				t.Fatalf("join requests: %d %+v", st, reqs)
+			}
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			tc.reach(t, e.env, alpha, beta)
+			for _, c := range []struct{ what, path, body string }{
+				{"approving the join request", "/api/servers/" + sampleServer + "/join-requests/" + reqs[0].Request.ID + "/approve", `{}`},
+				{"making a friend invite", "/api/servers/" + sampleServer + "/invites", `{"label":"More friends","expiry":"30d","maxUses":3,"approval":"after_yes"}`},
+			} {
+				if r := e.do(t, "POST", c.path, c.body, own.auth()); r.status != tc.status || r.body["code"] != tc.code {
+					t.Errorf("%s: %d %v, want %d %s", c.what, r.status, r.body, tc.status, tc.code)
+				}
+			}
+			var state string
+			if err := e.srv.db.QueryRow(`SELECT state FROM join_requests WHERE id = ?`, reqs[0].Request.ID).Scan(&state); err != nil || state != "pending" {
+				t.Errorf("the failed approval left the request %q (%v)", state, err)
+			}
+		})
+	}
+}

@@ -683,6 +683,43 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 				e.t.Fatalf("wake: %+v", o)
 			}
 		}, want: state{api.DesiredStopped, false, true, api.PhaseCrashed}},
+		{name: "a player wakes it during a backup that outlasts its retries", steps: func(e *agentEnv) {
+			release := e.holdOp("backup")
+			began, second := make(chan struct{}), make(chan struct{})
+			go func() {
+				e.srv().wakeFor("Alex")
+				close(began)
+			}()
+			s := e.srv()
+			e.waitFor("the wake to wait", func() bool {
+				s.auto.mu.Lock()
+				defer s.auto.mu.Unlock()
+				return s.auto.wakePending
+			})
+			// Another join meanwhile adds no second waiting wake.
+			go func() {
+				s.wakeFor("Steve")
+				close(second)
+			}()
+			select {
+			case <-second:
+			case <-time.After(time.Second):
+				e.t.Fatal("a second join waited too")
+			}
+			time.Sleep(wakeRetry + wakeRetry/2)
+			if s.desired() != api.DesiredSleeping {
+				e.t.Fatal("the server woke during the backup")
+			}
+			release()
+			select {
+			case <-began:
+			case <-time.After(10 * time.Second):
+				e.t.Fatal("the wake never began")
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'wake' AND actor = 'wake:Alex'`); n != 1 {
+				e.t.Fatalf("%d wakes for Alex", n)
+			}
+		}, want: awake},
 		{name: "started outside Playkeeper", steps: func(e *agentEnv) {
 			e.fd.mu.Lock()
 			c := e.fd.server()

@@ -262,7 +262,10 @@ test('the live demo makes a server from its sample world', async ({ page }) => {
   await page.goto(`${demoUrl}servers/survival/world`)
   await page.getByRole('link', { name: /Start from your own world/ }).click()
   await page.getByRole('button', { name: 'Try a sample world' }).click()
-  await expect(page.getByText(/· uploaded$/).first()).toBeVisible({ timeout: 15_000 })
+  // Check the world opens when the upload says it's done, however long a
+  // slow runner takes to get there.
+  await expect(page.getByRole('button', { name: 'Check the world' })).toBeEnabled({ timeout: 60_000 })
+  await expect(page.getByText(/· uploaded$/).first()).toBeVisible()
   await page.getByRole('button', { name: 'Check the world' }).click()
   await expect(page.getByRole('heading', { name: 'Here’s what’s inside Our old survival world.zip' })).toBeVisible()
   await expect(page.getByText('Upgrade to 26.1.2')).toBeVisible()

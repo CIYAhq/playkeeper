@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ArchiveIcon, ChevronRightIcon, EllipsisIcon, MessageSquareIcon, PencilIcon, PlusIcon, RotateCwIcon, SquareTerminalIcon, Trash2Icon } from 'lucide-react'
 import { ApiError, del, get, post } from '@/api/client'
-import type { Schedule, ScheduleKind, SchedulePayload, SchedulePreview, ScheduleRun, SchedulesResponse, ScheduleTiming, ServerStatus } from '@/api/types'
+import type { Schedule, ScheduleKind, SchedulePayload, SchedulePreview, ScheduleRun, SchedulesResponse, ScheduleTiming, ServerStatus, Weekday } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, useIsPhone, type Choice } from '@/components/app/controls'
@@ -47,15 +47,53 @@ function kindIcon(kind: ScheduleKind): ReactNode {
   }
 }
 
+/** A moment's date, weekday and clock time in a time zone. */
+function clockIn(ms: number, timeZone: string): { y: number; m: number; d: number; day: Weekday; at: string } {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }).formatToParts(ms)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
+  return { y: Number(part('year')), m: Number(part('month')), d: Number(part('day')), day: part('weekday').toLowerCase() as Weekday, at: `${part('hour')}:${part('minute')}` }
+}
+
+/** The moment a date's clock time is in a time zone. */
+function momentIn(y: number, m: number, d: number, at: string, timeZone: string): number {
+  const [hh = 0, mm = 0] = at.split(':').map(Number)
+  const wall = Date.UTC(y, m - 1, d, hh, mm)
+  let ms = wall
+  // The zone's offset at the first guess may not be the one at the moment.
+  for (let i = 0; i < 2; i++) {
+    const c = clockIn(ms, timeZone)
+    const [ch = 0, cm = 0] = c.at.split(':').map(Number)
+    ms += wall - Date.UTC(c.y, c.m - 1, c.d, ch, cm)
+  }
+  return ms
+}
+
+/** A timing's time of day and weekdays as the clock in timeZone shows them, on the days around now. */
+function shownIn(timing: ScheduleTiming, timeZone: string): { at: string; days?: Weekday[] } {
+  const at = timing.at ?? ''
+  if (!at || !timing.timeZone || timing.timeZone === timeZone) return { at, days: timing.days }
+  try {
+    const today = clockIn(Date.now(), timing.timeZone)
+    const there = clockIn(momentIn(today.y, today.m, today.d, at, timing.timeZone), timeZone)
+    const shift = weekdays.indexOf(there.day) - weekdays.indexOf(today.day) + 7
+    return { at: there.at, days: timing.days?.map((d) => weekdays[(weekdays.indexOf(d) + shift) % 7] ?? d) }
+  } catch {
+    // A zone this browser doesn't know: the saved clock is the best there is.
+    return { at, days: timing.days }
+  }
+}
+
 /** When a schedule runs, in the viewer's time zone: "every day at 05:00". */
 function whenPhrase(timing: ScheduleTiming, nextRun: string | undefined): string {
-  // Saved in another time zone, the next run says what the clock here shows.
-  const at = timing.at && timing.timeZone !== viewerTimeZone() && nextRun ? formatClock(nextRun) : (timing.at ?? '')
+  // Saved in another time zone, the time and days are what the clock here
+  // shows; a one-off time is the moment it runs.
+  const here = shownIn(timing, viewerTimeZone())
+  const at = timing.kind !== 'once' ? here.at : timing.at && timing.timeZone !== viewerTimeZone() && nextRun ? formatClock(nextRun) : (timing.at ?? '')
   switch (timing.kind) {
     case 'daily':
       return t('schedules.when.daily', { at })
     case 'weekly': {
-      const days = weekdays.filter((d) => timing.days?.includes(d))
+      const days = weekdays.filter((d) => here.days?.includes(d))
       if (days.length === 7) return t('schedules.when.daily', { at })
       if (days.length === 5 && !days.includes('sat') && !days.includes('sun')) return t('schedules.when.weekdays', { at })
       if (days.length === 2 && days.includes('sat') && days.includes('sun')) return t('schedules.when.weekends', { at })
@@ -152,13 +190,21 @@ function pausedText(s: Schedule, me: string): string {
   return s.updatedBy === me ? t('schedules.pausedYou', { time: relativeTime(s.updatedAt) }) : t('schedules.pausedBy', { actor: s.updatedBy, time: relativeTime(s.updatedAt) })
 }
 
+/** When a run skipped because people were playing tries again, while the agent still plans it: it is then the next run. */
+function retryAt(s: Schedule): string | undefined {
+  const at = s.lastRun?.retryAt
+  if (!at || !s.nextRun || new Date(s.nextRun).getTime() !== new Date(at).getTime()) return undefined
+  return new Date(at).getTime() > Date.now() ? at : undefined
+}
+
 /** The line under a schedule: what it does besides, then when it runs next or how it last went. */
 function scheduleHint(s: Schedule, current: SchedulesResponse['current'], me: string, phone: boolean): string {
   if (!s.enabled) return phone ? sentence(pausedText(s, me)) : t('schedules.turnedOff', { paused: pausedText(s, me) })
   const dot = t('common.dot')
+  const retry = retryAt(s)
   let status: string
   if (current?.scheduleId === s.id) status = current.restartAt ? t('schedules.restartsAt', { time: formatClock(current.restartAt) }) : t('schedules.result.running')
-  else if (s.lastRun?.retryAt && new Date(s.lastRun.retryAt).getTime() > Date.now()) status = t('schedules.retryAt', { time: formatClock(s.lastRun.retryAt) })
+  else if (retry) status = t('schedules.retryAt', { time: formatClock(retry) })
   else if (s.kind === 'command' && s.lastRun && s.lastRun.result !== 'running') status = phone ? lastRunText(s) : t('schedules.lastRan', { when: past(s.lastRun.due), result: lastRunText(s) })
   else status = s.nextRun ? t('schedules.next', { when: upcoming(s.nextRun) }) : t('schedules.noNext')
   if (phone) return sentence(status)
@@ -197,7 +243,7 @@ function ScheduleRow({ server, schedule: s, state, current, phone, onEdit, onCha
       toastManager.add({ title: errorText(e), type: 'error' })
     }
   }
-  const cantChange = formOf(s) === undefined ? t('schedules.cantChange') : undefined
+  const cantChange = formOf(s, viewerTimeZone()) === undefined ? t('schedules.cantChange') : undefined
   const view = { ...s, enabled: on }
   return (
     <li {...presenceProps(state)} className={rowClass(phone)}>
@@ -447,16 +493,21 @@ function newForm(server: ServerStatus): Form {
   return { kind: 'restart', often: 'daily', at: '05:00', warn: warnBoxes, otherWarn: [], message: t('schedules.defaultMessage', { server: server.name }), skipIfPlaying: false, onlyIfPlayed: true, command: '' }
 }
 
-/** The dialog's form for a schedule, or undefined when the dialog can't show it (a cron timing, an announcement). */
-function formOf(s: Schedule): Form | undefined {
+/**
+ * The dialog's form for a schedule, with its time and days as the clock in
+ * timeZone shows them, or undefined when the dialog can't show it (a cron
+ * timing, an announcement).
+ */
+function formOf(s: Schedule, timeZone: string): Form | undefined {
   if (s.kind === 'announcement') return undefined
+  const here = shownIn(s.timing, timeZone)
   let often: string
   switch (s.timing.kind) {
     case 'daily':
       often = 'daily'
       break
     case 'weekly':
-      often = `weekly:${weekdays.filter((d) => s.timing.days?.includes(d)).join(',')}`
+      often = `weekly:${weekdays.filter((d) => here.days?.includes(d)).join(',')}`
       break
     case 'interval':
       often = `interval:${s.timing.everyHours ?? 6}`
@@ -473,7 +524,7 @@ function formOf(s: Schedule): Form | undefined {
   return {
     kind: s.kind,
     often,
-    at: s.timing.at ?? '00:00',
+    at: here.at || '00:00',
     warn: warnBoxes.filter((w) => warn.includes(w)),
     otherWarn: warn.filter((w) => !warnBoxes.includes(w)),
     message: s.payload.message ?? '',
@@ -524,6 +575,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   const ws = useWorkspace()
   const phone = useIsPhone()
   const [form, setForm] = useState<Form>(() => newForm(server))
+  const [opened, setOpened] = useState<Form>()
   const [preview, setPreview] = useState<SchedulePreview>()
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState(false)
@@ -533,13 +585,19 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
 
   useEffect(() => {
     if (editing === undefined) return
-    setForm((editing !== 'new' && formOf(editing)) || newForm(server))
+    const f = (editing !== 'new' && formOf(editing, timeZone)) || newForm(server)
+    setForm(f)
+    setOpened(f)
     setPreview(undefined)
     // Only a newly opened dialog starts over.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing])
 
-  const body = { kind: form.kind as ScheduleKind, timing: timingOf(form, timeZone), payload: payloadOf(form) }
+  // The dialog shows a schedule saved in another time zone on the clock
+  // here. Until its time or days change it keeps its own zone, and so runs
+  // at the same moments.
+  const kept = existing && opened && opened.often === form.often && opened.at === form.at ? existing.timing : undefined
+  const body = { kind: form.kind as ScheduleKind, timing: kept ?? timingOf(form, timeZone), payload: payloadOf(form) }
   const key = JSON.stringify(body)
   useEffect(() => {
     if (!open) return
@@ -548,8 +606,11 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
       try {
         const p = await post<SchedulePreview>(serverApi(server.id, '/schedules/preview'), JSON.parse(key))
         if (!cancelled) setPreview(p)
-      } catch (e) {
-        if (!cancelled) setPreview({ valid: false, nextRuns: [], error: { error: errorText(e), code: e instanceof ApiError ? e.code : 'internal' } })
+      } catch {
+        // Only an answer says a schedule isn't valid. A preview that was
+        // refused or lost, such as one over the rate limit, is no preview,
+        // and the agent still checks the schedule on Save.
+        if (!cancelled) setPreview(undefined)
       }
     }, 300)
     return () => {
