@@ -69,8 +69,8 @@ type Config struct {
 	// the client address in X-Forwarded-For.
 	TrustedProxies []netip.Prefix
 	MaxNamesPerKey int
-	// MaxNamesPerNetwork bounds the names claimed from one network (see
-	// network) that are not released.
+	// MaxNamesPerNetwork bounds the names that are not released in one
+	// network (see nameNetwork).
 	MaxNamesPerNetwork int
 	// ClaimsPerDay bounds new names per day across everyone.
 	ClaimsPerDay int

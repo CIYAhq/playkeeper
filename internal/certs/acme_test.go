@@ -56,7 +56,8 @@ type fakeCA struct {
 	rejectNonces int
 	// finalizeAnswer is how finalize requests are answered: "processing"
 	// like Pebble (issuance still running, no Location header); "lost" and
-	// "lost-early" hang up after or before issuing.
+	// "lost-early" hang up after or before issuing; "slow" and "slow-early"
+	// never answer, after or before issuing.
 	finalizeAnswer string
 	// processing is how many looks at a finalized order find it still
 	// processing, as does the finalize answer, with a Retry-After of
@@ -70,6 +71,7 @@ type fakeCA struct {
 	nonces   map[string]bool
 	accounts map[string]*caAccount // by URL
 	orders   map[string]*caOrder
+	last     *caOrder // the order made last
 	authzs   map[string]*caAuthz
 	seq      int
 	steps    []string
@@ -96,6 +98,8 @@ type caOrder struct {
 	names       []string
 	authzs      []string
 	valid       bool
+	invalid     bool // given up on, as when it expires
+	expires     time.Time
 	cert        []byte
 	looks       int // since it was finalized
 }
@@ -268,6 +272,9 @@ func (f *fakeCA) post(w http.ResponseWriter, r *http.Request) {
 		f.challenge(w, acct, strings.TrimPrefix(path, "/chal/"))
 	case strings.HasPrefix(path, "/order/"):
 		f.steps = append(f.steps, "order")
+		if f.failed(w, "order") {
+			return
+		}
 		o := f.orders[id]
 		if o == nil || o.account != acct.url {
 			f.problem(w, http.StatusNotFound, "malformed", "no such order")
@@ -368,7 +375,7 @@ func (f *fakeCA) newOrder(w http.ResponseWriter, a *caAccount, payload []byte) {
 		offer = []string{"http-01", "dns-01"}
 	}
 	f.seq++
-	o := &caOrder{id: strconv.Itoa(f.seq), account: a.url}
+	o := &caOrder{id: strconv.Itoa(f.seq), account: a.url, expires: time.Now().Add(7 * 24 * time.Hour)}
 	for _, ident := range req.Identifiers {
 		if ident.Type != "dns" {
 			f.malformed(w, "identifier type "+ident.Type)
@@ -386,12 +393,15 @@ func (f *fakeCA) newOrder(w http.ResponseWriter, a *caAccount, payload []byte) {
 		o.names = append(o.names, ident.Value)
 		o.authzs = append(o.authzs, z.id)
 	}
-	f.orders[o.id] = o
+	f.orders[o.id], f.last = o, o
 	w.Header().Set("Location", f.url("/order/"+o.id))
 	f.writeOrder(w, http.StatusCreated, o)
 }
 
 func (f *fakeCA) orderStatus(o *caOrder) string {
+	if o.invalid {
+		return "invalid"
+	}
 	if o.valid && (f.processing < 0 || (f.processing > 0 && o.looks <= f.processing)) {
 		return "processing"
 	}
@@ -418,7 +428,7 @@ func (f *fakeCA) writeOrder(w http.ResponseWriter, status int, o *caOrder) {
 		authzs = append(authzs, f.url("/authz/"+o.authzs[i]))
 	}
 	s := f.orderStatus(o)
-	v := map[string]any{"status": s, "identifiers": ids, "authorizations": authzs, "finalize": f.url("/finalize/" + o.id)}
+	v := map[string]any{"status": s, "expires": o.expires.Format(time.RFC3339), "identifiers": ids, "authorizations": authzs, "finalize": f.url("/finalize/" + o.id)}
 	if s == "valid" {
 		v["certificate"] = f.url("/cert/" + o.id)
 	}
@@ -528,8 +538,12 @@ func (f *fakeCA) finalize(w http.ResponseWriter, a *caAccount, id string, payloa
 		f.t.Errorf("fake CA: %v", err)
 		return
 	}
-	if f.finalizeAnswer == "lost-early" {
+	switch f.finalizeAnswer {
+	case "lost-early":
 		hangUp(w)
+		return
+	case "slow-early":
+		f.ignore(w)
 		return
 	}
 	var chain [][]byte
@@ -550,6 +564,9 @@ func (f *fakeCA) finalize(w http.ResponseWriter, a *caAccount, id string, payloa
 		return
 	case "lost":
 		hangUp(w)
+		return
+	case "slow":
+		f.ignore(w)
 		return
 	}
 	w.Header().Set("Location", f.url("/order/"+o.id))
@@ -794,10 +811,11 @@ func TestIssueFinalizeAnswers(t *testing.T) {
 	cases := []struct {
 		answer string
 		issued bool
+		files  []string
 	}{
-		{"processing", true},
-		{"lost", true},
-		{"lost-early", false},
+		{"processing", true, []string{"mc.example.com.pem"}},
+		{"lost", true, []string{"mc.example.com.pem"}},
+		{"lost-early", false, []string{"mc.example.com.order"}},
 	}
 	for _, c := range cases {
 		t.Run(c.answer, func(t *testing.T) {
@@ -815,9 +833,9 @@ func TestIssueFinalizeAnswers(t *testing.T) {
 				}
 			} else {
 				wantProblem(t, err, CodeCAUnreachable, "")
-				if names := dirNames(t, dir); len(names) != 0 {
-					t.Errorf("files saved: %q", names)
-				}
+			}
+			if names := dirNames(t, dir); !slices.Equal(names, c.files) {
+				t.Errorf("files %q, want %q", names, c.files)
 			}
 			if f.count("finalize") != 1 || f.count("order") != 2 || (f.count("cert") == 1) != c.issued {
 				t.Errorf("steps = %q", f.steps)
@@ -826,23 +844,23 @@ func TestIssueFinalizeAnswers(t *testing.T) {
 	}
 }
 
-// shortWaits shortens validationWait and maxPollWait for a test.
-func shortWaits(t *testing.T, validation, poll time.Duration) {
-	v, p := validationWait, maxPollWait
-	validationWait, maxPollWait = validation, poll
-	t.Cleanup(func() { validationWait, maxPollWait = v, p })
+// shortWaits shortens validationWait, issuedWait and maxPollWait for a test.
+func shortWaits(t *testing.T, validation, issued, poll time.Duration) {
+	v, i, p := validationWait, issuedWait, maxPollWait
+	validationWait, issuedWait, maxPollWait = validation, issued, poll
+	t.Cleanup(func() { validationWait, issuedWait, maxPollWait = v, i, p })
 }
 
 // issueWaiting issues a certificate from f, whose finalized order answers
 // "processing" with a Retry-After of an hour, with requests that time out
 // after timeout. Like an address operation, Issue has a deadline of its own,
-// later than validationWait.
+// later than the waits for the certificate.
 func issueWaiting(t *testing.T, f *fakeCA, timeout time.Duration) (*Certificate, error) {
 	f.validAuthz, f.retryAfter = true, "3600"
 	base := t.TempDir()
 	is := f.issuer(base)
 	is.Client = &http.Client{Timeout: timeout, Transport: f.srv.Client().Transport}
-	ctx, cancel := context.WithTimeout(t.Context(), validationWait+5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), validationWait+issuedWait+5*time.Second)
 	defer cancel()
 	return is.Issue(ctx, Request{Names: []string{"mc.example.com"}, HTTP01: &HTTP01Responder{}, Dir: filepath.Join(base, "certs")})
 }
@@ -857,7 +875,7 @@ func (f *fakeCA) looks() []time.Time {
 // at again within maxPollWait whatever Retry-After the certificate authority
 // asks for, and a look that gets no answer is tried again.
 func TestIssueWaitsForTheCertificate(t *testing.T) {
-	shortWaits(t, 4*time.Second, time.Second)
+	shortWaits(t, 4*time.Second, 4*time.Second, time.Second)
 	const timeout = time.Second
 	cases := []struct {
 		name       string
@@ -893,18 +911,21 @@ func TestIssueWaitsForTheCertificate(t *testing.T) {
 }
 
 // TestIssueTimesOutWaitingForTheCertificate: a certificate that is not issued
-// within validationWait of the finalize request is a timeout, not a refusal
-// by the certificate authority, and no other order is made.
+// by the end of the waits for it is a timeout, not a refusal by the
+// certificate authority, and no other order is made. The finalize request
+// waits validationWait at most; when it fails, the looks at the order wait
+// issuedWait more.
 func TestIssueTimesOutWaitingForTheCertificate(t *testing.T) {
-	shortWaits(t, 2*time.Second, time.Second)
+	shortWaits(t, 2*time.Second, 2*time.Second, time.Second)
 	cases := []struct {
 		name       string
 		finalize   string
 		processing int
 		unanswered int
+		want       time.Duration // until it gives up
 	}{
-		{"still processing, like Let's Encrypt", "", -1, 0},
-		{"no answers, like a deadlocked Pebble", "processing", 0, -1},
+		{"still processing, like Let's Encrypt", "", -1, 0, validationWait + issuedWait},
+		{"no answers, like a deadlocked Pebble", "processing", 0, -1, issuedWait},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -917,11 +938,251 @@ func TestIssueTimesOutWaitingForTheCertificate(t *testing.T) {
 			if p.NeedsAction || !p.RetryAt.IsZero() || p.Detail == "" {
 				t.Errorf("problem = %+v", p)
 			}
-			if took < validationWait || took > validationWait+time.Second {
-				t.Errorf("gave up after %s, want %s", took.Round(time.Millisecond), validationWait)
+			if took < c.want || took > c.want+time.Second {
+				t.Errorf("gave up after %s, want %s", took.Round(time.Millisecond), c.want)
 			}
 			if n := len(f.looks()); n < 2 || f.count("new-order") != 1 || f.count("finalize") != 1 {
 				t.Errorf("%d looks at the finalized order; steps %q", n, f.steps)
+			}
+		})
+	}
+}
+
+// TestIssueKeepsTheOrder: a certificate issued just after the finalize
+// request timed out is fetched with a wait of its own, and an attempt that
+// fails between the finalize request and saving the certificate leaves the
+// next one the order, so that it gets the certificate without a new order.
+// An order that can give no certificate for the names is dropped for a new
+// one; when the certificate authority can't be asked about it now, it is
+// kept.
+func TestIssueKeepsTheOrder(t *testing.T) {
+	shortWaits(t, 1500*time.Millisecond, 2*time.Second, time.Second)
+	const pemName, orderName = "mc.example.com.pem", "mc.example.com.order"
+	type attempt struct {
+		before func(t *testing.T, f *fakeCA, dir string) // with f.mu held
+		names  []string                                  // nil means mc.example.com
+		later  time.Duration                             // how far ahead the Issuer's clock is
+		code   string                                    // of the Problem; "" means a certificate
+		files  []string                                  // in the directory afterwards
+	}
+	answer := func(a string) func(*testing.T, *fakeCA, string) {
+		return func(_ *testing.T, f *fakeCA, _ string) { f.finalizeAnswer = a }
+	}
+	looksFail := func(fl caFailure) func(*testing.T, *fakeCA, string) {
+		return func(_ *testing.T, f *fakeCA, _ string) { f.finalizeAnswer, f.fail["order"] = "", fl }
+	}
+	looksWork := func(_ *testing.T, f *fakeCA, _ string) { delete(f.fail, "order") }
+	plant := func(content []byte) func(*testing.T, *fakeCA, string) {
+		return func(t *testing.T, _ *fakeCA, dir string) {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, orderName), content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	block := func(file string) func(*testing.T, *fakeCA, string) {
+		return func(t *testing.T, _ *fakeCA, dir string) {
+			if err := os.MkdirAll(filepath.Join(dir, file, "x"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	unblock := func(file string) func(*testing.T, *fakeCA, string) {
+		return func(t *testing.T, _ *fakeCA, dir string) {
+			if err := os.RemoveAll(filepath.Join(dir, file)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	key, err := x509.MarshalECPrivateKey(newKey(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := json.Marshal(orderFile{URL: "https://acme.other.example/order/1", Expires: time.Now().Add(24 * time.Hour), Key: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := caFailure{Status: 503, Headers: map[string]string{"Retry-After": "300"}, Problem: json.RawMessage(`"<h1>Service Unavailable</h1>"`)}
+	limited := caFailure{Status: 429, Headers: map[string]string{"Retry-After": "3600"}, Problem: problemJSON("rateLimited", "too many requests")}
+	cases := []struct {
+		name                       string
+		ca                         func(f *fakeCA)
+		attempts                   []attempt
+		orders, finalized, fetched int
+	}{
+		{
+			name:     "a slow finalize answer: the certificate issued meanwhile is fetched",
+			ca:       func(f *fakeCA) { f.finalizeAnswer = "slow" },
+			attempts: []attempt{{files: []string{pemName}}},
+			orders:   1, finalized: 1, fetched: 1,
+		},
+		{
+			name:     "the wait of the finalize request runs out: the certificate issued meanwhile is fetched",
+			ca:       func(f *fakeCA) { f.processing = 2 },
+			attempts: []attempt{{files: []string{pemName}}},
+			orders:   1, finalized: 1, fetched: 1,
+		},
+		{
+			name: "a slow finalize answer and a certificate issued later: the next attempt fetches it",
+			ca:   func(f *fakeCA) { f.finalizeAnswer, f.processing = "slow", -1 },
+			attempts: []attempt{
+				{code: CodeIssuanceTimeout, files: []string{orderName}},
+				{before: func(_ *testing.T, f *fakeCA, _ string) { f.processing = 0 }, files: []string{pemName}},
+			},
+			orders: 1, finalized: 1, fetched: 1,
+		},
+		{
+			name: "the finalize answer is lost before issuing: the next attempt finalizes the same order",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "lost-early" },
+			attempts: []attempt{
+				{code: CodeCAUnreachable, files: []string{orderName}},
+				{before: answer(""), files: []string{pemName}},
+			},
+			orders: 1, finalized: 2, fetched: 1,
+		},
+		{
+			name: "a slow finalize request that is never carried out: the next attempt finalizes the same order",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "slow-early" },
+			attempts: []attempt{
+				{code: CodeIssuanceTimeout, files: []string{orderName}},
+				{before: answer(""), files: []string{pemName}},
+			},
+			orders: 1, finalized: 2, fetched: 1,
+		},
+		{
+			name: "saving the certificate fails: the next attempt fetches it again",
+			attempts: []attempt{
+				{before: block(pemName), code: CodeSaveFailed, files: []string{orderName, pemName}},
+				{before: unblock(pemName), files: []string{pemName}},
+			},
+			orders: 1, finalized: 1, fetched: 2,
+		},
+		{
+			name: "the kept order turned invalid: the next attempt makes a new one",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "lost-early" },
+			attempts: []attempt{
+				{code: CodeCAUnreachable, files: []string{orderName}},
+				{before: func(_ *testing.T, f *fakeCA, _ string) { f.finalizeAnswer, f.last.invalid = "", true }, files: []string{pemName}},
+			},
+			orders: 2, finalized: 2, fetched: 1,
+		},
+		{
+			name: "the kept order expired: the next attempt makes a new one",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "lost-early" },
+			attempts: []attempt{
+				{code: CodeCAUnreachable, files: []string{orderName}},
+				{before: answer(""), later: 8 * 24 * time.Hour, files: []string{pemName}},
+			},
+			orders: 2, finalized: 2, fetched: 1,
+		},
+		{
+			name: "the certificate authority no longer knows the kept order: the next attempt makes a new one",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "lost-early" },
+			attempts: []attempt{
+				{code: CodeCAUnreachable, files: []string{orderName}},
+				{before: func(_ *testing.T, f *fakeCA, _ string) { f.finalizeAnswer = ""; delete(f.orders, f.last.id) }, files: []string{pemName}},
+			},
+			orders: 2, finalized: 2, fetched: 1,
+		},
+		{
+			name: "the kept order is for other names: the next attempt makes a new one",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "lost-early" },
+			attempts: []attempt{
+				{names: []string{"mc.example.com", "www.example.com"}, code: CodeCAUnreachable, files: []string{orderName}},
+				{before: answer(""), files: []string{pemName}},
+			},
+			orders: 2, finalized: 2, fetched: 1,
+		},
+		{
+			name:     "the kept order is at another certificate authority: a new one is made",
+			attempts: []attempt{{before: plant(elsewhere), files: []string{pemName}}},
+			orders:   1, finalized: 1, fetched: 1,
+		},
+		{
+			name:     "the file of the kept order is damaged: a new one is made",
+			attempts: []attempt{{before: plant([]byte("not an order\n")), files: []string{pemName}}},
+			orders:   1, finalized: 1, fetched: 1,
+		},
+		{
+			name: "the certificate authority is unavailable: the order is kept for the attempt after",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "lost-early" },
+			attempts: []attempt{
+				{code: CodeCAUnreachable, files: []string{orderName}},
+				{before: looksFail(unavailable), code: CodeCAUnavailable, files: []string{orderName}},
+				{before: looksWork, files: []string{pemName}},
+			},
+			orders: 1, finalized: 2, fetched: 1,
+		},
+		{
+			name: "a rate limit at the certificate authority: the order is kept for the attempt after",
+			ca:   func(f *fakeCA) { f.finalizeAnswer = "lost-early" },
+			attempts: []attempt{
+				{code: CodeCAUnreachable, files: []string{orderName}},
+				{before: looksFail(limited), code: CodeRateLimited, files: []string{orderName}},
+				{before: looksWork, files: []string{pemName}},
+			},
+			orders: 1, finalized: 2, fetched: 1,
+		},
+		{
+			name: "the certificate authority refuses the finalize request: the next attempt makes a new order",
+			ca: func(f *fakeCA) {
+				f.fail["finalize"] = caFailure{Status: 400, Problem: problemJSON("badCSR", "Error finalizing order :: invalid public key in CSR")}
+			},
+			attempts: []attempt{
+				{code: CodeCAError},
+				{before: func(_ *testing.T, f *fakeCA, _ string) { delete(f.fail, "finalize") }, files: []string{pemName}},
+			},
+			orders: 2, finalized: 2, fetched: 1,
+		},
+		{
+			name:     "keeping the order fails: it is not finalized",
+			attempts: []attempt{{before: block(orderName), code: CodeSaveFailed, files: []string{orderName}}},
+			orders:   1, finalized: 0, fetched: 0,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFakeCA(t)
+			f.validAuthz = true
+			if c.ca != nil {
+				c.ca(f)
+			}
+			base := t.TempDir()
+			dir := filepath.Join(base, "certs")
+			for i, a := range c.attempts {
+				if a.before != nil {
+					func() {
+						f.mu.Lock()
+						defer f.mu.Unlock()
+						a.before(t, f, dir)
+					}()
+				}
+				is := f.issuer(base)
+				is.Now = func() time.Time { return time.Now().Add(a.later) }
+				names := a.names
+				if names == nil {
+					names = []string{"mc.example.com"}
+				}
+				got, err := is.Issue(t.Context(), Request{Names: names, HTTP01: &HTTP01Responder{}, Dir: dir})
+				var p *Problem
+				switch {
+				case a.code == "" && err != nil:
+					t.Fatalf("attempt %d: %v", i+1, err)
+				case a.code == "":
+					if read, err := ReadCertificate(got.File); err != nil || read.Serial != got.Serial {
+						t.Errorf("attempt %d: the certificate was not saved: %v", i+1, err)
+					}
+				case !errors.As(err, &p) || p.Code != a.code:
+					t.Fatalf("attempt %d: %#v, want a %s problem", i+1, err, a.code)
+				}
+				if files := dirNames(t, dir); !slices.Equal(files, a.files) {
+					t.Errorf("after attempt %d: files %q, want %q", i+1, files, a.files)
+				}
+			}
+			if f.count("new-order") != c.orders || f.count("finalize") != c.finalized || f.count("cert") != c.fetched {
+				t.Errorf("steps = %q", f.steps)
 			}
 		})
 	}

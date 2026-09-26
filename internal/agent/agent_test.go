@@ -431,6 +431,31 @@ func (e *agentEnv) countRows(q string, args ...any) int {
 	return n
 }
 
+// Whoever sees an operation finished finds it audited: its audit entry is
+// stored with its end, and first. The trigger notes every operation that
+// was stored as finished while its audit entry was missing.
+func TestAFinishedOperationIsAlreadyAudited(t *testing.T) {
+	e := newAgentEnv(t)
+	for _, q := range []string{
+		`CREATE TABLE unaudited(id TEXT)`,
+		`CREATE TRIGGER finished_unaudited AFTER UPDATE OF status ON operations
+			WHEN NEW.status != 'running' AND NOT EXISTS (
+				SELECT 1 FROM audit WHERE action = NEW.kind AND result = NEW.status AND server_id = NEW.server_id)
+			BEGIN INSERT INTO unaudited VALUES (NEW.id); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.create()
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE status != 'running'`); n == 0 {
+		t.Fatal("no operation finished")
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM unaudited`); n != 0 {
+		t.Fatalf("%d operations were stored as finished before their audit entry", n)
+	}
+}
+
 func TestEULAGateRefusesAndDownloadsNothing(t *testing.T) {
 	e := newAgentEnv(t)
 	code, out := e.call("POST", "/v1/servers", map[string]any{"acceptEula": false, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})

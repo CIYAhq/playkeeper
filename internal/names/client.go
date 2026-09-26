@@ -25,6 +25,15 @@ const maxResponse = 64 << 10
 // wait the service asks for is a week, for the certificate limits.
 const maxRetryAfter = 8 * 24 * time.Hour
 
+// SyncWait is the longest the service waits for Cloudflare to take a change
+// it has stored before it answers.
+const SyncWait = 30 * time.Second
+
+// answerWait is how long the client waits for an answer: the service's
+// checks before it stores a change, then up to SyncWait. A client that gave
+// up sooner would not know whether a change it asked for was made.
+const answerWait = SyncWait + 30*time.Second
+
 // Family is the IP version a request goes over.
 type Family int
 
@@ -113,14 +122,14 @@ func (c *Client) client(f Family) *http.Client {
 func directClient(network string) *http.Client {
 	d := &net.Dialer{Timeout: 10 * time.Second}
 	return &http.Client{
-		Timeout:       30 * time.Second,
+		Timeout:       answerWait + 30*time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
 				return d.DialContext(ctx, network, addr)
 			},
 			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 20 * time.Second,
+			ResponseHeaderTimeout: answerWait,
 			DisableKeepAlives:     true,
 		},
 	}

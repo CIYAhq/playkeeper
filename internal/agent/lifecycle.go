@@ -188,7 +188,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 	if op.Detail == nil {
 		op.Detail = map[string]any{}
 	}
-	kind, actor := op.Kind, op.Actor
+	kind := op.Kind
 	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
 	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }, cancel: cancel}
 	s.opMu.Lock()
@@ -206,10 +206,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		done := finishOp(op, h, err, s.now().UTC())
 		s.op, s.opH = nil, nil
 		s.opMu.Unlock()
-		s.saveOperation(&done)
-		if done.Status != api.OpRunning {
-			s.audit(actor, kind, "server", done.Status, done.Error)
-		}
+		s.finishOperation(s.id, "server", &done)
 		if kind == "backup" && done.Status == api.OpFailed {
 			s.alert(discord.BackupFailed(done.Error))
 		}
