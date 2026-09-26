@@ -2,9 +2,11 @@ import type { Page, Request, Route } from '@playwright/test'
 
 // Realistic stand-ins for every API call that changes something, so the
 // click-through can press every button without restarting, deleting or
-// downloading anything. Reads go to the real panel. Each fake checks the
-// request the way the panel does (CSRF and origin headers, body shape, the
-// preference key rule) and answers with the shape the real handler returns.
+// downloading anything. Reads go to the real panel, and so do the POSTs that
+// only work something out (a schedule's next runs, what backup rules would
+// keep). Each fake checks the request the way the panel does (CSRF and origin
+// headers, body shape, the preference key rule) and answers with the shape
+// the real handler returns.
 
 export interface ApiCall {
   method: string
@@ -32,6 +34,12 @@ interface FakeState {
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
   opSeq: number
+  ops: Map<string, Record<string, unknown>>
+  schedules: Map<string, Record<string, unknown>[]>
+  backupRules: Map<string, Record<string, unknown>>
+  offsite: Map<string, Record<string, unknown>>
+  /** Servers the fakes made an SSH key for. */
+  sshKeys: Set<string>
 }
 
 const name = /^[A-Za-z0-9_]{3,16}$/
@@ -41,9 +49,137 @@ function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
 }
 
-function op(state: FakeState, kind: string, serverId?: string): Reply {
+function op(state: FakeState, kind: string, serverId?: string, detail?: Record<string, unknown>): Reply {
   state.opSeq++
-  return { status: 202, body: { id: `fake-op-${state.opSeq}`, serverId, kind, status: 'running', phase: '', actor: 'admin', startedAt: new Date().toISOString() } }
+  const o = { id: `fake-op-${state.opSeq}`, serverId, kind, status: 'running', phase: '', actor: 'admin', startedAt: new Date().toISOString(), detail }
+  state.ops.set(o.id, o)
+  return { status: 202, body: o }
+}
+
+/** A fake operation once it's done, as the operations endpoint reports it to a page that waits for it. */
+function finished(o: Record<string, unknown>): Record<string, unknown> {
+  const detail = { ...(o.detail as Record<string, unknown> | undefined) }
+  if (o.kind === 'disk-cleanup') detail.freed = 734_003_200
+  if (o.kind === 'offsite-recover') detail.restoreId = 'fakerestore'
+  return { ...o, status: 'succeeded', finishedAt: new Date().toISOString(), detail }
+}
+
+function knownZone(z: unknown): boolean {
+  if (typeof z !== 'string' || z.length > 64) return false
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: z })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** POSTs that only work something out and change nothing; they go to the real panel. */
+const computes = [/^\/api\/servers\/\w+\/schedules\/preview$/, /^\/api\/servers\/\w+\/backup-rules\/estimate$/]
+
+const automaticEvery = [1, 2, 3, 4, 6, 8, 12, 24]
+const diskWays = ['old_backups', 'old_logs', 'old_crash_reports', 'unused_software', 'downloads', 'set_aside', 'unfinished']
+const diskID = /^[0-9a-f]{32}$/
+
+interface PlaceBody {
+  config?: { type?: string; s3?: Record<string, unknown>; sftp?: Record<string, unknown> }
+  secretKey?: string
+  password?: string
+  sftpAuth?: string
+  hostKey?: string
+  enabled?: unknown
+  recoveryKey?: string
+  name?: unknown
+}
+
+function missing(field: string, error: string, hint?: string): Reply {
+  return { status: 400, body: { error, hint, field, code: 'invalid' }, expected: true }
+}
+
+/**
+ * The agent's first complaint about the place on the page, as offsite's
+ * Config.Validate words it. The click-through doesn't type, so pressing Test
+ * connection on an empty form shows this, which is what a person sees too.
+ */
+function placeProblem(b: PlaceBody, view: Record<string, unknown> | undefined, hasSSHKey: boolean): Reply | undefined {
+  const c = b.config
+  if (!c) return undefined
+  if (c.type === 's3') {
+    const s3 = c.s3 ?? {}
+    if (!s3.endpoint) return missing('endpoint', 'Enter the endpoint address of the storage service.', 'It starts with https://, for example https://s3.eu-central-003.backblazeb2.com.')
+    if (!s3.bucket) return missing('bucket', 'The bucket name must be 3 to 63 characters long.', 'Bucket names are 3 to 63 lowercase letters, digits, dots and hyphens.')
+    if (!s3.accessKeyId) return missing('accessKeyId', 'Enter the access key ID exactly as the storage service shows it.')
+    const secretSet = (view?.s3 as { secretKeySet?: boolean } | undefined)?.secretKeySet
+    if (!b.secretKey && !secretSet) return missing('secretKey', 'Enter the secret access key exactly as the storage service showed it.', 'The secret is shown only once when the key is created; create a new key if you no longer have it.')
+    return undefined
+  }
+  if (c.type === 'sftp') {
+    const sftp = c.sftp ?? {}
+    if (b.sftpAuth === 'key' && !hasSSHKey) return missing('privateKey', 'Make the key Playkeeper signs in with first.', 'Then add its line to authorized_keys on the other machine.')
+    if (!sftp.host) return missing('host', "Enter the other machine's address: its host name or IP address.")
+    if (!sftp.user) return missing('user', 'Enter the user name to sign in with on the other machine.')
+    if (!sftp.folder) return missing('folder', 'Enter the folder on the other machine where the copies go.', "For example /srv/backups/playkeeper, or backups/playkeeper for a folder in the user's home folder.")
+    return undefined
+  }
+  return missing('type', 'Choose where the copies go: S3-compatible storage or another machine over SFTP.')
+}
+
+const standInPublicKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFN0YW5kLWluIGtleSBmb3IgdGhlIGNsaWNrLXRocm91Z2g playkeeper-stand-in'
+const standInHostKey = { key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEhvc3Qga2V5IHN0YW5kLWluIGZvciB0aGUgY2xpY2stdGhyb3U', type: 'ssh-ed25519', fingerprint: 'SHA256:c3RhbmQtaW4gaG9zdCBrZXkgZm9yIHRoZSBjbGljaw' }
+
+/** What a connection test that got through says, step by step as the agent's probe does. */
+function testPassed(b: PlaceBody, view: Record<string, unknown> | undefined): Record<string, unknown> {
+  const pinned = (view?.sftp as { hostKeyFingerprint?: string } | undefined)?.hostKeyFingerprint
+  if (b.config?.type === 'sftp' && !b.hostKey && !pinned) {
+    return {
+      ok: false,
+      skew: 0,
+      hostKey: standInHostKey,
+      checks: [
+        {
+          step: 'connect',
+          ok: false,
+          kind: 'host_key_unknown',
+          msg: `Check that the other machine's host key fingerprint is ${standInHostKey.fingerprint}, then confirm it.`,
+          hint: 'On the other machine, ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub shows it. Nothing is sent before you confirm it.',
+        },
+      ],
+    }
+  }
+  const steps: [string, string][] =
+    b.config?.type === 'sftp'
+      ? [
+          ['connect', 'Signed in to the other machine.'],
+          ['folder', 'Found the folder.'],
+          ['write', 'Wrote a small encrypted test file.'],
+          ['rename', 'Renamed the test file.'],
+          ['read', 'Read the test file back unchanged.'],
+          ['list', "Found the test file in the folder's list."],
+          ['delete', 'Deleted the test file.'],
+        ]
+      : [
+          ['write', 'Wrote a small encrypted test file.'],
+          ['read', 'Read the test file back unchanged.'],
+          ['list', "Found the test file in the folder's list."],
+          ['multipart', 'Started and cancelled a multipart upload, as large backups need.'],
+          ['delete', 'Deleted the test file.'],
+        ]
+  return { ok: true, skew: 0, checks: steps.map(([step, msg]) => ({ step, ok: true, msg })) }
+}
+
+/** The copies view after a save, like the agent's offsiteView of the merged settings. */
+function savedPlace(serverId: string, b: PlaceBody, view: Record<string, unknown> | undefined): Record<string, unknown> {
+  const next: Record<string, unknown> = { enabled: false, configured: false, type: '', place: '', copies: 0, copiesBytes: 0, queued: 0, providers: [], ...view }
+  const c = b.config
+  if (c?.type === 's3') Object.assign(next, { configured: true, type: 's3', place: String(c.s3?.endpoint ?? ''), s3: { ...(view?.s3 as object | undefined), ...c.s3, secretKeySet: true }, sftp: undefined })
+  if (c?.type === 'sftp') {
+    const sftp = { ...(view?.sftp as object | undefined), ...c.sftp, auth: b.sftpAuth, passwordSet: b.sftpAuth === 'password' || undefined }
+    if (b.hostKey) Object.assign(sftp, { hostKey: b.hostKey, hostKeyType: standInHostKey.type, hostKeyFingerprint: standInHostKey.fingerprint })
+    Object.assign(next, { configured: true, type: 'sftp', place: String(c.sftp?.host ?? ''), sftp, s3: undefined })
+  }
+  if (typeof b.enabled === 'boolean') next.enabled = b.enabled
+  if (next.enabled && !next.key) next.key = { recipient: 'age1standin', createdAt: new Date().toISOString(), oldKeys: 0, fileName: `playkeeper-recovery-key-${serverId}.txt` }
+  return next
 }
 
 function playerName(body: unknown): string | undefined {
@@ -140,6 +276,153 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/schedules$/,
+    (r, state) => {
+      const b = (r.body ?? {}) as Record<string, unknown>
+      if (!b.kind || !b.timing) return invalid('Say what the schedule does and when.')
+      const now = new Date().toISOString()
+      return { status: 201, body: { id: `fake${++state.opSeq}`, serverId: r.params[0], name: '', enabled: true, payload: {}, createdAt: now, updatedAt: now, createdBy: 'admin', updatedBy: 'admin', ...b } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/schedules\/([a-z0-9]{1,32})$/,
+    (r, state) => {
+      const s = state.schedules.get(r.params[0] ?? '')?.find((x) => x.id === r.params[1])
+      if (!s) return { status: 404, body: { error: 'Schedule not found.', code: 'not_found' } }
+      return { status: 200, body: { ...s, ...(r.body as Record<string, unknown> | null), updatedAt: new Date().toISOString(), updatedBy: 'admin' } }
+    },
+  ],
+  [
+    'DELETE',
+    /^\/api\/servers\/(\w+)\/schedules\/([a-z0-9]{1,32})$/,
+    (r, state) =>
+      state.schedules.get(r.params[0] ?? '')?.some((x) => x.id === r.params[1]) ? { status: 200, body: { deleted: r.params[1] } } : { status: 404, body: { error: 'Schedule not found.', code: 'not_found' } },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/sleep$/,
+    ({ body }) => {
+      const b = body as { enabled?: unknown; idleMinutes?: unknown } | null
+      const idle = b?.idleMinutes ?? 0
+      if (typeof b?.enabled !== 'boolean' || typeof idle !== 'number' || !Number.isInteger(idle)) return invalid('Say whether the server sleeps and after how many minutes.')
+      if (idle !== 0 && (idle < 5 || idle > 24 * 60)) return invalid('Choose between 5 minutes and 24 hours of nobody playing before the server sleeps.')
+      return { status: 200, body: { sleep: { enabled: b.enabled, idleMinutes: idle || 15, listening: false } } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/backup-rules$/,
+    (r, state) => {
+      const b = (r.body ?? {}) as { automatic?: { everyHours?: unknown }; rules?: unknown; timeZone?: unknown }
+      if (b.timeZone !== undefined && b.timeZone !== '' && !knownZone(b.timeZone)) return { status: 400, body: { error: 'Unknown time zone.', code: 'invalid', field: 'timeZone' } }
+      if (b.rules !== undefined && (typeof b.rules !== 'object' || b.rules === null)) return invalid('Send the rules as an object.')
+      if (b.automatic && !automaticEvery.includes(Number(b.automatic.everyHours))) {
+        return invalid(`Automatic backups can run every 1, 2, 3, 4, 6, 8 or 12 hours, or once a day, not every ${String(b.automatic.everyHours)} hours.`)
+      }
+      const view = { ...state.backupRules.get(r.params[0] ?? '') }
+      if (b.automatic) view.automatic = { ...(view.automatic as object | undefined), ...b.automatic }
+      if (b.rules) Object.assign(view, { rules: b.rules, custom: true })
+      return { status: 200, body: view }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/offsite$/,
+    (r, state) => {
+      const id = r.params[0] ?? ''
+      const b = (r.body ?? {}) as PlaceBody
+      const view = state.offsite.get(id)
+      const bad = placeProblem(b, view, state.sshKeys.has(id) || !!view?.sshKey)
+      if (bad) return bad
+      if (b.enabled === true && !b.config && !view?.configured) return invalid('Choose where the copies go first.')
+      const next = savedPlace(id, b, view)
+      state.offsite.set(id, next)
+      return { status: 200, body: next }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/offsite\/test$/,
+    (r, state) => {
+      const id = r.params[0] ?? ''
+      const b = (r.body ?? {}) as PlaceBody
+      const view = state.offsite.get(id)
+      return placeProblem(b, view, state.sshKeys.has(id) || !!view?.sshKey) ?? { status: 200, body: testPassed(b, view) }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/offsite\/ssh-key$/,
+    (r, state) => {
+      state.sshKeys.add(r.params[0] ?? '')
+      return { status: 200, body: { publicKey: standInPublicKey, authorizedKey: `restrict ${standInPublicKey}`, fingerprint: 'SHA256:c3RhbmQtaW4ga2V5IGZvciB0aGUgY2xpY2stdGhy' } }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/offsite\/retry$/, (r, state) => ({ status: 200, body: state.offsite.get(r.params[0] ?? '') ?? {} })],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/offsite\/new-key$/,
+    (r, state) => {
+      const id = r.params[0] ?? ''
+      const view = state.offsite.get(id)
+      const key = view?.key as { recipient: string; oldKeys: number } | undefined
+      if (!view || !key) return { status: 409, body: { error: 'There is no key to replace yet.', hint: 'Turn on copies somewhere else first.', code: 'conflict' } }
+      const next = { ...view, key: { ...key, recipient: 'age1standinnew', oldKeys: key.oldKeys + 1, savedAt: undefined, createdAt: new Date().toISOString() } }
+      state.offsite.set(id, next)
+      const rotation = { recipient: 'age1standinnew', oldRecipient: key.recipient, oldKeys: key.oldKeys + 1, code: 'rotated', msg: 'New copies use the new key.', hint: 'Save the new recovery key file.' }
+      return { status: 200, body: { rotation, offsite: next } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/offsite\/restore$/,
+    (r, state) => {
+      const n = (r.body as PlaceBody | null)?.name
+      return typeof n === 'string' && n ? op(state, 'offsite-restore', r.params[0], { name: n }) : { status: 400, body: { error: "That is not the name of a backup's copy.", code: 'invalid', field: 'name' } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/offsite\/recover$/,
+    ({ body }) => {
+      const b = (body ?? {}) as PlaceBody
+      if (!b.recoveryKey) return missing('recoveryKey', 'Choose the recovery key file.')
+      const bad = placeProblem(b, undefined, false)
+      if (bad) return bad
+      const at = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
+      const copies = [
+        { name: 'survival-2026-09-25-0300.tar.zst.age', sizeBytes: 412_000_000, createdAt: at(1) },
+        { name: 'survival-2026-09-24-0300.tar.zst.age', sizeBytes: 409_000_000, createdAt: at(2) },
+      ]
+      return { status: 200, body: { server: 'Survival', keys: 2, place: String(b.config?.type === 'sftp' ? b.config.sftp?.host : b.config?.s3?.endpoint), copies } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/offsite\/recover\/restore$/,
+    (r, state) => {
+      const b = (r.body ?? {}) as PlaceBody
+      if (!b.recoveryKey) return missing('recoveryKey', 'Choose the recovery key file.')
+      return typeof b.name === 'string' && b.name ? op(state, 'offsite-recover', undefined, { name: b.name }) : { status: 400, body: { error: 'Pick a copy to restore.', code: 'invalid', field: 'name' } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/disk\/clean$/,
+    (r, state) => {
+      const b = (r.body ?? {}) as { ids?: unknown; ways?: unknown; timeZone?: unknown }
+      const ids = Array.isArray(b.ids) ? b.ids : []
+      const ways = Array.isArray(b.ways) ? b.ways : []
+      if (b.timeZone !== undefined && !knownZone(b.timeZone)) return { status: 400, body: { error: 'Unknown time zone.', code: 'invalid', field: 'timeZone' } }
+      if (!ids.length && !ways.length) return { status: 400, body: { error: 'Choose what to delete.', code: 'invalid', field: 'ids' } }
+      if (ids.some((id) => typeof id !== 'string' || !diskID.test(id))) return { status: 400, body: { error: 'One of the chosen items is not valid.', hint: 'Scan again and choose from the new list.', code: 'invalid', field: 'ids' } }
+      if (ways.some((w) => typeof w !== 'string' || !diskWays.includes(w))) return { status: 400, body: { error: 'Unknown way to free space.', code: 'invalid', field: 'ways' } }
+      return op(state, 'disk-cleanup')
+    },
+  ],
 ]
 
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
@@ -193,7 +476,7 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0 }
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0, ops: new Map(), schedules: new Map(), backupRules: new Map(), offsite: new Map(), sshKeys: new Set() }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -207,7 +490,7 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    if (method === 'GET' || method === 'HEAD') {
+    if (method === 'GET' || method === 'HEAD' || (method === 'POST' && computes.some((re) => re.test(path)))) {
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
@@ -217,6 +500,25 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       if (/^\/api\/servers\/\w+\/backups\/[\w-]+\/download$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
+        return
+      }
+      const key = /^\/api\/servers\/(\w+)\/offsite\/recovery-key$/.exec(path)
+      if (key?.[1]) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        const file = `playkeeper-recovery-key-${key[1]}.txt`
+        await route.fulfill({ status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="${file}"`, 'Cache-Control': 'no-store' }, body: '# A stand-in recovery key from the click-through. It opens nothing.\n' })
+        return
+      }
+      const fakeOp = /^\/api\/(?:servers|machines)\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
+      if (fakeOp?.[1]) {
+        const o = state.ops.get(fakeOp[1])
+        calls.push({ method, path, status: o ? 200 : 404, faked: true, at })
+        await route.fulfill({ status: o ? 200 : 404, contentType: 'application/json', body: JSON.stringify(o ? finished(o) : { error: 'Operation not found.', code: 'not_found' }) })
+        return
+      }
+      if (/^\/api\/machines\/\w+\/restore\/fakerestore$/.test(path)) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(restorePreview(undefined)) })
         return
       }
       const res = await route.fetch().catch(() => null)
@@ -230,6 +532,12 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
+        const sched = /^\/api\/servers\/(\w+)\/schedules$/.exec(path)
+        if (sched?.[1] && method === 'GET') state.schedules.set(sched[1], ((await res.json().catch(() => ({}))) as { schedules?: Record<string, unknown>[] }).schedules ?? [])
+        const rules = /^\/api\/servers\/(\w+)\/backup-rules$/.exec(path)
+        if (rules?.[1]) state.backupRules.set(rules[1], await res.json().catch(() => ({})))
+        const place = /^\/api\/servers\/(\w+)\/offsite$/.exec(path)
+        if (place?.[1]) state.offsite.set(place[1], await res.json().catch(() => ({})))
       }
       // The page may have moved on and cancelled the request meanwhile.
       await route.fulfill({ response: res }).catch(() => {})
