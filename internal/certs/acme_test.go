@@ -913,8 +913,8 @@ func TestIssueWaitsForTheCertificate(t *testing.T) {
 // TestIssueTimesOutWaitingForTheCertificate: a certificate that is not issued
 // by the end of the waits for it is a timeout, not a refusal by the
 // certificate authority, and no other order is made. The finalize request
-// waits validationWait at most, and the looks at the order after it fails
-// issuedWait.
+// waits validationWait at most; when it fails, the looks at the order wait
+// issuedWait more.
 func TestIssueTimesOutWaitingForTheCertificate(t *testing.T) {
 	shortWaits(t, 2*time.Second, 2*time.Second, time.Second)
 	cases := []struct {
