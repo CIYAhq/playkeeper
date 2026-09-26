@@ -980,6 +980,12 @@ func (s *Server) forwardTo(method, pattern string, withHost bool, then func(mach
 		}
 		ctx := machinelink.WithActor(r.Context(), sess.User.Username)
 		path := agentPath(pattern, r)
+		// The host the dashboard was opened with is its own machine's
+		// address: a joined machine would point its name at the dashboard.
+		host := ""
+		if withHost && m.Kind != remoteKind {
+			host = r.Host
+		}
 		var raw json.RawMessage
 		var status int
 		var err error
@@ -987,7 +993,10 @@ func (s *Server) forwardTo(method, pattern string, withHost bool, then func(mach
 		case "GET":
 			q := r.URL.Query()
 			if withHost {
-				q.Set("panelHost", r.Host)
+				q.Del("panelHost")
+				if host != "" {
+					q.Set("panelHost", host)
+				}
 			}
 			status, err = m.agent.Do(ctx, "GET", path, q, nil, &raw)
 		case "DELETE":
@@ -1006,7 +1015,10 @@ func (s *Server) forwardTo(method, pattern string, withHost bool, then func(mach
 				}
 			}
 			if withHost {
-				body["panelHost"] = r.Host
+				delete(body, "panelHost")
+				if host != "" {
+					body["panelHost"] = host
+				}
 			}
 			body["actor"] = sess.User.Username
 			status, err = m.agent.Do(ctx, method, path, nil, body, &raw)

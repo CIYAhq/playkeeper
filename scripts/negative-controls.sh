@@ -435,6 +435,14 @@ control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkst
   '	for _, f := range fails[:0] {
 		network := ""' \
   ./internal/panel '^(TestTooManyWrongCodesPauseJoining|TestLinkStoreKeepsJoinFailures)$'
+control "a joined machine never gets the dashboard's host as its address" internal/panel/server.go \
+  'if withHost && m.Kind != remoteKind {' \
+  'if withHost {' \
+  ./internal/panel '^TestAJoinedMachinesAddressRoutesCarryNoDashboardHost$'
+control "a joined machine never gets the browser's panelHost" internal/panel/server.go \
+  '				q.Del("panelHost")' \
+  '				_ = q' \
+  ./internal/panel '^TestAJoinedMachinesAddressRoutesCarryNoDashboardHost$'
 control "RCON finds a closed connection before writing" internal/minecraft/rcon.go \
   'if err := r.stale(); err != nil {' \
   'if err := r.stale(); false && err != nil {' \

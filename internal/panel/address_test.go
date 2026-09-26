@@ -8,12 +8,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -235,5 +237,50 @@ func TestHSTSIsShortOnNamesAndLongOnIPAddresses(t *testing.T) {
 		if got := r.Header.Get("Strict-Transport-Security"); got != want {
 			t.Errorf("host %q: Strict-Transport-Security %q, want %q", host, got, want)
 		}
+	}
+}
+
+// A joined machine's address is its own: the host the dashboard was opened
+// with, or one the browser sends, would point its name at the dashboard.
+func TestAJoinedMachinesAddressRoutesCarryNoDashboardHost(t *testing.T) {
+	e := newEnvConfig(t, nil, withDomain)
+	cookie, csrf := e.setup(t)
+	ra := newRemoteAgent()
+	var mu sync.Mutex
+	var sent []string
+	record := func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		sent = append(sent, r.Method+" "+r.URL.String()+" "+string(b))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{}`)
+	}
+	ra.handle("GET /v1/address", record)
+	ra.handle("POST /v1/address/claim", record)
+	rid, _ := e.joined(t, cookie, csrf, ra)
+	base := "/api/machines/" + rid + "/address"
+
+	if r := e.do(t, "GET", base+"?panelHost=198.51.100.9", "", auth(cookie, "")); r.status != http.StatusOK {
+		t.Fatalf("address: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "POST", base+"/claim", `{"name":"home","panelHost":"198.51.100.9"}`, auth(cookie, csrf)); r.status != http.StatusOK {
+		t.Fatalf("claim: %d %v", r.status, r.body)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != 2 || !strings.Contains(sent[1], `"name":"home"`) {
+		t.Fatalf("the joined machine got: %q", sent)
+	}
+	for _, req := range sent {
+		if strings.Contains(req, "panelHost") {
+			t.Errorf("a joined machine was sent a panelHost: %s", req)
+		}
+	}
+	if actor, _ := ra.saw("POST /v1/address/claim"); actor != "admin" {
+		t.Errorf("the claim reached the joined machine as %q, not admin", actor)
+	}
+	if e.sawLocally("POST /v1/address/claim") {
+		t.Error("the dashboard's own agent got another machine's claim")
 	}
 }
