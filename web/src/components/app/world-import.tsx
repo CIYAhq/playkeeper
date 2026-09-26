@@ -191,12 +191,12 @@ export function WorldSourceStep({ source, onSource, upload, phone, error }: { so
             className="mt-2 min-h-11 w-full justify-between rounded-2xl border border-border bg-white px-4 text-base"
           />
         ) : (
-          <ToggleGroup value={[source]} onValueChange={(v) => v[0] && onSource(v[0] as WorldSource)} aria-labelledby="world-source" className="mt-2.5 grid w-full grid-cols-5 gap-2">
+          <ToggleGroup value={[source]} onValueChange={(v) => v[0] && onSource(v[0] as WorldSource)} aria-labelledby="world-source" className="mt-2.5 flex w-full flex-wrap gap-2">
             {worldSources.map((s) => (
               <ToggleGroupItem
                 key={s}
                 value={s}
-                className="h-11 rounded-xl border border-border bg-card px-2 text-[13px] font-medium text-foreground hover:border-input hover:bg-card data-pressed:border-primary/55 data-pressed:bg-selected data-pressed:font-semibold data-pressed:shadow-selected sm:h-11 sm:text-[13px]"
+                className="h-11 flex-auto rounded-xl border border-border bg-card px-4 text-[13px] font-medium text-foreground hover:border-input hover:bg-card data-pressed:border-primary/55 data-pressed:bg-selected data-pressed:font-semibold data-pressed:shadow-selected sm:h-11 sm:text-[13px]"
               >
                 {t(sourceTexts[s].name)}
               </ToggleGroupItem>
