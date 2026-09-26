@@ -935,6 +935,8 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
   const tone = r && testTone(r)
   const state = stateOf(v)
   const editing = !v.enabled || c.dirty
+  // While copies are stopped the footer holds Review, so the test sits beside the recovery key.
+  const testWhileStopped = state.kind === 'stopped' && !editing && !r
   const testButton = (primary: boolean) => (
     <Button size="sm" variant={primary ? 'default' : 'outline'} loading={c.busy === 'test'} disabledReason={c.readOnly} onClick={() => void c.testNow()}>
       {t('offsite.test')}
@@ -1017,9 +1019,14 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
       </div>
       {!c.canEdit && <p className="mt-3 text-xs text-muted-foreground">{t('offsite.ownerOnly')}</p>}
       {v.enabled && <p className="mt-3 text-xs text-muted-foreground">{t('offsite.encryptedKeep')}</p>}
-      {v.key && (
-        <div className="mt-3">
-          <KeyRow v={v} c={c} machine={ws.machineName} />
+      {(v.key || testWhileStopped) && (
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+          {v.key && (
+            <div className="min-w-64 flex-1">
+              <KeyRow v={v} c={c} machine={ws.machineName} />
+            </div>
+          )}
+          {testWhileStopped && testButton(false)}
         </div>
       )}
       {r && tone && (

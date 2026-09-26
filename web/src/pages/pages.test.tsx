@@ -474,17 +474,17 @@ describe('Copies somewhere else', () => {
     expect(text).toContain('Turn on copies')
   })
 
+  const pinned = 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA'
+  const now = 'SHA256:Zx81bQe4Wn7cHs2LmP0vA9tYd6KfR3gJuN5oE1iXwTk'
+  const stopped: OffsiteView = {
+    ...sftp,
+    enabled: true,
+    key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt' },
+    pending: { backupId: 'b1', fileName: 'b1.tar.zst', uploading: false, sent: 0, total: 1, attempts: 1, error: 'The key changed.', errorKind: 'host_key_changed', params: { fingerprint: now, pinnedFingerprint: pinned } },
+  }
+
   it('stops copies when the host key changed and shows both fingerprints', async () => {
-    const pinned = 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA'
-    const now = 'SHA256:Zx81bQe4Wn7cHs2LmP0vA9tYd6KfR3gJuN5oE1iXwTk'
-    answer({
-      '/offsite': {
-        ...sftp,
-        enabled: true,
-        key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt' },
-        pending: { backupId: 'b1', fileName: 'b1.tar.zst', uploading: false, sent: 0, total: 1, attempts: 1, error: 'The key changed.', errorKind: 'host_key_changed', params: { fingerprint: now, pinnedFingerprint: pinned } },
-      },
-    })
+    answer({ '/offsite': stopped })
     await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
     expect(document.body.textContent).toContain('Stopped')
     expect(document.body.textContent).toContain('Copies stopped: vault.example.net’s key changed')
@@ -495,6 +495,22 @@ describe('Copies somewhere else', () => {
     expect(text).toContain(pinned)
     expect(text).toContain(now)
     expect(text).toContain('Check the new key')
+  })
+
+  it('keeps Test connection while copies are stopped, so the owner can check the new key', async () => {
+    answer({ '/offsite': stopped })
+    const changed: OffsiteTestResult = { ok: false, skew: 0, hostKey: { ...hostKey, fingerprint: now }, checks: [{ step: 'connect', ok: false, msg: 'The host key changed.', kind: 'host_key_changed', params: { pinnedFingerprint: pinned } }] }
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/test') ? changed : stopped)) as typeof client.post)
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Copies stopped: vault.example.net’s key changed')
+    await click('Test connection')
+    expect(vi.mocked(client.post).mock.calls.map(([path]) => path)).toContain('/api/servers/abcdefghjk/offsite/test')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('vault.example.net’s key changed')
+    expect(text).toContain(pinned)
+    expect(text).toContain(now)
+    await click('Check the new key')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
   })
 
   it('lets only the owner change where copies go or download the key', async () => {
