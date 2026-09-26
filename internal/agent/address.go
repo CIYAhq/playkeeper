@@ -45,8 +45,10 @@ const (
 	// published: the service allows a key about one request a minute.
 	freePollEvery = 5 * time.Minute
 	publishWait   = 10 * time.Minute
-	// settleWait bounds finding out what a change of name did when the
-	// claim got no clear answer, and claiming the old name back.
+	// settleWait bounds what follows a step of a change of name that
+	// failed: finding out what the step did at the names service, undoing
+	// it and claiming the old name back. It is time of its own, as a
+	// request that got no answer may have used up the change's.
 	settleWait = 2 * time.Minute
 	// ownRecheckPending and ownRecheckReady are how often the own domain's
 	// records are looked up while they are not right yet, and after.
@@ -443,7 +445,6 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 	n, err := c.Claim(ctx, name)
 	a.setClaiming("")
 	if err != nil {
-		// A claim that got no answer may have used up ctx.
 		sctx, cancel := context.WithTimeout(a.ctx, settleWait)
 		defer cancel()
 		if !claimRefused(err) {
@@ -469,11 +470,13 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 		released = ""
 	}
 	if err := a.setAddress(addressState{Kind: api.AddressPlaykeeper, Host: host, Since: now, IP: st.IP, Free: &freeState{Name: n, CheckedAt: now}, Released: released}); err != nil {
+		uctx, cancel := context.WithTimeout(a.ctx, settleWait)
+		defer cancel()
 		c.Name = name
-		if _, rerr := c.Release(ctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {
+		if _, rerr := c.Release(uctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {
 			a.log.Warn("could not release a free address this machine couldn't save", "name", name, "err", rerr)
 		} else if old != "" {
-			a.reclaim(ctx, c, st, old)
+			a.reclaim(uctx, c, st, old)
 		}
 		return err
 	}

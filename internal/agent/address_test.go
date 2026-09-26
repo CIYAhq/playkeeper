@@ -591,6 +591,25 @@ func inTurn(fail map[string][]*fakeRefusal) func(r *http.Request) *fakeRefusal {
 	}
 }
 
+// spendsContext is a names client transport whose request for route uses
+// up the time of the change that sent it: the service carries it out, and
+// the change's context is done before the answer comes.
+type spendsContext struct {
+	next   http.RoundTripper
+	route  string
+	cancel context.CancelFunc
+}
+
+func (tr spendsContext) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := tr.next.RoundTrip(r)
+	if err != nil || r.Method+" "+r.URL.Path != tr.route {
+		return resp, err
+	}
+	resp.Body.Close()
+	tr.cancel()
+	return nil, context.DeadlineExceeded
+}
+
 // addressEnv is an agent with the fake names service, DNS and certificate
 // authority.
 type addressEnv struct {
@@ -731,6 +750,21 @@ func (e *addressEnv) loopRefreshes(name string) {
 	e.waitFor("the loop to refresh "+name, func() bool { return e.names.count(route) > before })
 }
 
+// failSaves makes saving the address fail, as with a full disk, or work
+// again.
+func (e *addressEnv) failSaves(fail bool) {
+	e.t.Helper()
+	for _, op := range []string{"INSERT", "UPDATE"} {
+		stmt := `DROP TRIGGER no_address_` + op
+		if fail {
+			stmt = `CREATE TRIGGER no_address_` + op + ` BEFORE ` + op + ` ON kv WHEN NEW.key = 'address' BEGIN SELECT RAISE(ABORT, 'disk full'); END`
+		}
+		if _, err := e.a.db.Exec(stmt); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+}
+
 // about reports whether d, the time until something the machine saved a
 // moment ago as due after want, is that.
 func about(d, want time.Duration) bool {
@@ -843,19 +877,7 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	}
 
 	// A change this machine can't save is undone at the names service too.
-	failSaves := func(fail bool) {
-		t.Helper()
-		for _, op := range []string{"INSERT", "UPDATE"} {
-			stmt := `DROP TRIGGER no_address_` + op
-			if fail {
-				stmt = `CREATE TRIGGER no_address_` + op + ` BEFORE ` + op + ` ON kv WHEN NEW.key = 'address' BEGIN SELECT RAISE(ABORT, 'disk full'); END`
-			}
-			if _, err := e.a.db.Exec(stmt); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	failSaves(true)
+	e.failSaves(true)
 	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 500 {
 		t.Fatalf("a change that can't be saved: %d %v", code, out)
 	}
@@ -882,7 +904,7 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 		t.Fatalf("a change that can't be saved or undone: %d %v", code, out)
 	}
 	e.names.setFail(nil)
-	failSaves(false)
+	e.failSaves(false)
 	if n, _ := e.names.name("bob"); n.State != names.StateActive {
 		t.Fatalf("bob after a release that failed: %+v", n)
 	}
@@ -1112,6 +1134,55 @@ func TestFreeNameIsKeptWhileTheServiceHoldsIt(t *testing.T) {
 	e.names.setFail(nil)
 	if st := e.a.address(); st.Kind != api.AddressNone || st.Released != "alex" || e.a.loadCertificate("alex.playkeeper.io") != nil {
 		t.Fatalf("the machine kept a name someone else has: %+v", st)
+	}
+}
+
+// A change of name whose request used up the change's time is still
+// sorted out at the names service: finding out what the request did,
+// undoing it and claiming the old name back have time of their own.
+func TestFreeNameChangeIsUndoneAfterItsTimeRanOut(t *testing.T) {
+	for _, c := range []struct {
+		name, route string
+		diskFull    bool
+	}{
+		// The service lists bob as claimed, but the machine can't save the
+		// change.
+		{"the claim is answered too late and the change can't be saved", "PUT /v1/names/bob", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			e := newAddressEnv(t, func(o *Options) {
+				o.NamesHTTP = &http.Client{Transport: spendsContext{next: o.NamesHTTP.Transport, route: c.route, cancel: cancel}}
+			})
+			e.addServerNamed("Survival")
+			e.claim("alex")
+			_, key := e.names.name("alex")
+			release, err := e.a.holdAddress(t.Context(), 15*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.diskFull {
+				e.failSaves(true)
+			}
+			err = e.a.claimFree(ctx, e.a.address(), "bob", "admin")
+			if c.diskFull {
+				e.failSaves(false)
+			}
+			release()
+			if err == nil || ctx.Err() == nil {
+				t.Fatalf("the change: %v, with its context %v", err, ctx.Err())
+			}
+			if n, owner := e.names.name("alex"); n.State != names.StateActive || owner != key {
+				t.Fatalf("the service has alex as %+v for %q", n, owner)
+			}
+			if n, _ := e.names.name("bob"); n.State == names.StateActive {
+				t.Fatalf("the service has bob as %+v", n)
+			}
+			if st := e.a.address(); st.Host != "alex.playkeeper.io" || st.Free == nil || st.Free.Name.Name != "alex" || e.a.loadCertificate("alex.playkeeper.io") == nil {
+				t.Fatalf("the machine has %+v", st)
+			}
+		})
 	}
 }
 
