@@ -430,6 +430,10 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 	}
 
 	reached, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	let := func() { releaseOnce.Do(func() { close(release) }) }
+	// A failed check must not leave the restore waiting while the agent stops.
+	t.Cleanup(let)
 	setRestoreStep(t, func(_ context.Context, step string) {
 		if step == "checking" {
 			close(reached)
@@ -448,7 +452,7 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 	if l := e.a.diskLayout(context.Background()); !busy(l) || !slices.Equal(l.ActiveStages, []string{id}) {
 		t.Fatalf("while the restore runs: busy %v, active stages %v", busy(l), l.ActiveStages)
 	}
-	close(release)
+	let()
 	if op := e.waitOp(opID); op.Status != api.OpSucceeded {
 		t.Fatalf("the restore: %+v", op)
 	}
