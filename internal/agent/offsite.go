@@ -131,6 +131,7 @@ type offsiteRow struct {
 	sshPublic  string
 	keys       offsite.Keys
 	hasKeys    bool
+	keysRead   string // the keys column as it was read
 	keySavedAt *time.Time
 	// keySavedFolder is the folder the downloaded recovery key file names,
 	// nil when not known.
@@ -170,7 +171,7 @@ func (s *server) loadOffsite() (offsiteRow, error) {
 	if err != nil {
 		return r, err
 	}
-	r.exists, r.enabled = true, enabled == 1
+	r.exists, r.enabled, r.keysRead = true, enabled == 1, keys
 	if err := json.Unmarshal([]byte(config), &r.cfg); err != nil {
 		return r, errors.New("the saved settings for copies somewhere else can't be read")
 	}
@@ -1003,9 +1004,15 @@ func (s *server) hOffsiteSSHKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sshKeyOf(k.PublicKey))
 }
 
+// keyServed runs after the recovery key file was sent, before it is
+// recorded as saved; tests make a new key there.
+var keyServed = func() {}
+
 // hOffsiteRecoveryKey returns the recovery key file. The panel lets only
 // the owner fetch it and names who did; the response is never cached, and
 // the audit line, written before the key leaves, never holds its content.
+// Only the keys in the file are recorded as saved: a new key made while it
+// was sent still needs saving.
 func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
 	if err != nil {
@@ -1037,7 +1044,8 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte(body)); err != nil {
 		return
 	}
-	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ?, key_saved_folder = ? WHERE server_id = ?`, s.now().UnixMilli(), f.Folder, s.id)
+	keyServed()
+	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ?, key_saved_folder = ? WHERE server_id = ? AND keys = ?`, s.now().UnixMilli(), f.Folder, s.id, row.keysRead)
 }
 
 // hOffsiteNewKey makes a new encryption key for new copies and keeps the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -571,6 +572,77 @@ func TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies(t *testing.T) {
 			}
 			if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || e.a.serverByID(e.sid) != nil {
 				t.Fatalf("delete op: %+v", op)
+			}
+		})
+	}
+}
+
+// Downloading the recovery key records the keys in the file as saved, and
+// only those: a new key made while the file was sent still needs saving,
+// and deleting the server still asks.
+func TestDownloadingTheRecoveryKeySavesOnlyTheKeysInTheFile(t *testing.T) {
+	cases := []struct {
+		name   string
+		newKey bool
+	}{
+		{name: "no new key meanwhile"},
+		{name: "a new key made as the file was sent", newKey: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			prev := openOffsite
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.addIdleServer()
+			s3 := map[string]any{"type": "s3", "s3": map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}}
+			if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "owner", "enabled": true, "config": s3, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+			served, err := e.srv().loadOffsite()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var newKey atomic.Int32
+			prevServed := keyServed
+			keyServed = func() {
+				if c.newKey {
+					resp, err := http.Post(e.ts.URL+e.sp("/offsite/new-key"), "application/json", strings.NewReader(`{"actor":"owner"}`))
+					if err == nil {
+						resp.Body.Close()
+						newKey.Store(int32(resp.StatusCode))
+					}
+				}
+			}
+			t.Cleanup(func() { keyServed = prevServed })
+			req, _ := http.NewRequest("GET", e.ts.URL+e.sp("/offsite/recovery-key"), nil)
+			req.Header.Set("X-Playkeeper-Actor", "owner")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			file, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK || !strings.Contains(string(file), served.keys.Current.Recipient) {
+				t.Fatalf("recovery key: %d, the file doesn't name %s", resp.StatusCode, served.keys.Current.Recipient)
+			}
+			row, err := e.srv().loadOffsite()
+			if err != nil {
+				t.Fatal(err)
+			}
+			refusal, _ := e.srv().keyNotSaved().(*apiError)
+			if !c.newKey {
+				if row.keySavedAt == nil || refusal != nil {
+					t.Fatalf("the key in the file isn't recorded as saved: %v, %+v", row.keySavedAt, refusal)
+				}
+				return
+			}
+			if newKey.Load() != http.StatusOK || row.keys.Current.Recipient == served.keys.Current.Recipient {
+				t.Fatalf("no new key was made while the file was sent: %d", newKey.Load())
+			}
+			if row.keySavedAt != nil || refusal == nil || refusal.Reason != "recovery_key_not_saved" {
+				t.Fatalf("the new key, not in the file, is recorded as saved: %v, %+v", row.keySavedAt, refusal)
 			}
 		})
 	}
