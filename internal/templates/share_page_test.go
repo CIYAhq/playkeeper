@@ -117,6 +117,12 @@ func TestSharePageMarkup(t *testing.T) {
 			t.Errorf("site/t.html has a part for %q, a state site/t.js never has", s)
 		}
 	}
+	// Without JavaScript, the page says how to do by hand what t.js does,
+	// with the create flow's own names for its steps.
+	noscript := strings.Join(matches(`(?s)<noscript>(.*?)</noscript>`, html), "")
+	if !strings.Contains(noscript, "/servers/new#template=") || !strings.Contains(noscript, "New server › A template") || strings.Contains(noscript, "paste") {
+		t.Errorf("site/t.html's no-JavaScript line can't be followed: %q", noscript)
+	}
 	handoff := strings.Join(matches(`'([a-z]+)'`, strings.Join(matches(`var HANDOFF = \[([^\]]*)\]`, js), "")), " ")
 	if form := `<form id="open" data-show="` + handoff + `"`; handoff == "" || !strings.Contains(html, form) {
 		t.Errorf("site/t.html does not have %s…>: the form shows when there is a template to send on", form)
