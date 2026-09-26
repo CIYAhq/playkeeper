@@ -284,6 +284,8 @@ describe('AI agents', () => {
     expect(agentPhrase({ tool: 'create_backup', serverName: 'Survival' })).toBe('made a backup of Survival')
     expect(agentPhrase({ tool: 'list_online_players', serverName: 'Survival' })).toBe('checked who’s online on Survival')
     expect(agentPhrase({ tool: 'install_addon', serverName: 'Survival' })).toBe('installed a plugin or mod on Survival')
+    expect(agentPhrase({ tool: 'remove_addon', serverName: 'Survival' })).toBe('removed a plugin or mod from Survival')
+    expect(agentPhrase({ tool: 'search_addons', serverName: 'Survival' })).toBe('searched plugins and mods for Survival')
     expect(agentPhrase({ tool: 'future_tool', serverName: 'Survival' })).toBe('used future_tool on Survival')
     expect(agentPhrase({ tool: 'future_tool' })).toBe('used future_tool')
     expect(agentPhrase({ tool: 'toString', serverName: 'Survival' })).toBe('used toString on Survival')

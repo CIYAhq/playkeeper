@@ -580,6 +580,41 @@ control "each tool takes the action of its dashboard route" internal/mcptools/sp
   'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActMakeBackups,' \
   'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActView,' \
   ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
+# Wave 9: search_addons and remove_addon.
+control "search results reach the model on one line each" internal/mcptools/addons.go \
+  'Summary: oneLine(card.Summary)' \
+  'Summary: card.Summary' \
+  ./internal/mcptools '^TestSearchAddonsListsWhatInstallAddonTakes$'
+control "remove_addon keeps the settings folder" internal/mcptools/addons.go \
+  'KeepConfig: true, Actor: c.actor()}' \
+  'KeepConfig: false, Actor: c.actor()}' \
+  ./internal/mcptools '^TestRemoveAddonRemovesWhatPlaykeeperInstalled$'
+control "remove_addon leaves an add-on others need" internal/mcptools/addons.go \
+  'case len(p.NeededBy) > 0:' \
+  'case false && len(p.NeededBy) > 0:' \
+  ./internal/mcptools '^TestRemoveAddonLeavesWhatNeedsAPerson$'
+control "remove_addon leaves a file that changed" internal/mcptools/addons.go \
+  'case p.Changed:' \
+  'case false && p.Changed:' \
+  ./internal/mcptools '^TestRemoveAddonLeavesWhatNeedsAPerson$'
+control "remove_addon removes only what Playkeeper installed" internal/mcptools/addons.go \
+  'if f.Addon != nil && (f.Status == "managed" || f.Status == "modified") {' \
+  'if f.Addon != nil {' \
+  ./internal/mcptools '^TestRemoveAddonLeavesWhatNeedsAPerson$'
+control "remove_addon asks which when two add-ons match" internal/mcptools/addons.go \
+  '		case 1:
+			return match, nil
+		}
+		return api.Addon{}, &mcp.ToolError{Kind: "addon_ambiguous"' \
+  '		default:
+			return match, nil
+		}
+		return api.Addon{}, &mcp.ToolError{Kind: "addon_ambiguous"' \
+  ./internal/mcptools '^TestRemoveAddonLeavesWhatNeedsAPerson$'
+control "remove_addon takes Admin rights, as the dashboard's Remove does" internal/mcptools/specs.go \
+  'name: "remove_addon", title: "Remove a plugin or mod", scope: mcp.ScopeOwner, act: ActManageServers,' \
+  'name: "remove_addon", title: "Remove a plugin or mod", scope: mcp.ScopeOwner, act: ActMakeBackups,' \
+  ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
 control "a joined machine's pack page gives its IP and port" internal/panel/packshare.go \
   'case fp.m.Kind == remoteKind:' \
   'case false:' \
