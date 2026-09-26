@@ -334,7 +334,7 @@ type CreateServerRequest struct {
 	Gameplay           *Gameplay `json:"gameplay,omitempty"`
 	Actor              string    `json:"actor"`
 	// Build is the build of a type's software to pin (a Purpur build, a
-	// Fabric or Quilt loader, a NeoForge version); empty takes the one the
+	// Fabric or Quilt loader, a NeoForge or Forge version); empty takes the one the
 	// catalog recommends. Paper and Vanilla have none.
 	Build string `json:"build,omitempty"`
 	// Modpack creates the server from a pack (wave 4), which decides the
@@ -1620,10 +1620,11 @@ type SoftwarePin struct {
 	FabricLoader     string `json:"fabricLoader,omitempty"`
 	QuiltLoader      string `json:"quiltLoader,omitempty"`
 	NeoForgeVersion  string `json:"neoforgeVersion,omitempty"`
+	ForgeVersion     string `json:"forgeVersion,omitempty"`
 }
 
 // SoftwareBuild is one build of a type's software for a Minecraft version:
-// a Purpur build, a Fabric or Quilt loader, or a NeoForge version.
+// a Purpur build, a Fabric or Quilt loader, or a NeoForge or Forge version.
 type SoftwareBuild struct {
 	Version     string `json:"version"`
 	Channel     string `json:"channel"`
@@ -1724,7 +1725,7 @@ type ModpackDetail struct {
 type ModpackPreview struct {
 	Type             string `json:"type"`
 	MinecraftVersion string `json:"minecraftVersion"`
-	// LoaderVersion is the Fabric Loader, Quilt Loader or NeoForge version;
+	// LoaderVersion is the Fabric Loader, Quilt Loader, NeoForge or Forge version;
 	// empty for vanilla packs.
 	LoaderVersion string `json:"loaderVersion,omitempty"`
 	// Java is set when the pack's Minecraft version runs on an older Java

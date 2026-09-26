@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -64,7 +65,7 @@ func TestCatalogOffersEveryTypeWithReleaseDates(t *testing.T) {
 		}
 		checks[ty["id"].(string)] = ty["check"].(string)
 	}
-	want := map[string]string{"paper": "full", "vanilla": "full", "purpur": "weak_hash", "fabric": "full", "quilt": "full", "neoforge": "recorded_outputs"}
+	want := map[string]string{"paper": "full", "vanilla": "full", "purpur": "weak_hash", "fabric": "full", "quilt": "full", "neoforge": "recorded_outputs", "forge": "full"}
 	for id, c := range want {
 		if checks[id] != c {
 			t.Errorf("%s is checked %q, want %q", id, checks[id], c)
@@ -96,8 +97,47 @@ func TestCatalogOffersEveryTypeWithReleaseDates(t *testing.T) {
 	if first["id"] != "vanilla-26.2" || first["recommended"] != true || first["releasedAt"] != "2026-09-02T09:14:07Z" || sw["type"] != "vanilla" || sw["minecraftVersion"] != "26.2" {
 		t.Fatalf("newest vanilla version: %v", first)
 	}
-	if code, _ := e.call("GET", "/v1/catalog?type=forge", nil); code != 400 {
+	if code, _ := e.call("GET", "/v1/catalog?type=spigot", nil); code != 400 {
 		t.Fatalf("an unknown type: %d", code)
+	}
+}
+
+// Forge's versions come from its Maven metadata, and which are stable from
+// the builds it recommends.
+func TestForgeVersionsComeFromForgesLists(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.serveForgeLists()
+	code, out := e.call("GET", "/v1/catalog?type=forge", nil)
+	if code != 200 || out["type"] != "forge" {
+		t.Fatalf("forge catalog: %d %v", code, out)
+	}
+	var got []string
+	for _, v := range out["versions"].([]any) {
+		m := v.(map[string]any)
+		sw := m["software"].(map[string]any)
+		got = append(got, fmt.Sprintf("%s %s %v %s", m["id"], m["channel"], m["recommended"], sw["forgeVersion"]))
+		if sw["type"] != "forge" || m["build"] != sw["forgeVersion"] {
+			t.Errorf("entry %v", m)
+		}
+	}
+	if want := "forge-26.2 stable true 65.1.3,forge-26.1.2 stable false 64.1.3"; strings.Join(got, ",") != want {
+		t.Fatalf("got %q, want %q", strings.Join(got, ","), want)
+	}
+	code, out = e.call("GET", "/v1/catalog/builds?type=forge&version=26.2", nil)
+	if code != 200 {
+		t.Fatalf("builds: %d %v", code, out)
+	}
+	got = nil
+	for _, b := range out["builds"].([]any) {
+		m := b.(map[string]any)
+		got = append(got, fmt.Sprintf("%s %s %v", m["version"], m["channel"], m["recommended"]))
+	}
+	if want := "65.1.3 stable true,65.1.0 stable false,65.0.1 beta false"; strings.Join(got, ",") != want {
+		t.Fatalf("got %q, want %q", strings.Join(got, ","), want)
+	}
+	code, out = e.startCreate(map[string]any{"type": "forge", "versionId": "forge-26.2", "build": "64.1.3"})
+	if code != 400 || !strings.Contains(out["error"].(string), `Forge has no build "64.1.3" for Minecraft 26.2`) {
+		t.Fatalf("a build Forge doesn't list for 26.2: %d %v", code, out)
 	}
 }
 

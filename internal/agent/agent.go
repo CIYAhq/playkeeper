@@ -144,7 +144,7 @@ type Options struct {
 	// (default: read from /proc).
 	PortHolder func(port int) (name string, pid int, ok bool)
 	// UpstreamClient reads the server software and modpack upstreams
-	// (Mojang, Fabric, Quilt, NeoForge, Purpur, Modrinth, CurseForge) at
+	// (Mojang, Fabric, Quilt, NeoForge, Forge, Purpur, Modrinth, CurseForge) at
 	// their fixed HTTPS hosts; tests swap its transport. It defaults to
 	// HTTPClient.
 	UpstreamClient *http.Client

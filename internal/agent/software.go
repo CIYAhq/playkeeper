@@ -263,7 +263,7 @@ func (a *Agent) hCatalogBuilds(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	typ, mc := q.Get("type"), q.Get("version")
 	if !software.Supported(typ) {
-		writeError(w, errInvalid("Only Vanilla, Purpur, Fabric, Quilt and NeoForge servers have builds to list."))
+		writeError(w, errInvalid("Only Vanilla, Purpur, Fabric, Quilt, NeoForge and Forge servers have builds to list."))
 		return
 	}
 	bs, at, err := a.typeBuilds(r.Context(), typ, mc)
@@ -289,6 +289,8 @@ func pinBuild(p software.Pin) string {
 		return p.QuiltLoader
 	case software.NeoForge:
 		return p.NeoForgeVersion
+	case software.Forge:
+		return p.ForgeVersion
 	}
 	return ""
 }
@@ -412,6 +414,8 @@ func softwareLabel(sc api.ServerConfig) string {
 		return fmt.Sprintf("Quilt %s with Quilt Loader %s", p.MinecraftVersion, p.QuiltLoader)
 	case software.NeoForge:
 		return fmt.Sprintf("NeoForge %s for Minecraft %s", p.NeoForgeVersion, p.MinecraftVersion)
+	case software.Forge:
+		return fmt.Sprintf("Forge %s for Minecraft %s", p.ForgeVersion, p.MinecraftVersion)
 	}
 	return typeName(p.Type) + " " + p.MinecraftVersion
 }
@@ -539,7 +543,7 @@ func (s *server) installSoftware(ctx context.Context, h *opHandle, sc *api.Serve
 
 // ownSoftware gives the game user the files and folders an install wrote,
 // as Paper's setup container leaves its jar, so the server and NeoForge's
-// installer can use them. Links are never followed.
+// or Forge's installer can use them. Links are never followed.
 func (s *server) ownSoftware(p software.Plan) error {
 	if os.Geteuid() != 0 {
 		return nil

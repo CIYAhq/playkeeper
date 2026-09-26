@@ -189,7 +189,7 @@ func TestHeapForModLoaders(t *testing.T) {
 				t.Errorf("%s at %d MB: heap %d, want the %d it always had", typ, b, got, HeapMB(b))
 			}
 		}
-		for _, typ := range []string{"fabric", "quilt", "neoforge"} {
+		for _, typ := range []string{"fabric", "quilt", "neoforge", "forge"} {
 			none, some, many := HeapFor(b, typ, 0), HeapFor(b, typ, 17), HeapFor(b, typ, 400)
 			if none > HeapMB(b) || some > none || many > some || many < b/2 {
 				t.Errorf("%s at %d MB: heap %d with no mods, %d with 17, %d with 400; Paper gets %d", typ, b, none, some, many, HeapMB(b))
@@ -208,6 +208,10 @@ func TestHeapForModLoaders(t *testing.T) {
 		{"neoforge", 3072, 1, 3072 - 1030},
 		{"fabric", 4096, 12, 3072},
 		{"neoforge", 6144, 150, 6144 - 1924},
+		// A Forge server keeps as much outside the heap as NeoForge.
+		{"forge", 2048, 0, 1024},
+		{"forge", 3072, 1, 3072 - 1030},
+		{"forge", 6144, 150, 6144 - 1924},
 	} {
 		if got := HeapFor(c.budget, c.typ, c.mods); got != c.want {
 			t.Errorf("%s at %d MB with %d mods: heap %d, want %d", c.typ, c.budget, c.mods, got, c.want)

@@ -22,7 +22,7 @@ import (
 
 // templateBuildKey is the one key of a template's Server.Build Playkeeper
 // writes and reads: the build the create flow pins (a Paper or Purpur
-// build, a Fabric or Quilt loader, a NeoForge version).
+// build, a Fabric or Quilt loader, a NeoForge or Forge version).
 const templateBuildKey = "build"
 
 // kindTemplatePacks reports a template's resource pack, which an import

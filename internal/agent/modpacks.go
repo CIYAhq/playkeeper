@@ -317,7 +317,7 @@ func (a *Agent) packCreateTarget(ctx context.Context, m api.ModpackRef) (restore
 // be a beta; the pack's authors chose it.
 func (a *Agent) packTarget(ctx context.Context, typ, mc, loader string) (restoreTarget, error) {
 	if !typeAvailable(typ) || typ == api.TypePaper {
-		return restoreTarget{}, errInvalid("Playkeeper runs modpacks on Fabric, Quilt, NeoForge and Vanilla servers.")
+		return restoreTarget{}, errInvalid("Playkeeper runs modpacks on Fabric, Quilt, NeoForge, Forge and Vanilla servers.")
 	}
 	rt := restoreTarget{typ: typ, pin: software.Pin{Type: typ, MinecraftVersion: mc}}
 	channel := software.Stable
