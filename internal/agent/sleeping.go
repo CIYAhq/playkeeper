@@ -28,8 +28,7 @@ import (
 var standInAddr = func(gamePort int) string { return ":" + strconv.Itoa(gamePort) }
 
 const (
-	wakeRetry  = 2 * time.Second
-	wakeGiveUp = 90 * time.Second
+	wakeRetry = 2 * time.Second
 	// sleepCheck is how often a sleeping server's stand-in is checked, so it
 	// answers again after its port was busy.
 	sleepCheck     = 30 * time.Second
@@ -262,10 +261,23 @@ func (s *server) sleepOp(ctx context.Context, h *opHandle, m *sleep.Manager, set
 	return nil
 }
 
-// wakeFor starts the wake operation for a player who tried to join, waiting
-// for another operation (a scheduled backup) to finish first.
+// wakeFor starts the wake operation for a player who tried to join. While
+// another operation runs, such as a scheduled backup, the wake waits for it
+// however long it takes, and starts once it ends, unless the server stopped
+// being meant to sleep meanwhile. One join's wake waits at a time.
 func (s *server) wakeFor(player string) {
-	deadline := time.Now().Add(wakeGiveUp)
+	s.auto.mu.Lock()
+	if s.auto.wakePending {
+		s.auto.mu.Unlock()
+		return
+	}
+	s.auto.wakePending = true
+	s.auto.mu.Unlock()
+	defer func() {
+		s.auto.mu.Lock()
+		s.auto.wakePending = false
+		s.auto.mu.Unlock()
+	}()
 	for {
 		if s.ctx.Err() != nil || s.desired() != api.DesiredSleeping {
 			return
@@ -275,7 +287,7 @@ func (s *server) wakeFor(player string) {
 			return
 		}
 		var ae *apiError
-		if !errors.As(err, &ae) || ae.Code != api.CodeBusy || time.Now().After(deadline) {
+		if !errors.As(err, &ae) || ae.Code != api.CodeBusy {
 			s.log.Warn("could not wake the server", "server", s.id, "err", err)
 			return
 		}

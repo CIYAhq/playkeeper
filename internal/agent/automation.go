@@ -33,6 +33,8 @@ type automation struct {
 	decision sleep.Decision
 	standIn  *sleep.Manager
 	falling  bool
+	// wakePending is set while a join's wake waits for another operation.
+	wakePending bool
 
 	kick   chan struct{}
 	claim  *uploadClaim
