@@ -4,6 +4,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.0
 
+- **Schedules** for each server: restarts that warn players in the game first, backups, messages and a short list of safe console commands, every day, on chosen days, every few hours, once, or by a cron expression, in your time zone. A restart or backup can skip while people are playing and try again an hour later, and schedules keep running while the dashboard is down.
+- **Sleep when nobody's playing**, off unless you turn it on: after a set time with nobody on, a server stops and gives back its memory, and the server list shows "Asleep · join to wake it". The first join wakes it in about 30 seconds, or wake it from the dashboard.
 - **Backup rules** for each server: automatic backups every few hours or once a day, only when someone played if you like, and which ones to keep: every backup from the last hours, then one a day, one a week and one a month. Playkeeper shows about how many backups that keeps and how much space they take, and removes the rest.
 - **Copies somewhere else:** every backup is also copied to S3-compatible storage (Backblaze B2, Cloudflare R2, Wasabi and similar) or to another machine over SFTP, encrypted on your server before it leaves. A connection test runs before copies start, an SFTP machine's host key is confirmed once and a changed key stops copies until you look at it, and a failed copy is tried again.
 - The **recovery key** opens the copies: download it when you turn copies on and keep it off the server. Only the owner can see or download it, and each download is in the audit log. **Make a new key** if the file got out; the new file opens older copies too.
