@@ -8,7 +8,9 @@
 #          release, give it a server with settings, a world marker, players
 #          and two backups, then update to this build from the dashboard,
 #          offered by a release server on the guest; everything must survive,
-#          and a player, a backup and a restore of an old backup work after
+#          the databases must move to the new schema intact with each
+#          server's address (slug) unchanged, and a player, a backup and a
+#          restore of an old backup work after
 # Then on both: sign-in and two-factor sign-in, Discord and a free name
 # without credentials, every page, and errors in the Playkeeper logs. The
 # guest's /etc/hosts sends the names service and Discord to a recorder on
@@ -84,6 +86,14 @@ run_check() {
 }
 
 checks() { python3 "$root/test/e2e/release_checks.py" "$@" --url "$url" --cacert "$cert" --out "$OUT/$path"; }
+
+# migrations PHASE — the dashboard's and agent's databases, read on the guest
+# into $OUT/$path/db-PHASE.json, then checked (release_checks.py migrations).
+migrations() {
+  mkdir -p "$OUT/$path"
+  lab_ssh "$ip" 'sudo python3 - /var/lib/playkeeper' <"$root/test/e2e/db_state.py" >"$OUT/$path/db-$1.json" &&
+    checks migrations --phase "$1" --db "$OUT/$path/db-$1.json"
+}
 
 build() {
   (cd "$root" && VERSION="$version" ./scripts/package.sh >/dev/null)
@@ -189,6 +199,8 @@ fresh() {
   phase "FRESH: two protocol bots, sessions, console, backups with a player online, a same-host restore"
   run_check "fresh: players, backups and a same-host restore (scenario.py host-a)" fresh-scenario.txt \
     python3 "$root/test/e2e/scenario.py" host-a --existing --url "$url" --cacert "$cert" --code "$code" --game-host "$(cat "$OUT/ui/join-address.txt")" --out "$OUT/fresh"
+  phase "FRESH: the databases the install made"
+  run_check "fresh: the databases pass SQLite's checks" fresh-migrations.txt migrations fresh
   common
 }
 
@@ -220,12 +232,16 @@ owner() {
   lab_ssh "$ip" 'sha256sum /usr/local/bin/playkeeper playkeeper-rekeyed && sudo install -m 0755 playkeeper-rekeyed /usr/local/bin/playkeeper && sudo systemctl restart playkeeper-agent playkeeper-panel && playkeeper version' | tee "$OUT/owner-swap.txt"
   wait_panel
   checks still-running | tee -a "$OUT/owner-swap.txt"
+  phase "OWNER: $FROM's databases and each server's address, before the update"
+  run_check "owner: $FROM's databases pass SQLite's checks; each server's address is recorded" owner-migrations-before.txt migrations before
   phase "OWNER: a release server on the guest offers $version"
   lab_scp -r "$work/releases" "pk@$ip:"
   lab_ssh "$ip" 'nohup python3 -m http.server 8765 --bind 127.0.0.1 --directory releases </dev/null >releases.log 2>&1 & sleep 1; curl -fsS http://127.0.0.1:8765/latest/playkeeper-release.json' | tee "$OUT/owner-release-server.txt"
   phase "OWNER: update to $version from the dashboard"
   since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   python3 "$root/test/e2e/update.py" update --url "$url" --cacert "$cert" --out "$OUT/owner" --to "$version" | tee "$OUT/owner-update.txt"
+  phase "OWNER: the databases after the update"
+  run_check "owner: the databases moved to $version's schema intact, and each server kept its address" owner-migrations.txt migrations after
   phase "OWNER: $version runs and kept everything"
   run_check "owner: the server, its settings, world, backups and history survive the update" owner-verify.txt \
     python3 "$root/test/e2e/update.py" verify --url "$url" --cacert "$cert" --out "$OUT/owner" --expect-version "$version"

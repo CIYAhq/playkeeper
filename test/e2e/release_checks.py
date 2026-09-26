@@ -10,6 +10,12 @@ owner-players  then two players join, and a backup with a player online. The
                state update.py verify compares is recorded again.
 still-running  the server started when OUT/before.json says (nothing since
                has restarted it).
+migrations     the dashboard's and agent's databases as db_state.py read them
+               on the guest (--db) pass SQLite's integrity and foreign key
+               checks. --phase before also records them and each server's
+               address (slug) in OUT/migrations-before.json; --phase after
+               compares: each schema moved on, nothing in it is gone, and no
+               server's address changed.
 owner-after    after the update: the players from before are still listed, a
                player joins and stays through a backup, and a backup the
                previous release made is restored.
@@ -219,6 +225,37 @@ def still_running(a):
     check(st.get("startedAt") == before["startedAt"], f"the Minecraft server kept running (container started at {st.get('startedAt')})")
 
 
+def migrations(a):
+    with open(a.db) as f:
+        dbs = json.load(f)
+    step(f"The dashboard's and agent's databases ({a.phase})")
+    for name in ("panel", "agent"):
+        d = dbs.get(name) or {}
+        check(d and not d.get("missing"), f"{d.get('path', name + '.db')} is there")
+        print(f"  {name}.db: schema {d['userVersion']}, {len(d['tables'])} tables", flush=True)
+        check(d["integrity"] == ["ok"], f"{name}.db passes SQLite's integrity check ({brief(d['integrity'])})")
+        check(not d["foreignKeyProblems"], f"{name}.db passes SQLite's foreign key check ({brief(d['foreignKeyProblems'])})")
+    if a.phase == "fresh":
+        return
+    slugs = {s["id"]: s["slug"] for s in session(a).servers()}
+    if a.phase == "before":
+        update.save(a, "migrations-before.json", {"databases": dbs, "slugs": slugs})
+        print(f"  each server's address: {slugs}", flush=True)
+        return
+    before = update.load(a, "migrations-before.json")
+    for name in ("panel", "agent"):
+        old, new = before["databases"][name], dbs[name]
+        check(new["userVersion"] > old["userVersion"], f"{name}.db moved from schema {old['userVersion']} to {new['userVersion']}")
+        tables = sorted(set(new["tables"]) - set(old["tables"]))
+        columns = [f"{t}.{c}" for t, cols in new["tables"].items() if t in old["tables"] for c in cols if c not in old["tables"][t]]
+        print(f"  {name}.db has {len(tables)} new tables ({', '.join(tables) or 'none'}) "
+              f"and {len(columns)} new columns in tables it had ({', '.join(columns) or 'none'})", flush=True)
+        gone = [f"{t}.{c}" for t, cols in old["tables"].items() for c in cols if c not in new["tables"].get(t, [])]
+        check(not gone, f"no table or column {name}.db had is gone ({', '.join(gone) or 'none'})")
+    print(f"  server_machines now: {dbs['panel'].get('serverMachines')}", flush=True)
+    check(slugs == before["slugs"], f"each server kept its address: {slugs} (before the update: {before['slugs']})")
+
+
 def owner_after(a):
     c = session(a)
     before = update.load(a, "before.json")
@@ -397,7 +434,7 @@ def logs(a):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["owner-prepare", "owner-players", "still-running", "owner-after", "signin", "after-reset", "degrade", "logs"])
+    p.add_argument("cmd", choices=["owner-prepare", "owner-players", "still-running", "migrations", "owner-after", "signin", "after-reset", "degrade", "logs"])
     p.add_argument("--url")
     p.add_argument("--code", help="owner-prepare: the setup code the installer printed")
     p.add_argument("--cacert")
@@ -407,12 +444,14 @@ def main():
     p.add_argument("--journal")
     p.add_argument("--since")
     p.add_argument("--browser-session", help="degrade: write the session for the browser tests here")
+    p.add_argument("--db", help="migrations: what db_state.py printed on the guest")
+    p.add_argument("--phase", choices=["before", "after", "fresh"], default="fresh", help="migrations: before or after an update, or a fresh install")
     a = p.parse_args()
     if a.cmd != "logs" and not PASSWORD:
         raise SystemExit("set PK_ADMIN_PASSWORD")
     os.makedirs(a.out, exist_ok=True)
-    {"owner-prepare": owner_prepare, "owner-players": owner_players, "still-running": still_running, "owner-after": owner_after, "signin": signin,
-     "after-reset": after_reset, "degrade": degrade, "logs": logs}[a.cmd](a)
+    {"owner-prepare": owner_prepare, "owner-players": owner_players, "still-running": still_running, "migrations": migrations, "owner-after": owner_after,
+     "signin": signin, "after-reset": after_reset, "degrade": degrade, "logs": logs}[a.cmd](a)
 
 
 if __name__ == "__main__":
