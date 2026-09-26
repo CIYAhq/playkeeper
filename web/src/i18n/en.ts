@@ -1045,7 +1045,7 @@ export const en = {
   'map.turnOffMenu': 'Turn off the map…',
   'map.zoomIn': 'Zoom in',
   'map.zoomOut': 'Zoom out',
-  'map.canvas': 'Map of {world}. Drag to move, scroll or pinch to zoom.',
+  'map.canvas': 'Map of {world}, zoom {zoom} of {max}. Drag to move, scroll or pinch to zoom.',
   'map.playing': 'Playing now',
   'map.nobody': 'Nobody’s playing right now.',
   'map.find': 'Show {name} on the map',

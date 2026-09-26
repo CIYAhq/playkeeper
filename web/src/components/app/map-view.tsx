@@ -508,7 +508,7 @@ export function MapView({ world, tileSize, tileURL, players, faceURL, focus, coo
       tabIndex={0}
       role="application"
       aria-roledescription={t('tab.map')}
-      aria-label={t('map.canvas', { world: world.label || world.name })}
+      aria-label={t('map.canvas', { world: world.label || world.name, zoom: zoomLevel + 1, max: maxZoom(world) + 1 })}
       className={cn('relative touch-none overflow-hidden rounded-2xl border border-border bg-[#E9EAE3] outline-none select-none focus-visible:ring-2 focus-visible:ring-ring', dragging ? 'cursor-grabbing' : 'cursor-grab', className)}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
