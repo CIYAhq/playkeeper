@@ -102,7 +102,9 @@ function pageOf(c: { route: string; view?: View }): string {
  * The fewest controls a page must have pressed, a little under what it has
  * now, so a page that stops showing its controls fails even when nothing on
  * it is broken. A page's count leaves out controls pressed on an earlier
- * page, such as the sidebar. A page that isn't listed needs one.
+ * page, such as the sidebar. A page that isn't listed needs one. A dev build
+ * (make dev) can't update itself, so its /settings has no "Check for updates"
+ * and one control fewer than an installed panel's.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -116,7 +118,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/settings': 36,
     '/servers/new': 36,
     '/machines/*': 3,
-    '/settings': 6,
+    '/machines/*/settings': 6,
+    '/settings': 2,
+    '/account': 7,
+    '/account/two-factor': 4,
     '/ (stopped)': 3,
     '/servers/* (stopped)': 1,
     '/servers/*/console (stopped)': 3,
@@ -142,7 +147,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/settings': 34,
     '/servers/new': 29,
     '/machines/*': 1,
-    '/settings': 5,
+    '/machines/*/settings': 6,
+    '/settings': 1,
+    '/account': 6,
+    '/account/two-factor': 1,
     '/more': 5,
     '/ (stopped)': 1,
     '/servers/* (stopped)': 2,
