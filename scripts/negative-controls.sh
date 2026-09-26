@@ -36,7 +36,8 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
 }
 
 # webcontrol is the one web control: TEST-FILE is under web/, written with or
-# without that prefix, and TESTS, when given, picks tests by name.
+# without that prefix, and TESTS, when given, picks tests by name. Vitest
+# decides, not the type checker, since a mutation may leave a name unused.
 webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
   local name=$1 file=$2 testfile=${5#web/} tests=${6:-}
   local only=()
@@ -50,10 +51,7 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
     return
   fi
   FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if ! (cd web && npx tsc --noEmit -p . >/dev/null 2>&1); then
-    echo "INVALID  $name: the mutated code does not type-check"
-    bad=1
-  elif (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
+  if (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
     echo "MISSED   $name: ${tests:-$testfile} still passes without the guard"
     bad=1
   elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
