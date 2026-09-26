@@ -5,11 +5,14 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"io/fs"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
 // act asks for a start or a stop and waits for its operation.
@@ -371,5 +375,179 @@ func TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks(t *testing.T) {
 		if fi.Mode().Perm() != want {
 			t.Errorf("%s has mode %o, want %o", rel, fi.Mode().Perm(), want)
 		}
+	}
+}
+
+// filesHolding lists the regular files under root that contain text. Links
+// are skipped, so a link planted there doesn't count as holding what it
+// leads to.
+func filesHolding(t *testing.T, root, text string) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		if b, err := os.ReadFile(p); err == nil && bytes.Contains(b, []byte(text)) {
+			out = append(out, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Importing a world rewrites server.properties from the server's own, with
+// the settings the world carries. A link a plugin plants there is not
+// followed, so what it leads to never ends up in a file the game can read,
+// and a named pipe doesn't make the import wait. The import stops with a
+// message naming the file, the previous world keeps running, and once the
+// file is normal again the import goes through.
+func TestAWorldImportNeverFollowsAPlantedServerProperties(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	host := e.hostFiles()
+	secret := filepath.Join(host, "names.key")
+	if err := os.WriteFile(secret, []byte("names-token=k3v9x2q7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := e.dataDir()
+	props := filepath.Join(live, "server.properties")
+	if err := os.WriteFile(filepath.Join(live, "world", "marker.txt"), []byte("nonce-before"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	archive, level := paperServerUpload(t)
+	imp := e.uploadWorld(e.sp("/world-imports"), "paper-server.zip", archive)
+	phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
+	apply := func() *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+		if code != 202 {
+			t.Fatalf("apply: %d %v", code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+
+	for _, c := range []struct {
+		what  string
+		plant func() error
+		says  string
+	}{
+		{"a link", func() error { return os.Symlink(secret, props) }, "server.properties in the server's files is a link"},
+		{"a named pipe", func() error { return syscall.Mkfifo(props, 0o640) }, "server.properties in the server's files is not a normal file (it is a named pipe)"},
+	} {
+		if err := os.Remove(props); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := c.plant(); err != nil {
+			t.Fatal(err)
+		}
+		before := tree(t, host)
+		time.Sleep(20 * time.Millisecond)
+		op := apply()
+		if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The world was not imported, so nothing was replaced. "+c.says) || !strings.Contains(op.Hint, "plugin or mod") {
+			t.Fatalf("an import with %s at server.properties: %+v", c.what, op)
+		}
+		e.waitFor("the previous world online", e.onlineIdle)
+		if !exists(filepath.Join(live, "world", "marker.txt")) {
+			t.Fatalf("the import replaced the world past %s at server.properties", c.what)
+		}
+		if fi, err := os.Lstat(props); err != nil || fi.Mode().IsRegular() {
+			t.Fatalf("%s at server.properties was replaced: %v %v", c.what, fi, err)
+		}
+		if held := filesHolding(t, e.cfg.DataDir, "k3v9x2q7"); len(held) != 1 || held[0] != secret {
+			t.Fatalf("what the link leads to was copied: %v", held)
+		}
+		if after := tree(t, host); !maps.Equal(after, before) {
+			t.Fatalf("%s at server.properties changed Playkeeper's files:\n%v\nwas\n%v", c.what, after, before)
+		}
+		if code, _ := e.call("GET", importPath(imp, ""), nil); code != 200 {
+			t.Fatalf("the upload must stay for another try after %s", c.what)
+		}
+	}
+
+	if err := os.Remove(props); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(props, []byte("level-name=world\nmotd=Live server\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if op := apply(); op.Status != api.OpSucceeded {
+		t.Fatalf("the import once server.properties is a file again: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if readFile(t, filepath.Join(live, "world", "level.dat")) != level {
+		t.Fatal("the imported world did not replace the previous one")
+	}
+	if got := readFile(t, props); !strings.Contains(got, "motd=Live server") || !strings.Contains(got, "difficulty=hard") {
+		t.Fatalf("server.properties after the import:\n%s", got)
+	}
+}
+
+// The shared map shows the server's icon to anyone with its link. A link
+// planted at server-icon.png is not followed, so the page never gets what
+// it leads to, and a named pipe doesn't make the request wait: both answer
+// like a map that isn't available.
+func TestTheSharedMapsIconIsReadWithoutFollowingLinks(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	host := e.hostFiles()
+	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+		t.Fatalf("enable: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	code, out := e.call("POST", e.sp("/map/share"), map[string]any{"public": true, "actor": "admin"})
+	if code != 200 {
+		t.Fatalf("share: %d %v", code, out)
+	}
+	icon := "/v1/public-maps/" + strings.TrimPrefix(fmt.Sprint(out["path"]), "/map/") + "/icon"
+	_, _, unavailable := e.get("/v1/public-maps/" + webmap.NewShareToken())
+	at := filepath.Join(e.dataDir(), iconFile)
+	before := tree(t, host)
+
+	for _, c := range []struct {
+		what  string
+		plant func() error
+	}{
+		{"a link", func() error { return os.Symlink(filepath.Join(host, "panel.db"), at) }},
+		{"a named pipe", func() error { return syscall.Mkfifo(at, 0o640) }},
+	} {
+		if err := os.Remove(at); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := c.plant(); err != nil {
+			t.Fatal(err)
+		}
+		type answer struct {
+			code int
+			body []byte
+		}
+		done := make(chan answer, 1)
+		go func() {
+			resp, err := http.Get(e.ts.URL + icon)
+			if err != nil {
+				done <- answer{}
+				return
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(resp.Body)
+			done <- answer{resp.StatusCode, b}
+		}()
+		select {
+		case a := <-done:
+			if a.code != 404 || !bytes.Equal(a.body, unavailable) {
+				t.Errorf("the shared icon with %s at %s: %d %q", c.what, iconFile, a.code, a.body)
+			}
+		case <-time.After(5 * time.Second):
+			if f, err := os.OpenFile(at, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+				f.Close()
+			}
+			t.Fatalf("%s at %s made the shared icon wait", c.what, iconFile)
+		}
+	}
+	if after := tree(t, host); !maps.Equal(after, before) {
+		t.Fatalf("Playkeeper's files changed:\n%v\nwas\n%v", after, before)
 	}
 }

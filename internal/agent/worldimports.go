@@ -22,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
@@ -942,7 +943,7 @@ func (a *Agent) hWorldImportCreate(w http.ResponseWriter, r *http.Request) {
 		fail(importErr(err))
 		return
 	}
-	if err := os.WriteFile(filepath.Join(staged, "server.properties"), worldimport.ApplySettings(nil, p.Settings), 0o600); err != nil {
+	if err := writeImportedProperties(staged, nil, p.Settings); err != nil {
 		fail(err)
 		return
 	}
@@ -1009,6 +1010,32 @@ func gameplayFrom(carry []worldimport.Setting, g api.Gameplay) api.Gameplay {
 		}
 	}
 	return g
+}
+
+// currentProperties is the server's own server.properties, or nothing when
+// it has none.
+func (s *server) currentProperties() ([]byte, error) {
+	d, err := s.gameFiles()
+	if err != nil {
+		return nil, err
+	}
+	defer d.Close()
+	b, err := d.ReadProperties()
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return b, err
+}
+
+// writeImportedProperties writes the server.properties that goes in with an
+// imported world: current with the settings the world carries.
+func writeImportedProperties(staged string, current []byte, carry []worldimport.Setting) error {
+	d, err := gamefiles.Open(staged, nil)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.WriteProperties(worldimport.ApplySettings(current, carry))
 }
 
 // importRecord records a finished import in the operation, the history and
@@ -1229,12 +1256,12 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 		h.set("rollbackBackupId", rb.ID)
 	}
 	h.phase("replacing_world")
-	props, err := os.ReadFile(filepath.Join(live, "server.properties"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	props, err := s.currentProperties()
+	if err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
-		return err
+		return gameFileError(err, "The world was not imported, so nothing was replaced.")
 	}
-	if err := os.WriteFile(filepath.Join(staged, "server.properties"), worldimport.ApplySettings(props, p.Settings), 0o600); err != nil {
+	if err := writeImportedProperties(staged, props, p.Settings); err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
 		return err
 	}

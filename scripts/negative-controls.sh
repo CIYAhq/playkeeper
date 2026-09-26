@@ -367,7 +367,8 @@ control "a restored world is given to the game without following links" internal
   'if false {' \
   ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
 
-# Wave 6: the shared map's link token and its players switch.
+# Wave 6: the shared map's link token and its players switch, and the game
+# files a world import and the shared map read.
 control "shared map link tokens carry at least 128 bits" internal/webmap/share.go \
   'const ShareTokenLen = 22' \
   'const ShareTokenLen = 12' \
@@ -410,6 +411,14 @@ control "per-address shared map rate limit" internal/panel/maps.go \
   'if ok, wait := s.mapViews.allow("ip:" + clientIP(r)); !ok {' \
   'if ok, wait := s.mapViews.allow("ip:" + clientIP(r)); false && !ok {' \
   ./internal/panel '^TestSharedMapIsRateLimitedPerAddress$'
+control "a world import reads server.properties without following a link" internal/agent/worldimports.go \
+  'b, err := d.ReadProperties()' \
+  'b, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))' \
+  ./internal/agent '^TestAWorldImportNeverFollowsAPlantedServerProperties$'
+control "the shared map reads the server's icon without following a link" internal/agent/maps.go \
+  'b, err := s.readIcon()' \
+  'b, err := os.ReadFile(s.dataDir() + "/" + iconFile)' \
+  ./internal/agent '^TestTheSharedMapsIconIsReadWithoutFollowingLinks$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
