@@ -7,16 +7,17 @@ import { machineApi } from './workspace'
 const cache = new Map<string, { at: number; data: Catalog }>()
 const maxAge = 5 * 60_000
 
-export function catalogPath(machineId: string, opts: { server?: string; type?: string } = {}): string {
+export function catalogPath(machineId: string, opts: { server?: string; type?: string; mods?: number } = {}): string {
   const q = new URLSearchParams()
   if (opts.server) q.set('server', opts.server)
   if (opts.type) q.set('type', opts.type)
+  if (opts.mods !== undefined) q.set('mods', String(opts.mods))
   const qs = q.toString()
   return machineApi(machineId, `/catalog${qs ? `?${qs}` : ''}`)
 }
 
 /** The machine's catalog: server types, Minecraft versions and memory options. */
-export function useCatalog(machineId: string | undefined, opts: { server?: string; type?: string; fresh?: boolean } = {}) {
+export function useCatalog(machineId: string | undefined, opts: { server?: string; type?: string; mods?: number; fresh?: boolean } = {}) {
   const path = machineId ? catalogPath(machineId, opts) : ''
   const cached = path ? cache.get(path) : undefined
   const [data, setData] = useState<Catalog | undefined>(cached?.data)
