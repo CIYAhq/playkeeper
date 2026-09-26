@@ -96,12 +96,12 @@ async function iconPNG(file: File): Promise<{ blob: Blob; url: string }> {
 
 export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
-  const { stale } = useServerMachine(s)
+  const { stale, machine } = useServerMachine(s)
   const phone = useIsPhone()
   const base = useMemo(() => baseOf(s), [s])
   const [draft, setDraft] = useState<Partial<Draft>>({})
   const [saving, setSaving] = useState(false)
-  const { catalog } = useCatalog(ws.machine?.id, { server: s.id, fresh: true })
+  const { catalog } = useCatalog(machine?.id, { server: s.id, fresh: true })
   const v = { ...base, ...draft }
   const changed = (k: keyof Draft) => k in draft && draft[k] !== base[k]
   const keys = (Object.keys(draft) as (keyof Draft)[]).filter(changed)

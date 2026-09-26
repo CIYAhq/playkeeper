@@ -77,7 +77,7 @@ function recovered(s: ServerStatus): boolean {
 
 /** One quiet line at a time: test mode, Docker, a failed job, or settings waiting for a restart. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
-  const { stale, machine } = useWorkspace()
+  const { stale, offline, machine } = useServerMachine(s)
   const [dismissed, setDismissed] = useState<string>()
   const [busy, setBusy] = useState(false)
   if (stale) return null
@@ -110,7 +110,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={busy}
-            disabledReason={whyNot(s, 'restart', stale)}
+            disabledReason={whyNot(s, 'restart', offline)}
             onClick={async () => {
               setBusy(true)
               await serverAction(s, 'restart')
@@ -310,6 +310,7 @@ function useTail(server: ServerStatus, count: number, every: number) {
 
 function SettingUpView({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
+  const place = useServerMachine(s)
   const tail = useTail(s, 3, 2000)
   const op = s.operation ?? s.lastOperation
   const failed = !s.operation && op?.status === 'failed'
@@ -321,7 +322,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const state = (i: number): StepState => (i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo')
   const pct = /(\d{1,3})\s*%/.exec(s.phaseDetail ?? '')?.[1]
   const other = (ws.servers ?? []).find((o) => o.id !== s.id)
-  const disk = ws.machine?.live?.diskFreeBytes
+  const disk = place.machine?.live?.diskFreeBytes
   return (
     <Card className="mx-auto w-full max-w-[520px] p-6 max-sm:p-4">
       <div className="flex items-start gap-4">
@@ -335,7 +336,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
       <div className="mt-5 border-t border-border pt-5">
         <JobSteps
           steps={[
-            { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+            { title: t('creating.checked', { machine: place.name }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
             { title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: t('creating.downloadedDetail'), state: state(1) },
             { title: t('creating.starting'), hint: pct ? t('creating.startingPercent', { percent: pct }) : t('creating.startingDetail'), state: state(2), progress: pct ? Number(pct) : undefined },
             { title: t('creating.reachable', { port: s.gamePort }), state: state(3) },
@@ -385,16 +386,16 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
 }
 
 function CrashedView({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { machine, offline } = useServerMachine(s)
   const tail = useTail(s, 3, 10_000)
   const refusal = s.refusal
   const oom = !refusal && ranOutOfMemory(s.exitCode, tail)
-  const { catalog } = useCatalog(ws.machine?.id, { server: s.id, fresh: true })
+  const { catalog } = useCatalog(machine?.id, { server: s.id, fresh: true })
   const current = s.config?.memoryMB ?? 0
   const bigger = (catalog?.memoryOptionsMB ?? []).filter((mb) => mb > current && mb <= (catalog?.maxMemoryMB ?? 0))[0]
   const [choice, setChoice] = useState<'more' | 'keep'>('more')
   const [busy, setBusy] = useState(false)
-  const free = ws.machine?.live?.memoryFreeMB
+  const free = machine?.live?.memoryFreeMB
   const withMore = oom && bigger !== undefined
 
   async function fix() {
@@ -453,7 +454,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
         ) : (
           <p className="mt-1 text-[13px] text-muted-foreground">{refusal ? t('crash.refusedFix', { file: refusal.params.path, server: s.name }) : t('crash.startHint', { server: s.name })}</p>
         )}
-        <Button className="mt-4 w-full" size="lg" loading={busy} onClick={fix} disabledReason={whyNot(s, 'start', ws.stale)}>
+        <Button className="mt-4 w-full" size="lg" loading={busy} onClick={fix} disabledReason={whyNot(s, 'start', offline)}>
           <PlayIcon />
           {withMore && choice === 'more' ? t('crash.save', { server: s.name }) : t('crash.startOnly', { server: s.name })}
         </Button>

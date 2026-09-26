@@ -227,7 +227,8 @@ describe('Overview notices', () => {
 
   it('warns about low disk space with the preflight advice', async () => {
     const diskWarning = { id: 'disk', label: 'Disk space', status: 'fail' as const, detail: 'Only 0.4 GB free.', fix: 'Free at least 5 GB of disk space, then check again.' }
-    const text = await render(<Overview server={server()} />, workspace({ machine: { ...machine, live: machine.live && { ...machine.live, diskWarning } } }))
+    const local = { ...machine, live: machine.live && { ...machine.live, diskWarning } }
+    const text = await render(<Overview server={server()} />, workspace({ machine: local, machines: [local] }))
     expect(text).toContain('Low disk space: Only 0.4 GB free.')
     expect(text).toContain('Free at least 5 GB of disk space')
   })
@@ -488,6 +489,24 @@ describe('Machines and AI agents', () => {
     const restart = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Restart'))
     expect(restart?.disabled).toBe(true)
     expect(restart?.title).toBe('Can’t reach attic')
+  })
+
+  it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const ws = workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] })
+    const asked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/catalog'))
+    await render(<ServerSettingsPage server={cobblemon} />, ws)
+    await render(<Overview server={{ ...cobblemon, phase: 'crashed', stoppedAt: new Date().toISOString() }} />, ws)
+    expect(asked().length).toBeGreaterThan(1)
+    expect(asked().every((p) => p.startsWith(`/api/machines/${home.id}/catalog`))).toBe(true)
   })
 
   it('says why a token can’t be made yet', async () => {
