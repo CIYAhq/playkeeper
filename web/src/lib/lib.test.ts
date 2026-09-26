@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, Crash, LagCause, MemoryAdvice, MetricsBucket, Running, ServerConfig, ServerStatus } from '@/api/types'
+import type { CatalogEntry, Crash, FileRefusal, LagCause, MemoryAdvice, MetricsBucket, Operation, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
 import { lineRuns } from '@/components/app/line-chart'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
-import { crashFixes, crashSummary, phoneLines, preselect } from './crash'
+import { crashFixes, crashSummary, failureLine, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
 import { busyReason, controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from './phase'
@@ -272,13 +272,29 @@ describe('crash helper', () => {
     expect(crashFixes({ ...oom, roomMB: 0 }, 'Survival', 'my-vps', false)[0]?.hint).toBeUndefined()
   })
 
-  it('names a file Playkeeper refused and says to delete it', () => {
-    const refused = (reason: string) => crash({ start: true, kind: 'refused_file', params: { path: 'plugins/bStats/config.yml', reason }, fixes: [{ kind: 'restart', title: 'Start the server again', recommended: true }] })
-    expect(crashSummary(refused('link'), 'Survival', 'my-vps')).toBe('Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.')
-    expect(crashSummary(refused('special_file'), 'Survival', 'my-vps')).toBe('Playkeeper won’t start Survival while plugins/bStats/config.yml isn’t a normal file. Delete it.')
-    expect(crashSummary(refused('too_large'), 'Survival', 'my-vps')).toBe('The agent’s words.')
-    expect(crashFixes(refused('link'), 'Survival', 'my-vps', false)).toMatchObject([{ title: 'Start Survival again', hint: 'Once it’s deleted', plan: { kind: 'start' }, button: 'Start Survival' }])
-    expect(statusLabel(server({ phase: 'stopped', crash: refused('link') }))).toBe('Couldn’t start')
+  it('names a planted link or named pipe in one line, with one way on, wherever a refused start shows', () => {
+    const message = 'plugins/bStats/config.yml is not a normal file.'
+    const refused = (code: FileRefusal['code'], type?: string): FileRefusal => ({ code, params: { path: 'plugins/bStats/config.yml', type }, message, hint: 'Remove it.' })
+    const start: Operation = { id: 'op1', kind: 'start', status: 'failed', phase: '', actor: 'admin', startedAt: '2026-09-25T18:52:00Z', error: `Paper's bStats usage statistics could not be switched off, so the server was not started. ${message}` }
+    const lines = {
+      link: 'Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.',
+      pipe: 'Playkeeper won’t start Survival while plugins/bStats/config.yml isn’t a normal file. Delete it.',
+    }
+    for (const [r, line] of [
+      [refused('link'), lines.link],
+      [refused('special_file', 'named_pipe'), lines.pipe],
+    ] as const) {
+      const s = server({ phase: 'stopped', refusal: r })
+      expect(refusalLine(r, 'Survival')).toBe(line)
+      expect(failureLine(start, s, 'my-vps')).toBe(line)
+      expect(refusalFixes(r, 'Survival')).toEqual([{ id: 'again', recommended: true, title: 'Start Survival again', hint: 'Once it’s deleted', plan: { kind: 'start' }, button: 'Start Survival' }])
+      expect([statusTone(s), statusLabel(s)]).toEqual(['crashed', 'Couldn’t start'])
+    }
+    expect(refusalLine(refused('too_large'), 'Survival')).toBe(`${message} Remove it.`)
+    expect(refusalFixes(refused('too_large'), 'Survival')[0]?.hint).toBeUndefined()
+    const pulled = { ...start, error: 'The server software could not be downloaded.' }
+    expect(failureLine(pulled, server({ phase: 'stopped', refusal: refused('link') }), 'my-vps')).toBe(pulled.error)
+    expect(failureLine(start, server({ phase: 'stopped', crash: crash({ start: true, kind: 'eula' }) }), 'my-vps')).toBe('The Minecraft EULA hasn’t been accepted.')
   })
 
   it('always leaves a way to start again', () => {

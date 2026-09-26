@@ -29,8 +29,7 @@ func (s *server) gameFiles() (*gamefiles.Dir, error) {
 
 // gameFileError explains a file in the server's data directory that
 // Playkeeper refused, after the sentence saying what it could not do, and
-// keeps the refusal for the crash helper. Other errors are returned as they
-// are.
+// keeps the refusal for noteRefusal. Other errors are returned as they are.
 func gameFileError(err error, couldNot string) error {
 	var ge *gamefiles.Error
 	if !errors.As(err, &ge) {
@@ -42,7 +41,8 @@ func gameFileError(err error, couldNot string) error {
 // noteRefusal records the file that stopped a start. A start that failed
 // before it checked the server's files (pulling the image, a download) keeps
 // the last one, since that file may still be there; a start that got past
-// them clears it.
+// them clears it. A refusal replaces the crash helper's explanation of an
+// earlier run, so the status explains the last start once.
 func (s *server) noteRefusal(err error, pastFiles bool) {
 	var ge *gamefiles.Error
 	refused := errors.As(err, &ge)
@@ -55,6 +55,9 @@ func (s *server) noteRefusal(err error, pastFiles bool) {
 	}
 	s.mu.Lock()
 	s.refusal = r
+	if refused {
+		s.crash = nil
+	}
 	s.mu.Unlock()
 }
 

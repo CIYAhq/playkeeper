@@ -542,11 +542,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		return err
 	}
 	if err := s.ensureServerSoftware(ctx, h, &sc); err != nil {
-		s.explainRefusal(err)
 		return err
 	}
 	if err := s.ensureTelemetryOff(); err != nil {
-		s.explainRefusal(err)
 		return err
 	}
 	pastFiles = true

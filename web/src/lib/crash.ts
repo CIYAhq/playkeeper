@@ -1,4 +1,4 @@
-import type { Crash, CrashLine, DiagnosisAction, Params } from '@/api/types'
+import type { Crash, CrashLine, DiagnosisAction, FileRefusal, Operation, Params, ServerStatus } from '@/api/types'
 import { t } from '@/i18n'
 import { formatClock, formatDate, formatList, formatMB, sameDay } from '@/lib/format'
 import { num, str, strs } from '@/lib/params'
@@ -75,12 +75,6 @@ export function crashSummary(c: Crash, server: string, machine: string): string 
       return t('crash.killed')
     case 'incompatible_addon':
       return c.explanation
-    case 'refused_file': {
-      const path = str(p, 'path')
-      const reason = str(p, 'reason')
-      if (path && reason === 'link') return t('crash.refusedLink', { server, file: path })
-      return path && reason === 'special_file' ? t('crash.refusedSpecial', { server, file: path }) : c.explanation
-    }
     case 'unknown':
       return c.start ? t('crash.unknownStart') : t('crash.unknown')
     default: {
@@ -89,6 +83,36 @@ export function crashSummary(c: Crash, server: string, machine: string): string 
       return c.explanation
     }
   }
+}
+
+/** Names the file that stopped a start and what to do about it. */
+export function refusalLine(r: FileRefusal, server: string): string {
+  const file = r.params.path
+  const english = [r.message, r.hint].filter(Boolean).join(' ')
+  switch (r.code) {
+    case 'link':
+      return t('crash.refusedLink', { server, file })
+    case 'special_file':
+      return t('crash.refusedSpecial', { server, file })
+    case 'not_a_file':
+    case 'not_a_folder':
+    case 'too_large':
+    case 'too_many_entries':
+    case 'changed':
+    case 'bad_name':
+      return english
+    default: {
+      const unreachable: never = r.code
+      return english || unreachable
+    }
+  }
+}
+
+/** Why a job failed, in one line: the file that stopped it, the crash of the start it ran, or the agent's error. */
+export function failureLine(op: Operation, s: ServerStatus, machine: string): string | undefined {
+  if (s.refusal && op.error?.includes(s.refusal.message)) return refusalLine(s.refusal, s.name)
+  const crash = s.crash?.start && Date.parse(s.crash.at) >= Date.parse(op.startedAt) ? s.crash : undefined
+  return crash ? crashSummary(crash, s.name, machine) : op.error
 }
 
 /** A quieter second line, for the kinds that have one. */
@@ -140,6 +164,12 @@ export function crashFixes(c: Crash, server: string, machine: string, phone: boo
   }
   if (!out.some((o) => o.plan)) out.push({ id: 'again', recommended: out.length === 0, ...startText(t('crash.fix.again', { server }), server) })
   return out
+}
+
+/** After a refused start, the only fix is starting again once the file is gone. */
+export function refusalFixes(r: FileRefusal, server: string): FixOption[] {
+  const deleted = r.code === 'link' || r.code === 'special_file'
+  return [{ id: 'again', recommended: true, ...startText(t('crash.fix.again', { server }), server, deleted ? t('crash.fix.deletedHint') : undefined) }]
 }
 
 /** The fix to preselect: the recommended one when it can be done, else the first that can. */
@@ -234,7 +264,6 @@ function restartText(c: Crash, server: string): FixText {
   if (c.kind === 'port_in_use' && port && !str(p, 'reason')) return startText(t('crash.fix.samePort', { port }), server, t('crash.fix.samePortHint'))
   if (c.kind === 'corrupt_world' && str(p, 'file') !== 'level.dat') return startText(t('crash.fix.regrow'), server, t('crash.fix.regrowHint'))
   if (c.kind === 'world_locked') return startText(t('crash.fix.again', { server }), server, t('crash.fix.lockedHint'))
-  if (c.kind === 'refused_file') return startText(t('crash.fix.again', { server }), server, t('crash.fix.deletedHint'))
   if (c.kind === 'disk_full' && free !== undefined) return startText(t('crash.fix.again', { server }), server, t('crash.fix.freeNow', { free: formatMB(free) }))
   return startText(t('crash.fix.again', { server }), server)
 }

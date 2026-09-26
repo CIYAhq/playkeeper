@@ -114,7 +114,6 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		if after := tree(t, host); !maps.Equal(after, before) {
 			t.Fatalf("the link at %s changed what it leads to:\n%v\nwas\n%v", c.at, after, before)
 		}
-		wantRefusal(t, e.status().Crash, c.at, "link")
 		if err := os.Remove(at); err != nil {
 			t.Fatal(err)
 		}
@@ -127,40 +126,6 @@ func TestPlantedLinksCannotRedirectTheBStatsWrite(t *testing.T) {
 		if b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")); err != nil || !bStatsOff(b) {
 			t.Fatalf("bStats after the start: %q %v", b, err)
 		}
-		if st := e.status(); st.Crash != nil {
-			t.Fatalf("the refusal is still shown once %s is online: %+v", c.at, st.Crash)
-		}
-	}
-
-	if op := e.act("stop"); op.Status != api.OpSucceeded {
-		t.Fatalf("stop: %+v", op)
-	}
-	config := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
-	if err := os.Remove(config); err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Mkfifo(config, 0o640); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if f, err := os.OpenFile(config, os.O_RDWR|syscall.O_NONBLOCK, 0); err == nil {
-			os.Remove(config)
-			f.Close()
-		}
-	})
-	if op := e.act("start"); op.Status != api.OpFailed || !strings.Contains(op.Error, "is not a normal file (it is a named pipe)") {
-		t.Fatalf("start with a named pipe at the bStats settings: %+v", op)
-	}
-	wantRefusal(t, e.status().Crash, "plugins/bStats/config.yml", "special_file")
-}
-
-// wantRefusal checks that a start Playkeeper refused is shown as the crash
-// helper's refused_file kind, naming the file, with starting again as the fix.
-func wantRefusal(t *testing.T, c *api.Crash, path, reason string) {
-	t.Helper()
-	if c == nil || c.Kind != "refused_file" || !c.Start || !c.Certain || c.Params["path"] != path || c.Params["reason"] != reason ||
-		len(c.Fixes) != 1 || c.Fixes[0].Kind != "restart" || len(c.Lines) != 0 || !strings.Contains(c.Explanation, path+" in the server's files") {
-		t.Fatalf("the refusal of %s as the crash helper shows it: %+v", path, c)
 	}
 }
 
@@ -199,6 +164,43 @@ func TestAPlantedPipeStopsTheStartAndTheStatusSaysWhy(t *testing.T) {
 	}
 	if r := e.status().Refusal; r != nil {
 		t.Fatalf("the status kept a refusal after a start: %+v", r)
+	}
+}
+
+// The agent's own restart after a crash is refused over a planted link or
+// named pipe like any start, and the refusal replaces the crash helper's
+// explanation of the run, so the status explains the last start once, by
+// the file.
+func TestARefusedRestartReplacesTheCrash(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	config := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
+	for _, c := range []struct {
+		code   string
+		plant  func() error
+		params map[string]string
+	}{
+		{"link", func() error { return os.Symlink(filepath.Join(e.hostFiles(), "panel.db"), config) }, map[string]string{"path": "plugins/bStats/config.yml"}},
+		{"special_file", func() error { return syscall.Mkfifo(config, 0o640) }, map[string]string{"path": "plugins/bStats/config.yml", "type": "named_pipe"}},
+	} {
+		if err := os.Remove(config); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.plant(); err != nil {
+			t.Fatal(err)
+		}
+		e.fd.crash(1)
+		var st api.ServerStatus
+		e.waitFor("the restart after the crash refused", func() bool { st = e.status(); return st.Refusal != nil && st.Operation == nil })
+		if r := st.Refusal; r.Code != c.code || !maps.Equal(r.Params, c.params) || st.Crash != nil {
+			t.Fatalf("the status after a restart refused a %s: refusal %+v, crash %+v", c.code, r, st.Crash)
+		}
+		if err := os.Remove(config); err != nil {
+			t.Fatal(err)
+		}
+		if op := e.act("start"); op.Status != api.OpSucceeded {
+			t.Fatalf("start once the %s is gone: %+v", c.code, op)
+		}
 	}
 }
 

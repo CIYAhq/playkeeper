@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, formatPercent, formatSpan, joinAddress } from '@/lib/format'
-import { isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
+import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -156,7 +156,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
         <>
           <span className="flex items-center gap-2 text-[13px] text-destructive-foreground">
             <CircleAlertIcon className="size-4" aria-hidden="true" />
-            {s.crash?.start ? t('status.couldntStart') : t('card.crashed')}
+            {couldntStart(s) ? t('status.couldntStart') : t('card.crashed')}
           </span>
           {!s.operation && <StartButton server={s} label={t('server.startAgain')} />}
         </>

@@ -57,16 +57,21 @@ export function phaseLabel(p: Phase): string {
   }
 }
 
-/** A server that is stopped with a crash to explain (its start failed) looks crashed. */
+/** A server that is stopped with a crash or a refused start to explain looks crashed. */
 export function statusTone(st: ServerStatus): Tone {
   const tone = phaseTone(st.phase)
-  return tone === 'stopped' && st.crash ? 'crashed' : tone
+  return tone === 'stopped' && (st.crash || st.refusal) ? 'crashed' : tone
+}
+
+/** Did the server's last start fail before it came up? */
+export function couldntStart(st: ServerStatus): boolean {
+  return !!st.refusal || !!st.crash?.start
 }
 
 /** "Crashed", "Couldn't start" when it never came up, or the phase. */
 export function statusLabel(st: ServerStatus): string {
   if (statusTone(st) !== 'crashed') return phaseLabel(st.phase)
-  return st.crash?.start ? t('status.couldntStart') : t('status.crashed')
+  return couldntStart(st) ? t('status.couldntStart') : t('status.crashed')
 }
 
 /** Is the server being set up for the first time (its create is running or failed)? */

@@ -289,7 +289,6 @@ export type CrashKind =
   | 'eula'
   | 'permission_denied'
   | 'killed'
-  | 'refused_file'
   | 'unknown'
 
 export interface Crash {

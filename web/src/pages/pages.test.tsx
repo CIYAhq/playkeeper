@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Backup, Crash, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
+import type { Backup, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -618,24 +618,6 @@ describe('Crash helper', () => {
     expect(posts()).toEqual([['/addons/remove', { jar: 'Multiverse-Portals-5.0.2.jar', start: true }]])
   })
 
-  it('names a link Playkeeper refused in one line and starts again once it’s gone', async () => {
-    vi.mocked(client.post).mockClear()
-    const refused = crash({
-      start: true,
-      kind: 'refused_file',
-      params: { path: 'plugins/bStats/config.yml', reason: 'link' },
-      explanation: 'plugins/bStats/config.yml in the server’s files is a link, which Playkeeper does not follow. Delete it, or replace it with the file or folder it points to, then try again.',
-      fixes: [{ kind: 'restart', title: 'Start the server again', recommended: true }],
-    })
-    const text = await render(<Overview server={server({ phase: 'stopped', crash: refused })} />)
-    expect(text).toContain('Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.')
-    expect(text).not.toContain('replace it with the file')
-    expect(text).not.toContain('Last lines before it stopped')
-    expect(text).toContain('Start Survival againRecommendedOnce it’s deleted')
-    await press('Start Survival')
-    expect(posts()).toEqual([['/start', undefined]])
-  })
-
   it('puts the damaged area back as the agent recommends, or restores the backup it names', async () => {
     vi.mocked(client.post).mockClear()
     const made = new Date()
@@ -709,17 +691,27 @@ describe('Crash helper', () => {
     expect(text).toContain('Start Survival')
   })
 
-  it('says which file stopped a start and what to do, in one line', async () => {
-    const refusal = { code: 'link' as const, params: { path: 'plugins/bStats/config.yml' }, message: 'plugins/bStats/config.yml in the server’s files is a link, which Playkeeper does not follow.', hint: 'Delete it.' }
-    const lastOperation = failed('start', '', 'Paper’s bStats usage statistics could not be switched off, so the server was not started. ' + refusal.message)
-    const text = await render(<Overview server={server({ phase: 'stopped', startedAt: undefined, exitCode: 0, lastOperation, refusal })} />)
-    expect(text).toContain('Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.')
-    expect(text).toContain('Start Survival again')
-    expect(text).not.toContain('bStats usage statistics')
-    expect(text).not.toContain('Last lines before it stopped')
-    const pipe = { ...refusal, code: 'special_file' as const, params: { path: 'plugins/bStats/config.yml', type: 'named_pipe' } }
-    expect(await render(<Overview server={server({ phase: 'stopped', refusal: pipe })} />)).toContain('while plugins/bStats/config.yml isn’t a normal file. Delete it.')
-    const dockerDown = await render(<Overview server={server({ phase: 'docker_unavailable', lastError: 'Docker is not responding, so Playkeeper cannot see or control the server.', refusal })} />)
+  it('says which file stopped a start and what to do in one line, for a link and a named pipe', async () => {
+    const link: FileRefusal = { code: 'link', params: { path: 'plugins/bStats/config.yml' }, message: 'plugins/bStats/config.yml in the server’s files is a link, which Playkeeper does not follow.', hint: 'Delete it.' }
+    const pipe: FileRefusal = { code: 'special_file', params: { path: 'plugins/bStats/config.yml', type: 'named_pipe' }, message: 'plugins/bStats/config.yml in the server’s files is not a normal file (it is a named pipe).', hint: 'Delete it.' }
+    for (const [refusal, line] of [
+      [link, 'Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.'],
+      [pipe, 'Playkeeper won’t start Survival while plugins/bStats/config.yml isn’t a normal file. Delete it.'],
+    ] as const) {
+      vi.mocked(client.get).mockClear()
+      vi.mocked(client.post).mockClear()
+      const lastOperation = failed('start', '', 'Paper’s bStats usage statistics could not be switched off, so the server was not started. ' + refusal.message)
+      const text = await render(<Overview server={server({ phase: 'stopped', startedAt: undefined, exitCode: 0, lastOperation, lastError: lastOperation.error, refusal })} />)
+      expect(text.split(line)).toHaveLength(2)
+      expect(text.split('What happened')).toHaveLength(2)
+      expect(text).toContain('Start Survival againRecommendedOnce it’s deleted')
+      expect(text).not.toContain('bStats usage statistics')
+      expect(text).not.toContain('Last lines before it stopped')
+      expect(vi.mocked(client.get).mock.calls.filter(([path]) => path.includes('/logs'))).toEqual([])
+      await press('Start Survival')
+      expect(posts()).toEqual([['/start', undefined]])
+    }
+    const dockerDown = await render(<Overview server={server({ phase: 'docker_unavailable', lastError: 'Docker is not responding, so Playkeeper cannot see or control the server.', refusal: link })} />)
     expect(dockerDown).toContain('Docker is not responding')
     expect(dockerDown).not.toContain('Playkeeper won’t start Survival')
   })

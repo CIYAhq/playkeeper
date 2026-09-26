@@ -462,6 +462,12 @@ control "the status keeps the refusal while Docker isn't answering" internal/age
 		st.Refusal = refusal' \
   'st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"' \
   ./internal/agent '^TestARefusalLastsUntilAStartGetsPastTheFiles$'
+control "a refused restart replaces the crash's explanation, so the status explains it once" internal/agent/gamefiles.go \
+  'if refused {
+		s.crash = nil
+	}' \
+  '' \
+  ./internal/agent '^TestARefusedRestartReplacesTheCrash$'
 control "the jar is hashed only up to a size no Paper jar reaches" internal/agent/lifecycle.go \
   'const maxJarBytes = 256 << 20' \
   'const maxJarBytes = 1 << 62' \

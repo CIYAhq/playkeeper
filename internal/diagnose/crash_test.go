@@ -163,27 +163,6 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			evidence:    []string{"**** FAILED TO BIND TO PORT!", "bind(..) failed: Address already in use"},
 		},
 		{
-			name: "a link Playkeeper refused stopped the start before the server ran",
-			in: with(paperCrash(nil), func(in *CrashInput) {
-				in.ExitCode = 0
-				in.Refused = &RefusedFile{Path: "plugins/bStats/config.yml", Reason: "link",
-					Text: "plugins/bStats/config.yml in the server's files is a link, which Playkeeper does not follow. Delete it, then try again."}
-			}),
-			kind: CrashRefusedFile, certain: true, params: map[string]any{"path": "plugins/bStats/config.yml", "reason": "link"},
-			fixes:       "restart*",
-			explanation: []string{"plugins/bStats/config.yml in the server's files is a link"},
-		},
-		{
-			name: "a refused named pipe comes before what Docker said",
-			in: with(paperCrash(nil), func(in *CrashInput) {
-				in.ExitCode = 0
-				in.DockerError = "Bind for 0.0.0.0:25565 failed: port is already allocated"
-				in.Refused = &RefusedFile{Path: "paper-1.21.4-232.jar", Reason: "special_file", Text: "paper-1.21.4-232.jar in the server's files is not a normal file (it is a named pipe)."}
-			}),
-			kind: CrashRefusedFile, certain: true, params: map[string]any{"path": "paper-1.21.4-232.jar", "reason": "special_file"},
-			fixes: "restart*",
-		},
-		{
 			name: "Docker port already allocated",
 			in: with(paperCrash(nil), func(in *CrashInput) {
 				in.ExitCode = 0

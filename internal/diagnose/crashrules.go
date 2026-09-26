@@ -14,7 +14,6 @@ var crashRules = []struct {
 	explain func(*crashCtx) (CrashDiagnosis, bool)
 	certain bool
 }{
-	{(*crashCtx).refusedFile, true},
 	{(*crashCtx).dockerPort, true},
 	{(*crashCtx).containerMemory, true},
 	{(*crashCtx).diskFull, true},
@@ -76,19 +75,6 @@ var (
 	reChunkError = regexp.MustCompile(`Couldn't load chunk|Failed to read chunk|Chunk \[-?\d{1,7}, ?-?\d{1,7}\] (?:header|stream) is truncated|Region file \S{1,300} has truncated header`)
 	reChunkPos   = regexp.MustCompile(`\[(-?\d{1,7}), ?(-?\d{1,7})\]`)
 )
-
-func (c *crashCtx) refusedFile() (CrashDiagnosis, bool) {
-	f := c.in.Refused
-	if f == nil {
-		return CrashDiagnosis{}, false
-	}
-	return CrashDiagnosis{
-		Kind: CrashRefusedFile, Params: map[string]any{"path": f.Path, "reason": f.Reason},
-		Title:       "Playkeeper didn't start " + c.server(),
-		Explanation: f.Text,
-		Fixes:       []Action{restartFix()},
-	}, true
-}
 
 func (c *crashCtx) dockerPort() (CrashDiagnosis, bool) {
 	m := reDockerPort.FindStringSubmatch(c.in.DockerError)

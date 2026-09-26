@@ -3,15 +3,14 @@ import type { Operation, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { crashSummary } from '@/lib/crash'
+import { failureLine } from '@/lib/crash'
 import { formatMs } from '@/lib/format'
 import { opLabel } from '@/lib/phase'
 
 function finished(op: Operation, server: ServerStatus, machine: string) {
   const name = server.name
   if (op.status === 'failed') {
-    const crash = server.crash?.start && Date.parse(server.crash.at) >= Date.parse(op.startedAt) ? server.crash : undefined
-    toastManager.add({ title: t('op.failed', { what: opLabel(op, name) }), description: crash ? crashSummary(crash, name, machine) : op.error, type: 'error', timeout: 10_000 })
+    toastManager.add({ title: t('op.failed', { what: opLabel(op, name) }), description: failureLine(op, server, machine), type: 'error', timeout: 10_000 })
     return
   }
   const downtime = typeof op.detail?.downtimeMs === 'number' ? op.detail.downtimeMs : undefined

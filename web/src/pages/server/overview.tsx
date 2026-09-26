@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Activity, Crash, FileRefusal, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
+import type { Activity, Crash, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
-import { crashDetail, crashFixes, crashSummary, phoneLines, preselect } from '@/lib/crash'
+import { crashDetail, crashFixes, crashSummary, phoneLines, preselect, refusalFixes, refusalLine } from '@/lib/crash'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
 import { createStepOf, failedJob, isSettingUp, statusTone, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
@@ -30,7 +30,7 @@ export function Overview({ server }: { server: ServerStatus }) {
   const ws = useWorkspace()
   if (ws.agentDown) return <AgentDownView />
   if (!ws.stale && isSettingUp(server)) return <SettingUpView server={server} />
-  if (!ws.stale && (statusTone(server) === 'crashed' || (server.refusal && server.phase !== 'docker_unavailable')) && !server.operation) return <CrashedView server={server} />
+  if (!ws.stale && statusTone(server) === 'crashed' && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }
 
@@ -401,11 +401,10 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   const [picked, setPicked] = useState<string>()
   const [preview, setPreview] = useState<RestorePreview>()
   const [busy, setBusy] = useState(false)
-  const crash = s.crash ?? fallbackCrash(s)
   const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, ws.machineName) : (s.lastError ?? t('crash.generic', { server: s.name }))
   const detail = refusal ? undefined : s.crash ? crashDetail(s.crash) : s.lastErrorHint
   const lines: ConsoleLine[] = refusal ? [] : s.crash ? s.crash.lines : (logs.data?.lines ?? []).map((l) => parseLine(l.text))
-  const options = crashFixes(crash, s.name, ws.machineName, phone)
+  const options = refusal ? refusalFixes(refusal, s.name) : crashFixes(s.crash ?? fallbackCrash(s), s.name, ws.machineName, phone)
   const choice = options.find((o) => o.id === picked && o.plan) ?? preselect(options)
 
   async function act() {
@@ -526,29 +525,6 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
       {dialog}
     </div>
   )
-}
-
-/** Names the file that stopped a start and what to do about it. */
-function refusalLine(r: FileRefusal, server: string): string {
-  const file = r.params.path
-  const english = [r.message, r.hint].filter(Boolean).join(' ')
-  switch (r.code) {
-    case 'link':
-      return t('crash.refusedLink', { server, file })
-    case 'special_file':
-      return t('crash.refusedSpecial', { server, file })
-    case 'not_a_file':
-    case 'not_a_folder':
-    case 'too_large':
-    case 'too_many_entries':
-    case 'changed':
-    case 'bad_name':
-      return english
-    default: {
-      const unreachable: never = r.code
-      return english || unreachable
-    }
-  }
 }
 
 function AgentDownView() {
