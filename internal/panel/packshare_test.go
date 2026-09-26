@@ -220,57 +220,69 @@ func TestFriendsPackLinksAnswerAlikeWhateverTheReason(t *testing.T) {
 		header http.Header
 		body   string
 	}
-	ask := func(method, path string) answer {
-		r, body := get(t, c, method, e.ts.URL+path, nil)
-		h := r.Header.Clone()
-		h.Del("Date")
-		return answer{r.StatusCode, h, body}
-	}
 	shapes := map[string]func(token string) string{
 		"page":      func(tok string) string { return share.PathPrefix + tok },
 		"page data": func(tok string) string { return share.PathPrefix + tok + "/page" },
 		"emblem":    func(tok string) string { return share.PathPrefix + tok + "/icon" },
 		"file":      func(tok string) string { return share.PathPrefix + tok + "/cobblemon.mrpack" },
 	}
-	unknown := strings.Repeat("A", share.TokenLen)
-	baseline := map[string]answer{}
-	for shape, path := range shapes {
-		a := ask("GET", path(unknown))
-		want := http.StatusNotFound
-		if shape == "page" {
-			want = http.StatusOK
-		}
-		if a.code != want || strings.Contains(strings.ToLower(a.body), "cobblemon") {
-			t.Fatalf("%s for an unknown token: %d %s", shape, a.code, a.body)
-		}
-		baseline[shape] = a
-	}
-	if got, want := ask("GET", share.PathPrefix+friendsToken), baseline["page"]; got.code != want.code || got.body != want.body || !headersEqual(got.header, want.header) {
-		t.Errorf("the page for a link that works: %d %v; for an unknown one: %d %v", got.code, got.header, want.code, want.header)
-	}
-	same := func(what string, token string) {
-		t.Helper()
-		for shape, path := range shapes {
-			if got := ask("GET", path(token)); got.code != baseline[shape].code || got.body != baseline[shape].body || !headersEqual(got.header, baseline[shape].header) {
-				t.Errorf("%s, %s: %d %v %q; an unknown token: %d %v %q", what, shape, got.code, got.header, got.body, baseline[shape].code, baseline[shape].header, baseline[shape].body)
+	// The public group answers a route's failures with its own 404, so the
+	// route is asked on its own too: each must answer alike without the other.
+	for _, via := range []string{"panel", "route"} {
+		t.Run(via, func(t *testing.T) {
+			f.set(true, false)
+			ask := func(method, path string) answer {
+				if via == "route" {
+					rec := httptest.NewRecorder()
+					e.srv.friendsPacks().ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+					return answer{rec.Code, rec.Header(), rec.Body.String()}
+				}
+				r, body := get(t, c, method, e.ts.URL+path, nil)
+				h := r.Header.Clone()
+				h.Del("Date")
+				return answer{r.StatusCode, h, body}
 			}
-		}
-	}
-	same("the server's name", "cobblemon")
-	same("a token of the wrong shape", friendsToken[:share.TokenLen-1]+"-")
-	same("a token in another case", strings.ToLower(friendsToken))
-	f.set(false, false)
-	same("sharing off, a stopped server or an old link", friendsToken)
-	f.set(true, false)
-	if got, want := ask("GET", share.PathPrefix+friendsToken+"/other.mrpack"), baseline["file"]; got.code != want.code || got.body != want.body {
-		t.Errorf("another file name: %d %q", got.code, got.body)
-	}
-	if got, want := ask("POST", share.PathPrefix+friendsToken+"/page"), baseline["page data"]; got.code != want.code || got.body != want.body {
-		t.Errorf("a POST: %d %q", got.code, got.body)
-	}
+			unknown := strings.Repeat("A", share.TokenLen)
+			baseline := map[string]answer{}
+			for shape, path := range shapes {
+				a := ask("GET", path(unknown))
+				want := http.StatusNotFound
+				if shape == "page" {
+					want = http.StatusOK
+				}
+				if a.code != want || strings.Contains(strings.ToLower(a.body), "cobblemon") {
+					t.Fatalf("%s for an unknown token: %d %s", shape, a.code, a.body)
+				}
+				baseline[shape] = a
+			}
+			if got, want := ask("GET", share.PathPrefix+friendsToken), baseline["page"]; got.code != want.code || got.body != want.body || !headersEqual(got.header, want.header) {
+				t.Errorf("the page for a link that works: %d %v; for an unknown one: %d %v", got.code, got.header, want.code, want.header)
+			}
+			same := func(what string, token string) {
+				t.Helper()
+				for shape, path := range shapes {
+					if got := ask("GET", path(token)); got.code != baseline[shape].code || got.body != baseline[shape].body || !headersEqual(got.header, baseline[shape].header) {
+						t.Errorf("%s, %s: %d %v %q; an unknown token: %d %v %q", what, shape, got.code, got.header, got.body, baseline[shape].code, baseline[shape].header, baseline[shape].body)
+					}
+				}
+			}
+			same("the server's name", "cobblemon")
+			same("a token of the wrong shape", friendsToken[:share.TokenLen-1]+"-")
+			same("a token in another case", strings.ToLower(friendsToken))
+			f.set(false, false)
+			same("sharing off, a stopped server or an old link", friendsToken)
+			f.set(true, false)
+			if got, want := ask("GET", share.PathPrefix+friendsToken+"/other.mrpack"), baseline["file"]; got.code != want.code || got.body != want.body {
+				t.Errorf("another file name: %d %q", got.code, got.body)
+			}
+			if got, want := ask("POST", share.PathPrefix+friendsToken+"/page"), baseline["page data"]; got.code != want.code || got.body != want.body {
+				t.Errorf("a POST: %d %q", got.code, got.body)
+			}
 
-	f.set(true, true)
-	same("a machine that can't answer", friendsToken)
+			f.set(true, true)
+			same("a machine that can't answer", friendsToken)
+		})
+	}
 }
 
 func headersEqual(a, b http.Header) bool {
