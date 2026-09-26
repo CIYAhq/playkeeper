@@ -262,12 +262,12 @@ control "Paper versions are sorted newest first" internal/minecraft/fill.go \
   'return 0' \
   ./internal/minecraft '^TestCatalogDoesNotDependOnTheOrderPaperMCListsVersionsIn$'
 control "experimental versions need consent" internal/agent/handlers.go \
-  'if entry.Experimental && !req.AcceptExperimental {' \
-  'if false && entry.Experimental && !req.AcceptExperimental {' \
+  'if experimental && !req.AcceptExperimental {' \
+  'if false && experimental && !req.AcceptExperimental {' \
   ./internal/agent '^TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent$'
 control "version changes to experimental versions need consent" internal/agent/versions.go \
-  'if e.Experimental && !req.AcceptExperimental {' \
-  'if false && e.Experimental && !req.AcceptExperimental {' \
+  'if experimental && !req.AcceptExperimental {' \
+  'if false && experimental && !req.AcceptExperimental {' \
   ./internal/agent '^TestVersionChangesNeverGoBack$'
 control "Minecraft never goes back to an older version" internal/agent/versions.go \
   '	case c < 0:' \
