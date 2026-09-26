@@ -280,6 +280,43 @@ func TestDiscordAlertsComeFromTheAgent(t *testing.T) {
 	f.waitMessage(e, "https://play.example.com:"+fmt.Sprint(e.cfg.PanelPort)+"/servers/")
 }
 
+// The alert when Playkeeper gives up restarting a server says so once, and
+// says why the server crashed.
+func TestDiscordGaveUpAlertSaysItOnceWithTheCause(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	for i := 1; i <= maxCrashes; i++ {
+		e.waitFor("online before the crash", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+		e.fd.crash(137)
+		e.waitFor(fmt.Sprintf("crash %d counted", i), func() bool { return e.crashEvents() == i })
+	}
+	f.waitMessage(e, "Server crashed and stays off")
+	var got []string
+	for _, r := range f.messages("Server crashed and stays off") {
+		var msg struct {
+			Embeds []struct{ Title, Description string }
+		}
+		if err := json.Unmarshal([]byte(r.Raw), &msg); err != nil {
+			t.Fatal(err)
+		}
+		for _, em := range msg.Embeds {
+			if em.Title == "Server crashed and stays off" {
+				got = append(got, em.Description)
+			}
+		}
+	}
+	want := "**My server** kept crashing, so Playkeeper stopped restarting it. Open the dashboard to see what went wrong.\n\n" +
+		"The server stopped unexpectedly \\(exit code 137\\) without shutting down cleanly.\n\n" +
+		"[Open the dashboard](https://play.example.com:" + fmt.Sprint(e.cfg.PanelPort) + "/servers/my-server)"
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("the alert says:\n%q\nwant:\n%q", got, want)
+	}
+	if st := e.status(); !strings.Contains(st.LastError, "Playkeeper stopped restarting it after 3 crashes in 15 minutes.") {
+		t.Fatalf("the dashboard still says Playkeeper gave up: %q", st.LastError)
+	}
+}
+
 // The live status message shows the server as it is, not as the last sample
 // saw it: no sample runs here once the agent has started. Crashes, coming
 // back online and Playkeeper giving up restarting each show within seconds,

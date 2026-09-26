@@ -796,11 +796,11 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
-		s.recordCrash(fin, c.State)
+		cause := s.recordCrash(fin, c.State)
 		s.mu.Lock()
-		restarting, why := desired == api.DesiredRunning && len(s.crashes) < maxCrashes, s.lastError
+		restarting := desired == api.DesiredRunning && len(s.crashes) < maxCrashes
 		s.mu.Unlock()
-		s.alert(discord.Event{Kind: discord.KindCrash, Detail: why, Restarting: restarting, At: fin})
+		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, At: fin})
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
 			due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
@@ -822,7 +822,9 @@ func (s *server) markExitHandled(id string, fin time.Time) {
 	s.mu.Unlock()
 }
 
-func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
+// recordCrash counts a crash and returns its cause in one sentence, without
+// what Playkeeper does about it, which the crash alert says in its own words.
+func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	s.mu.Lock()
 	var recent []time.Time
 	for _, t := range s.crashes {
@@ -841,6 +843,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
 		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
 		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
+	cause := s.lastError
 	if n >= maxCrashes {
 		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it after %d crashes in %d minutes.", n, int(crashWindow.Minutes()))
 		s.lastErrorHint += " Fix the cause, then press Start."
@@ -856,6 +859,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
 	}
 	s.recordEvent(fin, "server_crashed", "", "docker", detail)
 	s.log.Warn("server crashed", "server", s.id, "exit", st.ExitCode, "cause", kind, "crashes", n)
+	return cause
 }
 
 func (s *server) autoStart(kind string) {
