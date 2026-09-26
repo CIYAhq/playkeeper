@@ -1050,6 +1050,7 @@ func TestFreeNameChangeWithALostAnswerFollowsTheService(t *testing.T) {
 			e.claim("alex")
 			_, key := e.names.name("alex")
 			alexRefreshes := e.names.count("POST /v1/names/alex/address")
+			alexClaims := e.names.requests("PUT /v1/names/alex")
 			if c.late {
 				e.names.answerLate("PUT /v1/names/bob", stored)
 			} else {
@@ -1071,6 +1072,11 @@ func TestFreeNameChangeWithALostAnswerFollowsTheService(t *testing.T) {
 			}
 			if e.a.loadCertificate("bob.playkeeper.io") == nil || e.a.loadCertificate("alex.playkeeper.io") != nil {
 				t.Fatal("the certificate is not for the name the service holds")
+			}
+			// The service is asked what became of the claim; claiming alex
+			// back would only be refused, as the key holds bob.
+			if n := e.names.requests("PUT /v1/names/alex"); n != alexClaims {
+				t.Fatalf("alex was claimed back %d times", n-alexClaims)
 			}
 			e.loopRefreshes("bob")
 			if n := e.names.count("POST /v1/names/alex/address"); n != alexRefreshes {
@@ -1264,6 +1270,19 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 	forgotten := func(name string) setup { return func(e *addressEnv, _ string) { e.names.forget(name) } }
 	taken := func(name string) setup { return func(e *addressEnv, _ string) { e.names.takenBy(name) } }
 	holding := func(name string) setup { return func(e *addressEnv, key string) { e.names.holds(name, key) } }
+	// dueSoon brings the loop's next refresh of alex to within two hours.
+	dueSoon := func(e *addressEnv, _ string) {
+		release, err := e.a.holdAddress(e.t.Context(), 15*time.Second)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		defer release()
+		_ = e.a.updateAddress(func(st *addressState) {
+			f := *st.Free
+			f.NextRefresh = time.Now().Add(2 * time.Hour)
+			st.Free = &f
+		})
+	}
 	// meanwhile runs fn when the request for route comes, and answers it
 	// with rf, or as usual for nil.
 	meanwhile := func(route string, fn func(e *addressEnv), rf *fakeRefusal) setup {
@@ -1314,6 +1333,7 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 		{name: "the claim of bob and the list fail", change: true, fail: refusals{"PUT /v1/names/bob": {broke}, "GET /v1/names": {down}}, status: 502, want: "alex", next: day, then: "alex"},
 		{name: "the service holds a third name for this machine", change: true, setup: and(released("alex"), holding("carol")), status: 409, want: "carol", next: day, then: "carol"},
 		// reclaim: claiming alex back after the claim of bob failed.
+		{name: "alex, due for a refresh soon, is claimed back and refreshed", change: true, setup: dueSoon, fail: refusals{"PUT /v1/names/bob": {broke}}, status: 502, want: "alex", next: day, then: "alex"},
 		{name: "alex can't be claimed back", change: true, fail: refusals{"PUT /v1/names/bob": {broke}, "PUT /v1/names/alex": {down}}, status: 502, want: "alex", next: hour, then: "alex"},
 		{name: "alex can't be claimed back and the lists fail", change: true, fail: refusals{"PUT /v1/names/bob": {broke}, "PUT /v1/names/alex": {down}, "GET /v1/names": {down, down}}, status: 502, want: "alex", next: hour, then: "alex"},
 		{name: "alex is claimed back but the answer is lost", change: true, setup: taken("bob"), fail: refusals{"PUT /v1/names/alex": {lost}}, status: 409, want: "alex", next: day, then: "alex"},
@@ -1343,6 +1363,7 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 		{name: "alex was released and claiming it back is refused", setup: released("alex"), fail: refusals{"PUT /v1/names/alex": {busy}}, want: "alex", next: hour, then: "alex"},
 		{name: "alex was released and claiming it back and the list fail", setup: released("alex"), fail: refusals{"PUT /v1/names/alex": {down}, "GET /v1/names": {down}}, want: "alex", next: hour, then: "alex"},
 		{name: "alex was released and the service holds bob", setup: and(released("alex"), holding("bob")), want: "bob", next: day, then: "bob"},
+		{name: "alex was released, the service holds bob and bob's refresh fails", setup: and(released("alex"), holding("bob")), fail: refusals{"POST /v1/names/bob/address": {down, down}}, want: "bob", next: hour, then: "bob"},
 		{name: "alex was released, the service holds bob and the list fails", setup: and(released("alex"), holding("bob")), fail: refusals{"GET /v1/names": {down}}, want: "alex", next: hour, then: "bob"},
 		{name: "alex was given back to everyone and is claimed again", setup: forgotten("alex"), want: "alex", next: day, then: "alex"},
 		{name: "alex was given back to everyone and claiming it again fails", setup: forgotten("alex"), fail: refusals{"PUT /v1/names/alex": {down}}, want: "alex", next: hour, then: "alex"},
@@ -1400,6 +1421,13 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 				if n, owner := e.names.name(c.want); n.State != names.StateActive || owner != key {
 					t.Fatalf("after the step the service has %s as %+v for %q", c.want, n, owner)
 				}
+			}
+			// A name the loop moves the machine to gets its records and
+			// certificate without waiting for its next refresh.
+			if !c.change && !c.first && c.want != "" && c.want != "alex" {
+				e.waitFor(c.want+"'s record and certificate", func() bool {
+					return e.names.labels(c.want)["survival"] == 25565 && e.a.loadCertificate(c.want+".playkeeper.io") != nil
+				})
 			}
 
 			if c.want != "" {
