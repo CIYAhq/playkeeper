@@ -394,6 +394,16 @@ control "the status says a swap journal can't be read" internal/agent/backups.go
   'if _, err := readSwapJournal(s.stageDir(stage)); err != nil {' \
   'if _, err := readSwapJournal(s.stageDir(stage)); false && err != nil {' \
   ./internal/agent '^TestAnUnreadableSwapJournalHoldsNoServerBack$'
+control "nothing makes a world folder while the restored world is only in its stage" internal/agent/lifecycle.go \
+  'if staged := s.stagedRestoredWorld(); staged != "" {' \
+  'if staged := s.stagedRestoredWorld(); false && staged != "" {' \
+  ./internal/agent '^TestNothingMakesAWorldFolderWhileTheRestoredWorldIsInTheStage$'
+control "a restored world still in its stage is never settled away" internal/agent/backups.go \
+  '			case !dirExists(staged):
+				return nil' \
+  '			case !dirExists(staged) || dirExists(s.dataDir()):
+				return nil' \
+  ./internal/agent '^TestARestoredWorldInTheStageIsNeverSettledAway$'
 webcontrol "the World tab says a restore isn't finished, and what finishes it" web/src/pages/server/world.tsx \
   '      <RestoreUnsettledNotice server={s} className={className} />
 ' \
