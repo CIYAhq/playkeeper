@@ -816,6 +816,93 @@ func TestSleepWaitsForTheMapPreGeneration(t *testing.T) {
 	}
 }
 
+// A scheduled restart's countdown keeps an empty server awake, as its
+// operation does, so the restart its players were warned of happens. With
+// the countdown called off, or no schedule running, the server falls asleep.
+func TestSleepWaitsForAScheduledRestartsCountdown(t *testing.T) {
+	cases := []struct {
+		name    string
+		restart bool
+		callOff bool
+		sleeps  bool
+	}{
+		{name: "a restart counting down", restart: true},
+		{name: "a restart called off during its countdown", restart: true, callOff: true, sleeps: true},
+		{name: "no schedule running", sleeps: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			localStandIn(t)
+			e := newAgentEnv(t)
+			e.create()
+			if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": sleep.MinIdleMinutes}); code != http.StatusOK {
+				t.Fatalf("turn sleep on: %d %v", code, out)
+			}
+			counting := func() bool {
+				_, out := e.call("GET", e.sp("/schedules"), nil)
+				cur, _ := out["current"].(map[string]any)
+				return cur != nil && cur["restartAt"] != nil
+			}
+			sid := ""
+			if c.restart {
+				// The countdown lasts 10 seconds on the wall clock, however
+				// far the agent's clock skips.
+				due := e.clockBefore(12 * time.Second)
+				code, out := e.call("POST", e.sp("/schedules"), map[string]any{"actor": "admin", "kind": "restart", "timing": onceAt(due),
+					"payload": map[string]any{"warnSeconds": []int{10}, "message": "Survival restarts in {minutes} minutes."}})
+				if code != http.StatusCreated {
+					t.Fatalf("create: %d %v", code, out)
+				}
+				sid = out["id"].(string)
+				e.waitUpTo(20*time.Second, "the countdown", counting)
+			}
+			if c.callOff {
+				if code, out := e.call("POST", e.sp("/schedules/"+sid), map[string]any{"actor": "admin", "enabled": false}); code != http.StatusOK {
+					t.Fatalf("switch off: %d %v", code, out)
+				}
+				e.waitFor("the countdown called off", func() bool { return !counting() })
+			}
+			// Nobody plays. The clock skips the 10 minutes a started server
+			// stays up, then the sampler sees every minute.
+			e.skew.Add(int64(10 * time.Minute))
+			fell := func() bool { return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'sleep'`) > 0 }
+			if c.sleeps {
+				e.waitUpTo(20*time.Second, "the server to fall asleep", func() bool {
+					if fell() {
+						return true
+					}
+					e.skew.Add(int64(time.Minute))
+					time.Sleep(150 * time.Millisecond)
+					return false
+				})
+				e.waitFor("the server asleep", func() bool { return e.status().Phase == api.PhaseAsleep && !e.a.busy() })
+				return
+			}
+			// Twice the shortest idle time, within the countdown.
+			for range 2 * sleep.MinIdleMinutes {
+				e.skew.Add(int64(time.Minute))
+				time.Sleep(150 * time.Millisecond)
+			}
+			s := e.srv()
+			s.auto.mu.Lock()
+			hold := s.auto.decision.Hold
+			s.auto.mu.Unlock()
+			if fell() || !counting() || hold != sleep.HoldBusy {
+				t.Fatalf("during the countdown, the server fell asleep %v, the countdown runs %v, sleep holds for %q", fell(), counting(), hold)
+			}
+			e.waitUpTo(30*time.Second, "the scheduled restart", func() bool {
+				return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = ? AND status = 'succeeded'`, schedule.Actor(sid)) == 1
+			})
+			e.waitUpTo(10*time.Second, "the run recorded", func() bool {
+				return e.countRows(`SELECT COUNT(*) FROM schedule_runs WHERE schedule_id = ? AND result = 'succeeded'`, sid) == 1
+			})
+			if fell() {
+				t.Fatal("the server fell asleep before its scheduled restart")
+			}
+		})
+	}
+}
+
 // fakeDest is a destination for copies somewhere else that keeps them in
 // memory.
 type fakeDest struct {

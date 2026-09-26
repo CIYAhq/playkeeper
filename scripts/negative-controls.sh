@@ -2927,6 +2927,17 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 	var c *uploadClaim' \
   ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
 
+# Wave 7 after Bugbot's finding on e6a1dfc7: a scheduled restart's countdown
+# keeps an empty server awake.
+control "a scheduled restart's countdown keeps an empty server awake" internal/agent/sleeping.go \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
+  'Busy: s.busy() || s.pregenRunning(),' \
+  ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
+control "a restart schedule counts as working while it counts down" internal/agent/schedules.go \
+  'return ok && (act.Job.Schedule.Kind == schedule.KindRestart || act.Job.Schedule.Kind == schedule.KindBackup)' \
+  'return ok && act.Job.Schedule.Kind == schedule.KindBackup' \
+  ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
