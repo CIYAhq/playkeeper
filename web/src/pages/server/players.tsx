@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { ArrowRightIcon, CopyIcon, EllipsisIcon, LinkIcon, PlusIcon, ShieldCheckIcon, ShieldOffIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Activity, Invite, OperatorEntry, PlayersSummary, ServerStatus, SessionsResponse, WhitelistEntry } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { EmptyArt } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, CopyButton, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
@@ -14,7 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
-import { formatDay, formatDuration, localTimeZone, relativeTime, serverJoinAddress } from '@/lib/format'
+import { formatDay, formatDuration, localTimeZone, relativeTime } from '@/lib/format'
+import type { Join } from '@/lib/machines'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, rePlayerName } from '@/lib/router'
@@ -50,8 +51,8 @@ export function PlayerLink({ server, name, className, children }: { server: Serv
 }
 
 /** Why the allowlist and operators can't change right now: they go through the running server. */
-export function listLocked(server: ServerStatus, stale: boolean): string | undefined {
-  if (stale) return t('reason.noAgent')
+export function listLocked(server: ServerStatus, offline: string | undefined): string | undefined {
+  if (offline) return offline
   return server.phase === 'online' ? undefined : t('players.startToChange', { server: server.name })
 }
 
@@ -146,9 +147,9 @@ function usePlayerLists(server: ServerStatus, whitelist: WhitelistEntry[] | unde
 
 /** The "add a player" field and button, used on the page, in the empty state and on phones. */
 function AddPlayer({ server, form, big, placeholder, iconButton, outline }: { server: ServerStatus; form: AddForm; big?: boolean; placeholder: string; iconButton?: boolean; outline?: boolean }) {
-  const ws = useWorkspace()
+  const { offline } = useServerMachine(server)
   const input = useRef<HTMLInputElement>(null)
-  const blocked = listLocked(server, ws.stale)
+  const blocked = listLocked(server, offline)
   const hash = window.location.hash
 
   useEffect(() => {
@@ -207,8 +208,8 @@ export async function playerAction(server: ServerStatus, method: 'POST' | 'DELET
 }
 
 function PlayerMenu({ server, name, op, online, onAction, phone }: { server: ServerStatus; name: string; op: boolean; online: boolean; onAction: (action: PlayerAction) => void; phone?: boolean }) {
-  const ws = useWorkspace()
-  const blocked = listLocked(server, ws.stale)
+  const { offline } = useServerMachine(server)
+  const blocked = listLocked(server, offline)
   return (
     <Menu>
       <MenuTrigger disabled={!!blocked} render={<Button variant="ghost" size={phone ? 'icon-lg' : 'icon-sm'} aria-label={t('players.menuFor', { name })} disabledReason={blocked} />}>
@@ -266,8 +267,9 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
     const id = window.setTimeout(() => setFresh(undefined), 4000)
     return () => window.clearTimeout(id)
   }, [fresh])
-  const address = serverJoinAddress(s)
-  const online = !ws.stale && s.phase === 'online'
+  const { stale, join } = useServerMachine(s)
+  const address = join.address
+  const online = !stale && s.phase === 'online'
   const onlineNames = online ? (s.players?.names ?? []) : []
   const isOnline = (n: string) => onlineNames.some((o) => o.toLowerCase() === n.toLowerCase())
   const ops = new Set((lists.operators ?? []).map(nameKey))
@@ -312,7 +314,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
 
   let body: ReactNode
   if (empty) {
-    body = <EmptyPlayers server={s} address={address} form={lists.form} phone={phone} manage={manage} onNewLink={() => setNewOpen(true)} />
+    body = <EmptyPlayers server={s} join={join} form={lists.form} phone={phone} manage={manage} onNewLink={() => setNewOpen(true)} />
   } else if (phone) {
     body = (
       <>
@@ -352,8 +354,8 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
         )}
         {manage && <InviteLinks server={s} data={invites.data} onNew={() => setNewOpen(true)} onChanged={invites.refresh} fresh={fresh} />}
         <div className="flex items-center gap-3 pt-2">
-          <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{t('players.tellPhone', { address })}</p>
-          <CopyButton text={t('players.inviteMessage', { address })} size="lg" toast={t('toast.copied')} />
+          <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{address ? t('players.tellPhone', { address }) : join.reason}</p>
+          {address && <CopyButton text={t('players.inviteMessage', { address })} size="lg" toast={t('toast.copied')} />}
         </div>
       </>
     )
@@ -415,7 +417,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
                     <LinkIcon />
                     {t('invites.new')}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={copyAddress}>
+                  <Button variant="ghost" size="sm" onClick={copyAddress} disabledReason={address ? undefined : join.reason}>
                     {t('players.copyAddress')}
                   </Button>
                 </div>
@@ -423,14 +425,16 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
             ) : (
               <div className="mt-auto border-t border-border pt-4">
                 <h3 className="text-[13px] font-semibold">{t('players.tell')}</h3>
-                <p className="mt-1 text-xs text-muted-foreground">{t('players.tellBody', { address })}</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <CopyButton text={t('players.inviteMessage', { address })} label={t('players.copyInvite')} toast={t('toast.copied')} />
-                  <Button variant="ghost" size="sm" onClick={copyAddress}>
-                    <CopyIcon />
-                    {t('players.copyAddress')}
-                  </Button>
-                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{address ? t('players.tellBody', { address }) : join.reason}</p>
+                {address && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <CopyButton text={t('players.inviteMessage', { address })} label={t('players.copyInvite')} toast={t('toast.copied')} />
+                    <Button variant="ghost" size="sm" onClick={copyAddress}>
+                      <CopyIcon />
+                      {t('players.copyAddress')}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </Card>
@@ -534,7 +538,7 @@ function PlayersSkeleton({ phone }: { phone: boolean }) {
   )
 }
 
-function EmptyPlayers({ server: s, address, form, phone, manage, onNewLink }: { server: ServerStatus; address: string; form: AddForm; phone: boolean; manage: boolean; onNewLink: () => void }) {
+function EmptyPlayers({ server: s, join, form, phone, manage, onNewLink }: { server: ServerStatus; join: Join; form: AddForm; phone: boolean; manage: boolean; onNewLink: () => void }) {
   const steps = [
     { title: t('players.step1'), hint: t('players.step1Hint') },
     { title: t('players.step2'), hint: t('players.step2Hint') },
@@ -550,11 +554,15 @@ function EmptyPlayers({ server: s, address, form, phone, manage, onNewLink }: { 
           <AddPlayer server={s} form={form} placeholder={phone ? t('players.namePlaceholderShort') : t('players.emptyPlaceholder')} iconButton={phone} big />
         </div>
       )}
-      <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-        {t('players.theirAddress')}
-        <span className="font-semibold text-foreground">{address}</span>
-        <CopyButton text={address} size="xs" toast={t('toast.copied')} />
-      </p>
+      {join.address ? (
+        <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          {t('players.theirAddress')}
+          <span className="font-semibold text-foreground">{join.address}</span>
+          <CopyButton text={join.address} size="xs" toast={t('toast.copied')} />
+        </p>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">{join.reason}</p>
+      )}
       {manage && (
         <Button variant="ghost" size={phone ? 'lg' : 'sm'} className="mt-1 text-success-strong" onClick={onNewLink}>
           <LinkIcon />

@@ -79,6 +79,16 @@ type Options struct {
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
 	ReadyTimeout time.Duration
+	// ReadyPoll is how often a start looks whether the server is up
+	// (default 500ms).
+	ReadyPoll time.Duration
+	// FollowRetry is how long the log follower waits before looking again
+	// when there's no container, its log can't be read, or its run has
+	// ended (default 2s).
+	FollowRetry time.Duration
+	// DiscordStatusGap is the least time between two edits of Discord's
+	// live status message (0: the notifier's two seconds).
+	DiscordStatusGap time.Duration
 	// ReconcileInterval is how often desired and observed state are compared.
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
@@ -311,6 +321,12 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.ReadyTimeout == 0 {
 		opts.ReadyTimeout = 10 * time.Minute
+	}
+	if opts.ReadyPoll == 0 {
+		opts.ReadyPoll = 500 * time.Millisecond
+	}
+	if opts.FollowRetry == 0 {
+		opts.FollowRetry = 2 * time.Second
 	}
 	if opts.ReconcileInterval == 0 {
 		opts.ReconcileInterval = 3 * time.Second

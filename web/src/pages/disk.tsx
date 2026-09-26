@@ -16,6 +16,7 @@ import { toastManager } from '@/components/ui/toast'
 import { formatLocale, t, type MessageKey } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatBytes, formatClock, formatDate, formatList } from '@/lib/format'
+import { agentDownOn, isAway, machineLabel, machineRoute } from '@/lib/machines'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { iconURL } from '@/lib/servers'
@@ -278,7 +279,7 @@ export function DiskPage({ id }: { id: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const m = ws.machines.find((x) => x.id === id) ?? (ws.machine?.id === id ? ws.machine : undefined)
-  const name = m ? m.name || m.live?.hostname || '' : ''
+  const name = machineLabel(m)
   const { report, error, scanning, scan } = useDiskScan(m?.id)
   const [open, setOpen] = useState<DiskWay>()
   const [busy, setBusy] = useState<string>()
@@ -298,7 +299,8 @@ export function DiskPage({ id }: { id: string }) {
 
   const names = new Map((report?.servers ?? []).map((s) => [s.id, s.name]))
   const disk = report?.disk ?? undefined
-  const locked = ws.stale ? t('reason.noAgent') : busy ? t('reason.busy', { what: t('op.disk-cleanup') }) : undefined
+  const offline = isAway(m) ? t('machines.away.pill', { name }) : ws.stale || agentDownOn(m, ws.agentDown) ? t('reason.noAgent') : undefined
+  const locked = offline ?? (busy ? t('reason.busy', { what: t('op.disk-cleanup') }) : undefined)
 
   const again = async () => {
     const err = await scan(true)
@@ -336,12 +338,12 @@ export function DiskPage({ id }: { id: string }) {
   return (
     <>
       {phone ? (
-        <PhoneBackHeader to={{ name: 'machine', id: m.id }} label={name} title={t('disk.title')} />
+        <PhoneBackHeader to={machineRoute(m)} label={name} title={t('disk.title')} />
       ) : (
         <PageHeader
           breadcrumb={
             <span className="flex items-center gap-1.5">
-              <a {...linkProps({ name: 'machine', id: m.id })} className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              <a {...linkProps(machineRoute(m))} className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
                 {name}
               </a>
               <span className="text-muted-foreground/60" aria-hidden="true">

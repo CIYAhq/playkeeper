@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowRightIcon, BanIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, LogOutIcon, MessageCircleIcon, SendIcon, ShieldCheckIcon, ShieldOffIcon, UserMinusIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { PlayerDay, PlayerProfile, ServerStatus, Session } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, Dot, Marker, Notice, PlayerFace, SectionLabel, useNow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
@@ -98,9 +98,10 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
   const profile = usePoll(() => get<PlayerProfile>(serverApi(s.id, `/players/profile?name=${encodeURIComponent(name)}&tz=${encodeURIComponent(localTimeZone())}`)), 30_000, `${s.id}:${name}`)
   const [messaging, setMessaging] = useState(false)
   const [banning, setBanning] = useState(false)
+  const { stale, offline } = useServerMachine(s)
   const manage = can(ws.me, 'players.manage')
-  const up = !ws.stale && s.phase === 'online'
-  const blocked = listLocked(s, ws.stale)
+  const up = !stale && s.phase === 'online'
+  const blocked = listLocked(s, offline)
   const p = profile.data
   const refresh = () => void profile.refresh()
 

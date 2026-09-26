@@ -155,7 +155,7 @@ func (s *Server) joinHost(r *http.Request) string {
 
 // serverStatus asks the machine that runs a server how it is.
 func (s *Server) serverStatus(r *http.Request, serverID string) (machine, api.ServerStatus, error) {
-	m, err := s.machineForServer(r, serverID)
+	m, err := s.machineForServer(serverID)
 	if err != nil {
 		return machine{}, api.ServerStatus{}, err
 	}
@@ -167,15 +167,19 @@ func (s *Server) serverStatus(r *http.Request, serverID string) (machine, api.Se
 }
 
 // inviteServer is what the join page may say about a server: its name,
-// the address to join, its version and how many are playing (never who).
-func (s *Server) inviteServer(r *http.Request, st api.ServerStatus) invites.Server {
+// the address to join, its version and how many are playing (never who). A
+// joined machine's servers join at its IP and their port, never at the
+// dashboard's host; without that IP there's no address.
+func (s *Server) inviteServer(r *http.Request, m machine, st api.ServerStatus) invites.Server {
 	port := st.GamePort
 	if port == 0 {
 		port = s.cfg.GamePort
 	}
-	addr, err := invites.JoinAddress(s.joinHost(r), port)
-	if err != nil {
-		addr = ""
+	var addr string
+	if m.Kind == remoteKind {
+		addr = s.joinedAddress(r.Context(), m, port)
+	} else if a, err := invites.JoinAddress(s.joinHost(r), port); err == nil {
+		addr = a
 	}
 	srv := invites.Server{Name: st.Name, Address: addr, Online: st.Phase == api.PhaseOnline}
 	if st.Config != nil {
@@ -450,7 +454,7 @@ func (s *Server) hJoinRequestApprove(w http.ResponseWriter, r *http.Request, ses
 		writeRefusal(w, invites.RequestDecided())
 		return
 	}
-	m, err := s.machineForServer(r, jr.ServerID)
+	m, err := s.machineForServer(jr.ServerID)
 	var change api.WhitelistChange
 	if err == nil {
 		change, err = s.addToWhitelist(r.Context(), m, jr.ServerID, grant.Profile, sess.User.Username)

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
+import { demo } from '@/lib/demo'
 import { formatBytes, formatList, formatPercent, formatSpan } from '@/lib/format'
 import { coord, packName } from '@/lib/map'
 import { presenceProps, useListPresence } from '@/lib/presence'
@@ -243,6 +244,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
   )
 
   if (s.phase === 'idle') {
+    const sample = demo?.SampleWorld && <demo.SampleWorld onPick={upload.start} />
     if (phone) {
       return (
         <div>
@@ -251,6 +253,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
             {t('import.choose')}
           </Button>
           {wrongType}
+          {sample}
           {picker}
         </div>
       )
@@ -281,6 +284,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
           })}
         </p>
         {wrongType}
+        {sample}
         {picker}
       </div>
     )

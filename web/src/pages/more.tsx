@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MapIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
+import { BotIcon, ChevronRightIcon, CircleHelpIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MapIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerCogIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -8,9 +8,10 @@ import { Avatar, PageHeader, roleLabel } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
-import { can } from '@/lib/access'
+import { can, settingsSections } from '@/lib/access'
 import { addonTab } from '@/lib/addons'
 import { checklist, complete, progress } from '@/lib/checklist'
+import { demo } from '@/lib/demo'
 import { formatMB } from '@/lib/format'
 import { hasMap } from '@/lib/map'
 import { linkProps, navigate, type Route } from '@/lib/router'
@@ -58,7 +59,7 @@ export function Group({ label, children }: { label?: string; children: ReactNode
   )
 }
 
-/** The phone's More tab: updates, this server's settings, every server, and you. */
+/** The phone's More tab: updates, this server's settings, every server, the dashboard's settings, and you. */
 export function MorePage() {
   const ws = useWorkspace()
   const phone = useIsPhone()
@@ -106,9 +107,11 @@ export function MorePage() {
           <li>
             <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
           </li>
-          <li>
-            <Row icon={<Share2Icon />} title={t('template.menu')} hint={t('more.templateHint')} onClick={() => setSharing(true)} />
-          </li>
+          {demo?.templates !== false && (
+            <li>
+              <Row icon={<Share2Icon />} title={t('template.menu')} hint={t('more.templateHint')} onClick={() => setSharing(true)} />
+            </li>
+          )}
           {!complete(steps) && p.next && (
             <li>
               <Row icon={<ListChecksIcon />} title={t('checklist.title')} hint={t('checklist.nextLower', { done: p.done, total: p.total, step: stepTitle(p.next.id, true).toLowerCase() })} to={stepRoute(p.next.id, server)} />
@@ -131,7 +134,7 @@ export function MorePage() {
           </li>
         )}
       </Group>
-      {can(ws.me, 'team.manage') || can(ws.me, 'machine.manage') ? (
+      {settingsSections.some((x) => can(ws.me, x.act)) ? (
         <Group label={t('global.title')}>
           {can(ws.me, 'team.manage') && (
             <li>
@@ -146,6 +149,16 @@ export function MorePage() {
           {can(ws.me, 'machine.manage') && (
             <li>
               <Row icon={<MessageSquareIcon />} title={t('global.nav.discord')} hint={t('more.discordHint')} to={{ name: 'discord' }} />
+            </li>
+          )}
+          {can(ws.me, 'account.manage') && (
+            <li>
+              <Row icon={<BotIcon />} title={t('global.nav.aiAgents')} hint={t('more.aiAgentsHint')} to={{ name: 'ai-agents' }} />
+            </li>
+          )}
+          {can(ws.me, 'view') && (
+            <li>
+              <Row icon={<ServerCogIcon />} title={t('global.nav.machines')} hint={t('more.machinesHint')} to={{ name: 'machines' }} />
             </li>
           )}
         </Group>

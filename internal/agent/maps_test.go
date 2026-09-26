@@ -533,6 +533,49 @@ func addonKeys(recs []addons.Installed) []string {
 	return out
 }
 
+// squaremap the Plugins tab installed stays the tab's: turning the map on
+// uses it, rather than refusing because it is installed or recording a map
+// with no files of its own, which would count as off for good. The map is
+// drawn, the Plugins tab keeps managing squaremap, and turning the map off
+// leaves it there.
+func TestTheMapUsesSquaremapThePluginsTabInstalled(t *testing.T) {
+	e, src, _ := newMapEnv(t)
+	e.create()
+	e.installAddon(webmap.ModrinthProjectID)
+	jar := filepath.Join(e.dataDir(), "plugins", squaremapFile)
+	if _, err := os.Stat(jar); err != nil {
+		t.Fatalf("the Plugins tab's squaremap: %v", err)
+	}
+	downloads := src.downloads.Load()
+	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded || op.Detail["version"] != "1.3.9" {
+		t.Fatalf("turning the map on with squaremap on the Plugins tab: %+v", op)
+	}
+	if src.downloads.Load() != downloads {
+		t.Fatal("turning the map on downloaded squaremap again")
+	}
+	if m := e.mapInfo(); !m.Enabled || m.Missing || m.PluginVersion != "1.3.9" {
+		t.Fatalf("the map with the Plugins tab's squaremap: %+v", m)
+	}
+	if rec, err := e.srv().loadMap(); err != nil || rec == nil || len(rec.addons) != 0 {
+		t.Fatalf("the map's record: %+v (%v), want one that owns nothing", rec, err)
+	}
+	e.waitFor("the first render", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM maps WHERE first_render_at IS NOT NULL`) == 1
+	})
+	if files := e.addonList().Files; len(files) != 1 || files[0].Addon == nil || files[0].Addon.UsedBy != "" {
+		t.Fatalf("the Plugins tab no longer manages its squaremap: %+v", files)
+	}
+	if op := e.mapOp("/map/disable", map[string]any{"deleteMap": false}); op.Status != api.OpSucceeded {
+		t.Fatalf("turning the map off: %+v", op)
+	}
+	if _, err := os.Stat(jar); err != nil {
+		t.Fatalf("turning the map off removed the Plugins tab's squaremap: %v", err)
+	}
+	if installed, _ := e.srv().installedAddons(); !slices.Equal(addonKeys(installed), []string{webmap.ModrinthProjectID}) {
+		t.Fatalf("the Plugins tab's records after the map was turned off: %v", addonKeys(installed))
+	}
+}
+
 // The map owns only what it installed. A Fabric API the Mods tab installed
 // first stays when the map is turned off, and so does one the map installed
 // that a mod added since needs, which the Mods tab then takes over.

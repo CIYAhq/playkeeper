@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PackageIcon } from 'lucide-react'
-import { ApiError, get, post } from '@/api/client'
+import { addonIconUrl, ApiError, get, post } from '@/api/client'
 import { usePackShare } from '@/api/packs'
 import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Operation, ServerStatus, ShareNeed } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
@@ -382,7 +382,8 @@ export function rowIs(r: AddonRow, k: AddonKey): boolean {
 export function AddonIcon({ url, size = 40, dim, className }: { url?: string; size?: number; dim?: boolean; className?: string }) {
   const { server } = useAddons()
   const [failed, setFailed] = useState<string>()
-  const show = url && failed !== url
+  const src = url ? addonIconUrl(server.id, url) : undefined
+  const show = src && failed !== src
   return (
     <span
       className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-border bg-muted text-muted-foreground transition-opacity duration-(--motion-standard) ease-standard', dim && 'opacity-50', className)}
@@ -390,7 +391,7 @@ export function AddonIcon({ url, size = 40, dim, className }: { url?: string; si
       aria-hidden="true"
     >
       {show ? (
-        <img src={serverApi(server.id, `/addons/icon?url=${encodeURIComponent(url)}`)} alt="" width={size} height={size} loading="lazy" decoding="async" className="size-full object-cover" onError={() => setFailed(url)} />
+        <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" className="size-full object-cover" onError={() => setFailed(src)} />
       ) : (
         <PackageIcon className="size-[45%]" strokeWidth={1.75} />
       )}

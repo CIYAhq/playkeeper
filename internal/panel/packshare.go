@@ -131,7 +131,12 @@ type friendsPackPage struct {
 
 func (s *Server) packPageData(w http.ResponseWriter, r *http.Request, fp *friendsPack, token string) {
 	address := fp.link.JoinAddress
-	if address == "" {
+	switch {
+	case fp.m.Kind == remoteKind:
+		// Names stay with the dashboard's machine, whatever a joined one
+		// reports: its servers join at its IP and port.
+		address = s.joinedAddress(r.Context(), fp.m, fp.link.GamePort)
+	case address == "":
 		address = joinAddressAt(r.Host, fp.link.GamePort)
 	}
 	p, err := fp.share.Page(token, fp.link.Slug, address)
@@ -159,6 +164,19 @@ func (s *Server) packIcon(w http.ResponseWriter, r *http.Request, fp *friendsPac
 	}
 	w.Header().Set("Content-Type", "image/png")
 	io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+}
+
+// joinedAddress is where friends join a joined machine's server: the IP the
+// machine last called in from, with the server's port, or "" before it has.
+func (s *Server) joinedAddress(ctx context.Context, m machine, gamePort int) string {
+	if s.hub == nil {
+		return ""
+	}
+	st, err := s.hub.MachineStatus(ctx, m.ID)
+	if err != nil || st.Address == "" {
+		return ""
+	}
+	return joinAddressAt(st.Address, gamePort)
 }
 
 // joinAddressAt is the address friends join at, as "Copy join address" gives

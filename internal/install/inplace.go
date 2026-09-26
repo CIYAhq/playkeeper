@@ -42,9 +42,12 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	if err != nil {
 		return nil, fmt.Errorf("cannot compare this installer's version with the installed one: %w. Nothing was changed", err)
 	}
-	res := &Result{URL: fmt.Sprintf("https://%s:%d", primaryIP(), cfg.PanelPort), FromVersion: old}
-	if b, err := os.ReadFile(sys.P(filepath.Join(cfg.TLSDir(), "cert.pem"))); err == nil {
-		res.Fingerprint, _ = panel.FingerprintPEM(b)
+	res := &Result{FromVersion: old, NoPanel: cfg.NoPanel}
+	if !cfg.NoPanel {
+		res.URL = fmt.Sprintf("https://%s:%d", primaryIP(), cfg.PanelPort)
+		if b, err := os.ReadFile(sys.P(filepath.Join(cfg.TLSDir(), "cert.pem"))); err == nil {
+			res.Fingerprint, _ = panel.FingerprintPEM(b)
+		}
 	}
 	switch {
 	case cmp == 0:
@@ -74,7 +77,7 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	if kind := busyWith(ctx, sys, cfg); kind != "" {
 		return nil, fmt.Errorf("Playkeeper is busy (%s). Nothing was changed; run the installer again when it has finished", kind)
 	}
-	allow80 := !contains(m.FirewallRules, acmeRule) && ufwActive(sys)
+	allow80 := !cfg.NoPanel && !contains(m.FirewallRules, acmeRule) && ufwActive(sys)
 	fmt.Fprintf(out, "Playkeeper %s is installed on this server. This upgrades it to %s in place:\n", old, newVersion)
 	for _, line := range upgradePlan(sys, cfg, old, newVersion, allow80) {
 		fmt.Fprintf(out, "  %s\n", line)
@@ -98,7 +101,7 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 		return nil, err
 	}
 	fmt.Fprintln(out, "Upgrading:")
-	if err := Upgrade(ctx, sys, cfg, UpgradeOptions{NewBinary: exe, NewVersion: newVersion, OldVersion: old, Units: Units(cfg), Config: newCfg, Out: out}); err != nil {
+	if err := Upgrade(ctx, sys, cfg, UpgradeOptions{NewBinary: exe, NewVersion: newVersion, OldVersion: old, Units: Units(cfg, Joined(cfg, sys.Root)), Config: newCfg, Out: out}); err != nil {
 		return nil, err
 	}
 	if allow80 {
@@ -165,11 +168,18 @@ func busyWith(ctx context.Context, sys System, cfg config.Config) string {
 }
 
 func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 bool) []string {
+	kept, restart, services := "settings and admin account", "agent and panel restart", "the "+AgentUnit+" and "+PanelUnit+" services"
+	if cfg.NoPanel {
+		kept, restart, services = "and settings", "agent restarts", "the "+AgentUnit+" service"
+	}
 	p := []string{
-		"Keeps:     your worlds, backups, settings and admin account in " + cfg.DataDir + ", and " + ConfigDir + "/config.json",
-		"Keeps:     the Minecraft server running (only the Playkeeper agent and panel restart)",
+		"Keeps:     your worlds, backups, " + kept + " in " + cfg.DataDir + ", and " + ConfigDir + "/config.json",
+		"Keeps:     the Minecraft server running (only the Playkeeper " + restart + ")",
 		"Replaces:  " + BinPath + " (" + old + " → " + newVersion + ")",
-		"Updates:   the " + AgentUnit + " and " + PanelUnit + " services",
+		"Updates:   " + services,
+	}
+	if Joined(cfg, sys.Root) {
+		p = append(p, "Restarts:  the link to your dashboard, so that it runs "+newVersion+" too")
 	}
 	if _, err := os.Stat(sys.P(UnitDir + "/" + UpdatePathUnit)); err != nil {
 		p = append(p, "Adds:      "+UpdatePathUnit+" and "+UpdateServiceUnit+", which install later updates from the dashboard")

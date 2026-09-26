@@ -399,8 +399,8 @@ control "upgrade waits for the new version to be healthy" internal/install/upgra
   'func() error { return nil }' \
   ./internal/install '^(TestUnhealthyUpgradePutsTheOldVersionBack|TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne)$'
 control "upgrade checks the new version again after it answers" internal/install/upgrade.go \
-  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); err != nil {' \
-  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); false && err != nil {' \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.panelPort, version); err != nil {' \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.panelPort, version); false && err != nil {' \
   ./internal/install '^TestUpgradeRollsBackAVersionThatStopsRightAfterAnswering$'
 control "rollback puts the databases back" internal/install/upgrade.go \
   'errs = append(errs, u.restoreDatabases())' \
@@ -456,9 +456,155 @@ control "an install manifest problem does not fail a finished update" internal/i
   'return u.updateManifest(o.NewVersion)' \
   ./internal/install '^TestAnUpdateThatCannotRecordItsVersionIsStillAnUpdate$'
 control "uninstall disables the updater even if the manifest misses it" internal/install/uninstall.go \
-  'if contains(m.Units, u) || updater[u] {' \
+  'if contains(m.Units, u) || extra[u] {' \
   'if contains(m.Units, u) {' \
   ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
+control "a machine joins one dashboard at a time" internal/install/link.go \
+  'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); err == nil {' \
+  'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); false && err == nil {' \
+  ./internal/install '^TestJoiningStartsTheLinkAndLeavingTellsTheDashboardFirst$'
+control "leaving changes nothing unless the dashboard was told or --force is set" internal/install/link.go \
+  'if err != nil && !force {' \
+  'if false && err != nil && !force {' \
+  ./internal/install '^TestLeavingADashboardThatIsGoneNeedsForce$'
+control "a machine installed to join opens only the game port" internal/install/install.go \
+  'return []int{o.GamePort}' \
+  'return []int{o.PanelPort, o.GamePort}' \
+  ./internal/install '^TestInstallingToJoinRunsNoDashboardAndOpensOnlyTheGamePort$'
+control "services that don't come up on a machine without a panel point only at the agent's journal" internal/install/install.go \
+  'journals = "-u playkeeper-agent"' \
+  'journals = "-u playkeeper-agent -u playkeeper-panel"' \
+  ./internal/install '^TestAHealthTimeoutNamesOnlyTheUnitsTheMachineRuns$'
+control "the hub keeps the wrong join codes it counts" internal/machinelink/hub.go \
+  'if err := h.store.SetJoinFailures(ctx, h.guard.fail(now, from)); err != nil {' \
+  'if err := h.store.SetJoinFailures(ctx, nil); h.guard.fail(now, from) == nil && err != nil {' \
+  ./internal/machinelink '^TestJoinPauseOutlastsARestart$'
+control "a restarted hub starts from the wrong join codes kept" internal/machinelink/hub.go \
+  'guard: newGuard(o.Limits, kept, o.Now())' \
+  'guard: newGuard(o.Limits, kept[:0], o.Now())' \
+  ./internal/machinelink '^TestJoinPauseOutlastsARestart$'
+control "a wrong code kept from a wrong clock pauses joining no longer than the window" internal/machinelink/code.go \
+  '			g.fails[i].At = now' \
+  '			_ = now' \
+  ./internal/machinelink '^TestGuardStartsFromTheFailuresKept$'
+control "a join without a usable answer is told apart from a refusal" internal/machinelink/link.go \
+  'err = errJoinUnanswered(a, err)' \
+  '_ = errJoinUnanswered(a, err)' \
+  ./internal/machinelink '^TestAJoinWhoseAnswerIsLostFinishesWhenSentAgain$'
+control "making a join code waits for a join redeeming one" internal/machinelink/hub.go \
+  'h.joinMu.Lock()
+	defer h.joinMu.Unlock()
+	now := h.now()
+	codes, err := h.store.JoinCodes(ctx)' \
+  'now := h.now()
+	codes, err := h.store.JoinCodes(ctx)' \
+  ./internal/machinelink '^TestMakingACodeNeverDropsOneBeingRedeemed$'
+control "a join the dashboard may have accepted keeps its key" internal/install/link.go \
+  'if kept || machinelink.MayHaveJoined(err) {' \
+  'if false && (kept || machinelink.MayHaveJoined(err)) {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a key kept from an earlier join stays when a later one is refused" internal/install/link.go \
+  'if kept || machinelink.MayHaveJoined(err) {' \
+  'if machinelink.MayHaveJoined(err) || false && kept {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a join runs again with the key it kept" internal/install/link.go \
+  'if id, err := machinelink.LoadIdentity(path); err == nil {' \
+  'if id, err := machinelink.LoadIdentity(path + ".none"); err == nil {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a refused join leaves no key behind" internal/install/link.go \
+  'os.Remove(keyPath)' \
+  '_ = keyPath' \
+  ./internal/install '^TestAJoinThatFailsLeavesNothingBehind$'
+control "a join whose dashboard can't be saved fails" internal/install/link.go \
+  'if err = d.Save(dashPath); err == nil {' \
+  'if err := d.Save(dashPath); err == nil {' \
+  ./internal/install '^TestAJoinThatCantSaveTheDashboardFinishesWhenRunAgain$'
+control "a join whose dashboard can't be saved keeps its key" internal/install/link.go \
+  'os.Remove(dashPath)' \
+  'os.Remove(dashPath); os.Remove(keyPath)' \
+  ./internal/install '^TestAJoinThatCantSaveTheDashboardFinishesWhenRunAgain$'
+control "install --join says only the join is left after a lost answer" cmd/playkeeper/link.go \
+  'case errors.As(err, &unfinished):' \
+  'case false && errors.As(err, &unfinished):' \
+  ./cmd/playkeeper '^TestInstallingToJoinWithoutAnAnswerSaysOnlyTheJoinIsLeft$'
+control "a reply that keeps coming may outlast the link's time limit" internal/machinelink/hub.go \
+  'func (w *waitLimit) leave() {
+	if w == nil {' \
+  'func (w *waitLimit) leave() {
+	if true {' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "a reply that stops coming still ends at the link's time limit" internal/machinelink/hub.go \
+  'if w.away--; w.away == 0 && !w.ended {' \
+  'if w.away--; false && !w.ended {' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "waiting for a request body's own source doesn't count against the machine" internal/machinelink/hub.go \
+  'b.wait.leave()
+	n, err := b.rc.Read(p)
+	b.wait.back()' \
+  'n, err := b.rc.Read(p)' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "a joined machine takes data packs bigger than a request" internal/agent/link.go \
+  '"POST /v1/servers/{id}/datapacks":             true,' \
+  '"POST /v1/servers/{id}/datapacks":             false,' \
+  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
+control "a joined machine takes resource packs bigger than a request" internal/agent/link.go \
+  '"POST /v1/servers/{id}/resourcepack":          true,' \
+  '"POST /v1/servers/{id}/resourcepack":          false,' \
+  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
+control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
+  '	for _, f := range fails {
+		network := ""' \
+  '	for _, f := range fails[:0] {
+		network := ""' \
+  ./internal/panel '^(TestTooManyWrongCodesPauseJoining|TestLinkStoreKeepsJoinFailures)$'
+control "a joined machine never gets the dashboard's host as its address" internal/panel/server.go \
+  'if withHost && m.Kind != remoteKind {' \
+  'if withHost {' \
+  ./internal/panel '^TestAJoinedMachinesAddressRoutesCarryNoDashboardHost$'
+control "a joined machine never gets the browser's panelHost" internal/panel/server.go \
+  '				q.Del("panelHost")' \
+  '				_ = q' \
+  ./internal/panel '^TestAJoinedMachinesAddressRoutesCarryNoDashboardHost$'
+control "a joined machine gets no free name or own domain" internal/panel/server.go \
+  'an("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
+  'am("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
+  ./internal/panel '^TestAJoinedMachineGetsNoFreeName$'
+control "a friend's invite to a joined machine's server gives its IP and port" internal/panel/friends.go \
+  'if m.Kind == remoteKind {
+		addr = s.joinedAddress(r.Context(), m, port)' \
+  'if false {
+		addr = s.joinedAddress(r.Context(), m, port)' \
+  ./internal/panel '^TestAnInviteToAJoinedMachinesServerGivesItsIPAndPort$'
+# API tokens under Wave 5's team roles.
+control "a tool asks whether its caller's account may take its action" internal/mcptools/tools.go \
+  'if !access.mayTake(s.act) {' \
+  'if false && !access.mayTake(s.act) {' \
+  ./internal/mcptools '^TestEveryToolChecksItsActionWithTheCallersAccount$'
+control "a token's tools ask permit about its account as it is now" internal/panel/mcp.go \
+  'May: func(act string) bool { return permit(account, action(act), "") == nil }}, nil' \
+  'May: func(act string) bool { return permit(account, action(act), "") == nil || true }}, nil' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "a token stops once its account holds a lower role than when it was made" internal/panel/tokens.go \
+  'if grantRank(accountGrant(a)) < grantRank(t.MadeAs) {' \
+  'if false && grantRank(accountGrant(a)) < grantRank(t.MadeAs) {' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "a lower role on the Team page stops the account's tokens at once" internal/panel/team.go \
+  '	s.checkAccountTokens(t.UserID)
+' \
+  '' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "taking someone off the team revokes their tokens" internal/panel/team.go \
+  'revokeAccountTokens(t.UserID, sess.User.Username, "its account was removed from the team")' \
+  'closeTokenSessions("")' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "each tool takes the action of its dashboard route" internal/mcptools/specs.go \
+  'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActMakeBackups,' \
+  'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActView,' \
+  ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
+control "a joined machine's pack page gives its IP and port" internal/panel/packshare.go \
+  'case fp.m.Kind == remoteKind:' \
+  'case false:' \
+  ./internal/panel '^TestAJoinedMachinesPackPageGivesItsIPAndPort$'
 control "RCON finds a closed connection before writing" internal/minecraft/rcon.go \
   'if err := r.stale(); err != nil {' \
   'if err := r.stale(); false && err != nil {' \
@@ -1182,6 +1328,10 @@ control "a restore stage is kept while its swap is not settled" internal/agent/b
   'if err := a.settleSwap(dir); err != nil {' \
   'if err := a.settleSwap(dir); false && err != nil {' \
   ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+control "a restore preview read again keeps its staged source" internal/agent/backups.go \
+  'st.preview.Source, st.preview.ReceivedAt = s.Preview.Source, s.Preview.ReceivedAt' \
+  'st.preview.ReceivedAt = s.Preview.ReceivedAt' \
+  ./internal/agent '^TestRestorePreviewSaysOnceTheBackupWasMadeHere$'
 control "no start recreates a world directory a restore moved aside" internal/agent/lifecycle.go \
   'if prev := s.newestPreviousWorld(); prev != "" {' \
   'if prev := s.newestPreviousWorld(); false && prev != "" {' \
@@ -2357,8 +2507,8 @@ control "a server's state change reaches the live status message within seconds"
   'case false && states != n.shownStates:' \
   ./internal/discord '^TestStateChangesReachTheStatusMessageWithinSeconds$'
 control "the burst guard on live status updates" internal/discord/notifier.go \
-  'due = later(due, later(n.statusAt.Add(statusGap), n.burstEnds()))' \
-  'due = later(due, n.statusAt.Add(statusGap))' \
+  'due = later(due, later(n.statusAt.Add(n.gap), n.burstEnds()))' \
+  'due = later(due, n.statusAt.Add(n.gap))' \
   ./internal/discord '^TestStateChangesStayInsideDiscordsRateLimits$'
 control "the agent looks at its servers for Discord as often as it reconciles" internal/agent/discord.go \
   't := time.NewTicker(a.opts.ReconcileInterval)' \
@@ -2569,7 +2719,7 @@ webcontrol "a create that never started can be deleted from its card" web/src/pa
   'onClick={() => setDeleting(true)}' \
   'onClick={() => setDeleting(false)}' \
   web/src/pages/pages.test.tsx 'create never started'
-webcontrol "a mod loader suits fewer players at the same memory" web/src/lib/styles.ts \
+webcontrol "a mod loader suits fewer players at the same memory" web/src/lib/memory.ts \
   'const mb = memoryMB - (moddedMB[type] ?? 0)' \
   'const mb = memoryMB' \
   web/src/lib/lib.test.ts 'fewer players on a mod loader'
@@ -2578,12 +2728,12 @@ webcontrol "the dashboard gives a mod loader the heap the agent gives it" web/sr
   'if (base === -1) overhead =' \
   web/src/lib/lib.test.ts 'how much of it Java gets'
 webcontrol "the memory step counts for the type and mods the new server runs" web/src/pages/new-server.tsx \
-  '<MemoryReadout memoryMB={c.memoryMB} type={runsType} mods={runsMods}' \
-  '<MemoryReadout memoryMB={c.memoryMB}' \
+  '<MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing} type={runsType} mods={runsMods}' \
+  '<MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing}' \
   web/src/pages/pages.test.tsx 'memory for its type and mods'
 webcontrol "Settings › Memory counts friends for the server's type" web/src/pages/server/settings.tsx \
-  '{memoryAdviceLine(advice, ws.machineName, s.type)}' \
-  '{memoryAdviceLine(advice, ws.machineName)}' \
+  '{memoryAdviceLine(advice, machineName, catalog?.sizing, s.type)}' \
+  '{memoryAdviceLine(advice, machineName, catalog?.sizing)}' \
   web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
 webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
   'const recovered = s.recoveredCrash' \
@@ -2782,6 +2932,14 @@ control "each run that comes online waits for squaremap afresh" internal/agent/m
 		return
 	}' \
   ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
+control "turning the map on uses squaremap the Plugins or Mods tab installed" internal/agent/maps.go \
+  'if !slices.ContainsFunc(installed, isSquaremap) {' \
+  'if true || !slices.ContainsFunc(installed, isSquaremap) {' \
+  ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "the map counts squaremap the Plugins or Mods tab manages as its own file" internal/agent/maps.go \
+  'if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {' \
+  'if i := slices.IndexFunc(installed, isSquaremap); false && i >= 0 {' \
+  ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
 control "the first render follows every run that comes online, however it started" internal/agent/collector.go \
   '			if take {
 				s.mapRunOnline(runStart)

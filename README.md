@@ -4,6 +4,8 @@
 
 Playkeeper is a self-hosted dashboard for setting up and running Minecraft Java (Paper) servers on a Linux VPS you already own: install it, create servers in the browser, invite friends, see real player and server activity, and keep backups you can restore on another machine. It works on a phone as well as a desktop.
 
+To click around before you install, open the [live demo](https://playkeeper.io/demo/): the dashboard with sample servers and players, running in your browser. Nothing in it is real, and it starts over every hour.
+
 > **Status: v0.3.0, an early release.** **Verified by the owner (on 0.1.0 and 0.2.0):** installing on a real provider VPS, and joining with the official Minecraft client from another network. **Tested on every change** on fresh GitHub-hosted Ubuntu 24.04 runners: install, onboarding, play with protocol-level test bots, backup, restore on a second runner, the upgrade from the current release (which keeps its server running) and an update from the dashboard with the automatic rollback, plus every page at desktop and phone width with an accessibility check; 0.1.0 also passed a fuller rehearsal in fresh KVM guests. **Not yet verified:** a second person joining, the server surviving a reboot of the VPS, restoring a backup on a physically separate machine, and 0.3.0's several servers side by side on a real VPS. Keep your own copies of any backup you care about.
 
 ## Install on your VPS
@@ -114,4 +116,4 @@ Playkeeper is free software under the GNU Affero General Public License, version
 
 Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
 
-[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, an nginx container ([site/README.md](site/README.md)); its `/install` redirects to the latest release's `get.sh`.
+[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, an nginx container ([site/README.md](site/README.md)); its `/install` redirects to the latest release's `get.sh`, and `/demo/` is the live demo, the dashboard from `web/` built with sample data (`web/src/demo/`).

@@ -1072,7 +1072,8 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 		}
 	}
 	st.preview = a.buildPreview(id, s.Preview.Source, s.Preview.SizeBytes, s.Preview.SHA256, s.Manifest, target)
-	st.preview.ReceivedAt = s.Preview.ReceivedAt
+	// The staged source already says when the backup was made on this host.
+	st.preview.Source, st.preview.ReceivedAt = s.Preview.Source, s.Preview.ReceivedAt
 	return st, nil
 }
 

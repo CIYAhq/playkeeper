@@ -322,6 +322,7 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	s.turnOffLinks(r, sess.User, after.Account, "creator's role changed")
+	s.checkAccountTokens(t.UserID)
 	s.answerMember(w, r, sess, t.UserID)
 }
 
@@ -402,6 +403,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.turnOffLinks(r, sess.User, invites.Account{UserID: t.UserID}, "creator removed")
+	s.revokeAccountTokens(t.UserID, sess.User.Username, "its account was removed from the team")
 	if _, err := s.db.Exec(`DELETE FROM users WHERE id = ? AND role = ?`, t.UserID, roleMember); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -491,7 +493,7 @@ func (s *Server) hMachineActivity(w http.ResponseWriter, r *http.Request, sess *
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	writeJSON(w, status, out)
+	writeJSON(w, status, s.withActorNames(out))
 }
 
 // teamJoins are members joining the team, as activity with their role.
@@ -539,9 +541,9 @@ func (s *Server) hOperation(w http.ResponseWriter, r *http.Request, sess *sessio
 
 // restoreProxy forwards a restore step once the account may restore into its
 // target: an existing server it can use, or a new server, which needs all
-// servers.
-func (s *Server) restoreProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	fwd := s.forward(method, pattern)
+// servers. then, when set, hears of a step that succeeded (see forwardThen).
+func (s *Server) restoreProxy(method, pattern string, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
+	fwd := s.forwardTo(method, pattern, false, then)
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.machineFromPath(w, r)
 		if !ok {

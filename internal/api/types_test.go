@@ -18,6 +18,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/diskusage"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
+	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
@@ -74,8 +75,16 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"RetentionSettings": retention.Settings{}, "RetentionText": retention.Text{}, "OffsiteCheck": offsite.Check{}, "OffsiteProvider": offsite.Provider{},
 		"OffsiteTestResult": offsite.TestResult{}, "DiskCandidate": diskusage.Candidate{}, "DiskReport": diskusage.Report{},
 		"DiskServer": diskusage.ServerUsage{}, "DiskUsage": diskusage.Usage{}, "DiskWay": diskusage.Way{},
+		"MemoryBudget": MemoryBudget{}, "MemorySizing": MemorySizing{}, "MemorySuggestion": MemorySuggestion{},
+		"LinkProblem": machinelink.Problem{}, "MachineLink": machinelink.Status{},
 	}
-	addedByPanel := map[string]bool{"ServerStatus.machineId": true, "AuditEntry.source": true}
+	// Fields the panel adds to what the agent sends, and rttMs, which
+	// machinelink.Status's MarshalJSON adds.
+	addedByPanel := map[string]bool{
+		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true,
+		"AuditEntry.source": true, "AuditEntry.machineId": true, "AuditEntry.actorKind": true, "AuditEntry.actorName": true,
+		"Activity.actorKind": true, "Activity.actorName": true, "MachineLink.rttMs": true,
+	}
 	CheckDashboardFields(t, string(src), sent, addedByPanel)
 }
 
@@ -121,7 +130,8 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
 		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed,
-		diskusage.CodeDiskSpace, retention.CodeEstimateOff}
+		diskusage.CodeDiskSpace, retention.CodeEstimateOff,
+		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout}
 	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName} {
 		sent = append(sent, string(k))
 	}

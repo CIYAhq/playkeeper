@@ -19,6 +19,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
+	"github.com/CIYAhq/playkeeper/internal/sizing"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -96,6 +97,7 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catal
 		Type: typ, Types: serverTypes(), Versions: []api.CatalogEntry{},
 		MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max,
 		SystemReserveMB: minecraft.HostReserveMB, MemoryFreeMB: max, Servers: []api.ServerMemory{}, Image: minecraft.ImageTag,
+		Sizing: memorySizing(sizing.Vanilla, opts),
 	}
 	for _, s := range a.serverList() {
 		sc, _ := s.serverConfig()
@@ -128,6 +130,27 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catal
 		c.LatestRelease = latestRelease(d)
 	}
 	return c
+}
+
+// memorySizing is the sizing guide's advice on the memory options for a
+// server running w.
+func memorySizing(w sizing.Workload, opts []int) api.MemorySizing {
+	s := api.MemorySizing{Workload: string(w), Budgets: []api.MemoryBudget{}, Suggestions: []api.MemorySuggestion{}}
+	for _, mb := range opts {
+		players, err := sizing.PlayersFor(w, mb)
+		if err != nil {
+			return api.MemorySizing{Budgets: []api.MemoryBudget{}, Suggestions: []api.MemorySuggestion{}}
+		}
+		s.Budgets = append(s.Budgets, api.MemoryBudget{MemoryMB: mb, HeapMB: minecraft.HeapMB(mb), Players: players})
+	}
+	for _, b := range sizing.Bands() {
+		mb, err := sizing.SuggestMemory(w, b.Max)
+		if err != nil {
+			return api.MemorySizing{Budgets: []api.MemoryBudget{}, Suggestions: []api.MemorySuggestion{}}
+		}
+		s.Suggestions = append(s.Suggestions, api.MemorySuggestion{Players: b.Max, MemoryMB: mb})
+	}
+	return s
 }
 
 func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {

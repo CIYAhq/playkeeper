@@ -49,7 +49,7 @@ function server(over: Partial<ServerStatus> = {}): ServerStatus {
   }
 }
 
-function workspace(): Workspace {
+function workspace(over: Partial<Workspace> = {}): Workspace {
   return {
     me,
     servers: [server()],
@@ -71,6 +71,7 @@ function workspace(): Workspace {
     reloadMe: async () => {},
     signInNotice: undefined,
     dismissSignInNotice: () => {},
+    ...over,
   }
 }
 
@@ -163,11 +164,11 @@ const packShare: PackShare = {
 
 let root: Root | undefined
 
-async function render(s: ServerStatus, tab: 'plugins' | 'mods' = 'plugins', sub?: ServerSub): Promise<string> {
+async function render(s: ServerStatus, tab: 'plugins' | 'mods' = 'plugins', sub?: ServerSub, ws: Workspace = workspace()): Promise<string> {
   document.body.innerHTML = ''
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
-  await act(async () => r.render(<WorkspaceContext.Provider value={workspace()}><PluginsPage server={s} tab={tab} sub={sub} /></WorkspaceContext.Provider>))
+  await act(async () => r.render(<WorkspaceContext.Provider value={ws}><PluginsPage server={s} tab={tab} sub={sub} /></WorkspaceContext.Provider>))
   await act(async () => {})
   await act(async () => {})
   return document.body.textContent ?? ''
@@ -474,9 +475,37 @@ describe('Plugins tab', () => {
     await render({ ...modded, joinAddress: undefined }, 'mods')
     text = await click('Share with friends')
     expect(link()).toBe(`${window.location.origin}/packs/Fake0Share0Token0Abcde`)
-    expect(text).toContain('Set up an address first so the link keeps working if the machine’s IP changes.')
+    expect(text).toContain('Set up an address first so the link keeps working if the dashboard’s IP changes.')
     expect(button('Machine settings').getAttribute('href')).toBe('/machines/m2345abcde/settings')
     expect(button('Copy link').tagName).toBe('BUTTON')
+  })
+
+  it('shares a joined machine’s pack under the dashboard’s name, and friends join at the machine’s IP and port', async () => {
+    const home = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', address: '203.0.113.20', problems: [] },
+    } as MachineView
+    const shared: PackShare = { ...packShare, public: true, token: 'Fake0Share0Token0Abcde' }
+    const cobblemon = server({ type: 'fabric', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.io' })
+    const link = () => [...document.querySelectorAll('input')].find((i) => i.value.includes('/packs/'))?.value
+    answer([
+      ['/mods/share', shared],
+      [`/machines/${machine.id}/address`, { kind: '', panelPort: 8443 } as Address],
+      ['/addons/checks', checks],
+      ['/addons', { ...installed, target: { ...target, kind: 'mod' as const, folder: 'mods' } }],
+    ])
+    vi.mocked(client.get).mockClear()
+    await render(cobblemon, 'mods', undefined, workspace({ machines: [machine, home], servers: [server(), cobblemon] }))
+    const text = await click('Share with friends')
+    expect(link()).toBe(`${window.location.origin}/packs/Fake0Share0Token0Abcde`)
+    expect(text).toContain('Press Play, then join 203.0.113.20:25566.')
+    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    expect(text).toContain('Set up an address first so the link keeps working if the dashboard’s IP changes.')
+    expect(button('Machine settings').getAttribute('href')).toBe(`/machines/${machine.id}/settings`)
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/machines/${home.id}/address`))).toBe(false)
   })
 
   it('lists a modpack’s mods with the pack, not as added by hand', async () => {

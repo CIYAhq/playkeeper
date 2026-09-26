@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronRightIcon, SearchIcon } from 'lucide-react'
-import type { Catalog, CatalogEntry, LevelType, PlayStyle, ServerStatus } from '@/api/types'
+import type { Catalog, CatalogEntry, LevelType, MemoryBudget, MemorySizing, PlayStyle, ServerStatus } from '@/api/types'
 import { PlayArt, TypeLogo, WorldArt } from '@/components/app/art'
 import { CardGroup, ChoiceCard } from '@/components/app/controls'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,10 +12,10 @@ import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatMB } from '@/lib/format'
-import { memorySegments, share } from '@/lib/memory'
+import { memorySegments, playersFor, share } from '@/lib/memory'
 import { softwareName, typeName } from '@/lib/servers'
 import { addonKind, formatReleased, hasBuilds, typeTexts } from '@/lib/software'
-import { levelTypes, memoryForStyle, playersFor, preset } from '@/lib/styles'
+import { levelTypes, memoryForStyle, preset } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 import { compareMinecraft } from '@/lib/versions'
 
@@ -54,8 +54,17 @@ export function memoryOptions(catalog: Catalog | undefined): number[] {
   return (catalog?.memoryOptionsMB ?? []).filter((mb) => mb <= (catalog?.maxMemoryMB ?? 0))
 }
 
+/** The sizing guide's suggestion for the style's players, or the largest offered budget below it. */
 export function styleMemory(catalog: Catalog | undefined, style: PlayStyle): number {
-  return memoryForStyle(memoryOptions(catalog), preset(style)?.memoryMB ?? 4096)
+  const players = preset(style)?.players ?? 10
+  const suggestions = catalog?.sizing?.suggestions ?? []
+  const want = (suggestions.find((s) => s.players >= players) ?? suggestions[suggestions.length - 1])?.memoryMB ?? catalog?.recommendedMemoryMB ?? 0
+  return memoryForStyle(memoryOptions(catalog), want)
+}
+
+/** What the sizing guide says about one of the offered budgets. */
+export function budgetAdvice(catalog: Catalog | undefined, memoryMB: number): MemoryBudget | undefined {
+  return catalog?.sizing?.budgets.find((b) => b.memoryMB === memoryMB)
 }
 
 /** The body of the create request. */
@@ -461,15 +470,16 @@ export function heapMB(budgetMB: number, type = 'paper', mods = 0): number {
   return budgetMB - overhead
 }
 
-export function MemoryReadout({ memoryMB, type, mods = 0, recommended, style }: { memoryMB: number; type?: string; mods?: number; recommended: boolean; style?: PlayStyle }) {
+export function MemoryReadout({ memoryMB, sizing, type, mods = 0, recommended, style }: { memoryMB: number; sizing?: MemorySizing; type?: string; mods?: number; recommended: boolean; style?: PlayStyle }) {
   const heap = heapMB(memoryMB, type, mods)
+  const players = playersFor(memoryMB, sizing, type)
   return (
     <div>
       <div className="flex items-baseline gap-2">
         <span className="text-[34px] leading-10 font-extrabold tabular-nums">{formatMB(memoryMB)}</span>
         {recommended && <span className="text-xs font-medium text-success-foreground">{t('common.recommended')}</span>}
       </div>
-      <p className="mt-1 text-[13px] font-medium">{t('new.roomFor', { count: playersFor(memoryMB, type) })}</p>
+      <p className="mt-1 text-[13px] font-medium">{players > 0 ? t('new.roomFor', { count: players }) : t('new.roomForTight')}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{t('new.javaGets', { heap: formatMB(heap) })}</p>
       {style && <span className="sr-only">{t(preset(style)?.title ?? 'style.friends.title')}</span>}
     </div>

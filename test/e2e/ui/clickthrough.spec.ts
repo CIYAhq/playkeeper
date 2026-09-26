@@ -35,8 +35,10 @@ import { login, outDir } from './helpers'
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded, and a server's add-on reads (its folder, the library, details,
 // plans and icons) to recorded fixtures (addon-fixtures.ts), so the crawl
-// never waits on Modrinth or Hangar. There is no list of exceptions: a control
-// that should do nothing right now must be disabled and say why
+// never waits on Modrinth or Hangar. The only real write is one AI agent
+// token, made before the crawl so Settings › AI agents has a token to open and
+// revoke (revoking goes to the fakes too). There is no list of exceptions: a
+// control that should do nothing right now must be disabled and say why
 // (aria-describedby or a title). The selected tab or option of a group may
 // stay selected. A link another app opens (an authenticator's otpauth:,
 // mailto:, tel:) counts as working, since a headless browser has no app to
@@ -68,7 +70,7 @@ const unknownPackLink = '/packs/Pk0Unknown0Link0Abcdef'
 /** The pages to open signed in, and the shared maps anyone can open without signing in. */
 async function routes(page: Page, phone: boolean): Promise<{ live: string[]; shared: string[] }> {
   const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
-  const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
+  const machines = (await (await page.request.get('/api/machines')).json()) as { id: string; kind: string }[]
   const out = ['/']
   const shared: string[] = []
   for (const s of servers) {
@@ -97,10 +99,27 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
     const payload = exported.link?.split('#')[1]
     if (payload) out.push(`/servers/new#template=${payload}`)
   }
-  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`, `/machines/${m.id}/disk`)
-  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/account', '/account/two-factor', '/recover')
+  // A joined machine's page is in Settings › Machines, and it has no Machine
+  // settings; the dashboard's own machine has both pages. Every machine has a
+  // Disk space page.
+  for (const m of machines) out.push(...(m.kind === 'remote' ? [`/settings/machines/${m.id}`] : [`/machines/${m.id}`, `/machines/${m.id}/settings`]), `/machines/${m.id}/disk`)
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor', '/recover')
   if (phone) out.push('/more')
   return { live: out, shared }
+}
+
+const seedToken = 'Claude on my laptop'
+
+/** Makes the AI agent token the crawl opens, once; the other size's run may have made it already. */
+async function seedAiToken(page: Page) {
+  const tokens = (await (await page.request.get('/api/tokens')).json()) as { name: string }[]
+  if (tokens.some((tk) => tk.name === seedToken)) return
+  const { csrfToken } = (await (await page.request.get('/api/auth/me')).json()) as { csrfToken: string }
+  const res = await page.request.post('/api/tokens', {
+    data: { name: seedToken, role: 'viewer', allServers: true, servers: [], days: 30 },
+    headers: { 'X-Requested-With': 'playkeeper', 'X-CSRF-Token': csrfToken },
+  })
+  expect([201, 409], `POST /api/tokens answered ${res.status()}`).toContain(res.status())
 }
 
 function summary(report: CrawlReport): string {
@@ -159,12 +178,12 @@ function pageOf(c: { route: string; view?: View }): string {
  * it is broken. A page's count leaves out controls pressed on an earlier
  * page, such as the sidebar. A page that isn't listed needs one. A dev build
  * (make dev) can't update itself, so its /settings has no "Check for updates"
- * and one control fewer than an installed panel's. A fresh install has
- * nothing to free on the Disk space page, whose way back to the machine is
- * pressed on the machine's other pages first, so its controls count in the
- * space to free view. The add-on library shows the recorded fixtures' cards
- * (addon-fixtures.ts), so its count doesn't move with what Modrinth and Hangar
- * list.
+ * and one control fewer than an installed panel's. The add-on library shows
+ * the recorded fixtures' cards (addon-fixtures.ts), so its count doesn't move
+ * with what Modrinth and Hangar list. A fresh install has nothing to free on
+ * the Disk space page, whose way back to the machine is pressed on the
+ * machine's other pages first, so its controls count in the space to free
+ * view.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -269,10 +288,11 @@ interface Place {
 }
 
 /**
- * Places the click-through didn't reach before 0.3.1's audit, and the Disk
- * space page's clean-up. In each, one control must come out as `status`,
- * and a negative control breaks it and presses it again (a disabled one
- * loses its reason instead): the crawl must then report it.
+ * Places the click-through didn't reach before 0.3.1's audit, the Disk
+ * space page's clean-up, and a select whose choices differ only in a number.
+ * In each, one control must come out as `status`, and a negative control
+ * breaks it and presses it again (a disabled one loses its reason instead):
+ * the crawl must then report it.
  */
 const places: Place[] = [
   { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
@@ -290,6 +310,7 @@ const places: Place[] = [
   { what: 'the empty World page', sizes: ['desktop', 'phone'], view: 'empty lists', key: /^button "Make my first backup"$/ },
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
+  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', key: /^option "# GB" in listbox ""( #\d+)?$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
   { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', key: /^button "Wake up now" in ".+ is asleep"$/ },
   { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', key: /^button "Download new key" in dialog "New recovery key made"$/ },
@@ -425,6 +446,7 @@ for (const [name, size] of Object.entries(sizes)) {
     const context = await browser.newContext(options)
     const page = await context.newPage()
     await login(page)
+    await seedAiToken(page)
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
     const { live, shared } = await routes(page, name === 'phone')

@@ -174,6 +174,105 @@ ALTER TABLE project_members ADD COLUMN factor_seen INTEGER NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX users_username_nocase ON users(username COLLATE NOCASE);
 CREATE UNIQUE INDEX users_one_owner ON users(role) WHERE role = 'owner';
 `,
+	// Machines that joined over a machine link (kind 'remote'), their join
+	// codes (a keyed hash only, never the code), what happened to each, and
+	// which machine runs each server with its last known status and the
+	// joined machine that also lists it, if any.
+	`
+ALTER TABLE machines ADD COLUMN public_key BLOB;
+ALTER TABLE machines ADD COLUMN joined_from TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN version TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE machines ADD COLUMN last_addr TEXT NOT NULL DEFAULT '';
+ALTER TABLE machines ADD COLUMN revoked_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE machines ADD COLUMN revoked_by TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX machines_public_key ON machines(public_key) WHERE public_key IS NOT NULL;
+CREATE TABLE machine_join_codes (
+  id         TEXT PRIMARY KEY,
+  hash       BLOB NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  used_at    INTEGER NOT NULL DEFAULT 0,
+  machine_id TEXT NOT NULL DEFAULT '',
+  name       TEXT NOT NULL DEFAULT '',
+  dials      TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE machine_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  machine_id TEXT NOT NULL,
+  ts         INTEGER NOT NULL,
+  kind       TEXT NOT NULL,
+  actor      TEXT NOT NULL DEFAULT '',
+  address    TEXT NOT NULL DEFAULT '',
+  code       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX machine_events_machine ON machine_events(machine_id, id);
+CREATE TABLE server_machines (
+  server_id   TEXT PRIMARY KEY,
+  machine_id  TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT '',
+  seen_at     INTEGER NOT NULL DEFAULT 0,
+  disputed_by TEXT NOT NULL DEFAULT ''
+);
+`,
+	// API tokens for AI agents (a hash only, never the token), with the
+	// role and servers each was made for ('*' is every server), and what
+	// agents did with them. Revoked tokens stay, so their names still show
+	// in the activity log.
+	`
+CREATE TABLE api_tokens (
+  id           TEXT PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  role         TEXT NOT NULL,
+  servers      TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL DEFAULT 0,
+  revoked_at   INTEGER NOT NULL DEFAULT 0,
+  revoked_by   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX api_tokens_user ON api_tokens(user_id);
+CREATE TABLE agent_activity (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_id    TEXT NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
+  ts          INTEGER NOT NULL,
+  tool        TEXT NOT NULL,
+  server_id   TEXT NOT NULL DEFAULT '',
+  server_name TEXT NOT NULL DEFAULT '',
+  count       INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX agent_activity_token ON agent_activity(token_id, id);
+`,
+	// What the dashboard remembers about itself, such as the version it last
+	// ran.
+	`
+CREATE TABLE panel_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`,
+	// Joins refused lately for their code, with the network each came from,
+	// so that a pause after too many outlasts a restart.
+	`
+CREATE TABLE machine_join_failures (
+  at      INTEGER NOT NULL,
+  network TEXT NOT NULL
+);
+`,
+	// The role each API token's account held when the token was made (owner,
+	// or its project role): a token stops working once its account holds a
+	// lower one or leaves the team.
+	`
+ALTER TABLE api_tokens ADD COLUMN account_role TEXT NOT NULL DEFAULT '';
+UPDATE api_tokens SET account_role = COALESCE((
+  SELECT CASE WHEN u.role = 'owner' THEN 'owner'
+    ELSE (SELECT pm.role FROM project_members pm WHERE pm.user_id = u.id ORDER BY pm.created_at LIMIT 1) END
+  FROM users u WHERE u.id = api_tokens.user_id), '');
+`,
 }
 
 const (
@@ -364,10 +463,37 @@ func (s *Server) deleteUserSessions(userID int64) {
 	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE user_id = ?`, userID)
 }
 
+// pruneAuditEvery is how many audit rows are written between prunes.
+const pruneAuditEvery = 1000
+
 func (s *Server) audit(actor, action, target, result, detail string) {
+	s.writeAudit(auditRow{at: s.now(), actor: actor, action: action, target: target, result: result, detail: detail})
+}
+
+func (s *Server) writeAudit(r auditRow) {
 	if _, err := s.db.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail) VALUES(?,?,?,?,?,?)`,
-		s.now().UnixMilli(), actor, action, target, result, detail); err != nil {
+		r.at.UnixMilli(), r.actor, r.action, r.target, r.result, r.detail); err != nil {
 		s.log.Error("audit write failed", "err", err)
+		return
+	}
+	if s.audits.Add(1)%pruneAuditEvery == 0 {
+		s.pruneAudit()
+	}
+}
+
+// pruneAudit drops audit rows older than auditMaxAge and all but the newest
+// maxAudit, and API tokens that stopped working longer ago than that, whose
+// names the log no longer needs.
+func (s *Server) pruneAudit() {
+	cutoff := s.now().Add(-s.auditMaxAge).UnixMilli()
+	if _, err := s.db.Exec(`DELETE FROM audit WHERE ts < ?`, cutoff); err != nil {
+		s.log.Error("audit prune failed", "err", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM audit WHERE id <= (SELECT id FROM audit ORDER BY id DESC LIMIT 1 OFFSET ?)`, s.maxAudit); err != nil {
+		s.log.Error("audit prune failed", "err", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM api_tokens WHERE (revoked_at != 0 AND revoked_at < ?) OR expires_at < ?`, cutoff, cutoff); err != nil {
+		s.log.Error("prune API tokens", "err", err)
 	}
 }
 

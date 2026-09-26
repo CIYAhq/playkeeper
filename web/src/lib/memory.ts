@@ -1,8 +1,7 @@
-import type { MemoryAdvice, MemoryFit, MemoryOption, ServerMemory } from '@/api/types'
+import type { MemoryAdvice, MemoryFit, MemoryOption, MemorySizing, ServerMemory } from '@/api/types'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB } from '@/lib/format'
 import { num, str } from '@/lib/params'
-import { playersFor } from '@/lib/styles'
 
 export interface Segment {
   key: string
@@ -51,7 +50,7 @@ export function memoryProgress(a: MemoryAdvice): { day: number; of: number } | u
 }
 
 /** The line under Settings › Memory's budget: what the last 14 days say about it. */
-export function memoryAdviceLine(a: MemoryAdvice, machine: string, type?: string): string {
+export function memoryAdviceLine(a: MemoryAdvice, machine: string, sizing?: MemorySizing, type?: string): string {
   const p = a.params
   const count = num(p, 'days') ?? 0
   const peakMB = num(p, 'peak_mb')
@@ -74,7 +73,7 @@ export function memoryAdviceLine(a: MemoryAdvice, machine: string, type?: string
       return to ? t('settings.memoryRaise', { count, to: formatMB(to) }) : t('settings.memoryRaiseNoRoom', { count, machine })
     }
     case 'not_enough_data': {
-      const until = { memory, count: playersFor(a.budgetMB, type) }
+      const until = { memory, count: playersFor(a.budgetMB, sizing, type) }
       const minDays = num(p, 'min_days') ?? 3
       if (!count && a.fromNextStart) return t('settings.memoryFromRestart', until)
       if (count >= minDays) return t('settings.memoryAfterWeek', until)
@@ -85,6 +84,32 @@ export function memoryAdviceLine(a: MemoryAdvice, machine: string, type?: string
       return never
     }
   }
+}
+
+/**
+ * What a mod loader and its mods take of a budget before its players, over
+ * what Paper takes: the loader's memory outside the heap and the heap its
+ * mods fill. A Quilt server with two mods at 2 GB was killed when one player
+ * joined.
+ */
+const moddedMB: Record<string, number> = { fabric: 1024, quilt: 1024, neoforge: 2048 }
+
+/**
+ * About how many players a budget suits on a server of the type: the sizing
+ * guide's count for what a mod loader leaves of it when the machine sends
+ * the guide, else a rough one.
+ */
+export function playersFor(memoryMB: number, sizing?: MemorySizing, type = 'paper'): number {
+  const mb = memoryMB - (moddedMB[type] ?? 0)
+  const guide = sizing?.budgets.filter((b) => b.memoryMB <= mb).sort((a, b) => b.memoryMB - a.memoryMB)[0]
+  if (guide) return guide.players
+  if (mb >= 8192) return 30
+  if (mb >= 6144) return 20
+  if (mb >= 4096) return 10
+  if (mb >= 3072) return 6
+  if (mb >= 2048) return 4
+  if (mb >= 1024) return 2
+  return 1
 }
 
 const fitText: Record<MemoryFit, MessageKey> = {
@@ -105,11 +130,11 @@ const recommendedText: Record<MemoryFit, MessageKey> = {
  * The line under a budget in Settings › Memory's list: whether the machine
  * has room for it, then how it would fit, or who it suits until then.
  */
-export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefined, machine: string, type?: string): string {
+export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefined, machine: string, sizing?: MemorySizing, type?: string): string {
   if (!o.fits) return t('settings.memoryNoRoom', { machine })
   if (advice?.recommendedMB === o.memoryMB) return o.fit ? t(recommendedText[o.fit]) : t('settings.memoryRecommended')
   if (o.fit) return t(fitText[o.fit])
-  return t('settings.memoryFriends', { count: playersFor(o.memoryMB, type) })
+  return t('settings.memoryFriends', { count: playersFor(o.memoryMB, sizing, type) })
 }
 
 /**
