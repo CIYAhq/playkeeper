@@ -118,7 +118,7 @@ function AuditCard() {
   const serverName = (id?: string) => (id ? (ws.servers?.find((s) => s.id === id)?.name ?? '') : '')
   const rows = (audit.data ?? []).slice(0, 100)
   return (
-    <Card as="section" aria-labelledby="audit-title" id="audit" className="scroll-mt-4">
+    <Card as="section" id="audit" className="scroll-mt-4">
       <CardTitle id="audit-title">{t('global.audit')}</CardTitle>
       <CardHint>{t('global.auditHint')}</CardHint>
       <div className="mt-4 max-h-[480px] overflow-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-labelledby="audit-title">

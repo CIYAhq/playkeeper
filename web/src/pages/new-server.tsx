@@ -623,7 +623,7 @@ export function NewServerPage() {
             </div>
             <div className="mt-4">{restoreLink}</div>
           </div>
-          <aside className="self-start">
+          <aside className="self-start" aria-label={t('new.summary')}>
             {summary}
           </aside>
         </div>

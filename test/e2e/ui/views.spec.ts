@@ -19,7 +19,9 @@ test('every page, desktop and narrow, with no serious accessibility violations',
   const s = await firstServer(page)
   const machine = ((await (await page.request.get('/api/machines')).json()) as { id: string; name: string }[])[0]
   expect(machine).toBeTruthy()
-  const pages = [
+  // phone: the heading a phone shows instead, under its own back header;
+  // dialog: the page opens with a dialog, whose heading stands in.
+  const pages: { route: string; name: string; heading: string; phone?: string; dialog?: boolean }[] = [
     { route: '/', name: 'home', heading: 'Home' },
     { route: `/servers/${s.slug}`, name: 'overview', heading: s.name },
     { route: `/servers/${s.slug}/running`, name: 'running', heading: s.name },
@@ -31,6 +33,13 @@ test('every page, desktop and narrow, with no serious accessibility violations',
     { route: '/servers/new', name: 'new-server', heading: 'New server' },
     { route: `/machines/${machine?.id}`, name: 'machine', heading: machine?.name ?? '' },
     { route: '/settings', name: 'settings', heading: 'Settings' },
+    // Waves 1 to 4.
+    { route: `/servers/${s.slug}/plugins/browse`, name: 'plugins-browse', heading: s.name, phone: 'Browse' },
+    { route: `/servers/${s.slug}/world/pregen`, name: 'world-pregen', heading: s.name, phone: 'Pre-generate' },
+    { route: `/servers/${s.slug}/world/packs`, name: 'world-packs', heading: s.name, phone: 'Packs' },
+    { route: `/machines/${machine?.id}/settings`, name: 'machine-settings', heading: 'Machine settings', phone: 'Address' },
+    { route: '/account', name: 'account', heading: 'Your account', phone: 'Account' },
+    { route: '/account/two-factor', name: 'two-factor', heading: 'Turn on two-factor sign-in', phone: 'Two-factor', dialog: true },
   ]
 
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -48,8 +57,8 @@ test('every page, desktop and narrow, with no serious accessibility violations',
     for (const v of list) {
       await page.goto(v.route)
       const plain = vp.name === 'narrow' ? phoneHeader[v.name] : undefined
-      const title = vp.name === 'narrow' && v.name === 'plugins' ? 'Plugins' : v.heading
-      const heading = plain ? page.getByRole('heading', { name: plain }).or(page.getByText(plain)).first() : page.getByRole('heading', { name: title, level: 1 })
+      const title = vp.name === 'narrow' ? (v.phone ?? (v.name === 'plugins' ? 'Plugins' : v.heading)) : v.heading
+      const heading = plain ? page.getByRole('heading', { name: plain }).or(page.getByText(plain)).first() : page.getByRole('heading', { name: title, ...(v.dialog && vp.name !== 'narrow' ? {} : { level: 1 }) })
       await expect(heading).toBeVisible()
       await page.waitForTimeout(2500)
       await shot(page, `${prefix}-${v.name}-${vp.name}`)
@@ -115,6 +124,32 @@ test('keyboard: skip link, server pages, the command palette traps focus and Esc
   }
   await page.keyboard.press('Escape')
   await expect(palette).toBeHidden()
+})
+
+test('keyboard: a dialog from a menu holds focus, and Esc gives it back to the menu button', async ({ page }) => {
+  await login(page)
+  const s = await firstServer(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`/servers/${s.slug}`)
+  const more = page.getByRole('button', { name: 'More actions' })
+  await expect(more).toBeVisible()
+  await tabTo(page, more, 80)
+  await page.keyboard.press('Enter')
+  const share = page.getByRole('menuitem', { name: 'Share as a template' })
+  await expect(share).toBeVisible()
+  for (let i = 0; i < 8 && !(await share.evaluate((el) => el.hasAttribute('data-highlighted'))); i++) await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: `Share ${s.name} as a template` })
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
+  // Base UI's focus guard at either end hands focus back a moment later.
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('Tab')
+    await expect.poll(() => dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
+  }
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(more).toBeFocused()
 })
 
 test('keyboard: restore preview and typed confirmation are reachable', async ({ page }) => {
