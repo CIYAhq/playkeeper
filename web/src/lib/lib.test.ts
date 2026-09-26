@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { templateQuery } from '@/api/templates'
 import type { CatalogEntry, MetricsBucket, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
+import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
@@ -321,6 +322,12 @@ describe('creating a server', () => {
     expect(createRequest({ ...base, type: 'fabric', build: '0.17.2' })).toMatchObject({ type: 'fabric', build: '0.17.2' })
     expect(createRequest({ ...base, type: 'fabric', build: '' })).not.toHaveProperty('build')
     expect(createRequest({ ...base, type: 'vanilla', build: '0.17.2' })).not.toHaveProperty('build')
+  })
+
+  it('lets a modpack decide the type, version and game settings', () => {
+    const c = { type: 'paper', versionId: 'paper-26.2', acceptExperimental: true, style: 'friends' as const, hardcore: false, levelType: 'flat' as const, memoryMB: 4096, name: 'Cobblemon', motd: '', eula: true, build: '41' }
+    const pack = { source: 'modrinth' as const, projectId: 'TPK00001', versionId: 'TPV00001', name: 'Cobblemon Modpack', type: 'fabric', minecraftVersion: '1.21.1', memoryMB: 6144 }
+    expect(packRequest(c, pack)).toEqual({ name: 'Cobblemon', acceptEula: true, memoryMB: 4096, motd: 'Cobblemon', maxPlayers: 10, acceptExperimental: false, modpack: { source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001' } })
   })
 
   it('names each type’s build the way people say it', () => {

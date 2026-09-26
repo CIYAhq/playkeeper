@@ -44,9 +44,10 @@ const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = 
   { value: 'template', long: 'new.from.template', short: 'new.from.templateShort' },
 ]
 
-/** A server made from a pack runs the type and version the pack names. */
-function packRequest(c: CreateChoices, pack: ModpackChoice) {
-  return { ...createRequest({ ...c, build: '' }), type: '', versionId: '', acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId } }
+/** A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped. */
+export function packRequest(c: CreateChoices, pack: ModpackChoice) {
+  const { name, acceptEula, memoryMB, motd, maxPlayers } = createRequest(c)
+  return { name, acceptEula, memoryMB, motd, maxPlayers, acceptExperimental: false, modpack: { source: pack.source, projectId: pack.projectId, versionId: pack.versionId } }
 }
 
 /** The template decides the type, version and settings: the request names only the plan the user saw. */
