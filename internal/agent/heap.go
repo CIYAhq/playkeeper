@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	"strconv"
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -42,6 +44,29 @@ func heapMB(sc api.ServerConfig) int {
 		return sc.HeapMB
 	}
 	return minecraft.HeapMB(sc.MemoryMB)
+}
+
+// runMemory is the memory budget and Java heap the server's container was
+// made with: what a running or crashed server really has, whatever its
+// settings say since. Without a container, it's what its settings give the
+// next start.
+func (s *server) runMemory(ctx context.Context, sc api.ServerConfig) (budgetMB, heap int) {
+	budgetMB, heap = sc.MemoryMB, heapMB(sc)
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
+	if err != nil {
+		return budgetMB, heap
+	}
+	if c.HostConfig.Memory > 0 {
+		budgetMB = int(c.HostConfig.Memory >> 20)
+	}
+	for _, e := range c.Config.Env {
+		if v, ok := strings.CutPrefix(e, "MEMORY="); ok {
+			if mb, err := strconv.Atoi(strings.TrimSuffix(v, "M")); err == nil && mb > 0 {
+				heap = mb
+			}
+		}
+	}
+	return budgetMB, heap
 }
 
 // sizeHeap sizes a mod loader's heap for the mods it has now and records it,

@@ -36,13 +36,19 @@ func (s *server) MemoryAdvice(ctx context.Context, tzName string, now time.Time)
 	_, _, maxMB := s.memoryFor(s.id)
 	view, _ := s.distances()
 	mods := s.modJars(*sc)
+	// A budget saved since the container was made gets the heap its next
+	// start gives it.
+	budget, heap := s.runMemory(ctx, *sc)
+	if budget != sc.MemoryMB {
+		heap = heapMB(*sc)
+	}
 	in := diagnose.MemoryInput{Now: now, Windows: windows, BudgetMB: sc.MemoryMB, HostMB: hostMB, RoomMB: max(maxMB-sc.MemoryMB, 0), ViewDistance: view,
-		ServerType: serverTypeOf(*sc), Mods: mods}
+		ServerType: serverTypeOf(*sc), Mods: mods, HeapMB: heap}
 	a := diagnose.AdviseMemory(in)
 	out := api.MemoryAdvice{
 		Verdict: string(a.Verdict), Params: a.Params, Title: a.Title, Explanation: a.Explanation,
 		Evidence: apiEvidence(a.Evidence), Actions: apiActions(a.Actions),
-		BudgetMB: sc.MemoryMB, HeapMB: heapMB(*sc), Days: []api.MemoryDay{}, Options: []api.MemoryOption{},
+		BudgetMB: sc.MemoryMB, HeapMB: heap, Days: []api.MemoryDay{}, Options: []api.MemoryOption{},
 	}
 	switch a.Verdict {
 	case diagnose.MemoryKeep:
@@ -73,6 +79,9 @@ func (s *server) MemoryAdvice(ctx context.Context, tzName string, now time.Time)
 	}
 	for i, mb := range budgets {
 		o := api.MemoryOption{MemoryMB: mb, HeapMB: minecraft.HeapFor(mb, serverTypeOf(*sc), mods), Fits: mb <= maxMB || mb == sc.MemoryMB}
+		if mb == sc.MemoryMB {
+			o.HeapMB = heap
+		}
 		if fits != nil {
 			o.Fit = string(fits[i])
 		}

@@ -29,10 +29,15 @@ type MemoryInput struct {
 	ViewDistance int        // from ParseDistances, for advice when there is no room
 	ServerType   string     // registry id; a mod loader keeps more of each budget outside the heap
 	Mods         int        // the jars in a mod loader's mods folder
+	HeapMB       int        // the heap the server has at BudgetMB, whatever mods it has now; 0 works it out as for other budgets
 }
 
-// heapMB is the heap a budget gives this server.
+// heapMB is the heap a budget gives this server: the one it has at its
+// budget, and for the others the one they would give it with its mods now.
 func (in MemoryInput) heapMB(budgetMB int) int {
+	if budgetMB == in.BudgetMB && in.HeapMB > 0 {
+		return in.HeapMB
+	}
 	return minecraft.HeapFor(budgetMB, in.ServerType, in.Mods)
 }
 

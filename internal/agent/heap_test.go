@@ -219,6 +219,123 @@ func TestAStartSizesTheHeapOfEveryContainerItMakes(t *testing.T) {
 	}
 }
 
+// runningFabric is a running Fabric server with memoryMB whose last start
+// sized its heap for mods jars, and that waits an hour before starting again
+// after a crash.
+func runningFabric(t *testing.T, memoryMB, mods int) *agentEnv {
+	t.Helper()
+	e := newAgentEnvWith(t, func(e *agentEnv) { e.crashBackoff = []time.Duration{time.Hour} })
+	e.createWith(map[string]any{"memoryMB": memoryMB})
+	e.installedFabric()
+	e.addMods(0, mods)
+	if op := e.runOp("POST", "/restart"); op.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if got, want := e.containerEnvVar("MEMORY"), fmt.Sprintf("%dM", minecraft.HeapFor(memoryMB, "fabric", mods)); got != want {
+		t.Fatalf("the heap for %d mods: %s, want %s", mods, got, want)
+	}
+	return e
+}
+
+// recordHeap has the server's settings name another heap than its container's.
+func recordHeap(mb int) func(t *testing.T, e *agentEnv) {
+	return func(t *testing.T, e *agentEnv) {
+		sc, err := e.srv().serverConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc.HeapMB = mb
+		if err := e.srv().saveServerConfig(*sc); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// saveMemory saves a new memory budget, which waits for a restart.
+func saveMemory(mb int) func(t *testing.T, e *agentEnv) {
+	return func(t *testing.T, e *agentEnv) {
+		if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": mb, "actor": "admin"}); code != 200 {
+			t.Fatalf("settings: %d %v", code, out)
+		}
+	}
+}
+
+// Settings › Memory reads two weeks of garbage collection against the heap
+// the server's container has, whatever mods came or went since it started or
+// its settings say: a real verdict, naming that heap. A budget saved since
+// is read against the heap its restart gives it.
+func TestMemoryAdviceReadsTheHeapTheServerRunsWith(t *testing.T) {
+	running := minecraft.HeapFor(3072, "fabric", 60)
+	for _, tc := range []struct {
+		name   string
+		change func(t *testing.T, e *agentEnv)
+		heap   int
+	}{
+		{"with the same mods", func(*testing.T, *agentEnv) {}, running},
+		{"with 50 mods removed since it started", func(t *testing.T, e *agentEnv) {
+			for i := range 50 {
+				if err := os.Remove(filepath.Join(e.dataDir(), "mods", fmt.Sprintf("mod-%02d.jar", i))); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}, running},
+		{"with 50 mods added since it started", func(_ *testing.T, e *agentEnv) { e.addMods(60, 50) }, running},
+		{"with another heap in its settings since", recordHeap(running + 500), running},
+		{"with a smaller budget waiting for a restart", saveMemory(2048), minecraft.HeapFor(2048, "fabric", 60)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := runningFabric(t, 3072, 60)
+			now := time.Now().UTC()
+			for h := 6; h < 14*24; h += 6 {
+				e.addGCWindow(now.Add(-time.Duration(h)*time.Hour), running/4, running/2, running, 0)
+			}
+			tc.change(t, e)
+			a := e.memory("UTC")
+			if a.Verdict == "not_enough_data" || a.HeapMB != tc.heap || a.Params["heap_mb"] != float64(tc.heap) {
+				t.Fatalf("want a verdict for the %d MB heap: %s, heap %d, params %v", tc.heap, a.Verdict, a.HeapMB, a.Params)
+			}
+		})
+	}
+}
+
+// Crash help explains a crash with the memory the server's container was
+// made with: not another heap its settings name since, nor a budget saved
+// since that waits for a restart.
+func TestCrashHelpExplainsTheMemoryTheServerRanWith(t *testing.T) {
+	ran := minecraft.HeapFor(2048, "fabric", 17)
+	for _, tc := range []struct {
+		name   string
+		change func(t *testing.T, e *agentEnv)
+	}{
+		{"with its settings as the container was made", func(*testing.T, *agentEnv) {}},
+		{"with another heap in its settings since", recordHeap(ran + 300)},
+		{"with a bigger budget waiting for a restart", saveMemory(3072)},
+	} {
+		for _, crash := range []struct {
+			name string
+			run  func(e *agentEnv)
+			kind string
+		}{
+			{"Java runs out of heap", func(e *agentEnv) {
+				e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+				e.fd.crash(1)
+			}, "heap_out_of_memory"},
+			{"Docker kills it at its memory limit", func(e *agentEnv) { e.fd.oomKill() }, "container_memory_limit"},
+		} {
+			t.Run(tc.name+", "+crash.name, func(t *testing.T) {
+				e := runningFabric(t, 2048, 17)
+				tc.change(t, e)
+				crash.run(e)
+				c := e.waitCrash()
+				if c.Kind != crash.kind || c.Params["heap_mb"] != ran || c.Params["budget_mb"] != 2048 {
+					t.Fatalf("want %s explained with the %d MB heap of 2048 MB it ran with: %s %v", crash.kind, ran, c.Kind, c.Params)
+				}
+			})
+		}
+	}
+}
+
 // A settings save that leaves the memory budget as it was leaves the heap as
 // it was too, however many mods were added since the last start, so it
 // doesn't ask for a restart. A new budget is sized for the mods there are now.
