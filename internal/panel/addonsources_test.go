@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 func TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey(t *testing.T) {
@@ -44,15 +46,7 @@ func TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey(t *testing.T) {
 		t.Fatalf("the removal reached the agent as %+v", c)
 	}
 
-	h, _ := hashPassword("member password 1")
-	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('friend', ?, 0, 0, 'member')`, h); err != nil {
-		t.Fatal(err)
-	}
-	r := e.do(t, "POST", "/api/auth/login", `{"username":"friend","password":"member password 1"}`, map[string]string{"X-Requested-With": "playkeeper"})
-	if r.status != 200 {
-		t.Fatalf("member login: %d %v", r.status, r.body)
-	}
-	member := auth(r.cookie, r.body["csrfToken"].(string))
+	member := addMember(t, e, "friend", invites.RoleModerator, "*").auth()
 	member["X-Requested-With"] = "playkeeper"
 	member["Content-Type"] = "application/json"
 	if r, b := e.send(t, "GET", sources, "", "", member); r.StatusCode != http.StatusOK {

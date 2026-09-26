@@ -13,10 +13,10 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 var panelMigrations = []string{
@@ -113,6 +113,67 @@ CREATE TABLE pending_logins (
   attempts   INTEGER NOT NULL DEFAULT 0
 );
 `,
+	// Wave 5: invite links for friends and team members, join requests, how
+	// players got in, and the servers each team member can use. The servers
+	// column fails closed: only the owner starts with all servers. One owner
+	// per install, and usernames are unique in any capitalisation.
+	// admin_factor is the confirmed_at of the two-factor setup an owner or
+	// admin confirmed Admin rights with; factor_seen is the one the
+	// dashboard last saw, to notice when it's turned on or off.
+	`
+CREATE TABLE invites (
+  id          TEXT    PRIMARY KEY,
+  kind        TEXT    NOT NULL CHECK (kind IN ('player', 'member')),
+  code_hash   TEXT    NOT NULL UNIQUE,
+  code        TEXT    NOT NULL DEFAULT '',
+  project_id  TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  server_id   TEXT    NOT NULL DEFAULT '',
+  role        TEXT    NOT NULL DEFAULT '',
+  servers     TEXT    NOT NULL DEFAULT '',
+  approval    TEXT    NOT NULL DEFAULT '',
+  label       TEXT    NOT NULL DEFAULT '',
+  created_by  INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  max_uses    INTEGER NOT NULL CHECK (max_uses BETWEEN 0 AND 100),
+  uses        INTEGER NOT NULL DEFAULT 0,
+  revoked_at  INTEGER NOT NULL DEFAULT 0,
+  CHECK (kind = 'player' OR (max_uses = 1 AND expires_at > 0))
+);
+CREATE INDEX invites_server ON invites(server_id, created_at);
+CREATE INDEX invites_project ON invites(project_id, kind, created_at);
+CREATE TABLE join_requests (
+  id          TEXT    PRIMARY KEY,
+  invite_id   TEXT    NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
+  server_id   TEXT    NOT NULL,
+  player_uuid TEXT    NOT NULL,
+  player_name TEXT    NOT NULL,
+  address     TEXT    NOT NULL DEFAULT '',
+  state       TEXT    NOT NULL CHECK (state IN ('pending', 'approved', 'declined')),
+  created_at  INTEGER NOT NULL,
+  decided_at  INTEGER NOT NULL DEFAULT 0,
+  decided_by  INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX join_requests_one_pending ON join_requests(server_id, player_uuid) WHERE state = 'pending';
+CREATE INDEX join_requests_server ON join_requests(server_id, state, created_at);
+CREATE INDEX join_requests_invite ON join_requests(invite_id, state);
+CREATE INDEX join_requests_address ON join_requests(address) WHERE state = 'pending';
+CREATE TABLE player_origins (
+  server_id   TEXT    NOT NULL,
+  player_uuid TEXT    NOT NULL,
+  player_name TEXT    NOT NULL,
+  invite_id   TEXT    NOT NULL,
+  request_id  TEXT    NOT NULL DEFAULT '',
+  joined_at   INTEGER NOT NULL,
+  PRIMARY KEY (server_id, player_uuid)
+);
+ALTER TABLE project_members ADD COLUMN servers TEXT NOT NULL DEFAULT '';
+UPDATE project_members SET servers = '*' WHERE user_id IN (SELECT id FROM users WHERE role = 'owner');
+ALTER TABLE project_members ADD COLUMN admin_factor INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN factor_seen INTEGER NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX users_username_nocase ON users(username COLLATE NOCASE);
+CREATE UNIQUE INDEX users_one_owner ON users(role) WHERE role = 'owner';
+`,
 }
 
 const (
@@ -165,30 +226,11 @@ func checkPassword(encoded, pw string) bool {
 // dummyHash equalises timing for unknown usernames.
 var dummyHash, _ = hashPassword("playkeeper-timing-equaliser")
 
-func validUsername(u string) error {
-	if l := utf8.RuneCountInString(u); l < 3 || l > 32 {
-		return errors.New("Username must be 3–32 characters.")
-	}
-	for _, r := range u {
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.') {
-			return errors.New("Username may contain letters, numbers, dot, dash and underscore.")
-		}
-	}
-	return nil
-}
+// The account rules live in the invites package, so the join page and the
+// panel can't drift apart.
+func validUsername(u string) error { return invites.ValidUsername(u) }
 
-func validPassword(pw, username string) error {
-	if utf8.RuneCountInString(pw) < 10 {
-		return errors.New("Password must be at least 10 characters.")
-	}
-	if len(pw) > 256 {
-		return errors.New("Password must be at most 256 bytes.")
-	}
-	if strings.EqualFold(pw, username) {
-		return errors.New("Password must differ from the username.")
-	}
-	return nil
-}
+func validPassword(pw, username string) error { return invites.ValidPassword(pw, username) }
 
 // RandomPassword returns a readable 20-character password for CLI resets.
 func RandomPassword() string {
@@ -227,6 +269,8 @@ type session struct {
 	CreatedAt time.Time
 	LastSeen  time.Time
 	ExpiresAt time.Time
+	// Access is what the account may do, read by guard for each request.
+	Access access
 }
 
 func (s *Server) userCount() (int, error) {
@@ -245,8 +289,8 @@ func (s *Server) createFirstAdmin(username, password string) (user, error) {
 		return user{}, err
 	}
 	now := s.now().UnixMilli()
-	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at)
-		SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, h, now, now)
+	res, err := s.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role)
+		SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`, username, h, now, now, roleOwner)
 	if err != nil {
 		return user{}, err
 	}
@@ -254,7 +298,7 @@ func (s *Server) createFirstAdmin(username, password string) (user, error) {
 		return user{}, errSetupDone
 	}
 	id, _ := res.LastInsertId()
-	s.ensureMember(id)
+	s.ensureOwnerMember(id)
 	return user{ID: id, Username: username, Role: roleOwner}, nil
 }
 

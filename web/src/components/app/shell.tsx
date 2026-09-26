@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, CircleHelpIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, LogOutIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, SquareTerminalIcon, UsersIcon } from 'lucide-react'
-import type { ServerStatus } from '@/api/types'
+import type { Me, ServerStatus } from '@/api/types'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { BrandMark } from '@/components/app/art'
 import { Dot, Kbd, Spinner } from '@/components/app/bits'
@@ -10,6 +10,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
+import { can, roleName, settingsHome } from '@/lib/access'
 import { isCreating, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -28,7 +29,7 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
   const [palette, setPalette] = useState<{ open: boolean; servers?: boolean }>({ open: false })
   const [shortcuts, setShortcuts] = useState(false)
 
-  const slug = route.name === 'server' ? route.slug : undefined
+  const slug = route.name === 'server' || route.name === 'player' ? route.slug : undefined
   useEffect(() => {
     if (slug && servers?.some((s) => s.slug === slug)) setLastSlug(slug)
   }, [slug, servers, setLastSlug])
@@ -79,11 +80,16 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
 function pageKey(route: Route): string {
   switch (route.name) {
     case 'server':
+    case 'player':
       return `server/${route.slug}`
     case 'machine':
       return `machine/${route.id}`
     case 'legacy':
       return `legacy/${route.tab}`
+    case 'team':
+    case 'addon-sources':
+    case 'discord':
+      return 'settings/sections'
     case 'machine-settings':
       return `machine-settings/${route.id}`
     case 'account':
@@ -97,6 +103,7 @@ function pageKey(route: Route): string {
     case 'new-server':
     case 'settings':
     case 'more':
+    case 'join':
       return route.name
     default: {
       const unreachable: never = route
@@ -193,7 +200,7 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
 function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const ws = useWorkspace()
   const live = ws.machine?.live
-  const tab: ServerTab = route.name === 'server' ? route.tab : 'overview'
+  const tab: ServerTab = route.name === 'server' ? route.tab : route.name === 'player' ? 'players' : 'overview'
   const healthy = !!ws.updating || (!ws.agentDown && !!live && live.docker)
   const onMachine = (route.name === 'machine' || route.name === 'machine-settings') && route.id === ws.machine?.id
   return (
@@ -236,21 +243,23 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           <SideItem
             key={s.id}
             to={{ name: 'server', slug: s.slug, tab }}
-            active={route.name === 'server' && route.slug === s.slug}
+            active={(route.name === 'server' || route.name === 'player') && route.slug === s.slug}
             icon={!ws.stale && isCreating(s) ? <Spinner /> : <Dot tone={ws.stale ? 'unknown' : statusTone(s)} />}
             trailing={serverMeta(s, ws.stale)}
           >
             {s.name}
           </SideItem>
         ))}
-        <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
-          {t('nav.newServer')}
-        </SideItem>
+        {can(ws.me, 'servers.create') && (
+          <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
+            {t('nav.newServer')}
+          </SideItem>
+        )}
       </nav>
       <div className="flex flex-col gap-0.5 pt-2">
-        <GetStartedCard route={route} className="mb-2" />
-        <UpdateRow />
-        <SideItem to={{ name: 'settings' }} active={route.name === 'settings'} icon={<SettingsIcon />}>
+        {can(ws.me, 'servers.create') && <GetStartedCard route={route} className="mb-2" />}
+        {can(ws.me, 'machine.manage') && <UpdateRow />}
+        <SideItem to={settingsHome(ws.me)} active={route.name === 'settings' || route.name === 'team' || route.name === 'addon-sources' || route.name === 'discord'} icon={<SettingsIcon />}>
           {t('nav.settings')}
         </SideItem>
         <UserRow active={route.name === 'account'} />
@@ -259,8 +268,12 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   )
 }
 
-export function roleLabel(role: string): string {
-  return role === 'member' ? t('nav.role.member') : t('nav.role.owner')
+/** The account's role as its user row says it: "Admin", "Moderator" or "Admin · two-factor off". */
+export function roleLabel(me: Me): string {
+  if (me.user.role !== 'member') return t('nav.role.owner')
+  if (me.access.needsTwoFactor) return t('nav.role.adminNoTwoFactor')
+  if (me.access.awaitingConfirmation) return t('nav.role.adminUnconfirmed')
+  return roleName(me.access.role)
 }
 
 function UserRow({ active }: { active: boolean }) {
@@ -272,15 +285,17 @@ function UserRow({ active }: { active: boolean }) {
         <Avatar name={name} />
         <span className="min-w-0 leading-tight">
           <span className="block truncate text-[13px] font-semibold">{name}</span>
-          <span className="block text-xs text-muted-foreground">{roleLabel(me.user.role)}</span>
+          <span className="block text-xs text-muted-foreground">{roleLabel(me)}</span>
         </span>
       </a>
-      <a href={t('nav.helpUrl')} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('nav.help') })} className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
-        <CircleHelpIcon className="size-4" aria-hidden="true" />
-      </a>
-      <button type="button" onClick={() => void signOut()} aria-label={t('nav.signOut')} className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
-        <LogOutIcon className="size-4" aria-hidden="true" />
-      </button>
+      <span className="-mr-1 flex shrink-0 items-center">
+        <a href={t('nav.helpUrl')} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('nav.help') })} className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
+          <CircleHelpIcon className="size-4" aria-hidden="true" />
+        </a>
+        <button type="button" onClick={() => void signOut()} aria-label={t('nav.signOut')} className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
+          <LogOutIcon className="size-4" aria-hidden="true" />
+        </button>
+      </span>
     </div>
   )
 }
@@ -304,10 +319,11 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
-  const inServer = route.name === 'server' || (underMore && !!phoneServer)
-  const slug = route.name === 'server' ? route.slug : phoneServer?.slug
-  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' || route.tab === 'map' || route.tab === 'plugins' || route.tab === 'mods' ? 'more' : route.tab) : underMore ? 'more' : undefined
+  const underMore = route.name === 'more' || route.name === 'team' || route.name === 'addon-sources' || route.name === 'discord' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
+  const inServer = route.name === 'server' || route.name === 'player' || (underMore && !!phoneServer)
+  const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
+  const current: ServerTab | 'more' | undefined =
+    route.name === 'server' ? (route.tab === 'settings' || route.tab === 'map' || route.tab === 'plugins' || route.tab === 'mods' ? 'more' : route.tab) : route.name === 'player' ? 'players' : underMore ? 'more' : undefined
   const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">

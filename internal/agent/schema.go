@@ -256,6 +256,26 @@ ALTER TABLE servers ADD COLUMN packs_token TEXT NOT NULL DEFAULT '';
 	// Wave 4: the template's add-ons and data packs that could not be
 	// installed, as a JSON list, kept after the first start for Try again.
 	`ALTER TABLE template_installs ADD COLUMN skipped TEXT NOT NULL DEFAULT '[]';`,
+	// wave 5: Discord alerts and the live status message, one webhook for
+	// the whole machine. webhook_url is a secret: it never leaves the agent.
+	`
+CREATE TABLE discord (
+  id                INTEGER PRIMARY KEY CHECK (id = 1),
+  webhook_url       TEXT NOT NULL DEFAULT '',
+  webhook_name      TEXT NOT NULL DEFAULT '',
+  alerts            TEXT NOT NULL,
+  live_status       INTEGER NOT NULL DEFAULT 0,
+  status_message_id TEXT NOT NULL DEFAULT '',
+  public_host       TEXT NOT NULL DEFAULT '',
+  connected_at      INTEGER NOT NULL DEFAULT 0,
+  update_alerted    TEXT NOT NULL DEFAULT ''
+);
+`,
+	// wave 5: the Minecraft version each server's Discord update alert last
+	// went out for.
+	`
+ALTER TABLE servers ADD COLUMN minecraft_update_alerted TEXT NOT NULL DEFAULT '';
+`,
 	// Wave 6: each server's map. A row exists while the map is turned on. It
 	// keeps the add-on records of squaremap (and anything it needed) as JSON,
 	// the two sharing switches, when the first full drawing was asked for,

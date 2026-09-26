@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Catalog, MachineView, Me, Operation, WorldImport, WorldImportPreview } from '@/api/types'
+import type { Action, Catalog, MachineView, Me, Operation, WorldImport, WorldImportPreview } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import * as upload from '@/lib/upload'
 import { NewServerPage } from './new-server'
@@ -20,7 +20,15 @@ vi.mock('@/lib/upload', async (importOriginal) => ({
   uploadWorld: vi.fn(),
 }))
 
-const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const me: Me = {
+  user: { username: 'siya', role: 'owner' },
+  csrfToken: 't',
+  expiresAt: '2026-09-26T00:00:00Z',
+  idleTimeoutSeconds: 43200,
+  version: '0.3.0',
+  access: { projectId: 'p2345abcde', role: 'admin', servers: { all: true }, twoFactor: false, can: everything },
+}
 const machine = { id: 'm2345abcde', projectId: 'p2345abcde', name: 'my-vps', kind: 'local' } as MachineView
 
 const workspace: Workspace = {

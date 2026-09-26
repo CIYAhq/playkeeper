@@ -89,6 +89,9 @@ type server struct {
 	nextAutoRestart time.Time
 	worldBytes      int64
 	worldAt         time.Time
+	// sampled is the state the latest sample recorded (online, starting,
+	// stopped, crashed…), for the Discord live status.
+	sampled string
 	// nextResume is when the reconciler may try save-on again after it
 	// failed to turn saving back on.
 	nextResume time.Time

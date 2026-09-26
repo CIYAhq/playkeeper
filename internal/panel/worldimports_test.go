@@ -52,7 +52,7 @@ func TestWorldUploadStreamsToTheAgent(t *testing.T) {
 	h["Origin"] = e.ts.URL
 
 	payload := bytes.Repeat([]byte("world-bytes-"), 300_000)
-	r, body := e.raw(t, "PUT", base+"/files/0?offset=1024", bytes.NewReader(payload), h)
+	r, body := e.stream(t, "PUT", base+"/files/0?offset=1024", bytes.NewReader(payload), h)
 	if r.StatusCode != 200 || r.Header.Get("Cache-Control") != "no-store" || !bytes.Contains(body, []byte(jsonNumber(1024+len(payload)))) {
 		t.Fatalf("upload: %d %s", r.StatusCode, body)
 	}
@@ -66,13 +66,13 @@ func TestWorldUploadStreamsToTheAgent(t *testing.T) {
 	if len(hits) != 1 || hits[0].URL.Path != "/v1/world-imports/0123456789abcdef/files/0" || hits[0].Header.Get("X-Playkeeper-Actor") != "admin" || hits[0].Header.Get("Cookie") != "" {
 		t.Fatalf("agent saw %v", hits)
 	}
-	if r, body := e.raw(t, "PUT", base+"/files/0?offset=0", strings.NewReader("x"), h); r.StatusCode != 409 || !bytes.Contains(body, []byte("carries on from byte 1024")) {
+	if r, body := e.stream(t, "PUT", base+"/files/0?offset=0", strings.NewReader("x"), h); r.StatusCode != 409 || !bytes.Contains(body, []byte("carries on from byte 1024")) {
 		t.Fatalf("wrong offset: %d %s", r.StatusCode, body)
 	}
 
 	agent.forget()
 	for _, p := range []string{"/files/0", "/files/0?offset=-1", "/files/0?offset=01", "/files/0?offset=abc", "/files/0?offset=1e3", "/files/x?offset=0", "/files/123?offset=0"} {
-		if r, body := e.raw(t, "PUT", base+p, strings.NewReader("x"), h); r.StatusCode != 400 {
+		if r, body := e.stream(t, "PUT", base+p, strings.NewReader("x"), h); r.StatusCode != 400 {
 			t.Fatalf("PUT %s: %d %s", p, r.StatusCode, body)
 		}
 	}

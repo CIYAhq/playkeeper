@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -183,6 +184,9 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		s.saveOperation(&done)
 		if done.Status != api.OpRunning {
 			s.audit(actor, kind, "server", done.Status, done.Error)
+		}
+		if kind == "backup" && done.Status == api.OpFailed {
+			s.alert(discord.BackupFailed(done.Error))
 		}
 		if err != nil {
 			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
@@ -928,7 +932,11 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
-		s.recordCrash(fin, c.State)
+		cause := s.recordCrash(fin, c.State)
+		s.mu.Lock()
+		restarting := desired == api.DesiredRunning && len(s.crashes) < maxCrashes
+		s.mu.Unlock()
+		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, At: fin})
 		s.explainCrash(c.ID, c.State, false, nil)
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
@@ -951,7 +959,9 @@ func (s *server) markExitHandled(id string, fin time.Time) {
 	s.mu.Unlock()
 }
 
-func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
+// recordCrash counts a crash and returns its cause in one sentence, without
+// what Playkeeper does about it, which the crash alert says in its own words.
+func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	s.mu.Lock()
 	var recent []time.Time
 	for _, t := range s.crashes {
@@ -970,6 +980,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
 		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
 		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
+	cause := s.lastError
 	if n >= maxCrashes {
 		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it after %d crashes in %d minutes.", n, int(crashWindow.Minutes()))
 		s.lastErrorHint += " Fix the cause, then press Start."
@@ -985,6 +996,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
 	}
 	s.recordEvent(fin, "server_crashed", "", "docker", detail)
 	s.log.Warn("server crashed", "server", s.id, "exit", st.ExitCode, "cause", kind, "crashes", n)
+	return cause
 }
 
 func (s *server) autoStart(kind string) {
@@ -1009,7 +1021,16 @@ func (s *server) autoStart(kind string) {
 // given up after maxCrashes attempts instead of being retried every tick.
 func (s *server) autoStartFailed(err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	gaveUp := s.countFailedStart(err)
+	s.mu.Unlock()
+	if gaveUp {
+		s.alert(discord.Crashed("Playkeeper could not start it: "+err.Error(), false))
+	}
+}
+
+// countFailedStart counts a failed automatic start; the caller holds s.mu.
+// It reports whether Playkeeper gave up.
+func (s *server) countFailedStart(err error) bool {
 	now := s.now()
 	var recent []time.Time
 	for _, t := range s.crashes {
@@ -1025,9 +1046,10 @@ func (s *server) autoStartFailed(err error) {
 	if n >= maxCrashes {
 		s.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())
 		s.lastErrorHint = "Fix the cause, then press Start."
-		return
+		return true
 	}
 	s.nextAutoRestart = now.Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
+	return false
 }
 
 // startFailed is called when a start the user asked for did not bring the

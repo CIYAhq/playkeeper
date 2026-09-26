@@ -78,8 +78,9 @@ func newScriptedEnvLogging(t *testing.T, h http.HandlerFunc, logs io.Writer) (*e
 	return &env{srv: s, ts: ts, clock: clk, cfg: cfg}, sa
 }
 
-// raw sends a request and returns the whole answer.
-func (e *env) raw(t *testing.T, method, path string, body io.Reader, hdr map[string]string) (*http.Response, []byte) {
+// stream sends a request with a body read from a reader, and no headers
+// but hdr, and returns the whole answer.
+func (e *env) stream(t *testing.T, method, path string, body io.Reader, hdr map[string]string) (*http.Response, []byte) {
 	t.Helper()
 	req, _ := http.NewRequest(method, e.ts.URL+path, body)
 	for k, v := range hdr {
@@ -134,13 +135,13 @@ func TestMapTabCallsReachTheServersAgent(t *testing.T) {
 	signedIn := auth(cookie, "")
 	tile := "/api/servers/" + sampleServer + "/map/tiles/minecraft_overworld/3/0_-1.png"
 
-	r, body := e.raw(t, "GET", tile, nil, signedIn)
+	r, body := e.stream(t, "GET", tile, nil, signedIn)
 	if r.StatusCode != 200 || r.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, tilePNG) ||
 		r.Header.Get("ETag") != `"t1"` || r.Header.Get("Cache-Control") != "private, max-age=30" {
 		t.Fatalf("tile: %d %v %q", r.StatusCode, r.Header, body)
 	}
 	cond := map[string]string{"Cookie": signedIn["Cookie"], "If-None-Match": `"t1"`}
-	if r, body := e.raw(t, "GET", tile, nil, cond); r.StatusCode != http.StatusNotModified || len(body) != 0 {
+	if r, body := e.stream(t, "GET", tile, nil, cond); r.StatusCode != http.StatusNotModified || len(body) != 0 {
 		t.Fatalf("revalidated tile: %d %q", r.StatusCode, body)
 	}
 	hits := agent.seen()
@@ -150,11 +151,11 @@ func TestMapTabCallsReachTheServersAgent(t *testing.T) {
 	if hits[0].Header.Get("Cookie") != "" {
 		t.Fatal("the session cookie reached the agent")
 	}
-	r, body = e.raw(t, "GET", "/api/servers/"+sampleServer+"/map/tiles/minecraft_overworld/3/9_9.png", nil, signedIn)
+	r, body = e.stream(t, "GET", "/api/servers/"+sampleServer+"/map/tiles/minecraft_overworld/3/9_9.png", nil, signedIn)
 	if r.StatusCode != 404 || r.Header.Get("Content-Type") != "application/json" || !bytes.Contains(body, []byte("not drawn yet")) {
 		t.Fatalf("undrawn tile: %d %v %s", r.StatusCode, r.Header, body)
 	}
-	r, body = e.raw(t, "GET", "/api/servers/"+sampleServer+"/map/worlds", nil, signedIn)
+	r, body = e.stream(t, "GET", "/api/servers/"+sampleServer+"/map/worlds", nil, signedIn)
 	if r.StatusCode != 200 || r.Header.Get("Cache-Control") != "no-store" || !bytes.Contains(body, []byte("minecraft_overworld")) {
 		t.Fatalf("worlds: %d %v %s", r.StatusCode, r.Header, body)
 	}
@@ -166,7 +167,7 @@ func TestMapTabCallsReachTheServersAgent(t *testing.T) {
 	if hits := agent.seen(); len(hits) != 1 || hits[0].URL.Path != "/v1/servers/"+sampleServer+"/map/share" {
 		t.Fatalf("agent saw %v", hits)
 	}
-	if r, _ := e.raw(t, "GET", tile, nil, nil); r.StatusCode != http.StatusUnauthorized {
+	if r, _ := e.stream(t, "GET", tile, nil, nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a tile without signing in: %d", r.StatusCode)
 	}
 }
@@ -250,7 +251,7 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 	}
 	send := func(method, path string) (*http.Response, []byte) {
 		t.Helper()
-		r, body := e.raw(t, method, path, nil, nil)
+		r, body := e.stream(t, method, path, nil, nil)
 		if r.Header.Get("Cache-Control") != "no-store" || r.Header.Get("ETag") != "" || r.Header.Get("Last-Modified") != "" || len(r.Cookies()) != 0 {
 			t.Fatalf("%s %s: headers %v", method, path, r.Header)
 		}
@@ -375,7 +376,7 @@ func TestSharedMapTokensStayOutOfTheLog(t *testing.T) {
 		"/api/public/map/" + oldToken + "/players", "/api/public/map/" + mapToken + "x/worlds", "/api/public//map/" + mapToken + "/worlds",
 		"/api/public/map/./" + oldToken + "/worlds",
 	} {
-		e.raw(t, "GET", p, nil, nil)
+		e.stream(t, "GET", p, nil, nil)
 	}
 	out := logs.String()
 	if !strings.Contains(out, "path=/api/public/map/…") {

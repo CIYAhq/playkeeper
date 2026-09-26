@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 // agentCall is a request the recording agent answered.
@@ -219,32 +221,26 @@ func TestAddonIconsAreOnlyImages(t *testing.T) {
 func TestMembersCannotChangeAddonsOrPacks(t *testing.T) {
 	e := newEnv(t)
 	e.setup(t)
-	h, _ := hashPassword("member password 1")
-	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('friend', ?, 0, 0, 'member')`, h); err != nil {
-		t.Fatal(err)
-	}
-	r := e.do(t, "POST", "/api/auth/login", `{"username":"friend","password":"member password 1"}`, map[string]string{"X-Requested-With": "playkeeper"})
-	if r.status != 200 {
-		t.Fatalf("member login: %d %v", r.status, r.body)
-	}
-	cookie, csrf := r.cookie, r.body["csrfToken"].(string)
-	n := 0
-	for _, rt := range e.srv.Routes() {
-		if !strings.Contains(rt.Pattern, "/addons") && !strings.Contains(rt.Pattern, "/pregen") &&
-			!strings.Contains(rt.Pattern, "/datapacks") && !strings.Contains(rt.Pattern, "/resourcepack") {
-			continue
+	for _, role := range []string{invites.RoleModerator, invites.RoleViewer} {
+		m := addMember(t, e, role+"-friend", role, "*")
+		n := 0
+		for _, rt := range e.srv.Routes() {
+			if !strings.Contains(rt.Pattern, "/addons") && !strings.Contains(rt.Pattern, "/pregen") &&
+				!strings.Contains(rt.Pattern, "/datapacks") && !strings.Contains(rt.Pattern, "/resourcepack") {
+				continue
+			}
+			n++
+			r := e.do(t, rt.Method, samplePath(rt.Pattern), `{}`, m.auth())
+			if rt.Mutating() && r.status != http.StatusForbidden {
+				t.Errorf("a %s may not use %s %s: %d", role, rt.Method, rt.Pattern, r.status)
+			}
+			if !rt.Mutating() && (r.status == http.StatusForbidden || r.status == http.StatusUnauthorized) {
+				t.Errorf("a %s may look at %s: %d", role, rt.Pattern, r.status)
+			}
 		}
-		n++
-		r := e.do(t, rt.Method, samplePath(rt.Pattern), `{}`, auth(cookie, csrf))
-		if rt.Mutating() && r.status != http.StatusForbidden {
-			t.Errorf("a member may not use %s %s: %d", rt.Method, rt.Pattern, r.status)
+		if n != 30 {
+			t.Errorf("checked %d add-on, pre-generation and pack routes, want 30", n)
 		}
-		if !rt.Mutating() && (r.status == http.StatusForbidden || r.status == http.StatusUnauthorized) {
-			t.Errorf("a member may look at %s: %d", rt.Pattern, r.status)
-		}
-	}
-	if n != 30 {
-		t.Errorf("checked %d add-on, pre-generation and pack routes, want 30", n)
 	}
 	e.agent.mu.Lock()
 	defer e.agent.mu.Unlock()

@@ -51,6 +51,9 @@ async function routes(page: Page, phone: boolean): Promise<{ signedIn: string[];
     if (map.public && map.path) shared.push(map.path)
     const addons = addonTabs[s.type ?? '']
     for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    const listed: unknown = await (await page.request.get(`/api/servers/${s.id}/whitelist`)).json().catch(() => [])
+    const player = Array.isArray(listed) ? (listed[0] as { name?: string } | undefined)?.name : undefined
+    if (player) out.push(`/servers/${s.slug}/players/${encodeURIComponent(player)}`)
   }
   out.push('/servers/new', '/servers/new#world')
   // The add-on library with Playkeeper's picks, for the first server that
@@ -64,7 +67,7 @@ async function routes(page: Page, phone: boolean): Promise<{ signedIn: string[];
     if (payload) out.push(`/servers/new#template=${payload}`)
   }
   for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
-  out.push('/settings', '/account', '/account/two-factor')
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/account', '/account/two-factor')
   if (phone) out.push('/more')
   return { signedIn: out, signedOut: ['/login', unknownPackLink, unknownMapLink, ...shared] }
 }
