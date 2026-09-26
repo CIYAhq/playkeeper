@@ -773,6 +773,9 @@ func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) erro
 		return s.dockerErr(err)
 	}
 	s.resetRCON()
+	// Said here rather than when the reconcile loop sees the exit: a restart
+	// or an update starts the server again before it looks.
+	s.alert(discord.Stopped())
 	return nil
 }
 
@@ -926,6 +929,7 @@ func (s *server) reconcile(ctx context.Context) {
 		s.closeOpenSessions(fin, "server_stopped", false)
 	case graceful:
 		s.closeOpenSessions(fin, "server_stopped", false)
+		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 		s.recordEvent(fin, "server_stopped_externally", "", "docker", fmt.Sprintf("exit code %d", c.State.ExitCode))
 		if desired == api.DesiredRunning {
 			s.autoStart("recover")
@@ -933,10 +937,13 @@ func (s *server) reconcile(ctx context.Context) {
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
 		cause := s.recordCrash(fin, c.State)
+		// A server that wasn't meant to be running is left off, which is
+		// not Playkeeper giving up on it.
+		wanted := desired == api.DesiredRunning
 		s.mu.Lock()
-		restarting := desired == api.DesiredRunning && len(s.crashes) < maxCrashes
+		restarting := wanted && len(s.crashes) < maxCrashes
 		s.mu.Unlock()
-		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, At: fin})
+		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, GaveUp: wanted && !restarting, At: fin})
 		s.explainCrash(c.ID, c.State, false, nil)
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
@@ -971,7 +978,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	}
 	s.crashes = append(recent, fin)
 	n := len(s.crashes)
-	s.crashed = true
+	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
 	if st.OOMKilled {
 		s.lastError = "The server ran out of memory and was killed."
@@ -1024,7 +1031,7 @@ func (s *server) autoStartFailed(err error) {
 	gaveUp := s.countFailedStart(err)
 	s.mu.Unlock()
 	if gaveUp {
-		s.alert(discord.Crashed("Playkeeper could not start it: "+err.Error(), false))
+		s.alert(discord.StartFailed(err.Error()))
 	}
 }
 

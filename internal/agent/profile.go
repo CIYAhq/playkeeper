@@ -115,7 +115,9 @@ func (s *server) Profile(name, tzName string, now time.Time) (api.PlayerProfile,
 		known, p.Banned = true, true
 	}
 	s.mu.Lock()
-	if s.players != nil {
+	// A sample too old to show is from before the player left or the
+	// server stopped, as the status and Discord's live status treat it.
+	if s.players != nil && s.fresh(s.players.At) {
 		for _, n := range s.players.Names {
 			if strings.EqualFold(n, name) {
 				known, p.Online = true, true

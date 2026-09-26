@@ -38,6 +38,10 @@ declare global {
     __pk: {
       controls(): ControlInfo[]
       element(key: string): Element | null
+      /** The control with this key, without making it the one pressed last. */
+      find(key: string): Element | null
+      /** The key of the control a press on `el` lands on. */
+      keyOf(el: Element): string | undefined
       snapshot(withTarget?: boolean): Snapshot
       animationsRunning(): number
       fillable(): number
@@ -145,11 +149,13 @@ export function installPageHelpers() {
     return s.clip === 'rect(0px, 0px, 0px, 0px)' || s.clipPath === 'inset(50%)'
   }
 
-  /** What a person clicks: the control, or the label around a visually hidden one. */
+  /** What a person clicks: the control, the label around a visually hidden one, or a slider's thumb around its hidden input. */
   function proxyOf(el: Element): Element | null {
     if (!clipped(el) && box(el).width >= 4 && box(el).height >= 4) return el
     const label = el.closest('label') ?? (el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null)
-    return label && !clipped(label) ? label : null
+    if (label && !clipped(label)) return label
+    const thumb = el.closest('[data-slot=slider-thumb]')
+    return thumb && !clipped(thumb) ? thumb : null
   }
 
   function visible(el: Element): boolean {
@@ -215,6 +221,8 @@ export function installPageHelpers() {
   }
 
   function disabledOf(el: Element): boolean {
+    // A button with a spinner is busy, not disabled; its spinner says why.
+    if (el.hasAttribute('data-loading')) return false
     if ((el as HTMLButtonElement).disabled) return true
     if (el.matches(':disabled')) return true
     if (el.getAttribute('aria-disabled') === 'true' && !el.hasAttribute('data-loading')) return true
@@ -283,7 +291,19 @@ export function installPageHelpers() {
   function element(key: string): Element | null {
     controls()
     target = list.find((x) => x.key === key)?.el ?? null
-    return target && proxyOf(target)
+    // A slider is moved with the keyboard, so it's the input that needs focus, not its thumb.
+    return target && (roleOf(target) === 'slider' ? target : proxyOf(target))
+  }
+
+  function find(key: string): Element | null {
+    controls()
+    return list.find((x) => x.key === key)?.el ?? null
+  }
+
+  function keyOf(el: Element): string | undefined {
+    controls()
+    const inner = (hits: { key: string; el: Element }[]) => hits.reduce<{ key: string; el: Element } | undefined>((best, x) => (!best || best.el.contains(x.el) ? x : best), undefined)
+    return (inner(list.filter((x) => x.el.contains(el))) ?? inner(list.filter((x) => proxyOf(x.el)?.contains(el))))?.key
   }
 
   function stateOf(el: Element): string {
@@ -354,5 +374,29 @@ export function installPageHelpers() {
     }).length
   }
 
-  window.__pk = { controls, element, snapshot, animationsRunning, fillable }
+  window.__pk = { controls, element, find, keyOf, snapshot, animationsRunning, fillable }
+}
+
+/**
+ * Also runs inside the page, for negative controls (Crawler.breakAndPress).
+ * 'does nothing': pressing the control with this key does nothing, like a
+ * button whose handler is missing. 'unexplained': the disabled control loses
+ * the description that says why.
+ */
+export function breakControl({ key, how }: { key: string; how: 'does nothing' | 'unexplained' }) {
+  if (how === 'does nothing') {
+    const stop = (e: Event) => {
+      if (e.target instanceof Element && window.__pk?.keyOf(e.target) === key) {
+        e.stopImmediatePropagation()
+        e.preventDefault()
+      }
+    }
+    for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown', 'keyup', 'touchstart', 'touchend']) window.addEventListener(type, stop, true)
+    return
+  }
+  const strip = () => {
+    const el = window.__pk?.find(key)
+    if (el) for (const a of ['aria-describedby', 'aria-description', 'title']) el.removeAttribute(a)
+  }
+  new MutationObserver(strip).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-describedby', 'aria-description', 'title'] })
 }

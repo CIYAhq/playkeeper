@@ -78,6 +78,7 @@ type server struct {
 	prevCPU         *docker.Stats
 	crashes         []time.Time
 	crashed         bool
+	runCrashed      bool // a run crashed and the server hasn't been online since; a failed automatic start sets only crashed
 	crash           *api.Crash
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit

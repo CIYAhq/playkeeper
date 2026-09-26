@@ -32,7 +32,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.3.1
 
 - Security fix: Playkeeper no longer follows links that a plugin or mod puts in a server's files, which could make it overwrite or read other files on the machine, including its own. If one is in the way, Playkeeper stops and says which file to remove.
-- Every button, link, switch and menu item does something, or is greyed out with a short reason. A click-through now checks this on every page, on desktop and phone.
+- Every button, link, switch, slider and menu item does something, or is greyed out with a short reason. A click-through in CI presses each one on every page, on desktop and phone, inside menus, dialogs and sheets too, and again with a server stopped, crashed or busy, with nothing to list, with an update waiting and before setup. It fails if a press shows no visible change or an error, or if a greyed-out control doesn't say why. It checks that something happens, not that it's the right thing.
 - Fixed: hiding the first steps didn't stick, opening "Older versions" or "Show options" on the New server page crashed it, a finished backup took up to ten seconds to show up on the World tab, and on a phone a server's Settings tab had no heading for screen readers.
 - Buttons react when pressed, and pages, tabs, dialogs, sheets, switches, lists and progress bars move smoothly between states. Nothing moves if your device asks for reduced motion.
 - While something loads, grey shapes show where it will appear instead of "Loading…".

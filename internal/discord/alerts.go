@@ -155,8 +155,13 @@ type Event struct {
 	// Detail is the explanation of a crash or of a failed backup.
 	Detail string
 	// Restarting says, for a crash, whether Playkeeper is restarting the
-	// server or has stopped trying after repeated crashes.
-	Restarting bool
+	// server, and GaveUp whether it stopped trying after repeated crashes.
+	// StartFailed says Playkeeper stopped trying to start a server that
+	// never came up. A crash with none of these is of a server that wasn't
+	// meant to be running, which stays off.
+	Restarting  bool
+	GaveUp      bool
+	StartFailed bool
 	// Bytes is the free disk space (low disk) or the backup's size (backup
 	// succeeded); 0 if unknown.
 	Bytes int64
@@ -186,7 +191,13 @@ func JoinRequested(player string) Event { return Event{Kind: KindJoinRequested, 
 // plain-English account of what went wrong ("" if there is none); restarting
 // is false once Playkeeper has stopped restarting the server.
 func Crashed(explanation string, restarting bool) Event {
-	return Event{Kind: KindCrash, Detail: explanation, Restarting: restarting}
+	return Event{Kind: KindCrash, Detail: explanation, Restarting: restarting, GaveUp: !restarting}
+}
+
+// StartFailed is Playkeeper giving up on automatic starts of a server that
+// never came up. reason is why the last start failed ("" if unknown).
+func StartFailed(reason string) Event {
+	return Event{Kind: KindCrash, Detail: reason, StartFailed: true}
 }
 
 // Recovered is the server coming back online after a crash.
@@ -263,8 +274,11 @@ func (e Event) subjectInServer() string {
 	case KindTwoFactor, KindAdminConfirmed:
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Member))
 	case KindCrash:
-		if !e.Restarting {
+		if e.GaveUp {
 			return string(e.Kind) + ":gave_up"
+		}
+		if e.StartFailed {
+			return string(e.Kind) + ":start_failed"
 		}
 	}
 	return string(e.Kind)
@@ -278,10 +292,15 @@ func (e Event) embed(info ServerInfo) embed {
 	var title, text string
 	switch e.Kind {
 	case KindCrash:
-		if e.Restarting {
+		switch {
+		case e.Restarting:
 			title, text = "Server crashed", name+" stopped unexpectedly. Playkeeper is restarting it."
-		} else {
+		case e.GaveUp:
 			title, text = "Server crashed and stays off", name+" kept crashing, so Playkeeper stopped restarting it. Open the dashboard to see what went wrong."
+		case e.StartFailed:
+			title, text = "Server didn't start", "Playkeeper couldn't start "+name+", so it stopped trying. Open the dashboard to see what went wrong."
+		default:
+			title, text = "Server crashed", name+" stopped unexpectedly. Open the dashboard to see what went wrong."
 		}
 		text += detail(e.Detail)
 	case KindRecovered:

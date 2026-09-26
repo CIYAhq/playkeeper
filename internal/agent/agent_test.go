@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -1663,6 +1664,47 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
 	}
 	e.waitFor("server running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+}
+
+// A server.properties Playkeeper won't read, such as a link a plugin put
+// there, can't say which world to back up: the backup fails before the
+// server stops, names the file and says what to do, instead of backing up
+// "world" without its settings.
+func TestBackupRefusesAServerPropertiesItWontReadBeforeStopping(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	props := filepath.Join(e.dataDir(), "server.properties")
+	outside := filepath.Join(t.TempDir(), "server.properties")
+	if err := os.WriteFile(outside, []byte("level-name=world\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(props); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, props); err != nil {
+		t.Fatal(err)
+	}
+	stops := e.dockerStops()
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "could not be backed up") || !strings.Contains(op.Error, "server.properties") || !strings.Contains(op.Error, "is a link") {
+		t.Fatalf("backing up past a planted server.properties must fail and name it: %+v", op)
+	}
+	if !strings.Contains(op.Hint, "Delete it") {
+		t.Fatalf("the refusal must say what to do: %q", op.Hint)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
+		t.Fatalf("%d backup rows recorded for a refused backup", n)
+	}
+	if files, _ := os.ReadDir(e.cfg.BackupsDir()); len(files) != 0 {
+		t.Fatalf("a refused backup left files: %v", files)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
+	}
 }
 
 // Re-compressing a backup keeps every file and per-file hash, so only the

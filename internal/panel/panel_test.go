@@ -315,6 +315,23 @@ func TestSetupCodeIsSingleUseAndExpires(t *testing.T) {
 
 // The first-admin check and the insert used to be separate steps, with a slow
 // password hash between them, so concurrent setups with one code all got in.
+// The first admin is made only on an empty install: with any account
+// there, even one that isn't the owner, setup makes nobody.
+func TestFirstAdminOnlyOnAnEmptyInstall(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('mara', 'x', 0, 0, 'member')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.createFirstAdmin("admin", "correct horse battery"); err != errSetupDone {
+		t.Fatalf("setup with an account already there: %v", err)
+	}
+	var owners int
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'owner'`).Scan(&owners)
+	if owners != 0 {
+		t.Fatalf("%d owner accounts made", owners)
+	}
+}
+
 func TestConcurrentSetupsCreateOneAdmin(t *testing.T) {
 	e := newEnv(t)
 	code, err := NewSetupToken(e.cfg.SetupTokenPath(), time.Hour, e.clock.now())

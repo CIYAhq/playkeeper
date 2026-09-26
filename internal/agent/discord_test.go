@@ -327,6 +327,106 @@ func TestDiscordGaveUpAlertSaysItOnceWithTheCause(t *testing.T) {
 	}
 }
 
+// When Playkeeper gives up on automatic starts of a server that never came
+// up, the alert says the start failed and why, not that the server kept
+// crashing.
+func TestDiscordStartFailuresAreNotCrashLoops(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	e.fd.mu.Lock()
+	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+	e.fd.mu.Unlock()
+	if err := e.a.docker.ContainerRemove(context.Background(), e.cname(), true); err != nil {
+		t.Fatal(err)
+	}
+	f.waitMessage(e, "Server didn't start", "Playkeeper couldn't start **My server**, so it stopped trying.", "Port 25565 is already in use by another program")
+	for _, wrong := range []string{"stays off", "kept crashing"} {
+		if f.count(wrong) != 0 {
+			t.Fatalf("starts that never came up, and the alert says %q", wrong)
+		}
+	}
+}
+
+// A server that wasn't meant to be running stays off after it stops
+// unexpectedly: the alert says it crashed, not that Playkeeper gave up
+// restarting it after crashes that never happened.
+func TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	if err := e.srv().setDesired(api.DesiredStopped); err != nil {
+		t.Fatal(err)
+	}
+	e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+	e.fd.crash(137)
+	f.waitMessage(e, "Server crashed", "stopped unexpectedly. Open the dashboard to see what went wrong.")
+	time.Sleep(300 * time.Millisecond)
+	for _, wrong := range []string{"stays off", "kept crashing", "Playkeeper is restarting it"} {
+		if f.count(wrong) != 0 {
+			t.Fatalf("one crash of a server meant to be off, and the alert says %q", wrong)
+		}
+	}
+}
+
+// The alerts Settings offers switched off go out once switched on: a server
+// coming online and stopping, and every kind of backup finishing. Each backup
+// has an agent of its own, since a second "Backup finished" within the quiet
+// period is held back.
+func TestDiscordOptionalAlertsGoOut(t *testing.T) {
+	online := func(t *testing.T) (*agentEnv, *fakeHook) {
+		e, f := newDiscordEnv(t)
+		e.connectDiscord()
+		e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{"started", "stopped", "backup_succeeded"}, "actor": "admin"})
+		e.create()
+		f.waitMessage(e, "Server started", "**My server** is online.")
+		return e, f
+	}
+	stop := func(e *agentEnv) {
+		code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+		if code != 202 {
+			e.t.Fatalf("stop: %d %v", code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+			e.t.Fatalf("stop: %+v", op)
+		}
+	}
+	t.Run("stopped", func(t *testing.T) {
+		e, f := online(t)
+		stop(e)
+		f.waitMessage(e, "Server stopped", "**My server** has stopped.")
+	})
+	for _, c := range []struct {
+		name   string
+		backup func(e *agentEnv) *api.Operation
+	}{
+		{"online backup", func(e *agentEnv) *api.Operation {
+			op := e.backupNow(nil)
+			if op.Detail["method"] == "stopped" {
+				e.t.Fatalf("the backup stopped the server: %+v", op.Detail)
+			}
+			return op
+		}},
+		{"stopped backup", func(e *agentEnv) *api.Operation { return e.backupNow(map[string]any{"stopped": true}) }},
+		{"backup of a stopped server", func(e *agentEnv) *api.Operation { stop(e); return e.backupNow(nil) }},
+		{"automatic backup before an update", func(e *agentEnv) *api.Operation {
+			code, out := e.changeVersion(map[string]any{"versionId": "paper-26.2"})
+			if code != 202 {
+				e.t.Fatalf("change: %d %v", code, out)
+			}
+			return e.waitOp(out["id"].(string))
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, f := online(t)
+			if op := c.backup(e); op.Status != api.OpSucceeded {
+				t.Fatalf("%s: %+v", c.name, op)
+			}
+			f.waitMessage(e, "Backup finished", "**My server** was backed up (")
+		})
+	}
+}
+
 // The live status message shows the server as it is, not as the last sample
 // saw it: no sample runs here once the agent has started. Crashes, coming
 // back online and Playkeeper giving up restarting each show within seconds,

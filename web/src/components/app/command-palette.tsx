@@ -1,9 +1,10 @@
 import { Fragment, useMemo, type KeyboardEvent, type ReactNode } from 'react'
-import { ArchiveIcon, ArrowDownIcon, ArrowUpIcon, BookOpenIcon, CopyIcon, CornerDownLeftIcon, ExternalLinkIcon, GlobeIcon, HouseIcon, LayoutGridIcon, MapIcon, PlayIcon, PlusIcon, RotateCwIcon, ServerIcon, SettingsIcon, SlidersHorizontalIcon, SquareTerminalIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
+import { ArchiveIcon, ArrowDownIcon, ArrowUpIcon, BookOpenIcon, CopyIcon, CornerDownLeftIcon, ExternalLinkIcon, GlobeIcon, HouseIcon, PlayIcon, PlusIcon, RotateCwIcon, ServerIcon, SettingsIcon, UserPlusIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { Me, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { copyText, Kbd } from '@/components/app/bits'
+import { serverTabs, serverTabsFor } from '@/components/app/server-tabs'
 import {
   Command,
   CommandCollection,
@@ -23,7 +24,6 @@ import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { can, settingsHome } from '@/lib/access'
 import { serverJoinAddress } from '@/lib/format'
-import { hasMap } from '@/lib/map'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
 
@@ -41,15 +41,6 @@ interface PaletteGroup {
   label: string
   items: PaletteItem[]
 }
-
-const tabPages: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
-  { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
-  { tab: 'console', key: 'tab.console', icon: <SquareTerminalIcon /> },
-  { tab: 'players', key: 'tab.players', icon: <UsersIcon /> },
-  { tab: 'world', key: 'tab.world', icon: <GlobeIcon /> },
-  { tab: 'map', key: 'tab.map', icon: <MapIcon /> },
-  { tab: 'settings', key: 'tab.settings', icon: <SlidersHorizontalIcon /> },
-]
 
 async function act(server: ServerStatus, path: string, done: string) {
   try {
@@ -114,15 +105,12 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
     const ordered = current ? [current, ...servers.filter((s) => s.id !== current.id)] : servers
     const go: PaletteItem[] = []
     if (serversOnly) {
-      for (const s of ordered) go.push({ value: `go:${s.id}`, label: s.name, hint: t('cmd.page', { server: s.name, page: t(tabPages.find((p) => p.tab === tab)?.key ?? 'tab.overview') }), icon: <ServerIcon />, run: () => navigate({ name: 'server', slug: s.slug, tab }) })
+      for (const s of ordered) go.push({ value: `go:${s.id}`, label: s.name, hint: t('cmd.page', { server: s.name, page: t(serverTabs.find((p) => p.tab === tab)?.key ?? 'tab.overview') }), icon: <ServerIcon />, run: () => navigate({ name: 'server', slug: s.slug, tab }) })
       return [{ value: 'go', label: t('cmd.goTo'), items: go }]
     }
     go.push({ value: 'go:home', label: t('cmd.pageHome'), icon: <HouseIcon />, run: () => navigate({ name: 'home' }) })
     for (const s of ordered) {
-      for (const p of tabPages) {
-        if (p.tab === 'map' && (!hasMap(s) || !can(ws.me, 'servers.manage'))) continue
-        go.push({ value: `go:${s.id}:${p.tab}`, label: t('cmd.page', { server: s.name, page: t(p.key) }), icon: p.icon, run: () => navigate({ name: 'server', slug: s.slug, tab: p.tab }) })
-      }
+      for (const p of serverTabsFor(ws.me, s)) go.push({ value: `go:${s.id}:${p.tab}`, label: t('cmd.page', { server: s.name, page: t(p.key) }), icon: p.icon, run: () => navigate({ name: 'server', slug: s.slug, tab: p.tab }) })
     }
     if (can(ws.me, 'servers.create')) go.push({ value: 'go:new', label: t('cmd.pageNew'), icon: <PlusIcon />, run: () => navigate({ name: 'new-server' }) })
     if (ws.machine) {

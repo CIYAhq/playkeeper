@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"path"
 	"slices"
@@ -134,7 +135,10 @@ func (s *server) serverCPU(now time.Time) *float64 {
 // folder below its dimension folders, as Paper 26.1
 // (world/dimensions/minecraft/the_nether/region), older Paper
 // (world_nether/DIM-1/region) and vanilla (world/DIM-1/region) lay them out.
-// Entities and poi folders hold other data in the same format.
+// Entities and poi folders hold other data in the same format. A count that
+// couldn't list a folder is not kept, as the next one would look like a
+// burst of new land; only the nether and end folders beside the world may be
+// missing, since newer layouts keep them inside it.
 func (s *server) countChunks(level string) (int, bool) {
 	d, err := s.gameFiles()
 	if err != nil {
@@ -142,10 +146,10 @@ func (s *server) countChunks(level string) (int, bool) {
 	}
 	defer d.Close()
 	c := chunkCounter{d: d}
-	for _, dir := range []string{level, level + "_nether", level + "_the_end"} {
-		c.walk(dir)
-	}
-	return c.total, true
+	c.walk(level, false)
+	c.walk(level+"_nether", true)
+	c.walk(level+"_the_end", true)
+	return c.total, !c.failed
 }
 
 // chunkCounter walks a world's folders through internal/gamefiles, which
@@ -154,11 +158,15 @@ func (s *server) countChunks(level string) (int, bool) {
 type chunkCounter struct {
 	d            *gamefiles.Dir
 	total, files int
+	failed       bool
 }
 
-func (c *chunkCounter) walk(dir string) {
+func (c *chunkCounter) walk(dir string, optional bool) {
 	entries, err := c.d.ReadDir(dir, chunkFileLimit)
 	if err != nil {
+		if !optional || !errors.Is(err, fs.ErrNotExist) {
+			c.failed = true
+		}
 		return
 	}
 	for _, e := range entries {
@@ -168,7 +176,7 @@ func (c *chunkCounter) walk(dir string) {
 			return
 		case e.IsDir():
 			if strings.Count(p, "/") <= 6 {
-				c.walk(p)
+				c.walk(p, false)
 			}
 		case e.Type().IsRegular() && path.Base(dir) == "region" && strings.HasSuffix(p, ".mca"):
 			c.files++

@@ -2,15 +2,21 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
 
 var vanilla262 = map[string]any{"type": "vanilla", "versionId": "vanilla-26.2", "memoryMB": 1536}
@@ -292,5 +298,64 @@ func TestRestoringABackupKeepsTheServerType(t *testing.T) {
 	sc, _ := e.srv().serverConfig()
 	if sc.Type != "vanilla" || sc.Software == nil || sc.Software.Type != "vanilla" || sc.Software.MinecraftVersion != "26.2" || sc.PaperBuild != 0 {
 		t.Fatalf("a restored Vanilla server stays Vanilla: %+v", sc)
+	}
+}
+
+// A version list that's slow to come holds up only the callers that need it:
+// another type's list comes meanwhile.
+func TestSlowVersionListHoldsUpOnlyItsOwnCallers(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.serveFabricLists()
+	reached, release := make(chan struct{}, 1), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	e.up.handle("https://meta.fabricmc.net/v2/versions/game", func(w http.ResponseWriter, r *http.Request) {
+		reached <- struct{}{}
+		<-release
+		io.WriteString(w, `[{"version":"26.2","stable":true}]`)
+	})
+	fabric := make(chan error, 1)
+	go func() { _, _, err := e.a.typeCatalog(context.Background(), "fabric"); fabric <- err }()
+	<-reached
+	vanilla := make(chan error, 1)
+	go func() { _, _, err := e.a.typeCatalog(context.Background(), "vanilla"); vanilla <- err }()
+	select {
+	case err := <-vanilla:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Vanilla version list waited for Fabric's")
+	}
+	unblock()
+	if err := <-fabric; err != nil {
+		t.Fatalf("Fabric's list, once it came: %v", err)
+	}
+}
+
+// A caller that waits for another's fetch of the same build list gets what
+// that fetch found, not what the cache holds by then: another list's fetch
+// may have replaced the cache meanwhile.
+func TestBuildListWaitersGetWhatTheFetchFound(t *testing.T) {
+	e := newAgentEnv(t)
+	c := &e.a.software
+	f := &flight[[]software.Build]{done: make(chan struct{})}
+	c.mu.Lock()
+	c.buildFlights = map[string]*flight[[]software.Build]{"fabric@26.2": f}
+	c.mu.Unlock()
+	type result struct {
+		builds []software.Build
+		err    error
+	}
+	got := make(chan result, 1)
+	go func() {
+		bs, _, err := e.a.typeBuilds(context.Background(), "fabric", "26.2")
+		got <- result{bs, err}
+	}()
+	f.val, f.at = []software.Build{{Version: "0.17.2", Channel: software.Stable, Recommended: true}}, time.Now()
+	close(f.done)
+	if r := <-got; r.err != nil || len(r.builds) != 1 || r.builds[0].Version != "0.17.2" {
+		t.Fatalf("a caller that waited got %+v, %v; want the list the fetch found", r.builds, r.err)
 	}
 }

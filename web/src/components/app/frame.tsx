@@ -35,7 +35,7 @@ export function Frame({ step, version, children, className }: { step?: number; v
           {!phone && <ExternalLinkIcon className="size-3.5" aria-hidden="true" />}
         </a>
       </header>
-      <main id="main" tabIndex={-1} className={cn('flex flex-1 flex-col items-center justify-center px-6 py-8 outline-none max-sm:justify-start max-sm:px-4 max-sm:pt-2 max-sm:pb-6', className)}>
+      <main id="main" tabIndex={-1} className={cn('flex flex-1 animate-page flex-col items-center justify-center px-6 py-8 outline-none max-sm:justify-start max-sm:px-4 max-sm:pt-2 max-sm:pb-6', className)}>
         {children}
       </main>
       <footer className="flex shrink-0 justify-between gap-6 px-6 py-4 text-xs text-muted-foreground max-sm:hidden">

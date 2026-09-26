@@ -101,6 +101,8 @@ func allKindsEvents() []Event {
 	return []Event{
 		Crashed("The server ran out of memory and was killed.", true),
 		Crashed("It crashed 3 times in 10 minutes.", false),
+		{Kind: KindCrash, Detail: "It was meant to be off."},
+		StartFailed("Port 25565 is already in use by another program, so the server cannot accept players."),
 		Recovered(),
 		LowDisk(1536 << 20),
 		BackupFailed("There is not enough free disk space for a backup."),
@@ -118,6 +120,8 @@ func TestAlertEmbedsReadWell(t *testing.T) {
 	want := []struct{ title, text string }{
 		{"Server crashed", "**Survival** stopped unexpectedly. Playkeeper is restarting it.\n\nThe server ran out of memory and was killed."},
 		{"Server crashed and stays off", "**Survival** kept crashing, so Playkeeper stopped restarting it. Open the dashboard to see what went wrong.\n\nIt crashed 3 times in 10 minutes."},
+		{"Server crashed", "**Survival** stopped unexpectedly. Open the dashboard to see what went wrong.\n\nIt was meant to be off."},
+		{"Server didn't start", "Playkeeper couldn't start **Survival**, so it stopped trying. Open the dashboard to see what went wrong.\n\nPort 25565 is already in use by another program, so the server cannot accept players."},
 		{"Back online", "**Survival** is running again after the crash."},
 		{"Low disk space", "Only 1.5 GB of disk space is left on the machine that runs **Survival**. Backups and world saves fail when the disk is full: delete old backups or free up space."},
 		{"Backup failed", "A backup of **Survival** failed.\n\nThere is not enough free disk space for a backup."},

@@ -403,8 +403,8 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		if tpl != nil && rt.typ != tpl.p.Type.ID {
-			writeError(w, errConflict(fmt.Sprintf("The template names a %s server, but its modpack runs on %s, so nothing was created.", tpl.p.Type.Name, typeName(rt.typ)),
+		if tpl != nil && !templatePackFits(tpl.p, rt) {
+			writeError(w, errConflict(fmt.Sprintf("The template's modpack runs on %s %s, not what the template names, so nothing was created.", typeName(rt.typ), rt.pin.MinecraftVersion),
 				"Ask whoever shared the template for a new one."))
 			return
 		}
@@ -537,7 +537,7 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 // forgetCrashes starts the crash policy over for a start someone asked for.
 func (s *server) forgetCrashes() {
 	s.mu.Lock()
-	s.crashes, s.crashed, s.crash, s.nextAutoRestart = nil, false, nil, time.Time{}
+	s.crashes, s.crashed, s.runCrashed, s.crash, s.nextAutoRestart = nil, false, false, nil, time.Time{}
 	s.mu.Unlock()
 }
 
@@ -576,7 +576,7 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 		s.mu.Lock()
-		s.crashed, s.crash = false, nil
+		s.crashed, s.runCrashed, s.crash = false, false, nil
 		s.mu.Unlock()
 	}
 	release()

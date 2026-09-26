@@ -110,6 +110,8 @@ export function NewServerPage() {
   const [c, setC] = useState<CreateChoices>()
   const { catalog, error, reload } = useCatalog(ws.machine?.id, { type: c?.type ?? 'paper', fresh: true })
   const [step, setStep] = useState(0)
+  // The first step comes in with the page; later ones animate in themselves.
+  const [stepped, setStepped] = useState(false)
   const [nameEdited, setNameEdited] = useState(false)
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<string>()
@@ -239,12 +241,16 @@ export function NewServerPage() {
     }
   }
 
+  const go = (to: number) => {
+    setStepped(true)
+    setStep(to)
+  }
   // A pack decides the version and comes with its own mods, so it skips to memory.
   function startWithPack(p: ModpackChoice) {
     const opts = memoryOptions(catalog)
     const memoryMB = p.memoryMB ? (opts.find((mb) => mb >= p.memoryMB) ?? opts[opts.length - 1]) : undefined
     update({ ...(memoryMB ? { memoryMB } : {}), ...(nameEdited ? {} : { name: freeName(packServerName(p.name), ws.servers) }) })
-    setStep(3)
+    go(3)
   }
   // A template decides the type, version and settings, so it skips to memory too.
   function startWithTemplate(choice: TemplateChoice) {
@@ -252,7 +258,7 @@ export function NewServerPage() {
     const memoryMB = choice.plan.memoryMB ? (opts.find((mb) => mb >= choice.plan.memoryMB) ?? opts[opts.length - 1]) : undefined
     update({ ...(memoryMB ? { memoryMB } : {}), ...(nameEdited ? {} : { name: freeName(choice.plan.contents.name.slice(0, 32).trim(), ws.servers) }) })
     setTplProblem(undefined)
-    setStep(3)
+    go(3)
   }
   /** Looks inside the upload, then previews its main world on the recommended version. */
   async function checkWorld() {
@@ -269,7 +275,7 @@ export function NewServerPage() {
       setCheck({ upload: imp, preview: p, world: id })
       const name = suggestedName(imp, id, uploaded.files)
       setC((prev) => prev && { ...prev, memoryMB: worldMemory(p), ...(nameEdited || !name ? {} : { name: freeName(name, ws.servers) }) })
-      setStep(1)
+      go(1)
     } catch (e) {
       if (seq === checkSeq.current) setCheckErr(checkError(e))
     } finally {
@@ -311,15 +317,15 @@ export function NewServerPage() {
 
   function next() {
     if (world && step === 0) {
-      if (inspected) setStep(1)
+      if (inspected) go(1)
       else void checkWorld()
-    } else if (world && step === 1) setStep(3)
+    } else if (world && step === 1) go(3)
     else if (step === 4) void create()
     else if (step === 0 && templated && tpl) startWithTemplate(tpl)
     else if (step === 0 && packed && pack) startWithPack(pack)
-    else setStep((s) => s + 1)
+    else go(step + 1)
   }
-  const back = () => setStep((s) => (s === 3 && world ? 1 : s === 3 && (packed || templated) ? 0 : Math.max(0, s - 1)))
+  const back = () => go(step === 3 && world ? 1 : step === 3 && (packed || templated) ? 0 : Math.max(0, step - 1))
   const stepTitles = stepKeys.map((k) => t(k))
 
   let body: ReactNode
@@ -465,7 +471,7 @@ export function NewServerPage() {
                   <TypeLogo type={c.type} size={phone ? 28 : 22} />
                   {t('new.versions', { type: typeName(c.type) })}
                 </span>
-                <button type="button" onClick={() => setStep(0)} className="font-semibold text-primary hover:underline max-sm:text-[15px] max-sm:text-success-strong">
+                <button type="button" onClick={() => go(0)} className="font-semibold text-primary hover:underline max-sm:text-[15px] max-sm:text-success-strong">
                   {t('new.changeType')}
                 </button>
               </div>
@@ -618,6 +624,11 @@ export function NewServerPage() {
 
   const note = createNote(step, from, from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type)
   const worldSummary = world ? { from: sourceFrom(source), name: upload.state.phase === 'idle' ? '' : uploadName(upload.state.files), upload: upload.state, version: inspected ? versionChange(inspected.preview) : '' } : undefined
+  const stepBody = (
+    <div key={step} className={cn(stepped && 'animate-page')}>
+      {body}
+    </div>
+  )
   const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
   const worldKeys = world ? worldStepKeys[step] : undefined
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
@@ -680,12 +691,10 @@ export function NewServerPage() {
         </header>
         <div className="mb-5 flex gap-1.5" aria-hidden="true">
           {stepTitles.map((s, i) => (
-            <span key={s} className={cn('h-1 flex-1 rounded-full', i <= step ? 'bg-primary' : 'bg-foreground/10')} />
+            <span key={s} className={cn('h-1 flex-1 rounded-full transition-colors duration-(--motion-slow) ease-standard', i <= step ? 'bg-primary' : 'bg-foreground/10')} />
           ))}
         </div>
-        <div key={step} className="animate-fade">
-          {body}
-        </div>
+        {stepBody}
         {!world && <div className="mt-6">{restoreLink}</div>}
         <PhoneActions>
           <Button size="touch" onClick={next} disabledReason={blocked()} loading={busy || checkBusy}>
@@ -723,9 +732,7 @@ export function NewServerPage() {
         <Stepper steps={stepTitles} current={step} label={t('new.steps')} skip={world ? 2 : undefined} />
         <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
           <div className="flex min-w-0 flex-col">
-            <div key={step} className="animate-fade">
-              {body}
-            </div>
+            {stepBody}
             <div className="mt-6 flex items-center gap-3 border-t border-border pt-4">
               {step > 0 && (
                 <Button variant="ghost" onClick={back}>

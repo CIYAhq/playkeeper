@@ -456,6 +456,7 @@ func TestRepeatedAlertsAreThrottled(t *testing.T) {
 	h.Notify(PlayerJoined("steve"))
 	h.Notify(PlayerJoined("Alex"))
 	h.Notify(Crashed("gave up", false))
+	h.Notify(StartFailed("port taken"))
 	h.Notify(UpdateAvailable("0.4.0"))
 	// A Minecraft version is not the Playkeeper version of the same number.
 	h.Notify(MinecraftUpdateAvailable("0.4.0"))
@@ -465,6 +466,7 @@ func TestRepeatedAlertsAreThrottled(t *testing.T) {
 		"**Steve** joined **Survival**.",
 		"**Alex** joined **Survival**.",
 		"**Survival** kept crashing, so Playkeeper stopped restarting it. Open the dashboard to see what went wrong.\n\ngave up",
+		"Playkeeper couldn't start **Survival**, so it stopped trying. Open the dashboard to see what went wrong.\n\nport taken",
 		"Playkeeper 0.4.0 is available. You can update it from the dashboard.",
 		"**Survival** can be updated to Minecraft 0.4.0 on the Settings tab.",
 	}

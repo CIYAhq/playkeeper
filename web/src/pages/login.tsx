@@ -96,7 +96,7 @@ function PasswordStep({ machine, username, setUsername, error, setError, onAnswe
         </div>
         <PasswordField id="login-password" label={t('login.password')} value={password} onChange={setPassword} autoComplete="current-password" />
         {error && (
-          <p className="text-[13px] text-destructive-foreground" role="alert">
+          <p className="animate-enter text-[13px] text-destructive-foreground" role="alert">
             {error}
           </p>
         )}
@@ -272,7 +272,7 @@ function SecondStep({ username, challenge, onDone, onBack }: Pending & { onDone:
           </>
         )}
         {wrong && (
-          <p id="second-step-error" className="mt-3 text-[13px] font-medium text-destructive-foreground" role="alert">
+          <p id="second-step-error" className="animate-enter mt-3 text-[13px] font-medium text-destructive-foreground" role="alert">
             {byRecovery ? t('signin.recoveryWrong') : t('signin.wrong')}
           </p>
         )}
@@ -286,7 +286,7 @@ function SecondStep({ username, challenge, onDone, onBack }: Pending & { onDone:
           <p className="mt-3 text-[13px] text-muted-foreground">{rich('signin.blockedNoRecovery', { code: (chunk) => <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{chunk}</code> }, { command: `sudo playkeeper reset-2fa ${username}` })}</p>
         )}
         {error && (
-          <p className="mt-3 text-[13px] text-destructive-foreground" role="alert">
+          <p className="animate-enter mt-3 text-[13px] text-destructive-foreground" role="alert">
             {error}
           </p>
         )}
