@@ -170,8 +170,14 @@ webcontrol "Start says it waits for the missing world folder" web/src/lib/phase.
   "if (st.worldMissing && false) return t('reason.worldMissing')" \
   web/src/lib/lib.test.ts 'start a server whose world folder'
 webcontrol "a backup says it waits for the missing world folder" web/src/lib/phase.ts \
-  "return st.worldMissing ? t('reason.worldMissing') : undefined" \
-  "return undefined" \
+  "    case 'change':
+      return undefined
+    case 'backup':
+" \
+  "    case 'change':
+    case 'backup':
+      return undefined
+" \
   web/src/lib/lib.test.ts 'back up a server whose world folder'
 webcontrol "Back up now waits for the missing world folder" web/src/pages/server/world.tsx \
   "const blocked = whyNot(s, 'backup', ws.stale)" \
@@ -203,6 +209,82 @@ webcontrol "a long activity line shortens instead of widening the page" web/src/
   '<span className="w-0 flex-1 truncate">' \
   '<span className="min-w-0 flex-1 truncate">' \
   web/src/pages/pages.test.tsx 'long activity line'
+control "the data pack list waits for the missing world folder" internal/agent/packs.go \
+  'if m := s.worldMissing(); m != nil {
+		return nil, errWorldMissing(m, "try again")' \
+  'if m := s.worldMissing(); false && m != nil {
+		return nil, errWorldMissing(m, "try again")' \
+  ./internal/agent '^TestTheDataPackListWaitsForTheMissingWorldFolder$'
+control "another restore waits for the missing world folder" internal/agent/handlers.go \
+  'if m := target.worldMissing(); m != nil {' \
+  'if m := target.worldMissing(); false && m != nil {' \
+  ./internal/agent '^TestARestoreWaitsForTheMissingWorldFolder$'
+control "a new icon refused for the missing world folder says to upload it again" internal/agent/settings.go \
+  's.ensureDirs("upload the icon again")' \
+  's.ensureDirs("press Start")' \
+  ./internal/agent '^TestAnIconOrPackRefusedForTheMissingWorldFolderSaysWhatToRedo$'
+control "a new data pack refused for the missing world folder says to add it again" internal/agent/packs.go \
+  's.ensureDirs("add the data pack again")' \
+  's.ensureDirs("press Start")' \
+  ./internal/agent '^TestAnIconOrPackRefusedForTheMissingWorldFolderSaysWhatToRedo$'
+webcontrol "pre-generating says it waits for the missing world folder" web/src/lib/phase.ts \
+  "      return undefined
+    case 'backup':
+    case 'pregen':
+" \
+  "    case 'pregen':
+      return undefined
+    case 'backup':
+" \
+  web/src/lib/lib.test.ts 'pre-generate or restore while'
+webcontrol "a restore says it waits for the missing world folder" web/src/lib/phase.ts \
+  "      return undefined
+    case 'backup':
+    case 'pregen':
+    case 'restore':
+" \
+  "    case 'restore':
+      return undefined
+    case 'backup':
+    case 'pregen':
+" \
+  web/src/lib/lib.test.ts 'pre-generate or restore while'
+webcontrol "the pre-generation page's Start waits for the missing world folder" web/src/pages/server/world-pregen.tsx \
+  "whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale)" \
+  "whyNot({ ...s, operation: otherJob }, 'change', ws.stale)" \
+  web/src/pages/server/world.test.tsx 'waits for a world folder a restore left missing'
+webcontrol "the World card's pre-generation row waits for the missing world folder" web/src/pages/server/world-links.tsx \
+  'lineKey={pg?.state} busy={working(pg)} disabledReason={worldMissingReason(s)}' \
+  'lineKey={pg?.state} busy={working(pg)}' \
+  web/src/pages/server/world.test.tsx 'pre-generating while'
+webcontrol "the phone's pre-generation row waits for the missing world folder" web/src/pages/server/world-links.tsx \
+  'line={active ? pregenLine(pg, s.name) : undefined} busy={working(pg)} disabledReason={worldMissingReason(s)}' \
+  'line={active ? pregenLine(pg, s.name) : undefined} busy={working(pg)}' \
+  web/src/pages/server/world.test.tsx 'pre-generating while'
+webcontrol "the World tab's restore drop zone waits for the missing world folder" web/src/pages/server/world.tsx \
+  '<RestoreDropZone server={s} onPreview={setPreview} disabledReason={restoreBlocked} />' \
+  '<RestoreDropZone server={s} onPreview={setPreview} />' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "a disabled drop zone won't choose a file" web/src/components/app/restore.tsx \
+  '<button type="button" disabled={!!disabledReason} title={disabledReason}' \
+  '<button type="button"' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "a backup's restore waits for the missing world folder" web/src/pages/server/world.tsx \
+  '<MenuItem disabled={!!restoreBlocked} title={restoreBlocked} onClick={onRestore}' \
+  '<MenuItem onClick={onRestore}' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "the phone's Restore a world waits for the missing world folder" web/src/pages/server/world.tsx \
+  '<button type="button" disabled={!!restoreBlocked} title={restoreBlocked} onClick={() => setRestoreSheet(true)}' \
+  '<button type="button" onClick={() => setRestoreSheet(true)}' \
+  web/src/pages/pages.test.tsx 'offer a restore while'
+webcontrol "a copy's restore waits for the missing world folder" web/src/pages/server/copy-restore.tsx \
+  "const cantRestore = whyNot(s, 'restore', ws.stale)" \
+  "const cantRestore = whyNot(s, 'change', ws.stale)" \
+  web/src/pages/pages.test.tsx 'restore a copy while'
+webcontrol "a refused server icon says what to do next" web/src/pages/server/settings.tsx \
+  "else toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })" \
+  "else toastManager.add({ title: errorText(e), type: 'error' })" \
+  web/src/pages/pages.test.tsx 'new icon is refused'
 control "one admin from concurrent setups" internal/panel/auth.go \
   'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
   'SELECT ?, ?, ?, ?' \
