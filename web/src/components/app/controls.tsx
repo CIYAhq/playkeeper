@@ -186,7 +186,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, c
           value={o.value}
           title={disabledReason}
           className={cn(
-            'h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline',
+            'h-7 min-w-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:font-semibold data-pressed:text-foreground data-pressed:shadow-outline sm:h-7 sm:min-w-7 sm:text-[13px]',
             disabledReason && 'disabled:pointer-events-auto disabled:cursor-not-allowed',
             itemClassName,
           )}

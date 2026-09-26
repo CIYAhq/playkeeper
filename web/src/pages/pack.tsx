@@ -200,7 +200,7 @@ function PhoneLaunchers({ launchers }: { launchers: PackLauncher[] }) {
   if (!launcher) return null
   return (
     <>
-      <Segmented value={launcher.id} onChange={setChosen} options={launchers.map((l) => ({ value: l.id, label: l.name }))} label={t('packPage.launchers')} className="flex w-full" itemClassName="h-9 flex-1 text-sm" />
+      <Segmented value={launcher.id} onChange={setChosen} options={launchers.map((l) => ({ value: l.id, label: l.name }))} label={t('packPage.launchers')} className="flex w-full" itemClassName="h-9 flex-1 text-sm sm:h-8 sm:text-sm" />
       <div className="flex flex-col rounded-2xl border border-border bg-card p-4 shadow-card">
         <LauncherSteps launcher={launcher} />
       </div>
