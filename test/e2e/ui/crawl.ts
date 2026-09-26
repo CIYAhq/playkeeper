@@ -1,7 +1,6 @@
 import type { ElementHandle, Page, Request } from '@playwright/test'
-import { isAddonRead } from './addon-fixtures'
 import { breakControl, installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
-import { installFakes, type ApiCall, type View } from './fakes'
+import { fixtureRead, installFakes, type ApiCall, type View } from './fakes'
 
 // Presses every control a person can reach and checks that each one visibly
 // does something. See clickthrough.spec.ts for the rules.
@@ -391,7 +390,10 @@ export class Crawler {
     for (const c of this.calls.slice(errs.calls)) if (c.at >= since && c.status >= 400 && !c.expected) out.push(`${c.method} ${c.path} answered ${c.status}${c.error ? `: ${c.error}` : ''}`)
     for (const u of this.unfaked.slice(errs.unfaked)) out.push(`no fake for ${u}; the real panel was not called`)
     for (const u of this.unrecorded.slice(errs.unrecorded)) out.push(`no recorded answer for ${u}; the real panel was not called`)
-    for (const c of this.calls.slice(errs.calls)) if (!c.faked && isAddonRead(c.method, c.path)) out.push(`${c.method} ${c.path} reached the panel; add-on reads come from the recorded fixtures`)
+    for (const c of this.calls.slice(errs.calls)) {
+      const kind = c.faked ? undefined : fixtureRead(c.method, c.path)
+      if (kind) out.push(`${c.method} ${c.path} reached the panel; ${kind} reads come from the recorded fixtures`)
+    }
     return out
   }
 
@@ -526,14 +528,21 @@ export class Crawler {
   }
 
   /**
-   * Every add-on read the page made so far, pressed for or not: how many the
-   * recorded fixtures answered, those that reached the panel instead and
-   * those the fixtures had no answer for.
+   * Every add-on and modpack read the page made so far, pressed for or not:
+   * how many of each the recorded fixtures answered, those that reached the
+   * panel instead and those the fixtures had no answer for.
    */
-  addonReads(): { answered: number; live: string[]; unrecorded: string[] } {
-    const reads = this.calls.filter((c) => isAddonRead(c.method, c.path))
-    const live = reads.filter((c) => !c.faked).map((c) => `${c.method} ${c.path}`)
-    return { answered: reads.length - live.length - this.unrecorded.length, live, unrecorded: [...this.unrecorded] }
+  fixtureReads(): { answered: { addons: number; modpacks: number }; live: string[]; unrecorded: string[] } {
+    const answered = { addons: 0, modpacks: 0 }
+    const live: string[] = []
+    const unrecorded = new Set(this.unrecorded)
+    for (const c of this.calls) {
+      const kind = fixtureRead(c.method, c.path)
+      if (!kind) continue
+      if (!c.faked) live.push(`${c.method} ${c.path}`)
+      else if (!(c.status === 501 && unrecorded.has(`${c.method} ${c.path}`))) answered[kind === 'add-on' ? 'addons' : 'modpacks']++
+    }
+    return { answered, live, unrecorded: [...this.unrecorded] }
   }
 
   private async explore(route: string) {
