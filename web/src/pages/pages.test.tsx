@@ -316,19 +316,24 @@ describe('Home', () => {
     expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
+  const activityAsked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/activity'))
+
   it('groups servers by machine, with activity from every machine that answers', async () => {
-    const home: MachineView = {
-      id: 'h2345abcde',
-      projectId: machine.projectId,
-      name: 'home-server',
-      kind: 'remote',
-      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
-      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
-    }
-    const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
     vi.mocked(client.get).mockImplementation(((path: string) => {
-      if (path.includes(`/${machine.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' }])
-      if (path.includes(`/${home.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' }])
+      if (path === '/api/activity?limit=5')
+        return Promise.resolve([
+          { ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' },
+          { ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' },
+        ])
       if (path.includes(`/${away.id}/`)) return Promise.reject(new client.ApiError(503, { error: 'offline', code: 'machine_offline' }))
       return new Promise(() => {})
     }) as typeof client.get)
@@ -349,6 +354,20 @@ describe('Home', () => {
     expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
     expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
     expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+  })
+
+  // The dashboard merges every machine's activity and adds each team join once, so Home asks it once however many machines there are.
+  it.each([
+    { name: 'the dashboard’s machine', machines: [machine] },
+    { name: 'two machines', machines: [machine, home] },
+    { name: 'three machines, one away', machines: [machine, home, away] },
+  ])('shows a team join once with $name', async ({ machines }) => {
+    answer({ '/api/activity': [{ ts: hoursAgo(1), kind: 'team_joined', actor: 'alex', detail: 'moderator' }] })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<HomePage />, workspace({ machines, servers: [server({ machineId: machine.id })] }))
+    expect(text.split('alex joined the team as Moderator').length - 1).toBe(1)
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
   })
 
   it('says when the agent stopped answering, keeping names but not numbers', async () => {

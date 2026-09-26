@@ -1337,6 +1337,7 @@ export const reads: Routes = {
   'GET /api/machines': (s) => [s.machine],
   'GET /api/machines/link': () => link,
   'GET /api/machines/:machine/activity': (s, r) => s.activity.slice(0, limit(r, 5)),
+  'GET /api/activity': (s, r) => s.activity.slice(0, limit(r, 5)),
   'GET /api/machines/:machine/catalog': catalog,
   'GET /api/machines/:machine/catalog/builds': builds,
   'GET /api/machines/:machine/address': address,

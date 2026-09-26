@@ -312,6 +312,7 @@ func (s *Server) Routes() []Route {
 		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
 		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
 		view("/api/machines/{mid}/activity", s.hMachineActivity),
+		view("/api/activity", s.hActivity),
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},

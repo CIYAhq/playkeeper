@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -351,6 +352,63 @@ func TestTeamJoinsShowInActivity(t *testing.T) {
 	}
 	if st := e.get(t, "/api/machines/"+mid+"/activity", mod.cookie, &acts); st != 200 || len(acts) != 2 || acts[0].Actor != "mara" || acts[1].Player != "Steve" {
 		t.Fatalf("a moderator sees only their own join: %d %+v", st, acts)
+	}
+}
+
+// Home's activity has each team join once however many machines there are,
+// and still once while the dashboard's agent is down; a machine's own feed
+// has the joins only on the dashboard's machine.
+func TestHomeShowsEachTeamJoinOnce(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	local := e.localMachine(t)
+	addMember(t, e, "alex", invites.RoleModerator, "*")
+	own := `[{"ts":"2026-09-24T11:03:00Z","serverId":"abcdefghjk","kind":"join","player":"Steve"}]`
+	joins := func(acts []api.Activity) (n int) {
+		for _, a := range acts {
+			if a.Kind == api.ActivityTeamJoined && a.Actor == "alex" {
+				n++
+			}
+		}
+		return n
+	}
+	var joined []string
+	for machines := 1; machines <= 3; machines++ {
+		if machines > 1 {
+			ra := newRemoteAgent()
+			ra.reply("GET /v1/activity", fmt.Sprintf(`[{"ts":"2026-09-24T11:0%d:00Z","serverId":"bcdefghjk%d","kind":"join","player":"Pia%d"}]`, machines, machines, machines))
+			rid, _ := e.joined(t, cookie, csrf, ra)
+			joined = append(joined, rid)
+		}
+		for _, down := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d machines, the dashboard's agent down: %v", machines, down), func(t *testing.T) {
+				status := http.StatusOK
+				if down {
+					status = http.StatusServiceUnavailable
+				}
+				e.replyStatus("GET", "/v1/activity", status, own)
+				var acts []api.Activity
+				st := e.get(t, "/api/activity?limit=5", cookie, &acts)
+				switch {
+				case down && machines == 1:
+					if st == http.StatusOK {
+						t.Fatalf("with no machine answering, Home's activity says so: %d %+v", st, acts)
+					}
+				case st != http.StatusOK || joins(acts) != 1 || len(acts) != machines+1 && !down || len(acts) != machines && down:
+					t.Fatalf("Home's activity: %d, %d joins in %+v", st, joins(acts), acts)
+				}
+				for _, id := range joined {
+					if st := e.get(t, "/api/machines/"+id+"/activity", cookie, &acts); st != http.StatusOK || joins(acts) != 0 || len(acts) != 1 {
+						t.Fatalf("a joined machine's own feed: %d %+v", st, acts)
+					}
+				}
+				if !down {
+					if st := e.get(t, "/api/machines/"+local+"/activity", cookie, &acts); st != http.StatusOK || joins(acts) != 1 {
+						t.Fatalf("the dashboard's machine's own feed: %d %+v", st, acts)
+					}
+				}
+			})
+		}
 	}
 }
 

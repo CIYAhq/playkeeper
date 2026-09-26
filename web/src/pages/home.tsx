@@ -3,7 +3,7 @@ import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ServerIc
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
 import type { Activity, CatalogEntry, MachineView, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
-import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, PlayerFace, Spinner, StatusPill } from '@/components/app/bits'
@@ -20,7 +20,7 @@ import { rich } from '@/i18n/rich'
 import { can, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatList, formatMB, formatPercent, formatSpan, sameDay } from '@/lib/format'
-import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
@@ -36,8 +36,7 @@ export function HomePage() {
   const servers = ws.servers
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
-  const reachable = ws.machines.filter((m) => !outOfReach(m)).map((m) => m.id)
-  const activity = usePoll<Activity[] | undefined>(() => (reachable.length ? recentActivity(reachable) : Promise.resolve(undefined)), 10000, reachable.join(' '))
+  const activity = usePoll(recentActivity, 10000)
   const grouped = ws.machines.length > 1
   const sections = useListPresence(grouped ? ws.machines : undefined, machineKey)
 
@@ -128,15 +127,9 @@ export function HomePage() {
 
 const machineKey = (m: MachineView) => m.id
 
-/** The latest activity on the machines that answer, newest first. */
-async function recentActivity(machines: string[]): Promise<Activity[]> {
-  const got = await Promise.allSettled(machines.map((id) => get<Activity[]>(machineApi(id, '/activity?limit=5'))))
-  const lists = got.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
-  if (!lists.length && got[0]?.status === 'rejected') throw got[0].reason
-  return lists
-    .flat()
-    .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
-    .slice(0, 5)
+/** The latest activity on the machines that answer, newest first, with each team join once. */
+function recentActivity(): Promise<Activity[]> {
+  return get<Activity[]>('/api/activity?limit=5')
 }
 
 /**
