@@ -237,12 +237,12 @@ function RuleField({ label, unit, value, max, onChange, phone }: { label: string
       <span className={phone ? 'text-base' : 'text-[13px]'}>{label}</span>
       <NumberField className="w-auto shrink-0" value={value} onValueChange={(n) => onChange(Math.max(0, Math.min(max, n ?? 0)))} min={0} max={max} step={1} size={phone ? 'lg' : 'sm'}>
         <NumberFieldGroup className={phone ? 'w-[156px]' : 'w-[148px]'}>
-          <NumberFieldDecrement aria-label={t('common.decrease')} />
+          <NumberFieldDecrement aria-label={t('common.decrease')} title={value <= 0 ? t('reason.atMin', { min: 0 }) : undefined} />
           <span className="flex min-w-0 flex-1 items-center justify-center gap-1 border-x border-input">
             <NumberFieldInput className={cn('w-7 shrink-0 grow-0 px-0 text-right font-semibold tabular-nums in-data-[size=sm]:px-0', phone && 'w-8 text-base')} aria-label={label} />
             <span className={cn('text-muted-foreground', phone ? 'text-sm' : 'text-xs')}>{unit}</span>
           </span>
-          <NumberFieldIncrement aria-label={t('common.increase')} />
+          <NumberFieldIncrement aria-label={t('common.increase')} title={value >= max ? t('reason.atMax', { max }) : undefined} />
         </NumberFieldGroup>
       </NumberField>
     </div>

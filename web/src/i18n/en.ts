@@ -1102,6 +1102,8 @@ export const en = {
   'op.disk-cleanup': 'Freeing disk space',
   'op.offsite-restore': 'Restoring {server} from a copy',
   'reason.saving': 'Saving…',
+  'reason.atMin': 'Can’t go below {min}.',
+  'reason.atMax': 'Can’t go above {max}.',
   'activity.aSchedule': 'A schedule',
   'activity.backupRules': 'Backup rules',
   'activity.fellAsleep': '{server} fell asleep · nobody on for {minutes} min',
