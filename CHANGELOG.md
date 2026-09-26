@@ -4,6 +4,9 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.0
 
+- Run servers on more than one machine: Settings › Machines makes a one-line command for a second VPS or a home server. The machine dials out to the dashboard and reconnects by itself, so no port opens on it, and its servers show up on Home and in the sidebar next to the others.
+- Connect an AI agent: Settings › AI agents gives Claude, Cursor or another MCP tool its own token, with a Viewer's, Moderator's or Admin's rights for all servers or only some. What agents do shows up there and in the activity log, with the token's name.
+- How big a VPS to rent: the sizing guide at playkeeper.io/sizing answers for how many friends play at once and what you'll run, and New server suggests memory from the same numbers.
 - Try Playkeeper before you install it: the live demo at playkeeper.io/demo is the dashboard with sample servers, players, console, backups and settings, running in your browser. Nothing in it is real, and it starts over every hour.
 
 ## 0.3.1
