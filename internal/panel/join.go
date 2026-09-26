@@ -47,6 +47,36 @@ func (c joinCall) LogValue() slog.Value {
 var errJoinUnavailable = &invites.Error{Code: api.CodeAgentUnavailable, Status: http.StatusServiceUnavailable,
 	Msg: "Playkeeper can't reach this server right now.", Hint: "Try again in a few minutes.", Reason: "the agent did not answer"}
 
+// joinCallPrefix is where the join page's calls go.
+const joinCallPrefix = "/api/public/join/"
+
+// The public group's limits for the join page and its calls sit above the
+// invite guard's (invites.GuardLimits), which answers with a wait the page
+// shows; these stop floods before a handler runs. A call may wait on Mojang
+// and the agent, and a read deadline that passes cancels the request, so a
+// call may take as long to read as to answer.
+var (
+	joinPageLimits = publicLimits{perMinute: 60, open: 8, read: 10 * time.Second, write: 30 * time.Second, stall: 10 * time.Second}
+	joinCallLimits = publicLimits{perMinute: 120, open: 8, read: time.Minute, write: time.Minute, stall: 10 * time.Second}
+)
+
+// joinPages serves the page an invite link opens, at any path under /join/,
+// and the calls it makes, which need the same-origin marker like sign-in.
+// The public group routes both prefixes here.
+func (s *Server) joinPages() http.Handler {
+	mux := http.NewServeMux()
+	for _, rt := range []Route{
+		{"GET", invites.JoinPath + "/", public, "", s.hJoinPage},
+		{"POST", joinCallPrefix + "preview", publicMutation, "", s.hJoinPreview},
+		{"POST", joinCallPrefix + "lookup", publicMutation, "", s.hJoinLookup},
+		{"POST", joinCallPrefix + "redeem", publicMutation, "", s.hJoinRedeem},
+		{"POST", joinCallPrefix + "accept", publicMutation, "", s.hJoinAccept},
+	} {
+		mux.HandleFunc(rt.Method+" "+rt.Pattern, s.guard(rt))
+	}
+	return mux
+}
+
 // hJoinPage is the dashboard's page for an invite link. It learns the kind
 // of invite from the preview call. Its address holds the code, so browsers
 // and proxies mustn't keep it.

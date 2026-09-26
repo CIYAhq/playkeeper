@@ -797,12 +797,24 @@ control "public pages never show a username" internal/panel/join.go \
   '_ = a.Name' \
   ./internal/panel '^(TestFriendInviteLetsFriendsIn|TestTeamInvitesMakeMembers)$'
 control "invite codes are kept out of the log" internal/panel/server.go \
-  '"path", invites.RedactPath(r.URL.Path)' \
+  '"path", s.public.logPath(invites.RedactPath(r.URL.Path))' \
   '"path", r.URL.Path' \
   ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
-control "the join page is never stored" internal/panel/join.go \
-  's.writeIndex(w, "no-store")' \
-  's.writeIndex(w, "no-cache")' \
+control "the join page is never stored" internal/panel/public.go \
+  '{prefix: invites.JoinPath + "/", limits: joinPageLimits, ownRefusals: true, handler: join},' \
+  '{prefix: invites.JoinPath + "/", limits: joinPageLimits, cache: "private, max-age=60", ownRefusals: true, handler: join},' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the invite pages answer their own refusals" internal/panel/public.go \
+  '{prefix: joinCallPrefix, limits: joinCallLimits, ownRefusals: true, handler: join},' \
+  '{prefix: joinCallPrefix, limits: joinCallLimits, handler: join},' \
+  ./internal/panel '^(TestFriendInviteLetsFriendsIn|TestInvitePagesArePublicAndNothingElse)$'
+control "the join page is limited per address by the public group" internal/panel/join.go \
+  'joinPageLimits = publicLimits{perMinute: 60,' \
+  'joinPageLimits = publicLimits{perMinute: 6000,' \
+  ./internal/panel '^TestInvitePagesArePublicAndNothingElse$'
+control "the join calls need the same-origin marker" internal/panel/join.go \
+  '{"POST", joinCallPrefix + "preview", publicMutation, "", s.hJoinPreview},' \
+  '{"POST", joinCallPrefix + "preview", public, "", s.hJoinPreview},' \
   ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
 control "nothing under the join path is stored" internal/panel/server.go \
   'cache = "no-store"' \

@@ -6,14 +6,18 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/mojang"
+	"github.com/CIYAhq/playkeeper/internal/packs"
 )
 
 // logBuffer collects the panel's log for tests that read it.
@@ -488,8 +492,8 @@ func TestPublicInvitePagesKeepCodesSafe(t *testing.T) {
 		t.Fatalf("a public call from another page: %d", r.status)
 	}
 	log := e.log.String()
-	if strings.Contains(log, sampleCode) || !strings.Contains(log, "/join/[code]") {
-		t.Fatalf("the log shows a code: %s", log)
+	if strings.Contains(log, sampleCode) || !strings.Contains(log, "path=/join/…") || !strings.Contains(log, "path=/api/public/join/…") {
+		t.Fatalf("the log shows a code, or more of a public path than its prefix: %s", log)
 	}
 	if e.lookups.Load() != 0 {
 		t.Fatal("a code that opens nothing cost a Mojang lookup")
@@ -504,5 +508,84 @@ func TestPublicInvitePagesKeepCodesSafe(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("guessing codes from one address is never slowed down")
+	}
+}
+
+// The invite pages are the public group's, next to the resource packs:
+// they answer without a sign-in, keep the invite guard's refusals (an
+// expired link says so; a turned-off one reads like an unknown one), and
+// get the group's per-address limit. The route table's only open routes
+// are health, setup and sign-in, and everything else asks for a sign-in
+// (TestEveryRouteRequiresSessionAndCSRF tries each one).
+func TestInvitePagesArePublicAndNothingElse(t *testing.T) {
+	e := newJoinEnv(t)
+	var prefixes []string
+	for _, rt := range e.srv.public.routes {
+		prefixes = append(prefixes, rt.prefix)
+	}
+	if want := []string{packs.PathPrefix, "/join/", "/api/public/join/"}; !slices.Equal(prefixes, want) {
+		t.Errorf("the public group serves %v, want %v", prefixes, want)
+	}
+	var open []string
+	for _, rt := range e.srv.Routes() {
+		if !rt.NeedsSession() {
+			open = append(open, rt.Method+" "+rt.Pattern)
+		}
+	}
+	if want := []string{"GET /api/health", "GET /api/setup/status", "POST /api/setup", "POST /api/auth/login"}; !slices.Equal(open, want) {
+		t.Errorf("the route table opens %v without a sign-in, want %v", open, want)
+	}
+
+	own := owner(t, e.env)
+	_, code := friendInvite(t, e.env, own, `{"label":"","expiry":"1d","maxUses":1,"approval":"right_away"}`)
+	offID, off := friendInvite(t, e.env, own, `{"label":"","expiry":"until_turned_off","unlimited":true,"approval":"right_away"}`)
+	if res, _ := e.raw(t, "GET", "/join/"+code, "", nil); res.StatusCode != 200 || res.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("the join page without a sign-in: %d %q", res.StatusCode, res.Header.Get("Cache-Control"))
+	}
+	if r := e.public(t, "preview", codeBody(off)); r.status != 200 || r.body["kind"] != "player" {
+		t.Fatalf("a link until turned off, without a sign-in: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "DELETE", "/api/servers/"+sampleServer+"/invites/"+offID, "", own.auth()); r.status != http.StatusNoContent {
+		t.Fatalf("turn off: %d %v", r.status, r.body)
+	}
+	unknown := e.public(t, "preview", codeBody(sampleCode))
+	turnedOff := e.public(t, "preview", codeBody(off))
+	if unknown.status != http.StatusNotFound || unknown.body["code"] != invites.CodeNotWorking || !reflect.DeepEqual(turnedOff, unknown) {
+		t.Fatalf("a turned-off link must read like an unknown one: %d %v and %d %v", turnedOff.status, turnedOff.body, unknown.status, unknown.body)
+	}
+	e.clock.add(2 * 24 * time.Hour)
+	if r := e.public(t, "preview", codeBody(code)); r.status != http.StatusGone || r.body["code"] != invites.CodeExpired {
+		t.Fatalf("an expired link must say so: %d %v", r.status, r.body)
+	}
+
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/servers/" + sampleServer + "/invites"},
+		{"GET", "/api/servers/" + sampleServer + "/join-requests"},
+		{"POST", "/api/servers/" + sampleServer + "/join-requests/zyxwvutsrq/approve"},
+		{"GET", "/api/team"},
+	} {
+		if r := e.do(t, c.method, c.path, `{}`, map[string]string{"X-Requested-With": "playkeeper"}); r.status != http.StatusUnauthorized {
+			t.Errorf("%s %s without a sign-in: %d, want 401", c.method, c.path, r.status)
+		}
+	}
+	if res, _ := e.raw(t, "GET", "/api/public/join/preview", "", nil); res.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET of a join call: %d", res.StatusCode)
+	}
+	if res, _ := e.raw(t, "POST", "/api/public/join/other", codeBody(code), map[string]string{"X-Requested-With": "playkeeper"}); res.StatusCode != http.StatusNotFound {
+		t.Errorf("an unknown join call: %d", res.StatusCode)
+	}
+	if r := e.do(t, "GET", "/api/public/other", "", nil); r.status != http.StatusNotFound || r.body["code"] != api.CodeNotFound {
+		t.Errorf("a path next to the join calls: %d %v", r.status, r.body)
+	}
+
+	limited := false
+	for range 61 {
+		if res, _ := e.raw(t, "GET", "/join/"+code, "", nil); res.StatusCode == http.StatusTooManyRequests {
+			limited = res.Header.Get("Retry-After") != ""
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("the join page is not limited per address by the public group")
 	}
 }

@@ -300,21 +300,7 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/discord", needSessionCSRF, actManageMachine, s.discordProxy("DELETE", "/v1/discord")},
 		{"POST", "/api/discord/test", needSessionCSRF, actManageMachine, s.discordProxy("POST", "/v1/discord/test")},
 	}...)
-	return append(routes, s.publicPages()...)
-}
-
-// publicPages are the only routes anyone can use without signing in,
-// besides health, setup and login: the page a friend or new team member
-// opens from an invite link, and the calls it makes. Every answer is
-// no-store, and paths are logged with their codes redacted.
-func (s *Server) publicPages() []Route {
-	return []Route{
-		{"GET", invites.JoinPath + "/{code}", public, "", s.hJoinPage},
-		{"POST", "/api/public/join/preview", publicMutation, "", s.hJoinPreview},
-		{"POST", "/api/public/join/lookup", publicMutation, "", s.hJoinLookup},
-		{"POST", "/api/public/join/redeem", publicMutation, "", s.hJoinRedeem},
-		{"POST", "/api/public/join/accept", publicMutation, "", s.hJoinAccept},
-	}
+	return routes
 }
 
 // Handler returns the complete panel handler (API, health check and UI).
