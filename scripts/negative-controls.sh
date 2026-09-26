@@ -982,6 +982,14 @@ control "a finished removal frees voice chat's port" internal/agent/addons.go \
   '		defer releasePort()' \
   '		_ = releasePort' \
   ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a restore the agent restarted in holds voice chat's port until the restored settings are saved" internal/agent/recovery.go \
+  'p.releasePort = a.voicePorts.hold(j.Restored.VoiceChatPort, s.id)' \
+  '_ = j.Restored.VoiceChatPort' \
+  ./internal/agent '^TestResumedRestoreHoldsVoiceChatsPort$'
+control "a resumed restore frees voice chat's port once it's done" internal/agent/recovery.go \
+  '		defer p.releasePort()' \
+  '		_ = p.releasePort' \
+  ./internal/agent '^TestResumedRestoreHoldsVoiceChatsPort$'
 control "voice chat's port opens before voice chat installs" internal/agent/curated.go \
   '	if err := s.setUpVoiceChat(h, sc, srv, actor); err != nil {
 		return err
