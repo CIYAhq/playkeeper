@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { BookOpenIcon, ChevronRightIcon, CircleCheckIcon, CircleXIcon, CopyIcon, DownloadIcon, EllipsisIcon, ExternalLinkIcon, FileDownIcon, HardDriveIcon, HourglassIcon, KeyRoundIcon, PowerOffIcon, RefreshCwIcon, ServerIcon, ShieldCheckIcon, TriangleAlertIcon } from 'lucide-react'
-import { ApiError, download, post } from '@/api/client'
-import type { OffsiteCheck, OffsiteNewKey, OffsitePending, OffsiteTestResult, OffsiteView, ServerStatus } from '@/api/types'
+import { ApiError, download, get, post } from '@/api/client'
+import type { OffsiteCheck, OffsiteCopy, OffsiteNewKey, OffsitePending, OffsiteTestResult, OffsiteView, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, CopyButton, Marker, Progress, SectionLabel, Spinner, copyText } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, Segmented } from '@/components/app/controls'
@@ -52,6 +52,15 @@ export interface Problem {
   msg: string
   hint?: string
   field?: string
+}
+/** A change of place waiting for the user to agree to forget the copies at the old one. */
+interface Forget {
+  place: string
+  count: number
+  onlyThere: number
+  /** The copies whose backup is gone from this machine, when the list could be read. */
+  only: OffsiteCopy[]
+  answer: (ok: boolean) => void
 }
 type Busy = 'test' | 'save' | 'on' | 'off' | 'retry' | 'key' | 'newKey'
 
@@ -223,6 +232,7 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
   const [ask, setAsk] = useState<HostKey>()
   const [changed, setChanged] = useState<Changed>()
   const [offer, setOffer] = useState<'first' | 'new'>()
+  const [forget, setForget] = useState<Forget>()
   const [madeKey, setMadeKey] = useState<OffsiteView['sshKey']>()
   const draft = edits ?? draftOf(v)
   const dirty = isDirty(draft, v)
@@ -289,6 +299,41 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
     }
   }
 
+  /**
+   * Saves settings. When they move copies somewhere else while copies are
+   * recorded at the old place, the agent refuses until the user agrees to
+   * forget them, knowing which backups have no other copy.
+   */
+  async function postSettings(what: Busy, body: Record<string, unknown>): Promise<OffsiteView | undefined> {
+    const url = serverApi(s.id, '/offsite')
+    const first = await act(what, async () => {
+      try {
+        return await post<OffsiteView>(url, body)
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.reason !== 'copies_recorded') throw e
+        const list = await get<{ copies: OffsiteCopy[] }>(serverApi(s.id, '/offsite/copies')).then(
+          (r) => r.copies,
+          () => [],
+        )
+        return { refused: e, only: list.filter((c) => !c.onHost) }
+      }
+    })
+    if (!first || !('refused' in first)) return first
+    const p = first.refused.params ?? {}
+    const ok = await new Promise<boolean>((answer) =>
+      setForget({
+        place: typeof p.place === 'string' ? p.place : v.place,
+        count: typeof p.copies === 'number' ? p.copies : v.copies,
+        onlyThere: typeof p.onlyThere === 'number' ? p.onlyThere : first.only.length,
+        only: first.only,
+        answer,
+      }),
+    )
+    const next = ok ? await act(what, () => post<OffsiteView>(url, { ...body, forgetCopies: true })) : undefined
+    setForget(undefined)
+    return next
+  }
+
   async function confirmHostKey(k: HostKey) {
     setAsk(undefined)
     const d = { ...draft, hostKey: k.key }
@@ -298,7 +343,7 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
       await testNow(d)
       return
     }
-    const next = await act('save', () => post<OffsiteView>(serverApi(s.id, '/offsite'), dirty ? request(d, v) : { hostKey: k.key }))
+    const next = await postSettings('save', dirty ? request(d, v) : { hostKey: k.key })
     if (!next) return
     setEdits(undefined)
     toastManager.add({ title: t('offsite.hostKey.confirmed'), type: 'success' })
@@ -319,7 +364,7 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
 
   async function save(enabled?: boolean): Promise<boolean> {
     const body = enabled === undefined ? request(draft, v) : { ...request(draft, v), enabled }
-    const next = await act(enabled ? 'on' : 'save', () => post<OffsiteView>(serverApi(s.id, '/offsite'), body))
+    const next = await postSettings(enabled ? 'on' : 'save', body)
     if (!next) return false
     discard()
     if (enabled && next.key && !next.key.savedAt) setOffer('first')
@@ -376,6 +421,7 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
     ask,
     changed,
     offer,
+    forget,
     set,
     discard,
     testNow,
@@ -899,10 +945,55 @@ function RecoveryKeyDialog({ kind, server, machine, fileName, phone, busy, onDow
   )
 }
 
+const forgetListed = 5
+
+/** Before copies go somewhere else: the copies at the old place stay there, but aren't listed here any more. */
+function ForgetCopiesDialog({ forget: f, phone, busy }: { forget: Forget; phone: boolean; busy: boolean }) {
+  const shown = f.only.slice(0, forgetListed)
+  return (
+    <Dialog open onOpenChange={(o) => !o && f.answer(false)}>
+      <DialogPopup className="sm:max-w-[500px]" showCloseButton={phone}>
+        <DialogHeader>
+          <DialogTitle>{t('offsite.forget.title', { place: f.place })}</DialogTitle>
+          <DialogDescription>{t('offsite.forget.body', { count: f.count, place: f.place })}</DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="flex flex-col gap-3">
+          {f.onlyThere > 0 && (
+            <div role="alert" className="rounded-xl bg-muted px-3.5 py-3">
+              <p className="flex items-center gap-2 text-[13px] font-semibold text-warning-foreground">
+                <TriangleAlertIcon className="size-4 shrink-0" aria-hidden="true" />
+                {t('offsite.forget.only', { count: f.onlyThere })}
+              </p>
+              {shown.length > 0 && (
+                <ul className="mt-2 ms-6 flex flex-col gap-0.5 text-[13px] tabular-nums">
+                  {shown.map((c) => (
+                    <li key={c.backupId}>{t('offsite.forget.backup', { when: whenPhrase(c.createdAt), size: formatBytes(c.sizeBytes) })}</li>
+                  ))}
+                  {f.only.length > shown.length && <li className="text-muted-foreground">{t('offsite.forget.more', { count: f.only.length - shown.length })}</li>}
+                </ul>
+              )}
+            </div>
+          )}
+          <p className="text-[13px] text-muted-foreground">{t('offsite.forget.back', { place: f.place })}</p>
+        </DialogPanel>
+        <DialogFooter variant="bare" className="mx-6 border-t border-border px-0 pt-4 max-sm:border-t-0">
+          <Button variant="ghost" size={phone ? 'touch' : 'default'} onClick={() => f.answer(false)}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant={f.onlyThere > 0 ? 'destructive' : 'default'} size={phone ? 'touch' : 'default'} loading={busy} onClick={() => f.answer(true)}>
+            {t('offsite.forget.confirm')}
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  )
+}
+
 function CopiesDialogs({ c, v, server, machine, phone }: { c: Copies; v: OffsiteView; server: ServerStatus; machine: string; phone: boolean }) {
   const host = c.draft.host.trim() || v.sftp?.host || ''
   return (
     <>
+      {c.forget && <ForgetCopiesDialog forget={c.forget} phone={phone} busy={c.busy === 'save' || c.busy === 'on'} />}
       {c.ask && <HostKeyDialog host={host} hostKey={c.ask} phone={phone} busy={c.busy === 'save' || c.busy === 'test'} onConfirm={() => c.ask && void c.confirmHostKey(c.ask)} onClose={() => c.setAsk(undefined)} />}
       {c.changed && <HostKeyChangedDialog host={host} changed={c.changed} phone={phone} busy={c.busy === 'test'} onCheck={() => void c.checkNewKey()} onClose={() => c.setChanged(undefined)} />}
       {c.offer && v.key && <RecoveryKeyDialog kind={c.offer} server={server.name} machine={machine} fileName={v.key.fileName} phone={phone} busy={c.busy === 'key'} onDownload={() => void c.downloadKey()} onClose={() => c.setOffer(undefined)} />}

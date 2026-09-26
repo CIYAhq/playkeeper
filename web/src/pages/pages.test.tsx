@@ -2227,6 +2227,73 @@ describe('Copies somewhere else', () => {
     expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(false)
     expect(download()?.disabled).toBe(false)
   })
+
+  describe('a new place while copies are recorded at the old one', () => {
+    const on: OffsiteView = { ...sftp, enabled: true, copies: 2, key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt' } }
+    const copy = (backupId: string, createdAt: string, sizeBytes: number, onHost: boolean): OffsiteCopy => ({
+      backupId,
+      kind: 'scheduled',
+      createdAt,
+      fileName: `${backupId}.tar.gz`,
+      name: `${backupId}.tar.gz.age`,
+      sizeBytes,
+      copySizeBytes: sizeBytes + 200,
+      minecraftVersion: '26.1.2',
+      levelName: 'world',
+      copiedAt: createdAt,
+      checked: 'size',
+      onHost,
+    })
+    const passed: OffsiteTestResult = { ok: true, skew: 0, checks: ['connect', 'folder', 'write', 'rename', 'read', 'list', 'delete'].map((step) => ({ step, ok: true, msg: '' })) }
+    const refusal = new client.ApiError(409, {
+      code: 'conflict',
+      error: 'Changing where copies go forgets the 2 copies on vault.example.net.',
+      reason: 'copies_recorded',
+      params: { place: 'vault.example.net', copies: 2, onlyThere: 1 },
+    })
+    let saves: Record<string, unknown>[] = []
+    const dialog = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+
+    async function saveNewFolder() {
+      saves = []
+      answer({ '/offsite/copies': { copies: [copy('b2', '2026-09-24T10:19:00Z', 7.3 * 2 ** 20, true), copy('b1', '2026-09-22T10:07:00Z', 4.5 * 2 ** 20, false)] }, '/offsite': on })
+      answerPosts({
+        '/offsite/test': passed,
+        '/offsite': (body: Record<string, unknown>) => {
+          saves.push(body)
+          return body.forgetCopies ? { ...on, sftp: { ...sftp.sftp, folder: 'copies' }, copies: 0 } : refusal
+        },
+      })
+      await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+      await typeInto('#offsite-folder', 'copies')
+      await click('Test connection')
+      await click('Save changes')
+    }
+
+    it('asks first, naming the backups whose only copy is there, and saves once agreed', async () => {
+      await saveNewFolder()
+      expect(dialog()).toContain('Forget the copies on vault.example.net?')
+      expect(dialog()).toContain('The 2 copies stay on vault.example.net, but Playkeeper stops listing them once copies go somewhere else.')
+      expect(dialog()).toContain('This backup has no other copy')
+      expect(dialog()).toContain('4.5 MB')
+      expect(dialog()).not.toContain('7.3 MB')
+      expect(saves).toHaveLength(1)
+      await click('Change where copies go')
+      expect(saves).toHaveLength(2)
+      expect(saves[1]).toMatchObject({ forgetCopies: true, config: { type: 'sftp', sftp: { folder: 'copies' } } })
+      expect(dialog()).toBe('')
+      expect(page()).not.toContain(refusal.message)
+    })
+
+    it('changes nothing when the user keeps the copies', async () => {
+      await saveNewFolder()
+      await click('Cancel')
+      expect(dialog()).toBe('')
+      expect(saves).toHaveLength(1)
+      expect(document.querySelector<HTMLInputElement>('#offsite-folder')?.value).toBe('copies')
+      expect(page()).toContain('Save changes')
+    })
+  })
 })
 
 describe('World backups with copies', () => {

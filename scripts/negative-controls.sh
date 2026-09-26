@@ -2253,6 +2253,24 @@ control "turning sleep off lets go of the game port when the server can't start"
   '				s.startFailed(ctx)' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
 
+# Wave 7 after the real-world restore check: the copies at the old place, the
+# recovery key's folder, who removed a backup here, the first copy, and
+# scheduled backups refused because saving couldn't be paused.
+control "a new place asks before forgetting the copies at the old one" internal/agent/offsite.go \
+  'if len(forgotten) > 0 && !req.ForgetCopies {' \
+  'if false && len(forgotten) > 0 && !req.ForgetCopies {' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "the question counts the backups whose only copy is at the old place" internal/agent/offsite.go \
+  '		if !c.OnHost {
+			n++' \
+  '		if c.OnHost {
+			n++' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "forgetting the copies at the old place is audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))' \
+  '_ = forgotten' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

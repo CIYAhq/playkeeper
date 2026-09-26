@@ -90,6 +90,50 @@ func withCopies(t *testing.T, dest offsiteDest) (e *agentEnv, backupID, file str
 	return e, backupID, file
 }
 
+// Changing where copies go asks first while copies are recorded at the old
+// place, saying how many there are and how many are a backup's only copy,
+// and forgets them only once that's confirmed.
+func TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies(t *testing.T) {
+	e, first, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	for range 2 {
+		id := e.backup()
+		e.waitFor("another copy", func() bool {
+			return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+		})
+	}
+	if code, _ := e.call("DELETE", e.sp("/backups/"+first)+"?actor=admin", nil); code != http.StatusNoContent {
+		t.Fatalf("delete the first backup here: %d", code)
+	}
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "another-example-secret"}); code != http.StatusOK {
+		t.Fatalf("a new secret key for the same place: %d %v", code, out)
+	}
+
+	elsewhere := maps.Clone(s3)
+	elsewhere["bucket"] = "worlds-2"
+	move := map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": elsewhere}}
+	code, out := e.call("POST", e.sp("/offsite"), move)
+	params, _ := out["params"].(map[string]any)
+	if code != http.StatusConflict || out["reason"] != "copies_recorded" || params["copies"] != float64(3) || params["onlyThere"] != float64(1) || params["place"] == "" {
+		t.Fatalf("moving while copies are recorded: %d %v", code, out)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if out["s3"].(map[string]any)["bucket"] != "worlds" || out["copies"] != float64(3) {
+		t.Fatalf("a refused move changed the settings or the copies: %v", out)
+	}
+
+	move["forgetCopies"] = true
+	if code, out := e.call("POST", e.sp("/offsite"), move); code != http.StatusOK || out["s3"].(map[string]any)["bucket"] != "worlds-2" {
+		t.Fatalf("the confirmed move: %d %v", code, out)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first); n != 0 {
+		t.Fatal("the copy at the old place is still listed")
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copies_forgotten' AND actor = 'admin' AND detail LIKE '3 copies on % · 1 only there'`); n != 1 {
+		t.Fatalf("audited forgetting the copies %d times", n)
+	}
+}
+
 func (e *agentEnv) staged() []string {
 	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
 	var names []string

@@ -621,6 +621,10 @@ type offsiteRequest struct {
 	// HostKey is the SFTP host key the user confirmed, as the connection
 	// test returned it.
 	HostKey *string `json:"hostKey,omitempty"`
+	// ForgetCopies confirms a change of place that stops listing the copies
+	// recorded at the old one, as the refusal with reason copies_recorded
+	// asked.
+	ForgetCopies bool `json:"forgetCopies,omitempty"`
 }
 
 // merge applies req to the saved settings. The password stays only while
@@ -710,6 +714,44 @@ func offsiteDetail(r offsiteRow) string {
 	return d
 }
 
+// onlyThere counts the copies whose backup is no longer on this machine.
+func onlyThere(copies []offsiteCopy) int {
+	n := 0
+	for _, c := range copies {
+		if !c.OnHost {
+			n++
+		}
+	}
+	return n
+}
+
+// errCopiesRecorded refuses a change of place while copies are recorded at
+// the old one. They stay there, but this server stops listing, restoring
+// and deleting them, so the change waits for ForgetCopies.
+func errCopiesRecorded(place string, copies []offsiteCopy) error {
+	n, only := len(copies), onlyThere(copies)
+	msg := fmt.Sprintf("Changing where copies go forgets the %d copies on %s.", n, place)
+	hint := "They stay there, but this server stops listing them, so the World tab can't restore them and the backup rules don't delete old ones there."
+	if n == 1 {
+		msg = fmt.Sprintf("Changing where copies go forgets the copy on %s.", place)
+		hint = "It stays there, but this server stops listing it, so the World tab can't restore it."
+	}
+	switch {
+	case only == 1 && n == 1:
+		hint += " It's the only copy of its backup."
+	case only == 1:
+		hint += " One of them is the only copy of its backup."
+	case only > 1:
+		hint += fmt.Sprintf(" %d of them are the only copy of their backup.", only)
+	}
+	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Reason: "copies_recorded", Msg: msg, Hint: hint + " Confirm the change to go ahead.",
+		Params: map[string]any{"place": place, "copies": n, "onlyThere": only}}
+}
+
+func forgottenDetail(place string, copies []offsiteCopy) string {
+	return fmt.Sprintf("%d copies on %s · %d only there", len(copies), place, onlyThere(copies))
+}
+
 func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 	var req offsiteRequest
 	if err := decode(r, &req); err != nil {
@@ -749,6 +791,17 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 		next.keys, next.hasKeys = k, true
 	}
 	moved := row.configured() && offsiteIdentity(row.cfg.Config) != offsiteIdentity(next.cfg.Config)
+	var forgotten []offsiteCopy
+	if moved {
+		if forgotten, err = s.offsiteCopies(); err != nil {
+			writeError(w, err)
+			return
+		}
+		if len(forgotten) > 0 && !req.ForgetCopies {
+			writeError(w, errCopiesRecorded(offsitePlace(row.cfg.Config), forgotten))
+			return
+		}
+	}
 	if err := s.saveOffsite(next); err != nil {
 		writeError(w, err)
 		return
@@ -757,6 +810,9 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 		// The recorded copies stay where they were; the rules no longer
 		// reach them from here.
 		_, _ = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ?`, s.id)
+		if len(forgotten) > 0 {
+			s.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))
+		}
 	}
 	if moved || !next.enabled {
 		s.stopUpload()
