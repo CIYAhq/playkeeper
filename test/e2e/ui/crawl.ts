@@ -399,7 +399,9 @@ export class Crawler {
     let status: Status = 'works'
     if (problems.length) status = 'broken'
     else if (!effects.length) status = c.selected && (after === null || after.target === null || isSelected(after.target)) ? 'stays selected' : 'dead'
-    const opened = !!after && after.layers.length > before.layers.length && after.url === before.url
+    // A menu item that opens a dialog, or a dialog that goes on to its next step, replaces the top layer.
+    const replaced = !!after && after.layers.length > 0 && after.layers.length === before.layers.length && after.layers.at(-1) !== before.layers.at(-1)
+    const opened = !!after && after.url === before.url && (after.layers.length > before.layers.length || replaced)
     let revealed = false
     if (!opened && after && after.url === before.url && after.layers.join('|') === before.layers.join('|')) {
       const now = await this.controls()
@@ -464,10 +466,10 @@ export class Crawler {
       signatures.add(sig)
       const list = await this.controls()
       const endsWithReveal = path.length > 0 && path.at(-1) !== FILL && !!this.tested.get(path.at(-1) as string)?.revealed
+      // Counted in the state itself: by the end of the loop a dialog with the form may have closed.
+      const fillable = path.at(-1) !== FILL && list.some((c) => c.disabled) ? await this.eval(() => window.__pk.fillable(), 0) : 0
       let dirty = false
-      let anyDisabled = false
       for (const c of list) {
-        if (c.disabled) anyDisabled = true
         const done = this.tested.get(c.key)
         const again = !!done && !c.disabled && ((done.opened && !explored.has(c.key)) || (done.revealed && endsWithReveal && path.length < this.maxDepth))
         if (done && !again) continue
@@ -497,10 +499,7 @@ export class Crawler {
         }
         dirty = !(await this.restore(state))
       }
-      if (anyDisabled && path.at(-1) !== FILL) {
-        const fillable = await this.eval(() => window.__pk.fillable(), 0)
-        if (fillable > 0) enqueue([...path, FILL])
-      }
+      if (fillable > 0) enqueue([...path, FILL])
     }
   }
 }
