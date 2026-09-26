@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -28,15 +29,23 @@ type testDashboard struct {
 	events []machinelink.EventKind
 }
 
-func startDashboard(t *testing.T) *testDashboard {
+func startDashboard(t *testing.T) *testDashboard { return startDashboardWith(t, nil) }
+
+// startDashboardWith is startDashboard with wrap, when set, between the
+// dashboard and its store.
+func startDashboardWith(t *testing.T, wrap func(*machinelink.MemoryStore) machinelink.Store) *testDashboard {
 	t.Helper()
 	id, err := machinelink.NewIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := &testDashboard{store: machinelink.NewMemoryStore()}
+	var store machinelink.Store = d.store
+	if wrap != nil {
+		store = wrap(d.store)
+	}
 	routes := []machinelink.Route{{Method: "GET", Pattern: "/v1/health"}}
-	hub, err := machinelink.NewHub(machinelink.HubOptions{Identity: id, Store: d.store, Routes: routes, Version: "0.4.0", OnEvent: func(e machinelink.Event) {
+	hub, err := machinelink.NewHub(machinelink.HubOptions{Identity: id, Store: store, Routes: routes, Version: "0.4.0", OnEvent: func(e machinelink.Event) {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		d.events = append(d.events, e.Kind)
@@ -78,6 +87,76 @@ func (d *testDashboard) machine(t *testing.T) machinelink.Machine {
 		t.Fatalf("the dashboard knows %d machines (%v)", len(ms), err)
 	}
 	return ms[0]
+}
+
+// losingStore is a dashboard's store whose first machine added never gets
+// the dashboard's answer: lose runs before the dashboard can send it.
+type losingStore struct {
+	*machinelink.MemoryStore
+	mu   sync.Mutex
+	lose func()
+}
+
+func (s *losingStore) Pair(ctx context.Context, codeID string, m machinelink.Machine) error {
+	err := s.MemoryStore.Pair(ctx, codeID, m)
+	s.mu.Lock()
+	lose := s.lose
+	if err == nil {
+		s.lose = nil
+	}
+	s.mu.Unlock()
+	if err == nil && lose != nil {
+		lose()
+	}
+	return err
+}
+
+// relay passes connections through to a dashboard until cut closes them.
+type relay struct {
+	ln    net.Listener
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+func startRelay(t *testing.T, to string) *relay {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &relay{ln: ln}
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			u, err := net.Dial("tcp", to)
+			if err != nil {
+				c.Close()
+				continue
+			}
+			r.mu.Lock()
+			r.conns = append(r.conns, c, u)
+			r.mu.Unlock()
+			go func() { io.Copy(u, c); u.Close() }()
+			go func() { io.Copy(c, u); c.Close() }()
+		}
+	}()
+	t.Cleanup(func() {
+		ln.Close()
+		r.cut()
+	})
+	return r
+}
+
+func (r *relay) cut() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, c := range r.conns {
+		c.Close()
+	}
+	r.conns = nil
 }
 
 // noPanelAt is installedAt for a machine installed with --join: it has no
@@ -310,6 +389,99 @@ func TestAJoinWhoseLinkDoesNotStartStaysJoined(t *testing.T) {
 	}
 }
 
+// A join whose answer is lost after the dashboard added the machine keeps
+// the key the dashboard has, and another attempt that fails keeps it too:
+// the same command run again finishes that join, as the same machine. A
+// new command can't add the machine twice, and says so.
+func TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	cfg := noPanelAt(t, h, "0.4.0")
+	sys := h.system(t)
+	ls := &losingStore{}
+	d := startDashboardWith(t, func(s *machinelink.MemoryStore) machinelink.Store { ls.MemoryStore = s; return ls })
+	r := startRelay(t, d.addr)
+	ls.mu.Lock()
+	ls.lose = r.cut
+	ls.mu.Unlock()
+	cmd := d.command(t)
+	cmd.Address = r.ln.Addr().String()
+	h.cmds = nil
+
+	var unfinished *UnfinishedJoinError
+	if _, err := Join(ctx, sys, cfg, cmd); !errors.As(err, &unfinished) || machinelink.CodeOf(err) != machinelink.CodeJoinUnanswered {
+		t.Fatalf("a join whose answer was lost: %v", err)
+	}
+	m := d.machine(t)
+	id, err := machinelink.LoadIdentity(sys.P(cfg.LinkKeyPath()))
+	if err != nil || !m.PublicKey.Equal(id.PublicKey()) {
+		t.Fatalf("the machine didn't keep the key the dashboard has: %v", err)
+	}
+	key := read(t, h, cfg.LinkKeyPath())
+	if Joined(cfg, h.root) || len(h.cmds) != 0 {
+		t.Fatalf("an unfinished join counts as joined, or ran %q", h.cmds)
+	}
+
+	stranger := d.command(t)
+	stranger.Code = startDashboard(t).command(t).Code
+	if _, err := Join(ctx, sys, cfg, stranger); !errors.As(err, &unfinished) || machinelink.CodeOf(err) != machinelink.CodeJoinCodeWrong {
+		t.Fatalf("a wrong code after a lost answer: %v", err)
+	}
+	var already *machinelink.Error
+	if _, err := Join(ctx, sys, cfg, d.command(t)); !errors.As(err, &already) || already.Code != machinelink.CodeMachineAlreadyJoined ||
+		!strings.Contains(already.Msg, "as home-server, from an earlier join this machine didn't finish") || !strings.Contains(already.Hint, "Run the command from that join again") {
+		t.Fatalf("a new command after a lost answer: %v", err)
+	}
+	if read(t, h, cfg.LinkKeyPath()) != key {
+		t.Fatal("a failed attempt dropped the key the dashboard has")
+	}
+
+	joined, err := Join(ctx, sys, cfg, cmd)
+	if err != nil || joined.MachineID != m.ID || joined.Name != "home-server" {
+		t.Fatalf("the same command again: %+v, %v", joined, err)
+	}
+	if ms, _ := d.store.Machines(ctx); len(ms) != 1 || read(t, h, cfg.LinkKeyPath()) != key || !Joined(cfg, h.root) {
+		t.Fatalf("finishing the join: %d machines on the dashboard, key kept %v, joined %v", len(ms), read(t, h, cfg.LinkKeyPath()) == key, Joined(cfg, h.root))
+	}
+	if !slices.Equal(h.cmds, []string{"systemctl daemon-reload", "systemctl enable --now " + LinkUnit}) {
+		t.Fatalf("finishing the join ran %q", h.cmds)
+	}
+}
+
+// A join the dashboard accepted whose details this machine can't save
+// keeps the key: once that's fixed, the same command finishes the join.
+func TestAJoinThatCantSaveTheDashboardFinishesWhenRunAgain(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	cfg := noPanelAt(t, h, "0.4.0")
+	sys := h.system(t)
+	d := startDashboard(t)
+	cmd := d.command(t)
+	dash := sys.P(cfg.LinkDashboardPath())
+	sys.Chown = func(p string, _, _ int) error {
+		if p == dash {
+			return errors.New("operation not permitted")
+		}
+		return nil
+	}
+	_, err := Join(ctx, sys, cfg, cmd)
+	var unfinished *UnfinishedJoinError
+	var e *machinelink.Error
+	if !errors.As(err, &unfinished) || !errors.As(err, &e) || e.Code != machinelink.CodeKeyFile ||
+		!strings.Contains(e.Msg, "accepted this machine as home-server") || !strings.Contains(e.Hint, "run the same command again") {
+		t.Fatalf("a join whose dashboard couldn't be saved: %v", err)
+	}
+	if Joined(cfg, h.root) || read(t, h, cfg.LinkKeyPath()) == "<missing>" {
+		t.Fatal("the machine must keep its key and not count as joined")
+	}
+
+	sys.Chown = func(string, int, int) error { return nil }
+	joined, err := Join(ctx, sys, cfg, cmd)
+	if err != nil || joined.MachineID != d.machine(t).ID || !Joined(cfg, h.root) {
+		t.Fatalf("the same command again: %+v, %v", joined, err)
+	}
+}
+
 func TestAJoinThatFailsLeavesNothingBehind(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)
@@ -326,6 +498,11 @@ func TestAJoinThatFailsLeavesNothingBehind(t *testing.T) {
 	wrong.Fingerprint = other.Fingerprint()
 	if _, err := Join(ctx, sys, cfg, wrong); machinelink.CodeOf(err) != machinelink.CodeDashboardKeyMismatch {
 		t.Fatalf("joining a dashboard whose key doesn't match the fingerprint: %v", err)
+	}
+	refused := d.command(t)
+	refused.Code = startDashboard(t).command(t).Code
+	if _, err := Join(ctx, sys, cfg, refused); machinelink.CodeOf(err) != machinelink.CodeJoinCodeWrong {
+		t.Fatalf("joining with a code the dashboard doesn't know: %v", err)
 	}
 	delete(h.users, "playkeeper")
 	if _, err := Join(ctx, sys, cfg, d.command(t)); err == nil || !strings.Contains(err.Error(), "sudo playkeeper install") {

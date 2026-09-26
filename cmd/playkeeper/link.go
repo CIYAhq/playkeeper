@@ -99,11 +99,14 @@ func joinAfterInstall(ctx context.Context, w io.Writer, sys install.System, cfg 
 	}
 	err := join(ctx, w, sys, cfg, j)
 	var down *install.LinkNotStartedError
+	var unfinished *install.UnfinishedJoinError
 	switch {
 	case err == nil:
 		return nil
 	case errors.As(err, &down):
 		return fmt.Errorf("Playkeeper is installed and this machine joined the dashboard at %s as %s, but its link didn't start: %v\nStart it with: sudo systemctl enable --now %s", down.Dashboard.Address, down.Dashboard.Name, down.Err, install.LinkUnit)
+	case errors.As(err, &unfinished):
+		return fmt.Errorf("%v\nPlaykeeper is installed; only the join is left to finish.", linkError(err))
 	}
 	return fmt.Errorf("%v\nPlaykeeper is installed, but this machine didn't join the dashboard. Once that's fixed, make a new code there\n(Settings › Machines › Connect a machine), switch to the command for a machine that already runs Playkeeper, and run it here.", linkError(err))
 }

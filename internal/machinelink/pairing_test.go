@@ -60,6 +60,9 @@ func TestJoinWrongCode(t *testing.T) {
 	if e := wantCode(t, err, CodeJoinCodeWrong); e.Hint == "" {
 		t.Error("no hint")
 	}
+	if MayHaveJoined(err) {
+		t.Error("a refused join may have joined")
+	}
 	if machines, _ := th.store.Machines(context.Background()); len(machines) != 0 {
 		t.Fatalf("a machine was added: %+v", machines)
 	}
@@ -96,6 +99,9 @@ func TestJoinCodeWorksOnce(t *testing.T) {
 	}
 	_, err = th.try(mustIdentity(t), code)
 	wantCode(t, err, CodeJoinCodeUsed)
+	if MayHaveJoined(err) {
+		t.Error("a join refused a used code may have joined")
+	}
 
 	// The machine that used the code may send it again, as it does when
 	// the answer got lost, and is the same machine.
@@ -114,8 +120,43 @@ func TestJoinCodeWorksOnce(t *testing.T) {
 	if e := wantCode(t, err, CodeMachineAlreadyJoined); e.Params["name"] != "home-server" {
 		t.Errorf("already joined as %q", e.Params["name"])
 	}
+	if !MayHaveJoined(err) {
+		t.Error("a key the dashboard already has must be kept")
+	}
 	if _, err := th.try(mustIdentity(t), next); err != nil {
 		t.Fatalf("the code was spent by the refused join: %v", err)
+	}
+}
+
+// A machine whose answer is lost after the dashboard added it can't tell
+// whether it joined, and says so rather than that the dashboard is out of
+// reach. Sending the same key and code again gets the same machine.
+func TestAJoinWhoseAnswerIsLostFinishesWhenSentAgain(t *testing.T) {
+	ls := &losingStore{}
+	th := startHub(t, func(o *HubOptions) { ls.MemoryStore, o.Store = o.Store.(*MemoryStore), ls })
+	p := startProxy(t, th.addr)
+	ls.loseFirstAnswer(p.cut)
+	code, id := th.code(t), mustIdentity(t)
+	join := func() (Dashboard, error) {
+		return Join(context.Background(), JoinOptions{Address: p.addr(), Code: code, Fingerprint: th.Fingerprint(),
+			Identity: id, Name: "home-server", Version: "0.4.0", Timeout: 5 * time.Second})
+	}
+
+	_, err := join()
+	if e := wantCode(t, err, CodeJoinUnanswered); !MayHaveJoined(err) || !strings.Contains(e.Hint, "Run the same command again") {
+		t.Fatalf("a lost answer: %+v", e)
+	}
+	machines, _ := th.store.Machines(context.Background())
+	if len(machines) != 1 || !machines[0].PublicKey.Equal(id.PublicKey()) {
+		t.Fatalf("the dashboard has %+v", machines)
+	}
+
+	d, err := join()
+	if err != nil || d.MachineID != machines[0].ID || d.Name != "home-server" {
+		t.Fatalf("sending the same code again: %+v, %v", d, err)
+	}
+	if machines, _ := th.store.Machines(context.Background()); len(machines) != 1 || th.events.count(EventJoined) != 1 {
+		t.Fatalf("%d machines and %d joined events", len(machines), th.events.count(EventJoined))
 	}
 }
 

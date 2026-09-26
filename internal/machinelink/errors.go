@@ -20,6 +20,7 @@ const (
 	CodeJoinCodeExpired   = "join_code_expired"
 	CodeJoinCodeUsed      = "join_code_used"
 	CodeJoinRateLimited   = "join_rate_limited"
+	CodeJoinUnanswered    = "join_unanswered"
 
 	CodeDashboardUnreachable = "dashboard_unreachable"
 	CodeNotADashboard        = "not_a_dashboard"
@@ -121,6 +122,13 @@ func errJoinRateLimited(wait time.Duration) *Error {
 		Msg:        "The dashboard has seen too many wrong join codes, so it isn't accepting any for a while.",
 		Hint:       "Try again in " + humanDuration(wait) + ".",
 		RetryAfter: wait}
+}
+
+func errJoinUnanswered(a Address, err error) *Error {
+	return &Error{Code: CodeJoinUnanswered, Params: map[string]string{"address": a.String()},
+		Msg:  "This machine sent its join code to the dashboard at " + a.String() + " but got no answer it could use, so it can't tell whether it joined.",
+		Hint: "Run the same command again: if the dashboard added this machine, that finishes joining.",
+		Err:  err}
 }
 
 func errUnreachable(a Address, err error) *Error {

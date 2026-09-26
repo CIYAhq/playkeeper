@@ -27,6 +27,15 @@ func (e *LinkNotStartedError) Error() string {
 
 func (e *LinkNotStartedError) Unwrap() error { return e.Err }
 
+// UnfinishedJoinError is a failed join after which the dashboard may hold
+// this machine's key. The machine keeps the key, so the same command run
+// again finishes the join.
+type UnfinishedJoinError struct{ Err error }
+
+func (e *UnfinishedJoinError) Error() string { return e.Err.Error() }
+
+func (e *UnfinishedJoinError) Unwrap() error { return e.Err }
+
 // JoinOptions are the parts of a join command and what the machine tells
 // the dashboard about itself.
 type JoinOptions struct {
@@ -39,10 +48,12 @@ type JoinOptions struct {
 	Version string
 }
 
-// Join connects this machine to the dashboard at o.Address with a new key
-// and starts the link. The machine checks the dashboard's key against
-// o.Fingerprint before it sends the code. With a development config no
-// service starts: run playkeeper link instead.
+// Join connects this machine to the dashboard at o.Address and starts the
+// link. The machine checks the dashboard's key against o.Fingerprint
+// before it sends the code. It joins with a new key, or with the key a
+// join the dashboard may have accepted left behind: the same command run
+// again then finishes that join. With a development config no service
+// starts: run playkeeper link instead.
 func Join(ctx context.Context, sys System, cfg config.Config, o JoinOptions) (machinelink.Dashboard, error) {
 	var none machinelink.Dashboard
 	if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); err == nil {
@@ -66,16 +77,9 @@ func Join(ctx context.Context, sys System, cfg config.Config, o JoinOptions) (ma
 	if err := own(dir); err != nil {
 		return none, err
 	}
-	id, err := machinelink.NewIdentity()
-	if err != nil {
-		return none, err
-	}
 	keyPath, dashPath := sys.P(cfg.LinkKeyPath()), sys.P(cfg.LinkDashboardPath())
-	if err := id.Save(keyPath); err != nil {
-		return none, err
-	}
-	if err := own(keyPath); err != nil {
-		os.Remove(keyPath)
+	id, kept, err := joinKey(keyPath, own)
+	if err != nil {
 		return none, err
 	}
 	name := o.Name
@@ -84,19 +88,30 @@ func Join(ctx context.Context, sys System, cfg config.Config, o JoinOptions) (ma
 	}
 	d, err := machinelink.Join(ctx, machinelink.JoinOptions{Address: o.Address, Code: o.Code, Fingerprint: o.Fingerprint, Identity: id, Name: name, Version: o.Version, Now: sys.Now})
 	if err != nil {
+		var e *machinelink.Error
+		if errors.As(err, &e) && e.Code == machinelink.CodeMachineAlreadyJoined {
+			err = &machinelink.Error{Code: e.Code, Params: e.Params,
+				Msg:  "The dashboard already has this machine, as " + e.Params["name"] + ", from an earlier join this machine didn't finish.",
+				Hint: "Run the command from that join again to finish it. Or remove " + e.Params["name"] + " in the dashboard (Settings › Machines), run sudo playkeeper leave here, then join with a new command.",
+				Err:  err}
+		}
+		// A key kept from an earlier attempt stays, whatever this one got:
+		// that attempt may be the join the dashboard accepted.
+		if kept || machinelink.MayHaveJoined(err) {
+			return none, &UnfinishedJoinError{Err: err}
+		}
 		os.Remove(keyPath)
 		return none, err
 	}
-	if err := d.Save(dashPath); err == nil {
+	if err = d.Save(dashPath); err == nil {
 		err = own(dashPath)
 	}
 	if err != nil {
 		os.Remove(dashPath)
-		os.Remove(keyPath)
-		return none, &machinelink.Error{Code: machinelink.CodeKeyFile, Params: map[string]string{"name": d.Name},
+		return none, &UnfinishedJoinError{Err: &machinelink.Error{Code: machinelink.CodeKeyFile, Params: map[string]string{"name": d.Name},
 			Msg:  "The dashboard accepted this machine as " + d.Name + ", but this machine couldn't save what it needs to connect.",
-			Hint: "Remove " + d.Name + " in the dashboard (Settings › Machines), then connect again with a new command.",
-			Err:  err}
+			Hint: "Check that " + dir + " has space and can be written, then run the same command again: that finishes joining.",
+			Err:  err}}
 	}
 	if cfg.Dev {
 		return d, nil
@@ -105,6 +120,29 @@ func Join(ctx context.Context, sys System, cfg config.Config, o JoinOptions) (ma
 		return d, &LinkNotStartedError{Dashboard: d, Err: err}
 	}
 	return d, nil
+}
+
+// joinKey returns the key to join with, and whether an earlier attempt
+// left it: a machine that isn't joined keeps a key only while a dashboard
+// may hold it.
+func joinKey(path string, own func(string) error) (*machinelink.Identity, bool, error) {
+	if id, err := machinelink.LoadIdentity(path); err == nil {
+		return id, true, own(path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, false, err
+	}
+	id, err := machinelink.NewIdentity()
+	if err != nil {
+		return nil, false, err
+	}
+	if err := id.Save(path); err != nil {
+		return nil, false, err
+	}
+	if err := own(path); err != nil {
+		os.Remove(path)
+		return nil, false, err
+	}
+	return id, false, nil
 }
 
 // linkOwner returns what gives a file to the 'playkeeper' user, who runs

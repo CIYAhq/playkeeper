@@ -447,6 +447,38 @@ control "a wrong code kept from a wrong clock pauses joining no longer than the 
   '			g.fails[i].At = now' \
   '			_ = now' \
   ./internal/machinelink '^TestGuardStartsFromTheFailuresKept$'
+control "a join without a usable answer is told apart from a refusal" internal/machinelink/link.go \
+  'err = errJoinUnanswered(a, err)' \
+  '_ = errJoinUnanswered(a, err)' \
+  ./internal/machinelink '^TestAJoinWhoseAnswerIsLostFinishesWhenSentAgain$'
+control "a join the dashboard may have accepted keeps its key" internal/install/link.go \
+  'if kept || machinelink.MayHaveJoined(err) {' \
+  'if false && (kept || machinelink.MayHaveJoined(err)) {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a key kept from an earlier join stays when a later one is refused" internal/install/link.go \
+  'if kept || machinelink.MayHaveJoined(err) {' \
+  'if machinelink.MayHaveJoined(err) || false && kept {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a join runs again with the key it kept" internal/install/link.go \
+  'if id, err := machinelink.LoadIdentity(path); err == nil {' \
+  'if id, err := machinelink.LoadIdentity(path + ".none"); err == nil {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a refused join leaves no key behind" internal/install/link.go \
+  'os.Remove(keyPath)' \
+  '_ = keyPath' \
+  ./internal/install '^TestAJoinThatFailsLeavesNothingBehind$'
+control "a join whose dashboard can't be saved fails" internal/install/link.go \
+  'if err = d.Save(dashPath); err == nil {' \
+  'if err := d.Save(dashPath); err == nil {' \
+  ./internal/install '^TestAJoinThatCantSaveTheDashboardFinishesWhenRunAgain$'
+control "a join whose dashboard can't be saved keeps its key" internal/install/link.go \
+  'os.Remove(dashPath)' \
+  'os.Remove(dashPath); os.Remove(keyPath)' \
+  ./internal/install '^TestAJoinThatCantSaveTheDashboardFinishesWhenRunAgain$'
+control "install --join says only the join is left after a lost answer" cmd/playkeeper/link.go \
+  'case errors.As(err, &unfinished):' \
+  'case false && errors.As(err, &unfinished):' \
+  ./cmd/playkeeper '^TestInstallingToJoinWithoutAnAnswerSaysOnlyTheJoinIsLeft$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
 		network := ""' \

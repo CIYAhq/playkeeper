@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -165,6 +166,41 @@ func TestInstallingToJoinSaysAJoinWhoseLinkDidNotStartJoined(t *testing.T) {
 	}
 	if machines, _ := h.store.Machines(ctx); len(machines) != 1 || !install.Joined(cfg, sys.Root) {
 		t.Fatalf("the machine isn't joined: %d machines on the dashboard", len(machines))
+	}
+}
+
+// A join that got no answer may have been accepted, so the machine keeps
+// its key, and the install says only the join is left rather than to make
+// a new code: the same command finishes it.
+func TestInstallingToJoinWithoutAnAnswerSaysOnlyTheJoinIsLeft(t *testing.T) {
+	ctx := context.Background()
+	h := startTestHub(t)
+	silent, err := tls.Listen("tcp", "127.0.0.1:0", h.TLSConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { silent.Close() })
+	go func() {
+		for {
+			c, err := silent.Accept()
+			if err != nil {
+				return
+			}
+			c.Read(make([]byte, 4096))
+			c.Close()
+		}
+	}()
+	j := h.command(t)
+	j.address = silent.Addr().String()
+	sys, cfg := installedSystem(t, nil), config.Default()
+	var out bytes.Buffer
+	err = joinAfterInstall(ctx, &out, sys, cfg, j)
+	if err == nil || !strings.Contains(err.Error(), "can't tell whether it joined") || !strings.Contains(err.Error(), "Run the same command again") ||
+		!strings.Contains(err.Error(), "Playkeeper is installed; only the join is left to finish.") || strings.Contains(err.Error(), "new code") {
+		t.Fatalf("an install whose join got no answer: %v", err)
+	}
+	if _, err := os.Stat(sys.P(cfg.LinkKeyPath())); err != nil || install.Joined(cfg, sys.Root) {
+		t.Fatalf("the machine must keep its key and not count as joined: %v", err)
 	}
 }
 

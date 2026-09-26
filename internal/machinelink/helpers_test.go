@@ -577,3 +577,31 @@ func (p *tcpProxy) bytesSeen() []byte {
 	defer p.mu.Unlock()
 	return slices.Clone(p.seen)
 }
+
+// losingStore is a hub's store whose first machine added never gets the
+// hub's answer: lose runs before the hub can send it.
+type losingStore struct {
+	*MemoryStore
+	mu   sync.Mutex
+	lose func()
+}
+
+func (s *losingStore) loseFirstAnswer(lose func()) {
+	s.mu.Lock()
+	s.lose = lose
+	s.mu.Unlock()
+}
+
+func (s *losingStore) Pair(ctx context.Context, codeID string, m Machine) error {
+	err := s.MemoryStore.Pair(ctx, codeID, m)
+	s.mu.Lock()
+	lose := s.lose
+	if err == nil {
+		s.lose = nil
+	}
+	s.mu.Unlock()
+	if err == nil && lose != nil {
+		lose()
+	}
+	return err
+}

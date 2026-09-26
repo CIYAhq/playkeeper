@@ -119,27 +119,36 @@ func dialDashboard(ctx context.Context, dial dialFunc, a Address, id *Identity, 
 	if err := tc.HandshakeContext(ctx); err != nil {
 		return fail(handshakeError(a, joined, err))
 	}
+	// Once the hello may have arrived, only a refusal says the dashboard
+	// didn't act on it: a join without a usable answer may have been
+	// accepted.
+	lost := func(err error) (*tls.Conn, welcome, error) {
+		if !joined {
+			err = errJoinUnanswered(a, err)
+		}
+		return fail(err)
+	}
 	if err := writeFrame(tc, h); err != nil {
-		return fail(handshakeError(a, joined, err))
+		return lost(handshakeError(a, joined, err))
 	}
 	var w welcome
 	if err := readFrame(tc, &w); err != nil {
 		if errors.Is(err, errFrameTooLarge) || errors.Is(err, errBadFrame) {
-			return fail(errProtocol(err))
+			return lost(errProtocol(err))
 		}
-		return fail(handshakeError(a, joined, err))
+		return lost(handshakeError(a, joined, err))
 	}
 	if !w.OK {
 		if w.Error == nil {
-			return fail(errProtocol(errors.New("refused without a reason")))
+			return lost(errProtocol(errors.New("refused without a reason")))
 		}
 		return fail(w.Error.err())
 	}
 	if w.V != protocolVersion {
-		return fail(errVersionUnsupported(w.V))
+		return lost(errVersionUnsupported(w.V))
 	}
 	if !reMachineID.MatchString(w.MachineID) {
-		return fail(errProtocol(errors.New("bad machine id in welcome")))
+		return lost(errProtocol(errors.New("bad machine id in welcome")))
 	}
 	return tc, w, nil
 }
@@ -150,8 +159,10 @@ type JoinOptions struct {
 	Address     string
 	Code        string
 	Fingerprint string
-	// Identity is the machine's key. Make a new one for every join: a key
-	// that was removed from a dashboard never works there again.
+	// Identity is the machine's key. Make a new one for every join, as a
+	// key that was removed from a dashboard never works there again, but
+	// keep it after a join that MayHaveJoined: the same key and code sent
+	// again get the same machine.
 	Identity *Identity
 	// Name is what the dashboard should call the machine, usually its
 	// host name; the dashboard makes it unique.
@@ -207,6 +218,17 @@ func Join(ctx context.Context, o JoinOptions) (Dashboard, error) {
 		name = w.MachineID
 	}
 	return Dashboard{Address: a.String(), Key: slices.Clone(key), MachineID: w.MachineID, Name: name, JoinedAt: o.Now().UTC()}, nil
+}
+
+// MayHaveJoined reports whether the dashboard may hold the machine's key
+// after a failed Join: its answer was lost, or it already knows the key.
+// Every other failure means the dashboard didn't add the machine.
+func MayHaveJoined(err error) bool {
+	switch CodeOf(err) {
+	case CodeJoinUnanswered, CodeMachineAlreadyJoined:
+		return true
+	}
+	return false
 }
 
 // LeaveOptions are what a machine needs to leave its dashboard.
