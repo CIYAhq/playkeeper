@@ -37,9 +37,9 @@ const (
 	sleepPeriodAge = 90 * 24 * time.Hour
 )
 
-// sleepStep marks the steps of falling asleep and of saving the sleep
-// setting; tests act there.
-var sleepStep = func(step string) {}
+// sleepLooks runs as the sleep operation looks again before it stops the
+// server; tests act there.
+var sleepLooks = func() {}
 
 func (s *server) sleepSettings() sleep.Settings {
 	s.auto.mu.Lock()
@@ -221,20 +221,21 @@ func (s *server) fallAsleep(set sleep.Settings) {
 // someone joined, a map pre-generation or a scheduled restart's countdown
 // began, the server stopped being meant to run or set stopped being its
 // sleep setting: then the operation is called off and the server stays
-// awake.
+// awake. Saving the setting takes the operation lock too, so the setting
+// can't change between this look and the stop.
 func (s *server) sleepOp(ctx context.Context, h *opHandle, m *sleep.Manager, set sleep.Settings) error {
-	sleepStep("look")
+	sleepLooks()
 	if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {
 		h.callOff()
 		return nil
 	}
-	if ok, err := s.commitSleep(set); err != nil {
-		return err
-	} else if !ok {
+	if s.desired() != api.DesiredRunning || s.sleepSettings() != set {
 		h.callOff()
 		return nil
 	}
-	sleepStep("committed")
+	if err := s.setDesired(api.DesiredSleeping); err != nil {
+		return err
+	}
 	stopped := false
 	err := m.Sleep(ctx, func(ctx context.Context) error {
 		if err := s.stopServer(ctx, h); err != nil {
@@ -259,19 +260,6 @@ func (s *server) sleepOp(ctx context.Context, h *opHandle, m *sleep.Manager, set
 	}
 	h.phase(string(api.PhaseAsleep))
 	return nil
-}
-
-// commitSleep makes the server meant to be asleep if it is still meant to
-// run and set is still its sleep setting. Saving the setting holds sleepMu
-// too, so turning sleep off either comes first and keeps the server awake,
-// or finds it meant to be asleep and wakes it as it would a sleeping server.
-func (s *server) commitSleep(set sleep.Settings) (bool, error) {
-	s.auto.sleepMu.Lock()
-	defer s.auto.sleepMu.Unlock()
-	if s.desired() != api.DesiredRunning || s.sleepSettings() != set {
-		return false, nil
-	}
-	return true, s.setDesired(api.DesiredSleeping)
 }
 
 // wakeFor starts the wake operation for a player who tried to join, waiting
@@ -519,8 +507,9 @@ type sleepRequest struct {
 	IdleMinutes int    `json:"idleMinutes,omitempty"`
 }
 
-// hSleepSet saves the setting. Turning it off wakes a sleeping server, so
-// then nothing changes unless the server can start now.
+// hSleepSet saves the setting while no other operation runs. Turning it off
+// wakes a sleeping server, so then nothing changes unless the server can
+// start now.
 func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 	var req sleepRequest
 	if err := decode(r, &req); err != nil {
@@ -555,36 +544,26 @@ func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// saveSleep saves the setting, first starting a sleeping server when it
-// turns sleep off. It holds sleepMu, so a server falling asleep either sees
-// the new setting before it stops or is already meant to be asleep here.
+// saveSleep saves the setting, then starts a sleeping server when it turns
+// sleep off. It holds the operation lock, so no sleep or wake runs while it
+// looks and saves; the start takes the lock over.
 func (s *server) saveSleep(set sleep.Settings, actor string) (*api.Operation, error) {
-	s.auto.sleepMu.Lock()
-	defer s.auto.sleepMu.Unlock()
-	var op *api.Operation
-	if !set.Enabled && s.desired() == api.DesiredSleeping {
-		var err error
-		op, err = s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
-			if err := s.setDesired(api.DesiredRunning); err != nil {
-				return err
-			}
-			cur, _ := s.serverConfig()
-			if cur == nil {
-				return errNotCreated()
-			}
-			if err := s.startServer(ctx, h, *cur); err != nil {
-				// Sleep is off, so nothing answers in the server's place.
-				s.leaveSleep()
-				s.startFailed(ctx)
-				return err
-			}
-			return nil
-		})
-		if err != nil {
+	release, ok := s.holdOpLock()
+	if !ok {
+		return nil, s.busyError()
+	}
+	handedOver := false
+	defer func() {
+		if !handedOver {
+			release()
+		}
+	}()
+	wake := !set.Enabled && s.desired() == api.DesiredSleeping
+	if wake {
+		if err := s.machineBusy(); err != nil {
 			return nil, err
 		}
 	}
-	sleepStep("save")
 	b, _ := json.Marshal(set)
 	if _, err := s.db.Exec(`UPDATE servers SET sleep = ? WHERE id = ?`, string(b), s.id); err != nil {
 		return nil, err
@@ -596,7 +575,24 @@ func (s *server) saveSleep(set sleep.Settings, actor string) (*api.Operation, er
 	}
 	s.auto.decision = sleep.Decision{}
 	s.auto.mu.Unlock()
-	return op, nil
+	if !wake {
+		return nil, nil
+	}
+	handedOver = true
+	return s.startOp("start", actor, func(ctx context.Context, h *opHandle) error {
+		if err := s.setDesired(api.DesiredRunning); err != nil {
+			return err
+		}
+		cur, _ := s.serverConfig()
+		if cur == nil {
+			return errNotCreated()
+		}
+		if err := s.startServer(ctx, h, *cur); err != nil {
+			s.startFailed(ctx)
+			return err
+		}
+		return nil
+	}), nil
 }
 
 // sleepingMemoryMB is the memory sleeping servers gave back for now.
