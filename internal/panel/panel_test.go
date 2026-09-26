@@ -59,6 +59,9 @@ type fakeAgent struct {
 	// gates hold requests to "METHOD /path" until closed, or until the
 	// request is cancelled.
 	gates map[string]chan struct{}
+	// answers answer "METHOD /path" in their own way, headers included,
+	// instead of the replies.
+	answers map[string]http.HandlerFunc
 }
 
 type agentRequest struct {
@@ -74,7 +77,8 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, headers: map[string]http.Header{}, before: map[string]func(){}, lastBody: map[string]string{}, gates: map[string]chan struct{}{}}
+	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, headers: map[string]http.Header{}, before: map[string]func(){}, lastBody: map[string]string{}, gates: map[string]chan struct{}{},
+		answers: map[string]http.HandlerFunc{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var body map[string]any
@@ -92,6 +96,7 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 		status := fa.statuses[key]
 		hook := fa.before[key]
 		gate := fa.gates[key]
+		answer := fa.answers[key]
 		fa.mu.Unlock()
 		if hook != nil {
 			hook()
@@ -102,6 +107,10 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 			case <-r.Context().Done():
 				return
 			}
+		}
+		if answer != nil {
+			answer(w, r)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if !ok {

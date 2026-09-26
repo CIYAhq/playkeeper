@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +30,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
+	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
 	"github.com/CIYAhq/playkeeper/internal/mojang"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -1986,5 +1989,150 @@ func TestJoinPathsSayWhyAServerCantBeReached(t *testing.T) {
 				t.Errorf("the failed approval left the request %q (%v)", state, err)
 			}
 		})
+	}
+}
+
+// A machine's download reaches the browser as a file to save, whatever the
+// machine says it is: never a page or a script on the dashboard's origin,
+// and never with a status that would sign the browser out.
+func TestAMachinesDownloadsAreFilesToSaveNeverAPage(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	ra := newRemoteAgent()
+	e.joinMachine(t, cookie, csrf, ra)
+	var list []map[string]any
+	if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" {
+		t.Fatalf("servers: %v", list)
+	}
+	answer := func(status int, contentType, disposition, body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", contentType)
+			if disposition != "" {
+				w.Header().Set("Content-Disposition", disposition)
+			}
+			w.WriteHeader(status)
+			io.WriteString(w, body)
+		}
+	}
+	for _, route := range []struct {
+		name, path, contentType, goodName, badName, fallback string
+	}{
+		{"the recovery key", "/offsite/recovery-key", "application/octet-stream", "playkeeper-recovery-key-survival.txt", "playkeeper-recovery-key-Survival World.txt", "playkeeper-recovery-key.txt"},
+		{"the friends' pack", "/mods/share.mrpack", share.ContentType, "survival.mrpack", "Survival World.mrpack", "server.mrpack"},
+	} {
+		answers := []struct {
+			name string
+			h    http.HandlerFunc
+			good bool // whether the machine named the file as its agent does
+		}{
+			{"a page", answer(200, "text/html; charset=utf-8", "inline", `<script src="/api/servers/rstuvwxyzq/offsite/recovery-key"></script>`), false},
+			{"a script", answer(200, "text/javascript", "", `fetch("/api/tokens", {method: "POST"})`), false},
+			{"a file its agent wouldn't name so", answer(200, "application/octet-stream", `attachment; filename="`+route.badName+`"`, "the file"), false},
+			{"a file", nil, true},
+		}
+		for _, server := range []string{"abcdefghjk", "rstuvwxyzq"} {
+			key := "GET /v1/servers/" + server + route.path
+			set := func(h http.HandlerFunc) {
+				if server == "abcdefghjk" {
+					e.agent.mu.Lock()
+					e.agent.answers[key] = h
+					e.agent.mu.Unlock()
+				} else {
+					ra.handle(key, h)
+				}
+			}
+			for _, a := range answers {
+				t.Run(route.name+" on "+server+", answered as "+a.name, func(t *testing.T) {
+					h := a.h
+					if h == nil {
+						h = answer(200, "application/octet-stream", `attachment; filename="`+route.goodName+`"`, "the file")
+					}
+					set(h)
+					resp, _ := e.raw(t, "GET", "/api/servers/"+server+route.path, "", auth(cookie, csrf))
+					want := route.fallback
+					if a.good {
+						want = route.goodName
+					}
+					if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != route.contentType || resp.Header.Get("Content-Security-Policy") != "sandbox" ||
+						resp.Header.Get("Content-Disposition") != `attachment; filename=`+strconv.Quote(want) && resp.Header.Get("Content-Disposition") != `attachment; filename=`+want {
+						t.Fatalf("%d %q, %q, %q", resp.StatusCode, resp.Header.Get("Content-Type"), resp.Header.Get("Content-Disposition"), resp.Header.Get("Content-Security-Policy"))
+					}
+				})
+			}
+			t.Run(route.name+" on "+server+", refused as unauthorized", func(t *testing.T) {
+				set(answer(http.StatusUnauthorized, "application/json", "", `{"error":"No.","code":"unauthorized"}`))
+				if resp, _ := e.raw(t, "GET", "/api/servers/"+server+route.path, "", auth(cookie, csrf)); resp.StatusCode != http.StatusBadGateway {
+					t.Fatalf("a machine's 401 comes out as %d", resp.StatusCode)
+				}
+			})
+		}
+	}
+}
+
+// A machine's refusal on a route that passes its answer on keeps its
+// status, except the two that would sign the browser out or ask it for a
+// proxy's password, which come out as a bad gateway.
+func TestAMachinesRefusalNeverSignsTheBrowserOut(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	ra := newRemoteAgent()
+	joined, _ := e.joinMachine(t, cookie, csrf, ra)
+	var servers []map[string]any
+	if e.get(t, "/api/servers", cookie, &servers); ids(servers) != "abcdefghjk rstuvwxyzq" {
+		t.Fatalf("servers: %v", servers)
+	}
+	list, err := e.srv.machines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var local string
+	for _, m := range list {
+		if m.Kind != remoteKind {
+			local = m.ID
+		}
+	}
+	icon := "?url=" + url.QueryEscape("https://cdn.modrinth.com/data/AANobbMI/icon.png")
+	for _, route := range []struct {
+		name, method, path, agentPath, body string
+	}{
+		{"a plugin's icon", "GET", "/api/servers/{id}/addons/icon" + icon, "/v1/addons/icon", ""},
+		{"a modpack's icon", "GET", "/api/machines/{mid}/modpacks/icon" + icon, "/v1/addons/icon", ""},
+		{"the map's worlds", "GET", "/api/servers/{id}/map/worlds", "/v1/servers/{id}/map/worlds", ""},
+		{"a map tile", "GET", "/api/servers/{id}/map/tiles/minecraft_overworld/3/0_-1.png", "/v1/servers/{id}/map/tiles/minecraft_overworld/3/0_-1.png", ""},
+		{"a world's upload", "PUT", "/api/machines/{mid}/world-imports/0123456789abcdef/files/0?offset=0", "/v1/world-imports/0123456789abcdef/files/0", "world bytes"},
+		{"checking a world", "POST", "/api/machines/{mid}/world-imports/0123456789abcdef/inspect", "/v1/world-imports/0123456789abcdef/inspect", "{}"},
+	} {
+		for _, m := range []struct{ name, server, machine string }{{"the dashboard's machine", "abcdefghjk", local}, {"a joined machine", "rstuvwxyzq", joined}} {
+			path := strings.NewReplacer("{id}", m.server, "{mid}", m.machine).Replace(route.path)
+			key := route.method + " " + strings.ReplaceAll(route.agentPath, "{id}", m.server)
+			for _, c := range []struct{ status, want int }{
+				{http.StatusUnauthorized, http.StatusBadGateway},
+				{http.StatusProxyAuthRequired, http.StatusBadGateway},
+				{http.StatusNotFound, http.StatusNotFound},
+				{http.StatusConflict, http.StatusConflict},
+			} {
+				t.Run(fmt.Sprintf("%s on %s, refused with %d", route.name, m.name, c.status), func(t *testing.T) {
+					h := func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(c.status)
+						io.WriteString(w, `{"error":"No.","code":"refused"}`)
+					}
+					if m.server == "abcdefghjk" {
+						e.agent.mu.Lock()
+						e.agent.answers[key] = h
+						e.agent.mu.Unlock()
+					} else {
+						ra.handle(key, h)
+					}
+					if resp, body := e.raw(t, route.method, path, route.body, auth(cookie, csrf)); resp.StatusCode != c.want {
+						t.Fatalf("the machine's %d comes out as %d: %s", c.status, resp.StatusCode, body)
+					}
+				})
+			}
+		}
 	}
 }

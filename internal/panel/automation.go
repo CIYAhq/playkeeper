@@ -4,10 +4,21 @@ package panel
 
 import (
 	"io"
+	"mime"
 	"net/http"
+	"regexp"
+	"strconv"
+
+	"github.com/CIYAhq/playkeeper/internal/agentclient"
 )
 
-// hRecoveryKey passes the recovery key file through as a download. It is
+// maxRecoveryKey bounds the recovery key file the dashboard passes on.
+const maxRecoveryKey = 1 << 20
+
+// hRecoveryKey passes the recovery key file through as a download, as
+// hDownload does a backup: whatever the machine sends, the answer is bytes
+// to save, with a name the panel checks and a sandbox, so a joined machine
+// can't turn it into a page or a script on the dashboard's origin. It is
 // never cached, and the agent audits who took it without its content.
 func (s *Server) hRecoveryKey(w http.ResponseWriter, r *http.Request, sess *session) {
 	m, ok := s.target(w, r)
@@ -20,19 +31,33 @@ func (s *Server) hRecoveryKey(w http.ResponseWriter, r *http.Request, sess *sess
 		return
 	}
 	defer resp.Body.Close()
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if resp.StatusCode >= 400 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+		s.agentFailure(w, agentclient.DecodeError(resp))
 		return
 	}
-	for _, h := range []string{"Content-Type", "Content-Disposition", "Content-Length"} {
-		if v := resp.Header.Get(h); v != "" {
-			w.Header().Set(h, v)
-		}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxRecoveryKey+1))
+	if resp.StatusCode != http.StatusOK || err != nil || len(b) > maxRecoveryKey {
+		s.agentFailure(w, agentclient.ErrBadAnswer)
+		return
 	}
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Content-Disposition", `attachment; filename="`+recoveryKeyFileName(resp.Header.Get("Content-Disposition"))+`"`)
+	h.Set("Content-Security-Policy", "sandbox")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Length", strconv.Itoa(len(b)))
+	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+	w.Write(b)
+}
+
+var reRecoveryKeyFile = regexp.MustCompile(`^playkeeper-recovery-key-[a-z0-9-]{1,64}\.txt$`)
+
+// recoveryKeyFileName is the name the key downloads as: the agent's, when it
+// has that shape, else a plain one.
+func recoveryKeyFileName(disposition string) string {
+	if _, params, err := mime.ParseMediaType(disposition); err == nil && reRecoveryKeyFile.MatchString(params["filename"]) {
+		return params["filename"]
+	}
+	return "playkeeper-recovery-key.txt"
 }

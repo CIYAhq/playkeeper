@@ -3905,6 +3905,123 @@ control "a server no machine runs is answered as not found, not as an agent that
   'if false && errors.Is(err, errUnknownServer) {' \
   ./internal/panel '^TestJoinPathsSayWhyAServerCantBeReached$'
 
+# Wave 8, second bug hunt: what a machine sends reaches the browser as a file
+# to save, a refusal never signs it out, and the web follows a machine's link
+# only when it is an https: link to another site.
+control "the recovery key downloads as bytes, whatever type its machine gives" internal/panel/automation.go \
+  'h.Set("Content-Type", "application/octet-stream")' \
+  'h.Set("Content-Type", resp.Header.Get("Content-Type"))' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the recovery key is a file to save, never shown in the tab" internal/panel/automation.go \
+  'h.Set("Content-Disposition", `attachment; filename="`+recoveryKeyFileName' \
+  'h.Set("Content-Disposition", `inline; filename="`+recoveryKeyFileName' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the recovery key runs no script, even when opened" internal/panel/automation.go \
+  'h.Set("Content-Security-Policy", "sandbox")
+	h.Set("X-Content-Type-Options", "nosniff")' \
+  'h.Set("X-Content-Type-Options", "nosniff")' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the recovery key keeps only a name its agent would give" internal/panel/automation.go \
+  'err == nil && reRecoveryKeyFile.MatchString(params["filename"]) {' \
+  'err == nil && params["filename"] != "" {' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "a machine's refusal of the recovery key never signs the browser out" internal/panel/automation.go \
+  'if resp.StatusCode >= 400 {
+		s.agentFailure(w, agentclient.DecodeError(resp))' \
+  'if resp.StatusCode >= 400 {
+		w.WriteHeader(resp.StatusCode)' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the friends' pack file is a file to save, never shown in the tab" internal/panel/packshare.go \
+  'mime.FormatMediaType("attachment", map[string]string{"filename": packFileName(' \
+  'mime.FormatMediaType("inline", map[string]string{"filename": packFileName(' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the friends' pack file runs no script, even when opened" internal/panel/packshare.go \
+  'h.Set("Content-Security-Policy", "sandbox")
+	h.Set("Cache-Control", "no-store")
+	io.Copy(w, io.LimitReader(resp.Body, maxFriendsPackFile))' \
+  'h.Set("Cache-Control", "no-store")
+	io.Copy(w, io.LimitReader(resp.Body, maxFriendsPackFile))' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the friends' pack file keeps only a slug's name" internal/panel/packshare.go \
+  'ok && share.ValidSlug(slug) {' \
+  'ok && slug != "" {' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "a machine's refusal of the friends' pack file never signs the browser out" internal/panel/packshare.go \
+  'if resp.StatusCode >= 400 {
+		s.agentFailure(w, agentclient.DecodeError(resp))
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", share.ContentType)' \
+  'if resp.StatusCode >= 400 {
+		w.WriteHeader(resp.StatusCode)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", share.ContentType)' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "a machine's refusal of an add-on's icon never signs the browser out" internal/panel/addons.go \
+  'w.Header().Set("Cache-Control", "no-store")
+		s.agentFailure(w, agentclient.DecodeError(resp))' \
+  'w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(resp.StatusCode)
+		_ = agentclient.DecodeError' \
+  ./internal/panel '^TestAMachinesRefusalNeverSignsTheBrowserOut$'
+control "a machine's refusal of its map never signs the browser out" internal/panel/maps.go \
+  'status := resp.StatusCode
+		if status >= 400 {' \
+  'status := resp.StatusCode
+		if false && status >= 400 {' \
+  ./internal/panel '^TestAMachinesRefusalNeverSignsTheBrowserOut$'
+control "a machine's refusal of a world import never signs the browser out" internal/panel/worldimports.go \
+  'status := resp.StatusCode
+	if status >= 400 {' \
+  'status := resp.StatusCode
+	if false && status >= 400 {' \
+  ./internal/panel '^TestAMachinesRefusalNeverSignsTheBrowserOut$'
+webcontrol "a machine's link is followed only to another site" web/src/lib/links.ts \
+  "u.protocol === 'https:' && u.origin !== window.location.origin ? u.href : undefined" \
+  "u.protocol === 'https:' ? u.href : undefined" \
+  web/src/lib/links.test.ts
+webcontrol "a machine's link is followed only when it is https:" web/src/lib/links.ts \
+  "u.protocol === 'https:' && u.origin !== window.location.origin" \
+  "u.origin !== window.location.origin" \
+  web/src/lib/links.test.ts
+webcontrol "an add-on's source link shows only for another site" web/src/pages/server/plugins/detail.tsx \
+  'const link = externalLink(href)' \
+  'const link = href' \
+  web/src/pages/server/plugins/detail.test.tsx
+webcontrol "an add-on only on its author's site links only to another site" web/src/pages/server/plugins/detail.tsx \
+  '{externalLink(f.url) && (
+              <Button variant="outline" size={size} className="w-full" render={<a href={externalLink(f.url)}' \
+  '{f.url && (
+              <Button variant="outline" size={size} className="w-full" render={<a href={f.url}' \
+  web/src/pages/server/plugins/plugins.test.tsx 'sends people to the author’s site at'
+webcontrol "a dependency from another site links only to another site" web/src/pages/server/plugins/detail.tsx \
+  '{externalLink(f.url) && (
+              <Button
+                variant="outline"
+                size={size}
+                className="w-full"
+                render={<a href={externalLink(f.url)}' \
+  '{f.url && (
+              <Button
+                variant="outline"
+                size={size}
+                className="w-full"
+                render={<a href={f.url}' \
+  web/src/pages/server/plugins/plugins.test.tsx 'links a dependency another site names to'
+webcontrol "an installed add-on's source page opens only on another site" web/src/pages/server/plugins/state.tsx \
+  'const link = externalLink(d.card.pageUrl)' \
+  'const link = d.card.pageUrl' \
+  web/src/pages/server/plugins/plugins.test.tsx 'opens an installed add-on’s source page at'
+webcontrol "a modpack links only to its page on another site" web/src/components/app/modpacks.tsx \
+  '{externalLink(card.pageUrl) && (
+                <a href={externalLink(card.pageUrl)}' \
+  '{card.pageUrl && (
+                <a href={card.pageUrl}' \
+  web/src/pages/pages.test.tsx 'links a pack to'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

@@ -1639,6 +1639,30 @@ describe('Modpacks', () => {
     expect(document.body.textContent).toContain('Playkeeper can’t set up this pack')
   })
 
+  // Each row asks another machine, as the picker keeps what it loaded for a while.
+  it.each([
+    { name: 'its page on Modrinth', pageUrl: 'https://modrinth.com/modpack/smoothserver', machineId: 'm2345abcdf', shown: true },
+    { name: 'a path on the dashboard', pageUrl: '/api/servers/abcdefghjk/offsite/recovery-key', machineId: 'm2345abcdg', shown: false },
+    { name: 'a script', pageUrl: 'javascript:alert(document.cookie)', machineId: 'm2345abcdh', shown: false },
+  ])('links a pack to $name only when it is another site', async ({ pageUrl, machineId, shown }) => {
+    const card = results.cards[0]
+    if (!card) throw new Error('no card')
+    const detail: ModpackDetail = { ...card, pageUrl, versions: [{ id: 'SMV00012', number: '1.2', channel: 'release', published: '2026-09-01T00:00:00Z', size: 16_000_000, type: 'fabric', minecraftVersion: '26.2', mods: 17 }], newest: 'SMV00012' }
+    answer({
+      '/preview': { type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', files: 17, downloadSize: 16_000_000, ready: true, blockers: [], warnings: [], manual: [] },
+      '/modpacks/modrinth/SMTH0001': detail,
+      '/modpacks?': { ...results, cards: [{ ...card, pageUrl }] },
+    })
+    await render(<ModpackPicker machineId={machineId} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Smooth Server'))
+    await act(async () => row?.click())
+    await act(async () => {})
+    await act(async () => {})
+    expect(document.body.textContent).toContain('What friends do')
+    expect(document.body.textContent?.includes('Open on Modrinth')).toBe(shown)
+    expect(document.querySelector(`a[href="${pageUrl}"]`) !== null).toBe(shown)
+  })
+
   it('says what a pack’s server downloads, not Paper', () => {
     expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
     expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')

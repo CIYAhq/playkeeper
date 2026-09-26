@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatBytes, formatCompact, formatMB, relativeTime } from '@/lib/format'
+import { externalLink } from '@/lib/links'
 import { linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -289,10 +290,12 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
                 <h3 className="text-sm font-semibold">{t('modpacks.friends')}</h3>
                 <p className="mt-1 text-[13px] text-muted-foreground">{t('modpacks.friendsBody')}</p>
               </section>
-              <a href={card.pageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 self-start text-[13px] font-semibold text-success-strong hover:underline">
-                {t('modpacks.open', { source })}
-                <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />
-              </a>
+              {externalLink(card.pageUrl) && (
+                <a href={externalLink(card.pageUrl)} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 self-start text-[13px] font-semibold text-success-strong hover:underline">
+                  {t('modpacks.open', { source })}
+                  <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />
+                </a>
+              )}
             </SheetPanel>
             <div className="px-6 pt-4 pb-5">
               <Button className="w-full" size={phone ? 'touch' : 'default'} disabledReason={why} onClick={() => onUse(choiceOf(card, d))}>

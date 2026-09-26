@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"slices"
 
+	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
 
@@ -28,10 +29,8 @@ func (s *Server) hAddonIcon(w http.ResponseWriter, r *http.Request, _ *session) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+		s.agentFailure(w, agentclient.DecodeError(resp))
 		return
 	}
 	ct := resp.Header.Get("Content-Type")
