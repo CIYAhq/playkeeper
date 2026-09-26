@@ -213,9 +213,9 @@ func (a access) can() []action {
 	return out
 }
 
-// refuse answers a refusal: an *invites.Error with its status, code, params
-// and wait, or a plain server error.
-func refuse(w http.ResponseWriter, err error) {
+// writeRefusal answers a refusal: an *invites.Error with its status, code,
+// params and wait, or a plain server error.
+func writeRefusal(w http.ResponseWriter, err error) {
 	var e *invites.Error
 	if !errors.As(err, &e) {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Something went wrong. Try again.", "")

@@ -157,7 +157,7 @@ func (s *Server) hTeamInviteCreate(w http.ResponseWriter, r *http.Request, sess 
 	c, err := invites.NewMember(invites.MemberSpec{ProjectID: s.projectID(sess.Access), Role: req.Role, Servers: req.Servers, Label: req.Label},
 		sess.Access.Account, serverIDs(servers), s.now())
 	if err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	if err := s.insertInvite(c.Invite); err != nil {
@@ -178,7 +178,7 @@ func (s *Server) teamInvite(w http.ResponseWriter, r *http.Request, sess *sessio
 		switch {
 		case err == nil && inv.Kind == invites.KindMember && inv.ProjectID == s.projectID(sess.Access):
 			if err := invites.CanGrant(sess.Access.Account, inv.Role, inv.Servers); err != nil {
-				refuse(w, err)
+				writeRefusal(w, err)
 				return invites.Invite{}, false
 			}
 			return inv, true
@@ -207,7 +207,7 @@ func (s *Server) hTeamInviteEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	if err := s.checkGrant(sess.Access, req, servers); err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	res, err := s.db.Exec(`UPDATE invites SET role = ?, servers = ? WHERE id = ? AND uses = 0 AND revoked_at = 0`, req.Role, req.Servers.String(), inv.ID)
@@ -293,7 +293,7 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	servers, ok := s.existingServers(w, r)
@@ -301,7 +301,7 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	if err := s.checkGrant(sess.Access, req, servers); err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	// Only the owner makes admins, so making someone an admin confirms the
@@ -365,7 +365,7 @@ func (s *Server) hTeamConfirmAdmin(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	if err := canConfirm(sess.Access, t); err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	factor := s.factorAt(t.UserID)
@@ -393,7 +393,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	if err := invites.CanRemove(sess.Access.Account, t.Account); err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	s.turnOffLinks(r, sess.User, invites.Account{UserID: t.UserID}, "creator removed")
@@ -551,7 +551,7 @@ func (s *Server) restoreProxy(method, pattern string) func(http.ResponseWriter, 
 			act = actCreateServers
 		}
 		if err := permit(sess.Access, act, p.ServerID); err != nil {
-			refuse(w, err)
+			writeRefusal(w, err)
 			return
 		}
 		fwd(w, r, sess)

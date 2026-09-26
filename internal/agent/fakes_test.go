@@ -39,6 +39,7 @@ type fakeDocker struct {
 	replayAll    bool
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
+	failBoots    int           // the next failBoots servers to start exit with code 1
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
 	stopDelay    time.Duration // before a container stop takes effect
@@ -48,6 +49,9 @@ type fakeDocker struct {
 	// target names the container addLog, crash and the like act on when
 	// there is more than one server.
 	target string
+	// started and stopped, when set, hear of a server container starting
+	// or stopping cleanly, as a plugin would.
+	started, stopped func(c *fakeContainer)
 }
 
 type fakeLine struct {
@@ -311,7 +315,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		jsonOut(w, 200, map[string]any{
 			"Id": c.id, "Name": "/" + c.name, "Image": "sha256:img",
 			"State":           map[string]any{"Status": map[bool]string{true: "running", false: "exited"}[c.running], "Running": c.running, "ExitCode": c.exitCode, "OOMKilled": c.oom, "StartedAt": st, "FinishedAt": fin},
-			"Config":          map[string]any{"Image": c.cfg.Image, "Labels": c.cfg.Labels},
+			"Config":          map[string]any{"Image": c.cfg.Image, "Env": c.cfg.Env, "Labels": c.cfg.Labels},
 			"NetworkSettings": map[string]any{"Networks": map[string]any{networkName: map[string]string{"IPAddress": "127.0.0.1"}}},
 		})
 	case r.Method == "POST" && action == "start":
@@ -332,7 +336,11 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		setup := env(c.cfg, "SETUP_ONLY") == "TRUE"
 		fd.log(c, "[init] Running as uid=1000 gid=1000")
 		fd.log(c, "[init] Resolving type given PAPER")
+		started := fd.started
 		fd.mu.Unlock()
+		if started != nil && !setup {
+			started(c)
+		}
 		go fd.boot(c, setup)
 		w.WriteHeader(204)
 	case r.Method == "POST" && action == "stop":
@@ -341,11 +349,15 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		fd.mu.Unlock()
 		time.Sleep(delay)
 		fd.mu.Lock()
+		wasRunning, stopped := c.running, fd.stopped
 		if c.running {
 			fd.log(c, "[12:00:00 INFO]: Stopping server")
 			c.running, c.exitCode, c.finished = false, 0, time.Now().UTC()
 		}
 		fd.mu.Unlock()
+		if wasRunning && stopped != nil {
+			stopped(c)
+		}
 		w.WriteHeader(204)
 	case r.Method == "DELETE" && action == "":
 		fd.mu.Lock()
@@ -373,7 +385,10 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 // boot simulates the image: setup-only writes the jar and exits; the server
 // prints its startup lines and "Done".
 func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
-	time.Sleep(fd.bootDelay)
+	fd.mu.Lock()
+	delay := fd.bootDelay
+	fd.mu.Unlock()
+	time.Sleep(delay)
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 	if !c.running {
@@ -408,9 +423,14 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 		c.wake = make(chan struct{})
 		return
 	}
-	if fd.bootExit != 0 {
+	exit := fd.bootExit
+	if exit == 0 && fd.failBoots > 0 {
+		fd.failBoots--
+		exit = 1
+	}
+	if exit != 0 {
 		fd.log(c, "[12:00:00 ERROR]: Encountered an unexpected exception")
-		c.running, c.exitCode, c.finished = false, fd.bootExit, time.Now().UTC()
+		c.running, c.exitCode, c.finished = false, exit, time.Now().UTC()
 		close(c.wake)
 		c.wake = make(chan struct{})
 		return
@@ -515,6 +535,33 @@ type fakeRCON struct {
 	online   []string
 	// listed are the names whitelist add was given, lower case.
 	listed map[string]bool
+	// hangUp holds commands the fake takes and then hangs up on without
+	// answering, like a server stopping mid-command.
+	hangUp map[string]bool
+	conns  map[net.Conn]bool
+	// answer, when set, replies to commands it knows before the defaults.
+	answer func(cmd string) (string, bool)
+}
+
+// dropAll hangs up every open connection, like a server restarting.
+func (fr *fakeRCON) dropAll() {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	for c := range fr.conns {
+		c.Close()
+	}
+}
+
+func (fr *fakeRCON) count(cmd string) int {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	n := 0
+	for _, c := range fr.commands {
+		if c == cmd {
+			n++
+		}
+	}
+	return n
 }
 
 func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
@@ -523,7 +570,7 @@ func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fr := &fakeRCON{addr: ln.Addr().String(), accept: accept}
+	fr := &fakeRCON{addr: ln.Addr().String(), accept: accept, hangUp: map[string]bool{}, conns: map[net.Conn]bool{}}
 	t.Cleanup(func() { ln.Close() })
 	go func() {
 		for {
@@ -551,7 +598,15 @@ func (fr *fakeRCON) letGo(name string) {
 }
 
 func (fr *fakeRCON) handle(c net.Conn) {
-	defer c.Close()
+	fr.mu.Lock()
+	fr.conns[c] = true
+	fr.mu.Unlock()
+	defer func() {
+		fr.mu.Lock()
+		delete(fr.conns, c)
+		fr.mu.Unlock()
+		c.Close()
+	}()
 	authed := false
 	for {
 		var hdr [4]byte
@@ -586,7 +641,17 @@ func (fr *fakeRCON) handle(c net.Conn) {
 			fr.mu.Lock()
 			fr.commands = append(fr.commands, body)
 			online := append([]string(nil), fr.online...)
+			hangUp, answer := fr.hangUp[body], fr.answer
 			fr.mu.Unlock()
+			if hangUp {
+				return
+			}
+			if answer != nil {
+				if out, ok := answer(body); ok {
+					reply(id, 0, out)
+					continue
+				}
+			}
 			switch {
 			case body == "list":
 				reply(id, 0, fmt.Sprintf("There are %d of a max of 10 players online: %s", len(online), strings.Join(online, ", ")))

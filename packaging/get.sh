@@ -19,6 +19,9 @@ set -eu
 
 default_base=https://github.com/CIYAhq/playkeeper/releases/latest/download
 asset=playkeeper-linux-amd64.tar.gz
+# The same limits as the agent's updater (internal/update).
+max_tarball=$((200 * 1024 * 1024))
+max_small=$((1024 * 1024))
 
 say() { printf '%s\n' "$*"; }
 die() {
@@ -27,8 +30,14 @@ die() {
   exit 1
 }
 
-fetch() { # URL FILE
-  curl -fsSL --retry 3 --proto "$proto" --proto-redir "$proto" -o "$2" "$1"
+fetch() { # URL FILE MAX-BYTES
+  rc=0
+  curl -fsSL --retry 3 --proto "$proto" --proto-redir "$proto" --max-filesize "$3" -o "$2" "$1" || rc=$?
+  # curl before 8.4 applies --max-filesize only to a size the server announces.
+  if [ "$rc" = 63 ] || { [ "$rc" = 0 ] && [ "$(wc -c <"$2")" -gt "$3" ]; }; then
+    die "$1 is larger than $(($3 / 1024 / 1024)) MB, too large to be a Playkeeper release file. Nothing was installed." "Check the release location; do not install from it if this keeps happening."
+  fi
+  return "$rc"
 }
 
 main() {
@@ -82,14 +91,21 @@ main() {
   trap 'exit 130' INT TERM
 
   say "Downloading $asset from $base"
-  fetch "$base/$asset.sha256" "$tmp/$asset.sha256" ||
+  fetch "$base/$asset.sha256" "$tmp/$asset.sha256" "$max_small" ||
     die "could not download $base/$asset.sha256." "Check the address and this server's internet access, or install from the release tarball as the README describes."
   want=$(awk 'NR == 1 {print $1}' "$tmp/$asset.sha256")
   case $want in
     *[!0-9a-f]* | '') die "$asset.sha256 does not contain a SHA-256 checksum." ;;
   esac
   [ "${#want}" -eq 64 ] || die "$asset.sha256 does not contain a SHA-256 checksum."
-  fetch "$base/$asset" "$tmp/$asset" || die "could not download $base/$asset."
+  named=$(awk 'NR == 1 {print $2}' "$tmp/$asset.sha256")
+  case $named in
+    "$asset" | "*$asset") ;;
+    '') die "$asset.sha256 does not name the file it is the checksum of." ;;
+    *[!A-Za-z0-9._-]*) die "$asset.sha256 is not the checksum of $asset." ;;
+    *) die "$asset.sha256 is the checksum of $named, not of $asset." ;;
+  esac
+  fetch "$base/$asset" "$tmp/$asset" "$max_tarball" || die "could not download $base/$asset."
   got=$(sha256sum "$tmp/$asset" | awk '{print $1}')
   [ "$got" = "$want" ] || die "the download does not match its published checksum (expected $want, got $got). Nothing was installed." "Try again later; if it keeps happening, do not install from this location."
   say "SHA-256 verified: $got"

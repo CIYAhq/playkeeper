@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, MessageSquareIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerIcon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -8,6 +8,7 @@ import { Avatar, PageHeader, roleLabel } from '@/components/app/shell'
 import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
+import { addonTab } from '@/lib/addons'
 import { checklist, complete, progress } from '@/lib/checklist'
 import { formatMB } from '@/lib/format'
 import { linkProps, navigate, type Route } from '@/lib/router'
@@ -70,6 +71,7 @@ export function MorePage() {
   const available = live?.updateAvailable
   const steps = server ? checklist(server) : checklist(undefined)
   const p = progress(steps)
+  const addons = addonTab(server?.type)
   const healthy = !ws.agentDown && !!live?.docker
   return (
     <div className="flex flex-col gap-5 pb-6">
@@ -88,6 +90,11 @@ export function MorePage() {
       )}
       {server && can(ws.me, 'servers.manage') && (
         <Group label={server.name}>
+          {addons && (
+            <li>
+              <Row icon={<PuzzleIcon />} title={addons === 'mods' ? t('tab.mods') : t('tab.plugins')} to={{ name: 'server', slug: server.slug, tab: addons }} />
+            </li>
+          )}
           <li>
             <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
           </li>

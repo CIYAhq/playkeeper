@@ -262,7 +262,7 @@ type invitesBody struct {
 func (s *Server) hInvites(w http.ResponseWriter, r *http.Request, sess *session) {
 	id := r.PathValue("id")
 	if err := invites.CanLetPlayersIn(sess.Access.Account, id); err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	rows, err := s.db.Query(`SELECT `+inviteColumns+` FROM invites WHERE kind = 'player' AND server_id = ? AND revoked_at = 0 ORDER BY created_at DESC LIMIT 100`, id)
@@ -304,7 +304,7 @@ func (s *Server) hInviteCreate(w http.ResponseWriter, r *http.Request, sess *ses
 	c, err := invites.NewPlayer(invites.PlayerSpec{ServerID: id, ProjectID: s.projectID(sess.Access), Label: req.Label, Expiry: req.Expiry,
 		MaxUses: req.MaxUses, Unlimited: req.Unlimited, Approval: req.Approval}, sess.Access.Account, s.now())
 	if err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	if err := s.insertInvite(c.Invite); err != nil {
@@ -339,7 +339,7 @@ func (s *Server) hInviteRevoke(w http.ResponseWriter, r *http.Request, sess *ses
 		return
 	}
 	if err := invites.CanLetPlayersIn(sess.Access.Account, serverID); err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	var declined int64
@@ -437,7 +437,7 @@ func (s *Server) hJoinRequestApprove(w http.ResponseWriter, r *http.Request, ses
 	}
 	decided, grant, err := invites.Approve(jr, sess.Access.Account, s.now())
 	if err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	res, err := s.db.Exec(`UPDATE join_requests SET state = 'approved', decided_at = ?, decided_by = ?, address = '' WHERE id = ? AND state = 'pending'`,
@@ -447,7 +447,7 @@ func (s *Server) hJoinRequestApprove(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		refuse(w, invites.RequestDecided())
+		writeRefusal(w, invites.RequestDecided())
 		return
 	}
 	m, err := s.machineForServer(r, jr.ServerID)
@@ -483,7 +483,7 @@ func (s *Server) hJoinRequestDecline(w http.ResponseWriter, r *http.Request, ses
 	}
 	decided, err := invites.Decline(jr, sess.Access.Account, s.now())
 	if err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	err = s.immediate(r.Context(), func(c *sql.Conn) error {
@@ -499,7 +499,7 @@ func (s *Server) hJoinRequestDecline(w http.ResponseWriter, r *http.Request, ses
 		return err
 	})
 	if err != nil {
-		refuse(w, err)
+		writeRefusal(w, err)
 		return
 	}
 	s.audit(sess.User.Username, "join_request.decline", jr.PlayerName, "succeeded", fmt.Sprintf("request %s, invite %s", jr.ID, jr.InviteID))

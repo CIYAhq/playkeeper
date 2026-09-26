@@ -99,7 +99,7 @@ func (s *Server) refuseJoin(w http.ResponseWriter, err error) {
 	if errors.As(err, &e) {
 		s.log.Info("invite link refused", "refusal", e.Code, "reason", e.Reason)
 	}
-	refuse(w, err)
+	writeRefusal(w, err)
 }
 
 // creator is an invite's creator as the invite rules see them now, without
@@ -297,7 +297,7 @@ func (s *Server) ranOut(c joinCall, inv invites.Invite) error {
 func (s *Server) answerJoin(w http.ResponseWriter, info invites.JoinInfo, err error) {
 	if err != nil {
 		s.log.Warn("could not describe how to join", "err", err)
-		refuse(w, errJoinUnavailable)
+		writeRefusal(w, errJoinUnavailable)
 		return
 	}
 	writeJSON(w, http.StatusOK, info)
@@ -326,7 +326,7 @@ func (s *Server) letIn(w http.ResponseWriter, r *http.Request, c joinCall, inv i
 	}
 	if err != nil {
 		s.audit(inv.Actor(), "invite.redeem", name, "failed", "the agent could not add the player")
-		refuse(w, errJoinUnavailable)
+		writeRefusal(w, errJoinUnavailable)
 		return
 	}
 	if change.Added {

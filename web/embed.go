@@ -12,8 +12,10 @@ import (
 var files embed.FS
 
 // Dist returns the built UI, or nil when `make web` has not been run.
-func Dist() fs.FS {
-	sub, err := fs.Sub(files, "dist")
+func Dist() fs.FS { return dist(files) }
+
+func dist(fsys fs.FS) fs.FS {
+	sub, err := fs.Sub(fsys, "dist")
 	if err != nil {
 		return nil
 	}

@@ -1,0 +1,74 @@
+[
+ {
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_only",
+  "id": "xJZxADzI",
+  "project_id": "AANobbMI",
+  "author_id": "TEZXhE2U",
+  "featured": false,
+  "name": "Sodium 0.9.2 for Fabric 26.2",
+  "version_number": "mc26.2-0.9.2-fabric",
+  "changelog_url": null,
+  "date_published": "2026-09-11T18:08:28.513893Z",
+  "downloads": 1057245,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "EopjrBke",
+    "hashes": {
+     "sha512": "9b7a7aade8824543ce2a804fddfd04e37f57d1f91c00574e7dc87e554eb1835d888313ee6f715a7599bd729840cf01fd74e02aeae87b4e5a3c10c34a016e407c",
+     "sha1": "62a70961a5b3e06938e06ab5f2dc4c5a51cf3323"
+    },
+    "url": "https://cdn.modrinth.com/data/AANobbMI/versions/xJZxADzI/sodium-fabric-0.9.2%2Bmc26.2.jar",
+    "filename": "sodium-fabric-0.9.2+mc26.2.jar",
+    "primary": true,
+    "size": 1885572,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "client_only",
+  "id": "A0IzDzaH",
+  "project_id": "AANobbMI",
+  "author_id": "TEZXhE2U",
+  "featured": false,
+  "name": "Sodium 0.9.2-beta.1 for Fabric 26.2",
+  "version_number": "mc26.2-0.9.2-beta.1-fabric",
+  "changelog_url": null,
+  "date_published": "2026-09-02T16:13:20.435990Z",
+  "downloads": 407298,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "q5gnWpoZ",
+    "hashes": {
+     "sha1": "b45a5ea31bc6333b5851f34ba48bbf25be652628",
+     "sha512": "014955b3b72193d473b4469b7b4d0b4b8efc24eddd0037a5caf5c1d4c85dc444328c5f1b64ecf63572d9afd96a16a6e276b671730dacb8578d1d9bdee71f3faa"
+    },
+    "url": "https://cdn.modrinth.com/data/AANobbMI/versions/A0IzDzaH/sodium-fabric-0.9.2-beta.1%2Bmc26.2.jar",
+    "filename": "sodium-fabric-0.9.2-beta.1+mc26.2.jar",
+    "primary": true,
+    "size": 1885574,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ }
+]

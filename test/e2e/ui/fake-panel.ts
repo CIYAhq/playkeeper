@@ -206,13 +206,16 @@ export function server() {
 
 const update = { current: '0.3.0', supported: true, available: false, latest: '0.3.0', checkedAt: '2026-09-25T12:00:00Z' }
 
+const pregen = { state: 'idle', world: 'world', chunks: 0, total: 0, percent: 0, etaSeconds: -1, pauseForPlayers: true, installed: false, presets: [] }
+
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 }
 
 /**
  * Answers every /api call the page makes: a signed-in owner, one machine, one
- * online server and its console. Calls nothing here answers get a 404 and are
+ * online server, its console, and the World tab's pre-generation and pack rows
+ * with nothing set up. Calls nothing here answers get a 404 and are
  * listed in `unexpected`, so a page that starts calling something new fails
  * its test instead of quietly showing an error.
  */
@@ -242,6 +245,12 @@ export async function fakePanel(page: Page, log: FakeConsole) {
         const q = url.searchParams
         return json(route, log.since(q.get('epoch') ?? '', Number(q.get('after') ?? 0), Number(q.get('limit') ?? 0)))
       }
+      case `GET /api/servers/${s.id}/pregen`:
+        return json(route, pregen)
+      case `GET /api/servers/${s.id}/resourcepack`:
+        return json(route, { pending: false })
+      case `GET /api/servers/${s.id}/datapacks`:
+        return json(route, { packs: [], live: true })
       case `POST /api/servers/${s.id}/command`: {
         const { command } = req.postDataJSON() as { command: string }
         log.append([`[${new Date().toISOString().slice(11, 19)} INFO]: ${me.user.username} issued server command: /${command.replace(/^\//, '')}`])

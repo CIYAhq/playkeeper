@@ -193,12 +193,15 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space to update safely: %s free, about %s needed for the backup and a possible rollback.", humanBytes(free), humanBytes(2*need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
 	}
+	if err := s.archiveRefusal("Nothing was changed."); err != nil {
+		return err
+	}
 	_, wasRunning, err := s.containerRunning(ctx)
 	if err != nil {
 		return err
 	}
 	if warn && wasRunning {
-		s.warnPlayers(ctx, h)
+		s.warnPlayers(ctx, h, "Updating")
 	}
 	if err := s.stopServer(ctx, h); err != nil {
 		return err
@@ -282,9 +285,10 @@ func (s *server) putBackupBack(b *api.Backup) error {
 	return nil
 }
 
-// warnPlayers tells anyone online that the server is about to update, then
-// gives them WarnDelay to finish what they are doing.
-func (s *server) warnPlayers(ctx context.Context, h *opHandle) {
+// warnPlayers tells anyone online that the server is about to go down for
+// what ("Updating", "Restarting"), then gives them WarnDelay to finish what
+// they are doing.
+func (s *server) warnPlayers(ctx context.Context, h *opHandle, what string) {
 	s.mu.Lock()
 	players := s.players
 	s.mu.Unlock()
@@ -292,8 +296,8 @@ func (s *server) warnPlayers(ctx context.Context, h *opHandle) {
 		return
 	}
 	h.phase("warning_players")
-	if _, err := s.rconCommand("say Updating in " + inWords(s.opts.WarnDelay) + ", back soon!"); err != nil {
-		s.log.Warn("could not warn players before the update", "server", s.id, "err", err)
+	if _, err := s.rconCommand("say " + what + " in " + inWords(s.opts.WarnDelay) + ", back soon!"); err != nil {
+		s.log.Warn("could not warn players before going down", "server", s.id, "err", err)
 		return
 	}
 	select {

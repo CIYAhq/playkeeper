@@ -14,9 +14,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
@@ -28,6 +31,9 @@ var reBackupID = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$`)
 var reStageID = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 const minFreeAfterBackup = 512 << 20
+
+// archiveLimits are the limits backups are written with; tests lower them.
+var archiveLimits = backup.DefaultLimits
 
 func validBackupID(id string) error {
 	if !reBackupID.MatchString(id) {
@@ -88,7 +94,7 @@ func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*
 		},
 		Consistency: "server stopped during archive",
 	}
-	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, backup.DefaultLimits())
+	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, archiveLimits())
 	if err == nil {
 		err = f.Sync()
 	}
@@ -137,6 +143,23 @@ func (s *server) withRefusalHint(err error) error {
 	}
 	msg := err.Error()
 	return &apiError{Msg: strings.ToUpper(msg[:1]) + msg[1:], Hint: hint}
+}
+
+// archiveRefusal is the refusal an archive of the world would get, with what
+// to do, found before the server stops for it, so players are not
+// disconnected for nothing. unchanged, like "Nothing was replaced.", starts
+// the hint. Anything else Check runs into is left to createArchive.
+func (s *server) archiveRefusal(unchanged string) error {
+	var refused *backup.RefusedError
+	err := backup.Check(s.dataDir(), archiveLimits())
+	if !errors.As(err, &refused) {
+		return nil
+	}
+	err = s.withRefusalHint(err)
+	if e, ok := err.(*apiError); ok && unchanged != "" {
+		e.Hint = unchanged + " " + e.Hint
+	}
+	return err
 }
 
 func sanitizeName(s string) string {
@@ -256,9 +279,10 @@ func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
 	return out, rows.Err()
 }
 
-// backupOp stops the server (saving first), archives, restarts it if it was
-// running, then verifies the archive. Downtime is measured from the stop
-// request until the server is online again.
+// backupOp refuses a world a restore would refuse, then stops the server
+// (saving first), archives, restarts it if it was running, and verifies the
+// archive. Downtime is measured from the stop request until the server is
+// online again.
 func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) error {
 	sc, err := s.serverConfig()
 	if err != nil {
@@ -273,6 +297,9 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string) 
 		h.set("neededBytes", need+minFreeAfterBackup)
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space for a backup: %s free, about %s needed.", humanBytes(free), humanBytes(need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
+	}
+	if err := s.archiveRefusal(""); err != nil {
+		return err
 	}
 	_, running, err := s.containerRunning(ctx)
 	if err != nil {
@@ -360,18 +387,298 @@ type stage struct {
 func (a *Agent) stageDir(id string) string { return filepath.Join(a.cfg.StagingDir(), id) }
 
 // pruneStages deletes restore stages left by an earlier run of the agent (a
-// preview nobody applied or discarded, or an interrupted restore). Each holds
-// an archive copy and its extracted world, and nothing can be using them yet.
+// preview nobody applied or discarded, or a restore that is over). Each holds
+// an archive copy and its extracted world, and nothing can be using them yet,
+// except a restore its operation is about to finish. A swap its restore left
+// unsettled is settled first; while that fails its stage is kept, as it may
+// hold the restored world.
 func (a *Agent) pruneStages() {
 	entries, _ := os.ReadDir(a.cfg.StagingDir())
+	removed := 0
 	for _, e := range entries {
-		if err := os.RemoveAll(filepath.Join(a.cfg.StagingDir(), e.Name())); err != nil {
+		dir := filepath.Join(a.cfg.StagingDir(), e.Name())
+		if a.resuming(dir) {
+			continue
+		}
+		if err := a.settleSwap(dir); err != nil {
+			a.log.Warn("could not settle an interrupted restore, so its stage is kept", "stage", e.Name(), "err", err)
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
 			a.log.Warn("could not remove a leftover restore stage", "stage", e.Name(), "err", err)
+			continue
+		}
+		removed++
+	}
+	if removed > 0 {
+		a.log.Info("removed leftover restore stages", "count", removed)
+	}
+}
+
+// swapJournal records a restore's world swap in its stage, from before the
+// live world moves until the restore is kept or undone, so that an agent that
+// stopped in the middle finishes the restore, or its undo, when it starts
+// again.
+type swapJournal struct {
+	ServerID string `json:"serverId"`
+	OpID     string `json:"opId"`
+	Actor    string `json:"actor"`
+	// Aside and Failed name the copies next to the live directory: the
+	// previous world, and a restored world that had to make way for it. The
+	// previous world's copy is removed only once the restore is kept.
+	Aside     string            `json:"aside"`
+	Failed    string            `json:"failed"`
+	HadLive   bool              `json:"hadLive"`
+	StartedAt time.Time         `json:"startedAt"`
+	Previous  *api.ServerConfig `json:"previous,omitempty"`
+	Restored  api.ServerConfig  `json:"restored"`
+	SHA256    string            `json:"sha256"`
+	Detail    string            `json:"detail"`
+	State     swapState         `json:"state"`
+	// Why is what made the restore undo itself, for its operation's error.
+	Why string `json:"why,omitempty"`
+}
+
+// swapState is how far a restore's world swap got.
+type swapState string
+
+const (
+	// swapMoving: the worlds are being moved and the restored settings saved.
+	swapMoving swapState = "moving"
+	// swapChecking: the restored world and its settings are in place, and the
+	// restore is kept once the server is online.
+	swapChecking swapState = "checking"
+	// swapKept: the restored world was online, so the restore is kept.
+	swapKept swapState = "kept"
+	// swapReverting: the previous world and its settings are being put back.
+	swapReverting swapState = "reverting"
+	// swapDone is never written: the journal's stage can go.
+	swapDone swapState = "done"
+)
+
+const swapJournalFile = "swap.json"
+
+// reWorldCopy matches the copies a restore leaves next to a live world
+// directory named "data".
+var reWorldCopy = regexp.MustCompile(`^data\.(replaced|failed-restore)-([0-9]{8}-[0-9]{6})$`)
+
+func writeSwapJournal(stageDir string, j *swapJournal) error {
+	b, err := json.Marshal(j)
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(stageDir, swapJournalFile+".new")
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(b)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, filepath.Join(stageDir, swapJournalFile))
+	}
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
+}
+
+// readSwapJournal reads a stage's journal, or nil if it has none.
+func readSwapJournal(stageDir string) (*swapJournal, error) {
+	b, err := os.ReadFile(filepath.Join(stageDir, swapJournalFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var j swapJournal
+	if err := json.Unmarshal(b, &j); err != nil {
+		return nil, fmt.Errorf("unreadable swap journal: %w", err)
+	}
+	aside, failed := reWorldCopy.FindStringSubmatch(j.Aside), reWorldCopy.FindStringSubmatch(j.Failed)
+	if !reServerID.MatchString(j.ServerID) || aside == nil || aside[1] != "replaced" || failed == nil || failed[1] != "failed-restore" {
+		return nil, fmt.Errorf("swap journal for server %q with invalid world copy names %q and %q", j.ServerID, j.Aside, j.Failed)
+	}
+	switch j.State {
+	case swapMoving, swapChecking, swapKept, swapReverting:
+		return &j, nil
+	}
+	return nil, fmt.Errorf("swap journal in an unknown state %q", j.State)
+}
+
+// settleSwap settles the world swap in the journal of a stage whose restore
+// is over, if it has one: a kept restore loses the previous world's copy, and
+// one that stopped while moving the worlds or undoing itself gets the
+// previous world and its settings back. A restore that was checking its
+// restored world keeps both copies, as its operation reported. It errors
+// while the stage may hold the only copy of the restored world.
+func (a *Agent) settleSwap(stageDir string) error {
+	j, err := readSwapJournal(stageDir)
+	if err != nil || j == nil {
+		return err
+	}
+	s := a.serverByID(j.ServerID)
+	if s == nil {
+		return nil
+	}
+	switch j.State {
+	case swapKept:
+		return os.RemoveAll(s.copyPath(j.Aside))
+	case swapChecking:
+		return nil
+	case swapMoving, swapReverting:
+		if !j.HadLive || j.Previous == nil {
+			if !dirExists(s.dataDir()) && dirExists(filepath.Join(stageDir, "data")) {
+				return fmt.Errorf("the restored world is only in the stage, and the world directory %s is missing", s.dataDir())
+			}
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+		defer cancel()
+		if _, running, err := s.containerRunning(ctx); err != nil || running {
+			return fmt.Errorf("the server must be stopped to put the previous world back (running %v, %v)", running, err)
+		}
+		if err := s.putPreviousBack(j); err != nil {
+			return err
+		}
+		a.log.Info("put the previous world back after an interrupted restore", "server", s.id)
+		return nil
+	}
+	return fmt.Errorf("swap journal in an unknown state %q", j.State)
+}
+
+func (s *server) copyPath(name string) string { return filepath.Join(s.dir(), name) }
+
+// putPreviousBack moves the previous world back into the live directory, a
+// restored world in the way to the failed-restore copy, and saves the
+// previous settings. Run again after an interruption, it finishes the job:
+// the previous world's copy is gone only once it is back in place.
+func (s *server) putPreviousBack(j *swapJournal) error {
+	live, aside, failed := s.dataDir(), s.copyPath(j.Aside), s.copyPath(j.Failed)
+	if dirExists(aside) {
+		if dirExists(live) {
+			if err := renameDir(live, failed); err != nil {
+				return fmt.Errorf("moving the restored world out of the way failed (%v), so nothing was deleted: the restored world is at %s and the previous world at %s", err, live, aside)
+			}
+		}
+		if err := renameDir(aside, live); err != nil {
+			where := ""
+			if dirExists(failed) {
+				where = " and the restored world at " + failed
+			}
+			return fmt.Errorf("putting the previous world back failed (%v), so nothing was deleted: the previous world is at %s%s", err, aside, where)
 		}
 	}
-	if len(entries) > 0 {
-		a.log.Info("removed leftover restore stages", "count", len(entries))
+	if !dirExists(live) {
+		return fmt.Errorf("the world directory %s is missing", live)
 	}
+	if j.Previous != nil {
+		return s.saveServerConfig(*j.Previous)
+	}
+	return nil
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// newestPreviousWorld is the newest previous world a restore moved aside
+// from the live directory, or "".
+func (s *server) newestPreviousWorld() string {
+	for _, c := range s.worldCopies() {
+		if c.Kind == api.WorldCopyPrevious {
+			return filepath.Join(s.dir(), c.Name)
+		}
+	}
+	return ""
+}
+
+// worldCopies lists the world folders restores left next to the live one,
+// newest first, without their sizes.
+func (s *server) worldCopies() []api.WorldCopy {
+	entries, _ := os.ReadDir(s.dir())
+	out := []api.WorldCopy{}
+	for _, e := range entries {
+		m := reWorldCopy.FindStringSubmatch(e.Name())
+		if m == nil || !e.IsDir() {
+			continue
+		}
+		at, err := time.Parse("20060102-150405", m[2])
+		if err != nil {
+			continue
+		}
+		kind := api.WorldCopyPrevious
+		if m[1] == "failed-restore" {
+			kind = api.WorldCopyFailedRestore
+		}
+		out = append(out, api.WorldCopy{Name: e.Name(), Kind: kind, CreatedAt: at.UTC()})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if info, err := d.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	})
+	return total
+}
+
+func (s *server) hWorldCopies(w http.ResponseWriter, r *http.Request) {
+	list := s.worldCopies()
+	for i := range list {
+		list[i].SizeBytes = dirSize(filepath.Join(s.dir(), list[i].Name))
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// hWorldCopyDelete discards one world copy. Nothing is discarded while the
+// live world folder is missing, because a copy may then be the only world.
+func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
+	actor, err := validActor(r.URL.Query().Get("actor"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	name := r.PathValue("name")
+	if !reWorldCopy.MatchString(name) {
+		writeError(w, errInvalid("invalid world copy name"))
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		writeError(w, s.busyError())
+		return
+	}
+	defer release()
+	path := filepath.Join(s.dir(), name)
+	if st, err := os.Lstat(path); err != nil || !st.IsDir() {
+		writeError(w, errNotFound("World copy"))
+		return
+	}
+	if !dirExists(s.dataDir()) {
+		writeError(w, errConflict("The world folder is missing, so this copy may be the only one of your world.", "Move the copy you want to keep back to "+s.dataDir()+", then try again."))
+		return
+	}
+	if err := os.RemoveAll(path); err != nil {
+		writeError(w, fmt.Errorf("could not discard the world copy: %w", err))
+		return
+	}
+	s.audit(actor, "world_copy.deleted", name, "succeeded", "")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // stageArchive copies an archive into staging, then verifies and extracts it
@@ -417,14 +724,30 @@ func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *
 		return fail(&apiError{Status: http.StatusUnprocessableEntity, Code: api.CodeInvalid, Msg: "This file cannot be restored: " + err.Error(), Hint: "Nothing was changed. Use an archive downloaded from Playkeeper's World page."})
 	}
 	p := a.buildPreview(id, source, n, hex.EncodeToString(h.Sum(nil)), m, target)
-	pj, _ := json.Marshal(struct {
-		Preview  api.RestorePreview `json:"preview"`
-		Manifest backup.Manifest    `json:"manifest"`
-	}{p, m})
+	pj, _ := json.Marshal(stageFile{p, m})
 	if err := os.WriteFile(filepath.Join(dir, "stage.json"), pj, 0o600); err != nil {
 		return fail(err)
 	}
 	return &p, nil
+}
+
+// stageFile is a stage's stage.json: its preview when it was staged, and the
+// archive's manifest.
+type stageFile struct {
+	Preview  api.RestorePreview `json:"preview"`
+	Manifest backup.Manifest    `json:"manifest"`
+}
+
+func readStageFile(dir string) (*stageFile, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "stage.json"))
+	if err != nil {
+		return nil, err
+	}
+	var f stageFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, err
+	}
+	return &f, nil
 }
 
 func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup.Manifest, target *server) api.RestorePreview {
@@ -499,9 +822,6 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 			"Start the server and wait until it is online",
 		}
 	}
-	if p.NeedsEULA {
-		p.Warnings = append(p.Warnings, "The restore creates a new server, so you must accept the Minecraft EULA first.")
-	}
 	return p
 }
 
@@ -512,18 +832,11 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 		return nil, errInvalid("invalid restore id")
 	}
 	dir := a.stageDir(id)
-	b, err := os.ReadFile(filepath.Join(dir, "stage.json"))
+	s, err := readStageFile(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, errNotFound("Restore preview")
 	}
 	if err != nil {
-		return nil, err
-	}
-	var s struct {
-		Preview  api.RestorePreview `json:"preview"`
-		Manifest backup.Manifest    `json:"manifest"`
-	}
-	if err := json.Unmarshal(b, &s); err != nil {
 		return nil, err
 	}
 	st := &stage{dir: dir, archive: filepath.Join(dir, "archive.tar.gz"), data: filepath.Join(dir, "data"), manifest: s.Manifest}
@@ -555,17 +868,34 @@ func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name,
 			name = a.uniqueName(n)
 		}
 	}
-	maxPlayers, _ := strconv.Atoi(m.Settings["maxPlayers"])
-	if maxPlayers < 1 || maxPlayers > 100 {
-		maxPlayers = 10
-	}
+	sc := a.restoredConfig(m, entry, mem, nil, actor)
+	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
+	return op, err
+}
+
+// restoredConfig is a server's settings after restoring the backup with
+// manifest m: the backup's world, version and game settings, and from prev
+// what belongs to the server rather than its world. The restored
+// server.properties carries the backup's game settings, so none chosen since
+// override them.
+func (a *Agent) restoredConfig(m backup.Manifest, entry api.CatalogEntry, mem int, prev *api.ServerConfig, actor string) api.ServerConfig {
 	now := a.now().UTC()
 	sc := withBuild(api.ServerConfig{
 		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
-		MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
+		MaxPlayers: manifestMaxPlayers(m), Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
 	}, entry)
-	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
-	return op, err
+	if prev != nil {
+		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
+	}
+	return sc
+}
+
+func manifestMaxPlayers(m backup.Manifest) int {
+	n, _ := strconv.Atoi(m.Settings["maxPlayers"])
+	if n < 1 || n > 100 {
+		return 10
+	}
+	return n
 }
 
 // uniqueName is name, or name with a number after it if another server has it.
@@ -585,12 +915,18 @@ func (a *Agent) uniqueName(name string) string {
 // step of the world swap fail.
 var renameDir = os.Rename
 
+// restoreStep marks the steps of a restore after the world swap; tests
+// replace it to stop the agent there.
+var restoreStep = func(ctx context.Context, step string) {}
+
 // restoreOp replaces the world with a staged, verified archive. A rollback
 // archive of the current world is written first, and a restored world that
 // fails to start is swapped back out automatically. The stage is deleted when
 // the live world is known to be good: the restore finished, nothing was
 // replaced, or the previous world is back. If putting it back fails, the
-// stage and the aside copy both stay and the error names them.
+// stage and the aside copy both stay and the error names them. The stage's
+// swap journal lets the next start finish a restore the agent stopped in, and
+// settle one that could not undo itself.
 func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.RestoreApplyRequest, actor string) error {
 	worldSafe := true
 	defer func() {
@@ -612,6 +948,11 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	var rollback *api.Backup
 	wasRunning := false
 	if prev != nil {
+		if st.preview.CurrentWorld.Exists {
+			if err := s.archiveRefusal("Nothing was replaced."); err != nil {
+				return err
+			}
+		}
 		_, wasRunning, _ = s.containerRunning(ctx)
 		if err := s.stopServer(ctx, h); err != nil {
 			return err
@@ -632,24 +973,45 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	if err := os.MkdirAll(filepath.Dir(live), 0o755); err != nil {
 		return err
 	}
-	aside := live + ".replaced-" + s.now().UTC().Format("20060102-150405")
-	hadLive := false
-	if _, err := os.Stat(live); err == nil {
+	mem := st.preview.MemoryMB
+	if req.MemoryMB != 0 {
+		mem = req.MemoryMB
+	}
+	stamp := s.now().UTC().Format("20060102-150405")
+	j := &swapJournal{
+		ServerID: s.id, OpID: h.op.ID, Actor: actor, Aside: "data.replaced-" + stamp, Failed: "data.failed-restore-" + stamp,
+		StartedAt: start.UTC(), Previous: prev, Restored: s.restoredConfig(m, entry, mem, prev, actor), SHA256: st.preview.SHA256,
+		Detail: fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, st.preview.SHA256), State: swapMoving,
+	}
+	var prevPack *api.ResourcePackOffer
+	if prev != nil {
+		prevPack = prev.ResourcePack
+	}
+	j.Restored.ResourcePack = restoredPackOffer(prevPack, st.data)
+	if rollback != nil {
+		j.Detail += "; rollback archive " + rollback.ID
+	}
+	_, err = os.Stat(live)
+	j.HadLive = err == nil
+	if err := writeSwapJournal(st.dir, j); err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return fmt.Errorf("could not save the restore's progress file, so nothing was replaced: %w", err)
+	}
+	// A restored world that has to make way goes to failedAt, next to the live
+	// directory and outside the staging folder the agent clears at start.
+	aside, failedAt := s.copyPath(j.Aside), s.copyPath(j.Failed)
+	if j.HadLive {
 		if err := renameDir(live, aside); err != nil {
 			return err
 		}
-		hadLive = true
 	}
 	worldSafe = false
-	// A restored world that has to make way goes to failedAt, next to the live
-	// directory and outside the staging folder the agent clears at start.
-	failedAt := live + ".failed-restore-" + s.now().UTC().Format("20060102-150405")
 	// putBack moves the previous world back into place once the restored one
 	// is out of the way, at restoredAt. If that fails the live directory is
 	// missing: nothing is deleted, the restored copy leaves the stage, and the
 	// error names where both copies are.
 	putBack := func(restoredAt string, cause error) error {
-		if !hadLive {
+		if !j.HadLive {
 			worldSafe = true
 			return nil
 		}
@@ -663,39 +1025,42 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		}
 		return fmt.Errorf("%v; putting the previous world back also failed (%v), so nothing was deleted: the previous world is at %s and the restored world at %s", cause, err, aside, restoredAt)
 	}
+	// undoing records that the restore is being undone, so an agent that
+	// stops meanwhile finishes the undo when it starts again.
+	undoing := func(cause error) {
+		if !j.HadLive {
+			return
+		}
+		j.State, j.Why = swapReverting, sentence(cause.Error())
+		if err := writeSwapJournal(st.dir, j); err != nil {
+			s.log.Warn("could not save the restore's progress file", "server", s.id, "err", err)
+		}
+	}
 	if err := renameDir(st.data, live); err != nil {
-		if perr := putBack(st.data, fmt.Errorf("could not move the restored world into place: %w", err)); perr != nil {
+		cause := fmt.Errorf("could not move the restored world into place: %w", err)
+		undoing(cause)
+		if perr := putBack(st.data, cause); perr != nil {
 			return perr
 		}
 		return err
 	}
+	restoreStep(ctx, "moved")
 	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 		s.log.Warn("chown restored world", "err", err)
 	}
-	mem := st.preview.MemoryMB
-	if req.MemoryMB != 0 {
-		mem = req.MemoryMB
+	err = s.saveServerConfig(j.Restored)
+	if err == nil {
+		j.State = swapChecking
+		if err = writeSwapJournal(st.dir, j); err != nil && prev != nil {
+			_ = s.saveServerConfig(*prev)
+		}
 	}
-	maxPlayers, _ := strconv.Atoi(m.Settings["maxPlayers"])
-	if maxPlayers < 1 || maxPlayers > 100 {
-		maxPlayers = 10
-	}
-	// The restored server.properties carries the backup's game settings, so
-	// none chosen since override them.
-	sc := withBuild(api.ServerConfig{
-		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem),
-		LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]), MaxPlayers: maxPlayers, Whitelist: true, CreatedAt: s.now().UTC(),
-	}, entry)
-	if prev != nil {
-		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
-	} else {
-		sc.EULAAcceptedAt, sc.EULAAcceptedBy = s.now().UTC(), actor
-	}
-	if err := s.saveServerConfig(sc); err != nil {
+	if err != nil {
 		cause := fmt.Errorf("could not record the restored server's settings: %w", err)
+		undoing(cause)
 		if rerr := renameDir(live, failedAt); rerr != nil {
 			where := "there was no previous world"
-			if hadLive {
+			if j.HadLive {
 				where = "the previous world is at " + aside
 			}
 			return fmt.Errorf("%v; moving the restored world out of the way also failed (%v), so nothing was deleted: the restored world is at %s and %s", cause, rerr, live, where)
@@ -705,43 +1070,170 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		}
 		os.RemoveAll(failedAt)
 		s.startPrevious(ctx, h, prev, wasRunning)
-		if !hadLive {
+		if !j.HadLive {
 			return fmt.Errorf("%v, so the restore was undone", cause)
 		}
 		return fmt.Errorf("could not record the restored server's settings, so the previous world was put back: %w", err)
 	}
+	restoreStep(ctx, "checking")
+	err = s.finishRestore(ctx, h, st.dir, j)
+	worldSafe = j.State == swapDone
+	return err
+}
+
+// finishRestore starts the restored world, whose settings are saved, and
+// keeps it once it is online; a restored world that does not start is swapped
+// back out. The restore is undone only because its world did not start,
+// never because the agent stopped: then the operation stays running and the
+// journal as it is, and the next start checks the restored world again.
+func (s *server) finishRestore(ctx context.Context, h *opHandle, stageDir string, j *swapJournal) error {
 	_ = s.setDesired(api.DesiredRunning)
-	startErr := s.startServer(ctx, h, sc)
-	if startErr != nil && hadLive && prev != nil {
-		h.phase("reverting")
-		_ = s.stopServer(ctx, h)
-		if err := renameDir(live, failedAt); err != nil {
-			return fmt.Errorf("the restored world did not start (%v), and moving it aside failed (%v), so nothing was deleted: the restored world is at %s and the previous world at %s", startErr, err, live, aside)
-		}
-		if err := putBack(failedAt, fmt.Errorf("the restored world did not start: %w", startErr)); err != nil {
+	s.holdRestoredPregen(j.Restored)
+	err := s.startServer(ctx, h, j.Restored)
+	if err == nil {
+		err = s.waitOnline(ctx, h)
+	}
+	if err != nil && s.stopping() {
+		h.continues = true
+		return nil
+	}
+	if err != nil {
+		if !j.HadLive || j.Previous == nil {
+			j.State = swapDone
+			s.forgetPregen()
 			return err
 		}
-		_ = s.saveServerConfig(*prev)
-		if err := s.startServer(ctx, h, *prev); err != nil {
-			return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. The failed restore was kept at " + failedAt + " for inspection."}
+		j.Why = "The restored world did not start (" + err.Error() + ")."
+		return s.revertRestore(h, stageDir, j)
+	}
+	restoreStep(ctx, "online")
+	// The previous world's copy goes only once the journal says the restore
+	// is kept, so an agent that stops while deleting it never puts back a
+	// partly deleted world.
+	j.State = swapKept
+	keepCopy := false
+	if err := writeSwapJournal(stageDir, j); err != nil {
+		keepCopy = true
+		s.log.Warn("could not save the restore's progress file, so the previous world's copy is kept", "server", s.id, "err", err)
+	}
+	restoreStep(ctx, "kept")
+	return s.keepRestore(h, j, keepCopy)
+}
+
+// revertRestore puts the previous world and its settings back after the
+// restored world did not start, and starts the previous world if the server
+// should be running. j.Why says what went wrong, for the operation's error.
+// It has its own time limit, as the restore's may be used up by then.
+func (s *server) revertRestore(h *opHandle, stageDir string, j *swapJournal) error {
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Minute)
+	defer cancel()
+	h.phase("reverting")
+	live, aside := s.dataDir(), s.copyPath(j.Aside)
+	j.State = swapReverting
+	if err := writeSwapJournal(stageDir, j); err != nil {
+		return fmt.Errorf("%s Saving the restore's progress file failed (%v), so nothing was moved: the restored world is at %s and the previous world at %s.", j.Why, err, live, aside)
+	}
+	restoreStep(ctx, "reverting")
+	if err := s.stopServer(ctx, h); err != nil {
+		if s.stopping() {
+			h.continues = true
+			return nil
 		}
-		return &apiError{Msg: "The restored world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed restore was kept at " + failedAt + " for inspection."}
+		return fmt.Errorf("%s Stopping it failed (%v), so nothing was moved: the restored world is at %s and the previous world at %s.", j.Why, err, live, aside)
 	}
-	worldSafe = true
-	if startErr != nil {
-		return startErr
+	if err := s.putPreviousBack(j); err != nil {
+		_ = s.setDesired(api.DesiredStopped)
+		return fmt.Errorf("%s %s", j.Why, sentence(err.Error()))
 	}
-	if hadLive {
-		os.RemoveAll(aside)
+	j.State = swapDone
+	hint := ""
+	if failed := s.copyPath(j.Failed); dirExists(failed) {
+		hint = "The failed restore was kept at " + failed + " for inspection."
 	}
-	detail := fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, st.preview.SHA256)
-	if rollback != nil {
-		detail += "; rollback archive " + rollback.ID
+	if s.desired() != api.DesiredRunning {
+		return &apiError{Msg: j.Why + " Your previous world was put back.", Hint: hint}
 	}
-	h.set("downtimeMs", s.now().Sub(start).Milliseconds())
+	if err := s.startServer(ctx, h, *j.Previous); err != nil {
+		if s.stopping() {
+			return &apiError{Msg: j.Why + " Your previous world was put back and starts when the Playkeeper agent runs again.", Hint: hint}
+		}
+		return &apiError{Msg: j.Why + " Your previous world was put back but did not start either: " + err.Error(), Hint: strings.TrimSpace("Press Start on the Overview. " + hint)}
+	}
+	return &apiError{Msg: j.Why + " Your previous world was put back and is running.", Hint: hint}
+}
+
+// keepRestore finishes a restore whose world was online: the previous
+// world's copy goes, unless keepCopy, and the restore is recorded.
+func (s *server) keepRestore(h *opHandle, j *swapJournal, keepCopy bool) error {
+	if j.HadLive && !keepCopy {
+		if err := os.RemoveAll(s.copyPath(j.Aside)); err != nil {
+			s.log.Warn("could not remove the previous world's copy", "server", s.id, "err", err)
+		}
+	}
+	s.forgetPregen()
+	j.State = swapDone
+	detail := j.Detail
+	if h.get("resumedAfterRestart") == true {
+		detail += "; finished after the Playkeeper agent restarted"
+	}
+	h.set("downtimeMs", s.now().Sub(j.StartedAt).Milliseconds())
 	s.recordEvent(s.now(), "world_restored", "", "playkeeper", detail)
-	s.audit(actor, "restore.applied", st.preview.SHA256[:12], "succeeded", detail)
+	s.audit(j.Actor, "restore.applied", shortSum(j.SHA256), "succeeded", detail)
 	return nil
+}
+
+func shortSum(sum string) string {
+	if len(sum) > 12 {
+		return sum[:12]
+	}
+	return sum
+}
+
+// rollForward finishes moving the restored world into place and saving its
+// settings, for a restore the agent stopped in while it was moving the
+// worlds.
+func (s *server) rollForward(stageDir string, j *swapJournal) error {
+	live, aside, staged := s.dataDir(), s.copyPath(j.Aside), filepath.Join(stageDir, "data")
+	if dirExists(s.copyPath(j.Failed)) {
+		return errors.New("the restored world had already been moved out of the way")
+	}
+	switch {
+	case dirExists(staged):
+		if dirExists(live) {
+			if !j.HadLive || dirExists(aside) {
+				return fmt.Errorf("both %s and %s hold a world", live, staged)
+			}
+			if err := renameDir(live, aside); err != nil {
+				return err
+			}
+		}
+		if err := renameDir(staged, live); err != nil {
+			return err
+		}
+	case !dirExists(live):
+		return fmt.Errorf("the restored world is neither in %s nor in %s", staged, live)
+	}
+	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+		s.log.Warn("chown restored world", "err", err)
+	}
+	if err := s.saveServerConfig(j.Restored); err != nil {
+		return err
+	}
+	j.State = swapChecking
+	return writeSwapJournal(stageDir, j)
+}
+
+// sentence makes an error message a sentence: capitalized, with a full stop.
+func sentence(msg string) string {
+	if msg == "" {
+		return msg
+	}
+	r, n := utf8.DecodeRuneInString(msg)
+	msg = string(unicode.ToUpper(r)) + msg[n:]
+	if !strings.HasSuffix(msg, ".") {
+		msg += "."
+	}
+	return msg
 }
 
 // saveVerifiedRollback archives the current world and reads the archive back.

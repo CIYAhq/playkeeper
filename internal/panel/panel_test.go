@@ -179,7 +179,7 @@ const sampleCode = "AbCdEfGhJkMnPqRsTuVwXy"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend",
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{source}", "modrinth", "{project}", "AANobbMI",
 		"{invite}", "qrstuvwxyz", "{request}", "zyxwvutsrq", "{uid}", "2", "{code}", sampleCode).Replace(p)
 }
 
