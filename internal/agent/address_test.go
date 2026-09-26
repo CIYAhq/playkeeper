@@ -836,13 +836,15 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 		t.Fatalf("address after the change couldn't be saved: %+v", v)
 	}
 	// When bob can't be released either, alex can't be claimed back, as a
-	// key holds one name: the machine keeps alex and its certificate.
+	// key holds one name, so the machine doesn't try: it keeps alex and its
+	// certificate.
 	e.names.setFail(func(r *http.Request) *fakeRefusal {
 		if r.Method == http.MethodDelete && r.URL.Path == "/v1/names/bob" {
 			return &fakeRefusal{status: 503, code: names.CodeUnavailable, msg: "Down."}
 		}
 		return nil
 	})
+	claimsBack := e.names.count("PUT /v1/names/alex")
 	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 500 {
 		t.Fatalf("a change that can't be saved or undone: %d %v", code, out)
 	}
@@ -850,6 +852,9 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	failSaves(false)
 	if n, _ := e.names.name("bob"); n.State != names.StateActive {
 		t.Fatalf("bob after a release that failed: %+v", n)
+	}
+	if e.names.count("PUT /v1/names/alex") != claimsBack {
+		t.Fatal("alex was claimed back while bob was still held")
 	}
 	if v := e.address(); v.Host != "alex.playkeeper.io" || e.a.loadCertificate("alex.playkeeper.io") == nil {
 		t.Fatalf("address after a change that couldn't be saved or undone: %+v", v)
