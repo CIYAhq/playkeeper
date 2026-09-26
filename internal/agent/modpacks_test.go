@@ -1,11 +1,14 @@
 package agent
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 )
@@ -462,5 +466,192 @@ func TestCreateFromModpackChecksTheRequest(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM servers`); n != 0 {
 		t.Fatalf("%d servers recorded", n)
+	}
+}
+
+// rewriteManifest is archive with its manifest changed by edit, as another
+// Playkeeper, or someone editing the file, might have written it.
+func rewriteManifest(t *testing.T, archive []byte, edit func(m *backup.Manifest)) []byte {
+	t.Helper()
+	zr, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(zr)
+	var out bytes.Buffer
+	zw := gzip.NewWriter(&out)
+	tw := tar.NewWriter(zw)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Name == "playkeeper-backup/manifest.json" {
+			var m backup.Manifest
+			if err := json.Unmarshal(body, &m); err != nil {
+				t.Fatal(err)
+			}
+			edit(&m)
+			if body, err = json.Marshal(m); err != nil {
+				t.Fatal(err)
+			}
+			hdr.Size = int64(len(body))
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+// A restore brings back the modpack its backup records: the pack in the
+// server's settings and the record of the files it put there, in place or as
+// a new server. A backup that doesn't say, or whose record reaches outside
+// the server's folder, leaves the server saying so rather than keeping the
+// live server's pack, and a restore that is undone puts the live pack back.
+func TestRestoreBringsTheBackupsModpack(t *testing.T) {
+	const (
+		backupsPack = "the backup's pack"
+		livePack    = "the live server's pack"
+		unknown     = "unknown"
+	)
+	withoutPack := func(t *testing.T, m *backup.Manifest) { delete(m.Settings, manifestModpack) }
+	reachingOut := func(t *testing.T, m *backup.Manifest) {
+		var pk packBackup
+		if err := json.Unmarshal([]byte(m.Settings[manifestModpack]), &pk); err != nil {
+			t.Fatal(err)
+		}
+		pk.Record.Files[0].Path = "../outside.jar"
+		b, err := json.Marshal(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Settings[manifestModpack] = string(b)
+	}
+	for _, tc := range []struct {
+		name    string
+		inPlace bool
+		edit    func(t *testing.T, m *backup.Manifest) // nil restores the backup as it was made
+		want    string
+	}{
+		{"restore in place", true, nil, backupsPack},
+		{"restore in place from a backup that doesn't say", true, withoutPack, unknown},
+		{"restore in place, undone as the restored world doesn't start", true, nil, livePack},
+		{"restore as a new server", false, nil, backupsPack},
+		{"a new server from an upload that doesn't say", false, withoutPack, unknown},
+		{"a new server from an upload whose pack record reaches outside the server", false, reachingOut, unknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.up.servePack()
+			code, out := e.startCreate(packCreate)
+			if code != 202 {
+				t.Fatalf("create: %d %v", code, out)
+			}
+			if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+				t.Fatalf("create: %+v", op)
+			}
+			e.waitFor("online", e.onlineIdle)
+			code, out = e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+			if code != 202 {
+				t.Fatalf("backup: %d %v", code, out)
+			}
+			op := e.waitOp(out["id"].(string))
+			if op.Status != api.OpSucceeded {
+				t.Fatalf("backup: %+v", op)
+			}
+			e.waitFor("online after the backup", e.onlineIdle)
+			backupID := op.Detail["backupId"].(string)
+
+			// Since the backup, the live server's pack has moved on.
+			s := e.srv()
+			sc, _ := s.serverConfig()
+			rec, _ := s.packRecord()
+			if sc.Modpack == nil || rec == nil {
+				t.Fatalf("the pack server: %+v %+v", sc.Modpack, rec)
+			}
+			sc.Modpack.VersionNumber, rec.Pack.VersionNumber = "1.1.0", "1.1.0"
+			if err := s.saveServerConfig(*sc); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.savePackRecord(*rec); err != nil {
+				t.Fatal(err)
+			}
+
+			var preview map[string]any
+			if tc.inPlace && tc.edit == nil {
+				code, preview = e.call("POST", e.sp("/backups/"+backupID+"/restore"), map[string]any{"actor": "admin"})
+			} else {
+				list, _ := s.listBackups(`id = ?`, backupID)
+				archive, err := os.ReadFile(filepath.Join(e.cfg.BackupsDir(), list[0].FileName))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tc.edit != nil {
+					archive = rewriteManifest(t, archive, func(m *backup.Manifest) { tc.edit(t, m) })
+				}
+				path := "/v1/restore/upload"
+				if tc.inPlace {
+					path = e.sp("/restore/upload")
+				}
+				code, preview = e.uploadTo(path, archive)
+			}
+			if code != 200 {
+				t.Fatalf("stage: %d %v", code, preview)
+			}
+			finished := api.OpSucceeded
+			if tc.want == livePack {
+				e.fd.mu.Lock()
+				e.fd.failBoots = 1
+				e.fd.mu.Unlock()
+				finished = api.OpFailed
+			}
+			code, out = e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("apply: %d %v", code, out)
+			}
+			if !tc.inPlace {
+				e.sid = out["serverId"].(string)
+			}
+			if op := e.waitOp(out["id"].(string)); op.Status != finished {
+				t.Fatalf("restore: %+v", op)
+			}
+
+			sc, _ = e.srv().serverConfig()
+			rec, err := e.srv().packRecord()
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch tc.want {
+			case backupsPack:
+				if sc.Modpack == nil || sc.Modpack.VersionNumber != "1.0.0" || sc.ModpackUnknown || rec == nil || rec.Pack.VersionNumber != "1.0.0" || len(rec.Files) != 3 {
+					t.Fatalf("the restored server has the backup's pack: %+v, unknown %v, record %+v", sc.Modpack, sc.ModpackUnknown, rec)
+				}
+			case livePack:
+				if sc.Modpack == nil || sc.Modpack.VersionNumber != "1.1.0" || sc.ModpackUnknown || rec == nil || rec.Pack.VersionNumber != "1.1.0" {
+					t.Fatalf("the undone restore puts the live server's pack back: %+v, unknown %v, record %+v", sc.Modpack, sc.ModpackUnknown, rec)
+				}
+			case unknown:
+				if sc.Modpack != nil || !sc.ModpackUnknown || rec != nil {
+					t.Fatalf("the restored server says its backup doesn't record its pack: %+v, unknown %v, record %+v", sc.Modpack, sc.ModpackUnknown, rec)
+				}
+			}
+		})
 	}
 }

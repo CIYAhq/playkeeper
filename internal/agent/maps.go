@@ -35,12 +35,14 @@ func init() {
 	opLabels["map_disable"] = "turning off the map"
 }
 
-// firstRenderWait bounds how long after a start the agent waits for
-// squaremap to answer before asking it to draw the explored land; tests
-// shorten it.
+// firstRenderWait is how long, once the server is online, the agent asks
+// squaremap every firstRenderPoll whether it answers before asking once
+// every firstRenderSlowPoll; tests shorten it.
 var firstRenderWait = 3 * time.Minute
 
 const (
+	firstRenderPoll     = 2 * time.Second
+	firstRenderSlowPoll = time.Minute
 	// mapLiveTTL is how long a look at the server's container is reused,
 	// so a screen of tiles costs one question to Docker.
 	mapLiveTTL = 2 * time.Second
@@ -54,8 +56,12 @@ type mapState struct {
 	mu        sync.Mutex
 	live      map[string]mapLive
 	progress  map[string]progressMark
-	rendering map[string]bool
+	rendering map[string]*renderWait
 }
+
+// renderWait is a run's wait for squaremap to answer before the first
+// render; stop ends it.
+type renderWait struct{ stop context.CancelFunc }
 
 // mapLive is what the agent last saw of a server's container.
 type mapLive struct {
@@ -427,84 +433,120 @@ func (s *server) writeMapConfig() error {
 	return nil
 }
 
-// mapStarted runs after every successful start: a restart put off until
-// nobody plays is done, and a map that was never drawn gets drawn.
-func (s *server) mapStarted() {
+// mapRunOnline runs each time a run of the server comes online, however it
+// started: from Playkeeper, after a crash, outside Playkeeper, or before the
+// agent started or was updated. A restart put off to load squaremap is moot
+// once the run has loaded it, and a map that was never drawn gets drawn:
+// each run waits for squaremap afresh and ends the wait of the run before
+// it, so the first render is asked for promptly in every run until it has
+// been.
+func (s *server) mapRunOnline(runStart time.Time) {
 	rec, err := s.activeMap()
 	if err != nil || rec == nil {
 		return
 	}
 	s.forgetMapLive()
-	if rec.restartWhenEmpty != "" {
+	if rec.restartWhenEmpty != "" && !runStart.IsZero() && !rec.installedAt.After(runStart) {
 		s.db.Exec(`UPDATE maps SET restart_when_empty = '' WHERE server_id = ?`, s.id)
 	}
 	if rec.firstRenderAt != nil {
 		return
 	}
+	ctx, stop := context.WithCancel(s.ctx)
+	wait := &renderWait{stop: stop}
 	ms := &s.maps
 	ms.mu.Lock()
-	if ms.rendering[s.id] {
-		ms.mu.Unlock()
-		return
+	if prev := ms.rendering[s.id]; prev != nil {
+		prev.stop()
 	}
 	if ms.rendering == nil {
-		ms.rendering = map[string]bool{}
+		ms.rendering = map[string]*renderWait{}
 	}
-	ms.rendering[s.id] = true
+	ms.rendering[s.id] = wait
 	ms.mu.Unlock()
 	s.loops.Add(1)
 	go func() {
 		defer s.loops.Done()
 		defer func() {
 			ms.mu.Lock()
-			delete(ms.rendering, s.id)
+			if ms.rendering[s.id] == wait {
+				delete(ms.rendering, s.id)
+			}
 			ms.mu.Unlock()
+			stop()
 		}()
-		s.firstRender(s.ctx)
+		s.firstRender(ctx)
 	}()
 }
 
-// firstRender waits for squaremap to answer, then asks it once to draw the
-// land explored so far. squaremap resumes an interrupted full render by
-// itself, so a request that went out is not sent again.
+// firstRender waits until the server is online and squaremap answers, then
+// asks squaremap once to draw the land explored so far. It waits through
+// stops, restarts and crashes rather than giving up, and ends only once the
+// map is drawn or turned off, or the next run's wait takes over. squaremap
+// resumes an interrupted full render by itself, so a request that went out
+// is not sent again.
 func (s *server) firstRender(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, firstRenderWait)
-	defer cancel()
 	typ := s.serverType(nil)
-	t := time.NewTicker(2 * time.Second)
-	defer t.Stop()
+	var online time.Time
 	for {
-		l := s.mapLive(ctx, true)
-		if !l.online {
+		rec, err := s.activeMap()
+		if err != nil || rec == nil || rec.firstRenderAt != nil {
 			return
 		}
-		st := s.webMap(typ, l.addr).Status(ctx, webmap.Check{Installed: true, Running: true})
-		if st.State == webmap.StateDrawing || st.State == webmap.StateReady {
-			break
+		every := firstRenderPoll
+		s.mu.Lock()
+		up := s.runPhase == api.PhaseOnline
+		s.mu.Unlock()
+		if !up {
+			online = time.Time{}
+		} else {
+			if online.IsZero() {
+				online = time.Now()
+			}
+			if l := s.mapLive(ctx, true); l.online {
+				st := s.webMap(typ, l.addr).Status(ctx, webmap.Check{Installed: true, Running: true})
+				if (st.State == webmap.StateDrawing || st.State == webmap.StateReady) && ctx.Err() == nil {
+					err := webmap.StartDrawing(ctx, rconConsole{s})
+					if err == nil {
+						now := s.now().UTC()
+						s.db.Exec(`UPDATE maps SET first_render_at = ? WHERE server_id = ?`, now.UnixMilli(), s.id)
+						s.recordEvent(now, "map_drawing", "", "playkeeper", "squaremap draws the explored land")
+						return
+					}
+					if ctx.Err() == nil {
+						s.log.Warn("could not ask squaremap to draw the map", "server", s.id, "err", err)
+					}
+				}
+			}
+			if time.Since(online) >= firstRenderWait {
+				every = firstRenderSlowPoll
+			}
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-time.After(every):
 		}
 	}
-	if err := webmap.StartDrawing(ctx, rconConsole{s}); err != nil {
-		s.log.Warn("could not ask squaremap to draw the map", "server", s.id, "err", err)
-		return
-	}
-	now := s.now().UTC()
-	s.db.Exec(`UPDATE maps SET first_render_at = ? WHERE server_id = ?`, now.UnixMilli(), s.id)
-	s.recordEvent(now, "map_drawing", "", "playkeeper", "squaremap draws the explored land")
 }
 
 // restartMapWhenEmpty restarts an online server nobody is playing on when
-// its owner put off the restart that loads the map.
+// its owner put off the restart that loads the map. One that has loaded
+// squaremap since, started some other way, isn't restarted.
 func (s *server) restartMapWhenEmpty(online bool, snap *api.PlayerSnapshot) {
 	if !online || snap == nil || snap.Online > 0 {
 		return
 	}
 	rec, err := s.activeMap()
 	if err != nil || rec == nil || rec.restartWhenEmpty == "" || s.busy() {
+		return
+	}
+	l := s.mapLive(s.ctx, false)
+	if l.startedAt.IsZero() {
+		return
+	}
+	if !rec.pendingRestart(l) {
+		s.db.Exec(`UPDATE maps SET restart_when_empty = '' WHERE server_id = ?`, s.id)
 		return
 	}
 	if _, err := s.restart(rec.restartWhenEmpty); err != nil {
@@ -856,18 +898,29 @@ func onOff(v bool) string {
 }
 
 // hMapRestartLater restarts the server to load the map once nobody is
-// playing, instead of now.
+// playing, instead of now. It is refused while squaremap needs no restart
+// to load.
 func (s *server) hMapRestartLater(w http.ResponseWriter, r *http.Request) {
 	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if rec, err := s.activeMap(); err != nil {
+	rec, err := s.activeMap()
+	if err != nil {
 		writeError(w, err)
 		return
-	} else if rec == nil {
+	}
+	if rec == nil {
 		writeError(w, errConflict("Turn on the map first.", ""))
+		return
+	}
+	if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {
+		msg := "The server has already loaded the map, so it doesn't need a restart."
+		if l.startedAt.IsZero() {
+			msg = "The server isn't running. It loads the map when it starts."
+		}
+		writeError(w, errConflict(msg, ""))
 		return
 	}
 	res, err := s.db.Exec(`UPDATE maps SET restart_when_empty = ? WHERE server_id = ?`, actor, s.id)

@@ -388,6 +388,10 @@ type newServerSpec struct {
 	desired  string
 	actor    string
 	auditMsg string
+	// record writes what the server keeps besides its own row, in the
+	// transaction that records the server, so neither exists without the
+	// other.
+	record func(tx *sql.Tx, id string) error
 }
 
 // addServer records a new v2 server and starts its first operation, kind,
@@ -425,8 +429,21 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 	now := a.now().UTC()
 	var pos int
 	_ = a.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM servers`).Scan(&pos)
-	if _, err := a.db.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
+	tx, err := a.db.Begin()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, api.GameMinecraftJava, spec.typ, layoutV2, port, string(cfgJSON), spec.desired, pos, now.UnixMilli(), now.UnixMilli()); err != nil {
+		return nil, nil, err
+	}
+	if spec.record != nil {
+		if err := spec.record(tx, id); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, nil, err
 	}
 	s := a.newServerHandle(id, layoutV2, port)

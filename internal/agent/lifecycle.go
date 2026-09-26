@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -404,18 +405,34 @@ func (s *server) ensureDirs() error {
 			return err
 		}
 	}
-	// Java refuses to start when its GC log's folder is missing. The game
-	// owns data/, so whatever already stands at logs is left alone, and
-	// Lchown never follows a symlink swapped in after Mkdir.
+	// Java refuses to start when its GC log's folder is missing.
 	logs := filepath.Join(data, "logs")
-	if err := os.Mkdir(logs, 0o750); err == nil && os.Geteuid() == 0 {
-		if err := os.Lchown(logs, s.cfg.GameUID, s.cfg.GameGID); err != nil {
-			return err
-		}
-	} else if err != nil && !errors.Is(err, fs.ErrExist) {
+	if err := os.Mkdir(logs, 0o750); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
+	if os.Geteuid() == 0 {
+		if err := giveFolder(logs, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+			return err
+		}
+	}
 	return s.ensureRCONSecret()
+}
+
+// giveFolder gives the game user the folder at path on every start, not only
+// when Playkeeper makes it, so a chown that failed once doesn't keep Java from
+// writing there. The game owns data/: the folder is changed through a handle
+// opened without following a link or waiting on a pipe, and a link or anything
+// but a folder at path is left alone.
+func giveFolder(path string, uid, gid int) error {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Chown(uid, gid)
 }
 
 // ensureRCONSecret creates the host-generated RCON password: a root-only copy
@@ -684,11 +701,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	if err := s.waitReady(ctx, h, id); err != nil {
-		return err
-	}
-	s.mapStarted()
-	return nil
+	return s.waitReady(ctx, h, id)
 }
 
 func classifyStartError(err error, port int) error {

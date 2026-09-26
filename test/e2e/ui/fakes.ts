@@ -799,31 +799,37 @@ function stopped(s: Json): Json {
   return { ...s, desired: 'stopped', phase: 'stopped', phaseDetail: undefined, reachable: false, reachableAt: undefined, startedAt: undefined, stoppedAt: ago(20 * 60), players: undefined, resources: undefined, operation: undefined, pendingRestart: false }
 }
 
+/** Memory budgets the dashboard offers, for the next one up. */
+const budgets = [1024, 1536, 2048, 3072, 4096, 6144, 8192, 12288, 16384]
+
 /**
- * The agent's explanation of an out-of-memory kill, as the crash screen gets
- * it: a running server has none of its own, since the agent clears it once
- * the server is up again.
+ * The agent's diagnosis of a server whose Java ran out of heap, in the shape
+ * the agent sends it (diagnose's javaMemory): the next budget up is offered
+ * first, so the crash card's fix is "Save and start".
  */
-function memoryCrash(s: Json): Json {
-  const budget = Number((s.config as Json | undefined)?.memoryMB ?? 1536)
+function heapCrash(s: Json): Json {
+  const budget = Number((s.config as Json | undefined)?.memoryMB) || 1536
+  const next = budgets.find((b) => b > budget) ?? budget + 2048
+  const room = next - budget + 1024
+  const line = 'java.lang.OutOfMemoryError: Java heap space'
   return {
     at: ago(90),
     start: false,
-    kind: 'container_memory_limit',
-    params: { budget_mb: budget },
+    kind: 'heap_out_of_memory',
+    params: { budget_mb: budget, heap_mb: budget - Math.max(Math.floor(budget / 4), 512) },
     certain: true,
-    title: `${String(s.name ?? 'The server')} ran out of memory`,
-    explanation: `Docker stopped the server because it reached its memory limit of ${budget} MB.`,
+    title: 'Your Paper server ran out of memory',
+    explanation: 'Java ran out of the memory it has for the game (the heap) and couldn’t continue.',
     evidence: [
-      { kind: 'oom_killed', params: { limit_mb: budget }, text: 'Docker reports that the server was killed for going over its memory limit.' },
-      { kind: 'exit_code', params: { code: 137 }, text: 'The server exited with code 137.' },
+      { kind: 'log_line', params: { line }, text: line },
+      { kind: 'memory_room', params: { budget_mb: budget, room_mb: room }, text: 'This machine could give the server more memory.' },
     ],
     fixes: [
-      { kind: 'raise_memory', params: { from_mb: budget, to_mb: budget + 1024 }, title: 'Give it more memory', recommended: true },
-      { kind: 'restart', params: {}, title: 'Start the server again', recommended: false },
+      { kind: 'raise_memory', params: { from_mb: budget, to_mb: next }, title: 'Give it more memory', recommended: true },
+      { kind: 'restart', title: 'Start the server again' },
     ],
-    lines: [],
-    roomMB: 2048,
+    lines: [{ time: '12:04:10', level: 'ERROR', text: line }],
+    roomMB: room,
   }
 }
 
@@ -832,7 +838,7 @@ function server(view: View, s: Json): Json {
     case 'stopped':
       return stopped(s)
     case 'crashed':
-      return { ...stopped(s), desired: 'running', phase: 'crashed', stoppedAt: ago(90), exitCode: 137, crashCount: 3, lastError: 'Java ran out of memory.', lastErrorHint: 'Choose a larger memory budget in Settings.', crash: memoryCrash(s) }
+      return { ...stopped(s), desired: 'running', phase: 'crashed', stoppedAt: ago(90), exitCode: 137, crashCount: 3, lastError: 'Java ran out of memory.', lastErrorHint: 'Choose a larger memory budget in Settings.', crash: heapCrash(s) }
     case 'busy':
       return { ...s, operation: { id: 'fake-op-busy', serverId: s.id, kind: 'backup', status: 'running', phase: 'copying', actor: 'admin', startedAt: ago(20) } }
     case 'empty lists':

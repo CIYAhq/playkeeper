@@ -141,6 +141,13 @@ func TestDiscordAlertSequences(t *testing.T) {
 		e.fd.addLog("[12:00:31 INFO]: Stopping server")
 		e.fd.crash(1)
 	}
+	// outOfMemory has Java run out of memory and the server log its shutdown
+	// with no crash line of its own, and exit.
+	outOfMemory := func(e *agentEnv) {
+		e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+		e.fd.addLog("[12:00:31 INFO]: Stopping server")
+		e.fd.crash(1)
+	}
 	// redeliverDone hands the collector the crashed run's "Done" line again,
 	// as a log stream that attached while the run was going would.
 	redeliverDone := func(e *agentEnv) {
@@ -301,6 +308,19 @@ func TestDiscordAlertSequences(t *testing.T) {
 			e.waitFor("the crash counted", func() bool { return e.crashEvents() == n+1 })
 			e.waitFor("online again", e.onlineIdle)
 		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
+		{name: "out of memory, then Stopping server", backoff: 2 * time.Second, steps: func(e *agentEnv) {
+			n := e.crashEvents()
+			outOfMemory(e)
+			e.waitFor("the crash counted", func() bool { return e.crashEvents() == n+1 })
+			if st := e.srv().discordStatus(context.Background()).State; st != discord.StateCrashed {
+				e.t.Fatalf("after running out of memory, the live status shows the server %s, want crashed", st)
+			}
+			e.waitFor("online again", e.onlineIdle)
+		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
+		{name: "out of memory, then Stopping server, before the reconcile loop sees it", reconcile: time.Hour, steps: func(e *agentEnv) {
+			outOfMemory(e)
+			logRead(e)
+		}, status: discord.StateCrashed},
 		{name: "a crash, before the reconcile loop sees it", reconcile: time.Hour, steps: func(e *agentEnv) {
 			e.fd.addLog("[12:00:05 INFO]: Timings Reset")
 			e.fd.crash(137)
