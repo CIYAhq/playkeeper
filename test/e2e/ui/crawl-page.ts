@@ -343,13 +343,7 @@ export function installPageHelpers() {
     for (const img of scope.querySelectorAll('canvas, svg[role=img], img')) if (visible(img)) out.push(`img:${norm(img.getAttribute('aria-label') ?? img.getAttribute('alt'), 30)}`)
     // A drawn map is an application region whose label says what it shows, numbers such as its zoom included.
     for (const app of scope.querySelectorAll('[role=application]')) if (visible(app)) out.push(`app:${(app.getAttribute('aria-label') ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)}`)
-    // A select shows the choice made, numbers included: choosing "2 GB" over "4 GB" changes only them.
-    for (const el of list) if (isSelect(el.el)) out.push(`chosen:${el.key}:${textOf(el.el).replace(/\s+/g, ' ').trim().slice(0, 80)}`)
     return out
-  }
-
-  function isSelect(el: Element): boolean {
-    return !(el instanceof HTMLInputElement) && (roleOf(el) === 'combobox' || el.getAttribute('aria-haspopup') === 'listbox')
   }
 
   function snapshot(withTarget?: boolean): Snapshot {
