@@ -813,9 +813,18 @@ func (d *fakeDest) uploads() int {
 	return len(d.names)
 }
 
+// backup makes a backup and returns its id. An operation lets go of the
+// server's lock just after it reports that it finished, and a finished copy
+// holds the lock for a moment to apply the backup rules, so a busy answer is
+// asked again.
 func (e *agentEnv) backup() string {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	var code int
+	var out map[string]any
+	e.waitFor("the server to take a backup", func() bool {
+		code, out = e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+		return out["code"] != "busy"
+	})
 	if code != http.StatusAccepted {
 		e.t.Fatalf("backup: %d %v", code, out)
 	}
