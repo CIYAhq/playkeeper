@@ -690,13 +690,13 @@ describe('Plugins tab', () => {
     },
   }
 
-  async function openNeeds(lookup: AddonCard[]): Promise<string> {
+  async function openNeeds(lookup: AddonCard[], details: AddonDetails = orebfuscator): Promise<string> {
     answer([
       ['/addons/checks', checks],
       ['/addons/search?q=ProtocolLib', { cards: lookup, more: false, unanswered: [] }],
-      ['/addons/search', { cards: [orebfuscator.card], more: false, unanswered: [] }],
+      ['/addons/search', { cards: [details.card], more: false, unanswered: [] }],
       ['/addons/project/modrinth/protocollib', { card: card('ProtocolLib'), latest: version('5.4.0'), plan: { ...updatePlan, steps: [step('ProtocolLib', '5.4.0')], fingerprint: 'fp6' } }],
-      ['/addons/project/', orebfuscator],
+      ['/addons/project/', details],
       ['/addons', installed],
     ])
     await render(server(), 'plugins', 'browse')
@@ -718,6 +718,64 @@ describe('Plugins tab', () => {
     expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search?q=ProtocolLib')).toBe(true)
     expect(text).toContain('ProtocolLib isn’t in the library. Add it by hand first.')
     expect(document.querySelector('a[href="https://github.com/dmulloy2/ProtocolLib/"]')).not.toBeNull()
+  })
+
+  const machineLinks = [
+    { name: 'a page on another site', url: 'https://github.com/dmulloy2/ProtocolLib/', shown: true },
+    { name: 'a path on the dashboard', url: '/api/servers/abcdefghjk/offsite/recovery-key', shown: false },
+    { name: 'a page on the dashboard, written out', url: `${window.location.origin}/api/servers/abcdefghjk/offsite/recovery-key`, shown: false },
+    { name: 'a script', url: 'javascript:alert(document.cookie)', shown: false },
+  ]
+
+  it.each(machineLinks)('links a dependency another site names to $name only when it is another site', async ({ url, shown }) => {
+    const plan = orebfuscator.plan
+    if (!plan) throw new Error('no plan')
+    const text = await openNeeds([card('ProtocolSupport')], { ...orebfuscator, plan: { ...plan, manual: plan.manual.map((m) => ({ ...m, url })) } })
+    expect(text).toContain('ProtocolLib isn’t in the library. Add it by hand first.')
+    expect(text.includes('Get ProtocolLib from its author’s page')).toBe(shown)
+    expect(document.querySelector(`a[href="${url}"]`) !== null).toBe(shown)
+  })
+
+  it.each(machineLinks)('sends people to the author’s site at $name only when it is another site', async ({ url, shown }) => {
+    const dynmap: AddonDetails = { card: card('Dynmap'), latest: { ...version('3.7'), externalUrl: url } }
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/search', { cards: [dynmap.card], more: false, unanswered: [] }],
+      ['/addons/project/', dynmap],
+      ['/addons', installed],
+    ])
+    await render(server(), 'plugins', 'browse')
+    const text = await click('Dynmap')
+    expect(text).toContain('Only on the author’s website')
+    expect(text.includes('Download from the author’s page')).toBe(shown)
+    expect(document.querySelector(`a[href="${url}"]`) !== null).toBe(shown)
+  })
+
+  it.each(machineLinks)('opens an installed add-on’s source page at $name only when it is another site', async ({ url, shown }) => {
+    const tab = { opener: {} as unknown, location: { href: '' }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    try {
+      answer([
+        ['/addons/checks', checks],
+        ['/addons/project/', { card: card('Chunky', { source: 'hangar', projectId: '81', pageUrl: url }), latest: version('1.4.40'), installed: chunky } satisfies AddonDetails],
+        ['/addons', installed],
+      ])
+      await render(server())
+      const trigger = document.querySelector<HTMLElement>('[aria-label="More actions for Chunky"]')
+      if (!trigger) throw new Error('no menu on Chunky')
+      await act(async () => trigger.click())
+      await act(async () => {})
+      const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === 'Open source page')
+      if (!item) throw new Error('no Open source page')
+      await act(async () => item.click())
+      await act(async () => {})
+      expect(open).toHaveBeenCalledWith('', '_blank')
+      expect(tab.opener).toBeNull()
+      expect(tab.location.href).toBe(shown ? url : '')
+      expect(tab.close).toHaveBeenCalledTimes(shown ? 0 : 1)
+    } finally {
+      open.mockRestore()
+    }
   })
 
   const svc = card('Simple Voice Chat', { projectId: '9eGKb6K1', slug: 'simple-voice-chat' })

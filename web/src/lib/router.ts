@@ -35,7 +35,8 @@ export type Route =
   | { name: 'join'; code: string }
   | { name: 'player'; slug: string; player: string }
   | { name: 'team' }
-  | { name: 'addon-sources' }
+  // machine is the one whose CurseForge key the page shows, from ?machine=; the dashboard's own when missing.
+  | { name: 'addon-sources'; machine?: string }
   | { name: 'discord' }
   // A friends' pack page, public; token is "" for a link that can't be one.
   | { name: 'pack'; token: string }
@@ -56,7 +57,7 @@ export function publicMapToken(pathname: string): string | undefined {
   return m ? (m[1] ?? '') : undefined
 }
 
-/** The machine a new server goes on, from ?machine= in the address. */
+/** The machine a page is about, from ?machine= in the address: where a new server goes, or whose add-on sources show. */
 function targetMachine(search: string): { machine?: string } {
   const id = new URLSearchParams(search).get('machine')
   return id && reMachineId.test(id) ? { machine: id } : {}
@@ -78,7 +79,7 @@ export function parse(pathname: string, search = ''): Route {
       return { name: 'join', code: second && reCode.test(second) && !third ? second : '' }
     case 'settings':
       if (second === 'team' && !third) return { name: 'team' }
-      if (second === 'addon-sources' && !third) return { name: 'addon-sources' }
+      if (second === 'addon-sources' && !third) return { name: 'addon-sources', ...targetMachine(search) }
       if (second === 'discord' && !third) return { name: 'discord' }
       if (second === 'ai-agents' && !third) return { name: 'ai-agents' }
       if (second === 'machines' && !third) return { name: 'machines' }
@@ -161,7 +162,7 @@ export function href(route: Route): string {
     case 'team':
       return '/settings/team'
     case 'addon-sources':
-      return '/settings/addon-sources'
+      return route.machine ? `/settings/addon-sources?machine=${route.machine}` : '/settings/addon-sources'
     case 'discord':
       return '/settings/discord'
     case 'pack':

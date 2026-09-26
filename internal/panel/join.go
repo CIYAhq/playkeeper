@@ -141,18 +141,38 @@ func (s *Server) creator(inv invites.Invite) invites.Account {
 }
 
 // joinServer is what the public page may say about a friend invite's server,
-// and the machine that runs it. A server that is gone reads like a link that
-// doesn't work.
+// and the machine that runs it.
 func (s *Server) joinServer(r *http.Request, serverID string) (invites.Server, machine, error) {
 	m, st, err := s.serverStatus(r, serverID)
+	if err != nil {
+		return invites.Server{}, machine{}, joinFailure(err)
+	}
+	return s.inviteServer(r, m, st), m, nil
+}
+
+// joinFailure is the public page's refusal for a friend invite's server that
+// couldn't be asked, sorted as failureOf sorts the dashboard's: a server no
+// machine runs reads like a link that doesn't work, one two machines list
+// like a link that doesn't work for now, and a failed lookup or a machine
+// that can't answer like a moment to try again. None names the server, and
+// each is logged by its own reason.
+func joinFailure(err error) *invites.Error {
 	var ae *agentclient.Error
 	switch {
 	case errors.As(err, &ae) && ae.Status == http.StatusNotFound, errors.Is(err, errNotFound):
-		return invites.Server{}, machine{}, invites.NotFound()
-	case err != nil:
-		return invites.Server{}, machine{}, errJoinUnavailable
+		e := invites.NotFound()
+		e.Reason = "no machine runs the invite's server"
+		return e
+	case errors.Is(err, errDisputed):
+		return &invites.Error{Code: codeServerDisputed, Status: http.StatusConflict,
+			Msg: "This invite link doesn't work right now.", Hint: "Ask the person who sent it to check their Playkeeper dashboard.",
+			Reason: "two machines list the invite's server"}
+	case errors.Is(err, errServerMachine):
+		return &invites.Error{Code: api.CodeInternal, Status: http.StatusServiceUnavailable,
+			Msg: "Playkeeper can't open this invite right now.", Hint: "Try again in a few minutes.",
+			Reason: "could not look up the machine that runs the invite's server"}
 	}
-	return s.inviteServer(r, m, st), m, nil
+	return errJoinUnavailable
 }
 
 // serverRef is a server's id and name.

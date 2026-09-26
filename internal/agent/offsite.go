@@ -131,6 +131,7 @@ type offsiteRow struct {
 	sshPublic  string
 	keys       offsite.Keys
 	hasKeys    bool
+	keysRead   string // the keys column as it was read
 	keySavedAt *time.Time
 	// keySavedFolder is the folder the downloaded recovery key file names,
 	// nil when not known.
@@ -170,7 +171,7 @@ func (s *server) loadOffsite() (offsiteRow, error) {
 	if err != nil {
 		return r, err
 	}
-	r.exists, r.enabled = true, enabled == 1
+	r.exists, r.enabled, r.keysRead = true, enabled == 1, keys
 	if err := json.Unmarshal([]byte(config), &r.cfg); err != nil {
 		return r, errors.New("the saved settings for copies somewhere else can't be read")
 	}
@@ -1003,9 +1004,15 @@ func (s *server) hOffsiteSSHKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sshKeyOf(k.PublicKey))
 }
 
+// keyServed runs after the recovery key file was sent, before it is
+// recorded as saved; tests make a new key there.
+var keyServed = func() {}
+
 // hOffsiteRecoveryKey returns the recovery key file. The panel lets only
 // the owner fetch it and names who did; the response is never cached, and
 // the audit line, written before the key leaves, never holds its content.
+// Only the keys in the file are recorded as saved: a new key made while it
+// was sent still needs saving.
 func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
 	if err != nil {
@@ -1037,7 +1044,8 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte(body)); err != nil {
 		return
 	}
-	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ?, key_saved_folder = ? WHERE server_id = ?`, s.now().UnixMilli(), f.Folder, s.id)
+	keyServed()
+	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ?, key_saved_folder = ? WHERE server_id = ? AND keys = ?`, s.now().UnixMilli(), f.Folder, s.id, row.keysRead)
 }
 
 // hOffsiteNewKey makes a new encryption key for new copies and keeps the
@@ -1323,7 +1331,8 @@ func copyAtFault(err error) bool {
 }
 
 // hOffsiteCheck downloads a copy, decrypts it and checks it against its
-// record as a restore would, then deletes the download. Nothing else changes.
+// record as a restore would, then deletes the download. Nothing else
+// changes. It can be cancelled until it records what it found.
 func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Actor string `json:"actor"`
@@ -1353,6 +1362,7 @@ func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := s.beginOp("offsite-check", actor, func(ctx context.Context, h *opHandle) error {
+		h.allowCancel()
 		name := offsite.CopyName(archive)
 		h.set("name", name)
 		dir := filepath.Join(s.cfg.StagingDir(), randomSecret(8))
@@ -1361,6 +1371,9 @@ func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 		}
 		defer os.RemoveAll(dir)
 		got, _, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if !h.commit() {
+			return context.Canceled
+		}
 		switch {
 		case err == nil:
 			s.noteCopyCheck(archive, func(cp *copyRecord) {
@@ -1380,6 +1393,32 @@ func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	writeJSON(w, http.StatusAccepted, op)
+}
+
+// hOffsiteCheckCancel stops a check of a copy before it records what it
+// found: the download so far is deleted and nothing else changes.
+func (s *server) hOffsiteCheckCancel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actor       string `json:"actor"`
+		OperationID string `json:"operationId"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	op, err := s.cancelOp("offsite-check", req.OperationID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	name, _ := op.Detail["name"].(string)
+	s.audit(actor, "offsite.check_cancelled", "server", "succeeded", name)
 	writeJSON(w, http.StatusAccepted, op)
 }
 

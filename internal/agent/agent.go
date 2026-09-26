@@ -781,6 +781,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/catalog", a.hCatalog},
 		{"GET", "/v1/servers", a.hServers},
 		{"POST", "/v1/servers", a.hCreate},
+		{"PUT", "/v1/slugs/elsewhere", a.hSlugsElsewhere},
 		{"GET", "/v1/servers/{id}", srv((*server).hStatus)},
 		{"POST", "/v1/servers/{id}/start", srv((*server).hStart)},
 		{"POST", "/v1/servers/{id}/stop", srv((*server).hStop)},

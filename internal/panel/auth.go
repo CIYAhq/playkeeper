@@ -287,6 +287,11 @@ CREATE TABLE public_links (
   PRIMARY KEY (kind, token_hash)
 );
 `,
+	// The slug the dashboard shows for each server, which stays once shown
+	// (see stableSlugs).
+	`
+ALTER TABLE server_machines ADD COLUMN slug TEXT NOT NULL DEFAULT '';
+`,
 }
 
 const (
