@@ -309,7 +309,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
           ) : cmd ? (
             <>
               <div className="relative mt-3 rounded-xl bg-console px-4 py-3.5" role="group" aria-label={t('machines.connect.command')}>
-                <pre className={cn('overflow-x-auto font-mono text-xs leading-[1.7] text-white/90', !phone && 'pr-20')}>
+                <pre tabIndex={0} className={cn('overflow-x-auto rounded-sm font-mono text-xs leading-[1.7] text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-ring', !phone && 'pr-20')}>
                   {lines.map((l, i) => (
                     <span key={i} className="block">
                       {l}
