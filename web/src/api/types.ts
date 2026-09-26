@@ -462,6 +462,13 @@ export interface AuditEntry {
   source: 'panel' | 'agent'
 }
 
+/** Served before sign-in, so only what is public anyway. */
+export interface SetupStatus {
+  needsSetup: boolean
+  machine?: string
+  version: string
+}
+
 export interface Me {
   user: { username: string; role: string }
   csrfToken: string

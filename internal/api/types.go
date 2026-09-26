@@ -624,6 +624,15 @@ type Health struct {
 	Docker  bool   `json:"docker"`
 }
 
+// SetupStatus is what the dashboard shows before anyone signs in, so it
+// holds nothing that isn't public anyway: the machine's name is in the
+// panel's self-signed certificate and the version in /api/health.
+type SetupStatus struct {
+	NeedsSetup bool   `json:"needsSetup"`
+	Machine    string `json:"machine,omitempty"`
+	Version    string `json:"version"`
+}
+
 // Add-ons are a server's plugins (Paper) or mods, installed from Modrinth
 // and Hangar.
 

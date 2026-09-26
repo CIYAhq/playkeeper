@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, get, onUnauthorized, setCsrfToken } from '@/api/client'
-import type { Me } from '@/api/types'
+import type { Me, SetupStatus } from '@/api/types'
 import { useWorkspace, WorkspaceProvider } from '@/api/workspace'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { AppShell } from '@/components/app/shell'
@@ -25,6 +25,7 @@ export function App() {
   const route = useRoute()
   const [state, setState] = useState<AuthState>('loading')
   const [me, setMe] = useState<Me>()
+  const [status, setStatus] = useState<SetupStatus>()
 
   const signedIn = useCallback((m: Me) => {
     setCsrfToken(m.csrfToken)
@@ -42,8 +43,9 @@ export function App() {
     let cancelled = false
     async function boot() {
       try {
-        const s = await get<{ needsSetup: boolean }>('/api/setup/status')
+        const s = await get<SetupStatus>('/api/setup/status')
         if (cancelled) return
+        setStatus(s)
         if (s.needsSetup) {
           setState('setup')
           if (window.location.pathname !== '/setup') navigate('/setup', true)
@@ -96,6 +98,8 @@ export function App() {
     case 'login':
       return (
         <LoginPage
+          machine={status?.machine}
+          version={status?.version}
           onDone={(m) => {
             signedIn(m)
             navigate('/', true)

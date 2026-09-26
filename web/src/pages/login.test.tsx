@@ -73,6 +73,34 @@ afterEach(async () => {
   vi.mocked(client.post).mockReset()
 })
 
+describe('sign-in page', () => {
+  const footer = () => need(document.querySelector('footer'), 'footer').textContent ?? ''
+
+  it('names the machine and the Playkeeper version, through both steps', async () => {
+    vi.mocked(client.post).mockResolvedValueOnce(asked())
+    const r = createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<LoginPage machine="my-vps" version="0.4.0" onDone={vi.fn()} />))
+    expect(document.querySelector('h1')?.textContent).toBe('Sign in to Playkeeper')
+    expect(text()).toContain('The dashboard for my-vps.')
+    expect(footer()).toContain('Playkeeper 0.4.0')
+    await type(need(document.querySelector<HTMLInputElement>('#login-username'), 'username'), 'siya')
+    await type(need(document.querySelector<HTMLInputElement>('#login-password'), 'password'), 'correct horse')
+    await submit()
+    expect(text()).toContain('Enter your code')
+    expect(footer()).toContain('Playkeeper 0.4.0')
+  })
+
+  it('leaves both out while they are not known', async () => {
+    const r = createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<LoginPage onDone={vi.fn()} />))
+    expect(text()).toContain('Sign in to Playkeeper')
+    expect(text()).not.toContain('The dashboard for')
+    expect(footer()).not.toContain('Playkeeper')
+  })
+})
+
 describe('second sign-in step', () => {
   it('asks for a code after the password and signs in with the sixth digit', async () => {
     const onDone = await secondStep()

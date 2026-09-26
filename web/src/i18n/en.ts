@@ -964,7 +964,8 @@ export const en = {
   'onboarding.toDashboard': 'Go to my dashboard',
 
   // Login
-  'login.title': 'Sign in',
+  'login.title': 'Sign in to Playkeeper',
+  'login.subtitle': 'The dashboard for {machine}.',
   'login.username': 'Username',
   'login.password': 'Password',
   'login.submit': 'Sign in',

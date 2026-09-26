@@ -22,38 +22,40 @@ interface Pending {
   challenge: Challenge
 }
 
-export function LoginPage({ onDone }: { onDone: (m: Me) => void }) {
+export function LoginPage({ machine, version, onDone }: { machine?: string; version?: string; onDone: (m: Me) => void }) {
   const [username, setUsername] = useState('')
   const [pending, setPending] = useState<Pending>()
   const [error, setError] = useState<string>()
-  if (pending) {
-    return (
-      <SecondStep
-        {...pending}
-        onDone={onDone}
-        onBack={(reason) => {
-          setPending(undefined)
-          setError(reason)
-          if (!reason) setUsername('')
-        }}
-      />
-    )
-  }
   return (
-    <PasswordStep
-      username={username}
-      setUsername={setUsername}
-      error={error}
-      setError={setError}
-      onAnswer={(a) => {
-        if ('secondFactor' in a) setPending({ username: a.user.username, challenge: a.secondFactor })
-        else onDone(a)
-      }}
-    />
+    <Frame version={version}>
+      {pending ? (
+        <SecondStep
+          {...pending}
+          onDone={onDone}
+          onBack={(reason) => {
+            setPending(undefined)
+            setError(reason)
+            if (!reason) setUsername('')
+          }}
+        />
+      ) : (
+        <PasswordStep
+          machine={machine}
+          username={username}
+          setUsername={setUsername}
+          error={error}
+          setError={setError}
+          onAnswer={(a) => {
+            if ('secondFactor' in a) setPending({ username: a.user.username, challenge: a.secondFactor })
+            else onDone(a)
+          }}
+        />
+      )}
+    </Frame>
   )
 }
 
-function PasswordStep({ username, setUsername, error, setError, onAnswer }: { username: string; setUsername: (v: string) => void; error?: string; setError: (e?: string) => void; onAnswer: (a: LoginAnswer) => void }) {
+function PasswordStep({ machine, username, setUsername, error, setError, onAnswer }: { machine?: string; username: string; setUsername: (v: string) => void; error?: string; setError: (e?: string) => void; onAnswer: (a: LoginAnswer) => void }) {
   const phone = useIsPhone()
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -72,38 +74,39 @@ function PasswordStep({ username, setUsername, error, setError, onAnswer }: { us
   }
 
   return (
-    <Frame>
-      <FrameCard className={phoneCard}>
-        <div className="flex items-center gap-3">
-          <Pip pose="wave" size={48} />
+    <FrameCard className={phoneCard}>
+      <div className="flex items-center gap-3">
+        <Pip pose="wave" size={48} />
+        <div className="min-w-0">
           <h1 className="text-xl font-bold">{t('login.title')}</h1>
+          {machine && <p className="mt-0.5 text-[13px] break-words text-muted-foreground max-sm:text-[15px]">{t('login.subtitle', { machine })}</p>}
         </div>
-        <form className="mt-5 flex flex-col gap-4" onSubmit={submit}>
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="login-username" className="text-[13px] font-medium max-sm:text-[15px]">
-              {t('login.username')}
-            </label>
-            <InputGroup className="max-sm:h-11">
-              <InputGroupAddon>
-                <UserRoundIcon aria-hidden="true" />
-              </InputGroupAddon>
-              <InputGroupInput id="login-username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required autoFocus />
-            </InputGroup>
-          </div>
-          <PasswordField id="login-password" label={t('login.password')} value={password} onChange={setPassword} autoComplete="current-password" />
-          {error && (
-            <p className="text-[13px] text-destructive-foreground" role="alert">
-              {error}
-            </p>
-          )}
-          <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={username.trim() && password ? undefined : t('reason.fillIn')}>
-            <LogInIcon />
-            {busy ? t('login.submitting') : t('login.submit')}
-          </Button>
-          <p className="text-xs text-muted-foreground">{rich('login.forgot', { code: (chunk) => <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{chunk}</code> }, { command: 'sudo playkeeper reset-password <username>' })}</p>
-        </form>
-      </FrameCard>
-    </Frame>
+      </div>
+      <form className="mt-5 flex flex-col gap-4" onSubmit={submit}>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="login-username" className="text-[13px] font-medium max-sm:text-[15px]">
+            {t('login.username')}
+          </label>
+          <InputGroup className="max-sm:h-11">
+            <InputGroupAddon>
+              <UserRoundIcon aria-hidden="true" />
+            </InputGroupAddon>
+            <InputGroupInput id="login-username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required autoFocus />
+          </InputGroup>
+        </div>
+        <PasswordField id="login-password" label={t('login.password')} value={password} onChange={setPassword} autoComplete="current-password" />
+        {error && (
+          <p className="text-[13px] text-destructive-foreground" role="alert">
+            {error}
+          </p>
+        )}
+        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={username.trim() && password ? undefined : t('reason.fillIn')}>
+          <LogInIcon />
+          {busy ? t('login.submitting') : t('login.submit')}
+        </Button>
+        <p className="text-xs text-muted-foreground">{rich('login.forgot', { code: (chunk) => <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{chunk}</code> }, { command: 'sudo playkeeper reset-password <username>' })}</p>
+      </form>
+    </FrameCard>
   )
 }
 
@@ -213,92 +216,90 @@ function SecondStep({ username, challenge, onDone, onBack }: Pending & { onDone:
   else if (code.length < 6) reason = t('reason.sixDigits')
 
   return (
-    <Frame>
-      <FrameCard className={cn('max-w-[420px]', phoneCard)}>
-        <form className="flex flex-col" onSubmit={submit} noValidate>
-          <h1 className="text-xl font-bold max-sm:text-2xl">{byRecovery ? t('signin.recoveryTitle') : t('signin.codeTitle')}</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{blocked ? t('signin.blocked') : byRecovery ? t('signin.recoveryLead') : t('signin.codeLead')}</p>
-          {(!byRecovery || blocked) && <div className="mt-4">{signingInAs}</div>}
-          {byRecovery ? (
-            <div className="mt-5 flex flex-col gap-1.5">
-              <label htmlFor="recovery-code" className="text-[13px] font-medium max-sm:text-[15px]">
-                {t('signin.recoveryLabel')}
-              </label>
-              <InputGroup className="max-sm:h-11">
-                <InputGroupAddon>
-                  <KeyRoundIcon aria-hidden="true" />
-                </InputGroupAddon>
-                <InputGroupInput
-                  id="recovery-code"
-                  value={recoveryCode}
-                  onChange={(e) => {
-                    setRecoveryCode(e.target.value)
-                    setWrong(false)
-                  }}
-                  placeholder={t('signin.recoveryPlaceholder')}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  maxLength={40}
-                  aria-invalid={wrong || undefined}
-                  aria-describedby={wrong ? 'second-step-error' : undefined}
-                  autoFocus
-                />
-              </InputGroup>
-            </div>
-          ) : (
-            <>
-              <span id={labelId} className="sr-only">
-                {t('signin.codeLabel')}
-              </span>
-              <CodeField
-                key={String(locked)}
-                value={code}
-                onChange={(v) => {
-                  setCode(v)
+    <FrameCard className={cn('max-w-[420px]', phoneCard)}>
+      <form className="flex flex-col" onSubmit={submit} noValidate>
+        <h1 className="text-xl font-bold max-sm:text-2xl">{byRecovery ? t('signin.recoveryTitle') : t('signin.codeTitle')}</h1>
+        <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-[15px]">{blocked ? t('signin.blocked') : byRecovery ? t('signin.recoveryLead') : t('signin.codeLead')}</p>
+        {(!byRecovery || blocked) && <div className="mt-4">{signingInAs}</div>}
+        {byRecovery ? (
+          <div className="mt-5 flex flex-col gap-1.5">
+            <label htmlFor="recovery-code" className="text-[13px] font-medium max-sm:text-[15px]">
+              {t('signin.recoveryLabel')}
+            </label>
+            <InputGroup className="max-sm:h-11">
+              <InputGroupAddon>
+                <KeyRoundIcon aria-hidden="true" />
+              </InputGroupAddon>
+              <InputGroupInput
+                id="recovery-code"
+                value={recoveryCode}
+                onChange={(e) => {
+                  setRecoveryCode(e.target.value)
                   setWrong(false)
                 }}
-                onComplete={(v) => {
-                  if (!busy && !locked) void send(v)
-                }}
-                invalid={wrong}
-                disabled={locked}
+                placeholder={t('signin.recoveryPlaceholder')}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={40}
+                aria-invalid={wrong || undefined}
+                aria-describedby={wrong ? 'second-step-error' : undefined}
                 autoFocus
-                labelledBy={labelId}
-                className="mt-4"
               />
-            </>
-          )}
-          {wrong && (
-            <p id="second-step-error" className="mt-3 text-[13px] font-medium text-destructive-foreground" role="alert">
-              {byRecovery ? t('signin.recoveryWrong') : t('signin.wrong')}
-            </p>
-          )}
-          {locked && !byRecovery && (
-            <div className="mt-4 text-[13px]" role="status">
-              <p className="font-semibold">{t('signin.lockedTitle')}</p>
-              <p className="mt-0.5 text-muted-foreground">{hasRecovery ? t('signin.locked', { time: wait }) : t('signin.lockedNoRecovery', { time: wait })}</p>
-            </div>
-          )}
-          {blocked && !hasRecovery && (
-            <p className="mt-3 text-[13px] text-muted-foreground">{rich('signin.blockedNoRecovery', { code: (chunk) => <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{chunk}</code> }, { command: `sudo playkeeper reset-2fa ${username}` })}</p>
-          )}
-          {error && (
-            <p className="mt-3 text-[13px] text-destructive-foreground" role="alert">
-              {error}
-            </p>
-          )}
-          <Button type="submit" size={phone ? 'touch' : 'lg'} className="mt-5" loading={busy} disabledReason={reason}>
-            {t('login.submit')}
-          </Button>
-          {!blocked && (byRecovery || hasRecovery) && (
-            <button type="button" onClick={() => switchTo(!byRecovery)} className={cn(link, 'mt-4')}>
-              {byRecovery ? t('signin.useApp') : t('signin.useRecovery')}
-            </button>
-          )}
-        </form>
-      </FrameCard>
-    </Frame>
+            </InputGroup>
+          </div>
+        ) : (
+          <>
+            <span id={labelId} className="sr-only">
+              {t('signin.codeLabel')}
+            </span>
+            <CodeField
+              key={String(locked)}
+              value={code}
+              onChange={(v) => {
+                setCode(v)
+                setWrong(false)
+              }}
+              onComplete={(v) => {
+                if (!busy && !locked) void send(v)
+              }}
+              invalid={wrong}
+              disabled={locked}
+              autoFocus
+              labelledBy={labelId}
+              className="mt-4"
+            />
+          </>
+        )}
+        {wrong && (
+          <p id="second-step-error" className="mt-3 text-[13px] font-medium text-destructive-foreground" role="alert">
+            {byRecovery ? t('signin.recoveryWrong') : t('signin.wrong')}
+          </p>
+        )}
+        {locked && !byRecovery && (
+          <div className="mt-4 text-[13px]" role="status">
+            <p className="font-semibold">{t('signin.lockedTitle')}</p>
+            <p className="mt-0.5 text-muted-foreground">{hasRecovery ? t('signin.locked', { time: wait }) : t('signin.lockedNoRecovery', { time: wait })}</p>
+          </div>
+        )}
+        {blocked && !hasRecovery && (
+          <p className="mt-3 text-[13px] text-muted-foreground">{rich('signin.blockedNoRecovery', { code: (chunk) => <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{chunk}</code> }, { command: `sudo playkeeper reset-2fa ${username}` })}</p>
+        )}
+        {error && (
+          <p className="mt-3 text-[13px] text-destructive-foreground" role="alert">
+            {error}
+          </p>
+        )}
+        <Button type="submit" size={phone ? 'touch' : 'lg'} className="mt-5" loading={busy} disabledReason={reason}>
+          {t('login.submit')}
+        </Button>
+        {!blocked && (byRecovery || hasRecovery) && (
+          <button type="button" onClick={() => switchTo(!byRecovery)} className={cn(link, 'mt-4')}>
+            {byRecovery ? t('signin.useApp') : t('signin.useRecovery')}
+          </button>
+        )}
+      </form>
+    </FrameCard>
   )
 }
 

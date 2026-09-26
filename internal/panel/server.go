@@ -500,7 +500,7 @@ func (s *Server) hSetupStatus(w http.ResponseWriter, r *http.Request, _ *session
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"needsSetup": n == 0})
+	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version})
 }
 
 type credentials struct {
