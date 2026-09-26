@@ -472,3 +472,49 @@ func TestAFailedTryCountsFromTheQueue(t *testing.T) {
 		})
 	}
 }
+
+// Settings saved while no upload runs, between two copies of a round, reach
+// the next copy: the round, opened with the settings it read, uploads nothing
+// more, and the next round copies with the new ones.
+func TestARoundWhoseSettingsChangedUploadsNothingMore(t *testing.T) {
+	store := &credStore{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}, secret: "old-secret", hold: map[string]chan struct{}{},
+		waiting: make(chan string, 4), stopped: make(chan string, 4)}
+	prev := openOffsite
+	openOffsite = func(cfg offsite.Config, _ offsite.Keys, _ offsite.Options) (offsiteDest, error) {
+		return credDest{credStore: store, secret: cfg.S3.SecretKey.Reveal()}, nil
+	}
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	e.create()
+	id := e.backup()
+	// The new secret is saved as the copy is claimed, without the route
+	// that would stop an upload, as a save between two copies is.
+	var once sync.Once
+	prevHook := uploadClaimed
+	uploadClaimed = func(job uploadJob) {
+		once.Do(func() {
+			s := e.srv()
+			row, err := s.loadOffsite()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			store.mu.Lock()
+			store.secret = "new-secret"
+			store.mu.Unlock()
+			row.secret = "new-secret"
+			if err := s.saveOffsite(row); err != nil {
+				t.Error(err)
+			}
+			s.kickOffsite()
+		})
+	}
+	t.Cleanup(func() { uploadClaimed = prevHook })
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "old-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1 })
+	if got := store.secrets(); strings.Join(got, ",") != "new-secret" {
+		t.Fatalf("uploads with %q, want only the new secret", got)
+	}
+}
