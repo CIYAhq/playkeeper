@@ -117,6 +117,14 @@ func TestAnIconOrPackRefusedForTheMissingWorldFolderSaysWhatToRedo(t *testing.T)
 	refusedForMissingWorldFolder(t, m, "a new server icon", code, out, "upload the icon again")
 }
 
+// The data pack list is refused for the missing world folder too, rather
+// than failing to open it with a hint about a full disk.
+func TestTheDataPackListWaitsForTheMissingWorldFolder(t *testing.T) {
+	e, m := worldLeftMissing(t)
+	code, out := e.call("GET", e.sp("/datapacks"), nil)
+	refusedForMissingWorldFolder(t, m, "the data pack list", code, out, "try again")
+}
+
 // A restore whose previous world the next start put back says so: its record
 // no longer says putting it back failed, the activity has a line for it, and
 // the audit log has what the start did.

@@ -117,6 +117,9 @@ func (s *server) hDataPacks(w http.ResponseWriter, r *http.Request) {
 // installedDataPacks lists the world's data packs, without the folder pack
 // Paper keeps in every world for its plugins' recipes and advancements.
 func (s *server) installedDataPacks(sc *api.ServerConfig) ([]packs.DataPack, error) {
+	if m := s.worldMissing(); m != nil {
+		return nil, errWorldMissing(m, "try again")
+	}
 	list, err := s.dataPacks(sc).List()
 	if err != nil {
 		return nil, packError(err)
