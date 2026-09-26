@@ -3085,8 +3085,8 @@ control "a recovery key file naming another folder asks to be downloaded again" 
   'if false && r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
   ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
 control "downloading the recovery key records the folder the file names" internal/agent/offsite.go \
-  's.now().UnixMilli(), f.Folder, s.id)' \
-  's.now().UnixMilli(), "", s.id)' \
+  's.now().UnixMilli(), f.Folder, s.id, row.keysRead)' \
+  's.now().UnixMilli(), "", s.id, row.keysRead)' \
   ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
 control "looking for copies says the key file's folder isn't there" internal/agent/recover.go \
   'writeError(w, automationError(keyFileFolder(err, req)))' \
@@ -3295,21 +3295,21 @@ control "a copy stopped for a new key isn't a failed try" internal/agent/offsite
 # Wave 7 before Bugbot: restoring a copy takes as long as the copy takes to
 # come, and every other operation keeps its deadline.
 control "a restore of a copy has no fixed deadline" internal/agent/lifecycle.go \
-  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
-  'var noDeadline = map[string]bool{"offsite-recover": true}' \
-  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_a_copy$'
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-check": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-check": true, "offsite-recover": true}' \
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^restoring_a_copy$'
 control "a restore from a recovery key has no fixed deadline" internal/agent/lifecycle.go \
-  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
-  'var noDeadline = map[string]bool{"offsite-restore": true}' \
-  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_from_a_recovery_key$'
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-check": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-check": true}' \
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^restoring_from_a_recovery_key$'
 control "a server's other operations keep their deadline" internal/agent/lifecycle.go \
   '	if noDeadline[kind] {' \
   '	if true || noDeadline[kind] {' \
-  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_backup$'
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^a_backup$'
 control "machine operations keep their deadline" internal/agent/agent.go \
   'ctx, cancel := opContext(a.ctx, kind)' \
   'ctx, cancel := context.WithCancel(a.ctx)' \
-  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_machine_operation$'
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^a_machine_operation$'
 
 # Wave 7 before Bugbot: restoring from a recovery key holds no server.
 control "a restore from a recovery key holds no server" internal/agent/agent.go \
@@ -3332,20 +3332,20 @@ control "a confirmed delete goes ahead without the key" internal/agent/handlers.
   '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
   '	if err := s.keyNotSaved(); err != nil {' \
   ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded,_and_the_delete_confirmed$'
-control "copies still being made count for the key" internal/agent/automation.go \
-  '	if copies == 0 && !row.enabled {' \
-  '	if copies == 0 {' \
+control "a key never downloaded is at risk before the first copy" internal/agent/automation.go \
+  '	if !row.hasKeys || row.keySavedAt != nil {' \
+  '	if !row.hasKeys || row.keySavedAt != nil || row.copiesMade == 0 {' \
   ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^copies_on_but_none_made_yet'
 control "a downloaded key lets the delete go ahead" internal/agent/automation.go \
-  'if err != nil || !row.hasKeys || row.keySavedAt != nil {' \
-  'if err != nil || !row.hasKeys {' \
+  '	if !row.hasKeys || row.keySavedAt != nil {' \
+  '	if !row.hasKeys {' \
   ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_downloaded$'
 webcontrol "the delete dialog warns while the recovery key was never downloaded" web/src/pages/server/settings.tsx \
-  'return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)' \
+  'return !!v?.key && !v.key.savedAt' \
   'return false' \
   web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
 webcontrol "the delete dialog waits for the box before deleting without the key" web/src/pages/server/settings.tsx \
-  ": keyRisk && !withoutKey ? t('settings.deleteKeyFirst') : undefined}" \
+  ": keyRisk && !withoutKey ? t(keyUnknown ? 'settings.deleteKeyUnknownFirst' : 'settings.deleteKeyFirst') : undefined}" \
   ': undefined}' \
   web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
 webcontrol "the delete dialog confirms deleting without the key" web/src/pages/server/settings.tsx \
@@ -3545,6 +3545,123 @@ control "a copy queue that can't be read is an error" internal/agent/backuprules
 	}
 	defer rows.Close()' \
   ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_copy_queue_can.t_be_read$'
+
+# Wave 7 second bug hunt and Bugbot on eb3d7540: deleting a server asks
+# whenever keys exist and the recovery key was never downloaded, a copy
+# forgotten by a change of place included, and when the settings for copies
+# can't be read.
+control "a key never downloaded is at risk when copies are off and none is recorded" internal/agent/automation.go \
+  '	if !row.hasKeys || row.keySavedAt != nil {' \
+  '	if !row.hasKeys || row.keySavedAt != nil || !row.enabled {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^copies_turned_off,_then_forgotten_by_a_change_of_place'
+control "a delete asks when the settings for copies can't be read" internal/agent/automation.go \
+  '	if err != nil {
+		return s.keyUnknown(err)
+	}' \
+  '	if err != nil {
+		return nil
+	}' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^the_settings_for_copies_unreadable$'
+control "a confirmed delete goes ahead when the settings can't be read" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); err != nil && (!req.ForgetKey || err.(*apiError).Reason == reasonKeyUnknown) {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^the_settings_for_copies_unreadable,_and_the_delete_confirmed$'
+control "a delete refused for unreadable settings is audited as such" internal/agent/handlers.go \
+  '			detail = "the settings for its copies couldn'"'"'t be read"' \
+  '' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^the_settings_for_copies_unreadable$'
+control "a count that fails claims no number of copies" internal/agent/automation.go \
+  '		s.log.Warn("the recorded copies couldn'"'"'t be counted", "server", s.id, "err", err)' \
+  '		params["copies"] = 0' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^the_copies_can.t_be_counted,_the_key_never_downloaded$'
+webcontrol "the delete dialog warns while copies are off and none is recorded" web/src/pages/server/settings.tsx \
+  'return !!v?.key && !v.key.savedAt' \
+  'return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)' \
+  web/src/pages/server/settings.test.tsx 'warns while copies are off and none is recorded'
+webcontrol "the delete dialog takes the refusal when the settings can't be read" web/src/pages/server/settings.tsx \
+  "const keyRefusals = ['recovery_key_not_saved', 'recovery_key_unknown']" \
+  "const keyRefusals = ['recovery_key_not_saved']" \
+  web/src/pages/server/settings.test.tsx 'read the settings for copies'
+webcontrol "the delete dialog says it couldn't read the settings" web/src/pages/server/settings.tsx \
+  "title={t(keyUnknown ? 'settings.deleteKeyUnknownTitle' : 'settings.deleteKeyTitle')}" \
+  "title={t('settings.deleteKeyTitle')}" \
+  web/src/pages/server/settings.test.tsx 'read the settings for copies'
+
+# Downloading the recovery key records only the keys in the file as saved.
+control "downloading the recovery key records only the keys in the file" internal/agent/offsite.go \
+  'WHERE server_id = ? AND keys = ?`, s.now().UnixMilli(), f.Folder, s.id, row.keysRead)' \
+  'WHERE server_id = ?`, s.now().UnixMilli(), f.Folder, s.id)' \
+  ./internal/agent '^TestDownloadingTheRecoveryKeySavesOnlyTheKeysInTheFile$/^a_new_key_made_as_the_file_was_sent$'
+
+# Checking a copy has no fixed deadline, can be cancelled, and pins the
+# copies against pruning while it downloads.
+control "a check of a copy has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-check": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^checking_a_copy$'
+control "a check of a copy can be cancelled" internal/agent/offsite.go \
+  '	op, err := s.beginOp("offsite-check", actor, func(ctx context.Context, h *opHandle) error {
+		h.allowCancel()
+' \
+  '	op, err := s.beginOp("offsite-check", actor, func(ctx context.Context, h *opHandle) error {
+' \
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^a_check_cancelled_while_it_downloads$'
+control "a check's cancel stops a check" internal/agent/offsite.go \
+  's.cancelOp("offsite-check", req.OperationID)' \
+  's.cancelOp("offsite-restore", req.OperationID)' \
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^a_check_cancelled_while_it_downloads$'
+control "a check cancelled as its copy finishes coming records nothing" internal/agent/offsite.go \
+  '		got, _, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if !h.commit() {
+			return context.Canceled
+		}' \
+  '		got, _, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		h.commit()' \
+  ./internal/agent '^TestRestoringOrCheckingACopyOutlastsTheOperationDeadline$/^a_check_cancelled_as_its_copy_finishes_coming$'
+control "a check holds the copy downloads' lock" internal/agent/offsite.go \
+  '	s.copyReads.RLock()
+	got, err := dest.Download(ctx, dl)
+	s.copyReads.RUnlock()' \
+  '	got, err := dest.Download(ctx, dl)' \
+  ./internal/agent '^TestPruningLeavesACopyThatIsBeingDownloaded$/^a_check_is_downloading_it$'
+control "the dashboard reaches a check's cancel" internal/panel/server.go \
+  '		smAs(actMakeBackups, "POST", "/api/servers/{id}/offsite/check/cancel", "/v1/servers/{id}/offsite/check/cancel"),
+' \
+  '' \
+  ./internal/panel '^TestWaveSevenRoutesReachTheAgent$'
+webcontrol "a copy's menu cancels its check while it runs" web/src/pages/server/copy-restore.tsx \
+  "const checking = s.operation?.kind === 'offsite-check' && s.operation.detail?.name === c.name ? s.operation : undefined" \
+  'const checking = undefined as Operation | undefined' \
+  web/src/pages/pages.test.tsx 'cancels a check of a backup kept only somewhere else'
+
+# A join whose wake never starts gives the stand-in its wake back, so joins
+# while a long operation holds the server don't use up the wakes an hour
+# allows.
+control "a join whose wake doesn't start gives the wake back" internal/agent/sleeping.go \
+  '		if !began {
+			s.wakeCalledOff()
+		}' \
+  '		if false && !began {
+			s.wakeCalledOff()
+		}' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^players_keep_joining_during_a_restore_of_a_copy$'
+control "the stand-in forgets a wake given back" internal/sleep/limit.go \
+  '	if n := len(l.recent); n > 0 {
+		l.recent = l.recent[:n-1]
+	}' \
+  '' \
+  ./internal/sleep '^(TestWakeLimitGivesBackAWakeThatNeverStarted|TestWakesCalledOffAreGivenBack)$'
+control "a wake given back ends its waking window" internal/sleep/limit.go \
+  '	}
+	l.wakingUntil = time.Time{}
+}
+
+func (l *wakeLimit) forget' \
+  '	}
+}
+
+func (l *wakeLimit) forget' \
+  ./internal/sleep '^TestWakeLimitGivesBackAWakeThatNeverStarted$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
