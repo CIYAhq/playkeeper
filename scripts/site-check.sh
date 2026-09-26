@@ -23,7 +23,7 @@ port=${SITE_CHECK_PORT:-8080}
 base=http://127.0.0.1:$port
 site=https://playkeeper.io
 want=https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh
-community=https://github.com/CIYAhq/playkeeper/issues
+community=https://github.com/CIYAhq/playkeeper/discussions
 # The pages the launch needs, whether or not the sitemap lists them.
 needed=(/ /features/mods-and-modpacks /alternatives/aternos /alternatives/pterodactyl /guides/modded-minecraft-server
   /sizing /docs /docs/install /pricing /blog /blog/playkeeper-0-4-0)

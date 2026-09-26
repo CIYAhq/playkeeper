@@ -276,8 +276,8 @@ func TestServerTypesFollowTheProduct(t *testing.T) {
 	}
 }
 
-// Where questions go is one setting; while GitHub Discussions is off, no page
-// says Discussions.
+// Where questions go is one setting; with it on the issues, no page says
+// Discussions.
 func TestCommunityIsOneSetting(t *testing.T) {
 	for _, c := range []Community{issues, discussions} {
 		s := Default
@@ -300,29 +300,21 @@ func TestCommunityIsOneSetting(t *testing.T) {
 	}
 }
 
-// Nothing collects an email address until the owner names a waitlist.
-func TestEmailFormsWaitForAWaitlist(t *testing.T) {
-	built := pages(build(t, Default))
+// Nothing on the site collects an email address; the pricing cards that come
+// later offer Watch releases on GitHub.
+func TestNoEmailForms(t *testing.T) {
+	o := build(t, Default)
+	built := pages(o)
 	for p, html := range built {
 		if strings.Contains(html, `type="email"`) || strings.Contains(html, "<form") && p != "/t" {
-			t.Errorf("%s has an email form while there's no waitlist", p)
+			t.Errorf("%s has an email form", p)
 		}
 	}
 	if n := strings.Count(built["/pricing"], ">Watch releases on GitHub"); n != 2 {
 		t.Errorf("pricing offers Watch releases on GitHub %d times, want 2", n)
 	}
-	s := Default
-	s.Waitlist = "https://waitlist.example/subscribe"
-	o := build(t, s)
-	built = pages(o)
-	if n := strings.Count(built["/pricing"], `<form class="waitlist" action="https://waitlist.example/subscribe" method="post">`); n != 2 {
-		t.Errorf("pricing has %d waitlist forms, want 2", n)
-	}
-	if !strings.Contains(built["/blog"], `id="by-email"`) {
-		t.Error("the blog doesn't offer new posts by email once there's a waitlist")
-	}
-	if !strings.Contains(string(o.Nginx), "form-action https://waitlist.example;") {
-		t.Error("the Content-Security-Policy doesn't let the forms post to the waitlist")
+	if !strings.Contains(string(o.Nginx), "form-action 'none'") {
+		t.Error("the Content-Security-Policy lets forms post somewhere")
 	}
 }
 

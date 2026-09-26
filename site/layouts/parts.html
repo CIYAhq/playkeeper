@@ -131,20 +131,6 @@
 </div>
 {{end}}
 
-{{/* waitlist: an email sign-up, for a List like storage or partner. Only
-     once Settings.Waitlist names somewhere to post to; until then nothing
-     collects an email address, and it offers Watch releases on GitHub. */}}
-{{define "waitlist"}}{{if .Settings.Waitlist}}
-<form class="waitlist" action="{{.Settings.Waitlist}}" method="post">
-  <input type="hidden" name="list" value="{{.List}}">
-  <label for="waitlist-{{.List}}">{{.Label}}</label>
-  <div class="waitlist-row">
-    <input id="waitlist-{{.List}}" name="email" type="email" required autocomplete="email" placeholder="you@example.com">
-    <button type="submit" class="btn btn-primary">{{.Button}}</button>
-  </div>
-</form>
-{{else}}<a class="btn btn-outline" href="{{.Settings.Repo}}">Watch releases on GitHub{{template "icon" "arrow-up-right"}}</a>{{end}}{{end}}
-
 {{/* h2n: a guide's numbered section heading; the contents list is made
      from these. */}}
 {{define "h2n"}}<h2 id="{{.ID}}" class="h2n reveal"><span class="n">{{.N}}</span>{{.Text}}</h2>{{end}}

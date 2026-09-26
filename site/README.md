@@ -33,10 +33,7 @@ A page that isn't built yet can already be linked: the header's menus, the foote
 
 ### Settings
 
-`internal/site/settings.go` holds the switches that change several pages at once:
-
-- `Community`: where "Ask a question" links go. GitHub Discussions is off on the repository, so they go to its issues and no page says Discussions; set it to `discussions` once it's on.
-- `Waitlist`: the address the pricing and blog email forms post to. While it's empty, nothing on the site collects or sends an email address, and the pricing cards offer Watch releases on GitHub.
+`internal/site/settings.go` holds the switches that change several pages at once. `Community` is where "Ask a question" links go: the repository's GitHub Discussions. Set it to `issues` if Discussions is ever off, and every link, its words and `/community` follow. Nothing on the site collects an email address.
 
 ## Host it with Coolify
 

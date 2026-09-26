@@ -1,6 +1,6 @@
 # Troubleshooting
 
-The four problems people hit most, with what to check first. If none of this helps, ask on [GitHub](https://github.com/CIYAhq/playkeeper/issues) with what you tried.
+The four problems people hit most, with what to check first. If none of this helps, ask in [GitHub Discussions](https://github.com/CIYAhq/playkeeper/discussions) with what you tried.
 
 ## Can't reach the dashboard
 

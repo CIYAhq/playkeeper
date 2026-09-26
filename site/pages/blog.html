@@ -17,7 +17,7 @@ og: blog
         <h1 id="page-title" class="h1-blog hero-rise">Blog</h1>
         <p class="lead hero-after">Releases, guides and building Playkeeper in public.</p>
       </div>
-      <p class="blog-links hero-after"><a href="/blog/feed.xml">RSS feed</a>{{if .Settings.Waitlist}} · <a href="#by-email">By email</a>{{end}}</p>
+      <p class="blog-links hero-after"><a href="/blog/feed.xml">RSS feed</a></p>
     </div>
     {{with index $posts 0}}{{$c := img .Cover}}
     <a class="featured hero-after" href="{{.Path}}">
@@ -49,12 +49,4 @@ og: blog
     {{end}}
   </div>
 </section>
-{{if .Settings.Waitlist}}
-<section class="band band-white" id="by-email" aria-labelledby="email-title">
-  <div class="container container-narrow center">
-    <h2 id="email-title" class="h3">New posts by email</h2>
-    {{template "waitlist" (dict "List" "blog" "Label" "Unsubscribe any time." "Button" "Subscribe" "Settings" .Settings)}}
-  </div>
-</section>
-{{end}}
 {{end}}

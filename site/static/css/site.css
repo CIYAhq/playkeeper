@@ -874,9 +874,6 @@ main:focus { outline: none; }
 .price-card p.note { margin: 0; color: var(--sage); font-size: 14px; }
 .price-card .foot { margin-top: auto; padding-top: 24px; }
 .price-card .foot .btn { width: 100%; }
-.waitlist label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; }
-.waitlist-row { display: flex; gap: 8px; }
-.waitlist input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid var(--input); border-radius: 10px; font: inherit; font-size: 15px; }
 @media (max-width: 1023.98px) { .pricing-grid { grid-template-columns: 1fr; } .price-card { min-height: 0; } }
 
 /* ---------- Blog ---------- */

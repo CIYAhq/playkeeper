@@ -10,10 +10,6 @@ type Settings struct {
 	Repo string
 	// Community is where "ask a question" links go.
 	Community Community
-	// Waitlist is the address the pricing and blog email forms post to.
-	// Empty keeps every email form off the site: nothing collects or sends
-	// an email address, and the cards offer Watch releases on GitHub.
-	Waitlist string
 	// InstallCommand is the one-line installer.
 	InstallCommand string
 	// StarsFrom is the star count the header starts showing next to Star on
@@ -26,16 +22,19 @@ type Community struct {
 	URL string
 	// Name is how links name it, as in "Ask on GitHub".
 	Name string
-	// Ask is the link text for asking a question there.
-	Ask string
+	// Ask is the link text for asking a question there; In says where, in a
+	// sentence: "Questions go in GitHub Discussions".
+	Ask, In string
 }
 
-// GitHub Discussions is off on the repository, so questions go to its
-// issues. When it's turned on, set Community to discussions in Default.
+// Questions go to the repository's GitHub Discussions. Were it ever turned
+// off, set Community to issues in Default: every link, its words and
+// /community follow. The live demo's quiet prompt (web/src/demo) names
+// GitHub Discussions too and links to /community.
 var (
-	issues      = Community{URL: repo + "/issues", Name: "GitHub", Ask: "Ask on GitHub"}
-	discussions = Community{URL: repo + "/discussions", Name: "GitHub Discussions", Ask: "Ask in GitHub Discussions"}
-	_           = discussions
+	discussions = Community{URL: repo + "/discussions", Name: "GitHub Discussions", Ask: "Ask in GitHub Discussions", In: "in GitHub Discussions"}
+	issues      = Community{URL: repo + "/issues", Name: "GitHub", Ask: "Ask on GitHub", In: "on GitHub"}
+	_           = issues
 )
 
 const repo = "https://github.com/CIYAhq/playkeeper"
@@ -44,8 +43,7 @@ const repo = "https://github.com/CIYAhq/playkeeper"
 var Default = Settings{
 	BaseURL:        "https://playkeeper.io",
 	Repo:           repo,
-	Community:      issues,
-	Waitlist:       "",
+	Community:      discussions,
 	InstallCommand: "curl -fsSL https://playkeeper.io/install | sudo sh",
 	StarsFrom:      50,
 }
