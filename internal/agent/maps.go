@@ -19,6 +19,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
@@ -286,12 +287,37 @@ func (s *server) mapNeedsRestart(c docker.ContainerJSON) bool {
 	return ok && rec.installedAt.After(t)
 }
 
-// mapLink is the shared map's address on the machine's friendly address,
-// with the panel's port, or "" while the map isn't shared or the machine
-// has no friendly address.
+// namedHost is the machine's name (its free playkeeper.io name or its own
+// domain, Machine settings › Address) once others can open the dashboard
+// there: the name points at the machine and has a certificate that hasn't
+// expired, as the dashboard's namedDashboard decides. "" until then.
+func (a *Agent) namedHost() string {
+	st := a.address()
+	switch st.Kind {
+	case api.AddressOwn:
+		if st.Check == nil || !st.Check.Ready {
+			return ""
+		}
+	case api.AddressPlaykeeper:
+		if st.Free == nil || st.Free.Name.State != names.StateActive || st.Free.Name.DNS != names.DNSOK {
+			return ""
+		}
+	default:
+		return ""
+	}
+	row := a.loadCertificate(st.Host)
+	if row == nil || row.status.Certificate == nil || !row.status.Certificate.NotAfter.After(a.now()) {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(st.Host))
+}
+
+// mapLink is the shared map's address under the machine's name, with the
+// panel's port, or "" while the map isn't shared or the name doesn't work
+// yet; the dashboard then offers the address it was opened at.
 func (s *server) mapLink(rec *mapRecord) string {
 	p := rec.sharePath()
-	host := strings.ToLower(strings.TrimSpace(s.cfg.Domain))
+	host := s.namedHost()
 	if p == "" || host == "" || !reDomain.MatchString(host) {
 		return ""
 	}

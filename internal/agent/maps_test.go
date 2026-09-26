@@ -28,6 +28,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons/hangar"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/certs"
+	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
@@ -514,9 +516,82 @@ func (f *fakeSquaremapWeb) asked(path string) bool {
 	return false
 }
 
+// withCertificate saves a certificate for the address's name that expires
+// at notAfter, as getting one from Let's Encrypt does.
+func (e *agentEnv) withCertificate(st addressState, notAfter time.Time) {
+	e.t.Helper()
+	c := &certs.Certificate{Names: []string{st.Host}, NotBefore: notAfter.Add(-90 * 24 * time.Hour), NotAfter: notAfter, RenewAt: notAfter.Add(-30 * 24 * time.Hour), Issuer: "Let's Encrypt R12"}
+	if err := e.a.saveCertificate(&certRow{name: st.Host, source: st.Kind, challenge: "http-01", status: certs.Status{Names: []string{st.Host}, Certificate: c}}); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// nameWorks gives the machine an own domain others can open the dashboard
+// at: it points at the machine, so the address loop's own checks find it
+// ready, and it has a certificate.
+func (e *agentEnv) nameWorks(host string) {
+	e.t.Helper()
+	e.a.opts.Resolver.(*fakeResolver).set(host, testIP.String())
+	st := addressState{Kind: api.AddressOwn, Host: host, Check: &api.AddressCheck{Ready: true}}
+	if err := e.a.setAddress(st); err != nil {
+		e.t.Fatal(err)
+	}
+	e.withCertificate(st, e.a.now().Add(60*24*time.Hour))
+}
+
+// The shared map's link is on the machine's name only once others can open
+// the dashboard there, as for a friends' pack; until then the Sharing card
+// copies the address the dashboard was opened at and suggests an address.
+func TestSharedMapLinkWaitsForAWorkingName(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	token := webmap.NewShareToken()
+	rec := &mapRecord{public: true, shareToken: token}
+	active := func(dns string) *freeState {
+		return &freeState{Name: names.Name{Name: "alex", State: names.StateActive, DNS: dns}}
+	}
+	own := func(ready bool) *api.AddressCheck { return &api.AddressCheck{Ready: ready} }
+	later, earlier := e.a.now().Add(60*24*time.Hour), e.a.now().Add(-time.Hour)
+	cases := []struct {
+		what string
+		st   addressState
+		cert time.Time
+		want string
+	}{
+		{"no address", addressState{Kind: api.AddressNone}, time.Time{}, ""},
+		{"an own domain not checked yet", addressState{Kind: api.AddressOwn, Host: "play.example.com"}, later, ""},
+		{"an own domain that points elsewhere", addressState{Kind: api.AddressOwn, Host: "play.example.com", Check: own(false)}, later, ""},
+		{"an own domain without a certificate", addressState{Kind: api.AddressOwn, Host: "play.example.com", Check: own(true)}, time.Time{}, ""},
+		{"an own domain whose certificate expired", addressState{Kind: api.AddressOwn, Host: "play.example.com", Check: own(true)}, earlier, ""},
+		{"a working own domain", addressState{Kind: api.AddressOwn, Host: "play.example.com", Check: own(true)}, later, "https://play.example.com:8443/map/" + token},
+		{"a free name being claimed", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io"}, later, ""},
+		{"a free name still publishing", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: active(names.DNSPending)}, later, ""},
+		{"a lapsed free name", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: &freeState{Name: names.Name{Name: "alex", State: names.StateLapsed, DNS: names.DNSOK}}}, later, ""},
+		{"a free name without a certificate", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: active(names.DNSOK)}, time.Time{}, ""},
+		{"a working free name", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: active(names.DNSOK)}, later, "https://alex.playkeeper.io:8443/map/" + token},
+	}
+	for _, c := range cases {
+		e.a.forgetCertificate("play.example.com")
+		e.a.forgetCertificate("alex.playkeeper.io")
+		if err := e.a.setAddress(c.st); err != nil {
+			t.Fatal(err)
+		}
+		if !c.cert.IsZero() {
+			e.withCertificate(c.st, c.cert)
+		}
+		if got := e.srv().mapLink(rec); got != c.want {
+			t.Errorf("%s: the map's link is %q, want %q", c.what, got, c.want)
+		}
+	}
+	e.nameWorks("play.example.com")
+	if got := e.srv().mapLink(&mapRecord{shareToken: token}); got != "" {
+		t.Errorf("a map that isn't shared has the link %q", got)
+	}
+}
+
 func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 	e, _, sq := newMapEnv(t)
-	e.a.cfg.Domain = "play.example.com"
+	e.nameWorks("play.example.com")
 	e.createWith(map[string]any{"name": "Survival"})
 	bySlug := "/v1/public-maps/" + e.slug()
 	unknown := "/v1/public-maps/" + webmap.NewShareToken()

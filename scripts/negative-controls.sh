@@ -1652,6 +1652,18 @@ control "announces take turns with the upload allowance" internal/agent/worldimp
 	defer a.imports.announce.Unlock()' \
   '' \
   ./internal/agent '^TestAnnouncesTakeTurnsWithTheUploadAllowance$'
+control "the shared map's link waits for the own domain to point here" internal/agent/maps.go \
+  'if st.Check == nil || !st.Check.Ready {' \
+  'if st.Check == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for the free name to be published" internal/agent/maps.go \
+  'st.Free.Name.State != names.StateActive || st.Free.Name.DNS != names.DNSOK {' \
+  'st.Free.Name.State != names.StateActive {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for a certificate that hasn't expired" internal/agent/maps.go \
+  'if row == nil || row.status.Certificate == nil || !row.status.Certificate.NotAfter.After(a.now()) {' \
+  'if row == nil || row.status.Certificate == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

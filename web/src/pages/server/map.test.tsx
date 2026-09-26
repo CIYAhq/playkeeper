@@ -115,10 +115,11 @@ describe('Map sharing', () => {
     expect(writeText).toHaveBeenCalledWith(link)
   })
 
-  it('uses the address this dashboard was opened on while the machine has no friendly one', async () => {
+  it('uses the address this dashboard was opened on while the machine has no working name', async () => {
     await renderMap(mapInfo({ public: true, path: `/map/${token}` }))
     expect(document.body.textContent).toContain(`${window.location.host}/map/${token}`)
     expect(document.body.textContent).toContain(t('map.noAddress').replace(/<\/?address>/g, ''))
+    expect(document.querySelector(`a[href="/machines/${machine.id}/settings"]`)?.textContent).toBe('Set up an address')
     await act(async () => copyButton()?.click())
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/map/${token}`)
   })

@@ -1926,9 +1926,9 @@ type MapInfo struct {
 	Public        bool `json:"public"`
 	PublicPlayers bool `json:"publicPlayers"`
 	// Path is the shared map's path on any of the panel's addresses,
-	// /map/<link token>, and Link the same on the machine's friendly
-	// address. Both are empty while the map isn't shared, and Link while
-	// the machine has no friendly address.
+	// /map/<link token>, and Link the same under the machine's name. Both
+	// are empty while the map isn't shared, and Link until the name points
+	// at the machine and has a certificate.
 	Link string `json:"link,omitempty"`
 	Path string `json:"path"`
 	// RestartWhenEmpty: the server restarts to load the map once nobody is

@@ -600,9 +600,9 @@ function CopyLink({ link, large }: { link: string; large?: boolean }) {
 /**
  * The two sharing switches: the link (with Copy), and whether the shared
  * map shows players. The link's token is new each time sharing is switched
- * on, so it shows once the agent has made it. Without a friendly address
- * the link uses the address this dashboard was opened on, and suggests
- * setting one up first.
+ * on, so it shows once the agent has made it. Until the machine's name
+ * works, the link uses the address this dashboard was opened on, and
+ * suggests setting up an address in Machine settings first.
  */
 function SharingControls({ server, info, onChange, large }: { server: ServerStatus; info: MapInfo; onChange: () => Promise<void>; large?: boolean }) {
   const ws = useWorkspace()
@@ -650,7 +650,7 @@ function SharingControls({ server, info, onChange, large }: { server: ServerStat
               <p className={cn(hint, 'mt-2')}>
                 {rich('map.noAddress', {
                   address: (chunk) => (
-                    <a {...linkProps({ name: 'machine', id: ws.machine?.id ?? '' })} className="font-medium text-primary underline underline-offset-2">
+                    <a {...linkProps({ name: 'machine-settings', id: ws.machine?.id ?? '' })} className="font-medium text-primary underline underline-offset-2">
                       {chunk}
                     </a>
                   ),

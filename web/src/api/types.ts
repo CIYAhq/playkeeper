@@ -1472,7 +1472,7 @@ export interface MapInfo {
   estimatedMegabytes: number
   public: boolean
   publicPlayers: boolean
-  /** The shared map on the machine's friendly address; empty while it has none. */
+  /** The shared map under the machine's name; empty until the name points at the machine and has a certificate. */
   link?: string
   /** /map/<link token>, new each time sharing is switched on; empty while the map isn't shared. */
   path: string
