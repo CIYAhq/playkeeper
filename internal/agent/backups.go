@@ -771,6 +771,7 @@ func (s *server) putPreviousBack(j *swapJournal) error {
 	if !dirExists(live) {
 		return fmt.Errorf("the world directory %s is missing", live)
 	}
+	s.worldChanged()
 	if j.Previous != nil {
 		return s.saveServerConfig(*j.Previous)
 	}
@@ -1244,6 +1245,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		err := renameDir(aside, live)
 		if err == nil {
 			worldSafe = true
+			s.worldChanged()
 			return nil
 		}
 		if restoredAt == st.data && renameDir(st.data, failedAt) == nil {
@@ -1270,6 +1272,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		}
 		return err
 	}
+	s.worldChanged()
 	restoreStep(ctx, "moved")
 	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 		s.log.Warn("chown restored world", "err", err)
@@ -1439,6 +1442,7 @@ func (s *server) rollForward(stageDir string, j *swapJournal) error {
 	case !dirExists(live):
 		return fmt.Errorf("the restored world is neither in %s nor in %s", staged, live)
 	}
+	s.worldChanged()
 	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 		s.log.Warn("chown restored world", "err", err)
 	}

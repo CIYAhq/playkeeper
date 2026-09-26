@@ -425,11 +425,17 @@ func (s *server) reconcileWithList(ts time.Time, names []string) {
 const worldEvery = 5 * time.Minute
 
 // measureWorld adds up the files of the world's dimensions every few minutes.
+// A world that isn't there, before a new server's first start or while a
+// restore swaps it, is looked for again at the next sample.
 func (s *server) measureWorld(now time.Time, level string) {
 	s.mu.Lock()
 	due := now.Sub(s.worldAt) >= worldEvery
 	s.mu.Unlock()
 	if !due || level == "" {
+		return
+	}
+	if !dirExists(filepath.Join(s.dataDir(), level)) {
+		s.worldChanged()
 		return
 	}
 	total := s.worldSize(level)
@@ -439,6 +445,14 @@ func (s *server) measureWorld(now time.Time, level string) {
 	if n, ok := s.countChunks(level); ok {
 		s.recordChunks(now, n)
 	}
+}
+
+// worldChanged forgets the world's size, so the next sample measures it
+// again: a restore put another world in place, or there is none yet.
+func (s *server) worldChanged() {
+	s.mu.Lock()
+	s.worldBytes, s.worldAt = 0, time.Time{}
+	s.mu.Unlock()
 }
 
 // worldSize adds up the files of the world's three dimensions.
