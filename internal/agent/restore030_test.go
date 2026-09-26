@@ -285,6 +285,52 @@ func TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart(t *testing.T)
 	}
 }
 
+// The Paper build lookup that checks a 0.3.0 restore's settings is tried
+// again when it fails, so a short PaperMC outage at the upgrade doesn't undo
+// a restore that saved them: it is finished as if PaperMC had answered.
+func TestA030RestoreIsFinishedThroughAShortPaperMCOutage(t *testing.T) {
+	waits := lookupRetries
+	lookupRetries = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond}
+	t.Cleanup(func() { lookupRetries = waits })
+	e := newAgentEnv(t)
+	id, _, restored, _ := e.restoreScenario()
+	live := e.dataDir()
+	died := make(chan struct{})
+	crash030 = func(step string) bool {
+		if step != "settings_saved" {
+			return false
+		}
+		close(died)
+		return true
+	}
+	t.Cleanup(func() { crash030 = func(string) bool { return false } })
+	opID := e.apply030(id)
+	waitClosed(t, died, "the 0.3.0 restore to save the restored settings")
+	e.stop()
+	crash030 = func(string) bool { return false }
+	e.fill.mu.Lock()
+	e.fill.fails = 2
+	e.fill.mu.Unlock()
+	e.start()
+	op := e.waitOp(opID)
+	if op.Status != api.OpSucceeded || worldHash(t, live) != restored {
+		t.Fatalf("the restore must be finished once PaperMC answers: %+v", op)
+	}
+	if asides, failed := restoreCopies(live); len(asides)+len(failed) != 0 {
+		t.Fatalf("the finished restore left world copies: %v %v", asides, failed)
+	}
+	if sc, _ := e.srv().serverConfig(); sc == nil || sc.MOTD == "Before the restore" {
+		t.Fatalf("the restored settings must stay: %+v", sc)
+	}
+	e.fill.mu.Lock()
+	left := e.fill.fails
+	e.fill.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("the lookup failed %d time(s) fewer than set up", left)
+	}
+	e.waitFor("the restored world online", e.onlineIdle)
+}
+
 // A 0.3.0 restore that had not saved its settings is undone even when the
 // backup's level, version, MOTD and max players are the server's, as they are
 // for a backup of the same server. Only settings that are the backup's in
