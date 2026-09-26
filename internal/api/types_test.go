@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/pregen"
 )
 
 const webSrc = "../../web/src"
@@ -73,7 +75,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 
 func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
-	for _, c := range []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid} {
+	for _, c := range []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer} {
 		if codes[c] {
 			t.Errorf("error code %q is used twice", c)
 		}
