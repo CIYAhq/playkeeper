@@ -229,6 +229,7 @@ export const en = {
   'activity.stopped': '{server} stopped',
   'activity.restarted': '{server} restarted',
   'activity.crashed': '{server} crashed',
+  'activity.crashedMemory': '{server} ran out of memory',
   'activity.backup': '{actor} backed up {server}',
   'activity.downloaded': '{actor} downloaded a backup of {server}',
   'activity.restored': '{server} restored from a backup',
@@ -346,6 +347,9 @@ export const en = {
   'overview.activityEmpty': 'Nothing yet.',
   'overview.pendingRestart': 'Settings changed',
   'overview.pendingRestartBody': 'Restart {server} to use them.',
+  'overview.memoryCrash': '{server} ran out of memory at {time}',
+  'overview.memoryCrashBody': 'Docker stopped it at its {memory} limit, and Playkeeper started it again.',
+  'overview.memoryCrashNoRoom': 'Docker stopped it at its {memory} limit, and Playkeeper started it again. {machine} has no memory to spare for more.',
   'overview.lowDiskTitle': 'Low disk space: {detail}',
 
   // How it's running (the page under Overview)

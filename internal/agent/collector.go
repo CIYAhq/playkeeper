@@ -239,6 +239,11 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		if current && ended.IsZero() {
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
+			// A start someone asked for forgets the crash first, so one still
+			// here is what an automatic restart came back from.
+			if s.crash != nil {
+				s.recovered = s.crash
+			}
 			s.crashed, s.crash = false, nil
 			s.lastError, s.lastErrorHint = "", ""
 			s.mu.Unlock()

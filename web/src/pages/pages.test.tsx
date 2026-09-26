@@ -13,7 +13,7 @@ import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
-import { formatLongDate } from '@/lib/format'
+import { formatClock, formatLongDate } from '@/lib/format'
 import { HomePage } from './home'
 import { MachinePage } from './machine'
 import { createNote, NewServerPage } from './new-server'
@@ -306,6 +306,54 @@ describe('Overview notices', () => {
 
   it('asks for a restart when settings changed', async () => {
     expect(await render(<Overview server={server({ pendingRestart: true })} />)).toContain('Restart Survival to use them.')
+  })
+
+  const memoryKill = (over: Partial<Crash>): Crash => ({
+    at: new Date(Date.now() - 60_000).toISOString(),
+    start: false,
+    kind: 'container_memory_limit',
+    params: { budget_mb: 2048, heap_mb: 1268 },
+    certain: true,
+    title: 'It ran out of memory',
+    explanation: '',
+    evidence: [],
+    fixes: [
+      { kind: 'raise_memory', params: { from_mb: 2048, to_mb: 3072 }, title: 'Give it 3 GB instead of 2 GB', recommended: true },
+      { kind: 'restart', title: 'Start the server again' },
+    ],
+    lines: [],
+    roomMB: 1280,
+    ...over,
+  })
+  const noticeButton = (label: string) => {
+    const notice = [...document.querySelectorAll('[role="status"]')].find((n) => n.textContent?.includes('ran out of memory'))
+    return [...(notice?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.includes(label))
+  }
+
+  it('says a server that came back on its own had run out of memory, and gives it more with a restart', async () => {
+    vi.mocked(client.post).mockClear()
+    const recoveredCrash = memoryKill({})
+    const text = await render(<Overview server={server({ recoveredCrash })} />)
+    expect(text).toContain(`Survival ran out of memory at ${formatClock(recoveredCrash.at)}`)
+    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again.')
+    await press('Give Survival 3 GB')
+    expect(posts()).toEqual([['/settings', { memoryMB: 3072, restart: true }]])
+    await act(async () => noticeButton('Dismiss')?.click())
+    expect(document.body.textContent).not.toContain('ran out of memory')
+  })
+
+  it('says when the machine has no memory to give a server that ran out of it', async () => {
+    const recoveredCrash = memoryKill({
+      roomMB: 0,
+      fixes: [
+        { kind: 'lower_view_distance', params: { from: 12, to: 8 }, title: 'Lower the view distance from 12 to 8', recommended: true },
+        { kind: 'upgrade_host', params: { resource: 'memory' }, title: 'Move to a machine with more memory' },
+      ],
+    })
+    const text = await render(<Overview server={server({ recoveredCrash })} />)
+    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again. my-vps has no memory to spare for more.')
+    expect(noticeButton('Lower view distance to 8')).toBeDefined()
+    expect(await render(<Overview server={server({ recoveredCrash: memoryKill({ kind: 'port_in_use', params: { port: 25565 } }) })} />)).not.toContain('ran out of memory')
   })
 })
 

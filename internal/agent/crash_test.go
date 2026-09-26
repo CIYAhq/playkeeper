@@ -335,6 +335,55 @@ func TestPortCrashNamesTheDockerContainerHoldingThePort(t *testing.T) {
 	}
 }
 
+// When Docker kills a server for memory and an automatic restart brings it
+// back, the status keeps saying why, with the memory to give it, through a
+// restart, until its memory changes or a day has passed; the activity says
+// it ran out of memory.
+func TestAMemoryKillIsExplainedAfterTheServerComesBack(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"memoryMB": 2048})
+	e.fd.oomKill()
+	e.waitFor("the automatic restart", func() bool { return e.crashEvents() == 1 && e.onlineIdle() })
+	st := e.status()
+	c := st.RecoveredCrash
+	if c == nil || c.Kind != "container_memory_limit" || !c.Certain || st.Crash != nil {
+		t.Fatalf("after the automatic restart: recovered %+v, crash %+v", c, st.Crash)
+	}
+	if len(c.Fixes) == 0 || c.Fixes[0].Kind != "raise_memory" || c.Fixes[0].Params["to_mb"] != 3072 {
+		t.Fatalf("fixes: %+v", c.Fixes)
+	}
+	acts, err := e.a.Activity(e.sid, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := make([]string, 0, len(acts))
+	for _, a := range acts {
+		kinds = append(kinds, a.Kind)
+	}
+	if !slices.Contains(kinds, "crashed_memory") || slices.Contains(kinds, "crashed") {
+		t.Fatalf("activity: %v", kinds)
+	}
+
+	if op := e.runOp("POST", "/restart"); op.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if e.status().RecoveredCrash == nil {
+		t.Fatal("a restart that left its memory as it was forgot why it crashed")
+	}
+	e.skew.Add(int64(recoveredFor))
+	if e.status().RecoveredCrash != nil {
+		t.Fatal("still shown a day later")
+	}
+	e.skew.Add(-int64(recoveredFor))
+	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": 3072, "actor": "admin"}); code != 200 {
+		t.Fatalf("settings: %d %v", code, out)
+	}
+	if c := e.status().RecoveredCrash; c != nil {
+		t.Fatalf("still shown after its memory changed: %+v", c)
+	}
+}
+
 // A start that isn't accepted, and a remove-and-start whose remove fails,
 // leave the crash and the crash count as they were: nothing started, so the
 // crash still says why the server is down.

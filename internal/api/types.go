@@ -85,6 +85,10 @@ type ServerStatus struct {
 	// Crash is why the server last stopped unexpectedly or could not start,
 	// shown while it is stopped and no operation runs.
 	Crash *Crash `json:"crash,omitempty"`
+	// RecoveredCrash is why the server last stopped unexpectedly when an
+	// automatic restart brought it back, shown while it runs, for a day at
+	// most, until its memory changes.
+	RecoveredCrash *Crash `json:"recoveredCrash,omitempty"`
 	// SoftwareChanged is set when the server's software no longer matches
 	// what Playkeeper installed, so it was not started.
 	SoftwareChanged *SoftwareChange `json:"softwareChanged,omitempty"`

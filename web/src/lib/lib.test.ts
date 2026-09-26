@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { templateQuery } from '@/api/templates'
 import type { Address, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MemoryAdvice, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
+import { activityText } from '@/components/app/activity'
 import { lineRuns } from '@/components/app/line-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/pages/onboarding'
@@ -332,6 +333,11 @@ describe('console', () => {
 describe('crash helper', () => {
   const crash = (over: Partial<Crash>): Crash => ({ at: '2026-09-25T18:53:00Z', start: false, kind: 'unknown', certain: true, title: '', explanation: 'The agent’s words.', evidence: [], fixes: [], lines: [], roomMB: 3584, ...over })
   const titles = (c: Crash, phone = false) => crashFixes(c, 'Survival', 'my-vps', phone).map((o) => [o.title, o.plan?.kind ?? o.reason])
+
+  it('says in the activity when a server ran out of memory', () => {
+    expect(activityText({ ts: '2026-09-25T18:53:00Z', kind: 'crashed_memory', detail: 'The server ran out of memory and was killed.' }, 'Survival', 'admin')).toBe('Survival ran out of memory')
+    expect(activityText({ ts: '2026-09-25T18:53:00Z', kind: 'crashed' }, 'Survival', 'admin')).toBe('Survival crashed')
+  })
 
   it('calls a stopped server whose start failed one that couldn’t start', () => {
     expect(statusTone(server({ phase: 'stopped', crash: crash({ start: true }) }))).toBe('crashed')

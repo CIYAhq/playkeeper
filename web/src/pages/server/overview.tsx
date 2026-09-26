@@ -10,7 +10,7 @@ import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { loaderLabel } from '@/components/app/modpacks'
-import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
+import { FailedJobNotice, MemoryCrashNotice, SavingPausedNotice } from '@/components/app/notices'
 import { PlayersChart } from '@/components/app/players-chart'
 import { RestoreDialog } from '@/components/app/restore'
 import { SignInNotice } from '@/components/app/sign-in-notice'
@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
-import { crashDetail, crashFixes, crashSummary, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
+import { crashDetail, crashFixes, crashSummary, isMemoryCrash, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, serverJoinAddress } from '@/lib/format'
 import { busyReason, createStepOf, failedJob, isSettingUp, packStepOf, statusTone, templateStepOf, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
@@ -71,10 +71,11 @@ function Running({ server: s }: { server: ServerStatus }) {
   )
 }
 
-/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, or settings waiting for a restart. */
+/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, a run out of memory, or settings waiting for a restart. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
   const { stale, machine, refresh } = useWorkspace()
   const [dismissed, setDismissed] = useState<string>()
+  const [dismissedCrash, setDismissedCrash] = useState<string>()
   const [busy, setBusy] = useState(false)
   if (stale) return null
   if (s.offlineModeTest) return <Notice tone="error" title={t('error.notice')}>{t('error.noticeBody')}</Notice>
@@ -84,6 +85,8 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   const failed = failedJob(s)
   if (failed && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} />
+  const recovered = s.recoveredCrash
+  if (recovered && isMemoryCrash(recovered) && dismissedCrash !== recovered.at) return <MemoryCrashNotice server={s} crash={recovered} onDismiss={() => setDismissedCrash(recovered.at)} />
 
   if (s.pendingRestart && s.phase === 'online') {
     return (

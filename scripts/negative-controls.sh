@@ -1665,6 +1665,30 @@ control "memory advice reads a mod loader's heap" internal/diagnose/memory.go \
   'return minecraft.HeapFor(budgetMB, in.ServerType, in.Mods)' \
   'return minecraft.HeapMB(budgetMB)' \
   ./internal/diagnose '^TestAdviseMemory$'
+control "a server that came back on its own still says why it crashed" internal/agent/collector.go \
+  'if s.crash != nil {
+				s.recovered = s.crash
+			}' \
+  'if false {
+				s.recovered = s.crash
+			}' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+control "why a server that came back on its own crashed is shown for a day at most" internal/agent/handlers.go \
+  'if recovered != nil && running && s.now().Sub(recovered.At) < recoveredFor {' \
+  'if recovered != nil && running {' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+control "giving a server more memory drops why it crashed" internal/agent/handlers.go \
+  'if memoryChanged {
+		s.mu.Lock()
+		s.recovered = nil' \
+  'if false && memoryChanged {
+		s.mu.Lock()
+		s.recovered = nil' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+control "the activity says a server ran out of memory" internal/agent/analytics.go \
+  'e.Kind = "crashed_memory"' \
+  'e.Kind = "crashed"' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
 
 webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
   local name=$1 file=$2 test=${5#web/} pattern=$6
@@ -1709,6 +1733,18 @@ webcontrol "Settings › Memory counts friends for the server's type" web/src/pa
   '{memoryAdviceLine(advice, ws.machineName, s.type)}' \
   '{memoryAdviceLine(advice, ws.machineName)}' \
   web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
+webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
+  'const recovered = s.recoveredCrash' \
+  'const recovered = s.crash' \
+  web/src/pages/pages.test.tsx 'had run out of memory'
+webcontrol "more memory from the Overview restarts the server to use it" web/src/components/app/notices.tsx \
+  '{ ...plan.body, ...(restart ? { restart: true } : {}) }' \
+  '{ ...plan.body }' \
+  web/src/pages/pages.test.tsx 'had run out of memory'
+webcontrol "the activity says a server ran out of memory" web/src/components/app/activity.tsx \
+  "return t('activity.crashedMemory', { server })" \
+  "return t('activity.crashed', { server })" \
+  web/src/lib/lib.test.ts 'when a server ran out of memory'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

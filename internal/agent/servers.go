@@ -79,6 +79,7 @@ type server struct {
 	crashes         []time.Time
 	crashed         bool
 	crash           *api.Crash
+	recovered       *api.Crash // the crash an automatic restart brought the server back from
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
 	intentional     map[string]bool
