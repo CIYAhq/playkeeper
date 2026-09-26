@@ -237,7 +237,7 @@ function RuleField({ label, unit, value, max, onChange, phone }: { label: string
         <NumberFieldGroup className={phone ? 'w-[156px]' : 'w-[148px]'}>
           <NumberFieldDecrement aria-label={t('common.decrease')} />
           <span className="flex min-w-0 flex-1 items-center justify-center gap-1 border-x border-input">
-            <NumberFieldInput className={cn('w-7 shrink-0 grow-0 px-0 text-right font-semibold tabular-nums', phone && 'w-8 text-base')} aria-label={label} />
+            <NumberFieldInput className={cn('w-7 shrink-0 grow-0 px-0 text-right font-semibold tabular-nums in-data-[size=sm]:px-0', phone && 'w-8 text-base')} aria-label={label} />
             <span className={cn('text-muted-foreground', phone ? 'text-sm' : 'text-xs')}>{unit}</span>
           </span>
           <NumberFieldIncrement aria-label={t('common.increase')} />
@@ -344,7 +344,7 @@ function PhoneRules({ server: s, view, machine, offsite, onSaved }: { server: Se
   return (
     <div className="flex flex-col gap-2 pb-28">
       <Segmented
-        className="grid h-11 grid-cols-2 [&>*]:h-10"
+        className="grid h-11 w-full grid-cols-2 [&>*]:h-10"
         label={t('backupRules.sides')}
         value={side}
         onChange={setSide}

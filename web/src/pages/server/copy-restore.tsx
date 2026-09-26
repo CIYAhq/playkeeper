@@ -108,6 +108,7 @@ export function CopyRow({ row, place, onRestore }: { row: Extract<StoredRow, { k
 export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) => void) {
   const ws = useWorkspace()
   const [job, setJob] = useState<Operation>()
+  const [started, setStarted] = useState<{ id: string; name: string }>()
   const [hidden, setHidden] = useState<string>()
   const [loadError, setLoadError] = useState<string>()
   const fetched = useRef<string | undefined>(undefined)
@@ -120,6 +121,7 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
     setLoadError(undefined)
   }
   const op = job && (s.operation?.id === job.id ? s.operation : s.lastOperation?.id === job.id ? s.lastOperation : job)
+  const name = typeof op?.detail?.name === 'string' ? op.detail.name : started && started.id === op?.id ? started.name : undefined
   const open = !!op && hidden !== `${op.id}:${op.status}`
   const restoreId = op?.status === 'succeeded' && typeof op.detail?.restoreId === 'string' ? op.detail.restoreId : undefined
   const mid = ws.machine?.id
@@ -154,6 +156,7 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
   async function start(copy: OffsiteCopy) {
     try {
       const o = await post<Operation>(serverApi(s.id, '/offsite/restore'), { name: copy.name })
+      setStarted({ id: o.id, name: copy.name })
       setJob(o)
       setHidden(undefined)
       setLoadError(undefined)
@@ -162,7 +165,7 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
     }
   }
 
-  return { op, open, loadError, start, hide: () => op && setHidden(`${op.id}:${op.status}`) }
+  return { op, name, open, loadError, start, hide: () => op && setHidden(`${op.id}:${op.status}`) }
 }
 
 type StepState = 'done' | 'active' | 'waiting' | 'failed'
@@ -194,9 +197,8 @@ function Step({ state, title, hint, bar }: { state: StepState; title: string; hi
 }
 
 export function CopyRestoreDialog({ restore, copies, place }: { restore: ReturnType<typeof useCopyRestore>; copies: OffsiteCopy[]; place: string }) {
-  const { op } = restore
+  const { op, name } = restore
   if (!op) return null
-  const name = typeof op.detail?.name === 'string' ? op.detail.name : ''
   const copy = copies.find((c) => c.name === name)
   return <CopyJobDialog op={op} open={restore.open} loadError={restore.loadError} onHide={restore.hide} date={copy?.createdAt} sizeBytes={copy && (copy.copySizeBytes || copy.sizeBytes)} place={place} />
 }
@@ -212,7 +214,7 @@ export function CopyJobDialog({ op, open, loadError, onHide, date, sizeBytes, pl
   const title = date ? t('offsiteRestore.title', { date: formatDate(date) }) : t('offsiteRestore.titleAny')
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onHide()}>
-      <DialogPopup className="sm:max-w-[400px]" showCloseButton={phone}>
+      <DialogPopup className="sm:max-w-[540px]" showCloseButton={phone}>
         <div className="flex items-center gap-3 px-6 pt-6">
           <Pip pose={failed ? 'hurt' : 'hardhat'} size={52} />
           <div className="min-w-0">

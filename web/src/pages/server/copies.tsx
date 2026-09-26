@@ -838,7 +838,7 @@ function RecoveryKeyDialog({ kind, server, machine, fileName, phone, busy, onDow
   const first = kind === 'first'
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[440px]" showCloseButton={false}>
+      <DialogPopup className="sm:max-w-[500px]" showCloseButton={false}>
         <DialogHeader className={cn('gap-1', !phone && 'ps-14')}>
           <KeyRoundIcon className={cn('size-5 text-warning-foreground', phone ? 'mb-3' : 'absolute top-7 left-6')} aria-hidden="true" />
           <DialogTitle>{first ? t('offsite.key.offerTitle', { server }) : t('offsite.key.newTitle')}</DialogTitle>
