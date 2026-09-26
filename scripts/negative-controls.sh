@@ -1309,10 +1309,98 @@ control "certificate issuance: running out of time waiting for the certificate i
   'return nil, newProblem(err, CodeIssuanceTimeout, nil)' \
   'return nil, explain(err, s, is.now())' \
   ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
-control "certificate issuance: the wait for the certificate ends validationWait after the finalize request" internal/certs/acme.go \
+control "certificate issuance: the finalize request waits validationWait at most for the certificate" internal/certs/acme.go \
   'c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)' \
   'c.CreateOrderCert(ctx, ready.FinalizeURL, csr, true)' \
   ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
+control "certificate issuance: a finalize request that times out still gets the certificate issued just after" internal/certs/acme.go \
+  'issued, ferr := is.fetch(ctx, c, kept, order.URI, s)' \
+  'issued, ferr := is.fetch(wctx, c, kept, order.URI, s)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^(a_slow_finalize_answer:_the_certificate_issued_meanwhile_is_fetched|the_wait_of_the_finalize_request_runs_out:_the_certificate_issued_meanwhile_is_fetched)$'
+control "certificate issuance: a finalize request that fails without a problem looks for the certificate" internal/certs/acme.go \
+  'if err != nil && !errors.As(err, &ae) && !errors.As(err, &oe) {' \
+  'if false && !errors.As(err, &ae) && !errors.As(err, &oe) {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^a_slow_finalize_answer:_the_certificate_issued_meanwhile_is_fetched$'
+control "certificate issuance: the next attempt resumes the kept order rather than making a new one" internal/certs/acme.go \
+  'order, key, err := is.resume(ctx, c, kept, names, s)' \
+  'order, key, err := (*acme.Order)(nil), (*ecdsa.PrivateKey)(nil), error(nil)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^(a_slow_finalize_answer_and_a_certificate_issued_later:_the_next_attempt_fetches_it|the_finalize_answer_is_lost_before_issuing:_the_next_attempt_finalizes_the_same_order)$'
+control "certificate issuance: the order is kept before it is finalized" internal/certs/acme.go \
+  'if err := kept.keep(order.URI, ready.Expires, key); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_finalize_answer_is_lost_before_issuing:_the_next_attempt_finalizes_the_same_order$'
+control "certificate issuance: an order that can't be kept is not finalized" internal/certs/acme.go \
+  '		if err := kept.keep(order.URI, ready.Expires, key); err != nil {
+			return nil, nil, newProblem(err, CodeSaveFailed, nil)
+		}' \
+  '		kept.keep(order.URI, ready.Expires, key)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^keeping_the_order_fails:_it_is_not_finalized$'
+control "certificate issuance: the kept order is dropped once the certificate is saved" internal/certs/acme.go \
+  '		return nil, newProblem(err, CodeSaveFailed, nil)
+	}
+	kept.drop()' \
+  '		return nil, newProblem(err, CodeSaveFailed, nil)
+	}' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_finalize_answer_is_lost_before_issuing:_the_next_attempt_finalizes_the_same_order$'
+control "certificate issuance: a bad certificate drops the kept order" internal/certs/acme.go \
+  '		kept.drop()
+		return nil, newProblem(err, CodeBadCertificate, nil)' \
+  '		return nil, newProblem(err, CodeBadCertificate, nil)' \
+  ./internal/certs '^TestIssueBadChain$'
+control "certificate issuance: a finalized kept order gives its certificate without another finalize request" internal/certs/acme.go \
+  'if order != nil && (order.Status == acme.StatusProcessing || order.Status == acme.StatusValid) {' \
+  'if false {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^saving_the_certificate_fails:_the_next_attempt_fetches_it_again$'
+control "certificate issuance: an invalid kept order is dropped for a new one" internal/certs/acme.go \
+  'case o.Status == acme.StatusInvalid || !forNames(o, names):' \
+  'case !forNames(o, names):' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_turned_invalid:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: a kept order for other names is dropped for a new one" internal/certs/acme.go \
+  'case o.Status == acme.StatusInvalid || !forNames(o, names):' \
+  'case o.Status == acme.StatusInvalid:' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_is_for_other_names:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: an expired kept order is dropped for a new one" internal/certs/acme.go \
+  'if err != nil || (!saved.Expires.IsZero() && !is.now().Before(saved.Expires)) {' \
+  'if err != nil {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_expired:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: a kept order the client refuses to look at is dropped for a new one" internal/certs/acme.go \
+  'case errors.As(err, &guard) || refused(err):' \
+  'case false && errors.As(err, &guard) || refused(err):' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_is_at_another_certificate_authority:_a_new_one_is_made$'
+control "certificate issuance: a kept order the certificate authority refuses is dropped for a new one" internal/certs/acme.go \
+  'case errors.As(err, &guard) || refused(err):' \
+  'case errors.As(err, &guard):' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_certificate_authority_no_longer_knows_the_kept_order:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: the kept order outlasts a certificate authority that is unavailable" internal/certs/acme.go \
+  'case CodeRateLimited, CodePaused, CodeCAUnavailable:' \
+  'case CodeRateLimited, CodePaused:' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_certificate_authority_is_unavailable:_the_order_is_kept_for_the_attempt_after$'
+control "certificate issuance: the kept order outlasts a rate limit" internal/certs/acme.go \
+  'case CodeRateLimited, CodePaused, CodeCAUnavailable:' \
+  'case CodePaused, CodeCAUnavailable:' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^a_rate_limit_at_the_certificate_authority:_the_order_is_kept_for_the_attempt_after$'
+control "certificate issuance: a refused finalize request drops the order" internal/certs/acme.go \
+  '		return nil, nil, is.orderFailed(err, kept, s)
+	}
+	return der, key, nil' \
+  '		return nil, nil, explain(err, s, is.now())
+	}
+	return der, key, nil' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_certificate_authority_refuses_the_finalize_request:_the_next_attempt_makes_a_new_order$'
+control "certificate issuance: a finalize request that runs out of time and was never carried out is a timeout" internal/certs/acme.go \
+  '		if ctx.Err() == nil && errors.Is(wctx.Err(), context.DeadlineExceeded) {
+			return nil, nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  '		if false {
+			return nil, nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^a_slow_finalize_request_that_is_never_carried_out:_the_next_attempt_finalizes_the_same_order$'
+control "certificates: Forget deletes the kept order with the certificate" internal/certs/files.go \
+  'for _, file := range []string{n + ".pem", n + orderSuffix} {' \
+  'for _, file := range []string{n + ".pem"} {' \
+  ./internal/certs '^TestForget$'
+control "a name the machine stops using loses its kept certificate order" internal/agent/certificates.go \
+  'if err := certs.Forget(a.cfg.CertsDir(), name); err != nil {' \
+  'if err := os.Remove(filepath.Join(a.cfg.CertsDir(), name+".pem")); err != nil {' \
+  ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
 control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
   'const packCertMargin = 7 * 24 * time.Hour' \
   'const packCertMargin = 0' \
