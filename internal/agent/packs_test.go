@@ -884,6 +884,13 @@ func TestResourcePackOfferThatCantBeBuilt(t *testing.T) {
 	if offered["RESOURCE_PACK_SHA1"] != a {
 		t.Fatalf("the offered pack: %v", offered)
 	}
+	// The image writes the settings into server.properties.
+	props, err := os.OpenFile(filepath.Join(e.dataDir(), "server.properties"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(props, "resource-pack=http\\://203.0.113.10\\:8443/resource-packs/%s.zip\n", a)
+	props.Close()
 	edit := func(change func(sc *api.ServerConfig)) {
 		t.Helper()
 		sc, err := e.srv().serverConfig()
@@ -893,6 +900,21 @@ func TestResourcePackOfferThatCantBeBuilt(t *testing.T) {
 		change(sc)
 		if err := e.srv().saveServerConfig(*sc); err != nil {
 			t.Fatal(err)
+		}
+	}
+	keeps := func(when string, want ...string) {
+		t.Helper()
+		e.a.prunePacks(context.Background())
+		slices.Sort(want)
+		stored := []string{}
+		for _, sum := range want {
+			stored = append(stored, sum+".zip")
+		}
+		if got := e.activePacks(); !slices.Equal(got, want) {
+			t.Fatalf("active packs %s: %v", when, got)
+		}
+		if got := e.storedPacks(); !slices.Equal(got, stored) {
+			t.Fatalf("stored packs %s: %v", when, got)
 		}
 	}
 
@@ -924,13 +946,11 @@ func TestResourcePackOfferThatCantBeBuilt(t *testing.T) {
 	if v := e.resourcePack(); v.Pending || v.Problem != badPrompt || e.status().PendingRestart {
 		t.Fatalf("after the restart: %+v, restart pending %v", v, e.status().PendingRestart)
 	}
-	e.a.prunePacks(context.Background())
-	if got, want := e.storedPacks(), []string{a + ".zip", b + ".zip"}; !slices.Equal(got, slices.Sorted(slices.Values(want))) {
-		t.Fatalf("stored packs: %v", got)
-	}
+	keeps("after the restart", a, b)
 
 	// Without a container to keep them from, the pack settings in
-	// server.properties are left as they are rather than cleared.
+	// server.properties are left as they are rather than cleared, and the
+	// machine keeps serving the pack they name.
 	edit(func(sc *api.ServerConfig) { sc.ResourcePack.URL = "ftp://x.example/p.zip" })
 	if v := e.resourcePack(); v.Problem != `"ftp://x.example/p.zip" isn't a resource pack URL a server can offer. Upload the pack again, or remove it.` {
 		t.Fatalf("an offer at a URL players can't use: %+v", v)
@@ -943,8 +963,10 @@ func TestResourcePackOfferThatCantBeBuilt(t *testing.T) {
 	if got := e.containerEnv(); len(got) != 0 {
 		t.Fatalf("a new container's pack settings: %v", got)
 	}
+	keeps("without pack settings", a, b)
 
-	// Uploading the pack again fixes the URL, a new message the rest.
+	// Uploading the pack again fixes the URL, a new message the rest. The
+	// running server offers the old pack until it restarts.
 	if v := e.offerPack("Sphax.zip", sphax); v.Problem != badPrompt {
 		t.Fatalf("the pack uploaded again: %+v", v)
 	}
@@ -952,10 +974,12 @@ func TestResourcePackOfferThatCantBeBuilt(t *testing.T) {
 	if v := decodeAs[api.ResourcePack](t, out); code != 200 || v.Problem != "" || !v.Pending {
 		t.Fatalf("a message players can see: %d %v", code, out)
 	}
+	keeps("until the restart", a, b)
 	e.serverOp("/restart")
 	if got := e.containerEnv(); got["RESOURCE_PACK_SHA1"] != b || got["RESOURCE_PACK_PROMPT"] != `"Grab the pack!"` || e.resourcePack().Pending {
 		t.Fatalf("the fixed offer: %v", got)
 	}
+	keeps("once the fixed offer runs", b)
 }
 
 // A restored world keeps the pack the server offers, since backups don't

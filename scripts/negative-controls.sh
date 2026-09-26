@@ -424,6 +424,10 @@ control "resource packs: without a container the pack settings are left alone, n
   'if v, ok := kept[st.Env]; ok {' \
   'if v := kept[st.Env]; true {' \
   ./internal/agent '^TestResourcePackOfferThatCantBeBuilt$'
+control "resource packs: a server without pack settings keeps the pack its server.properties names served" internal/agent/packs.go \
+  'if len(settings) == 0 {' \
+  'if false && len(settings) == 0 {' \
+  ./internal/agent '^TestResourcePackOfferThatCantBeBuilt$'
 control "add-on jars: the table of contents is checked before archive/zip reads it" internal/addons/jar.go \
   'n, err := zipdir.Check(r, size, zipdir.Metadata)
 	if err != nil {' \
