@@ -83,6 +83,133 @@ func TestNamesPerNetworkAreLimited(t *testing.T) {
 	}
 }
 
+// A name that moves to another network counts against that one: the move
+// frees its place in the network it leaves, and is refused when the one it
+// moves to is full.
+func TestNamesPerNetworkFollowTheirAddress(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		version    string
+		a, b       []string
+		netA, netB string
+	}{
+		{"IPv4 /24", []string{"5.75.164.10", "5.75.164.11", "5.75.164.12"}, []string{"5.75.165.10", "5.75.165.11", "5.75.165.12"}, "5.75.164.0/24", "5.75.165.0/24"},
+		{"IPv6 /48", []string{"2a01:4f8:c013:100::1", "2a01:4f8:c013:200::1", "2a01:4f8:c013:300::1"},
+			[]string{"2a01:4f8:c014:100::1", "2a01:4f8:c014:200::1", "2a01:4f8:c014:300::1"}, "2a01:4f8:c013::/48", "2a01:4f8:c014::/48"},
+	} {
+		t.Run(c.version, func(t *testing.T) {
+			e := newEnv(t, func(e *testEnv) { e.cfg.MaxNamesPerNetwork = 2 })
+			at := func(m *machine, addr string) *machine {
+				if strings.Contains(addr, ":") {
+					m.set("", addr)
+				} else {
+					m.set(addr, "")
+				}
+				return m
+			}
+			addr := func(name string) (network, address string) {
+				r := e.row(name)
+				return r.Network, r.IPv4 + r.IPv6
+			}
+			mover, stays := at(&machine{}, c.a[0]), at(&machine{}, c.a[1])
+			moverC, staysC := e.claimed("mover", "mover", mover), e.claimed("stays", "stays", stays)
+			late := e.install("late", at(&machine{}, c.a[2]))
+			if _, err := late.Claim(ctx, "late"); codeOf(err) != names.CodeNetworkLimit {
+				t.Fatalf("a third name in a full network: got %v, want %s", err, names.CodeNetworkLimit)
+			}
+
+			at(mover, c.b[0])
+			if _, err := moverC.Refresh(ctx); err != nil {
+				t.Fatalf("moving to a network with room: %v", err)
+			}
+			if nw, a := addr("mover"); nw != c.netB || a != c.b[0] {
+				t.Fatalf("after the move: network %q, address %q", nw, a)
+			}
+			if _, err := late.Claim(ctx, "late"); err != nil {
+				t.Fatalf("a name in the network mover left: %v", err)
+			}
+			e.claimed("other", "other", at(&machine{}, c.b[1]))
+			if _, err := e.install("next", at(&machine{}, c.b[2])).Claim(ctx, "next"); codeOf(err) != names.CodeNetworkLimit {
+				t.Fatalf("a third name in the network mover moved to: got %v, want %s", err, names.CodeNetworkLimit)
+			}
+
+			// stays can't follow into the full network, by a refresh or by
+			// claiming its name again, and keeps its place.
+			at(stays, c.b[2])
+			var ne *names.Error
+			_, err := staysC.Refresh(ctx)
+			if codeOf(err) != names.CodeNetworkLimit || !asError(err, &ne) || ne.Params["network"] != c.netB || ne.Params["limit"] != float64(2) {
+				t.Fatalf("moving to a full network: got %#v", err)
+			}
+			if _, err := staysC.Claim(ctx, "stays"); codeOf(err) != names.CodeNetworkLimit {
+				t.Fatalf("claiming a name again from a full network: got %v, want %s", err, names.CodeNetworkLimit)
+			}
+			if nw, a := addr("stays"); nw != c.netA || a != c.a[1] {
+				t.Fatalf("after the refused move: network %q, address %q", nw, a)
+			}
+		})
+	}
+}
+
+// A name counts against the network of its address in one IP version,
+// whichever version a refresh comes over, and against the network of its
+// other address once it has none in that version.
+func TestANameCountsAgainstTheNetworkOfOneAddress(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	m := newMachine("5.75.164.10", "2a01:4f8:c013:100::1")
+	c := e.claimed("both", "both", m)
+	if r := e.row("both"); r.Network != "5.75.164.0/24" || r.IPv6 != "2a01:4f8:c013:100::1" {
+		t.Fatalf("a name with both addresses: network %q, IPv6 %q", r.Network, r.IPv6)
+	}
+	m.set("", "2a01:4f8:c013:100::1")
+	if _, err := c.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.row("both"); r.Network != "2a01:4f8:c013::/48" || r.IPv4 != "" {
+		t.Fatalf("a name that lost its IPv4 address: network %q, IPv4 %q", r.Network, r.IPv4)
+	}
+	m.set("5.75.165.10", "2a01:4f8:c013:100::1")
+	if _, err := c.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.row("both"); r.Network != "2a01:4f8:c013::/48" || r.IPv4 != "5.75.165.10" {
+		t.Fatalf("a name with an IPv4 address again: network %q, IPv4 %q", r.Network, r.IPv4)
+	}
+}
+
+// A name from before networks were recorded counts against the network of
+// its address from its next refresh, which a full network doesn't refuse
+// unless the name moves into it.
+func TestNamesFromBeforeNetworksGetOne(t *testing.T) {
+	e := newEnv(t, func(e *testEnv) { e.cfg.MaxNamesPerNetwork = 2 })
+	ctx := context.Background()
+	e.claimed("one", "one", newMachine("5.75.164.10", ""))
+	e.claimed("two", "two", newMachine("5.75.164.11", ""))
+	m := newMachine("5.75.165.10", "")
+	old := e.claimed("old", "old", m)
+	if _, err := e.svc.db.Exec(`UPDATE names SET ipv4 = '5.75.164.12', network = '' WHERE name = 'old'`); err != nil {
+		t.Fatal(err)
+	}
+	m.set("5.75.164.12", "")
+	if _, err := old.Refresh(ctx); err != nil {
+		t.Fatalf("refreshing a name from before networks were recorded: %v", err)
+	}
+	if nw := e.row("old").Network; nw != "5.75.164.0/24" {
+		t.Fatalf("its network: %q", nw)
+	}
+
+	e.claimed("three", "three", newMachine("5.75.166.10", ""))
+	e.claimed("four", "four", newMachine("5.75.166.11", ""))
+	if _, err := e.svc.db.Exec(`UPDATE names SET network = '' WHERE name = 'old'`); err != nil {
+		t.Fatal(err)
+	}
+	m.set("5.75.166.12", "")
+	if _, err := old.Refresh(ctx); codeOf(err) != names.CodeNetworkLimit {
+		t.Fatalf("moving a name from before networks were recorded into a full network: got %v, want %s", err, names.CodeNetworkLimit)
+	}
+}
+
 func TestServerAddressesWaitUntilTheNameIsThreeDaysOld(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
