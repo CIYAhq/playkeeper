@@ -9,12 +9,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/diskusage"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
 )
 
@@ -274,6 +276,20 @@ func TestCancellingARestoreFromACopyLeavesTheServerAsItWas(t *testing.T) {
 		t.Fatalf("audited %d staged restores", n)
 	}
 
+	// It left no swap journal, so the next start has nothing to finish or undo.
+	e.stop()
+	e.start()
+	e.waitFor("the server to be online and idle", e.onlineIdle)
+	if op := e.waitOp(id); op.Status != api.OpCancelled || op.Error != "" {
+		t.Fatalf("after a restart, the cancelled restore: %+v", op)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restore'`); n != 0 {
+		t.Fatalf("the restart ran %d restores", n)
+	}
+	if previous, failed := restoreCopies(e.dataDir()); len(previous)+len(failed) != 0 || !maps.Equal(tree(t, e.dataDir()), files) || container() != box {
+		t.Fatalf("the restart after cancelling touched the server (world copies %v %v)", previous, failed)
+	}
+
 	// The next restore runs to the end; once it has, there's nothing to cancel.
 	dest.answer(fromBackup(e.a.backupPath(file)))
 	code, out = e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
@@ -286,5 +302,218 @@ func TestCancellingARestoreFromACopyLeavesTheServerAsItWas(t *testing.T) {
 	}
 	if code, _ := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": op.ID}); code != http.StatusConflict {
 		t.Fatalf("cancelling a finished restore: %d", code)
+	}
+}
+
+// A restore from a copy that the agent stops in while it downloads is settled
+// at the next start: it staged nothing and wrote no swap journal, so the
+// start records it as interrupted and deletes the download, even one a crash
+// left. Restoring the copy again then goes the way every restore goes, the
+// rollback archive first.
+func TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart(t *testing.T) {
+	dest := &fetchDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}
+	e, _, file := withCopies(t, dest)
+	name := offsite.CopyName(file)
+	e.waitFor("the server to be online and idle", e.onlineIdle)
+	restored := worldHash(t, e.dataDir())
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "world", "later.dat"), []byte("built after the backup"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	files := tree(t, e.dataDir())
+
+	downloading := make(chan string, 1)
+	dest.answer(func(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+		if err := os.WriteFile(filepath.Join(dl.Dir, dl.Name+".part"), make([]byte, 1<<20), 0o600); err != nil {
+			return offsite.Archive{}, err
+		}
+		downloading <- dl.Dir
+		<-ctx.Done()
+		return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
+	})
+	code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore: %d %v", code, out)
+	}
+	id := out["id"].(string)
+	var dir string
+	select {
+	case dir = <-downloading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the download never started")
+	}
+	e.stop()
+	if op := e.opAtRest(id); op.Status != api.OpRunning {
+		t.Fatalf("the agent stopped during the download, and the restore was recorded as %s: %+v", op.Status, op)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".part"), make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	e.start()
+	op := e.waitOp(id)
+	if op.Status != api.OpFailed || op.Error != interruptedDownload || op.Hint != interruptedDownloadHint || op.Detail["restoreId"] != nil {
+		t.Fatalf("the interrupted restore at the next start: %+v", op)
+	}
+	if left := e.staged(); len(left) != 0 {
+		t.Fatalf("staging still holds %v", left)
+	}
+	if !maps.Equal(tree(t, e.dataDir()), files) {
+		t.Fatal("the interrupted restore changed the server's files")
+	}
+	if previous, failed := restoreCopies(e.dataDir()); len(previous)+len(failed) != 0 || e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restore'`) != 0 {
+		t.Fatalf("the next start restored something (world copies %v %v)", previous, failed)
+	}
+
+	dest.answer(fromBackup(e.a.backupPath(file)))
+	code, out = e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore again: %d %v", code, out)
+	}
+	fetched := e.waitOp(out["id"].(string))
+	stage, _ := fetched.Detail["restoreId"].(string)
+	if fetched.Status != api.OpSucceeded || stage == "" {
+		t.Fatalf("fetching the copy again: %+v", fetched)
+	}
+	code, preview := e.call("GET", "/v1/restore/"+stage, nil)
+	if code != http.StatusOK {
+		t.Fatalf("preview: %d %v", code, preview)
+	}
+	applied := e.applyRestore(stage, preview["confirmPhrase"].(string))
+	rollback, _ := applied.Detail["rollbackBackupId"].(string)
+	if applied.Status != api.OpSucceeded || rollback == "" || e.countRows(`SELECT COUNT(*) FROM backups WHERE id = ? AND kind = 'rollback'`, rollback) != 1 {
+		t.Fatalf("the restore of the copy: %+v", applied)
+	}
+	if worldHash(t, e.dataDir()) != restored {
+		t.Fatal("the copy's world was not restored")
+	}
+	if left := e.staged(); len(left) != 0 {
+		t.Fatalf("the restore left %v in staging", left)
+	}
+}
+
+// neededBy is the unfinished restore or update the rules keep a backup on
+// this machine for, if any.
+func neededBy(t *testing.T, s *server, id string) string {
+	t.Helper()
+	res, err := s.retentionPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range res.OnHost.Decisions {
+		for _, r := range d.Reasons {
+			if d.ID == id && r.Code == "needed" {
+				return r.Params["by"]
+			}
+		}
+	}
+	return ""
+}
+
+// Until a restore is over, whether it is running or its stage keeps the swap
+// journal of a swap it couldn't settle, the rules keep its rollback archive
+// and the Disk space page offers nothing of its server, nor the stage.
+func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
+	e := newAgentEnv(t)
+	id, phrase, _, _ := e.restoreScenario()
+	s := e.srv()
+	busy := func(l diskusage.Layout) bool {
+		for _, sv := range l.Servers {
+			if sv.ID == s.id {
+				return sv.Busy
+			}
+		}
+		t.Fatalf("the layout has no server %s", s.id)
+		return false
+	}
+
+	reached, release := make(chan struct{}), make(chan struct{})
+	setRestoreStep(t, func(_ context.Context, step string) {
+		if step == "checking" {
+			close(reached)
+			<-release
+		}
+	})
+	opID := e.startRestore(id, phrase)
+	waitClosed(t, reached, "the restored world to be in place")
+	rollback, _ := e.a.currentOp().Detail["rollbackBackupId"].(string)
+	if rollback == "" {
+		t.Fatal("the restore recorded no rollback archive")
+	}
+	if by := neededBy(t, s, rollback); by != "restore" {
+		t.Fatalf("while the restore runs, the rules keep its rollback archive for %q", by)
+	}
+	if l := e.a.diskLayout(context.Background()); !busy(l) || !slices.Equal(l.ActiveStages, []string{id}) {
+		t.Fatalf("while the restore runs: busy %v, active stages %v", busy(l), l.ActiveStages)
+	}
+	close(release)
+	if op := e.waitOp(opID); op.Status != api.OpSucceeded {
+		t.Fatalf("the restore: %+v", op)
+	}
+	if by := neededBy(t, s, rollback); by != "" {
+		t.Fatalf("once the restore is kept, the rules still keep its rollback archive for %q", by)
+	}
+
+	// A restore that couldn't put the previous world back keeps its stage and
+	// journal, and the previous world's copy, until the next start settles it.
+	stage := "0123456789abcdef"
+	dir := e.a.stageDir(stage)
+	stamp := time.Now().UTC().Add(-48 * time.Hour).Format("20060102-150405")
+	aside := filepath.Join(s.dir(), "data.replaced-"+stamp)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(aside, "world"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := s.serverConfig()
+	j := &swapJournal{ServerID: s.id, OpID: opID, Actor: "admin", Aside: filepath.Base(aside), Failed: "data.failed-restore-" + stamp, HadLive: true,
+		StartedAt: time.Now().Add(-48 * time.Hour), Previous: sc, Restored: *sc, State: swapReverting}
+	if err := writeSwapJournal(dir, j); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	age := func() {
+		t.Helper()
+		for _, p := range []string{filepath.Join(dir, swapJournalFile), dir} {
+			if err := os.Chtimes(p, old, old); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+		}
+	}
+	age()
+	offered := func() (stageOffered, copyOffered bool) {
+		t.Helper()
+		rep, err := diskusage.Scan(context.Background(), e.a.diskLayout(context.Background()), e.a.diskOptions(time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range rep.Candidates {
+			stageOffered = stageOffered || c.Path == dir
+			copyOffered = copyOffered || c.Path == aside
+		}
+		return stageOffered, copyOffered
+	}
+	if by := neededBy(t, s, rollback); by != "restore" {
+		t.Fatalf("with its journal left, the rules keep the rollback archive for %q", by)
+	}
+	if l := e.a.diskLayout(context.Background()); !busy(l) || !slices.Equal(l.ActiveStages, []string{stage}) {
+		t.Fatalf("with its journal left: busy %v, active stages %v", busy(l), l.ActiveStages)
+	}
+	if st, cp := offered(); st || cp {
+		t.Fatalf("the Disk space page offers the unsettled restore's stage (%v) or the previous world's copy (%v)", st, cp)
+	}
+
+	if err := os.Remove(filepath.Join(dir, swapJournalFile)); err != nil {
+		t.Fatal(err)
+	}
+	age()
+	if by := neededBy(t, s, rollback); by != "" {
+		t.Fatalf("without the journal, the rules keep the rollback archive for %q", by)
+	}
+	if st, cp := offered(); !st || !cp {
+		t.Fatalf("once nothing needs them, the stage (%v) and the copy (%v) are offered", st, cp)
 	}
 }

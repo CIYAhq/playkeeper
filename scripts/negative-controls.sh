@@ -771,6 +771,25 @@ control "recovery key downloads are audited" internal/agent/offsite.go \
   '_, _ = actor, f.Name' \
   ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
 
+# Wave 7 in #15's restore: a restore that isn't over keeps what it may need.
+control "a restore from a copy the agent stops in is left to the next start" internal/agent/offsite.go \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return downloadStopped(s.stopping(), h, err)' \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return err' \
+  ./internal/agent '^TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart$'
+control "the rules keep the rollback archive of a restore that isn't over" internal/agent/backuprules.go \
+  'needed[id] = "restore"' \
+  '_ = id' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "the Disk space page leaves a restore that isn't over alone" internal/agent/disk.go \
+  'l.ActiveStages = append(l.ActiveStages, stage)
+		restoring[j.ServerID] = true' \
+  '_, _ = stage, j' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

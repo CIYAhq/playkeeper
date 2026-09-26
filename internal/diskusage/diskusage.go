@@ -59,7 +59,8 @@ type Layout struct {
 	Backups    []Backup
 	// StagingDir holds restore stages, one folder each.
 	StagingDir string
-	// ActiveStages names stages a restore preview or restore is using.
+	// ActiveStages names stages a restore preview or restore is using, or
+	// that a restore which isn't over still needs.
 	ActiveStages []string
 	// DownloadsDir holds files Playkeeper downloaded, such as add-on files,
 	// and downloads again when they are needed; empty if there is none. It
@@ -96,8 +97,9 @@ type Server struct {
 	Jar              string
 	MinecraftVersion string
 	// Busy means an operation other than the clean-up itself (a backup,
-	// restore, version change…) is running on the server, so nothing of it
-	// is offered, nor any partial file or restore stage.
+	// restore, version change…) is running on the server, or a restore of
+	// it isn't over, so nothing of it is offered, nor any partial file or
+	// restore stage.
 	Busy bool
 }
 

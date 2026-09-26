@@ -199,7 +199,7 @@ func (a *Agent) hRecoverRestore(w http.ResponseWriter, r *http.Request) {
 		h.phase("listing")
 		objs, err := dest.List(ctx)
 		if err != nil {
-			return automationError(err)
+			return downloadStopped(a.ctx.Err() != nil, h, automationError(err))
 		}
 		dl := offsite.Download{Name: name, Dir: spool}
 		for _, o := range objs {
@@ -214,7 +214,7 @@ func (a *Agent) hRecoverRestore(w http.ResponseWriter, r *http.Request) {
 		h.phase("downloading")
 		got, err := dest.Download(ctx, dl)
 		if err != nil {
-			return automationError(err)
+			return downloadStopped(a.ctx.Err() != nil, h, automationError(err))
 		}
 		h.phase("checking")
 		f, err := os.Open(got.Path)

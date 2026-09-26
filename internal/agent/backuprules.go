@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -44,6 +45,50 @@ func (s *server) backupRules() (retention.Settings, *time.Location, bool) {
 	return doc.Settings, s.scheduleTimeZone(context.Background()), true
 }
 
+// unsettledSwaps reads the swap journals in the restore stages, by stage
+// name. A restore isn't over while its stage keeps one: it may still put the
+// previous world back. A journal that can't be read counts, for no server.
+func (a *Agent) unsettledSwaps() map[string]*swapJournal {
+	entries, _ := os.ReadDir(a.cfg.StagingDir())
+	out := map[string]*swapJournal{}
+	for _, e := range entries {
+		dir := filepath.Join(a.cfg.StagingDir(), e.Name())
+		if _, err := os.Lstat(filepath.Join(dir, swapJournalFile)); err != nil || !e.IsDir() {
+			continue
+		}
+		j, err := readSwapJournal(dir)
+		if err != nil || j == nil {
+			j = &swapJournal{}
+		}
+		out[e.Name()] = j
+	}
+	return out
+}
+
+// rollbacksNeeded names the rollback archives of the server's restores that
+// aren't over, the one running and those whose stage keeps a swap journal,
+// as the unfinished restore that may still need them.
+func (s *server) rollbacksNeeded() map[string]string {
+	needed := map[string]string{}
+	add := func(op *api.Operation) {
+		if id, _ := op.Detail["rollbackBackupId"].(string); op.Kind == "restore" && id != "" {
+			needed[id] = "restore"
+		}
+	}
+	if op := s.currentOp(); op != nil {
+		add(op)
+	}
+	for _, j := range s.unsettledSwaps() {
+		if j.ServerID != s.id {
+			continue
+		}
+		if op, err := s.loadOperation(j.OpID); err == nil {
+			add(op)
+		}
+	}
+	return needed
+}
+
 // retentionBackups lists the server's backups for the rules: those on this
 // machine, and the copies somewhere else.
 func (s *server) retentionBackups() ([]retention.Backup, error) {
@@ -51,6 +96,7 @@ func (s *server) retentionBackups() ([]retention.Backup, error) {
 	if err != nil {
 		return nil, err
 	}
+	needed := s.rollbacksNeeded()
 	queued := map[string]bool{}
 	if rows, err := s.db.Query(`SELECT backup_id FROM offsite_uploads WHERE server_id = ?`, s.id); err == nil {
 		for rows.Next() {
@@ -66,7 +112,7 @@ func (s *server) retentionBackups() ([]retention.Backup, error) {
 	for _, b := range list {
 		index[b.ID] = len(out)
 		out = append(out, retention.Backup{ID: b.ID, Kind: b.Kind, CreatedAt: b.CreatedAt, SizeBytes: b.SizeBytes, MinecraftVersion: b.MinecraftVersion,
-			LevelName: b.LevelName, Verified: b.Verified, OnHost: true, Downloaded: b.DownloadedAt != nil, Pinned: queued[b.ID]})
+			LevelName: b.LevelName, Verified: b.Verified, OnHost: true, Downloaded: b.DownloadedAt != nil, Pinned: queued[b.ID], NeededBy: needed[b.ID]})
 	}
 	rows, err := s.db.Query(`SELECT backup_id, kind, backup_created_at, size_bytes, minecraft_version, level_name FROM offsite_copies WHERE server_id = ?`, s.id)
 	if err != nil {

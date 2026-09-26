@@ -1023,7 +1023,7 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 		defer os.RemoveAll(dir)
 		got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
 		if err != nil {
-			return err
+			return downloadStopped(s.stopping(), h, err)
 		}
 		h.phase("checking")
 		f, err := os.Open(got.Path)
@@ -1036,7 +1036,7 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 			if ctx.Err() == nil {
 				s.audit(actor, "restore.staged", archive, "refused", err.Error())
 			}
-			return err
+			return downloadStopped(s.stopping(), h, err)
 		}
 		if dl.ArchiveSHA256 != "" && !strings.EqualFold(p.SHA256, dl.ArchiveSHA256) {
 			os.RemoveAll(s.stageDir(p.ID))
@@ -1081,6 +1081,18 @@ func (s *server) hOffsiteRestoreCancel(w http.ResponseWriter, r *http.Request) {
 	name, _ := op.Detail["name"].(string)
 	s.audit(actor, "offsite.restore_cancelled", "server", "succeeded", name)
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// downloadStopped is err, unless the agent is stopping: a restore from a copy
+// then stays running for the next start, which records it as interrupted
+// and deletes what staging holds. It staged nothing the restore could use
+// and wrote no swap journal, so there is nothing to finish.
+func downloadStopped(stopping bool, h *opHandle, err error) error {
+	if !stopping {
+		return err
+	}
+	h.continues = true
+	return nil
 }
 
 // ctxReader stops a copy when its context ends.
