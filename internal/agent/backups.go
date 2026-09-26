@@ -787,10 +787,14 @@ func (a *Agent) settleSwap(stageDir string, atStart bool) error {
 		return nil
 	case swapMoving, swapReverting:
 		if !j.HadLive || j.Previous == nil {
-			if !dirExists(s.dataDir()) && dirExists(filepath.Join(stageDir, "data")) {
-				return fmt.Errorf("the restored world is only in the stage, and the world directory %s is missing", s.dataDir())
+			staged := filepath.Join(stageDir, "data")
+			switch {
+			case !dirExists(staged):
+				return nil
+			case !dirExists(s.dataDir()):
+				return fmt.Errorf("the restored world is only in the stage at %s, and the world directory %s is missing", staged, s.dataDir())
 			}
-			return nil
+			return fmt.Errorf("the restored world is only in the stage at %s, not in the world directory %s", staged, s.dataDir())
 		}
 		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 		defer cancel()
@@ -961,6 +965,27 @@ func (s *server) startRefusal(h *opHandle) error {
 		}
 	}
 	return nil
+}
+
+// stagedRestoredWorld is where a restore of the server that isn't settled
+// still keeps its restored world in its stage, or "". The caller holds the
+// operation lock.
+func (s *server) stagedRestoredWorld() string {
+	for _, stage := range s.keptStages("") {
+		if staged := filepath.Join(s.stageDir(stage), "data"); !s.settled[stage] && dirExists(staged) {
+			return staged
+		}
+	}
+	return ""
+}
+
+// errRestoredWorldStaged refuses to make the world folder while a restore
+// that isn't settled keeps its restored world in its stage: the server would
+// start a new, empty world instead. then is what to do once it's in place.
+func errRestoredWorldStaged(staged, data, then string) error {
+	return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,
+		Msg:  "The world folder is missing because a restore did not finish; the restored world is only at " + staged + ".",
+		Hint: "Move that folder to " + data + ", then " + then + "."}
 }
 
 // keptStages names the restore stages whose swap journal is of a restore of

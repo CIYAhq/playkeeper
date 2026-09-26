@@ -519,6 +519,141 @@ func TestARestoreSettledAtStartSaysSo(t *testing.T) {
 	}
 }
 
+// restoreLeftInTheStage leaves the current server as a restore onto a server
+// without a world yet, such as every restore as a new server, leaves it when
+// the agent stops before the restored world is in place and can't move it
+// there when it starts again: stopped, without a world folder, the restore's
+// journal kept in "moving" and the restored world only in its stage. It
+// returns where that world is.
+func restoreLeftInTheStage(t *testing.T, e *agentEnv) string {
+	t.Helper()
+	e.serverOp("/stop")
+	s := e.srv()
+	sc, err := s.serverConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := e.a.stageDir("0123456789abcdef")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(dir, "data")
+	if err := os.Rename(s.dataDir(), staged); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UTC().Format("20060102-150405")
+	if err := writeSwapJournal(dir, &swapJournal{ServerID: s.id, OpID: "0000000000000000", Actor: "admin", Aside: "data.replaced-" + stamp,
+		Failed: "data.failed-restore-" + stamp, StartedAt: time.Now(), Previous: sc, Restored: *sc, State: swapMoving}); err != nil {
+		t.Fatal(err)
+	}
+	return staged
+}
+
+// While a restore that didn't finish keeps the restored world only in its
+// stage, nothing gives the server a new, empty world folder: a start, a new
+// icon, a player added to the stopped server's allowlist, a new data pack and
+// an add-on install are each refused, saying where the restored world is.
+// Neither the reconcile tick nor an agent start gives up the stage.
+func TestNothingMakesAWorldFolderWhileTheRestoredWorldIsInTheStage(t *testing.T) {
+	refused := func(t *testing.T, code int, out map[string]any) (string, string) {
+		t.Helper()
+		if code != http.StatusConflict || out["code"] != codeRestoreUnsettled {
+			t.Fatalf("want a refusal for the unfinished restore: %d %v", code, out)
+		}
+		msg, _ := out["error"].(string)
+		hint, _ := out["hint"].(string)
+		return msg, hint
+	}
+	for _, c := range []struct {
+		name, then string
+		// send asks for it and returns the refusal's message and hint.
+		send func(t *testing.T, e *agentEnv) (string, string)
+	}{
+		{"a start", "press Start", func(t *testing.T, e *agentEnv) (string, string) {
+			op := e.runOp("POST", "/start")
+			if op.Status != api.OpFailed || op.Detail["errorKind"] != codeRestoreUnsettled {
+				t.Fatalf("the start must fail, marked as waiting for the restore: %+v", op)
+			}
+			return op.Error, op.Hint
+		}},
+		{"a new server icon", "upload the icon again", func(t *testing.T, e *agentEnv) (string, string) {
+			var icon bytes.Buffer
+			if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
+				t.Fatal(err)
+			}
+			code, out := e.uploadTo(e.sp("/icon"), icon.Bytes())
+			return refused(t, code, out)
+		}},
+		{"a player added to the allowlist", "try again", func(t *testing.T, e *agentEnv) (string, string) {
+			code, out := e.call("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "uuid": "5507140b-cf95-3383-b75a-47dd34196981", "actor": "admin"})
+			return refused(t, code, out)
+		}},
+		{"a new data pack", "add the data pack again", func(t *testing.T, e *agentEnv) (string, string) {
+			code, out := e.uploadTo(e.sp("/datapacks?name=extra.zip"), dataPackZip(t, "Extra", false))
+			return refused(t, code, out)
+		}},
+		{"an add-on install", "try again", func(t *testing.T, e *agentEnv) (string, string) {
+			op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": "mvportal", "fingerprint": otherPlan, "actor": "admin"})
+			if op.Status != api.OpFailed {
+				t.Fatalf("the install must fail: %+v", op)
+			}
+			return op.Error, op.Hint
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.withSources()
+			e.create()
+			staged := restoreLeftInTheStage(t, e)
+			msg, hint := c.send(t, e)
+			if want := "The world folder is missing because a restore did not finish; the restored world is only at " + staged + "."; msg != want {
+				t.Errorf("message %q, want %q", msg, want)
+			}
+			if want := "Move that folder to " + e.dataDir() + ", then " + c.then + "."; hint != want {
+				t.Errorf("hint %q, want %q", hint, want)
+			}
+			if dirExists(e.dataDir()) {
+				t.Fatal("the refused request made a world folder")
+			}
+			time.Sleep(300 * time.Millisecond)
+			if !dirExists(staged) {
+				t.Fatal("a reconcile tick gave up the stage with the restored world")
+			}
+			e.stop()
+			e.start()
+			if !dirExists(staged) || dirExists(e.dataDir()) {
+				t.Fatalf("after an agent start: restored world kept %v, world folder made %v", dirExists(staged), dirExists(e.dataDir()))
+			}
+		})
+	}
+}
+
+// A restored world still only in its stage is never settled away, even once
+// something other than Playkeeper made the world folder: the reconcile tick
+// and an agent start keep the stage, and the status says why.
+func TestARestoredWorldInTheStageIsNeverSettledAway(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	staged := restoreLeftInTheStage(t, e)
+	if err := os.Mkdir(e.dataDir(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	var u *api.RestoreUnsettled
+	e.waitFor("the tick to try settling the restore", func() bool {
+		u = e.status().RestoreUnsettled
+		return u == nil || u.Problem != ""
+	})
+	why := "the restored world is only in the stage at " + staged + ", not in the world directory " + e.dataDir()
+	if u == nil || u.Problem != sentence(why) || !dirExists(staged) {
+		t.Fatalf("the tick must keep the stage and say why: %+v, restored world kept %v", u, dirExists(staged))
+	}
+	e.stop()
+	e.start()
+	if !dirExists(staged) {
+		t.Fatal("an agent start gave up the stage with the restored world")
+	}
+}
+
 // A restore the next agent process finished has its own line in the
 // activity, and a restore that finished by itself keeps the usual one.
 func TestARestoreFinishedAfterARestartSaysSo(t *testing.T) {

@@ -431,9 +431,15 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 func (s *server) ensureDirs(then string) error {
 	data := s.dataDir()
 	// A server started without its world directory generates a new world, so
-	// never recreate one a restore moved aside and could not put back.
+	// never recreate one a restore moved aside and could not put back, nor
+	// make one while a restored world is still only in its stage.
 	if m := s.worldMissing(); m != nil {
 		return errWorldMissing(m, then)
+	}
+	if !dirExists(data) {
+		if staged := s.stagedRestoredWorld(); staged != "" {
+			return errRestoredWorldStaged(staged, data, then)
+		}
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
