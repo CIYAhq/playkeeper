@@ -7,6 +7,7 @@ import { Emblem } from '@/components/app/art'
 import { Card, Notice, SectionLabel, Spinner } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -14,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { formatLocale, t, type MessageKey } from '@/i18n'
 import { formatBytes, formatClock, formatDate, formatList } from '@/lib/format'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { iconURL } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -290,15 +292,12 @@ export function DiskPage({ id }: { id: string }) {
   const copiesPlace = useCopiesPlace(oldBackups?.serverIds ?? [])
 
   if (!m) {
-    return (
-      <PageBody>
-        <p className="text-sm text-muted-foreground">{ws.machines.length ? t('machine.notFound') : t('common.loading')}</p>
-      </PageBody>
-    )
+    return <PageBody className={cn(phone && 'pt-2')}>{ws.machines.length ? <p className="text-sm text-muted-foreground">{t('machine.notFound')}</p> : <DiskSkeleton phone={phone} />}</PageBody>
   }
 
   const names = new Map((report?.servers ?? []).map((s) => [s.id, s.name]))
   const disk = report?.disk ?? undefined
+  const locked = ws.stale ? t('reason.noAgent') : busy ? t('reason.busy', { what: t('op.disk-cleanup') }) : undefined
 
   const again = async () => {
     const err = await scan(true)
@@ -327,7 +326,7 @@ export function DiskPage({ id }: { id: string }) {
     body = (
       <div className={cn('flex flex-col', phone ? 'gap-5 pb-6' : 'gap-6')}>
         <UsageCard report={report} machine={name} phone={phone} scanning={scanning} onScan={() => void again()} />
-        <Ways report={report} names={names} phone={phone} busy={busy} onOpen={setOpen} />
+        <Ways report={report} names={names} phone={phone} busy={busy} locked={locked} onOpen={setOpen} />
         {!phone && report.servers.length > 0 && <ServerTable servers={report.servers} />}
       </div>
     )
@@ -369,7 +368,7 @@ function DiskBar({ bar }: { bar: { group: DiskGroup; bytes: number }[] }) {
   return (
     <div role="img" aria-label={t('disk.barLabel')} className="mt-3 flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-accent">
       {parts.map((b) => (
-        <span key={b.group} className={cn('h-full min-w-1 transition-[flex-grow] duration-500 ease-out', groups[b.group].color)} style={{ flexGrow: (b.bytes / sum) * 1000, flexBasis: 0 }} />
+        <span key={b.group} className={cn('h-full min-w-1 transition-[flex-grow] duration-(--motion-slow) ease-standard', groups[b.group].color)} style={{ flexGrow: (b.bytes / sum) * 1000, flexBasis: 0 }} />
       ))}
     </div>
   )
@@ -448,19 +447,20 @@ function UsageCard({ report, machine, phone, scanning, onScan }: { report: DiskR
   )
 }
 
-function Ways({ report, names, phone, busy, onOpen }: { report: DiskReport; names: Map<string, string>; phone: boolean; busy: string | undefined; onOpen: (way: DiskWay) => void }) {
+function Ways({ report, names, phone, busy, locked, onOpen }: { report: DiskReport; names: Map<string, string>; phone: boolean; busy: string | undefined; locked: string | undefined; onOpen: (way: DiskWay) => void }) {
   const ways = report.ways
+  const rows = useListPresence(ways, (w) => w.id)
   if (phone) {
     return (
       <section aria-labelledby="disk-ways">
         <SectionLabel className="px-4">
           <span id="disk-ways">{ways.length ? t('disk.waysPhone', { size: sizeText(report.freeable) }) : t('disk.ways')}</span>
         </SectionLabel>
-        {ways.length ? (
+        {rows.length ? (
           <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-            {ways.map((w) => (
-              <li key={w.id} className="border-b border-border last:border-b-0">
-                <button type="button" disabled={!!busy} onClick={() => onOpen(w)} className="flex min-h-14 w-full items-center gap-3 py-3 pr-3 pl-4 text-left outline-none active:bg-accent/60 focus-visible:bg-accent/60 disabled:opacity-60">
+            {rows.map(({ key, item: w, state }) => (
+              <li key={key} {...presenceProps(state)} className="border-b border-border last:border-b-0">
+                <button type="button" disabled={!!locked} title={locked} aria-busy={busy === w.id || undefined} onClick={() => onOpen(w)} className="flex min-h-14 w-full items-center gap-3 py-3 pr-3 pl-4 text-left outline-none active:bg-accent/60 focus-visible:bg-accent/60 disabled:opacity-60">
                   <span className="min-w-0 flex-1 text-base leading-[22px]">{wayTitle(w)}</span>
                   <span className="text-[15px] text-muted-foreground tabular-nums">{sizeText(w.bytes)}</span>
                   {busy === w.id ? <Spinner className="size-5 text-info" /> : <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
@@ -480,16 +480,16 @@ function Ways({ report, names, phone, busy, onOpen }: { report: DiskReport; name
         {t('disk.ways')}
       </h2>
       <p className="mt-0.5 text-xs text-muted-foreground">{ways.length ? t('disk.waysTotal', { size: sizeText(report.freeable) }) : t('disk.waysNone')}</p>
-      {ways.length > 0 && (
+      {rows.length > 0 && (
         <ul className="mt-3 overflow-hidden rounded-2xl border border-border bg-white">
-          {ways.map((w) => (
-            <li key={w.id} className="flex min-h-[62px] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
+          {rows.map(({ key, item: w, state }) => (
+            <li key={key} {...presenceProps(state)} className="flex min-h-[62px] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
               <span className="min-w-0 flex-1">
                 <span className="block text-sm leading-5 font-semibold">{wayTitle(w)}</span>
                 <span className="block truncate text-xs text-muted-foreground">{wayText(w, names)}</span>
               </span>
               <span className="text-[13px] font-semibold tabular-nums">{sizeText(w.bytes)}</span>
-              <Button variant="outline" size="sm" onClick={() => onOpen(w)} loading={busy === w.id} disabled={!!busy && busy !== w.id}>
+              <Button variant="outline" size="sm" onClick={() => onOpen(w)} loading={busy === w.id} disabledReason={busy === w.id ? undefined : locked}>
                 {w.action === 'review' ? t('disk.review') : w.action === 'clear' ? t('common.clear') : t('disk.delete')}
               </Button>
             </li>
@@ -561,7 +561,8 @@ function ServerTable({ servers }: { servers: DiskServer[] }) {
 
 function DiskSkeleton({ phone }: { phone: boolean }) {
   return (
-    <div className={cn('flex flex-col', phone ? 'gap-5' : 'gap-6')} aria-busy="true" aria-label={t('common.loading')}>
+    <div className={cn('flex flex-col', phone ? 'gap-5' : 'gap-6')}>
+      <LoadingLabel />
       <Card className={cn(phone && 'p-4')}>
         <Skeleton className="h-7 w-52" />
         <Skeleton className="mt-3 h-3 w-full rounded-full" />
@@ -638,7 +639,7 @@ function ReviewDialog({ way, report, machine, phone, copiesPlace, onClose, onDel
             <Button variant="ghost" size={phone ? 'touch' : 'default'} onClick={onClose}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" size={phone ? 'touch' : 'default'} disabled={count === 0} onClick={() => onDelete(chosen.flatMap((r) => r.ids))}>
+            <Button variant="destructive" size={phone ? 'touch' : 'default'} disabledReason={count === 0 ? t('disk.tickFirst') : undefined} onClick={() => onDelete(chosen.flatMap((r) => r.ids))}>
               <Trash2Icon />
               {count ? t('disk.deleteCount', { count, size: sizeText(bytes) }) : t('disk.delete')}
             </Button>

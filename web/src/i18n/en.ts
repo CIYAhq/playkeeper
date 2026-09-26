@@ -972,6 +972,7 @@ export const en = {
   'disk.setAside.failedRestoreHint': 'Kept so it could be looked into',
   'disk.copiesStay': 'Copies on {place} stay.',
   'disk.deleteCount': 'Delete {count} · {size}',
+  'disk.tickFirst': 'Tick something to delete first.',
   'disk.deleteSize': 'Delete · {size}',
   'disk.clearSize': 'Clear · {size}',
   'disk.freed': 'Freed {size}',

@@ -252,7 +252,8 @@ afterEach(async () => {
 describe('Disk space page', () => {
   it('shows a skeleton while the first scan runs', async () => {
     const t = await render()
-    expect(document.querySelector('[aria-busy="true"]')).not.toBeNull()
+    expect(t).toContain('Loading…')
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
     expect(t).not.toContain('Ways to free space')
     expect(gets()[0]).toMatch(/\/api\/machines\/m2345abcde\/disk\?tz=/)
     expect(gets()[0]).not.toContain('fresh=1')
