@@ -6,11 +6,13 @@ import { login, outDir } from './helpers'
 
 // Every control works. The click-through opens every page of the seeded
 // dashboard at desktop and phone sizes, finds every button, link, switch, tab,
-// menu item and list option by role (including the ones inside menus, dialogs,
-// sheets and later steps), presses each one and checks that something a
-// person could notice happened: the page changed, a dialog, menu or sheet
-// opened or closed, the control's own state changed, focus moved, the page
-// scrolled, something was copied, a toast appeared or a request went out.
+// slider, menu item and list option by role (including the ones inside menus,
+// dialogs and sheets, in a dialog that replaces the menu it came from, and in
+// later steps of a form), presses each one and checks that something a person
+// could notice happened: the page changed, a dialog, menu or sheet opened or
+// closed, the control's own state changed, focus moved, the page scrolled,
+// something was copied, a toast appeared or a request went out. It fills in
+// forms first, typing the phrase a typed confirmation asks for.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. There is no list of exceptions: a control that should do nothing

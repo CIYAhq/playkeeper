@@ -263,11 +263,15 @@ export class Crawler {
       if (!el) continue
       const hint = await el.evaluate((input) => {
         const i = input as HTMLInputElement
-        const label = i.labels ? [...i.labels].map((l) => l.textContent).join(' ') : ''
-        return { type: i.type, text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max }
+        const labels = i.labels ? [...i.labels] : []
+        const label = labels.map((l) => l.textContent).join(' ')
+        // A typed confirmation says what to type in bold: "Type <b>replace world</b> to confirm."
+        const phrase = /confirm/i.test(label) ? (labels.map((l) => l.querySelector('strong, b')?.textContent?.trim()).find(Boolean) ?? '') : ''
+        return { type: i.type, text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max, phrase }
       })
       let value = 'Sample'
-      if (hint.type === 'password') value = 'sample-password-2026'
+      if (hint.phrase) value = hint.phrase
+      else if (hint.type === 'password') value = 'sample-password-2026'
       else if (hint.type === 'number') value = hint.min || '1'
       else if (/minecraft|player|username|friend/.test(hint.text)) value = 'Pixel_Pia'
       else if (/command/.test(hint.text)) value = 'list'
@@ -284,7 +288,12 @@ export class Crawler {
       try {
         if (info?.role === 'slider') {
           await h.focus()
+          const value = () => h.evaluate((el) => (el as HTMLInputElement).value)
+          const was = await value()
           await this.page.keyboard.press('ArrowRight')
+          await this.page.waitForTimeout(100)
+          // A slider at its highest value can only go down.
+          if ((await value()) === was) await this.page.keyboard.press('ArrowLeft')
         } else {
           await h.click({ timeout: 4000 })
           if (info?.editable) await this.page.keyboard.press('ArrowDown')

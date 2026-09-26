@@ -143,11 +143,13 @@ export function installPageHelpers() {
     return s.clip === 'rect(0px, 0px, 0px, 0px)' || s.clipPath === 'inset(50%)'
   }
 
-  /** What a person clicks: the control, or the label around a visually hidden one. */
+  /** What a person clicks: the control, the label around a visually hidden one, or a slider's thumb around its hidden input. */
   function proxyOf(el: Element): Element | null {
     if (!clipped(el) && box(el).width >= 4 && box(el).height >= 4) return el
     const label = el.closest('label') ?? (el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null)
-    return label && !clipped(label) ? label : null
+    if (label && !clipped(label)) return label
+    const thumb = el.closest('[data-slot=slider-thumb]')
+    return thumb && !clipped(thumb) ? thumb : null
   }
 
   function visible(el: Element): boolean {
@@ -213,6 +215,8 @@ export function installPageHelpers() {
   }
 
   function disabledOf(el: Element): boolean {
+    // A button with a spinner is busy, not disabled; its spinner says why.
+    if (el.hasAttribute('data-loading')) return false
     if ((el as HTMLButtonElement).disabled) return true
     if (el.matches(':disabled')) return true
     if (el.getAttribute('aria-disabled') === 'true' && !el.hasAttribute('data-loading')) return true
@@ -280,7 +284,8 @@ export function installPageHelpers() {
   function element(key: string): Element | null {
     controls()
     target = list.find((x) => x.key === key)?.el ?? null
-    return target && proxyOf(target)
+    // A slider is moved with the keyboard, so it's the input that needs focus, not its thumb.
+    return target && (roleOf(target) === 'slider' ? target : proxyOf(target))
   }
 
   function stateOf(el: Element): string {
