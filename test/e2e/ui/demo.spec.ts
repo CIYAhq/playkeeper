@@ -124,6 +124,56 @@ test('the live demo’s machines pages: its one machine, and Connect says what i
   expect(problems).toEqual([])
 })
 
+/** Waits until every add-on icon on the page has loaded from the demo's own drawings. */
+async function iconsLoaded(page: Page) {
+  const icons = page.locator('img[src*="/demo/icons/"]')
+  await expect(icons.first()).toBeVisible()
+  await expect
+    .poll(() => icons.evaluateAll((imgs) => imgs.every((img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0)), { message: 'add-on icons load' })
+    .toBe(true)
+}
+
+test('the live demo’s plugins, map pre-generation and packs, where a change says it’s a demo', async ({ page }) => {
+  const problems = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${demoUrl}servers/survival`)
+  await page.getByRole('navigation', { name: 'Server pages' }).getByRole('link', { name: 'Plugins' }).click()
+  await expect(page).toHaveURL(`${demoUrl}servers/survival/plugins`)
+  await expect(page.getByRole('heading', { name: 'Plugins on Survival' })).toBeVisible()
+  const luckPerms = page.getByRole('listitem').filter({ hasText: 'LuckPerms' })
+  await expect(luckPerms).toContainText('Update available · 5.5.11')
+  await expect(page.getByRole('listitem').filter({ hasText: 'FriendsWelcome' })).toContainText('Added by hand')
+  await iconsLoaded(page)
+  await still(page, 'demo-plugins-desktop')
+
+  await luckPerms.getByRole('button', { name: /^LuckPerms 5\.5\.10/ }).click()
+  await page.getByRole('dialog', { name: 'LuckPerms' }).getByRole('button', { name: 'Update to 5.5.11' }).click()
+  await expect(page.getByText('The demo can’t do this one. On your own VPS it works.')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.goto(`${demoUrl}servers/survival/plugins/browse`)
+  await expect(page.getByText('Lets Bedrock players on phones and consoles join your Java server')).toBeVisible()
+  await page.goto(`${demoUrl}servers/survival/world/pregen`)
+  await expect(page.getByText(/ of 99,225 chunks$/)).toBeVisible()
+  await page.goto(`${demoUrl}servers/survival/world/packs`)
+  await expect(page.getByText('Cosy Blocks 32x')).toBeVisible()
+  await expect(page.getByText('More Mob Heads')).toBeVisible()
+  await expect(page.getByText('The demo has no sample data for this.')).toHaveCount(0)
+  expect(problems).toEqual([])
+})
+
+test('the live demo’s plugins on a phone', async ({ page }) => {
+  const problems = watch(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`${demoUrl}servers/survival/plugins`)
+  await expect(page.getByRole('heading', { name: 'Plugins', level: 1 })).toBeVisible()
+  await expect(page.getByText('5.5.10 · Modrinth')).toBeVisible()
+  await expect(page.getByText('Added by hand')).toBeVisible()
+  await iconsLoaded(page)
+  await still(page, 'demo-plugins-phone')
+  expect(problems).toEqual([])
+})
+
 test('the live demo on a phone: the brand line and the install card', async ({ page }) => {
   const problems = watch(page)
   await page.setViewportSize({ width: 390, height: 844 })
