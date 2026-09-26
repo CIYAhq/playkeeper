@@ -410,7 +410,7 @@ func (s *Server) Routes() []Route {
 		// Wave 4: sharing the pack with friends; the public page is in
 		// publicRoutes.
 		sg("/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
-		sm("POST", "/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		{"POST", "/api/servers/{id}/mods/share", needSessionCSRF, actManageServers, s.sharing("/v1/servers/{id}/mods/share", s.recordPackLink)},
 		view("/api/servers/{id}/mods/share.mrpack", s.hPackShareFile),
 
 		// Wave 7: schedules, sleep, backup rules and copies somewhere else, disk space.
