@@ -29,6 +29,9 @@ type fakeFill struct {
 	mu       sync.Mutex
 	versions []fillVersionSpec
 	sum      string
+	hold     bool // requests wait until the caller gives up
+	fails    int  // this many requests answer 503 first, as when PaperMC has trouble
+	requests int
 }
 
 // defaultFill mirrors PaperMC's list closely enough for the tests: 26.3 has
@@ -62,8 +65,20 @@ func (ff *fakeFill) set(sum string, versions []fillVersionSpec) {
 
 func (ff *fakeFill) serve(w http.ResponseWriter, r *http.Request) {
 	ff.mu.Lock()
-	versions, sum := ff.versions, ff.sum
+	versions, sum, hold, failing := ff.versions, ff.sum, ff.hold, ff.fails > 0
+	if failing {
+		ff.fails--
+	}
+	ff.requests++
 	ff.mu.Unlock()
+	if hold {
+		<-r.Context().Done()
+		return
+	}
+	if failing {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
 	version := func(v fillVersionSpec) map[string]any {
 		return map[string]any{"id": v.id, "support": map[string]any{"status": v.support}, "java": map[string]any{"version": map[string]any{"minimum": 25}}}
 	}

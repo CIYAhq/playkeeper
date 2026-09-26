@@ -12,12 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/config"
 )
 
@@ -1504,7 +1507,7 @@ func TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved(t *testing.T) {
 }
 
 // A world a restore would refuse is not backed up at all: the backup fails
-// before anything is written, says why, and the server comes back.
+// before the server stops or anything is written, and says why.
 func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
@@ -1516,6 +1519,7 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	stops := e.dockerStops()
 	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
@@ -1533,7 +1537,51 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 	if files, _ := os.ReadDir(e.cfg.BackupsDir()); len(files) != 0 {
 		t.Fatalf("a refused backup left files: %v", files)
 	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
+	}
 	e.waitFor("server running again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+}
+
+// A server.properties Playkeeper won't read, such as a link a plugin put
+// there, can't say which world to back up: the backup fails before the
+// server stops, names the file and says what to do, instead of backing up
+// "world" without its settings.
+func TestBackupRefusesAServerPropertiesItWontReadBeforeStopping(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	props := filepath.Join(e.dataDir(), "server.properties")
+	outside := filepath.Join(t.TempDir(), "server.properties")
+	if err := os.WriteFile(outside, []byte("level-name=world\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(props); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, props); err != nil {
+		t.Fatal(err)
+	}
+	stops := e.dockerStops()
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "could not be backed up") || !strings.Contains(op.Error, "server.properties") || !strings.Contains(op.Error, "is a link") {
+		t.Fatalf("backing up past a planted server.properties must fail and name it: %+v", op)
+	}
+	if !strings.Contains(op.Hint, "Delete it") {
+		t.Fatalf("the refusal must say what to do: %q", op.Hint)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
+		t.Fatalf("%d backup rows recorded for a refused backup", n)
+	}
+	if files, _ := os.ReadDir(e.cfg.BackupsDir()); len(files) != 0 {
+		t.Fatalf("a refused backup left files: %v", files)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
+	}
 }
 
 // Re-compressing a backup keeps every file and per-file hash, so only the
@@ -1675,6 +1723,202 @@ func TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails(t *testing.T
 	}
 }
 
+// An agent that stops, or dies, while a restore whose world did not start is
+// putting the previous world back leaves the undo half done. The next agent
+// process finishes the undo as the same operation: the previous world and its
+// settings go back and start, and the restored world is kept as a
+// failed-restore copy.
+func TestInterruptedRestoreIsSettledAtStart(t *testing.T) {
+	for _, stop := range []string{"dies", "stops"} {
+		t.Run(stop+" while the previous world is put back", func(t *testing.T) {
+			e := newAgentEnv(t)
+			id, phrase, restored, previous := e.restoreScenario()
+			live := e.dataDir()
+			e.fd.mu.Lock()
+			e.fd.bootExit = 1
+			e.fd.mu.Unlock()
+			reached := make(chan struct{})
+			if stop == "dies" {
+				renameDir = func(from, to string) error {
+					err := os.Rename(from, to)
+					if from == live && strings.HasPrefix(to, live+".failed-restore-") {
+						close(reached)
+						runtime.Goexit()
+					}
+					return err
+				}
+				t.Cleanup(func() { renameDir = os.Rename })
+			} else {
+				setRestoreStep(t, func(ctx context.Context, step string) {
+					if step == "reverting" {
+						close(reached)
+						<-ctx.Done()
+					}
+				})
+			}
+			opID := e.startRestore(id, phrase)
+			waitClosed(t, reached, "the previous world to be put back")
+			e.stop()
+			renameDir = os.Rename
+			restoreStep = func(context.Context, string) {}
+			if op := e.opAtRest(opID); op.Status != api.OpRunning || op.Error != "" {
+				t.Fatalf("the undo must stay running for the next agent process to finish: %+v", op)
+			}
+			e.fd.mu.Lock()
+			e.fd.bootExit = 0
+			e.fd.mu.Unlock()
+			e.start()
+			op := e.waitOp(opID)
+			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The restored world did not start (") ||
+				!strings.HasSuffix(op.Error, " Your previous world was put back and is running.") || op.Detail["resumedAfterRestart"] != true {
+				t.Fatalf("the next agent process must finish the undo and say so: %+v", op)
+			}
+			if got := worldHash(t, live); got != previous {
+				t.Fatal("the previous world is not back in place")
+			}
+			asides, failed := restoreCopies(live)
+			if len(asides) != 0 || len(failed) != 1 || worldHash(t, failed[0]) != restored {
+				t.Fatalf("want the restored world kept as one failed-restore copy, got %v and %v", asides, failed)
+			}
+			if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
+				t.Fatalf("the settled restore's stage is left: %v", left)
+			}
+			if got, _ := e.srv().serverConfig(); got == nil || got.MOTD != "Before the restore" {
+				t.Fatalf("the previous settings are not back: %+v", got)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore'`); n != 1 {
+				t.Fatalf("want the restore audited once, got %d", n)
+			}
+			e.waitFor("the previous world running again", e.onlineIdle)
+			if got := worldHash(t, live); got != previous {
+				t.Fatal("starting again changed the previous world")
+			}
+		})
+	}
+}
+
+// When the restored world cannot leave the stage either, the stage holds it:
+// the stage is kept across restarts until the previous world is back, and
+// meanwhile no start may create an empty world in the missing directory.
+func TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	previous := worldHash(t, e.dataDir())
+	live, staged := e.dataDir(), filepath.Join(e.cfg.StagingDir(), id, "data")
+	renameDir = func(from, to string) error {
+		if to == live && (from == staged || strings.HasPrefix(from, live+".replaced-")) || from == staged && strings.HasPrefix(to, live+".failed-restore-") {
+			return errors.New("injected rename failure")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { renameDir = os.Rename })
+	if op := e.applyRestore(id, phrase); op.Status != api.OpFailed || !strings.Contains(op.Error, "the restored world at "+staged) {
+		t.Fatalf("the error must say the restored world is still in the stage: %+v", op)
+	}
+	e.stop()
+	e.start()
+	e.waitFor("the automatic start to refuse", func() bool { return e.opsOf("recover", api.OpFailed) > 0 })
+	if _, err := os.Stat(filepath.Join(staged, "world")); err != nil {
+		t.Fatalf("the stage holding the restored world was deleted at start: %v", err)
+	}
+	if _, err := os.Stat(live); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a start recreated the missing world directory: %v", err)
+	}
+	var refusal string
+	if err := e.a.db.QueryRow(`SELECT error FROM operations WHERE kind = 'recover' AND status = 'failed' LIMIT 1`).Scan(&refusal); err != nil || !strings.Contains(refusal, "world folder is missing") {
+		t.Fatalf("the refused start must say why: %q %v", refusal, err)
+	}
+	renameDir = os.Rename
+	e.stop()
+	e.start()
+	if got := worldHash(t, live); got != previous {
+		t.Fatal("the previous world is not back in place")
+	}
+	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
+		t.Fatalf("the stage is left after the previous world came back: %v", left)
+	}
+	e.waitFor("the previous world running again", e.onlineIdle)
+}
+
+// The world folders restores leave next to the live one are listed with
+// their sizes, newest first, and can be discarded one at a time: only real
+// copies by their exact names, never while the server is busy, and never
+// while the live world folder is missing.
+func TestWorldCopiesAreListedAndDiscarded(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	dir := e.srv().dir()
+	write := func(rel string, size int) {
+		t.Helper()
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, bytes.Repeat([]byte("x"), size), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("data/world/level.dat", 10)
+	write("data.replaced-20260924-090000/world/level.dat", 100)
+	write("data.failed-restore-20260925-101500/world/level.dat", 100)
+	write("data.failed-restore-20260925-101500/world/region/r.0.0.mca", 1000)
+	write("data.failed-update-20260925-101500/world/level.dat", 10)
+	write("data.replaced-yesterday/world/level.dat", 10)
+	if err := os.Symlink(filepath.Join(dir, "data"), filepath.Join(dir, "data.replaced-20260925-120000")); err != nil {
+		t.Fatal(err)
+	}
+	var list []api.WorldCopy
+	e.decode("GET", e.sp("/world-copies"), &list)
+	want := []api.WorldCopy{
+		{Name: "data.failed-restore-20260925-101500", Kind: api.WorldCopyFailedRestore, CreatedAt: time.Date(2026, 9, 25, 10, 15, 0, 0, time.UTC), SizeBytes: 1100},
+		{Name: "data.replaced-20260924-090000", Kind: api.WorldCopyPrevious, CreatedAt: time.Date(2026, 9, 24, 9, 0, 0, 0, time.UTC), SizeBytes: 100},
+	}
+	if fmt.Sprint(list) != fmt.Sprint(want) {
+		t.Fatalf("world copies:\n got %v\nwant %v", list, want)
+	}
+	for _, name := range []string{"..%2F..%2Fetc", "data", "data.failed-update-20260925-101500", "data.replaced-yesterday", "data.replaced-20260924-090000%2F..%2Fdata"} {
+		if code, out := e.call("DELETE", e.sp("/world-copies/"+name+"?actor=admin"), nil); code != 400 {
+			t.Errorf("discarding %q: %d %v", name, code, out)
+		}
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260925-120000?actor=admin"), nil); code != 404 {
+		t.Errorf("discarding a symlink: %d %v", code, out)
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260101-000000?actor=admin"), nil); code != 404 {
+		t.Errorf("discarding a copy that does not exist: %d %v", code, out)
+	}
+	release, _ := e.srv().holdOpLock()
+	code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260924-090000?actor=admin"), nil)
+	release()
+	if code != 409 || out["code"] != api.CodeBusy {
+		t.Errorf("discarding while the server is busy: %d %v", code, out)
+	}
+	if err := os.Rename(filepath.Join(dir, "data"), filepath.Join(dir, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260924-090000?actor=admin"), nil); code != 409 || !strings.Contains(fmt.Sprint(out["error"]), "world folder is missing") {
+		t.Errorf("discarding while the live world folder is missing: %d %v", code, out)
+	}
+	if err := os.Rename(filepath.Join(dir, "moved"), filepath.Join(dir, "data")); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260924-090000?actor=admin"), nil); code != 204 {
+		t.Fatalf("discarding a copy: %d %v", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data.replaced-20260924-090000")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the discarded copy is still there: %v", err)
+	}
+	for _, keep := range []string{"data/world/level.dat", "data.failed-restore-20260925-101500/world/level.dat", "data.failed-update-20260925-101500/world/level.dat", "data.replaced-yesterday/world/level.dat"} {
+		if _, err := os.Stat(filepath.Join(dir, keep)); err != nil {
+			t.Fatalf("discarding one copy touched %s: %v", keep, err)
+		}
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'world_copy.deleted' AND target = 'data.replaced-20260924-090000' AND actor = 'admin'`); n != 1 {
+		t.Fatalf("want one audit row for the discarded copy, got %d", n)
+	}
+}
+
 func worldHash(t *testing.T, dir string) string {
 	t.Helper()
 	h := sha256.New()
@@ -1735,16 +1979,25 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	os.WriteFile(filepath.Join(world, "marker.txt"), []byte("nonce-changed"), 0o644)
 	live := worldHash(t, e.dataDir())
 
-	flipped := append([]byte(nil), archive...)
-	flipped[len(flipped)/2] ^= 0xff
 	evil := craftTar(t, map[string]string{"playkeeper-backup/data/../../../etc/cron.d/x": "* * * * * root id"})
-	for name, bad := range map[string][]byte{"flipped byte": flipped, "truncated": archive[:len(archive)/2], "traversal": evil, "not gzip": []byte("hello")} {
-		code, out := e.upload(bad)
+	for _, c := range []struct {
+		name, reason string
+		bad          []byte
+	}{
+		{"changed byte", "does not match its recorded checksum", changeByte(t, archive, "nonce-original")},
+		{"truncated", "", archive[:len(archive)/2]},
+		{"traversal", "", evil},
+		{"not gzip", "", []byte("hello")},
+	} {
+		code, out := e.upload(c.bad)
 		if code != http.StatusUnprocessableEntity {
-			t.Fatalf("%s archive: %d %v", name, code, out)
+			t.Fatalf("%s archive: %d %v", c.name, code, out)
+		}
+		if msg, _ := out["error"].(string); !strings.Contains(msg, c.reason) {
+			t.Fatalf("%s archive refused for another reason: %v", c.name, out)
 		}
 		if got := worldHash(t, e.dataDir()); got != live {
-			t.Fatalf("%s archive changed the live world", name)
+			t.Fatalf("%s archive changed the live world", c.name)
 		}
 	}
 	entries, _ := os.ReadDir(e.cfg.StagingDir())
@@ -1820,6 +2073,30 @@ func craftTar(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// changeByte returns archive packed again with one byte of the file content
+// in changed. A byte flipped in the compressed stream can unpack to the same
+// files, which a restore then rightly accepts.
+func changeByte(t *testing.T, archive []byte, in string) []byte {
+	t.Helper()
+	zr, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(raw, []byte(in)); n != 1 {
+		t.Fatalf("the archive holds %q %d times, want once", in, n)
+	}
+	raw[bytes.Index(raw, []byte(in))] ^= 0x20
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	zw.Write(raw)
+	zw.Close()
+	return buf.Bytes()
+}
+
 func TestNoIPsOrSecretsAreStored(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
@@ -1883,4 +2160,98 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 			t.Errorf("missing audit row %s", k)
 		}
 	}
+}
+
+// A world over a limit as a whole is refused before the server stops too,
+// with a hint to trim the world rather than rename one file.
+func TestBackupRefusesAWholeWorldOverALimitBeforeStopping(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	lim := backup.DefaultLimits()
+	lim.MaxTotalBytes = 1 << 20
+	archiveLimits = func() backup.Limits { return lim }
+	t.Cleanup(func() { archiveLimits = backup.DefaultLimits })
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "world", "big.dat"), make([]byte, 1<<20), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	stops := e.dockerStops()
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "Cannot back up this world: a restore would refuse it: archive expands beyond the 1048576 byte limit") {
+		t.Fatalf("backing up a world over a limit must fail and say why: %+v", op)
+	}
+	if want := "Remove files the world does not need from " + e.dataDir() + ", then try again."; op.Hint != want {
+		t.Fatalf("hint %q, want %q", op.Hint, want)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
+		t.Fatalf("%d backup rows recorded for a refused backup", n)
+	}
+	if p := e.status().Phase; p != api.PhaseOnline {
+		t.Fatalf("the server must stay online, got %s", p)
+	}
+}
+
+// A restore and a Minecraft update back up the current world first, so a
+// world a restore would refuse makes each fail before the server stops.
+func TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	deep := filepath.Join(e.dataDir(), "world", strings.Repeat("a", 250), strings.Repeat("b", 250), strings.Repeat("c", 250), strings.Repeat("d", 250))
+	if err := os.MkdirAll(deep, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	live := worldHash(t, e.dataDir())
+	stops := e.dockerStops()
+	op := e.applyRestore(id, phrase)
+	if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "Cannot back up ") || !strings.Contains(op.Error, "entry name too long") || !strings.HasPrefix(op.Hint, "Nothing was replaced. Rename or remove that file in "+e.dataDir()) {
+		t.Fatalf("a restore over a world its rollback archive would refuse must fail and say why: %+v", op)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for a restore that was refused", n)
+	}
+	code, out := e.changeVersion(map[string]any{"versionId": "paper-26.2"})
+	if code != 202 {
+		t.Fatalf("change: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "Cannot back up ") || !strings.Contains(op.Error, "entry name too long") || !strings.HasPrefix(op.Hint, "Nothing was changed. Rename or remove that file in "+e.dataDir()) {
+		t.Fatalf("an update of a world its backup would refuse must fail and say why: %+v", op)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for an update that was refused", n)
+	}
+	if got := worldHash(t, e.dataDir()); got != live {
+		t.Fatal("a refused restore or update changed the world")
+	}
+	if sc, _ := e.srv().serverConfig(); sc.MinecraftVersion != "26.1.2" {
+		t.Fatalf("a refused update changed the version: %+v", sc)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups WHERE kind = 'rollback'`); n != 0 {
+		t.Fatalf("%d rollback archives recorded for refused changes", n)
+	}
+	if p := e.status().Phase; p != api.PhaseOnline {
+		t.Fatalf("the server must stay online, got %s", p)
+	}
+}
+
+// dockerStops counts the container stops the agent asked Docker for.
+func (e *agentEnv) dockerStops() int {
+	e.fd.mu.Lock()
+	defer e.fd.mu.Unlock()
+	n := 0
+	for _, c := range e.fd.calls {
+		if strings.HasPrefix(c, "POST /containers/") && strings.HasSuffix(c, "/stop") {
+			n++
+		}
+	}
+	return n
 }

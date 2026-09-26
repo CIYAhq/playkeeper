@@ -25,9 +25,9 @@ type opHandle struct {
 	save func(op *api.Operation)
 	mu   func() func()
 	op   *api.Operation
-	// continues is set by an operation that goes on outside the agent (an
-	// update handed to the updater): it stays running until its result is
-	// recorded.
+	// continues is set by an operation that goes on outside this agent
+	// process (an update handed to the updater, or a restore the next agent
+	// process finishes): it stays running until its result is recorded.
 	continues bool
 }
 
@@ -45,6 +45,12 @@ func (h *opHandle) set(key string, v any) {
 	snap := copyOp(h.op)
 	unlock()
 	h.save(snap)
+}
+
+func (h *opHandle) get(key string) any {
+	unlock := h.mu()
+	defer unlock()
+	return h.op.Detail[key]
 }
 
 // copyOp copies an operation with its own Detail map, so the copy can be read
@@ -135,7 +141,16 @@ func (s *server) beginOp(kind, actor string, fn func(ctx context.Context, h *opH
 // startOp starts fn as the server's operation. The caller holds the
 // operation lock, which the operation releases when fn returns.
 func (s *server) startOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
-	op := &api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}
+	return s.launchOp(&api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}, fn)
+}
+
+// launchOp runs fn as op, a new operation or one a previous agent process
+// left running, like startOp.
+func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
+	if op.Detail == nil {
+		op.Detail = map[string]any{}
+	}
+	kind, actor := op.Kind, op.Actor
 	s.opMu.Lock()
 	s.op = op
 	snap := copyOp(op)
@@ -308,6 +323,13 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 
 func (s *server) ensureDirs() error {
 	data := s.dataDir()
+	// A server started without its world directory generates a new world, so
+	// never recreate one a restore moved aside and could not put back.
+	if _, err := os.Stat(data); errors.Is(err, os.ErrNotExist) {
+		if prev := s.newestPreviousWorld(); prev != "" {
+			return &apiError{Msg: "The world folder is missing because a restore did not finish; the previous world is at " + prev + ".", Hint: "Move that folder back to " + data + ", then press Start."}
+		}
+	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
 	}
@@ -621,6 +643,21 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 		}
 	}
 }
+
+// waitOnline waits until the server is online. startServer returns at once
+// for a container that was already running, which after an agent restart may
+// still be starting.
+func (s *server) waitOnline(ctx context.Context, h *opHandle) error {
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
+	if err != nil {
+		return s.dockerErr(err)
+	}
+	return s.waitReady(ctx, h, c.ID)
+}
+
+// stopping is true once the agent is shutting down: an operation that fails
+// then may have failed only because it was cut short.
+func (s *server) stopping() bool { return s.ctx.Err() != nil }
 
 // stopContainer saves the world and stops the container gracefully.
 func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) error {

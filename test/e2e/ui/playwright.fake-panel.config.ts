@@ -9,7 +9,7 @@ const port = Number(process.env.PK_UI_PORT ?? 4173)
 
 export default defineConfig({
   testDir: '.',
-  testMatch: ['console-scroll.spec.ts'],
+  testMatch: ['console-scroll.spec.ts', 'restore-upload.spec.ts'],
   timeout: 3 * 60_000,
   workers: 1,
   reporter: [['list']],

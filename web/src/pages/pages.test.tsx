@@ -3,10 +3,12 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Backup, MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Backup, MachineView, Me, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
+import { toastManager } from '@/components/ui/toast'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
@@ -18,6 +20,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  del: vi.fn(() => Promise.resolve(undefined)),
   api: vi.fn(() => Promise.resolve({})),
 }))
 
@@ -438,5 +441,107 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+})
+
+// Follow-ups after 0.3.0.
+describe('World', () => {
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+    if (!button) throw new Error(`no ${label} button`)
+    await act(async () => button.click())
+  }
+
+  it('shows the newest world copy a restore left, and discards it only after asking', async () => {
+    const copies = [
+      { name: 'data.failed-restore-20260925-101500', kind: 'failed_restore', createdAt: '2026-09-25T10:15:00Z', sizeBytes: 1100 * 2 ** 20 },
+      { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 900 * 2 ** 20 },
+    ]
+    answer({ '/world-copies': copies, '/backups': [] })
+    vi.mocked(client.del).mockClear()
+    const text = await render(<WorldPage server={server()} />)
+    expect(text).toContain('A restored world that didn’t start is still on this VPS')
+    expect(text).toContain('1.1 GB')
+    expect(text).not.toContain('Your previous world')
+    await click('Discard')
+    expect(client.del).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Discard this world copy?')
+    answer({ '/world-copies': copies.slice(1), '/backups': [] })
+    await click('Discard copy')
+    expect(client.del).toHaveBeenCalledWith('/api/servers/abcdefghjk/world-copies/data.failed-restore-20260925-101500')
+    expect(document.body.textContent).toContain('Your previous world is still on this VPS')
+  })
+
+  it('says why a copy can’t be discarded while a job runs', async () => {
+    answer({ '/world-copies': [{ name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 2 ** 30 }], '/backups': [] })
+    const job: Operation = { id: 'restore-1', serverId: 'abcdefghjk', kind: 'restore', status: 'running', phase: 'swapping', actor: 'siya', startedAt: '2026-09-25T10:00:00Z' }
+    await render(<WorldPage server={server({ operation: job })} />)
+    const discard = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Discard')
+    expect(discard?.disabled).toBe(true)
+    expect(discard?.title).toBe('Restoring Survival. Try again when it’s done.')
+  })
+
+  it('shows nothing when no restore left a copy', async () => {
+    answer({ '/world-copies': [], '/backups': [] })
+    expect(await render(<WorldPage server={server()} />)).not.toContain('still on this VPS')
+  })
+})
+
+describe('Restore as a new server', () => {
+  const preview: RestorePreview = {
+    id: 'r2345abcde',
+    source: 'Uploaded file world.tar.gz',
+    receivedAt: '2026-09-25T10:00:00Z',
+    sizeBytes: 50 * 2 ** 20,
+    sha256: 'ab'.repeat(32),
+    manifest: { createdAt: '2026-09-24T09:00:00Z', playkeeperVersion: '0.3.0', minecraftVersion: '26.1.2', paperBuild: 74, versionId: 'paper-26.1.2', levelName: 'world', fileCount: 89, totalBytes: 120 * 2 ** 20, sourceInstall: 'a1b2c3', settings: {} },
+    compatible: true,
+    problems: [],
+    warnings: ['This backup was made on a different Playkeeper host.'],
+    currentWorld: { exists: false, sizeBytes: 0 },
+    willCreateRollback: false,
+    needsEula: true,
+    memoryMB: 1536,
+    confirmPhrase: 'restore',
+    steps: ['Install the world "world" from the backup'],
+    notRestored: [],
+  }
+
+  it('asks for the EULA only until its box is ticked', async () => {
+    const text = await render(<RestoreDialog preview={preview} onClose={() => {}} />)
+    expect(text).toContain('you must accept the Minecraft EULA first')
+    const box = document.querySelector<HTMLElement>('[role="checkbox"]')
+    const label = box?.closest('label')
+    if (!box || !label) throw new Error('no EULA checkbox')
+    await act(async () => label.click())
+    expect(box.getAttribute('aria-checked')).toBe('true')
+    expect(document.body.textContent).not.toContain('you must accept the Minecraft EULA first')
+    expect(document.body.textContent).toContain('This backup was made on a different Playkeeper host.')
+  })
+})
+
+describe('Backup upload', () => {
+  const choose = async (size: number) => {
+    const file = new File(['x'], 'world.tar.gz', { type: 'application/gzip' })
+    Object.defineProperty(file, 'size', { value: size })
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no backup upload')
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    return file
+  }
+
+  it('sends a 1 GB file and turns down a 21 GB one without sending it', async () => {
+    const toast = vi.spyOn(toastManager, 'add')
+    vi.mocked(client.api).mockClear()
+    await render(<RestoreDropZone server={server()} onPreview={() => {}} />)
+    const file = await choose(2 ** 30)
+    expect(client.api).toHaveBeenCalledWith('POST', '/api/servers/abcdefghjk/restore/upload', undefined, file)
+    expect(toast).not.toHaveBeenCalled()
+    vi.mocked(client.api).mockClear()
+    await choose(21 * 2 ** 30)
+    expect(client.api).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith({ title: 'That file is too big to be a Playkeeper backup.', type: 'error' })
+    toast.mockRestore()
   })
 })

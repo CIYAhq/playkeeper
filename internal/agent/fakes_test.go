@@ -38,6 +38,7 @@ type fakeDocker struct {
 	replayAll    bool
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
+	failBoots    int           // the next failBoots servers to start exit with code 1
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
 	stopDelay    time.Duration // before a container stop takes effect
@@ -372,7 +373,10 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 // boot simulates the image: setup-only writes the jar and exits; the server
 // prints its startup lines and "Done".
 func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
-	time.Sleep(fd.bootDelay)
+	fd.mu.Lock()
+	delay := fd.bootDelay
+	fd.mu.Unlock()
+	time.Sleep(delay)
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 	if !c.running {
@@ -407,9 +411,14 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 		c.wake = make(chan struct{})
 		return
 	}
-	if fd.bootExit != 0 {
+	exit := fd.bootExit
+	if exit == 0 && fd.failBoots > 0 {
+		fd.failBoots--
+		exit = 1
+	}
+	if exit != 0 {
 		fd.log(c, "[12:00:00 ERROR]: Encountered an unexpected exception")
-		c.running, c.exitCode, c.finished = false, fd.bootExit, time.Now().UTC()
+		c.running, c.exitCode, c.finished = false, exit, time.Now().UTC()
 		close(c.wake)
 		c.wake = make(chan struct{})
 		return

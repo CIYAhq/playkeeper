@@ -465,3 +465,13 @@ export interface Me {
   idleTimeoutSeconds: number
   version: string
 }
+
+// Follow-ups after 0.3.0.
+
+/** A world folder a restore left next to the live one. */
+export interface WorldCopy {
+  name: string
+  kind: 'previous' | 'failed_restore'
+  createdAt: string
+  sizeBytes: number
+}

@@ -93,6 +93,18 @@ func (a *Agent) restoreBuild(ctx context.Context, mc string, build int) (api.Cat
 	return e, err
 }
 
+// forgetFailedBuild drops a failed restoreBuild lookup from the cache, so
+// the next one asks PaperMC again instead of repeating the failure.
+func (a *Agent) forgetFailedBuild(mc string, build int) {
+	c := &a.catalog
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := fmt.Sprintf("%s#%d", mc, build)
+	if b, ok := c.builds[key]; ok && b.err != nil {
+		delete(c.builds, key)
+	}
+}
+
 // jarChecksum is the SHA-256 a server's jar must have. Servers created by
 // 0.1.0 did not record it; their builds' checksums are known.
 func jarChecksum(sc api.ServerConfig) (string, error) {
@@ -192,6 +204,9 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 	if free, _, err := s.opts.DiskUsage(s.cfg.BackupsDir()); err == nil && free < 2*need+minFreeAfterBackup {
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space to update safely: %s free, about %s needed for the backup and a possible rollback.", humanBytes(free), humanBytes(2*need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
+	}
+	if err := s.archiveRefusal("Nothing was changed."); err != nil {
+		return err
 	}
 	_, wasRunning, err := s.containerRunning(ctx)
 	if err != nil {

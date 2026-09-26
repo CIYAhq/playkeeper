@@ -52,6 +52,26 @@ function connect (name) {
   })
 }
 
+// placeOn puts item on top of the block at below, trying again a few times: right
+// after the console's fill, tp and give, the server now and then refuses the
+// first placement. A block that is already there counts, in case an earlier
+// try went through but its confirmation was lost.
+async function placeOn (bot, below, item) {
+  const target = below.offset(0, 1, 0)
+  for (let attempt = 1; ; attempt++) {
+    if (bot.blockAt(target)?.name === item) return
+    try {
+      await bot.equip(bot.inventory.items().find(i => i.name === item), 'hand')
+      await bot.placeBlock(bot.blockAt(below), new Vec3(0, 1, 0))
+      return
+    } catch (e) {
+      if (attempt >= 4) throw e
+      log(`placing ${item} at ${target} failed (${e.message}); trying again`)
+      await bot.waitForTicks(20)
+    }
+  }
+}
+
 async function place () {
   const bot = await connect(a.name)
   await bot.waitForTicks(20)
@@ -66,13 +86,10 @@ async function place () {
     `give ${a.name} minecraft:oak_sign 1`
   ]) log('console>', cmd, '=>', await panelCommand(cmd))
   await bot.waitForTicks(30)
-  const ground = bot.blockAt(new Vec3(x + 2, y - 1, z))
-  await bot.equip(bot.inventory.items().find(i => i.name === 'gold_block'), 'hand')
-  await bot.placeBlock(ground, new Vec3(0, 1, 0))
+  await placeOn(bot, new Vec3(x + 2, y - 1, z), 'gold_block')
   const gold = bot.blockAt(new Vec3(x + 2, y, z))
   log('client placed', gold.name, 'at', x + 2, y, z)
-  await bot.equip(bot.inventory.items().find(i => i.name === 'oak_sign'), 'hand')
-  await bot.placeBlock(gold, new Vec3(0, 1, 0)).catch(e => log('sign placement note:', e.message))
+  await placeOn(bot, new Vec3(x + 2, y, z), 'oak_sign').catch(e => log('sign placement note:', e.message))
   await bot.waitForTicks(10)
   const sign = bot.blockAt(new Vec3(x + 2, y + 1, z))
   if (sign.name !== 'oak_sign') throw new Error('sign was not placed: ' + sign.name)
