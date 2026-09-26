@@ -463,6 +463,8 @@ export function MachineDetailsSection({ id }: { id: string }) {
   }
 
   const list = events.data ?? []
+  // On a phone the machine's name is the page's title; on desktop it sits under Settings.
+  const Title = phone ? 'h1' : 'h2'
   return (
     <>
       {back}
@@ -470,7 +472,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
         <div className="flex min-w-0 items-start gap-3">
           <ServerIcon className="mt-1.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">
-            <h2 className="truncate text-xl leading-7 font-bold tracking-[-0.01em]">{name}</h2>
+            <Title className="truncate text-xl leading-7 font-bold tracking-[-0.01em]">{name}</Title>
             <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
               <StateDot tone={state.tone} />
               {status}
@@ -491,7 +493,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
           ))}
       </div>
       {problem && problemCopy && (
-        <div className="-mt-1 flex flex-wrap items-center gap-x-4 gap-y-2" role="status">
+        <div className="-mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 max-sm:flex-col max-sm:items-start" role="status">
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-warning-foreground">{problemCopy.title}</p>
             {problemCopy.hint && <p className="text-xs text-muted-foreground">{problemCopy.hint}</p>}
