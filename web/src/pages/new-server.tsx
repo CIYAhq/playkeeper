@@ -4,12 +4,12 @@ import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
 import { useBuilds } from '@/api/software'
 import { planTemplate } from '@/api/templates'
-import type { Operation, RestorePreview, ServerStatus, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
+import type { MachineView, Operation, RestorePreview, ServerStatus, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
-import { CardGroup, ChoiceCard, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
-import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
+import { CardGroup, ChoiceCard, ChoiceSelect, Segmented, Stepper, useIsPhone } from '@/components/app/controls'
+import { budgetAdvice, createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryReadout, MemorySlider, memoryOptions, MoreOptions, nameBlocked, recommendedVersion, StyleCards, styleMemory, TypeCards, VersionPicker, versionBlocked, type CreateChoices } from '@/components/app/create'
 import { PhoneActions } from '@/components/app/frame'
 import { ModpackPicker, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
@@ -25,11 +25,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
+import { demo } from '@/lib/demo'
 import { formatList, formatMB } from '@/lib/format'
+import { isAway, machineLabel } from '@/lib/machines'
 import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { addonKind, hasBuilds, typeTexts } from '@/lib/software'
-import { playersFor, preset } from '@/lib/styles'
+import { preset } from '@/lib/styles'
 import { templateFromHash } from '@/lib/templates'
 import { cn } from '@/lib/utils'
 
@@ -45,12 +47,13 @@ const worldStepKeys: Partial<Record<number, { next: MessageKey; button: MessageK
 
 export type StartFrom = 'type' | 'modpack' | 'template' | 'world'
 
-const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
+const allStartFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
   { value: 'type', long: 'new.from.type', short: 'new.from.typeShort' },
   { value: 'modpack', long: 'new.from.modpack', short: 'new.from.modpackShort' },
   { value: 'template', long: 'new.from.template', short: 'new.from.templateShort' },
   { value: 'world', long: 'new.from.world', short: 'new.from.worldShort' },
 ]
+const startFroms = allStartFroms.filter((f) => f.value === 'type' || f.value === 'world' || demo?.templates !== false)
 
 /** A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped. */
 export function packRequest(c: CreateChoices, pack: ModpackChoice) {
@@ -104,11 +107,26 @@ interface Checked {
   world?: string
 }
 
-export function NewServerPage() {
+/** Why the machine given can't take a new server now, if it can't: it isn't connected to the dashboard, or it's away. */
+function unavailable(machine: string | undefined, target: MachineView | undefined, machines: MachineView[]): string | undefined {
+  if (!machine || machines.length === 0) return undefined
+  if (!target) return t('new.machineGone')
+  return isAway(target) ? t('machines.away.pill', { name: machineLabel(target) }) : undefined
+}
+
+/**
+ * Makes a server on the dashboard's machine, or on the machine given. A
+ * machine that's away is never swapped for another: the page says so and
+ * holds Create back until it's back. App keys the page by machine, so the
+ * machine can't change while the page is open.
+ */
+export function NewServerPage({ machine }: { machine?: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
+  const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine
+  const away = unavailable(machine, target, ws.machines)
+  const machineName = target?.kind === 'remote' || (machine && !target) ? machineLabel(target) : ws.machineName
   const [c, setC] = useState<CreateChoices>()
-  const { catalog, error, reload } = useCatalog(ws.machine?.id, { type: c?.type ?? 'paper', fresh: true })
   const [step, setStep] = useState(0)
   // The first step comes in with the page; later ones animate in themselves.
   const [stepped, setStepped] = useState(false)
@@ -126,11 +144,13 @@ export function NewServerPage() {
   const [from, setFrom] = useState<StartFrom>(() => (handoff ? 'template' : window.location.hash === '#world' ? 'world' : 'type'))
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
+  // A pack's mods size its memory options, as the sizing guide does.
+  const { catalog, error, reload } = useCatalog(target?.id, { type: c?.type ?? 'paper', mods: packed ? pack.mods : undefined, fresh: true })
   const [tpl, setTpl] = useState<TemplateChoice>()
   const [tplProblem, setTplProblem] = useState<string>()
   const templated = from === 'template' && !!tpl
   const [source, setSource] = useState<WorldSource>('singleplayer')
-  const upload = useWorldUpload(ws.machine?.id)
+  const upload = useWorldUpload(target?.id)
   const [check, setCheck] = useState<Checked>()
   const [checkBusy, setCheckBusy] = useState(false)
   const [checkErr, setCheckErr] = useState<CheckError>()
@@ -148,7 +168,7 @@ export function NewServerPage() {
   // The catalog keeps showing the last type's versions while the next type's load.
   const typeCatalog = catalog && c && catalog.type === c.type ? catalog : undefined
   const version = typeCatalog?.versions.find((v) => v.id === c?.versionId)
-  const builds = useBuilds(ws.machine?.id, c?.type ?? 'paper', c && hasBuilds(c.type) ? version?.minecraftVersion : undefined)
+  const builds = useBuilds(target?.id, c?.type ?? 'paper', c && hasBuilds(c.type) ? version?.minecraftVersion : undefined)
 
   useEffect(() => {
     if (!catalog || c) return
@@ -169,7 +189,8 @@ export function NewServerPage() {
   const noMemory = !!catalog && options.length === 0
 
   function blocked(): string | undefined {
-    if (!c) return t('common.loading')
+    if (away) return away
+    if (!c || !target) return t('common.loading')
     if (world) {
       switch (step) {
         case 0:
@@ -196,20 +217,20 @@ export function NewServerPage() {
       case 2:
         return undefined
       case 3:
-        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: ws.machineName }) : undefined
+        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: machineName }) : undefined
       default:
         return packed || templated ? nameBlocked(c) : createBlocked(c, version)
     }
   }
 
   async function create() {
-    if (!c || !ws.machine || (world && !inspected)) return
+    if (!c || !target || (world && !inspected)) return
     setBusy(true)
     setCreateError(undefined)
     try {
       let op: Operation
       if (world && inspected) {
-        op = await post<Operation>(machineApi(ws.machine.id, `/world-imports/${inspected.upload.id}/create`), {
+        op = await post<Operation>(machineApi(target.id, `/world-imports/${inspected.upload.id}/create`), {
           options: { world: inspected.world ?? '', keepAddons: false, keepPlayerLists: false, keepOperators: false },
           versionId: inspected.preview.versionId,
           name: c.name.trim(),
@@ -219,14 +240,14 @@ export function NewServerPage() {
         upload.keep()
       } else {
         const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack) : createRequest(c)
-        op = await post<Operation>(machineApi(ws.machine.id, '/servers'), body)
+        op = await post<Operation>(machineApi(target.id, '/servers'), body)
       }
       await openCreated(op, ws.refresh)
     } catch (e) {
       if (templated && tpl && e instanceof ApiError && e.code === 'plan_changed') {
         // The machine's versions moved on, or it forgot the plan: show the new plan before creating.
         const problem = errorText(e)
-        const plan = await planTemplate(ws.machine.id, tpl.text).catch(() => undefined)
+        const plan = await planTemplate(target.id, tpl.text).catch(() => undefined)
         if (plan) {
           setTpl({ ...tpl, plan })
           setTplProblem(problem)
@@ -262,8 +283,8 @@ export function NewServerPage() {
   }
   /** Looks inside the upload, then previews its main world on the recommended version. */
   async function checkWorld() {
-    if (!ws.machine || !uploaded || !catalog) return
-    const mid = ws.machine.id
+    if (!target || !uploaded || !catalog) return
+    const mid = target.id
     const seq = ++checkSeq.current
     setCheckBusy(true)
     setCheckErr(undefined)
@@ -285,13 +306,13 @@ export function NewServerPage() {
 
   /** Previews another world in the upload, or another version. */
   async function repreview(id: string, versionId?: string) {
-    if (!ws.machine || !inspected || !uploaded) return
+    if (!target || !inspected || !uploaded) return
     const imp = inspected.upload
     const seq = ++checkSeq.current
     setCheckBusy(true)
     setCheckErr(undefined)
     try {
-      const p = await post<WorldImportPreview>(machineApi(ws.machine.id, `/world-imports/${imp.id}/preview`), { options: { world: id }, ...(versionId ? { versionId } : {}) })
+      const p = await post<WorldImportPreview>(machineApi(target.id, `/world-imports/${imp.id}/preview`), { options: { world: id }, ...(versionId ? { versionId } : {}) })
       if (seq !== checkSeq.current) return
       setCheck({ upload: imp, preview: p, world: id })
       const name = suggestedName(imp, id, uploaded.files)
@@ -328,8 +349,15 @@ export function NewServerPage() {
   const back = () => go(step === 3 && world ? 1 : step === 3 && (packed || templated) ? 0 : Math.max(0, step - 1))
   const stepTitles = stepKeys.map((k) => t(k))
 
+  const awayNotice = away && (
+    <Notice tone="warning" title={away} className="mb-5">
+      {target && t('new.machineAwayBody')}
+    </Notice>
+  )
   let body: ReactNode
-  if (error) {
+  if (away && (error || !c || !catalog)) {
+    body = null
+  } else if (error) {
     body = (
       <Notice
         tone="error"
@@ -392,7 +420,9 @@ export function NewServerPage() {
             <section>
               {phone ? (
                 <>
-                  <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-4 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  {startFroms.length > 1 && (
+                    <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-4 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  )}
                   {from === 'type' && (
                     <div className="mt-1 mb-2 flex justify-end">
                       <button type="button" onClick={() => setCompareOpen(true)} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
@@ -405,8 +435,8 @@ export function NewServerPage() {
               ) : (
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h2 className="text-[15px] font-semibold">{t('new.startFrom')}</h2>
-                    <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />
+                    <h2 className="text-[15px] font-semibold">{startFroms.length > 1 ? t('new.startFrom') : t('new.from.type')}</h2>
+                    {startFroms.length > 1 && <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />}
                   </div>
                   <p className="mt-0.5 text-[13px] text-muted-foreground">
                     {from === 'modpack' ? (
@@ -427,10 +457,10 @@ export function NewServerPage() {
                 </div>
               )}
               <div key={from} className={cn('animate-fade', phone && from === 'type' ? '' : 'mt-3')}>
-                {from === 'modpack' && ws.machine ? (
-                  <ModpackPicker machineId={ws.machine.id} value={pack} onChange={setPack} onUse={startWithPack} phone={phone} />
-                ) : from === 'template' && ws.machine ? (
-                  <TemplatePicker machineId={ws.machine.id} value={tpl} onChange={chooseTemplate} handoff={handoff} problem={tplProblem} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} />
+                {from === 'modpack' && target ? (
+                  <ModpackPicker machineId={target.id} value={pack} onChange={setPack} onUse={startWithPack} phone={phone} />
+                ) : from === 'template' && target ? (
+                  <TemplatePicker machineId={target.id} value={tpl} onChange={chooseTemplate} handoff={handoff} problem={tplProblem} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} />
                 ) : world ? (
                   <WorldSourceStep source={source} onSource={setSource} upload={upload} phone={phone} error={checkErr} />
                 ) : (
@@ -550,18 +580,24 @@ export function NewServerPage() {
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
               {!noMemory && (
                 <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
-                  {world ? t('import.memoryLead', { memory: formatMB(suggested) }) : templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { memory: formatMB(suggested), players: playersFor(suggested) })}
+                  {world
+                    ? t('import.memoryLead', { memory: formatMB(suggested) })
+                    : templated && packMB
+                      ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) })
+                      : packMB && pack
+                        ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) })
+                        : t('new.memoryLead', { memory: formatMB(suggested), players: budgetAdvice(catalog, suggested)?.players || (preset(c.style)?.players ?? 10) })}
                 </p>
               )}
             </div>
             {noMemory ? (
               <Notice tone="warning" title={t('new.noMemoryTitle')}>
-                {t('new.noMemory', { machine: ws.machineName })}
+                {t('new.noMemory', { machine: machineName })}
               </Notice>
             ) : (
               <>
                 <Card className="p-4">
-                  <h3 className="text-sm font-semibold">{t('new.machineHas', { machine: ws.machineName, total: formatMB(catalog.hostMemoryMB) })}</h3>
+                  <h3 className="text-sm font-semibold">{t('new.machineHas', { machine: machineName, total: formatMB(catalog.hostMemoryMB) })}</h3>
                   <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{others[0] ? t('new.shareHintStopped', { server: others[0].name }) : t('new.shareHint')}</p>
                   <MemoryBar catalog={catalog} memoryMB={c.memoryMB} />
                 </Card>
@@ -570,12 +606,12 @@ export function NewServerPage() {
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} advice={budgetAdvice(catalog, c.memoryMB)} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
                     </div>
                   </div>
                   {largest !== undefined && (
                     <p className="mt-4 text-xs text-muted-foreground">
-                      {catalog.servers.length > 0 ? t('new.maxNote', { memory: formatMB(largest), servers: formatList(catalog.servers.map((x) => x.name)) }) : t('new.maxNoteAlone', { memory: formatMB(largest), machine: ws.machineName })}
+                      {catalog.servers.length > 0 ? t('new.maxNote', { memory: formatMB(largest), servers: formatList(catalog.servers.map((x) => x.name)) }) : t('new.maxNoteAlone', { memory: formatMB(largest), machine: machineName })}
                     </p>
                   )}
                 </Card>
@@ -626,10 +662,14 @@ export function NewServerPage() {
   const worldSummary = world ? { from: sourceFrom(source), name: upload.state.phase === 'idle' ? '' : uploadName(upload.state.files), upload: upload.state, version: inspected ? versionChange(inspected.preview) : '' } : undefined
   const stepBody = (
     <div key={step} className={cn(stepped && 'animate-page')}>
+      {awayNotice}
       {body}
     </div>
   )
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
+  // The machine is picked before the flow starts, and stays the same after.
+  const started = step > 0 || upload.state.phase !== 'idle'
+  const choices = started ? [] : ws.machines.filter((m) => m.id === target?.id || !isAway(m))
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} machine={machineName} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
   const worldKeys = world ? worldStepKeys[step] : undefined
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
   const continueLabel =
@@ -659,6 +699,7 @@ export function NewServerPage() {
           </div>
           <DialogPanel className="pt-3">
             <RestoreDropZone
+              machine={target?.id}
               onPreview={(p) => {
                 setRestoreOpen(false)
                 setPreview(p)
@@ -667,7 +708,7 @@ export function NewServerPage() {
           </DialogPanel>
         </DialogPopup>
       </Dialog>
-      <RestoreDialog preview={preview} onClose={() => setPreview(undefined)} />
+      <RestoreDialog preview={preview} machine={target?.id} onClose={() => setPreview(undefined)} />
     </>
   )
 
@@ -712,20 +753,38 @@ export function NewServerPage() {
       <PageHeader
         breadcrumb={
           <span className="flex items-center gap-1.5">
-            {ws.machineName}
-            <span className="text-muted-foreground/60" aria-hidden="true">
-              /
-            </span>
+            {machineName && (
+              <>
+                {machineName}
+                <span className="text-muted-foreground/60" aria-hidden="true">
+                  /
+                </span>
+              </>
+            )}
             <span className="font-semibold text-foreground">{t('new.title')}</span>
           </span>
         }
         title={t('new.title')}
-        subtitle={t('new.lead', { machine: ws.machineName })}
+        subtitle={machineName ? t('new.lead', { machine: machineName }) : undefined}
         actions={
-          <Button variant="ghost" render={<a {...linkProps({ name: 'home' })} />}>
-            {t('new.cancel')}
-            <XIcon />
-          </Button>
+          <>
+            {choices.length > 1 && target && (
+              <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                {t('machines.newServerOn')}
+                <ChoiceSelect
+                  value={target.id}
+                  onChange={(id) => navigate({ name: 'new-server', machine: id }, true)}
+                  label={t('machines.newServerOn')}
+                  options={choices.map((m) => ({ value: m.id, label: m.kind === 'remote' ? machineLabel(m) : ws.machineName }))}
+                  className="min-w-36 text-foreground"
+                />
+              </label>
+            )}
+            <Button variant="ghost" render={<a {...linkProps({ name: 'home' })} />}>
+              {t('new.cancel')}
+              <XIcon />
+            </Button>
+          </>
         }
       />
       <PageBody className="flex flex-col gap-5">
@@ -784,8 +843,7 @@ interface WorldSummary {
   version: string
 }
 
-function Summary({ choices: c, step, port, version, from, pack, plan, world, note }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice; plan?: TemplatePlan; world?: WorldSummary; note?: string }) {
-  const ws = useWorkspace()
+function Summary({ choices: c, step, port, version, machine, from, pack, plan, world, note }: { choices: CreateChoices; step: number; port?: number; version: string; machine: string; from: StartFrom; pack?: ModpackChoice; plan?: TemplatePlan; world?: WorldSummary; note?: string }) {
   const p = preset(c.style)
   const v = (done: boolean, value: string) =>
     done ? (
@@ -852,7 +910,7 @@ function Summary({ choices: c, step, port, version, from, pack, plan, world, not
         <Pip pose="wave" size={44} />
         <div>
           <div className="text-[15px] font-semibold">{t('new.summary')}</div>
-          <div className="text-xs text-muted-foreground">{t('new.onMachine', { machine: ws.machineName })}</div>
+          <div className="text-xs text-muted-foreground">{t('new.onMachine', { machine })}</div>
         </div>
       </div>
       <dl className="mt-4 flex flex-col gap-2.5 border-t border-border pt-4 text-xs">

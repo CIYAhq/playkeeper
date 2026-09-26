@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,9 +49,10 @@ type fakeHost struct {
 	lockFreedAt   int  // len(cmds) when a held lock was released
 	aptLockErrors int  // apt-get fails this many more times with a lock error
 	// unhealthy makes the health check for a version fail; healthChecks
-	// records the versions checked.
+	// records the versions checked, and panelPorts the panel ports.
 	unhealthy    map[string]error
 	healthChecks []string
+	panelPorts   []int
 	// stopsAfterAnswering is a version that passes its first health check
 	// and fails the next ones: it crashed right after starting.
 	stopsAfterAnswering string
@@ -107,7 +110,11 @@ func (h *fakeHost) system(t *testing.T) System {
 				if h.unitsJSON != "" {
 					return h.unitsJSON, nil
 				}
-				b, _ := json.Marshal(Units(config.Default()))
+				cfg, err := config.Load(filepath.Join(h.root, ConfigDir, "config.json"))
+				if err != nil {
+					cfg = config.Default()
+				}
+				b, _ := json.Marshal(Units(cfg, Joined(cfg, h.root)))
 				return string(b), nil
 			case name == "ufw" && h.ufwActive && len(args) == 2 && args[0] == "allow":
 				if h.ufwRules[args[1]] {
@@ -216,10 +223,16 @@ func (h *fakeHost) system(t *testing.T) System {
 			}
 			return false
 		},
-		WaitHealthy: func(context.Context, string, string, int) error { return h.healthErr },
-		WaitVersion: func(_ context.Context, _, _ string, _ int, want string) error {
+		WaitHealthy: func(_ context.Context, _, _ string, port int) error {
 			h.mu.Lock()
 			defer h.mu.Unlock()
+			h.panelPorts = append(h.panelPorts, port)
+			return h.healthErr
+		},
+		WaitVersion: func(_ context.Context, _, _ string, port int, want string) error {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.panelPorts = append(h.panelPorts, port)
 			if want == h.stopsAfterAnswering {
 				for _, v := range h.healthChecks {
 					if v == want {
@@ -498,6 +511,62 @@ func TestHealthFailureRollsBack(t *testing.T) {
 	}
 	if d := diff(before, snapshot(t, h.root)); len(d) != 0 {
 		t.Fatalf("rollback left changes: %v", d)
+	}
+}
+
+// A machine installed to join a dashboard runs no panel, so when its
+// services don't come up the error points only at the agent's journal.
+func TestAHealthTimeoutNamesOnlyTheUnitsTheMachineRuns(t *testing.T) {
+	dir, err := os.MkdirTemp("", "pk-health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	answering := filepath.Join(dir, "agent.sock")
+	ln, err := net.Listen("unix", answering)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"ok":true,"version":"0.4.0","docker":true}`)
+	})}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	silent := filepath.Join(dir, "gone.sock")
+	// The panel's certificate is never written, so no panel ever answers.
+	cert := filepath.Join(dir, "cert.pem")
+
+	both, agentOnly := "(see: sudo journalctl -u playkeeper-agent -u playkeeper-panel)", "(see: sudo journalctl -u playkeeper-agent)"
+	for _, c := range []struct {
+		name, socket string
+		port         int
+		// cause is what didn't answer, and hint how the error must end;
+		// both are empty when the services are healthy.
+		cause, hint string
+	}{
+		{"a dashboard whose agent doesn't answer", silent, 8443, "agent is not reachable", both},
+		{"a dashboard whose panel doesn't answer", answering, 8443, "cert.pem", both},
+		{"a machine without a panel whose agent doesn't answer", silent, 0, "agent is not reachable", agentOnly},
+		{"a machine without a panel whose agent answers", answering, 0, "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			err := waitHealthy(ctx, c.socket, cert, c.port)
+			switch {
+			case c.hint == "":
+				if err != nil {
+					t.Fatalf("healthy services, but: %v", err)
+				}
+			case err == nil:
+				t.Fatal("services that don't answer passed as healthy")
+			case !strings.Contains(err.Error(), c.cause) || !strings.HasSuffix(err.Error(), c.hint):
+				t.Fatalf("got %q, want it to say %q and end with %q", err, c.cause, c.hint)
+			case c.port == 0 && strings.Contains(err.Error(), "playkeeper-panel"):
+				t.Fatalf("a machine without a panel is told to read the panel's journal: %q", err)
+			}
+		})
 	}
 }
 

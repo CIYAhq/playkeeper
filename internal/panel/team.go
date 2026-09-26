@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -136,10 +137,19 @@ type grantBody struct {
 func (s *Server) existingServers(w http.ResponseWriter, r *http.Request) ([]serverRef, bool) {
 	servers, err := s.listServers(r.Context())
 	if err != nil {
-		s.agentFailure(w, err)
+		s.listFailure(w, err)
 		return nil, false
 	}
 	return servers, true
+}
+
+// listFailure answers a request that needed the list of servers.
+func (s *Server) listFailure(w http.ResponseWriter, err error) {
+	if errors.Is(err, errDB) {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	s.agentFailure(w, err)
 }
 
 // hTeamInviteCreate makes a team invite link. The link is shown once: only
@@ -296,12 +306,17 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		writeRefusal(w, err)
 		return
 	}
-	servers, ok := s.existingServers(w, r)
-	if !ok {
-		return
-	}
-	if err := s.checkGrant(sess.Access, req, servers); err != nil {
-		writeRefusal(w, err)
+	// Taking rights away never waits for a machine: the servers a member
+	// keeps are ones they had.
+	servers, err := s.listServers(r.Context())
+	switch {
+	case err == nil:
+		if err := s.checkGrant(sess.Access, req, servers); err != nil {
+			writeRefusal(w, err)
+			return
+		}
+	case !invites.Narrows(t.Account, req.Role, req.Servers):
+		s.listFailure(w, err)
 		return
 	}
 	// Only the owner makes admins, so making someone an admin confirms the
@@ -322,6 +337,7 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	s.turnOffLinks(r, sess.User, after.Account, "creator's role changed")
+	s.checkAccountTokens(t.UserID)
 	s.answerMember(w, r, sess, t.UserID)
 }
 
@@ -402,6 +418,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.turnOffLinks(r, sess.User, invites.Account{UserID: t.UserID}, "creator removed")
+	s.revokeAccountTokens(t.UserID, sess.User.Username, "its account was removed from the team")
 	if _, err := s.db.Exec(`DELETE FROM users WHERE id = ? AND role = ?`, t.UserID, roleMember); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -491,7 +508,7 @@ func (s *Server) hMachineActivity(w http.ResponseWriter, r *http.Request, sess *
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	writeJSON(w, status, out)
+	writeJSON(w, status, s.withActorNames(out))
 }
 
 // teamJoins are members joining the team, as activity with their role.
@@ -539,9 +556,9 @@ func (s *Server) hOperation(w http.ResponseWriter, r *http.Request, sess *sessio
 
 // restoreProxy forwards a restore step once the account may restore into its
 // target: an existing server it can use, or a new server, which needs all
-// servers.
-func (s *Server) restoreProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	fwd := s.forward(method, pattern)
+// servers. then, when set, hears of a step that succeeded (see forwardThen).
+func (s *Server) restoreProxy(method, pattern string, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
+	fwd := s.forwardTo(method, pattern, false, then)
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.machineFromPath(w, r)
 		if !ok {

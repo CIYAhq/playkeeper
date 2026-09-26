@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
@@ -73,37 +74,116 @@ func (s *Server) friendsPacks() http.Handler {
 	})
 }
 
-// friendsPack asks the machines which shared pack token opens. It returns
-// errPackGone when none does, and another error when a machine can't answer.
+// friendsPack finds the shared pack token opens. A link the dashboard
+// recorded (see recordLink) is asked only of the machine it was made on,
+// while that machine runs the link's server, and opens only that server's
+// pack. A link it has no record of is asked of every machine, and opens
+// only when every machine answers and exactly one has it. It returns
+// errPackGone when no machine may open the link, and another error when
+// one can't answer.
 func (s *Server) friendsPack(ctx context.Context, token string) (*friendsPack, error) {
 	if !share.ValidToken(token) {
 		return nil, errPackGone
 	}
+	m, serverID, err := s.linkMachine(packLink, token)
+	switch {
+	case errors.Is(err, errNoLinkRecord):
+		return s.unrecordedPack(ctx, token)
+	case errors.Is(err, errNotFound), errors.Is(err, errDisputed):
+		return nil, errPackGone
+	case err != nil:
+		s.log.Warn("a friends' pack page could not be answered", "err", err)
+		return nil, err
+	}
+	fp, err := askPack(ctx, m, token)
+	switch {
+	case errors.Is(err, errPackGone):
+		return nil, err
+	case err != nil:
+		s.log.Warn("a friends' pack page could not be answered", "machine", m.ID, "err", err)
+		return nil, err
+	case fp.link.Server != serverID:
+		s.log.Warn("a machine answered a friends' pack link for another server", "machine", m.ID, "server", serverID)
+		return nil, errPackGone
+	}
+	return fp, nil
+}
+
+// unrecordedPack asks every machine at once about a link the dashboard has
+// no record of. Two machines that both open it get the same 404 as a link
+// nobody has, and so does one while another can't answer: it might have
+// the link too.
+func (s *Server) unrecordedPack(ctx context.Context, token string) (*friendsPack, error) {
 	list, err := s.machines()
 	if err != nil {
 		return nil, err
 	}
-	failed := error(nil)
-	for _, m := range list {
-		var link api.PackLink
-		if _, err := m.agent.Do(ctx, "GET", "/v1/packs/"+token, nil, nil, &link); err != nil {
-			var ae *agentclient.Error
-			if !errors.As(err, &ae) || ae.Status != http.StatusNotFound {
-				failed = err
-			}
-			continue
-		}
-		fp := &friendsPack{m: m, link: link}
-		if err := json.Unmarshal(link.Share, &fp.share); err != nil {
-			return nil, err
-		}
-		return fp, nil
+	type answer struct {
+		fp  *friendsPack
+		err error
 	}
-	if failed != nil {
+	got := make([]answer, len(list))
+	var wg sync.WaitGroup
+	for i, m := range list {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(ctx, machineTimeout)
+			defer cancel()
+			got[i].fp, got[i].err = askPack(ctx, m, token)
+		})
+	}
+	wg.Wait()
+	var found []*friendsPack
+	var failed error
+	for _, a := range got {
+		switch {
+		case a.err == nil:
+			found = append(found, a.fp)
+		case !errors.Is(a.err, errPackGone):
+			failed = a.err
+		}
+	}
+	switch {
+	case len(found) > 1:
+		ids := make([]string, len(found))
+		for i, fp := range found {
+			ids[i] = fp.m.ID
+		}
+		s.log.Warn("more than one machine opens a friends' pack link, so it opens on none", "machines", strings.Join(ids, " "))
+		return nil, errPackGone
+	case failed != nil:
 		s.log.Warn("a friends' pack page could not be answered", "err", failed)
 		return nil, failed
+	case len(found) == 0:
+		return nil, errPackGone
 	}
-	return nil, errPackGone
+	return found[0], nil
+}
+
+// askPack asks m which shared pack token opens.
+func askPack(ctx context.Context, m machine, token string) (*friendsPack, error) {
+	var link api.PackLink
+	if _, err := m.agent.Do(ctx, "GET", "/v1/packs/"+token, nil, nil, &link); err != nil {
+		var ae *agentclient.Error
+		if errors.As(err, &ae) && ae.Status == http.StatusNotFound {
+			return nil, errPackGone
+		}
+		return nil, err
+	}
+	fp := &friendsPack{m: m, link: link}
+	if err := json.Unmarshal(link.Share, &fp.share); err != nil {
+		return nil, err
+	}
+	return fp, nil
+}
+
+// recordPackLink keeps the friends' page link a machine made for a server
+// (see recordLink).
+func (s *Server) recordPackLink(m machine, serverID string, raw json.RawMessage) {
+	var ps api.PackShare
+	if json.Unmarshal(raw, &ps) != nil || !ps.Public || !share.ValidToken(ps.Token) {
+		return
+	}
+	s.recordLink(packLink, ps.Token, serverID, m)
 }
 
 // packPage is the dashboard's page, which shows the pack or "This pack
@@ -131,7 +211,12 @@ type friendsPackPage struct {
 
 func (s *Server) packPageData(w http.ResponseWriter, r *http.Request, fp *friendsPack, token string) {
 	address := fp.link.JoinAddress
-	if address == "" {
+	switch {
+	case fp.m.Kind == remoteKind:
+		// Names stay with the dashboard's machine, whatever a joined one
+		// reports: its servers join at its IP and port.
+		address = s.joinedAddress(r.Context(), fp.m, fp.link.GamePort)
+	case address == "":
 		address = joinAddressAt(r.Host, fp.link.GamePort)
 	}
 	p, err := fp.share.Page(token, fp.link.Slug, address)
@@ -159,6 +244,19 @@ func (s *Server) packIcon(w http.ResponseWriter, r *http.Request, fp *friendsPac
 	}
 	w.Header().Set("Content-Type", "image/png")
 	io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+}
+
+// joinedAddress is where friends join a joined machine's server: the IP the
+// machine last called in from, with the server's port, or "" before it has.
+func (s *Server) joinedAddress(ctx context.Context, m machine, gamePort int) string {
+	if s.hub == nil {
+		return ""
+	}
+	st, err := s.hub.MachineStatus(ctx, m.ID)
+	if err != nil || st.Address == "" {
+		return ""
+	}
+	return joinAddressAt(st.Address, gamePort)
 }
 
 // joinAddressAt is the address friends join at, as "Copy join address" gives

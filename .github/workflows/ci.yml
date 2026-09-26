@@ -78,13 +78,37 @@ jobs:
           retention-days: 7
 
   site:
-    name: Site image — build it, check /, /t, /healthz and the /install redirect
+    name: Site image — build it, check /, /sizing, /demo/, /t, /healthz and the /install redirect, walk the live demo
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build the playkeeper.io image and check what it serves
         run: scripts/site-check.sh
+      - name: Test tools (Node and Chromium for the live demo check)
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: Walk the live demo in the site image (Home, a server's pages, Settings, a restart; no request leaves the page)
+        run: |
+          docker run -d --name playkeeper-demo -p 127.0.0.1:8460:80 playkeeper-site:check
+          for _ in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:8460/healthz && break; sleep 1; done
+          cd test/e2e/ui
+          PK_DEMO_URL=http://127.0.0.1:8460/demo/ PK_SHOTS=/tmp/demo-shots npx playwright test demo.spec.ts --reporter=list
+      - name: Stop the demo
+        if: always()
+        run: docker rm -f playkeeper-demo || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: live-demo-screenshots
+          path: /tmp/demo-shots
+          if-no-files-found: ignore
+          retention-days: 7
 
   acme-pebble:
     name: Certificates from Pebble, Let's Encrypt's test CA (HTTP-01 and DNS-01)

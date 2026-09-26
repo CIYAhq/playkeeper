@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon, CpuIcon, EyeIcon, GaugeIcon, MapIcon, MemoryStickIcon } from 'lucide-react'
 import { get } from '@/api/client'
 import type { ActionKind, LagCause, MetricsResponse, Running, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Card, SectionLabel } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
@@ -62,7 +62,7 @@ interface ChartSpec {
 
 /** "How it's running": the headline, the four charts and what slows the server down. */
 export function RunningPage({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const place = useServerMachine(s)
   const phone = useIsPhone()
   const [range, setRange] = useState<RunRange>('1h')
   const shown: RunRange = phone ? '1h' : range
@@ -70,11 +70,11 @@ export function RunningPage({ server: s }: { server: ServerStatus }) {
   const metrics = usePoll(() => get<MetricsResponse>(serverApi(s.id, `/metrics?range=${shown}`)), shown === '1h' ? 30_000 : 60_000, `${s.id}:${shown}`)
   const r = running.data
   const head = r ? runningHeadline(r, s.name) : undefined
-  const ctx: CauseContext = { server: s.name, machine: ws.machineName, slug: s.slug, players: r?.players, minutes: r?.windowMinutes ?? 10 }
+  const ctx: CauseContext = { server: s.name, machine: place.name, slug: s.slug, players: r?.players, minutes: r?.windowMinutes ?? 10 }
   const causes = r && (r.status === 'a_bit_behind' || r.status === 'lagging') ? r.causes : []
 
   const buckets = metrics.data?.buckets ?? []
-  const live = !ws.stale && s.phase === 'online' ? s.resources : undefined
+  const live = !place.stale && s.phase === 'online' ? s.resources : undefined
   const target = targetTPS(r)
   const budgetMS = 1000 / target
   const limitMB = s.config?.memoryMB ?? 0

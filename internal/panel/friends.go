@@ -155,7 +155,7 @@ func (s *Server) joinHost(r *http.Request) string {
 
 // serverStatus asks the machine that runs a server how it is.
 func (s *Server) serverStatus(r *http.Request, serverID string) (machine, api.ServerStatus, error) {
-	m, err := s.machineForServer(r, serverID)
+	m, err := s.machineForServer(serverID)
 	if err != nil {
 		return machine{}, api.ServerStatus{}, err
 	}
@@ -167,15 +167,19 @@ func (s *Server) serverStatus(r *http.Request, serverID string) (machine, api.Se
 }
 
 // inviteServer is what the join page may say about a server: its name,
-// the address to join, its version and how many are playing (never who).
-func (s *Server) inviteServer(r *http.Request, st api.ServerStatus) invites.Server {
+// the address to join, its version and how many are playing (never who). A
+// joined machine's servers join at its IP and their port, never at the
+// dashboard's host; without that IP there's no address.
+func (s *Server) inviteServer(r *http.Request, m machine, st api.ServerStatus) invites.Server {
 	port := st.GamePort
 	if port == 0 {
 		port = s.cfg.GamePort
 	}
-	addr, err := invites.JoinAddress(s.joinHost(r), port)
-	if err != nil {
-		addr = ""
+	var addr string
+	if m.Kind == remoteKind {
+		addr = s.joinedAddress(r.Context(), m, port)
+	} else if a, err := invites.JoinAddress(s.joinHost(r), port); err == nil {
+		addr = a
 	}
 	srv := invites.Server{Name: st.Name, Address: addr, Online: st.Phase == api.PhaseOnline}
 	if st.Config != nil {
@@ -191,7 +195,7 @@ func (s *Server) inviteServer(r *http.Request, st api.ServerStatus) invites.Serv
 // stopped server's list can be written directly.
 func (s *Server) addToWhitelist(ctx context.Context, m machine, serverID string, p mojang.Profile, actor string) (api.WhitelistChange, error) {
 	var change api.WhitelistChange
-	_, err := m.agent.Do(ctx, "POST", "/v1/servers/"+url.PathEscape(serverID)+"/whitelist", nil,
+	_, err := m.agent.Do(asActor(ctx, actor), "POST", "/v1/servers/"+url.PathEscape(serverID)+"/whitelist", nil,
 		api.WhitelistRequest{Name: p.Name, UUID: p.ID, Actor: actor}, &change)
 	return change, err
 }
@@ -450,7 +454,7 @@ func (s *Server) hJoinRequestApprove(w http.ResponseWriter, r *http.Request, ses
 		writeRefusal(w, invites.RequestDecided())
 		return
 	}
-	m, err := s.machineForServer(r, jr.ServerID)
+	m, err := s.machineForServer(jr.ServerID)
 	var change api.WhitelistChange
 	if err == nil {
 		change, err = s.addToWhitelist(r.Context(), m, jr.ServerID, grant.Profile, sess.User.Username)
@@ -563,7 +567,7 @@ func (s *Server) hWhitelistRemove(w http.ResponseWriter, r *http.Request, sess *
 		return
 	}
 	var change api.WhitelistChange
-	status, err := m.agent.Do(r.Context(), "DELETE", agentPath("/v1/servers/{id}/whitelist/{name}", r), url.Values{"actor": {sess.User.Username}}, nil, &change)
+	status, err := m.agent.Do(asActor(r.Context(), sess.User.Username), "DELETE", agentPath("/v1/servers/{id}/whitelist/{name}", r), url.Values{"actor": {sess.User.Username}}, nil, &change)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
@@ -597,13 +601,20 @@ func (s *Server) hProfile(w http.ResponseWriter, r *http.Request, _ *session) {
 	writeJSON(w, status, p)
 }
 
-// notifyJoinRequest tells the agent's Discord notifier about a join
-// request. Discord is optional, so a failure only shows in the log.
-func (s *Server) notifyJoinRequest(ctx context.Context, m machine, jr invites.JoinRequest, actor string) {
+// notifyJoinRequest tells the Discord notifier of the dashboard's own agent,
+// which holds the Discord settings, about a join request to a server on any
+// machine, with the server's name for one it doesn't run. Discord is
+// optional, so a failure only shows in the log.
+func (s *Server) notifyJoinRequest(ctx context.Context, serverName string, jr invites.JoinRequest, actor string) {
+	m, err := s.localMachine()
+	if err != nil {
+		s.log.Info("could not report a join request to Discord", "err", err)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if _, err := m.agent.Do(ctx, "POST", "/v1/discord/notify", nil,
-		api.DiscordNotifyRequest{Kind: api.DiscordJoinRequested, ServerID: jr.ServerID, Player: jr.PlayerName, Actor: actor}, nil); err != nil {
+	if _, err := m.agent.Do(asActor(ctx, actor), "POST", "/v1/discord/notify", nil,
+		api.DiscordNotifyRequest{Kind: api.DiscordJoinRequested, ServerID: jr.ServerID, ServerName: serverName, Player: jr.PlayerName, Actor: actor}, nil); err != nil {
 		s.log.Info("could not report a join request to Discord", "err", err)
 	}
 }

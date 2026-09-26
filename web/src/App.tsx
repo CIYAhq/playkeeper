@@ -14,7 +14,7 @@ import { DiskPage } from '@/pages/disk'
 import { HomePage } from '@/pages/home'
 import { JoinPage } from '@/pages/join'
 import { LoginPage } from '@/pages/login'
-import { MachinePage } from '@/pages/machine'
+import { DashboardMachineOnly, MachinePage } from '@/pages/machine'
 import { MachineSettingsPage } from '@/pages/machine-settings'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
@@ -169,23 +169,33 @@ function page(route: Route) {
     case 'join':
       return <HomePage />
     case 'new-server':
-      return <NewServerPage />
+      return <NewServerPage key={route.machine ?? ''} machine={route.machine} />
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
     case 'player':
       return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':
-      return route.sub === 'disk' ? <DiskPage id={route.id} /> : <MachinePage id={route.id} />
+      return route.sub === 'disk' ? (
+        <DiskPage id={route.id} />
+      ) : (
+        <DashboardMachineOnly id={route.id}>
+          <MachinePage id={route.id} />
+        </DashboardMachineOnly>
+      )
     case 'machine-settings':
-      return <MachineSettingsPage id={route.id} />
+      return (
+        <DashboardMachineOnly id={route.id}>
+          <MachineSettingsPage id={route.id} />
+        </DashboardMachineOnly>
+      )
     case 'settings':
-      return <GlobalSettingsPage section="general" />
     case 'team':
-      return <GlobalSettingsPage section="team" />
     case 'addon-sources':
-      return <GlobalSettingsPage section="addon-sources" />
     case 'discord':
-      return <GlobalSettingsPage section="discord" />
+    case 'ai-agents':
+    case 'machines':
+    case 'machine-details':
+      return <GlobalSettingsPage page={route} />
     case 'account':
       return <AccountPage section={route.section} />
     case 'more':

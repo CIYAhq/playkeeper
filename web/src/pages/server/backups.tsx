@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { BackupRulesView, OffsiteView, RetentionEstimate, RetentionRules, RetentionSettings, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, Segmented } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
@@ -93,7 +93,7 @@ export function BackupRulesPage({ server: s, copies }: { server: ServerStatus; c
           {rules.data ? (
             <>
               <AutomaticCard server={s} view={rules.data} onSaved={() => void rules.refresh()} />
-              <KeepCard view={rules.data} onChange={() => setEditing(true)} />
+              <KeepCard server={s} view={rules.data} onChange={() => setEditing(true)} />
             </>
           ) : rules.error ? (
             <Card>
@@ -164,8 +164,9 @@ function AutomaticCard({ server: s, view, onSaved }: { server: ServerStatus; vie
   )
 }
 
-function KeepCard({ view, onChange }: { view: BackupRulesView; onChange: () => void }) {
+function KeepCard({ server: s, view, onChange }: { server: ServerStatus; view: BackupRulesView; onChange: () => void }) {
   const ws = useWorkspace()
+  const { name: machine } = useServerMachine(s)
   const e = view.onHost
   return (
     <Card>
@@ -179,7 +180,7 @@ function KeepCard({ view, onChange }: { view: BackupRulesView; onChange: () => v
         ))}
       </ul>
       <div className="mt-3 flex items-center justify-between gap-4 border-t border-border pt-4">
-        <span className="text-[13px] font-medium">{totalText(e, 'backups', ws.machineName)}</span>
+        <span className="text-[13px] font-medium">{totalText(e, 'backups', machine)}</span>
         {can(ws.me, 'servers.manage') && (
           <Button size="sm" variant="outline" onClick={onChange}>
             {t('backupRules.change')}
@@ -269,7 +270,7 @@ function SideFields({ view, draft, side, set, phone, disabled }: { view: BackupR
 }
 
 function RulesDialog({ server: s, view, onClose, onSaved }: { server: ServerStatus; view: BackupRulesView; onClose: () => void; onSaved: () => void }) {
-  const ws = useWorkspace()
+  const { name: machine } = useServerMachine(s)
   const offsite = useOffsite(s.id).data
   const d = useRulesDraft(s, view)
   return (
@@ -281,8 +282,8 @@ function RulesDialog({ server: s, view, onClose, onSaved }: { server: ServerStat
         <DialogPanel className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
             {(['onHost', 'offSite'] as const).map((side) => (
-              <section key={side} className="rounded-2xl border border-border p-3" aria-label={sideTitle(side, ws.machineName, offsite)}>
-                <h3 className="mb-1.5 text-[13px] font-semibold">{sideTitle(side, ws.machineName, offsite)}</h3>
+              <section key={side} className="rounded-2xl border border-border p-3" aria-label={sideTitle(side, machine, offsite)}>
+                <h3 className="mb-1.5 text-[13px] font-semibold">{sideTitle(side, machine, offsite)}</h3>
                 <SideFields view={view} draft={d.draft} side={side} set={d.set} />
                 <p className="mt-2 border-t border-border pt-3 text-xs font-semibold" aria-live="polite">
                   {totalText(d.est[side], side === 'onHost' ? 'backups' : 'copies')}
@@ -331,14 +332,14 @@ function SwitchLine({ checked, onChange, title, hint, phone, disabled }: { check
 
 /** Phone: World › Backup rules, one set of rules at a time. */
 export function BackupRulesPhonePage({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { name: machine } = useServerMachine(s)
   const rules = useBackupRules(s.id)
   const offsite = useOffsite(s.id).data
   return (
     <>
       <PhoneBackHeader to={{ name: 'server', slug: s.slug, tab: 'world' }} label={t('tab.world')} title={t('backupRules.title')} />
       {rules.data ? (
-        <PhoneRules key={rules.data.custom ? 'custom' : 'default'} server={s} view={rules.data} machine={ws.machineName} offsite={offsite} onSaved={() => void rules.refresh()} />
+        <PhoneRules key={rules.data.custom ? 'custom' : 'default'} server={s} view={rules.data} machine={machine} offsite={offsite} onSaved={() => void rules.refresh()} />
       ) : rules.error ? (
         <p className="px-4 text-[15px] text-destructive-foreground">{rules.error.message}</p>
       ) : (

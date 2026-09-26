@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,6 +54,7 @@ type fakeDocker struct {
 	// started and stopped, when set, hear of a server container starting
 	// or stopping cleanly, as a plugin would.
 	started, stopped func(c *fakeContainer)
+	dockerDown       atomic.Bool // every request fails, as when the Docker daemon is stopped
 	// others are containers Playkeeper didn't make, as Docker lists them
 	// after the agent's own.
 	others []fakeListed
@@ -229,6 +231,10 @@ func jsonOut(w http.ResponseWriter, status int, v any) {
 
 func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if fd.dockerDown.Load() {
+		jsonOut(w, 500, map[string]string{"message": "Cannot connect to the Docker daemon"})
+		return
+	}
 	if path == "/version" {
 		jsonOut(w, 200, map[string]string{"Version": "29.0.0-fake", "ApiVersion": "1.52", "MinAPIVersion": "1.44"})
 		return

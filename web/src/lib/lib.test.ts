@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { templateQuery } from '@/api/templates'
-import type { Address, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MemoryAdvice, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
-import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
+import type { Address, Catalog, CatalogEntry, Me, ProjectRole, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
+import { budgetAdvice, createRequest, freeName, styleMemory, versionCards, versionLine } from '@/components/app/create'
 import { lineRuns } from '@/components/app/line-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/pages/onboarding'
+import { tokenRoles } from './access'
 import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
 import { crashDetail, crashFixes, crashSummary, failureLine, lookupKey, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
-import { formatBytes, formatCountdown, formatDuration, formatList, formatMB, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
+import { formatBytes, formatClock, formatCountdown, formatDate, formatDuration, formatList, formatMB, formatWhen, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
+import { joinOf, machineEventText } from './machines'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
 import { busyReason, controls, createStepOf, isCreating, isSettingUp, packStepOf, phaseTone, statusLabel, statusTone, templateStepOf, whyNot } from './phase'
 import { href, parse, type Route } from './router'
@@ -19,6 +21,7 @@ import { newerStable, softwareLabel, softwareName } from './servers'
 import { addonKind, formatReleased, shortHash } from './software'
 import { memoryForStyle } from './styles'
 import { addonsLine, afterSignIn, leftOutAddons, madeOn, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
+import { agentPhrase, elideSecret, mcpAddress, mcpSnippet, runsOutText, tokenExpired, tokenServersText } from './tokens'
 import { upgradeTargets } from './versions'
 
 function server(over: Partial<ServerStatus> = {}): ServerStatus {
@@ -68,12 +71,22 @@ describe('router', () => {
       { name: 'machine', id: 'm2345abcde', sub: 'disk' },
       { name: 'recover' },
       { name: 'settings' },
+      { name: 'ai-agents' },
       { name: 'account' },
       { name: 'account', section: 'two-factor' },
       { name: 'more' },
       { name: 'welcome' },
+      { name: 'machines' },
+      { name: 'machine-details', id: 'm2345abcde' },
+      { name: 'new-server', machine: 'm2345abcde' },
     ]
-    for (const r of routes) expect(parse(href(r))).toEqual(r)
+    for (const r of routes) {
+      const [path = '', query = ''] = href(r).split('?')
+      expect(parse(path, query ? `?${query}` : '')).toEqual(r)
+    }
+    expect(parse('/settings/ai-agents/extra')).toEqual({ name: 'settings' })
+    expect(parse('/settings/machines/Not-An-Id')).toEqual({ name: 'settings' })
+    expect(parse('/servers/new', '?machine=../../x')).toEqual({ name: 'new-server' })
   })
 
   it('keeps 0.2.0 links working and sends unknown paths home', () => {
@@ -134,9 +147,40 @@ describe('memory', () => {
     expect(memoryForStyle([], 4096)).toBe(0)
   })
 
-  it('matches the agent on how much of it Java gets', () => {
-    expect(heapMB(4096)).toBe(3072)
-    expect(heapMB(1536)).toBe(1024)
+  const sizing: MemorySizing = {
+    workload: 'vanilla',
+    budgets: [
+      { memoryMB: 1536, heapMB: 1024, players: 0 },
+      { memoryMB: 2048, heapMB: 1536, players: 4 },
+      { memoryMB: 3072, heapMB: 2304, players: 4 },
+      { memoryMB: 4096, heapMB: 3072, players: 10 },
+      { memoryMB: 6144, heapMB: 4608, players: 20 },
+    ],
+    suggestions: [
+      { players: 4, memoryMB: 2048 },
+      { players: 10, memoryMB: 4096 },
+      { players: 20, memoryMB: 6144 },
+      { players: 40, memoryMB: 8192 },
+    ],
+  }
+  const catalog = { memoryOptionsMB: [1536, 2048, 3072, 4096, 6144], maxMemoryMB: 6144, recommendedMemoryMB: 3072, sizing } as Catalog
+
+  it("suggests what the sizing guide suggests for the style's players", () => {
+    expect(styleMemory(catalog, 'friends')).toBe(4096)
+    expect(styleMemory(catalog, 'creative')).toBe(4096)
+    expect(styleMemory(catalog, 'solo')).toBe(2048)
+    expect(budgetAdvice(catalog, 4096)).toEqual({ memoryMB: 4096, heapMB: 3072, players: 10 })
+    expect(budgetAdvice(catalog, 1536)?.players).toBe(0)
+  })
+
+  it('offers the largest budget below the suggestion on a machine without room for it', () => {
+    expect(styleMemory({ ...catalog, maxMemoryMB: 3072 }, 'friends')).toBe(3072)
+  })
+
+  it("uses the agent's own recommendation when the agent sends no sizing advice", () => {
+    const older = { ...catalog, sizing: undefined }
+    expect(styleMemory(older, 'friends')).toBe(3072)
+    expect(budgetAdvice(older, 4096)).toBeUndefined()
   })
 })
 
@@ -188,6 +232,61 @@ describe('formatting', () => {
   it('prefers the friendly join address once it works', () => {
     expect(serverJoinAddress({ gamePort: 25566 }, '198.51.100.10')).toBe('198.51.100.10:25566')
     expect(serverJoinAddress({ gamePort: 25566, joinAddress: 'creative.alex.playkeeper.io' }, '198.51.100.10')).toBe('creative.alex.playkeeper.io')
+  })
+
+  it('gives a recent row the time today, yesterday, or its date', () => {
+    const now = new Date(2026, 8, 25, 20, 0)
+    const today = new Date(2026, 8, 25, 18, 2).toISOString()
+    const earlier = new Date(2026, 8, 12, 9, 30).toISOString()
+    expect(formatWhen(today, now)).toBe(formatClock(today))
+    expect(formatWhen(new Date(2026, 8, 24, 23, 59).toISOString(), now)).toBe('yesterday')
+    expect(formatWhen(earlier, now)).toBe(formatDate(earlier))
+  })
+})
+
+describe('AI agents', () => {
+  it('connects agents to the dashboard’s name when it has one', () => {
+    expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }, { kind: 'name', address: 'alex.playkeeper.io:8443' }], 'https://203.0.113.10:8443')).toBe('https://alex.playkeeper.io:8443/mcp')
+    expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }], 'https://203.0.113.10:8443')).toBe('https://203.0.113.10:8443/mcp')
+    expect(mcpAddress(undefined, 'https://localhost:8448')).toBe('https://localhost:8448/mcp')
+  })
+
+  it('writes MCP settings an AI tool can read, and shows the secret cut short', () => {
+    const secret = 'pk_mcp_abcdefghijklmnopqrstuvwxyz'
+    const snippet = mcpSnippet('https://alex.playkeeper.io:8443/mcp', secret)
+    expect(JSON.parse(snippet)).toEqual({ mcpServers: { playkeeper: { url: 'https://alex.playkeeper.io:8443/mcp', headers: { Authorization: `Bearer ${secret}` } } } })
+    expect(elideSecret(secret)).toBe('pk_mcp_abcd…')
+    expect(elideSecret('pk_mcp_ab')).toBe('pk_mcp_ab')
+  })
+
+  it('names a token’s servers, counting ones since deleted', () => {
+    const servers = [
+      { id: 'a', name: 'Survival' },
+      { id: 'b', name: 'Creative' },
+    ]
+    expect(tokenServersText({ allServers: true, servers: [] }, servers)).toBe('All servers')
+    expect(tokenServersText({ allServers: false, servers: ['a'] }, servers)).toBe('Survival')
+    expect(tokenServersText({ allServers: false, servers: ['a', 'b'] }, servers)).toBe('Survival and Creative')
+    expect(tokenServersText({ allServers: false, servers: ['a', 'gone'] }, servers)).toBe('2 servers')
+  })
+
+  it('says when a token runs out', () => {
+    const now = Date.parse('2026-09-25T12:00:00Z')
+    expect(runsOutText('2026-11-22T13:00:00Z', now)).toBe('in 58 days')
+    expect(runsOutText('2026-09-26T13:00:00Z', now)).toBe('in 1 day')
+    expect(runsOutText('2026-09-25T20:00:00Z', now)).toBe('today')
+    expect(runsOutText('2026-09-25T12:00:00Z', now)).toBe('Ran out')
+    expect(tokenExpired({ expiresAt: '2026-09-25T12:00:00Z' }, now)).toBe(true)
+    expect(tokenExpired({ expiresAt: '2026-09-25T12:00:01Z' }, now)).toBe(false)
+  })
+
+  it('says what an agent did in words, even with a tool it doesn’t know', () => {
+    expect(agentPhrase({ tool: 'create_backup', serverName: 'Survival' })).toBe('made a backup of Survival')
+    expect(agentPhrase({ tool: 'list_online_players', serverName: 'Survival' })).toBe('checked who’s online on Survival')
+    expect(agentPhrase({ tool: 'install_addon', serverName: 'Survival' })).toBe('installed a plugin or mod on Survival')
+    expect(agentPhrase({ tool: 'future_tool', serverName: 'Survival' })).toBe('used future_tool on Survival')
+    expect(agentPhrase({ tool: 'future_tool' })).toBe('used future_tool')
+    expect(agentPhrase({ tool: 'toString', serverName: 'Survival' })).toBe('used toString on Survival')
   })
 })
 
@@ -261,6 +360,8 @@ describe('server state', () => {
     expect(whyNot(server({ exists: false, phase: 'not_created' }), 'start', false)).toBe('Survival isn’t set up yet.')
     expect(whyNot(server({ phase: 'docker_unavailable' }), 'change', false)).toBe('Docker not responding')
     expect(whyNot(server(), 'change', true)).toBe('Waiting for the Playkeeper agent to answer.')
+    expect(whyNot(server(), 'restart', 'Can’t reach home-server')).toBe('Can’t reach home-server')
+    expect(whyNot(server(), 'restart', undefined)).toBeUndefined()
     expect(busyReason(server())).toBeUndefined()
     expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
   })
@@ -528,6 +629,51 @@ describe('creating a server', () => {
   })
 })
 
+describe('machine events', () => {
+  it('say what happened, newest first', () => {
+    const events: MachineEvent[] = [
+      { at: '2026-09-25T17:04:00Z', kind: 'machine.connected' },
+      { at: '2026-09-25T17:02:00Z', kind: 'machine.disconnected', code: 'link_dropped' },
+      { at: '2026-09-24T09:00:00Z', kind: 'machine.dashboard_updated', code: '0.3.1' },
+      { at: '2026-09-12T16:40:00Z', kind: 'machine.joined', actor: 'siya', address: '203.0.113.24' },
+    ]
+    expect(events.map((_, i) => machineEventText(events, i))).toEqual([
+      'Reconnected',
+      'Lost the connection for 2 minutes · the network dropped',
+      'The dashboard updated to Playkeeper 0.3.1',
+      'Joined with a code siya made · from 203.0.113.24',
+    ])
+  })
+})
+
+describe('join addresses', () => {
+  const local = { id: 'm2345abcde', projectId: 'p2345abcde', name: 'my-vps', kind: 'local' } as MachineView
+  const home = {
+    id: 'h2345abcde',
+    projectId: 'p2345abcde',
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', address: '203.0.113.20', problems: [] },
+  } as MachineView
+  const server = (over: Partial<ServerStatus>) => ({ name: 'Survival', gamePort: 25566, joinAddress: 'survival.alex.playkeeper.io', ...over }) as ServerStatus
+
+  it('give a joined machine’s servers only its known IP and their port, and say why when it isn’t known', () => {
+    const onHome = server({ machineId: home.id })
+    expect(joinOf(onHome, home, 'panel.example.com')).toEqual({ address: '203.0.113.20:25566' })
+    expect(joinOf(onHome, { ...home, link: { ...home.link!, address: '2001:db8::7' } }, 'panel.example.com')).toEqual({ address: '[2001:db8::7]:25566' })
+    expect(joinOf(onHome, { ...home, link: { ...home.link!, address: undefined } }, 'panel.example.com')).toEqual({ address: '', reason: 'No address yet: the dashboard hasn’t seen home-server’s IP.' })
+    const unknown = { address: '', reason: 'No address yet: the dashboard doesn’t know which machine runs Survival.' }
+    expect(joinOf(onHome, local, 'panel.example.com')).toEqual(unknown)
+    expect(joinOf(onHome, undefined, 'panel.example.com')).toEqual(unknown)
+  })
+
+  it('give the dashboard’s own servers their name once it works, else the dashboard’s host', () => {
+    expect(joinOf(server({ machineId: local.id }), local, 'panel.example.com')).toEqual({ address: 'survival.alex.playkeeper.io' })
+    expect(joinOf(server({ machineId: local.id, joinAddress: undefined }), local, 'panel.example.com')).toEqual({ address: 'panel.example.com:25566' })
+    expect(joinOf(server({ joinAddress: undefined }), undefined, 'panel.example.com')).toEqual({ address: 'panel.example.com:25566' })
+  })
+})
+
 describe('templates', () => {
   const contents = (over: Partial<TemplateContents> = {}): TemplateContents => ({
     name: 'Survival with friends',
@@ -705,6 +851,15 @@ describe('memory advice', () => {
     expect(memoryAdviceLine(early({ days: 0 }, { fromNextStart: true, budgetMB: 2048 }), 'my-vps')).toBe('Starts measuring at its next restart. Until then, 2 GB suits up to 4 friends.')
   })
 
+  it('counts friends the sizing guide’s way when the machine sends it', () => {
+    const sizing = { workload: 'paper', budgets: [{ memoryMB: 3072, heapMB: 2304, players: 4 }], suggestions: [] }
+    const option = { memoryMB: 3072, heapMB: 2304, fits: true }
+    expect(memoryOptionHint(option, undefined, 'my-vps', sizing)).toBe('Up to 4 friends')
+    expect(memoryOptionHint(option, undefined, 'my-vps')).toBe('Up to 6 friends')
+    const early = advice({ verdict: 'not_enough_data', budgetMB: 3072, params: { days: 1, min_days: 3 } })
+    expect(memoryAdviceLine(early, 'my-vps', sizing)).toBe('Suggests a size after 3 days of play. Until then, 3 GB suits up to 4 friends.')
+  })
+
   it('says how each budget would fit, and which one it recommends', () => {
     const keep = advice({ recommendedMB: 4096 })
     const hint = (o: Partial<MemoryAdvice['options'][number]>, a: MemoryAdvice | undefined = keep) => memoryOptionHint({ memoryMB: 4096, heapMB: 3072, fits: true, ...o }, a, 'my-vps')
@@ -827,5 +982,14 @@ describe('address', () => {
     expect(recordFor(a, servers.slice(1))).toBe('Dashboard')
     expect(recordFor(srv, servers)).toBe('Creative, on port 25566')
     expect(recordFor(srv, servers, true)).toBe('Creative')
+  })
+})
+
+describe('token roles', () => {
+  const me = (role: ProjectRole): Me => ({ user: { username: 'mara', role: 'member' }, csrfToken: 't', expiresAt: '', idleTimeoutSeconds: 0, version: '0.4.0', access: { role, servers: { all: true }, twoFactor: false, can: [] } })
+  it('offers a token no more than the account’s own role', () => {
+    expect(tokenRoles(me('viewer'))).toEqual(['viewer'])
+    expect(tokenRoles(me('moderator'))).toEqual(['viewer', 'moderator'])
+    expect(tokenRoles(me('admin'))).toEqual(['viewer', 'moderator', 'admin'])
   })
 })

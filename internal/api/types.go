@@ -494,10 +494,38 @@ type Catalog struct {
 	Servers             []ServerMemory `json:"servers"`
 	SuggestedPort       int            `json:"suggestedPort,omitempty"`
 	Image               string         `json:"image"`
+	Sizing              MemorySizing   `json:"sizing"`
 
 	// LatestRelease is the newest Minecraft release Mojang lists, whether
 	// or not the type offers it yet.
 	LatestRelease string `json:"latestRelease,omitempty"`
+}
+
+// MemorySizing is what the sizing guide (internal/sizing) says about the
+// memory options, so that the dashboard and playkeeper.io/sizing agree.
+type MemorySizing struct {
+	// Workload is what the guide takes the server to run, such as vanilla.
+	Workload string `json:"workload"`
+	// Budgets are the memory options, each with Java's heap and the players
+	// at once the guide sizes it for: 0 when it is below the guide's
+	// suggestion for the smallest group.
+	Budgets []MemoryBudget `json:"budgets"`
+	// Suggestions are the guide's first budget for each band of players at
+	// once, smallest band first. A machine without room for one offers its
+	// largest option below it.
+	Suggestions []MemorySuggestion `json:"suggestions"`
+}
+
+type MemoryBudget struct {
+	MemoryMB int `json:"memoryMB"`
+	HeapMB   int `json:"heapMB"`
+	Players  int `json:"players"`
+}
+
+type MemorySuggestion struct {
+	// Players is the top of the band.
+	Players  int `json:"players"`
+	MemoryMB int `json:"memoryMB"`
 }
 
 type PreflightCheck struct {
@@ -2036,11 +2064,14 @@ type DiscordSettingsRequest struct {
 type DiscordNotifyRequest struct {
 	Kind     string `json:"kind"`
 	ServerID string `json:"serverId,omitempty"`
-	Player   string `json:"player,omitempty"`
-	Member   string `json:"member,omitempty"`
-	On       bool   `json:"on,omitempty"`
-	Admin    bool   `json:"admin,omitempty"`
-	Actor    string `json:"actor"`
+	// ServerName names a join request's server when it runs on a joined
+	// machine: the dashboard's agent, which posts the alert, doesn't run it.
+	ServerName string `json:"serverName,omitempty"`
+	Player     string `json:"player,omitempty"`
+	Member     string `json:"member,omitempty"`
+	On         bool   `json:"on,omitempty"`
+	Admin      bool   `json:"admin,omitempty"`
+	Actor      string `json:"actor"`
 }
 
 // Kinds of DiscordNotifyRequest.

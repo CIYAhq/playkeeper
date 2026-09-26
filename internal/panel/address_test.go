@@ -8,15 +8,19 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
@@ -237,5 +241,102 @@ func TestHSTSIsShortOnNamesAndLongOnIPAddresses(t *testing.T) {
 		if got := r.Header.Get("Strict-Transport-Security"); got != want {
 			t.Errorf("host %q: Strict-Transport-Security %q, want %q", host, got, want)
 		}
+	}
+}
+
+// A joined machine's address is its own: the host the dashboard was opened
+// with, or one the browser sends, would point its name at the dashboard.
+func TestAJoinedMachinesAddressRoutesCarryNoDashboardHost(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	ra := newRemoteAgent()
+	var mu sync.Mutex
+	var sent []string
+	record := func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		sent = append(sent, r.Method+" "+r.URL.String()+" "+string(b))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{}`)
+	}
+	ra.handle("GET /v1/address", record)
+	ra.handle("POST /v1/address/release", record)
+	rid, _ := e.joined(t, cookie, csrf, ra)
+	base := "/api/machines/" + rid + "/address"
+
+	if r := e.do(t, "GET", base+"?panelHost=198.51.100.9", "", auth(cookie, "")); r.status != http.StatusOK {
+		t.Fatalf("address: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "POST", base+"/release", `{"name":"home","panelHost":"198.51.100.9"}`, auth(cookie, csrf)); r.status != http.StatusOK {
+		t.Fatalf("release: %d %v", r.status, r.body)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != 2 || !strings.Contains(sent[1], `"name":"home"`) {
+		t.Fatalf("the joined machine got: %q", sent)
+	}
+	for _, req := range sent {
+		if strings.Contains(req, "panelHost") {
+			t.Errorf("a joined machine was sent a panelHost: %s", req)
+		}
+	}
+	if actor, _ := ra.saw("POST /v1/address/release"); actor != "admin" {
+		t.Errorf("the release reached the joined machine as %q, not admin", actor)
+	}
+	if e.sawLocally("POST /v1/address/release") {
+		t.Error("the dashboard's own agent got another machine's release")
+	}
+}
+
+// Free names and own domains stay with the dashboard's machine: a joined
+// machine gets none, and keeps none it had, while its servers join at its IP
+// and port. The dashboard's own machine still claims one.
+func TestAJoinedMachineGetsNoFreeName(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	ra := newRemoteAgent()
+	rid, _ := e.joined(t, cookie, csrf, ra)
+	for _, route := range []string{"claim", "refresh", "check", "certificate"} {
+		r := e.do(t, "POST", "/api/machines/"+rid+"/address/"+route, `{"name":"home"}`, auth(cookie, csrf))
+		if r.status != http.StatusConflict || r.body["code"] != api.CodeConflict || r.body["error"] != "Free names and own domains are for the dashboard's machine." ||
+			r.body["hint"] != "Players join home-server's servers at its IP address and each server's port." {
+			t.Errorf("%s on a joined machine: %d %v", route, r.status, r.body)
+		}
+		if _, ok := ra.saw("POST /v1/address/" + route); ok {
+			t.Errorf("the joined machine was asked to %s an address", route)
+		}
+	}
+	local := e.localMachine(t)
+	if r := e.do(t, "POST", "/api/machines/"+local+"/address/claim", `{"name":"alex"}`, auth(cookie, csrf)); r.status != http.StatusOK || !e.sawLocally("POST /v1/address/claim") {
+		t.Fatalf("the dashboard's own claim: %d %v", r.status, r.body)
+	}
+}
+
+// A friend's invite link gives a joined machine's server the IP the machine
+// calls in from and the server's port, never the dashboard's address name;
+// without that IP it gives no address.
+func TestAnInviteToAJoinedMachinesServerGivesItsIPAndPort(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	rid, _ := e.joined(t, cookie, csrf, newRemoteAgent())
+	req := httptest.NewRequest("GET", "/join/code", nil)
+	st := api.ServerStatus{ID: "cobblemon1", Name: "Cobblemon", GamePort: 25566}
+	for _, tc := range []struct {
+		name, machine, want string
+	}{
+		{"the dashboard's own server", e.localMachine(t), "panel.example.com:25566"},
+		{"a joined machine's server", rid, "127.0.0.1:25566"},
+	} {
+		m, err := e.srv.machineByID(tc.machine)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := e.srv.inviteServer(req, m, st).Address; got != tc.want {
+			t.Errorf("%s joins at %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if got := e.srv.inviteServer(req, machine{ID: "zzzzzzzzzz", Kind: remoteKind}, st).Address; got != "" {
+		t.Errorf("a joined machine the dashboard hasn't seen gives %q", got)
 	}
 }

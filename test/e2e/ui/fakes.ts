@@ -34,6 +34,11 @@ interface Reply {
 /** A fake's answer, or undefined when it has none, which is reported like a write without a fake. */
 type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply | undefined
 
+interface DialAddress {
+  kind: string
+  address: string
+}
+
 interface FakeState {
   origin: string
   prefs: Record<string, string>
@@ -56,12 +61,17 @@ interface FakeState {
   maps: Map<string, Record<string, unknown>>
   /** World uploads opened on the fakes. */
   imports: Map<string, WorldUpload>
+  /** The operations the fakes started, for the dialogs that follow one by its id. */
   ops: Map<string, Record<string, unknown>>
   schedules: Map<string, Record<string, unknown>[]>
   backupRules: Map<string, Record<string, unknown>>
   offsite: Map<string, Record<string, unknown>>
   /** Servers the fakes made an SSH key for. */
   sshKeys: Set<string>
+  /** What GET /api/machines/link last said: the addresses a joining machine can dial and the dashboard's fingerprint. */
+  link: { addresses?: DialAddress[]; fingerprint?: string }
+  machines: { id: string; kind: string }[]
+  seq: number
 }
 
 interface UploadedFile {
@@ -92,7 +102,9 @@ const expiryDays = new Map([
 ])
 const webhookHosts = new Set(['discord.com', 'canary.discord.com', 'ptb.discord.com', 'discordapp.com'])
 const badName = 'Minecraft usernames are 3–16 letters, numbers or underscores.'
+const id = /^[a-z2-9]{10}$/
 const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
+const maxAddonKeys = 200
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
@@ -115,12 +127,19 @@ function op(state: FakeState, kind: string, serverId?: string, detail?: Record<s
   return { status: 202, body: o }
 }
 
+/** Why the agent would refuse a list of add-ons, or undefined. */
+function badAddonKeys(keys: unknown): string | undefined {
+  if (keys === undefined) return undefined
+  if (!Array.isArray(keys) || keys.length > maxAddonKeys) return `At most ${maxAddonKeys} add-ons can be changed at once.`
+  return keys.map(addonKeyProblem).find(Boolean)
+}
+
 /** A fake operation once it's done, as the operations endpoint reports it to a page that waits for it. */
 function finished(o: Record<string, unknown>): Record<string, unknown> {
-  const detail = { ...(o.detail as Record<string, unknown> | undefined) }
+  const detail: Record<string, unknown> = { files: [], ...(o.detail as Record<string, unknown> | undefined) }
   if (o.kind === 'disk-cleanup') detail.freed = 734_003_200
   if (o.kind === 'offsite-recover') detail.restoreId = 'fakerestore'
-  return { ...o, status: 'succeeded', finishedAt: new Date().toISOString(), detail }
+  return { ...o, status: 'succeeded', phase: '', finishedAt: new Date().toISOString(), detail }
 }
 
 function knownZone(z: unknown): boolean {
@@ -337,6 +356,78 @@ function discordAlerts(body: unknown, state: FakeState): Reply {
   const kinds = Array.isArray(state.discord.kinds) ? (state.discord.kinds as unknown[]) : []
   if (!Array.isArray(alerts) || !alerts.every((k) => kinds.includes(k)) || typeof b?.liveStatus !== 'boolean') return invalid('Choose alerts from the list.')
   return { status: 200, body: { ...state.discord, alerts, liveStatus: b.liveStatus } }
+}
+
+/** A new id in the panel's alphabet, different on every call. */
+function nextId(state: FakeState, alphabet = 'abcdefghijkmnpqrstuvwxyz23456789', length = 10): string {
+  state.seq++
+  let n = state.seq * 2654435761
+  let out = ''
+  for (let i = 0; i < length; i++) {
+    out += alphabet.charAt(n % alphabet.length)
+    n = Math.floor(n / alphabet.length) + 7919 * (i + 1)
+  }
+  return out
+}
+
+function tokenReply(body: unknown, state: FakeState): Reply {
+  const b = (body ?? {}) as { name?: unknown; role?: unknown; allServers?: unknown; servers?: unknown; days?: unknown }
+  const tokenName = typeof b.name === 'string' ? b.name.trim() : ''
+  if (!tokenName || [...tokenName].length > 40) return invalid('Give the token a name of up to 40 characters, such as "Claude on my laptop".')
+  const days = b.days === undefined || b.days === 0 ? 60 : b.days
+  if (typeof days !== 'number' || ![30, 60, 90, 365].includes(days)) return invalid('A token can last 30, 60, 90 or 365 days.')
+  if (typeof b.role !== 'string' || !['viewer', 'moderator', 'admin'].includes(b.role)) return invalid('Choose what the token can do: viewer, moderator or admin.')
+  const servers = Array.isArray(b.servers) ? b.servers : []
+  if (b.allServers === true && servers.length > 0) return invalid('Send either all servers or a list of servers, not both.')
+  if (b.allServers !== true && (servers.length === 0 || !servers.every((x) => typeof x === 'string' && id.test(x)))) return invalid('Choose at least one server, or all servers.')
+  const now = Date.now()
+  const token = { id: nextId(state), name: tokenName, role: b.role, allServers: b.allServers === true, servers, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + days * 86_400_000).toISOString(), account: 'admin', mine: true }
+  return { status: 201, body: { token, secret: `pk_mcp_${nextId(state, 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', 32)}` } }
+}
+
+/** A machine name as machinelink.CleanName makes it: letters, digits, single spaces and - _ ., at most 40. */
+function cleanName(raw: string): string {
+  return raw
+    .replace(/[^\p{L}\p{N}\s._-]/gu, '')
+    .trim()
+    .split(/\s+/)
+    .join(' ')
+    .slice(0, 40)
+    .trim()
+}
+
+/** The join command in both forms, as machinelink.Command writes them. */
+function joinCommand(address: string, code: string, fingerprint: string, machineName: string) {
+  const quote = (a: string) => (/^[A-Za-z0-9._:/@%+=,-]+$/.test(a) ? a : `'${a.replaceAll("'", '')}'`)
+  const shell = (args: string[]) => args.map(quote).join(' ')
+  const flags = ['--code', code, '--fingerprint', fingerprint, ...(machineName ? ['--name', machineName] : [])]
+  const continued = (head: string, pairs: string[]) => {
+    const lines = [head]
+    for (let i = 0; i + 1 < pairs.length; i += 2) lines.push(`  ${shell(pairs.slice(i, i + 2))}`)
+    return lines.map((l, i) => (i < lines.length - 1 ? `${l} \\` : l))
+  }
+  const install = 'curl -fsSL https://playkeeper.io/install | sudo sh -s --'
+  return {
+    install: `${install} ${shell(['--join', address, ...flags])}`,
+    join: `sudo playkeeper join ${shell([address, ...flags])}`,
+    installLines: continued(install, ['--join', address, ...flags]),
+    joinLines: continued(`sudo playkeeper join ${quote(address)}`, flags),
+  }
+}
+
+function joinCodeReply(body: unknown, state: FakeState): Reply {
+  const b = (body ?? {}) as { name?: unknown; dial?: unknown }
+  const raw = typeof b.name === 'string' ? b.name : ''
+  const machineName = cleanName(raw)
+  if (raw.trim() && !machineName) return invalid('Use letters, numbers, spaces, dashes, dots or underscores in the name.')
+  const addresses = state.link.addresses ?? []
+  const dial = addresses.find((a) => a.kind === b.dial) ?? (b.dial ? undefined : addresses[0])
+  if (!dial) return invalid('Choose the address the machine dials.')
+  const raw8 = nextId(state, '0123456789ABCDEFGHJKMNPQRSTVWXYZ', 8)
+  const code = `${raw8.slice(0, 4)}-${raw8.slice(4)}`
+  const now = Date.now()
+  const view = { id: nextId(state), name: machineName || undefined, dials: dial.address, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 30 * 60_000).toISOString(), createdBy: 'admin', state: 'waiting' }
+  return { status: 201, body: { ...view, code, ...joinCommand(dial.address, code, state.link.fingerprint ?? '4N2DGMFMPH723389KAWSKMR2EM', machineName) } }
 }
 
 const freeName = /^(?=.{3,32}$)[a-z0-9]+(-[a-z0-9]+)*$/
@@ -579,15 +670,15 @@ const routes: [string, RegExp, Handler][] = [
     /^\/api\/servers\/(\w+)\/addons\/remove$/,
     (r, state) => {
       const orphans: unknown = (r.body as { orphans?: unknown } | null)?.orphans ?? []
-      if (!Array.isArray(orphans)) return invalid('Invalid request body.')
-      const problem = addonKeyProblem(r.body) ?? (orphans.length > 200 ? 'Too many add-ons to remove at once.' : orphans.map(addonKeyProblem).find(Boolean))
+      const problem = addonKeyProblem(r.body) ?? badAddonKeys(orphans)
       if (problem) return invalid(problem)
       const managed = managedAddons(state, r.params[0])
       const name = (k: unknown) => managed.find((a) => sameAddon(a, k))?.name
       const target = name(r.body)
       if (!target) return notManaged
-      if (!orphans.every(name)) return invalid(`Only add-ons that nothing else needs can be removed along with ${target}.`)
-      return { status: 200, body: { removed: [r.body, ...orphans].map(name), warnings: [] } }
+      const also = orphans as unknown[]
+      if (!also.every(name)) return invalid(`Only add-ons that nothing else needs can be removed along with ${target}.`)
+      return { status: 200, body: { removed: [r.body, ...also].map(name), warnings: [] } }
     },
   ],
   [
@@ -595,12 +686,12 @@ const routes: [string, RegExp, Handler][] = [
     /^\/api\/servers\/(\w+)\/addons\/adopt$/,
     (r, state) => {
       const file = (r.body as { fileName?: unknown } | null)?.fileName
-      if (typeof file !== 'string' || !/^[^/\\]*\.jar$/.test(file) || new TextEncoder().encode(file).length > 255) return invalid('That is not a file in the add-on folder.')
+      if (typeof file !== 'string' || !/^[^/\\]+\.jar$/.test(file) || new TextEncoder().encode(file).length > 255) return invalid('That is not a file in the add-on folder.')
       const identified = (lastRead(state, r.params[0], 'addons/checks').identified ?? []) as { fileName: string; addon?: AddonRecord }[]
       const rec = identified.find((f) => f.fileName === file)?.addon
       if (!rec) return refuse(409, 'conflict', `Modrinth does not recognize ${file}, so Playkeeper cannot manage it.`, 'It stays in the folder as it is.')
       if (managedAddons(state, r.params[0]).some((a) => sameAddon(a, rec))) return refuse(409, 'conflict', `${rec.name} is already managed by Playkeeper as another file.`, 'Remove one of the two copies first.')
-      return { status: 200, body: rec }
+      return { status: 200, body: { ...rec, fileName: file, installedAt: new Date().toISOString() } }
     },
   ],
   [
@@ -912,6 +1003,16 @@ const routes: [string, RegExp, Handler][] = [
       if (ways.some((w) => typeof w !== 'string' || !diskWays.includes(w))) return { status: 400, body: { error: 'Unknown way to free space.', code: 'invalid', field: 'ways' } }
       return op(state, 'disk-cleanup')
     },
+  ],
+  // Wave 8: AI agent tokens, join codes and joined machines.
+  ['POST', /^\/api\/tokens$/, ({ body }, state) => tokenReply(body, state)],
+  ['DELETE', /^\/api\/tokens\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : invalid('Invalid token id.'))],
+  ['POST', /^\/api\/join-codes$/, ({ body }, state) => joinCodeReply(body, state)],
+  ['DELETE', /^\/api\/join-codes\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : { status: 404, body: { error: 'Join code not found.', code: 'not_found' } })],
+  [
+    'DELETE',
+    /^\/api\/machines\/([a-z2-9]{10})$/,
+    (r, state) => (state.machines.find((m) => m.id === r.params[0])?.kind === 'local' ? invalid('This is the dashboard’s own machine, so it can’t be removed.') : { status: 204 }),
   ],
 ]
 
@@ -1366,6 +1467,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     backupRules: new Map(),
     offsite: new Map(),
     sshKeys: new Set(),
+    link: {},
+    machines: [],
+    seq: 0,
   }
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -1459,8 +1563,12 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
-        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
+        if (path === '/api/machines/link') state.link = laid as FakeState['link']
+        if (path === '/api/machines') state.machines = laid as FakeState['machines']
+        const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
+        if (address?.[1]) state.addresses.set(address[1], laid as Record<string, unknown>)
         if (path === '/api/servers') notePhases(state, laid)
         await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
@@ -1479,6 +1587,8 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
+        if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
+        if (path === '/api/machines') state.machines = await res.json().catch(() => [])
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
         if (address?.[1]) state.addresses.set(address[1], await res.json().catch(() => ({})))
         if (path === '/api/servers') notePhases(state, await res.json().catch(() => []))
@@ -1521,7 +1631,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     }
     const error = reply.status >= 400 ? String((reply.body as { error?: string } | undefined)?.error ?? '') : undefined
     calls.push({ method, path, status: reply.status, faked: true, error, expected: reply.expected, at })
-    await route.fulfill({ status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers }, body: reply.raw ?? JSON.stringify(reply.body ?? {}) })
+    await route.fulfill({ status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers }, body: reply.status === 204 ? '' : (reply.raw ?? JSON.stringify(reply.body ?? {})) })
   })
   return { calls, unfaked, unrecorded }
 }

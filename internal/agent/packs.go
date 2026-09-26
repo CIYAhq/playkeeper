@@ -607,6 +607,13 @@ func (s *server) hResourcePackSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("X-Playkeeper-Actor header is required"))
 		return
 	}
+	// Players' games download a pack from the dashboard on its machine, and
+	// a machine installed to join another dashboard has none.
+	if s.cfg.NoPanel {
+		writeError(w, errConflict("Resource packs work only on the dashboard's machine for now.",
+			"Players download them from the dashboard, which can't pass on this machine's packs yet."))
+		return
+	}
 	q := r.URL.Query()
 	port, _ := strconv.Atoi(q.Get("port"))
 	origin := packs.Origin{Host: q.Get("host"), Port: port}

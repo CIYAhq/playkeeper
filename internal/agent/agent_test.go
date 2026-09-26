@@ -1857,6 +1857,35 @@ func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
 	}
 }
 
+// A restore preview says once that its backup was made on this host,
+// however often it is read again, whether it came from a backup here or
+// from an uploaded archive.
+func TestRestorePreviewSaysOnceTheBackupWasMadeHere(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	readTwice := func(id, want string) {
+		t.Helper()
+		for range 2 {
+			if code, p := e.call("GET", "/v1/restore/"+id, nil); code != 200 || p["source"] != want {
+				t.Fatalf("preview %s: %d, source %q, want %q", id, code, p["source"], want)
+			}
+		}
+	}
+	id, _ := e.backupAndStage()
+	list, _ := e.srv().listBackups(`kind = 'manual'`)
+	readTwice(id, "backup "+list[0].ID+" (made on this host)")
+
+	archive, err := os.ReadFile(filepath.Join(e.cfg.BackupsDir(), list[0].FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, uploaded := e.upload(archive)
+	if code != 200 || uploaded["source"] != "upload (made on this host)" {
+		t.Fatalf("upload: %d %v", code, uploaded)
+	}
+	readTwice(uploaded["id"].(string), "upload (made on this host)")
+}
+
 // When a restore fails after the swap and putting the previous world back
 // fails too, the live directory is missing: nothing may be deleted. The
 // previous world stays in its aside copy, the restored copy is moved out of
@@ -2343,6 +2372,28 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 	for k, v := range want {
 		if !v {
 			t.Errorf("missing audit row %s", k)
+		}
+	}
+}
+
+func TestAMachineWithoutServersSaysWhetherDockerAnswers(t *testing.T) {
+	e := newAgentEnv(t)
+	docker := func() (bool, bool) {
+		_, h := e.call("GET", "/v1/health", nil)
+		return e.a.Machine(context.Background()).Docker, h["docker"] == true
+	}
+	for _, want := range []bool{true, false, true} {
+		e.fd.dockerDown.Store(!want)
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			m, h := docker()
+			if m == want && h == want {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("docker answering=%v: machine says %v, health says %v", want, m, h)
+			}
+			time.Sleep(20 * time.Millisecond)
 		}
 	}
 }

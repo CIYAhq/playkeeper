@@ -457,6 +457,19 @@ describe('Packs page', () => {
     expect(button('Drop a resource pack .zip here, or choose a file').title).toBe('Players can’t download packs from localhost. Open the dashboard at the address players join with.')
   })
 
+  it.each([
+    { where: 'the dashboard’s server', machineId: machine.id, why: undefined },
+    { where: 'a joined machine’s server', machineId: 'r2345abcde', why: 'Resource packs work only on the dashboard’s machine for now.' },
+  ])('holds resource pack uploads back on $where only, and keeps the rest working', async ({ machineId, why }) => {
+    const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote' } as MachineView
+    answer({ '/resourcepack': { offer, pending: false } satisfies ResourcePack, '/datapacks': dataPacks() })
+    const text = await render(<PacksPage server={server({ machineId })} />, workspace({ machines: [machine, remote] }))
+    expect(button('Drop a .zip to replace it').disabled).toBe(!!why)
+    expect(button('Drop a .zip to replace it').title).toBe(why ?? '')
+    expect(text.includes('Resource packs work only on the dashboard’s machine for now.')).toBe(!!why)
+    for (const label of ['Remove', 'Upload data pack']) expect(button(label).disabled, label).toBe(false)
+  })
+
   it('says why nothing can change while another job runs', async () => {
     answer({ '/resourcepack': { offer, pending: false } satisfies ResourcePack, '/datapacks': dataPacks() })
     const operation = { id: 'backup-1', kind: 'backup', status: 'running' as const, phase: 'archiving', actor: 'siya', startedAt: new Date().toISOString() }

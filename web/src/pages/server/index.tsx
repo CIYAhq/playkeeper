@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, HouseIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SquareIcon, Trash2Icon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
-import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServer, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
@@ -17,7 +17,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
-import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
+import { demo } from '@/lib/demo'
+import { formatMB, relativeTime } from '@/lib/format'
+import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
@@ -61,7 +63,8 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
     )
   }
   if (!server) return <NotFound />
-  const settingUp = !ws.stale && isSettingUp(server)
+  const reach = reachOf(server, ws)
+  const settingUp = !isStale(server, ws.stale) && reach.state === 'live' && isSettingUp(server)
   let body: ReactNode
   switch (tab) {
     case 'overview':
@@ -98,6 +101,10 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
   }
   const locked = settingUp && (!!page || (tab !== 'overview' && tab !== 'console'))
   if (locked) body = <Overview server={server} />
+  // Nothing on the other tabs can load from a joined machine that's away or whose agent doesn't answer, so they show what Overview says about it.
+  const offline = reach.state !== 'live' && outOfReach(reach.machine)
+  if (offline && (page || tab !== 'overview')) body = <Overview server={server} />
+  const ownView = !locked && !offline
   // A page inside a tab animates in like a tab of its own. On desktop, both
   // backup pages are one page and Schedules is a section of Settings. The
   // Plugins tab keeps its running job and highlighted file across its views,
@@ -110,19 +117,19 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
   else if (!phone && tab === 'settings') view = 'settings'
   // Pages inside a tab bring their own phone header with a way back; the
   // Plugins tab's header serves all its views.
-  const ownHeader = phone && !locked && sub !== undefined && tab !== 'plugins' && tab !== 'mods'
+  const ownHeader = phone && ownView && sub !== undefined && tab !== 'plugins' && tab !== 'mods'
   return (
     <>
       {ownHeader ? null : phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
-        ) : player ? (
+        ) : player && !offline ? (
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'players' }} label={t('tab.players')} title={player} />
-        ) : page === 'running' && !settingUp ? (
+        ) : page === 'running' && ownView ? (
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} />
-        ) : (tab === 'plugins' || tab === 'mods') && !locked ? (
+        ) : (tab === 'plugins' || tab === 'mods') && ownView ? (
           <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
-        ) : (tab === 'world' && sub && !locked) || (tab === 'map' && !locked) ? null : (
+        ) : (tab === 'world' && sub && ownView) || (tab === 'map' && ownView) ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (
@@ -149,31 +156,39 @@ function NotFound() {
   )
 }
 
-/** "Minecraft 26.1.2 · Paper · Survival with friends". */
-function metaLine(s: ServerStatus, settingUp: boolean, stale: boolean, lastSeenAt: number | undefined): string {
+/**
+ * "Minecraft 26.1.2 · Paper · Survival with friends", ending "on home-server"
+ * when there's more than one machine. lastSeen is when a stale status was
+ * last heard, while an agent doesn't answer.
+ */
+function metaLine(s: ServerStatus, settingUp: boolean, lastSeen: string | undefined, on: string | undefined): string {
   const cfg = s.config
   const parts: string[] = []
   if (cfg?.minecraftVersion) parts.push(t('server.minecraft', { version: cfg.minecraftVersion }))
   parts.push(typeName(s.type))
-  if (stale) {
-    if (lastSeenAt && s.phase === 'online') parts.push(t('server.lastSeen', { time: relativeTime(new Date(lastSeenAt).toISOString()) }))
+  if (lastSeen) {
+    if (s.phase === 'online') parts.push(t('server.lastSeen', { time: relativeTime(lastSeen) }))
   } else {
     const style = cfg?.modpack?.name ?? styleTitle(cfg)
     if (style) parts.push(style)
     if (settingUp && cfg?.memoryMB) parts.push(formatMB(cfg.memoryMB))
   }
+  if (on) parts.push(t('machines.onMachine', { name: on }))
   return parts.join(t('common.dot'))
 }
 
 function useCopyAddress(server: ServerStatus) {
-  return async () => {
-    const ok = await copyText(serverJoinAddress(server))
+  const { join } = useServerMachine(server)
+  const copy = async () => {
+    const ok = await copyText(join.address)
     toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
+  return { copy, reason: join.address ? undefined : join.reason }
 }
 
 function PrimaryAction({ server }: { server: ServerStatus }) {
-  const { stale, me } = useWorkspace()
+  const { me } = useWorkspace()
+  const { stale, offline } = useServerMachine(server)
   const [busy, setBusy] = useState(false)
   const run = async (action: 'start' | 'restart') => {
     setBusy(true)
@@ -186,14 +201,14 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
   const tone = statusTone(server)
   if (!stale && (tone === 'crashed' || (tone === 'stopped' && server.exists))) {
     return (
-      <Button onClick={() => run('start')} loading={busy} disabledReason={whyNot(server, 'start', stale)}>
+      <Button onClick={() => run('start')} loading={busy} disabledReason={whyNot(server, 'start', offline)}>
         <PlayIcon />
         {tone === 'crashed' ? t('server.startAgain') : t('server.start')}
       </Button>
     )
   }
   return (
-    <Button variant="outline" onClick={() => run('restart')} loading={busy} disabledReason={whyNot(server, 'restart', stale)}>
+    <Button variant="outline" onClick={() => run('restart')} loading={busy} disabledReason={whyNot(server, 'restart', offline)}>
       <RotateCwIcon />
       {t('server.restart')}
     </Button>
@@ -201,14 +216,15 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 }
 
 function MoreMenu({ server }: { server: ServerStatus }) {
-  const { stale, me } = useWorkspace()
+  const { me } = useWorkspace()
+  const { offline } = useServerMachine(server)
   const c = controls(server)
   const run = can(me, 'servers.run')
   const backUp = can(me, 'backups.make')
   const remove = can(me, 'servers.create')
-  const share = can(me, 'view')
+  const share = can(me, 'view') && demo?.templates !== false
   const [sharing, setSharing] = useState(false)
-  const backUpBlocked = whyNot(server, 'change', stale)
+  const backUpBlocked = whyNot(server, 'change', offline)
   if (!run && !backUp && !remove && !share) return null
   return (
     <Menu>
@@ -252,16 +268,18 @@ function MoreMenu({ server }: { server: ServerStatus }) {
 
 function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab: ServerTab; settingUp: boolean }) {
   const ws = useWorkspace()
+  const place = useServerMachine(s)
   const copy = useCopyAddress(s)
-  const op = !ws.stale ? s.operation : undefined
+  const op = !place.stale ? s.operation : undefined
+  const lastSeen = place.reach.state === 'away' ? undefined : place.reach.state === 'agentDown' ? place.reach.since : ws.stale && ws.lastSeenAt ? new Date(ws.lastSeenAt).toISOString() : undefined
   const locked = (t2: ServerTab) => settingUp && t2 !== 'overview' && t2 !== 'console'
   return (
     <header className="border-b border-border px-7 pt-3.5">
       <div className="flex h-8 items-center gap-2 text-[13px]">
         <nav aria-label={t('nav.breadcrumb')} className="flex min-w-0 items-center gap-1.5">
-          {ws.machine && (
-            <a {...linkProps({ name: 'machine', id: ws.machine.id })} className="text-muted-foreground hover:text-foreground">
-              {ws.machineName}
+          {place.route && (
+            <a {...linkProps(place.route)} className="text-muted-foreground hover:text-foreground">
+              {place.name}
             </a>
           )}
           <span className="text-muted-foreground/60" aria-hidden="true">
@@ -283,7 +301,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
                 {(ws.servers ?? []).map((o) => (
                   <MenuRadioItem key={o.id} value={o.id} closeOnClick>
                     <span className="flex items-center gap-2">
-                      <Dot tone={ws.stale ? 'unknown' : statusTone(o)} />
+                      <Dot tone={isStale(o, ws.stale) || reachOf(o, ws).state !== 'live' ? 'unknown' : statusTone(o)} />
                       {o.name}
                     </span>
                   </MenuRadioItem>
@@ -308,21 +326,21 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Emblem size={44} stopped={ws.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+        <Emblem size={44} stopped={place.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="truncate text-title font-bold tracking-[-0.015em]">{s.name}</h1>
-            <StatusPill server={s} agentDown={ws.stale} elapsed={settingUp ? s.operation?.startedAt : undefined} />
+            <StatusPill server={s} agentDown={place.stale} away={awayOf(place.reach)} elapsed={settingUp ? s.operation?.startedAt : undefined} />
           </div>
-          <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{metaLine(s, settingUp, ws.stale, ws.lastSeenAt)}</p>
+          <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{metaLine(s, settingUp, lastSeen, place.shared ? place.name : undefined)}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={copy}>
+          <Button variant="outline" onClick={copy.copy} disabledReason={copy.reason}>
             <CopyIcon />
             {t('server.copyAddress')}
           </Button>
           {!settingUp && <PrimaryAction server={s} />}
-          {!settingUp && !ws.stale && <MoreMenu server={s} />}
+          {!settingUp && !place.stale && <MoreMenu server={s} />}
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
@@ -379,10 +397,10 @@ function PhoneServerHeader({ server: s, tab }: { server: ServerStatus; tab: Serv
 }
 
 function PhoneStatus({ server }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const place = useServerMachine(server)
   return (
     <div className="mt-0.5 flex items-center">
-      <StatusPill server={server} agentDown={ws.stale} onChalk className="h-auto border-0 bg-transparent px-0 text-[13px] font-medium" />
+      <StatusPill server={server} agentDown={place.stale} away={awayOf(place.reach)} onChalk className="h-auto border-0 bg-transparent px-0 text-[13px] font-medium" />
     </div>
   )
 }
@@ -395,8 +413,10 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
     onOpenChange(false)
     navigate(to)
   }
+  const staleOf = (s: ServerStatus) => isStale(s, ws.stale) || reachOf(s, ws).state !== 'live'
   const line = (s: ServerStatus) => {
-    const tone = ws.stale ? 'unknown' : statusTone(s)
+    const stale = staleOf(s)
+    const tone = stale ? 'unknown' : statusTone(s)
     const state =
       tone === 'online'
         ? s.players?.online
@@ -406,7 +426,7 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           ? statusLabel(s)
           : tone === 'stopped' && s.stoppedAt
             ? t('switcher.stoppedAgo', { time: relativeTime(s.stoppedAt) })
-            : ws.stale
+            : stale
               ? t('status.unknown')
               : undefined
     return [state, softwareLabel(s)].filter(Boolean).join(t('common.dot'))
@@ -421,7 +441,7 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           {(ws.servers ?? []).map((s) => (
             <li key={s.id} className="border-b border-border last:border-b-0">
               <button type="button" onClick={() => go({ name: 'server', slug: s.slug, tab: tab === 'settings' ? 'overview' : tab })} className="flex min-h-16 w-full items-center gap-3 px-3 py-2 text-left" aria-current={s.id === current?.id ? 'true' : undefined}>
-                <Emblem size={44} stopped={ws.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+                <Emblem size={44} stopped={staleOf(s) || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-base font-semibold">{s.name}</span>
                   <span className="block truncate text-[13px] text-muted-foreground">{line(s)}</span>

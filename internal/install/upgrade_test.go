@@ -44,7 +44,7 @@ func installedAt(t *testing.T, h *fakeHost, version string, withUpdater bool) co
 	}
 	units := []string{AgentUnit, PanelUnit}
 	if withUpdater {
-		units = unitNames
+		units = append(units, UpdatePathUnit, UpdateServiceUnit)
 	}
 	files := []string{BinPath, ConfigDir + "/config.json"}
 	for _, u := range units {
@@ -111,7 +111,7 @@ func TestOneLinerUpgradesA010InstallInPlace(t *testing.T) {
 	if got := read(t, h, BinPath); got != "playkeeper 0.2.0 (new)\n" {
 		t.Fatalf("binary not replaced: %q", got)
 	}
-	for name, content := range Units(cfg) {
+	for name, content := range Units(cfg, false) {
 		if got := read(t, h, UnitDir+"/"+name); got != content {
 			t.Errorf("%s is not the new version's unit:\n%s", name, got)
 		}

@@ -1,8 +1,7 @@
-import type { MemoryAdvice, MemoryFit, MemoryOption, ServerMemory } from '@/api/types'
+import type { MemoryAdvice, MemoryFit, MemoryOption, MemorySizing, ServerMemory } from '@/api/types'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB } from '@/lib/format'
 import { num, str } from '@/lib/params'
-import { playersFor } from '@/lib/styles'
 
 export interface Segment {
   key: string
@@ -51,7 +50,7 @@ export function memoryProgress(a: MemoryAdvice): { day: number; of: number } | u
 }
 
 /** The line under Settings › Memory's budget: what the last 14 days say about it. */
-export function memoryAdviceLine(a: MemoryAdvice, machine: string): string {
+export function memoryAdviceLine(a: MemoryAdvice, machine: string, sizing?: MemorySizing): string {
   const p = a.params
   const count = num(p, 'days') ?? 0
   const peakMB = num(p, 'peak_mb')
@@ -74,7 +73,7 @@ export function memoryAdviceLine(a: MemoryAdvice, machine: string): string {
       return to ? t('settings.memoryRaise', { count, to: formatMB(to) }) : t('settings.memoryRaiseNoRoom', { count, machine })
     }
     case 'not_enough_data': {
-      const until = { memory, players: playersFor(a.budgetMB) }
+      const until = { memory, players: playersFor(a.budgetMB, sizing) }
       const minDays = num(p, 'min_days') ?? 3
       if (!count && a.fromNextStart) return t('settings.memoryFromRestart', until)
       if (count >= minDays) return t('settings.memoryAfterWeek', until)
@@ -85,6 +84,18 @@ export function memoryAdviceLine(a: MemoryAdvice, machine: string): string {
       return never
     }
   }
+}
+
+/** About how many players a budget suits: the sizing guide's count when the machine sends it, else a rough one. */
+export function playersFor(memoryMB: number, sizing?: MemorySizing): number {
+  const guide = sizing?.budgets.find((b) => b.memoryMB === memoryMB)
+  if (guide) return guide.players
+  if (memoryMB >= 8192) return 30
+  if (memoryMB >= 6144) return 20
+  if (memoryMB >= 4096) return 10
+  if (memoryMB >= 3072) return 6
+  if (memoryMB >= 2048) return 4
+  return 2
 }
 
 const fitText: Record<MemoryFit, MessageKey> = {
@@ -105,11 +116,11 @@ const recommendedText: Record<MemoryFit, MessageKey> = {
  * The line under a budget in Settings › Memory's list: whether the machine
  * has room for it, then how it would fit, or who it suits until then.
  */
-export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefined, machine: string): string {
+export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefined, machine: string, sizing?: MemorySizing): string {
   if (!o.fits) return t('settings.memoryNoRoom', { machine })
   if (advice?.recommendedMB === o.memoryMB) return o.fit ? t(recommendedText[o.fit]) : t('settings.memoryRecommended')
   if (o.fit) return t(fitText[o.fit])
-  return t('settings.memoryFriends', { count: playersFor(o.memoryMB) })
+  return t('settings.memoryFriends', { count: playersFor(o.memoryMB, sizing) })
 }
 
 /**

@@ -108,6 +108,13 @@ func (s *Server) hResourcePackUpload(w http.ResponseWriter, r *http.Request, ses
 	if !ok {
 		return
 	}
+	// The dashboard serves only its own machine's packs (see activePacks),
+	// and a joined machine would store the pack and point players here.
+	if m.Kind == remoteKind {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "Resource packs work only on the dashboard's machine for now.",
+			"Players download them from the dashboard, which can't pass on "+m.Name+"'s packs yet.")
+		return
+	}
 	origin := packOrigin(r)
 	if _, err := origin.PackURL(strings.Repeat("0", 40)); err != nil {
 		code, msg := api.CodeInvalid, "Players' games couldn't download the pack from this address."
