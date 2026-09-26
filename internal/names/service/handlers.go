@@ -348,6 +348,7 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call, answere
 		} else {
 			v6 = c.addr.String()
 		}
+		// A new row starts at version 1 and synced 0, so it is published.
 		res, err := q.ExecContext(ctx, `INSERT INTO names (name, key, state, ipv4, ipv6, network, claimed_at, refreshed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (name) DO UPDATE SET state = excluded.state, ipv4 = excluded.ipv4, ipv6 = excluded.ipv6, network = excluded.network,
 			claimed_at = excluded.claimed_at, refreshed_at = excluded.refreshed_at, lapsed_at = 0, released_at = 0, version = version + 1,
