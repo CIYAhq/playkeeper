@@ -56,6 +56,7 @@ import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
 import { formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { parse } from '@/lib/router'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
@@ -316,19 +317,24 @@ describe('Home', () => {
     expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
+  const activityAsked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/activity'))
+
   it('groups servers by machine, with activity from every machine that answers', async () => {
-    const home: MachineView = {
-      id: 'h2345abcde',
-      projectId: machine.projectId,
-      name: 'home-server',
-      kind: 'remote',
-      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
-      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
-    }
-    const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
     vi.mocked(client.get).mockImplementation(((path: string) => {
-      if (path.includes(`/${machine.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' }])
-      if (path.includes(`/${home.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' }])
+      if (path === '/api/activity?limit=5')
+        return Promise.resolve([
+          { ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' },
+          { ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' },
+        ])
       if (path.includes(`/${away.id}/`)) return Promise.reject(new client.ApiError(503, { error: 'offline', code: 'machine_offline' }))
       return new Promise(() => {})
     }) as typeof client.get)
@@ -349,6 +355,20 @@ describe('Home', () => {
     expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
     expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
     expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+  })
+
+  // The dashboard merges every machine's activity and adds each team join once, so Home asks it once however many machines there are.
+  it.each([
+    { name: 'the dashboard’s machine', machines: [machine] },
+    { name: 'two machines', machines: [machine, home] },
+    { name: 'three machines, one away', machines: [machine, home, away] },
+  ])('shows a team join once with $name', async ({ machines }) => {
+    answer({ '/api/activity': [{ ts: hoursAgo(1), kind: 'team_joined', actor: 'alex', detail: 'moderator' }] })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<HomePage />, workspace({ machines, servers: [server({ machineId: machine.id })] }))
+    expect(text.split('alex joined the team as Moderator').length - 1).toBe(1)
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
   })
 
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
@@ -1571,6 +1591,41 @@ describe('Add-on sources', () => {
       expect(button(label)?.title).toBe('Only the owner can change this.')
     }
   })
+
+  // Each machine keeps its own key, so the card names the one it shows and saves the key there.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  it.each([
+    { name: 'the dashboard’s machine when none is chosen', machine: undefined, want: machine.id, label: 'my-vps' },
+    { name: 'the joined machine New server linked to', machine: home.id, want: home.id, label: 'home-server' },
+  ])('shows and saves the key of $name', async ({ machine: chosen, want, label }) => {
+    answer({ '/addon-sources': none })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home] }))
+    expect(vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/addon-sources'))).toEqual([`/api/machines/${want}/addon-sources`])
+    expect(text).toContain(`The key stays on ${label}.`)
+    vi.mocked(client.post).mockResolvedValueOnce({ curseforge: { key: 'file', ending: 'c3f9' } })
+    await paste('pasted-key-0123456789abc3f9a')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith(`/api/machines/${want}/addon-sources/curseforge`, { key: 'pasted-key-0123456789abc3f9a' })
+    expect(document.body.textContent).toContain('Key ending c3f9')
+    await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home], me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(button('Save key')?.disabled).toBe(true)
+    expect(button('Save key')?.title).toBe('Only the owner can change this.')
+  })
+
+  it('says so when the chosen machine isn’t connected to this dashboard, and asks no other', async () => {
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: 'z2345abcde' }} />, workspace({ machines: [machine, home] }))
+    expect(text).toContain('That machine isn’t connected to this dashboard')
+    expect(keyField()).toBeNull()
+    expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('/addon-sources'))).toEqual([])
+  })
 })
 
 describe('Sidebar', () => {
@@ -1661,6 +1716,18 @@ describe('Modpacks', () => {
     expect(document.body.textContent).toContain('What friends do')
     expect(document.body.textContent?.includes('Open on Modrinth')).toBe(shown)
     expect(document.querySelector(`a[href="${pageUrl}"]`) !== null).toBe(shown)
+  })
+
+  // The key goes on the machine the server is made on, so the link to it chooses that machine.
+  it.each([
+    { name: 'the dashboard’s machine', machineId: 'm2345abcde' },
+    { name: 'a joined machine', machineId: 'h2345abcde' },
+  ])('sends whoever needs a CurseForge key to the key of $name', async ({ machineId }) => {
+    answer({ '/modpacks?': results })
+    await render(<ModpackPicker machineId={machineId} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const link = [...document.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/settings/addon-sources'))
+    expect(link?.getAttribute('href')).toBe(`/settings/addon-sources?machine=${machineId}`)
+    expect(parse('/settings/addon-sources', `?machine=${machineId}`)).toEqual({ name: 'addon-sources', machine: machineId })
   })
 
   it('says what a pack’s server downloads, not Paper', () => {
@@ -2214,6 +2281,29 @@ describe('Discord', () => {
     if (!players) throw new Error('no switch for players joining')
     await click(players)
     expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true })
+  })
+
+  // The dashboard's agent posts the message with its own machine's servers, so the preview shows only those.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const survival = server({ machineId: machine.id, gamePort: 25566 })
+  const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25570 })
+  it.each([
+    { name: 'the dashboard’s servers only', servers: [survival], note: false },
+    { name: 'the same and a joined machine’s server that is first online', servers: [cobblemon, survival], note: true },
+  ])('previews the live status with $name', async ({ servers, note }) => {
+    answer({ '/api/discord': { connected: true, webhookName: 'Playkeeper alerts', connectedAt: hoursAgo(1), alerts: [], liveStatus: true, delivery: {}, kinds } satisfies DiscordSettings })
+    const text = await render(<DiscordSettingsSection />, workspace({ machines: [machine, home], servers }))
+    const preview = document.querySelector('[role="img"][aria-label="How it looks in the channel"]')
+    expect([...(preview?.querySelectorAll('li') ?? [])].map((li) => li.textContent?.split('Online')[0])).toEqual(['Survival'])
+    expect(preview?.textContent).toContain(`Join: ${window.location.hostname}:25566`)
+    expect(preview?.textContent).not.toContain('25570')
+    expect(text.includes('Servers on your other machines aren’t posted yet.')).toBe(note)
   })
 })
 
@@ -2875,7 +2965,7 @@ describe('Machines and AI agents', () => {
     vi.mocked(client.get).mockClear()
     await render(<HomePage />, ws)
     expect(asked(), 'Home asks home-server for its activity').toEqual([])
-    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${machine.id}/activity`))).toBe(true)
+    expect(vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/activity'))).toEqual(['/api/activity?limit=5'])
   })
 
   it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {

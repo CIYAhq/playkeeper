@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
-import { useCatalog } from '@/api/catalog'
+import { useCatalog, type CatalogFor } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
 import { useBuilds } from '@/api/software'
 import { planTemplate } from '@/api/templates'
-import type { MachineView, Operation, RestorePreview, ServerStatus, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
+import type { MachineView, Operation, RestorePreview, ServerStatus, ServerType, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
@@ -64,6 +64,33 @@ export function packRequest(c: CreateChoices, pack: ModpackChoice) {
 /** The template decides the type, version and settings: the request names only the plan the user saw. */
 function templateRequest(c: CreateChoices, choice: TemplateChoice) {
   return { name: c.name.trim(), acceptEula: c.eula, memoryMB: c.memoryMB, acceptExperimental: !!choice.plan.experimental && c.acceptExperimental, template: { fingerprint: choice.plan.fingerprint } }
+}
+
+/**
+ * What the catalog sizes a new server's memory for, as the sizing guide does: the type a pack
+ * or template runs, when this machine can create it, and the mods or plugins it brings. A
+ * pack's mods count when its source says. A template's add-ons count as its type installs
+ * them, and a modpack it names, whose own mods it doesn't list, as at least a few mods.
+ */
+export function catalogFor(from: StartFrom, type: string, pack: ModpackChoice | undefined, tpl: TemplateChoice | undefined, types: ServerType[] | undefined): CatalogFor {
+  const creatable = (id: string) => !!types?.some((ty) => ty.id === id && ty.available)
+  if (from === 'modpack' && pack) return { type: creatable(pack.type) ? pack.type : type, mods: pack.mods }
+  const plan = from === 'template' ? tpl?.plan : undefined
+  if (!plan || !creatable(plan.type)) return { type }
+  const n = plan.contents.addons.length
+  const kind = addonKind(plan.type)
+  switch (kind) {
+    case 'plugins':
+      return { type: plan.type, plugins: n }
+    case 'mods':
+      return { type: plan.type, mods: plan.contents.modpack ? Math.max(n, 1) : n }
+    case 'none':
+      return { type: plan.type }
+    default: {
+      const unreachable: never = kind
+      return unreachable
+    }
+  }
 }
 
 /** The line under the summary. A modpack or template decides the type, so the name step names that type, or none when it isn't known yet. */
@@ -144,11 +171,15 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const [from, setFrom] = useState<StartFrom>(() => (handoff ? 'template' : window.location.hash === '#world' ? 'world' : 'type'))
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
-  // A pack's mods size its memory options, as the sizing guide does.
-  const { catalog, error, reload } = useCatalog(target?.id, { type: c?.type ?? 'paper', mods: packed ? pack.mods : undefined, fresh: true })
   const [tpl, setTpl] = useState<TemplateChoice>()
   const [tplProblem, setTplProblem] = useState<string>()
   const templated = from === 'template' && !!tpl
+  // What a pack or template runs sizes its memory options. Every catalog lists the same types, so the last one says which a pack or template may ask for.
+  const [types, setTypes] = useState<ServerType[]>()
+  const { catalog, error, reload } = useCatalog(target?.id, { ...catalogFor(from, c?.type ?? 'paper', pack, tpl, types), fresh: true })
+  useEffect(() => {
+    if (catalog) setTypes(catalog.types)
+  }, [catalog])
   const [source, setSource] = useState<WorldSource>('singleplayer')
   const upload = useWorldUpload(target?.id)
   const [check, setCheck] = useState<Checked>()

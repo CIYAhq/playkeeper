@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -474,41 +476,104 @@ func (s *Server) turnOffLinks(r *http.Request, by user, creator invites.Account,
 // --- routes scoped to the servers an account can use ---
 
 // hMachineActivity is a machine's recent activity, for the servers the
-// account can use. Lines about the whole machine need all servers.
+// account can use. The team's joins are the dashboard's, not any machine's,
+// so only the dashboard's own machine lists them.
 func (s *Server) hMachineActivity(w http.ResponseWriter, r *http.Request, sess *session) {
 	m, ok := s.machineFromPath(w, r)
 	if !ok {
 		return
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 200 {
-		limit = 20
-	}
-	ask := limit
-	if !sess.Access.Servers.All {
-		ask = 200
-	}
-	var list []api.Activity
-	status, err := m.agent.Do(r.Context(), "GET", "/v1/activity", url.Values{"limit": {strconv.Itoa(ask)}}, nil, &list)
+	limit := activityLimit(r)
+	out, status, err := machineActivity(r.Context(), m, sess.Access, limit)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
 	}
+	if m.Kind == localKind {
+		out = s.withTeamJoins(out, sess.Access, limit)
+	}
+	writeJSON(w, status, s.withActorNames(out))
+}
+
+// hActivity is Home's recent activity: every machine's that answers, for
+// the servers the account can use, and the team's joins once, whichever
+// machines answer. It fails only when no machine does.
+func (s *Server) hActivity(w http.ResponseWriter, r *http.Request, sess *session) {
+	limit := activityLimit(r)
+	machines, err := s.machines()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	lists := make([][]api.Activity, len(machines))
+	errs := make([]error, len(machines))
+	var wg sync.WaitGroup
+	for i, m := range machines {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
+			defer cancel()
+			lists[i], _, errs[i] = machineActivity(ctx, m, sess.Access, limit)
+		})
+	}
+	wg.Wait()
 	out := []api.Activity{}
-	for _, a := range list {
+	answered := false
+	for i := range machines {
+		if errs[i] == nil {
+			answered = true
+			out = append(out, lists[i]...)
+		}
+	}
+	if !answered && len(machines) > 0 {
+		s.agentFailure(w, errs[0])
+		return
+	}
+	writeJSON(w, http.StatusOK, s.withActorNames(s.withTeamJoins(out, sess.Access, limit)))
+}
+
+// activityLimit is how many lines of activity a request asks for: 1 to
+// 200, 20 when it doesn't say.
+func activityLimit(r *http.Request) int {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 200 {
+		return 20
+	}
+	return limit
+}
+
+// machineActivity is a machine's latest activity, up to limit lines, for
+// the servers a can use. Lines about the whole machine need all servers.
+func machineActivity(ctx context.Context, m machine, a access, limit int) ([]api.Activity, int, error) {
+	ask := limit
+	if !a.Servers.All {
+		ask = 200
+	}
+	var list []api.Activity
+	status, err := m.agent.Do(ctx, "GET", "/v1/activity", url.Values{"limit": {strconv.Itoa(ask)}}, nil, &list)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := []api.Activity{}
+	for _, x := range list {
 		if len(out) == limit {
 			break
 		}
-		if a.ServerID == "" && sess.Access.Servers.All || a.ServerID != "" && sess.Access.covers(a.ServerID) {
-			out = append(out, a)
+		if x.ServerID == "" && a.Servers.All || x.ServerID != "" && a.covers(x.ServerID) {
+			out = append(out, x)
 		}
 	}
-	out = append(out, s.teamJoins(sess.Access, limit)...)
-	slices.SortStableFunc(out, func(a, b api.Activity) int { return b.TS.Compare(a.TS) })
+	return out, status, nil
+}
+
+// withTeamJoins is activity with the team's joins added, newest first, up
+// to limit lines.
+func (s *Server) withTeamJoins(activity []api.Activity, a access, limit int) []api.Activity {
+	out := append(activity, s.teamJoins(a, limit)...)
+	slices.SortStableFunc(out, func(x, y api.Activity) int { return y.TS.Compare(x.TS) })
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	writeJSON(w, status, s.withActorNames(out))
+	return out
 }
 
 // teamJoins are members joining the team, as activity with their role.
