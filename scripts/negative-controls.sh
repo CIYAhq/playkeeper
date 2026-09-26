@@ -2208,7 +2208,7 @@ control "an import refused over a linked world folder starts the previous world 
   '	folders, err := worldimport.WorldFolders(live, level)
 	if err != nil {' \
   ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
-control "each start waits for squaremap afresh before the first render" internal/agent/maps.go \
+control "each run that comes online waits for squaremap afresh" internal/agent/maps.go \
   '	if prev := ms.rendering[s.id]; prev != nil {
 		prev.stop()
 	}' \
@@ -2217,7 +2217,15 @@ control "each start waits for squaremap afresh before the first render" internal
 		stop()
 		return
 	}' \
-  ./internal/agent '^TestAStartDuringTheFirstRenderWaitWaitsAgain$'
+  ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
+control "the first render follows every run that comes online, however it started" internal/agent/collector.go \
+  '			if take {
+				s.mapRunOnline(runStart)
+			}' \
+  '			if false && take {
+				s.mapRunOnline(runStart)
+			}' \
+  ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
 control "a restart is put off only while squaremap needs it" internal/agent/maps.go \
   'if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {' \
   'if l := s.mapLive(r.Context(), true); false && !rec.pendingRestart(l) {' \

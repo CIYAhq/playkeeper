@@ -33,6 +33,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/names"
+	"github.com/CIYAhq/playkeeper/internal/update"
 	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
@@ -252,14 +253,25 @@ func startFakeSquaremapWeb(t *testing.T) *fakeSquaremapWeb {
 }
 
 // newMapEnv is an agent whose add-on library reaches the fake Modrinth and
-// whose servers' squaremap is the fake web server.
+// whose servers' squaremap is the fake web server, across the agent's
+// restarts too.
 func newMapEnv(t *testing.T) (*agentEnv, *fakeMapSource, *fakeSquaremapWeb) {
 	t.Helper()
-	e := newAgentEnv(t)
+	return newMapEnvWith(t, nil)
+}
+
+// newMapEnvWith is newMapEnv with setup run before the agent first starts.
+func newMapEnvWith(t *testing.T, setup func(e *agentEnv)) (*agentEnv, *fakeMapSource, *fakeSquaremapWeb) {
+	t.Helper()
 	src, sq := startFakeMapSource(t), startFakeSquaremapWeb(t)
-	e.a.opts.Addons = src.library(t)
 	addr := sq.srv.Listener.Addr().String()
-	e.a.opts.MapAddr = func(string) string { return addr }
+	e := newAgentEnvWith(t, func(e *agentEnv) {
+		e.addons = src.library(t)
+		e.tweak = func(o *Options) { o.MapAddr = func(string) string { return addr } }
+		if setup != nil {
+			setup(e)
+		}
+	})
 	return e, src, sq
 }
 
@@ -735,16 +747,15 @@ func TestMapWaitsForPlayersBeforeRestarting(t *testing.T) {
 	e.waitFor("the first render", func() bool { return e.rcon.count("squaremap fullrender minecraft:overworld") == 1 })
 }
 
-// Each start waits for squaremap afresh before the first render. When the
-// server restarts, stops and starts, or crashes and is started again while
-// the wait of the start that loaded squaremap is still under way (here
-// squaremap never answers it), that wait ends and the map is drawn once
-// squaremap answers after the new start.
-func TestAStartDuringTheFirstRenderWaitWaitsAgain(t *testing.T) {
+// A map that was never drawn is drawn after whatever brings the server
+// online: a restart, a stop and a start, a crash and the automatic restart,
+// the agent restarting, or a Playkeeper update, the server running all
+// along in the last two. squaremap never answers the run that loaded it
+// here, and that run's wait has long stopped asking often, so each run
+// must wait afresh and ask at once.
+func TestEveryRunThatComesOnlineGetsTheFirstRender(t *testing.T) {
 	defer func(w time.Duration) { firstRenderWait = w }(firstRenderWait)
-	// Shorter than the timeout of one answer from squaremap, so the first
-	// wait's unanswered request lasts as long as that wait.
-	firstRenderWait = 4 * time.Second
+	firstRenderWait = 0
 	do := func(e *agentEnv, verb string) {
 		e.t.Helper()
 		code, out := e.call("POST", e.sp(verb), map[string]any{"actor": "admin"})
@@ -754,29 +765,54 @@ func TestAStartDuringTheFirstRenderWaitWaitsAgain(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name  string
-		event func(e *agentEnv)
+		setup func(e *agentEnv)
+		// event brings the server online again; release lets squaremap
+		// answer from then on.
+		event func(e *agentEnv, release func())
 	}{
-		{"a restart", func(e *agentEnv) { do(e, "/restart") }},
-		{"a stop, then a start", func(e *agentEnv) {
+		{name: "a restart", event: func(e *agentEnv, release func()) {
+			release()
+			do(e, "/restart")
+		}},
+		{name: "a stop, then a start", event: func(e *agentEnv, release func()) {
+			release()
 			do(e, "/stop")
 			do(e, "/start")
 		}},
-		{"a crash and the automatic restart", func(e *agentEnv) {
+		{name: "a crash and the automatic restart", event: func(e *agentEnv, release func()) {
+			release()
 			started := e.startedAt()
 			e.fd.crash(137)
 			e.waitFor("the automatic restart", func() bool { return e.startedAt().After(started) && e.onlineIdle() })
 		}},
+		{name: "the agent restarting", event: func(e *agentEnv, release func()) {
+			e.stop()
+			release()
+			e.start()
+		}},
+		{name: "a Playkeeper update", setup: func(e *agentEnv) { e.useReleases() }, event: func(e *agentEnv, release func()) {
+			if op := e.applyUpdate("0.2.1"); op.Status != api.OpRunning || op.Phase != "restarting" {
+				e.t.Fatalf("update: %+v", op)
+			}
+			// The updater takes the request and starts the new agent.
+			e.stop()
+			release()
+			dir := filepath.Join(e.cfg.AgentDir(), "update")
+			if err := os.Rename(filepath.Join(dir, update.RequestFile), filepath.Join(dir, update.ApplyingFile)); err != nil {
+				e.t.Fatal(err)
+			}
+			e.start()
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			e, _, sq := newMapEnv(t)
+			e, _, sq := newMapEnvWith(t, c.setup)
 			e.create()
 			sq.hold.Store(true)
 			if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
 				t.Fatalf("enable: %+v", op)
 			}
-			e.waitFor("the first start's wait to ask squaremap", func() bool { return sq.held.Load() > 0 })
-			sq.hold.Store(false)
-			c.event(e)
+			e.waitFor("the first run's wait to ask squaremap", func() bool { return sq.held.Load() > 0 })
+			c.event(e, func() { sq.hold.Store(false) })
 			e.waitFor("the first render", func() bool {
 				return e.countRows(`SELECT COUNT(*) FROM maps WHERE first_render_at IS NOT NULL`) == 1
 			})
