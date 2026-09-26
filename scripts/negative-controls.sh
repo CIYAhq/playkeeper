@@ -229,6 +229,32 @@ webcontrol "a long activity line shortens instead of widening the page" web/src/
   '<span className="w-0 flex-1 truncate">' \
   '<span className="min-w-0 flex-1 truncate">' \
   web/src/pages/pages.test.tsx 'long activity line'
+webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
+  '      <LoadBoundary resetKey={JSON.stringify(route)}>
+        <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+      </LoadBoundary>' \
+  '      <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>' \
+  web/src/components/app/load-boundary.test.tsx 'page whose code never loads'
+webcontrol "a server tab whose code doesn't load keeps the server page on screen" web/src/pages/server/index.tsx \
+  '        <LoadBoundary>
+          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+        </LoadBoundary>' \
+  '        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>' \
+  web/src/components/app/load-boundary.test.tsx 'server tab whose code never loads'
+webcontrol "every server tab's code loads after sign-in" web/src/App.tsx \
+  '  void pages.server().then((m) => m.preloadTabs(), () => {})
+' \
+  '' \
+  web/src/pages/server/preload.test.tsx 'every server tab'
+webcontrol "code that can't load reloads the page" web/src/components/app/load-boundary.tsx \
+  '    e.preventDefault()
+    window.location.reload()' \
+  '    e.preventDefault()' \
+  web/src/components/app/load-boundary.test.tsx 'at most once a minute'
+webcontrol "a page that still can't load doesn't reload over and over" web/src/components/app/load-boundary.tsx \
+  'if (Date.now() - Number(sessionStorage.getItem(reloadedAt) ?? 0) < 60_000) return' \
+  'if (Date.now() < 0) return' \
+  web/src/components/app/load-boundary.test.tsx 'at most once a minute'
 control "the data pack list waits for the missing world folder" internal/agent/packs.go \
   'if m := s.worldMissing(); m != nil {
 		return nil, errWorldMissing(m, "try again")' \
