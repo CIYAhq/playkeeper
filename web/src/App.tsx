@@ -16,6 +16,7 @@ import { afterSignIn, signInPath } from '@/lib/templates'
 const pages = {
   account: () => import('@/pages/account'),
   home: () => import('@/pages/home'),
+  join: () => import('@/pages/join'),
   login: () => import('@/pages/login'),
   machine: () => import('@/pages/machine'),
   machineSettings: () => import('@/pages/machine-settings'),
@@ -28,6 +29,7 @@ const pages = {
 }
 const AccountPage = lazy(() => pages.account().then((m) => ({ default: m.AccountPage })))
 const HomePage = lazy(() => pages.home().then((m) => ({ default: m.HomePage })))
+const JoinPage = lazy(() => pages.join().then((m) => ({ default: m.JoinPage })))
 const LoginPage = lazy(() => pages.login().then((m) => ({ default: m.LoginPage })))
 const MachinePage = lazy(() => pages.machine().then((m) => ({ default: m.MachinePage })))
 const MachineSettingsPage = lazy(() => pages.machineSettings().then((m) => ({ default: m.MachineSettingsPage })))
@@ -72,7 +74,11 @@ export function App() {
     navigate(signInPath(window.location), true)
   }, [])
 
+  // The invite page works without an account, so it skips signing in.
+  const onJoin = route.name === 'join'
+
   useEffect(() => {
+    if (onJoin) return
     let cancelled = false
     async function boot() {
       try {
@@ -98,7 +104,21 @@ export function App() {
       cancelled = true
       off()
     }
-  }, [signedIn, signedOut])
+  }, [signedIn, signedOut, onJoin])
+
+  if (route.name === 'join') {
+    return (
+      <Suspense fallback={<Booting />}>
+        <JoinPage
+          code={route.code}
+          onSignedIn={(m, to) => {
+            signedIn(m)
+            navigate(to ?? '/', true)
+          }}
+        />
+      </Suspense>
+    )
+  }
 
   switch (state) {
     case 'loading':
@@ -197,17 +217,26 @@ function page(route: Route) {
     case 'setup':
     case 'welcome':
     case 'legacy':
+    case 'join':
       return <HomePage />
     case 'new-server':
       return <NewServerPage />
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
+    case 'player':
+      return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':
       return <MachinePage id={route.id} />
     case 'machine-settings':
       return <MachineSettingsPage id={route.id} />
     case 'settings':
-      return <GlobalSettingsPage />
+      return <GlobalSettingsPage section="general" />
+    case 'team':
+      return <GlobalSettingsPage section="team" />
+    case 'addon-sources':
+      return <GlobalSettingsPage section="addon-sources" />
+    case 'discord':
+      return <GlobalSettingsPage section="discord" />
     case 'account':
       return <AccountPage section={route.section} />
     case 'more':

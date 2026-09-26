@@ -1,11 +1,12 @@
 import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
-import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, PuzzleIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
+import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, HouseIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SquareIcon, Trash2Icon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel, TabSkeleton } from '@/components/app/skeletons'
 import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
@@ -14,10 +15,10 @@ import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
-import { t, type MessageKey } from '@/i18n'
+import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
-import { addonTab } from '@/lib/addons'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -28,22 +29,13 @@ import { PluginsPhoneHeader } from './plugins/header'
 // first time it shows.
 const ConsolePage = lazy(() => import('./console').then((m) => ({ default: m.ConsolePage })))
 const PlayersPage = lazy(() => import('./players').then((m) => ({ default: m.PlayersPage })))
+const PlayerProfilePage = lazy(() => import('./profile').then((m) => ({ default: m.PlayerProfilePage })))
 const PluginsPage = lazy(() => import('./plugins').then((m) => ({ default: m.PluginsPage })))
 const RunningPage = lazy(() => import('./running').then((m) => ({ default: m.RunningPage })))
 const ServerSettingsPage = lazy(() => import('./settings').then((m) => ({ default: m.ServerSettingsPage })))
 const WorldPage = lazy(() => import('./world').then((m) => ({ default: m.WorldPage })))
 const PacksPage = lazy(() => import('./world-packs').then((m) => ({ default: m.PacksPage })))
 const PregenPage = lazy(() => import('./world-pregen').then((m) => ({ default: m.PregenPage })))
-
-const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
-  { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
-  { tab: 'console', key: 'tab.console', icon: <SquareTerminalIcon /> },
-  { tab: 'players', key: 'tab.players', icon: <UsersIcon /> },
-  { tab: 'world', key: 'tab.world', icon: <GlobeIcon /> },
-  { tab: 'plugins', key: 'tab.plugins', icon: <PuzzleIcon /> },
-  { tab: 'mods', key: 'tab.mods', icon: <PuzzleIcon /> },
-  { tab: 'settings', key: 'tab.settings', icon: <SlidersHorizontalIcon /> },
-]
 
 export async function serverAction(server: ServerStatus, action: 'start' | 'stop' | 'restart' | 'backups', body: unknown = {}): Promise<boolean> {
   try {
@@ -55,7 +47,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running' }) {
+export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running'; player?: string }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -79,7 +71,7 @@ export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: Server
       body = <ConsolePage server={server} />
       break
     case 'players':
-      body = <PlayersPage server={server} />
+      body = player ? <PlayerProfilePage server={server} name={player} /> : <PlayersPage server={server} />
       break
     case 'world':
       body = sub === 'pregen' ? <PregenPage server={server} /> : sub === 'packs' ? <PacksPage server={server} /> : <WorldPage server={server} />
@@ -99,12 +91,14 @@ export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: Server
   if (settingUp && (page || (tab !== 'overview' && tab !== 'console'))) body = <Overview server={server} />
   // The Plugins tab keeps its running job and highlighted file across its
   // views, and animates switching between them itself.
-  const pageKey = tab === 'plugins' || tab === 'mods' ? tab : `${tab}:${sub ?? page ?? ''}`
+  const pageKey = tab === 'plugins' || tab === 'mods' ? tab : player ? `${tab}:${player}` : `${tab}:${sub ?? page ?? ''}`
   return (
     <>
       {phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
+        ) : player ? (
+          <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'players' }} label={t('tab.players')} title={player} />
         ) : page === 'running' && !settingUp ? (
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} />
         ) : (tab === 'plugins' || tab === 'mods') && !settingUp ? (
@@ -160,13 +154,14 @@ function useCopyAddress(server: ServerStatus) {
 }
 
 function PrimaryAction({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale, me } = useWorkspace()
   const [busy, setBusy] = useState(false)
   const run = async (action: 'start' | 'restart') => {
     setBusy(true)
     await serverAction(server, action)
     setBusy(false)
   }
+  if (!can(me, 'servers.run')) return null
   const tone = statusTone(server)
   if (!stale && (tone === 'crashed' || (tone === 'stopped' && server.exists))) {
     return (
@@ -185,38 +180,49 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 }
 
 function MoreMenu({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale, me } = useWorkspace()
   const c = controls(server)
+  const run = can(me, 'servers.run')
+  const backUp = can(me, 'backups.make')
+  const remove = can(me, 'servers.create')
+  const share = can(me, 'view')
   const [sharing, setSharing] = useState(false)
   const backUpBlocked = whyNot(server, 'change', stale)
+  if (!run && !backUp && !remove && !share) return null
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>
         <EllipsisIcon />
       </MenuTrigger>
       <MenuPopup align="end" className="min-w-52">
-        {c.canRestart && (
+        {run && c.canRestart && (
           <MenuItem onClick={() => void serverAction(server, 'restart')}>
             <RotateCwIcon />
             {t('server.restart')}
           </MenuItem>
         )}
-        {c.canStop && (
+        {run && c.canStop && (
           <MenuItem onClick={() => void serverAction(server, 'stop')}>
             <SquareIcon />
             {t('server.stop')}
           </MenuItem>
         )}
-        <MenuItem disabled={!!backUpBlocked} title={backUpBlocked} onClick={() => void serverAction(server, 'backups')}>
-          <ArchiveIcon />
-          {t('server.backUp')}
-        </MenuItem>
-        <TemplateMenuItem onClick={() => setSharing(true)} />
-        <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
-          <Trash2Icon />
-          {t('server.deleteMenu')}
-        </MenuItem>
+        {backUp && (
+          <MenuItem disabled={!!backUpBlocked} title={backUpBlocked} onClick={() => void serverAction(server, 'backups')}>
+            <ArchiveIcon />
+            {t('server.backUp')}
+          </MenuItem>
+        )}
+        {share && <TemplateMenuItem onClick={() => setSharing(true)} />}
+        {remove && (
+          <>
+            {(run || backUp || share) && <MenuSeparator />}
+            <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
+              <Trash2Icon />
+              {t('server.deleteMenu')}
+            </MenuItem>
+          </>
+        )}
       </MenuPopup>
       <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />
     </Menu>
@@ -262,11 +268,15 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
-              <MenuSeparator />
-              <MenuItem onClick={() => navigate({ name: 'new-server' })}>
-                <PlusIcon />
-                {t('nav.newServer')}
-              </MenuItem>
+              {can(ws.me, 'servers.create') && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem onClick={() => navigate({ name: 'new-server' })}>
+                    <PlusIcon />
+                    {t('nav.newServer')}
+                  </MenuItem>
+                </>
+              )}
             </MenuPopup>
           </Menu>
         </nav>
@@ -295,7 +305,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
-        {tabs.filter((x) => (x.tab !== 'plugins' && x.tab !== 'mods') || x.tab === addonTab(s.type)).map((x) => {
+        {serverTabsFor(ws.me, s).map((x) => {
           const active = x.tab === tab
           const cls = cn(
             'inline-flex h-10 shrink-0 items-center gap-2 border-b-2 text-sm font-medium outline-none [&_svg]:size-4',
@@ -401,16 +411,18 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           ))}
         </ul>
         <ul className="mt-3 mb-2 overflow-hidden rounded-3xl border border-border bg-white">
-          <li className="border-b border-border">
-            <button type="button" onClick={() => go({ name: 'new-server' })} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left">
-              <PlusIcon className="size-5 text-primary" aria-hidden="true" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-base">{t('nav.newServer')}</span>
-                {live && <span className="block text-[13px] text-muted-foreground">{t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
-              </span>
-              <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-            </button>
-          </li>
+          {can(ws.me, 'servers.create') && (
+            <li className="border-b border-border">
+              <button type="button" onClick={() => go({ name: 'new-server' })} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left">
+                <PlusIcon className="size-5 text-primary" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base">{t('nav.newServer')}</span>
+                  {live && <span className="block text-[13px] text-muted-foreground">{t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
+                </span>
+                <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </li>
+          )}
           <li>
             <a {...linkPath('/')} onClick={(e) => { e.preventDefault(); go({ name: 'home' }) }} className="flex min-h-14 w-full items-center gap-3 px-4 py-2">
               <HouseIcon className="size-5 text-muted-foreground" aria-hidden="true" />

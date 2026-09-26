@@ -23,6 +23,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
+	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -417,6 +418,7 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, 
 	}
 	s.audit(actor, "backup.created", b.ID, "succeeded", fmt.Sprintf("%s sha256 %s method %s saving paused %s took %s downtime %dms",
 		b.FileName, b.SHA256, res.Method, res.Paused.Round(time.Millisecond), res.Took.Round(time.Millisecond), downtime))
+	s.alert(discord.BackupSucceeded(vb.SizeBytes))
 	return nil
 }
 
@@ -1467,6 +1469,7 @@ func (s *server) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (
 	if vb.Verified == nil || !*vb.Verified {
 		return nil, fmt.Errorf("archive %s failed verification: %s", vb.ID, vb.VerifyError)
 	}
+	s.alert(discord.BackupSucceeded(vb.SizeBytes))
 	return vb, nil
 }
 

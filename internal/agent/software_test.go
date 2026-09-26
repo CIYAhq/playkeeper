@@ -2,13 +2,18 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
@@ -292,5 +297,38 @@ func TestRestoringABackupKeepsTheServerType(t *testing.T) {
 	sc, _ := e.srv().serverConfig()
 	if sc.Type != "vanilla" || sc.Software == nil || sc.Software.Type != "vanilla" || sc.Software.MinecraftVersion != "26.2" || sc.PaperBuild != 0 {
 		t.Fatalf("a restored Vanilla server stays Vanilla: %+v", sc)
+	}
+}
+
+// A version list that's slow to come holds up only the callers that need it:
+// another type's list comes meanwhile.
+func TestSlowVersionListHoldsUpOnlyItsOwnCallers(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.serveFabricLists()
+	reached, release := make(chan struct{}, 1), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	e.up.handle("https://meta.fabricmc.net/v2/versions/game", func(w http.ResponseWriter, r *http.Request) {
+		reached <- struct{}{}
+		<-release
+		io.WriteString(w, `[{"version":"26.2","stable":true}]`)
+	})
+	fabric := make(chan error, 1)
+	go func() { _, _, err := e.a.typeCatalog(context.Background(), "fabric"); fabric <- err }()
+	<-reached
+	vanilla := make(chan error, 1)
+	go func() { _, _, err := e.a.typeCatalog(context.Background(), "vanilla"); vanilla <- err }()
+	select {
+	case err := <-vanilla:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Vanilla version list waited for Fabric's")
+	}
+	unblock()
+	if err := <-fabric; err != nil {
+		t.Fatalf("Fabric's list, once it came: %v", err)
 	}
 }

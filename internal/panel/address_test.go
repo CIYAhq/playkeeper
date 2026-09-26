@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 func (e *env) replyStatus(method, path string, status int, body string) {
@@ -117,18 +119,18 @@ func TestMembersCanSeeTheAddressButNotChangeIt(t *testing.T) {
 	e := newEnv(t)
 	cookie, _ := e.setup(t)
 	mid := e.machineID(t, cookie)
-	h, _ := hashPassword("member password 1")
-	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('friend', ?, 0, 0, 'member')`, h); err != nil {
-		t.Fatal(err)
-	}
-	r := e.do(t, "POST", "/api/auth/login", `{"username":"friend","password":"member password 1"}`, map[string]string{"X-Requested-With": "playkeeper"})
-	if r.status != 200 {
-		t.Fatalf("member login: %d %v", r.status, r.body)
-	}
-	mc, mcsrf := r.cookie, r.body["csrfToken"].(string)
+	m := addMember(t, e, "friend", invites.RoleModerator, "*")
+	mc, mcsrf := m.cookie, m.csrf
 	base := "/api/machines/" + mid + "/address"
 	if r := e.do(t, "GET", base, "", auth(mc, "")); r.status != 200 {
-		t.Fatalf("a member may look: %d %v", r.status, r.body)
+		t.Fatalf("a member of every server may look: %d %v", r.status, r.body)
+	}
+	// The address lists every server's join address.
+	pia := addMember(t, e, "pia", invites.RoleModerator, otherServer)
+	for _, p := range []string{base, base + "/plan?domain=play.example.com"} {
+		if r := e.do(t, "GET", p, "", pia.auth()); r.status != http.StatusForbidden || r.body["error"] != errEveryServer.Msg {
+			t.Errorf("a member of one server may look at %s: %d %v", p, r.status, r.body)
+		}
 	}
 	for _, p := range []string{"/claim", "/refresh", "/release", "/check", "/certificate"} {
 		if r := e.do(t, "POST", base+p, `{}`, auth(mc, mcsrf)); r.status != http.StatusForbidden {

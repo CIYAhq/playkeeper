@@ -3,7 +3,43 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { AddonSources, Address, Backup, Catalog, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, ModpackCard, ModpackDetail, ModpackResults, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus, SignInNotice, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
+import type {
+  Action,
+  AddonSources,
+  Address,
+  Backup,
+  Candidate,
+  Catalog,
+  Crash,
+  DiscordSettings,
+  FileRefusal,
+  InvitesResponse,
+  JoinInfo,
+  JoinPreview,
+  JoinRequestView,
+  MachineView,
+  Me,
+  MemoryAdvice,
+  MetricsResponse,
+  ModpackCard,
+  ModpackDetail,
+  ModpackResults,
+  Operation,
+  PlayerProfile,
+  PlayersSummary,
+  Preflight,
+  ProjectRole,
+  RestorePreview,
+  Running,
+  ServerConfig,
+  ServerStatus,
+  SignInNotice,
+  TeamResponse,
+  TemplateContents,
+  TemplateExport,
+  TemplatePlan,
+  TwoFactorSetup,
+} from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
@@ -13,26 +49,40 @@ import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
-import { formatLongDate } from '@/lib/format'
+import { formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
+import { JoinPage } from './join'
 import { MachinePage } from './machine'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { PlayerProfilePage } from './server/profile'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
 import { WorldPage } from './server/world'
+import { GlobalSettingsPage } from './settings'
+import { TeamSection } from './team'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   api: vi.fn(() => new Promise(() => {})),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  put: vi.fn(() => Promise.resolve({})),
   del: vi.fn(() => Promise.resolve(undefined)),
 }))
 
-const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const me: Me = {
+  user: { username: 'siya', role: 'owner' },
+  csrfToken: 't',
+  expiresAt: '2026-09-26T00:00:00Z',
+  idleTimeoutSeconds: 43200,
+  version: '0.3.0',
+  access: { projectId: 'p2345abcde', role: 'admin', servers: { all: true }, twoFactor: false, can: everything },
+}
 
 const machine: MachineView = {
   id: 'm2345abcde',
@@ -118,13 +168,74 @@ function failed(kind: string, phase: string, error: string, detail?: Record<stri
   return { id: `${kind}-1`, kind, status: 'failed', phase, actor: 'siya', startedAt: at, finishedAt: at, error, detail }
 }
 
-/** Answers GETs by path prefix; anything else never resolves. */
+/** Answers GETs by path prefix, rejecting with an Error; anything else never resolves. */
 function answer(routes: Record<string, unknown>) {
   vi.mocked(client.get).mockImplementation(((path: string) => {
     const hit = Object.entries(routes).find(([prefix]) => path.includes(prefix))
-    return hit ? Promise.resolve(hit[1]) : new Promise(() => {})
+    if (!hit) return new Promise(() => {})
+    return hit[1] instanceof Error ? Promise.reject(hit[1]) : Promise.resolve(hit[1])
   }) as typeof client.get)
 }
+
+/** Answers POSTs by how their path ends: a value resolves, an Error rejects, a function answers each call. */
+function answerPosts(routes: Record<string, unknown>) {
+  vi.mocked(client.post).mockImplementation(((path: string, body?: unknown) => {
+    const hit = Object.entries(routes).find(([end]) => path.endsWith(end))?.[1]
+    const value: unknown = typeof hit === 'function' ? (hit as (body: unknown) => unknown)(body) : hit
+    return value instanceof Error ? Promise.reject(value) : Promise.resolve(value ?? {})
+  }) as typeof client.post)
+}
+
+const page = () => document.body.textContent ?? ''
+
+function buttons(label: string): HTMLButtonElement[] {
+  return [...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)
+}
+
+function button(label: string): HTMLButtonElement {
+  const b = buttons(label)[0]
+  if (!b) throw new Error(`no button "${label}"`)
+  return b
+}
+
+function link(label: string): HTMLAnchorElement {
+  const a = [...document.querySelectorAll('a')].find((x) => x.textContent?.trim() === label)
+  if (!a) throw new Error(`no link "${label}"`)
+  return a
+}
+
+/** Clicks an element, or the button whose text is exactly the label. */
+async function click(target: HTMLElement | string) {
+  const el = typeof target === 'string' ? [...document.querySelectorAll('button')].find((x) => x.textContent?.trim() === target) : target
+  if (!el) throw new Error(`no button “${String(target)}”`)
+  await act(async () => el.click())
+  await act(async () => {})
+}
+
+/** Types into a controlled field the way a browser does, so React sees the change. */
+async function typeInto(selector: string, value: string) {
+  const input = document.querySelector<HTMLInputElement>(selector)
+  if (!input) throw new Error(`no field ${selector}`)
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  await act(async () => {
+    setValue?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+async function wait(ms: number) {
+  await act(async () => new Promise((resolve) => setTimeout(resolve, ms)))
+}
+
+const moderatorCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make']
+
+/** An account that joined the team with an invite link. */
+function member(role: ProjectRole, can: Action[], over: Partial<Me['access']> = {}): Me {
+  return { ...me, user: { username: 'mara', role: 'member' }, access: { projectId: 'p2345abcde', role, servers: { servers: ['abcdefghjk', 'bcdefghjkm'] }, twoFactor: false, can, ...over } }
+}
+
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString()
+const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString()
 
 let root: Root | undefined
 
@@ -158,6 +269,10 @@ afterEach(async () => {
   document.body.innerHTML = ''
   vi.mocked(client.get).mockReset()
   vi.mocked(client.get).mockImplementation(() => new Promise(() => {}))
+  vi.mocked(client.post).mockReset()
+  vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  vi.mocked(client.put).mockReset()
+  vi.mocked(client.put).mockImplementation(() => Promise.resolve({}))
   vi.mocked(client.api).mockReset()
   vi.mocked(client.api).mockImplementation(() => new Promise(() => {}))
   window.history.replaceState(null, '', '/')
@@ -168,14 +283,6 @@ async function toggle(label: string) {
   const input = [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith(label))?.querySelector('input[type="checkbox"]')
   if (!(input instanceof HTMLInputElement)) throw new Error(`no checkbox “${label}”`)
   await act(async () => input.click())
-  await act(async () => {})
-}
-
-/** Clicks the button whose text is exactly the label. */
-async function click(label: string) {
-  const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
-  if (!button) throw new Error(`no button “${label}”`)
-  await act(async () => button.click())
   await act(async () => {})
 }
 
@@ -202,6 +309,85 @@ describe('Home', () => {
     expect(text).toContain('No live status')
     expect(text).toContain('1 server on my-vps')
     expect(text).not.toContain('playing')
+  })
+})
+
+describe('Home for team members', () => {
+  const both = () => [server(), server({ id: 'bcdefghjkm', name: 'Creative', slug: 'creative', phase: 'stopped', desired: 'stopped', startedAt: undefined })]
+
+  it('welcomes a new moderator once, without the owner’s buttons', async () => {
+    const setPrefs = vi.fn(async () => {})
+    const text = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: both(), prefs: { 'home.welcome': '1' }, setPrefs }))
+    expect(text).toContain('Welcome, mara')
+    expect(text).toContain('You help run Survival and Creative as a Moderator.')
+    expect(text).not.toContain('New server')
+    expect(text).not.toContain('Full audit log')
+    await click(button('Dismiss'))
+    expect(setPrefs).toHaveBeenCalledWith({ 'home.welcome': '' })
+    expect(page()).not.toContain('Welcome, mara')
+  })
+
+  it('names the team once it has a name, and stays quiet after the welcome', async () => {
+    const named = member('viewer', ['view', 'account.manage'], { team: 'Friends', servers: { all: true } })
+    const text = await render(<HomePage />, workspace({ me: named, servers: both(), prefs: { 'home.welcome': '1' } }))
+    expect(text).toContain('Welcome to Friends, mara')
+    expect(text).toContain('You can see all the servers as a Viewer.')
+    expect(await render(<HomePage />, workspace({ me: named, servers: both() }))).not.toContain('Welcome')
+  })
+
+  it('asks an admin without two-factor sign-in to turn it on, as the one notice', async () => {
+    const text = await render(<HomePage />, workspace({ me: member('admin', moderatorCan, { servers: { all: true }, needsTwoFactor: true }), servers: both(), prefs: { 'home.welcome': '1' } }))
+    expect(text).toContain('Turn on two-factor sign-in to use your Admin rights')
+    expect(text).toContain('Until then you have Moderator rights.')
+    expect(link('Turn it on').getAttribute('href')).toBe('/account/two-factor')
+    expect(text).not.toContain('Welcome, mara')
+  })
+
+  it('tells the owner on Home that an admin waits for their rights, and confirms them with one click', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(90), canEdit: false },
+        { id: 3, username: 'alex', owner: false, you: false, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(3), canEdit: true, waiting: true, canConfirm: true },
+      ],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    const text = await render(<HomePage />, workspace({ servers: both() }))
+    expect(text).toContain('alex turned on two-factor sign-in.')
+    expect(text).toContain('Confirm to give them Admin rights.')
+    await click(button('Confirm Admin rights'))
+    expect(client.post).toHaveBeenCalledWith('/api/team/members/3/confirm-admin')
+
+    vi.mocked(client.get).mockClear()
+    const moderator = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: both() }))
+    expect(moderator).not.toContain('turned on two-factor sign-in')
+    expect(client.get).not.toHaveBeenCalledWith('/api/team')
+  })
+
+  it('says who got in with an invite link, never the link’s id', async () => {
+    answer({ '/activity': [
+      { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'allowlisted', player: 'Lenn0x', actor: 'invite:ymckepm6wx' },
+      { ts: hoursAgo(2), serverId: 'abcdefghjk', kind: 'allowlisted', player: 'pixelpia', actor: 'siya' },
+    ] })
+    const text = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: both() }))
+    expect(text).toContain('Lenn0x joined with an invite link')
+    expect(text).toContain('siya added pixelpia to the allowlist')
+    expect(text).not.toContain('invite:')
+  })
+
+  it('gives a viewer no Start button and a member no first steps', async () => {
+    const stopped = [server({ phase: 'stopped', desired: 'stopped', startedAt: undefined })]
+    await render(<HomePage />, workspace({ servers: stopped }))
+    expect(buttons('Start')).toHaveLength(1)
+    await render(<HomePage />, workspace({ me: member('viewer', ['view', 'account.manage']), servers: stopped }))
+    expect(buttons('Start')).toHaveLength(0)
+    const empty = await render(<HomePage />, workspace({ me: member('moderator', moderatorCan), servers: [] }))
+    expect(empty).toContain('Servers you help run show up here.')
+    expect(empty).not.toContain('Create your first server')
   })
 })
 
@@ -1158,6 +1344,18 @@ describe('Add-on sources', () => {
   }
   const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
 
+  it('is the Settings section between Team and Discord, for who manages the machine', async () => {
+    answer({ '/addon-sources': none })
+    await render(<GlobalSettingsPage section="addon-sources" />)
+    const nav = document.querySelector('nav[aria-label="Settings sections"]')
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord'])
+    expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/addon-sources')
+    expect(document.getElementById('addon-sources')).not.toBeNull()
+    const moderator = await render(<GlobalSettingsPage section="addon-sources" />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(moderator).not.toContain('CurseForge')
+    window.history.replaceState(null, '', '/')
+  })
+
   it('lands on its own section, with Modrinth and Hangar built in and CurseForge asking for a key', async () => {
     answer({ '/addon-sources': none })
     const text = await render(<AddonSourcesCard />)
@@ -1320,6 +1518,9 @@ describe('Modpacks', () => {
 })
 
 describe('Players', () => {
+  const noInvites: InvitesResponse = { invites: [], expiries: ['1d', '7d', '30d', 'until_turned_off'], link: { base: 'https://203.0.113.10:8443', friendly: false } }
+  const nobody: PlayersSummary = { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }
+
   // Like item 70: a session that ended in a crash has no exact length, so
   // its playtime is an estimate and says so.
   it('marks playtime that includes a crash-ended session as an estimate', async () => {
@@ -1334,7 +1535,7 @@ describe('Players', () => {
       uncertainSessions: 1,
       retentionDays: 180,
     }
-    answer({ '/whitelist': [{ name: 'Lenn0x' }, { name: 'mara_k' }], '/operators': [], '/players/summary': summary, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    answer({ '/whitelist': [{ name: 'Lenn0x' }, { name: 'mara_k' }], '/operators': [], '/players/summary': summary, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': noInvites, '/join-requests': [] })
     const text = await render(<PlayersPage server={server()} />)
     expect(text).toContain('≈ 6 h 10 m')
     expect(text).toContain('1 hour')
@@ -1343,7 +1544,7 @@ describe('Players', () => {
   })
 
   it('shows a new player at once and puts the name back if Minecraft refuses it', async () => {
-    answer({ '/whitelist': [], '/operators': [], '/players/summary': { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    answer({ '/whitelist': [], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': noInvites, '/join-requests': [] })
     let refuse: (e: unknown) => void = () => {}
     vi.mocked(client.post).mockImplementationOnce(
       () =>
@@ -1377,10 +1578,48 @@ describe('Players', () => {
   })
 
   it('explains how to invite someone when nobody has joined', async () => {
-    answer({ '/whitelist': [], '/operators': [], '/players/summary': { tz: 'UTC', days: [], players: [], observedSessions: 0, uncertainSessions: 0, retentionDays: 180 }, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    answer({ '/whitelist': [], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': noInvites, '/join-requests': [] })
     const text = await render(<PlayersPage server={server()} />)
     expect(text).toContain('Nobody’s joined yet')
     expect(text).toContain('You add their name')
+    expect(text).toContain('New invite link')
+  })
+
+  it('lists invite links, says how people got in, and puts a join request on top', async () => {
+    const invites: InvitesResponse = {
+      ...noInvites,
+      invites: [
+        { id: 'inv1', kind: 'player', projectId: 'p2345abcde', serverId: 'abcdefghjk', approval: 'right_away', label: 'Discord crew', createdBy: 1, createdAt: hoursAgo(26), expiresAt: inHours(6 * 24 + 1), maxUses: 5, uses: 2, usesLeft: 3, status: 'active', path: '/join/Qm7xK2pLw9RtVb4n' },
+        { id: 'inv2', kind: 'player', projectId: 'p2345abcde', serverId: 'abcdefghjk', approval: 'after_yes', label: 'School friends', createdBy: 1, createdAt: hoursAgo(72), maxUses: 0, uses: 1, status: 'active', path: '/join/Zx8vB3nMq4LsWd6k' },
+        { id: 'inv3', kind: 'player', projectId: 'p2345abcde', serverId: 'abcdefghjk', approval: 'right_away', createdBy: 1, createdAt: hoursAgo(200), expiresAt: hoursAgo(24), maxUses: 3, uses: 1, status: 'expired' },
+      ],
+    }
+    const request: JoinRequestView = {
+      request: { id: 'r1', inviteId: 'inv2', serverId: 'abcdefghjk', playerName: 'PixelPia', playerUuid: '6b7f0c8e2d9a4f1b8c3e5a7d9f1b3c5e', state: 'pending', createdAt: hoursAgo(0.05) },
+      notice: { title: { key: 'invite.request.title', params: { player: 'PixelPia' }, text: 'PixelPia wants to join' }, detail: { key: 'invite.request.askedWith', params: { link: 'School friends' }, text: 'Asked with the School friends link' } },
+    }
+    const joined = { key: 'invite.origin.link', params: { link: 'Discord crew' }, text: 'Joined with the Discord crew link', at: hoursAgo(20) }
+    answer({ '/whitelist': [{ name: 'Lenn0x' }, { name: 'mara_k', joined }], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [], '/invites': invites, '/join-requests': [request] })
+    const text = await render(<PlayersPage server={server()} />)
+    expect(text).toContain('PixelPia wants to join')
+    expect(text).toContain('Asked with the School friends link')
+    expect(text).toContain('Joined with the Discord crew link')
+    expect(text).toContain('203.0.113.10:8443/join/Qm7xK2…')
+    expect(text).not.toContain('Qm7xK2pLw9RtVb4n')
+    for (const cell of ['Discord crew', '2 of 5', 'in 6 days', 'Right away', 'School friends', '1 · no limit', 'When you turn it off', 'After you say yes', 'Ran out']) expect(text).toContain(cell)
+    expect(text).toContain('Set up an address')
+    expect(buttons('New invite link').length).toBeGreaterThan(0)
+    await click(button('Let in'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/join-requests/r1/approve')
+  })
+
+  it('shows a viewer the list without adding players or invite links', async () => {
+    answer({ '/whitelist': [{ name: 'mara_k' }], '/operators': [], '/players/summary': nobody, '/players/sessions': { from: '', to: '', sessions: [] }, '/activity': [] })
+    const text = await render(<PlayersPage server={server()} />, workspace({ me: member('viewer', ['view', 'account.manage']) }))
+    expect(text).toContain('mara_k')
+    for (const hidden of ['Add player', 'Invite links', 'New invite link']) expect(text).not.toContain(hidden)
+    expect(client.get).not.toHaveBeenCalledWith(expect.stringContaining('/invites'))
+    expect(client.get).not.toHaveBeenCalledWith(expect.stringContaining('/join-requests'))
   })
 })
 
@@ -1536,6 +1775,366 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+
+  it('offers each server the tabs its tab bar shows', async () => {
+    const servers = [server(), server({ id: 'bcdefghjkm', name: 'Modded', slug: 'modded', type: 'fabric' })]
+    const palette = (who: Me) => render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />, workspace({ me: who, servers }))
+    const moderator = await palette(member('moderator', moderatorCan))
+    expect(moderator).toContain('Survival › Console')
+    expect(moderator).toContain('Modded › World')
+    for (const page of ['Survival › Settings', 'Survival › Plugins', 'Modded › Settings', 'Modded › Mods']) expect(moderator).not.toContain(page)
+    const viewer = await palette(member('viewer', ['view', 'account.manage']))
+    expect(viewer).toContain('Survival › Players')
+    expect(viewer).not.toContain('› Settings')
+    const admin = await palette(me)
+    for (const page of ['Survival › Plugins', 'Survival › Settings', 'Modded › Mods', 'Modded › Settings']) expect(admin).toContain(page)
+    for (const page of ['Survival › Mods', 'Modded › Plugins']) expect(admin).not.toContain(page)
+  })
+})
+
+describe('Invite page', () => {
+  const code = 'Qm7xK2pLw9RtVb4n'
+  const friend: JoinPreview = { kind: 'player', inviter: '', server: 'Survival', version: '26.1.2', online: true, playing: 2, approval: 'right_away' }
+  const mara: Candidate = { name: 'mara_k', uuid: '0f3a6c2e9b1d4e7fa2c5b8d1e4f7a0c3', face: 'data:image/png;base64,iVBORw0KGgo=' }
+  const steps = [
+    { key: 'invite.join.open', params: { version: '26.1.2' }, text: 'Open Minecraft: Java Edition 26.1.2.' },
+    { key: 'invite.join.addServer', text: 'Pick Multiplayer, then Add Server.' },
+    { key: 'invite.join.paste', text: 'Paste the address and press Done, then Join.' },
+  ]
+  const notFound = (name: string) => new client.ApiError(422, { error: `No Minecraft: Java Edition account is called ${name}.`, code: 'player_not_found', hint: 'Check the spelling.', params: { name } })
+
+  it('checks a friend’s Minecraft name, shows their face and puts them on the list', async () => {
+    const joined: JoinInfo = { player: 'mara_k', server: 'Survival', address: '203.0.113.10', version: '26.1.2', steps }
+    answerPosts({ '/preview': friend, '/lookup': mara, '/redeem': joined })
+    const text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/preview', { code })
+    expect(text).toContain('You’re invited to Survival')
+    expect(text).toContain('Java Edition 26.1.2 · 2 playing now')
+    expect(text).toContain('Needs Minecraft: Java Edition 26.1.2.')
+    expect(button('Add me to Survival').disabled).toBe(true)
+    expect(button('Add me to Survival').title).toBe('Type your Minecraft name first.')
+    await typeInto('#join-name', 'mara_k')
+    expect(page()).toContain('Looking up mara_k…')
+    expect(button('Add me to Survival').title).toBe('Looking up mara_k…')
+    await wait(500)
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/lookup', { code, name: 'mara_k' })
+    expect(page()).toContain('Is this you?')
+    expect(document.querySelector(`img[src="${mara.face}"]`)).not.toBeNull()
+    await click(button('Add me to Survival'))
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/redeem', { code, name: 'mara_k' })
+    expect(page()).toContain('You’re on the list!')
+    expect(page()).toContain('Welcome to Survival, mara_k.')
+    expect(page()).toContain('203.0.113.10')
+    expect([...document.querySelectorAll('ol > li')].map((li) => li.textContent)).toEqual(steps.map((s, i) => `${i + 1}.${s.text}`))
+    expect(page()).not.toContain(code)
+  })
+
+  it('says when no Java account has the name, and asks for a yes on links that need one', async () => {
+    const waiting: JoinInfo = { player: 'mara_k', server: 'Survival', address: '203.0.113.10', waiting: true, steps: [{ key: 'invite.join.waitAnyone', text: 'Wait for the person who sent the link to let you in.' }, ...steps] }
+    answerPosts({ '/preview': { ...friend, approval: 'after_yes' }, '/lookup': (body: { name: string }) => (body.name === 'mara_k' ? mara : notFound(body.name)), '/redeem': waiting })
+    await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    await typeInto('#join-name', 'mara_kk')
+    await wait(500)
+    expect(page()).toContain('No Minecraft: Java Edition account is called mara_kk. Check the spelling.')
+    expect(document.querySelector('#join-name')?.getAttribute('aria-invalid')).toBe('true')
+    expect(button('Ask to join Survival').disabled).toBe(true)
+    expect(button('Ask to join Survival').title).toBe('No Minecraft: Java Edition account is called mara_kk.')
+    await typeInto('#join-name', 'mara_k')
+    await wait(500)
+    expect(page()).not.toContain('No Minecraft: Java Edition account')
+    await click(button('Ask to join Survival'))
+    expect(page()).toContain('Almost there!')
+    expect(page()).toContain('You asked to join Survival as mara_k.')
+    expect(page()).toContain('1.Wait for the person who sent the link to let you in.')
+  })
+
+  it('makes a team account with the role the link gives, and asks Home to welcome it', async () => {
+    const preview: JoinPreview = { kind: 'member', inviter: '', role: 'moderator', servers: { servers: ['abcdefghjk', 'bcdefghjkm'] }, expiresAt: '2026-10-02T12:00:00Z', serverNames: ['Survival', 'Creative'] }
+    const signedIn = member('moderator', moderatorCan)
+    let tries = 0
+    answerPosts({ '/preview': preview, '/accept': () => (++tries === 1 ? new client.ApiError(409, { error: 'That username is taken.', code: 'username_taken', hint: 'Choose another one.' }) : signedIn) })
+    const onSignedIn = vi.fn()
+    const text = await render(<JoinPage code={code} onSignedIn={onSignedIn} />)
+    expect(text).toContain('Join the team as Moderator')
+    expect(text).toContain('You’re invited to a Playkeeper dashboard.')
+    expect(text).toContain('Runs the servers day to day')
+    expect(text).toContain('Survival and Creative')
+    expect(text).toContain(`${formatDate('2026-10-02T12:00:00Z')}, for one person`)
+    expect(text).toContain('This link works once.')
+    expect(button('Join as Moderator').disabled).toBe(true)
+    expect(button('Join as Moderator').title).toBe('Fill in the fields above first.')
+    await typeInto('#join-username', 'siya')
+    await typeInto('#join-password', 'correct horse battery')
+    await typeInto('#join-again', 'correct horse batterz')
+    expect(page()).toContain('The passwords don’t match.')
+    expect(button('Join as Moderator').disabled).toBe(true)
+    expect(button('Join as Moderator').title).toBe('The passwords don’t match.')
+    await typeInto('#join-again', 'correct horse battery')
+    expect(page()).not.toContain('The passwords don’t match.')
+    await click(button('Join as Moderator'))
+    expect(page()).toContain('That username is taken. Choose another one.')
+    expect(document.querySelector('#join-username')?.getAttribute('aria-invalid')).toBe('true')
+    await typeInto('#join-username', 'mara')
+    expect(page()).not.toContain('That username is taken.')
+    await click(button('Join as Moderator'))
+    expect(client.post).toHaveBeenCalledWith('/api/public/join/accept', { code, username: 'mara', password: 'correct horse battery' })
+    expect(client.post).toHaveBeenCalledWith('/api/me/prefs', { 'home.welcome': '1' })
+    expect(onSignedIn).toHaveBeenCalledWith(signedIn)
+  })
+
+  it('has a new admin turn on two-factor sign-in with the password just chosen, or go on as a Moderator', async () => {
+    const preview: JoinPreview = { kind: 'member', inviter: '', role: 'admin', servers: { all: true }, expiresAt: '2026-10-02T12:00:00Z', serverNames: [], team: 'Friends' }
+    const signedIn = member('admin', moderatorCan, { servers: { all: true }, needsTwoFactor: true })
+    const setup: TwoFactorSetup = {
+      qrCodeSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"/>',
+      manualKey: '4KQZ 7MXP 2RDN 6WYA 5HTB 3JCE LN2V QF7S',
+      uri: 'otpauth://totp/Playkeeper:alex?secret=4KQZ7MXP2RDN6WYA5HTB3JCELN2VQF7S&issuer=Playkeeper',
+      issuer: 'Playkeeper',
+      account: 'alex',
+      expiresAt: '2026-10-02T12:15:00Z',
+    }
+    const codes = ['k7qm-4tzd-9hxw-2rbn', 'p3vc-8jwa-6fke-5msy', 'x2nd-7gqr-4bzh-9tce', 'm9wf-3kpa-8vrn-6dqj', 'c4ht-9xme-2qwz-7bnk', 'r6ya-5dkq-3pjw-8fmx', 'v8bn-2tce-7hqk-4wzr', 'e5jx-6mra-9dvf-3kpt', 'h3wq-8zcn-5tbm-2yja', 'z7kp-4fve-6xrd-9qhm']
+    answerPosts({ '/preview': preview, '/accept': signedIn, '/2fa/setup': setup, '/2fa/confirm': { recoveryCodes: codes } })
+    const join = async (onSignedIn: (me: Me, to?: string) => void) => {
+      const text = await render(<JoinPage code={code} onSignedIn={onSignedIn} />)
+      expect(text).toContain('Help run Friends as Admin')
+      await typeInto('#join-username', 'alex')
+      await typeInto('#join-password', 'correct horse battery')
+      await typeInto('#join-again', 'correct horse battery')
+      await click(button('Join as Admin'))
+    }
+    const current = () => document.querySelector('[aria-current="step"]')?.textContent
+
+    const later = vi.fn()
+    await join(later)
+    expect(later).not.toHaveBeenCalled()
+    expect(client.post).toHaveBeenCalledWith('/api/auth/2fa/setup', { password: 'correct horse battery' })
+    expect(page()).toContain('One more step: two-factor sign-in')
+    expect(page()).toContain('Admins must use it. Until then, you have Moderator rights.')
+    expect(page()).toContain(setup.manualKey)
+    expect(page()).toContain('Next: save your recovery codes')
+    expect(document.querySelector('img[alt="QR code for your authenticator app"]')).not.toBeNull()
+    expect(current()).toContain('Two-factor')
+    await click(button('Not now, continue as Moderator'))
+    expect(client.del).toHaveBeenCalledWith('/api/auth/2fa/setup')
+    expect(later).toHaveBeenCalledWith(signedIn)
+
+    const confirmed = member('admin', moderatorCan, { servers: { all: true }, twoFactor: true, awaitingConfirmation: true })
+    answer({ '/api/auth/me': confirmed })
+    const done = vi.fn()
+    await join(done)
+    for (const [i, digit] of [...'482913'].entries()) {
+      const box = document.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]')[i]
+      if (!box) throw new Error(`no code box ${i}`)
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(box, digit)
+        box.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    expect(client.post).toHaveBeenCalledWith('/api/auth/2fa/confirm', { code: '482913' })
+    expect(page()).toContain('Save your recovery codes')
+    expect(page()).toContain('Step 3 of 3')
+    for (const c of codes) expect(page()).toContain(c)
+    expect(current()).toContain('Recovery codes')
+    expect(done).not.toHaveBeenCalled()
+    await click(button('I’ve saved them'))
+    expect(done).toHaveBeenCalledWith(confirmed)
+  })
+
+  it('says when a link can’t be used, offering sign-in only for team links', async () => {
+    answerPosts({ '/preview': new client.ApiError(410, { error: 'This invite was for 5 friends, and they’ve all joined.', code: 'invite_used_up', hint: 'Ask the person who sent it for a new link.', params: { inviter: '', maxUses: '5' } }) })
+    let text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('This invite has run out')
+    expect(text).toContain('It was for 5 friends, and they’ve all joined.')
+    expect(text).toContain('Ask whoever sent it for a new link.')
+    expect(text).not.toContain('Sign in')
+
+    answerPosts({ '/preview': new client.ApiError(410, { error: 'This invite has already been used.', code: 'invite_used_up', hint: 'If you accepted it, sign in with the username and password you chose.' }) })
+    text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('This invite link was already used')
+    expect(link('Sign in').getAttribute('href')).toBe('/login')
+
+    answerPosts({ '/preview': new client.ApiError(410, { error: 'This invite link has expired.', code: 'invite_expired', hint: 'Ask the person who sent it for a new link.' }) })
+    text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('This invite link has expired')
+    expect(text).toContain('Ask whoever sent it for a new one.')
+
+    text = await render(<JoinPage code="" onSignedIn={() => {}} />)
+    expect(text).toContain('This invite link doesn’t work any more')
+    expect(link('Already on the team? Sign in').getAttribute('href')).toBe('/login')
+  })
+
+  it('lets someone try again after too many tries', async () => {
+    let calls = 0
+    answerPosts({ '/preview': () => (++calls === 1 ? new client.ApiError(429, { error: 'Too many tries from your network.', code: 'rate_limited', hint: 'Wait a few minutes, then try again.' }) : friend) })
+    const text = await render(<JoinPage code={code} onSignedIn={() => {}} />)
+    expect(text).toContain('Too many tries from your network.')
+    expect(text).toContain('Wait a few minutes, then try again.')
+    await click(button('Try again'))
+    expect(page()).toContain('You’re invited to Survival')
+  })
+})
+
+describe('Team', () => {
+  it('lists the owner, members and unused links, and confirms an admin', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { id: 2, username: 'mara', owner: false, you: false, role: 'moderator', servers: { servers: ['bcdefghjkm', 'abcdefghjk'] }, twoFactor: false, addedAt: hoursAgo(49), canEdit: true },
+        { id: 3, username: 'tobi', owner: false, you: false, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(3), canEdit: true, waiting: true, canConfirm: true },
+      ],
+      invites: [{ id: 'ti1', kind: 'member', projectId: 'p2345abcde', role: 'viewer', servers: { servers: ['abcdefghjk'] }, label: 'Juno', createdBy: 1, createdAt: hoursAgo(1), expiresAt: inHours(6 * 24 + 1), maxUses: 1, uses: 0, status: 'active', canEdit: true }],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [
+        { id: 'abcdefghjk', name: 'Survival' },
+        { id: 'bcdefghjkm', name: 'Creative' },
+      ],
+    }
+    answer({ '/api/team': team })
+    const text = await render(<TeamSection />)
+    for (const line of ['You · owner', 'Owner · Admin', 'Survival and Creative', 'two-factor off', 'waiting for confirmation', 'Juno', 'Invite link not used yet · runs out in 6 days', 'Survival only', 'What each role can do']) expect(text).toContain(line)
+    expect(text).toContain('tobi turned on two-factor sign-in.')
+    await click(button('Confirm Admin rights'))
+    expect(client.post).toHaveBeenCalledWith('/api/team/members/3/confirm-admin')
+  })
+
+  it('tells an admin why Admin, all servers or no servers can’t be given', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [{ id: 2, username: 'mara', owner: false, you: true, role: 'admin', servers: { servers: ['abcdefghjk'] }, twoFactor: true, addedAt: hoursAgo(49), canEdit: false }],
+      invites: [],
+      grantableRoles: ['moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    await render(<TeamSection />, workspace({ me: member('admin', everything, { servers: { servers: ['abcdefghjk'] }, twoFactor: true }) }))
+    await click(button('Add a team member'))
+    const choice = (start: string) => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith(start))
+    const why = (el: Element | null | undefined) => document.getElementById(el?.getAttribute('aria-describedby') ?? '')?.textContent
+    const admin = choice('Admin')?.querySelector('[data-slot="radio"]')
+    const all = choice('All servers')?.querySelector('[data-slot="radio"]')
+    expect(admin?.hasAttribute('data-disabled')).toBe(true)
+    expect(why(admin)).toBe('Only the owner can give this role.')
+    expect(all?.hasAttribute('data-disabled')).toBe(true)
+    expect(why(all)).toBe('You can give only the servers you can use.')
+    expect(button('Create link').disabled).toBe(false)
+    const survival = choice('Survival')
+    if (!survival) throw new Error('no checkbox for Survival')
+    await click(survival)
+    expect(button('Create link').disabled).toBe(true)
+    expect(button('Create link').title).toBe('Pick at least one server.')
+  })
+})
+
+describe('Discord', () => {
+  const kinds = ['crash', 'recovered', 'low_disk', 'backup_failed', 'backup_succeeded', 'update_available', 'started', 'stopped', 'player_joined', 'player_left', 'join_requested']
+
+  it('connects with a pasted webhook link and doesn’t keep it on the page', async () => {
+    answer({ '/api/discord': { connected: false, alerts: [], liveStatus: false, delivery: {}, kinds } satisfies DiscordSettings })
+    const text = await render(<DiscordSettingsSection />)
+    expect(text).toContain('Alerts and live status in your Discord.')
+    expect(text).toContain('Keep the link private.')
+    expect(button('Connect').disabled).toBe(true)
+    expect(button('Connect').title).toBe('Paste the webhook link first.')
+    const url = 'https://discord.com/api/webhooks/000000000000000000/redacted-for-tests'
+    await typeInto('input[type="url"]', url)
+    await click(button('Connect'))
+    expect(client.post).toHaveBeenCalledWith('/api/discord/connect', { webhookUrl: url })
+    expect(document.querySelector<HTMLInputElement>('input[type="url"]')?.value ?? '').toBe('')
+  })
+
+  it('shows the connection, the alert switches and the live status message', async () => {
+    const connected: DiscordSettings = { connected: true, webhookName: 'Playkeeper alerts', connectedAt: hoursAgo(1), alerts: ['crash', 'recovered', 'join_requested', 'backup_failed', 'low_disk', 'update_available'], liveStatus: true, delivery: { sent: hoursAgo(0.5) }, kinds }
+    answer({ '/api/discord': connected })
+    const text = await render(<DiscordSettingsSection />)
+    expect(text).toContain('Webhook “Playkeeper alerts” · connected 1 h ago')
+    for (const line of ['A server crashed or couldn’t start', 'Someone asks to join', 'Someone joined or left', 'Keep a live status message', 'How it looks in the channel']) expect(text).toContain(line)
+    expect(text).not.toContain('discord.com')
+    const row = [...document.querySelectorAll('li')].find((li) => li.textContent?.includes('Someone joined or left'))
+    const players = row?.querySelector<HTMLElement>('[role="switch"]')
+    if (!players) throw new Error('no switch for players joining')
+    await click(players)
+    expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true })
+  })
+})
+
+describe('Player profile', () => {
+  const maraProfile = (): PlayerProfile => ({
+    name: 'mara_k',
+    uuid: '0f3a6c2e9b1d4e7fa2c5b8d1e4f7a0c3',
+    online: true,
+    onlineSince: hoursAgo(0.5),
+    allowlisted: true,
+    operator: false,
+    firstSeen: '2026-09-20T18:00:00Z',
+    sessions: 12,
+    playtimeSeconds: 14 * 3600 + 20 * 60,
+    longestSeconds: 3 * 3600 + 5 * 60,
+    tz: 'UTC',
+    days: [],
+    recent: [],
+    joined: { key: 'invite.origin.link', params: { link: 'Discord crew' }, text: 'Joined with the Discord crew link', at: '2026-09-20T18:00:00Z' },
+  })
+
+  it('shows who a player is, how they got in and what a moderator can do', async () => {
+    const profile = maraProfile()
+    answer({ '/players/profile': profile })
+    const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(client.get).toHaveBeenCalledWith(expect.stringContaining('/api/servers/abcdefghjk/players/profile?name=mara_k&tz='))
+    expect(text).toContain('On the allowlist')
+    expect(text).toContain(`Joined with the Discord crew link on ${formatDate('2026-09-20T18:00:00Z')}`)
+    expect(text).toContain(formatDuration(profile.playtimeSeconds))
+    expect(text).toContain('12')
+    expect(buttons('Send a message')).toHaveLength(1)
+    expect(buttons('Kick')).toHaveLength(1)
+    const viewer = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('viewer', ['view', 'account.manage']) }))
+    expect(viewer).toContain('On the allowlist')
+    expect(buttons('Send a message')).toHaveLength(0)
+    expect(buttons('Kick')).toHaveLength(0)
+  })
+
+  async function onPhone(check: () => Promise<void>) {
+    const happy = (window as unknown as { happyDOM: { setViewport(size: { width: number; height: number }): void } }).happyDOM
+    happy.setViewport({ width: 390, height: 844 })
+    try {
+      await check()
+    } finally {
+      happy.setViewport({ width: 1024, height: 768 })
+    }
+  }
+
+  it('says since when a player is on the allowlist on a phone, where the line is short', async () => {
+    await onPhone(async () => {
+      answer({ '/players/profile': maraProfile() })
+      const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+      expect(text).toContain(`On the allowlist since ${formatDate('2026-09-20T18:00:00Z')}`)
+      expect(text).not.toContain('Joined with the Discord crew link')
+      expect(buttons('Message')).toHaveLength(1)
+      answer({ '/players/profile': { ...maraProfile(), joined: undefined, operator: true } })
+      expect(await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))).toContain('On the allowlist · operator')
+    })
+  })
+
+  it('says a banned player is banned, and offers no second ban', async () => {
+    answer({ '/players/profile': { ...maraProfile(), online: false, onlineSince: undefined, banned: true } })
+    const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(text).toContain('Banned')
+    expect(text).not.toContain('On the allowlist')
+    await onPhone(async () => {
+      const phone = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+      expect(phone).toContain('Banned')
+      expect(phone).toContain('Make operator')
+      expect(phone).not.toContain('Ban from Survival')
+    })
+  })
+
+  it('says when there is no such player', async () => {
+    answer({ '/players/profile': new client.ApiError(404, { error: 'No player called Nobody.', code: 'player_not_found' }) })
+    expect(await render(<PlayerProfilePage server={server()} name="Nobody" />)).toContain('No player called Nobody on Survival.')
   })
 })
 

@@ -14,7 +14,7 @@ import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { compactCount } from '@/lib/addons'
 import { formatBytes, formatMB, relativeTime } from '@/lib/format'
-import { linkPath } from '@/lib/router'
+import { linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/api/workspace'
@@ -159,7 +159,7 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
         <p className="text-xs text-muted-foreground">
           {rich('modpacks.curseforge', {
             link: (chunk) => (
-              <a {...linkPath('/settings#addon-sources')} className="ml-1 font-medium text-success-strong hover:underline">
+              <a {...linkProps({ name: 'addon-sources' })} className="ml-1 font-medium text-success-strong hover:underline">
                 {chunk}
               </a>
             ),

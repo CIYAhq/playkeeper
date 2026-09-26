@@ -93,7 +93,7 @@ export function AccountPage({ section }: { section?: 'two-factor' }) {
   }
 
   const name = ws.me.user.username
-  const role = roleLabel(ws.me.user.role)
+  const role = roleLabel(ws.me)
   const changedAt = ws.me.passwordChangedAt
   const left = status?.recoveryCodesLeft ?? 0
   const retry = (
