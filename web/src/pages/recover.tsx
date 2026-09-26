@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'rea
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleCheckIcon, HardDriveIcon, KeyRoundIcon, UploadIcon, XIcon } from 'lucide-react'
 import { ApiError, get, post } from '@/api/client'
 import type { Operation, RecoverView, RestorePreview } from '@/api/types'
-import { errorText, machineApi, useWorkspace } from '@/api/workspace'
+import { errorText, machineApi, useWorkspace, type Workspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Card, Notice, SectionLabel } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, useIsPhone } from '@/components/app/controls'
@@ -237,7 +237,7 @@ function KeyPicker({ r, children }: { r: Recover; children: (open: () => void) =
       }}
       onDragLeave={() => setOver(false)}
       onDrop={drop}
-      className={cn('rounded-2xl transition-shadow', over && 'ring-2 ring-primary/50')}
+      className={cn('rounded-2xl transition-shadow duration-(--motion-fast) ease-standard', over && 'ring-2 ring-primary/50')}
     >
       <input
         ref={input}
@@ -314,11 +314,12 @@ function SFTPFields({ r, phone }: { r: Recover; phone?: boolean }) {
 }
 
 function ConnectLine({ r, phone }: { r: Recover; phone?: boolean }) {
+  const ws = useWorkspace()
   const where = r.problem && r.problem.field !== 'recoveryKey' ? r.problem : undefined
   if (r.view) {
     const found = r.view.copies.length
     return (
-      <p className={cn('flex items-center gap-2 text-[13px]', found ? 'text-foreground' : 'text-warning-foreground')}>
+      <p className={cn('flex animate-fade items-center gap-2 text-[13px]', found ? 'text-foreground' : 'text-warning-foreground')}>
         <CircleCheckIcon className={cn('size-4 shrink-0', found ? 'text-success-foreground' : 'text-warning-foreground')} aria-hidden="true" />
         {found ? t('recover.connected', { count: found, server: r.view.server }) : t('recover.noCopies', { server: r.view.server })}
       </p>
@@ -327,7 +328,14 @@ function ConnectLine({ r, phone }: { r: Recover; phone?: boolean }) {
   return (
     <div className="flex flex-col gap-3">
       {where && <ProblemLine problem={where} />}
-      <Button variant="outline" size={phone ? 'touch' : 'default'} className={cn(!phone && 'self-start')} disabled={!r.key || !ready(r.where)} loading={r.busy} onClick={() => void r.connect()}>
+      <Button
+        variant="outline"
+        size={phone ? 'touch' : 'default'}
+        className={cn(!phone && 'self-start')}
+        disabledReason={noAgent(ws) ? t('reason.noAgent') : !r.key ? t('recover.keyFirst') : !ready(r.where) ? t('reason.fillIn') : undefined}
+        loading={r.busy}
+        onClick={() => void r.connect()}
+      >
         {t('recover.connect')}
       </Button>
     </div>
@@ -341,7 +349,7 @@ function CopyPicker({ r, phone }: { r: Recover; phone?: boolean }) {
   if (!r.view) return <p className="text-[13px] text-muted-foreground max-sm:px-4">{t('recover.pickFirst')}</p>
   const rowClass = phone ? 'min-h-14 items-center gap-3 rounded-none border-0 border-b border-border px-4 py-2 shadow-none last:border-b-0 has-[[data-checked]]:border-border has-[[data-checked]]:bg-transparent has-[[data-checked]]:shadow-none' : 'items-start gap-3 px-3.5 py-2.5'
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex animate-fade flex-col gap-2">
       <CardGroup value={r.picked ?? ''} onChange={r.setPicked} label={t('recover.step.pick')} className={cn('flex flex-col', phone ? 'overflow-hidden rounded-3xl border border-border bg-white' : 'gap-2')}>
         {shown.map((c) => (
           <ChoiceCard key={c.name} value={c.name} radio="start" className={rowClass}>
@@ -362,6 +370,17 @@ function CopyPicker({ r, phone }: { r: Recover; phone?: boolean }) {
 
 function nextLabel(r: Recover): string {
   return r.op?.status === 'running' ? t('recover.showProgress') : t('recover.next')
+}
+
+const noAgent = (ws: Workspace) => ws.stale || !ws.machine
+
+/** Why Next can't be pressed yet; a running restore can always be shown. */
+function nextReason(r: Recover, ws: Workspace): string | undefined {
+  if (r.op?.status === 'running') return undefined
+  if (noAgent(ws)) return t('reason.noAgent')
+  if (!r.view) return t('recover.findFirst')
+  if (r.view.copies.length === 0) return t('recover.noCopies', { server: r.view.server })
+  return r.copy ? undefined : t('recover.pickCopy')
 }
 
 function Summary({ r }: { r: Recover }) {
@@ -405,6 +424,7 @@ function Dialogs({ r, phone }: { r: Recover; phone: boolean }) {
 }
 
 function DesktopRecover({ r }: { r: Recover }) {
+  const ws = useWorkspace()
   const keyProblem = r.problem?.field === 'recoveryKey' ? r.problem : undefined
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
@@ -465,7 +485,7 @@ function DesktopRecover({ r }: { r: Recover }) {
         </section>
         <div className="flex items-center gap-3 border-t border-border pt-4">
           <span className="text-xs text-muted-foreground">{t('recover.note')}</span>
-          <Button className="ml-auto" disabled={!r.copy && r.op?.status !== 'running'} loading={r.busy && !!r.view} onClick={() => void r.start()}>
+          <Button className="ml-auto" disabledReason={nextReason(r, ws)} loading={r.busy && !!r.view} onClick={() => void r.start()}>
             {nextLabel(r)}
             <ArrowRightIcon />
           </Button>
@@ -494,6 +514,7 @@ function PhoneRow({ icon, title, hint, onClick }: { icon: ReactNode; title: stri
 }
 
 function PhoneRecover({ r }: { r: Recover }) {
+  const ws = useWorkspace()
   const [editing, setEditing] = useState(false)
   const dot = t('common.dot')
   const keyProblem = r.problem?.field === 'recoveryKey' ? r.problem : undefined
@@ -558,7 +579,7 @@ function PhoneRecover({ r }: { r: Recover }) {
       </section>
       <p className="px-1 text-[13px] text-muted-foreground">{t('recover.note')}</p>
       <PhoneActions>
-        <Button size="touch" disabled={!r.copy && r.op?.status !== 'running'} loading={r.busy && !!r.view} onClick={() => void r.start()}>
+        <Button size="touch" disabledReason={nextReason(r, ws)} loading={r.busy && !!r.view} onClick={() => void r.start()}>
           {nextLabel(r)}
           <ArrowRightIcon />
         </Button>
