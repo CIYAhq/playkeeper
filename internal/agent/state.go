@@ -53,12 +53,6 @@ func (s *server) serverConfig() (*api.ServerConfig, error) {
 
 func (s *server) saveServerConfig(sc api.ServerConfig) error { return saveConfig(s.db, s.id, sc) }
 
-// execer runs a statement: the database, or a transaction a change is part
-// of.
-type execer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
-
 // saveConfig saves the settings of the server with id through ex.
 func saveConfig(ex execer, id string, sc api.ServerConfig) error {
 	b, err := json.Marshal(sc)
