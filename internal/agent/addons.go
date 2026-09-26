@@ -170,6 +170,15 @@ func (s *server) saveAddons(put []addons.Installed, drop []addons.Key, changed b
 		return err
 	}
 	defer tx.Rollback()
+	if err := s.writeAddons(tx, put, drop, changed); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// writeAddons stores put and removes drop in tx; changed notes when the
+// add-ons changed, for the restart they need.
+func (s *server) writeAddons(tx *sql.Tx, put []addons.Installed, drop []addons.Key, changed bool) error {
 	for _, k := range drop {
 		if _, err := tx.Exec(`DELETE FROM addons WHERE server_id = ? AND source = ? AND project_id = ?`, s.id, string(k.Source), k.ProjectID); err != nil {
 			return err
@@ -200,7 +209,7 @@ func (s *server) saveAddons(put []addons.Installed, drop []addons.Key, changed b
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *server) addonsChangedAt() (time.Time, bool) {
@@ -1083,22 +1092,9 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Voice chat's port closes before anything is removed: a removal that
-	// can't close it removes nothing, so no start publishes a port with nothing
-	// behind it. If voice chat then stays, so does its port.
-	var voicePort int
-	if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {
-		var releasePort func()
-		if voicePort, releasePort, err = s.closeVoiceChat(actor); err != nil {
-			writeError(w, err)
-			return
-		}
-		defer releasePort()
-	}
 	target := string(key.Source) + ":" + key.ProjectID
 	rm, err := lib.Uninstall(r.Context(), srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
 	if err != nil {
-		s.reopenVoiceChat(voicePort, actor)
 		s.audit(actor, "addon.removed", target, "refused", err.Error())
 		writeError(w, addonError(err))
 		return
@@ -1122,7 +1118,8 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		warnings = append(warnings, orm.Warnings...)
 		rest = slices.DeleteFunc(rest, func(rec addons.Installed) bool { return rec.Key() == k })
 	}
-	if err := s.saveAddons(nil, drop, true); err != nil {
+	port, err := s.removeAddonRecords(drop)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
@@ -1131,10 +1128,43 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		out.Removed = append(out.Removed, rec.Name)
 		s.audit(actor, "addon.removed", string(rec.Source)+":"+rec.ProjectID, "succeeded", rec.Name+" "+rec.VersionNumber)
 	}
-	if !slices.ContainsFunc(drop, voiceChat) {
-		s.reopenVoiceChat(voicePort, actor)
+	if port > 0 {
+		s.audit(actor, "addon.port_closed", string(addons.Modrinth)+":"+curatedVoiceChatProject(), "succeeded", fmt.Sprintf("voice chat's UDP %d", port))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// removeAddonRecords drops the records of the add-ons a removal deleted, and
+// closes voice chat's port in the same transaction when voice chat was one of
+// them, so the records and the port never disagree: a removal that fails
+// before this, or here, leaves both as they were, and removing again finishes
+// it. It returns the port it closed.
+func (s *server) removeAddonRecords(drop []addons.Key) (int, error) {
+	sc, err := s.serverConfig()
+	if err != nil {
+		return 0, err
+	}
+	if sc == nil {
+		return 0, errNotCreated()
+	}
+	port := 0
+	if slices.ContainsFunc(drop, voiceChat) {
+		port, sc.VoiceChatPort = sc.VoiceChatPort, 0
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if port > 0 {
+		if err := saveConfig(tx, s.id, *sc); err != nil {
+			return 0, err
+		}
+	}
+	if err := s.writeAddons(tx, nil, drop, true); err != nil {
+		return 0, err
+	}
+	return port, tx.Commit()
 }
 
 // hAddonAdopt lets Playkeeper manage a file added by hand that Modrinth

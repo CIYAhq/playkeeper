@@ -75,6 +75,8 @@ export interface ServerConfig {
   software?: SoftwarePin
   /** The pack the server was created from. */
   modpack?: ServerModpack
+  /** Restored from a backup that doesn't record which modpack, if any, it ran: Playkeeper manages no pack on it. */
+  modpackUnknown?: boolean
   /** The template the server was created from. */
   template?: ServerTemplate
   /** The UDP port voice chat has on this server. */
@@ -1371,6 +1373,8 @@ export interface ServerTemplate {
   pending?: boolean
   /** The template's add-ons and data packs that couldn't be installed, each with params.name; Try again retries them. */
   skipped?: AddonNotice[]
+  /** The record of what the template adds was gone by the time the server started, so none of it was installed. */
+  lost?: boolean
 }
 
 export interface TemplateSettings {

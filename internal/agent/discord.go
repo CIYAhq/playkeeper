@@ -50,9 +50,6 @@ type discordState struct {
 	connectedAt time.Time
 	host        string
 	lowDisk     bool
-	// saved is set once the settings were saved, so live status is turned
-	// on by default only the first time Discord is connected.
-	saved bool
 }
 
 // initDiscord loads the saved settings and makes the notifier; Start runs it.
@@ -73,7 +70,6 @@ func (a *Agent) initDiscord() error {
 		Scan(&raw, &name, &alerts, &live, &msgID, &host, &connected)
 	switch {
 	case err == nil:
-		a.disc.saved = true
 		if raw != "" {
 			if w, err := discord.ParseWebhookURL(raw); err == nil {
 				s.Webhook = w
@@ -420,18 +416,22 @@ func (a *Agent) hDiscordConnect(w http.ResponseWriter, r *http.Request) {
 	host := cleanHost(req.Host)
 	a.disc.mu.Lock()
 	s := a.disc.settings
-	if !a.disc.saved {
-		s.LiveStatus = true
+	if !s.Webhook.Equal(wh) {
+		s.StatusMessageID = ""
 	}
-	s.Webhook, s.StatusMessageID = wh, ""
+	s.Webhook = wh
+	// The webhook already in use keeps its live status message, as the
+	// notifier does, so an agent that restarts edits that message instead
+	// of posting a second one.
 	_, err = a.db.Exec(`INSERT INTO discord(id, webhook_url, webhook_name, alerts, live_status, status_message_id, public_host, connected_at)
 		VALUES(1, ?, ?, ?, ?, '', ?, ?)
 		ON CONFLICT(id) DO UPDATE SET webhook_url = excluded.webhook_url, webhook_name = excluded.webhook_name,
-		live_status = excluded.live_status, status_message_id = '', connected_at = excluded.connected_at,
+		live_status = excluded.live_status, connected_at = excluded.connected_at,
+		status_message_id = CASE WHEN webhook_url = excluded.webhook_url THEN status_message_id ELSE '' END,
 		public_host = CASE WHEN excluded.public_host = '' THEN public_host ELSE excluded.public_host END`,
 		wh.SecretURL(), name, s.Alerts.String(), boolInt(s.LiveStatus), host, now.UnixMilli())
 	if err == nil {
-		a.disc.settings, a.disc.name, a.disc.connectedAt, a.disc.saved = s, name, now, true
+		a.disc.settings, a.disc.name, a.disc.connectedAt = s, name, now
 		if host != "" {
 			a.disc.host = host
 		}
@@ -465,7 +465,10 @@ func (a *Agent) hDiscordSettings(w http.ResponseWriter, r *http.Request) {
 	host := cleanHost(req.Host)
 	a.disc.mu.Lock()
 	s := a.disc.settings
-	s.Alerts, s.LiveStatus = alerts, req.LiveStatus
+	s.Alerts = alerts
+	if req.LiveStatus != nil {
+		s.LiveStatus = *req.LiveStatus
+	}
 	if err := s.Validate(); err != nil {
 		a.disc.mu.Unlock()
 		writeDiscordErr(w, err)
@@ -477,7 +480,7 @@ func (a *Agent) hDiscordSettings(w http.ResponseWriter, r *http.Request) {
 		public_host = CASE WHEN excluded.public_host = '' THEN public_host ELSE excluded.public_host END`,
 		s.Alerts.String(), boolInt(s.LiveStatus), host)
 	if err == nil {
-		a.disc.settings, a.disc.saved = s, true
+		a.disc.settings = s
 		if host != "" {
 			a.disc.host = host
 		}

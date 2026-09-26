@@ -302,7 +302,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 	case minecraft.EventOOM:
 		if current {
 			s.mu.Lock()
-			s.lastError = "Java ran out of memory."
+			// Java can log "Stopping server" after this with no crash line of
+			// its own, and the run has still crashed.
+			s.sawCrash, s.lastError = true, "Java ran out of memory."
 			s.lastErrorHint = "Choose a larger memory budget in Settings."
 			s.mu.Unlock()
 		}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -469,18 +470,18 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	if pack != nil {
 		sc.Modpack, label = pack, pack.Name+" "+pack.VersionNumber
 	}
+	var record func(tx *sql.Tx, id string) error
 	if tpl != nil {
-		sc.Template = &api.ServerTemplate{Name: tpl.p.Name, Pending: len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0}
+		pending := len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0
+		sc.Template = &api.ServerTemplate{Name: tpl.p.Name, Pending: pending}
+		if pending {
+			planned, dataPacks, at := tpl.p.Addons, templateDataPacks(tpl.p), a.now()
+			record = func(tx *sql.Tx, id string) error { return saveTemplateInstall(tx, id, planned, dataPacks, at) }
+		}
 	}
-	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
+	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor, record: record}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-			if tpl != nil && (len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0) {
-				if err := s.saveTemplateInstall(tpl.p.Addons, templateDataPacks(tpl.p)); err != nil {
-					s.startFailed(ctx)
-					return err
-				}
-			}
 			s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
 			if err := s.startServer(ctx, h, sc); err != nil {
 				s.startFailed(ctx)

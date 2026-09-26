@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
+import { installPageHelpers } from './crawl-page'
 import type { View } from './fakes'
 import { login, outDir } from './helpers'
 
@@ -346,6 +347,17 @@ for (const [name, size] of Object.entries(sizes)) {
     expect(problems, problems.join('\n')).toEqual([])
   })
 }
+
+test('a combobox choice that differs from the last only in its digits still changes the page', async ({ page }) => {
+  await page.setContent('<div id="root"><h1>New server</h1><button role="combobox" aria-expanded="false">2 GB</button></div>')
+  await page.evaluate(installPageHelpers)
+  const combobox = () => page.evaluate(() => window.__pk.snapshot().fingerprint.filter((f) => f.startsWith('s:')))
+  const before = await combobox()
+  await page.evaluate(() => {
+    document.querySelector('[role=combobox]')!.textContent = '4 GB'
+  })
+  expect(await combobox()).not.toEqual(before)
+})
 
 test('the pass bar fails a failing control, a state it could not get back to, a page under its minimum and a place it missed', () => {
   const works = (route: string, key: string): Result => ({ viewport: 'desktop', route, via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
