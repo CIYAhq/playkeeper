@@ -22,11 +22,13 @@ const asking = new Map<string, Promise<ShareState>>()
 function askShare(serverId: string): Promise<ShareState> {
   let p = asking.get(serverId)
   if (!p) {
-    const ask = get<PackShare>(serverApi(serverId, '/mods/share'))
+    const ask: Promise<ShareState> = get<PackShare>(serverApi(serverId, '/mods/share'))
       .then((share): ShareState => ({ id: serverId, share }))
       .catch((e: unknown): ShareState => ({ id: serverId, error: errorText(e), unsupported: e instanceof ApiError && e.status === 409 }))
+      .finally(() => forget())
+    const forget = () => asking.get(serverId) === ask && asking.delete(serverId)
     asking.set(serverId, ask)
-    window.setTimeout(() => asking.get(serverId) === ask && asking.delete(serverId), 0)
+    window.setTimeout(forget, 0)
     p = ask
   }
   return p
