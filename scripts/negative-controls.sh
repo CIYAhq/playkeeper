@@ -2861,21 +2861,28 @@ control "an import leaves squaremap's folder alone while the map is off" interna
 	}
 	for _, rel := range' \
   ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
-webcontrol() { # NAME FILE FROM TO TEST-FILE
-  local name=$1 file=$2 test=$5
-  ln -sfn "$root/web/node_modules" web/node_modules
+# webcontrol is the one web control: TEST-FILE is under web/, written with or
+# without that prefix, and TESTS, when given, picks tests by name. It links
+# web's node_modules into the worktree if nothing did yet, and leaves it.
+webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
+  local name=$1 file=$2 testfile=${5#web/} tests=${6:-}
+  local only=()
+  if [ -n "$tests" ]; then only=(-t "$tests"); fi
+  [ -e web/node_modules ] || ln -sfn "$root/web/node_modules" web/node_modules
   FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
   if ! (cd web && npx tsc --noEmit -p . >/dev/null 2>&1); then
     echo "INVALID  $name: the mutated code does not type-check"
     bad=1
-  elif (cd web && npx vitest run "${test#web/}" >/tmp/negative-control.out 2>&1); then
-    echo "MISSED   $name: $test still passes without the guard"
+  elif (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
+    echo "MISSED   $name: ${tests:-$testfile} still passes without the guard"
+    bad=1
+  elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
+    echo "INVALID  $name: no test ran to fail"
     bad=1
   else
-    echo "caught   $name: $(grep -m1 -E '^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+    echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): |^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
   git checkout -q -- "$file"
-  rm web/node_modules
 }
 webcontrol "leaving the page cancels the upload" web/src/components/app/world-import.tsx \
   "window.addEventListener('pagehide', leave)" \
