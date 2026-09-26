@@ -94,6 +94,13 @@ it('fails soft where it has nothing to show or change', async () => {
   await expect(ask('POST', `/api/servers/${id}/world`, undefined, new Blob(['x']))).rejects.toMatchObject({ status: 400, code: 'demo' })
 })
 
+it('has one machine, with no events and no joining, for the machines pages', async () => {
+  const machines = await ask<{ id: string; kind: string }[]>('GET', '/api/machines')
+  expect(machines.map((m) => m.kind)).toEqual(['local'])
+  await expect(ask('GET', `/api/machines/${machines[0]?.id}/events`)).resolves.toEqual([])
+  await expect(ask('POST', '/api/machines/join-codes', { name: '', dial: 'name' })).rejects.toMatchObject({ status: 400, code: 'demo' })
+})
+
 it('plays a restart out, back online, and ends it with the demo toast', async () => {
   const before = await survival()
   expect(before.phase).toBe('online')

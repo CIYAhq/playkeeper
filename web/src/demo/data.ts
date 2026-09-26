@@ -550,6 +550,7 @@ export const reads: Routes = {
   'GET /api/machines/:machine/catalog': catalog,
   'GET /api/machines/:machine/update': (_, r) => update(r.now),
   'GET /api/machines/:machine/preflight': preflight,
+  'GET /api/machines/:machine/events': () => [],
   'GET /api/audit': (s) => s.audit,
   'GET /api/tokens': (s) => s.tokens,
   'GET /api/tokens/activity': (s) => s.agentActivity,

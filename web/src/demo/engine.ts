@@ -651,6 +651,10 @@ const writes: Routes = {
   },
   'POST /api/machines/:machine/servers': create,
   'POST /api/machines/:machine/update/check': (_, r) => update(r.now),
+  'POST /api/machines/join-codes': () => {
+    throw new ApiError(400, { error: dt('demo.noJoin'), code: 'demo' })
+  },
+  'DELETE /api/machines/join-codes/:code': () => ({}),
   'POST /api/tokens': (s, r): NewToken => {
     const b = (r.body ?? {}) as { name?: string; role?: TokenRole; allServers?: boolean; servers?: string[]; days?: number }
     const token: ApiToken = { id: `tk${s.seq++}`, name: (b.name ?? '').trim(), role: b.role ?? 'viewer', allServers: b.allServers ?? true, servers: b.servers ?? [], createdAt: iso(r.now), expiresAt: iso(r.now + (b.days ?? 60) * day), account: demoUser, mine: true }

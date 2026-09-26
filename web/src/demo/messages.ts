@@ -35,6 +35,7 @@ const en = {
   'demo.noData': 'The demo has no sample data for this.',
   'demo.notHere': 'The demo can’t do this one. On your own VPS it works.',
   'demo.noUploads': 'The demo doesn’t take uploads.',
+  'demo.noJoin': 'The demo has just this one machine. To connect another, install Playkeeper on a VPS of your own first.',
   'demo.busy': 'One thing at a time: {what}.',
   'demo.taken': 'There’s already a server called {name}.',
   'demo.noMemory': 'There isn’t enough memory left on {machine} for that.',
