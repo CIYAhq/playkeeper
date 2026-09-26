@@ -2863,14 +2863,6 @@ control "a wake waits for a backup to end" internal/agent/sleeping.go \
   'ae.Code != api.CodeBusy || time.Now().After(deadline)' \
   'ae.Code == api.CodeBusy || time.Now().After(deadline)' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
-control "turning sleep off changes nothing while the server is busy" internal/agent/sleeping.go \
-  'release, ok := s.holdOpLock()
-	if !ok {
-		return nil, s.busyError()' \
-  'release, ok := func() {}, true
-	if !ok {
-		return nil, s.busyError()' \
-  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off_during_a_backup$'
 control "turning sleep off lets go of the game port when the server can't start" internal/agent/lifecycle.go \
   '		_ = s.setDesired(api.DesiredStopped)
 	}
@@ -3090,6 +3082,8 @@ control "a sleep is called off when someone joined since it decided" internal/ag
   'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
   'if false {' \
   ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined_as_it_looks_again$'
+# The same lock refuses turning sleep off during a backup; that test can't be
+# the control, because the start begun without the lock hangs its cleanup.
 control "saving the sleep setting takes the operation lock" internal/agent/sleeping.go \
   'release, ok := s.holdOpLock()
 	if !ok {
