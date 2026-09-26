@@ -112,10 +112,24 @@ func (s *server) refreshStandIn(m *sleep.Manager, version string, protocol int) 
 			st.Version = typeName(typ) + " " + sc.MinecraftVersion
 		}
 	}
-	if icon, err := sleep.ReadIcon(s.dataDir()); err == nil {
-		st.Icon = icon
-	}
+	st.Icon = s.standInIcon()
 	m.SetStatus(st)
+}
+
+// standInIcon is the server's list icon for the stand-in, or "" when it has
+// none or it can't be shown.
+func (s *server) standInIcon() string {
+	d, err := s.gameFiles()
+	if err != nil {
+		return ""
+	}
+	defer d.Close()
+	b, err := d.ReadFile(sleep.IconFile, sleep.MaxIconBytes)
+	if err != nil {
+		return ""
+	}
+	icon, _ := sleep.IconURI(b)
+	return icon
 }
 
 // observeSleep feeds one sample to the sleep tracker and puts an empty
