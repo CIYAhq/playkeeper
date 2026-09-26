@@ -60,6 +60,7 @@ import { PlayerProfilePage } from './server/profile'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
 import { WorldPage } from './server/world'
+import { GlobalSettingsPage } from './settings'
 import { TeamSection } from './team'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -1340,6 +1341,18 @@ describe('Add-on sources', () => {
     })
   }
   const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+
+  it('is the Settings section between Team and Discord, for who manages the machine', async () => {
+    answer({ '/addon-sources': none })
+    await render(<GlobalSettingsPage section="addon-sources" />)
+    const nav = document.querySelector('nav[aria-label="Settings sections"]')
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord'])
+    expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/addon-sources')
+    expect(document.getElementById('addon-sources')).not.toBeNull()
+    const moderator = await render(<GlobalSettingsPage section="addon-sources" />, workspace({ me: member('moderator', moderatorCan) }))
+    expect(moderator).not.toContain('CurseForge')
+    window.history.replaceState(null, '', '/')
+  })
 
   it('lands on its own section, with Modrinth and Hangar built in and CurseForge asking for a key', async () => {
     answer({ '/addon-sources': none })

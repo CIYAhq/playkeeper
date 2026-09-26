@@ -87,6 +87,7 @@ function pageKey(route: Route): string {
     case 'legacy':
       return `legacy/${route.tab}`
     case 'team':
+    case 'addon-sources':
     case 'discord':
       return 'settings/sections'
     case 'machine-settings':
@@ -258,7 +259,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
       <div className="flex flex-col gap-0.5 pt-2">
         {can(ws.me, 'servers.create') && <GetStartedCard route={route} className="mb-2" />}
         {can(ws.me, 'machine.manage') && <UpdateRow />}
-        <SideItem to={settingsHome(ws.me)} active={route.name === 'settings' || route.name === 'team' || route.name === 'discord'} icon={<SettingsIcon />}>
+        <SideItem to={settingsHome(ws.me)} active={route.name === 'settings' || route.name === 'team' || route.name === 'addon-sources' || route.name === 'discord'} icon={<SettingsIcon />}>
           {t('nav.settings')}
         </SideItem>
         <UserRow active={route.name === 'account'} />
@@ -318,7 +319,7 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const underMore = route.name === 'more' || route.name === 'team' || route.name === 'discord' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
+  const underMore = route.name === 'more' || route.name === 'team' || route.name === 'addon-sources' || route.name === 'discord' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
   const inServer = route.name === 'server' || route.name === 'player' || (underMore && !!phoneServer)
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
   const current: ServerTab | 'more' | undefined =

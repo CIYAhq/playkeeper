@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleHelpIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -130,6 +130,11 @@ export function MorePage() {
           {can(ws.me, 'team.manage') && (
             <li>
               <Row icon={<UsersIcon />} title={t('global.nav.team')} hint={t('more.teamHint')} to={{ name: 'team' }} />
+            </li>
+          )}
+          {can(ws.me, 'machine.manage') && (
+            <li>
+              <Row icon={<LibraryIcon />} title={t('global.nav.addonSources')} hint={t('more.addonSourcesHint')} to={{ name: 'addon-sources' }} />
             </li>
           )}
           {can(ws.me, 'machine.manage') && (

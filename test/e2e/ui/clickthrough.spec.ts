@@ -53,7 +53,7 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     if (payload) out.push(`/servers/new#template=${payload}`)
   }
   for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
-  out.push('/settings', '/settings/team', '/settings/discord', '/account', '/account/two-factor')
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/account', '/account/two-factor')
   if (phone) out.push('/more')
   return out
 }

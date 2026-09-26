@@ -26,10 +26,11 @@ export type Route =
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
-  // Wave 5: invite links, player profiles, the team and Discord.
+  // Wave 5: invite links, player profiles and the Settings sections.
   | { name: 'join'; code: string }
   | { name: 'player'; slug: string; player: string }
   | { name: 'team' }
+  | { name: 'addon-sources' }
   | { name: 'discord' }
   // A friends' pack page, public; token is "" for a link that can't be one.
   | { name: 'pack'; token: string }
@@ -55,6 +56,7 @@ export function parse(pathname: string): Route {
       return { name: 'join', code: second && reCode.test(second) && !third ? second : '' }
     case 'settings':
       if (second === 'team' && !third) return { name: 'team' }
+      if (second === 'addon-sources' && !third) return { name: 'addon-sources' }
       if (second === 'discord' && !third) return { name: 'discord' }
       return { name: 'settings' }
     case 'account':
@@ -125,6 +127,8 @@ export function href(route: Route): string {
       return `/servers/${route.slug}/players/${route.player}`
     case 'team':
       return '/settings/team'
+    case 'addon-sources':
+      return '/settings/addon-sources'
     case 'discord':
       return '/settings/discord'
     case 'pack':

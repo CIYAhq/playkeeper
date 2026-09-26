@@ -12,7 +12,7 @@ import { UpdateDialog, useUpdateInfo } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { can, settingsHome, settingsSections } from '@/lib/access'
+import { can, settingsHome, settingsSections, type SettingsSectionName } from '@/lib/access'
 import { formatDateTime, relativeTime } from '@/lib/format'
 import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 import { DiscordSettingsSection } from './discord'
 import { TeamSection } from './team'
 
-export type SettingsPage = 'general' | 'team' | 'discord'
+export type SettingsPage = 'general' | SettingsSectionName
 
 export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
   switch (section) {
@@ -30,6 +30,12 @@ export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
       return (
         <SettingsSection current="team">
           <TeamSection />
+        </SettingsSection>
+      )
+    case 'addon-sources':
+      return (
+        <SettingsSection current="addon-sources">
+          <AddonSourcesCard />
         </SettingsSection>
       )
     case 'discord':
@@ -46,7 +52,7 @@ export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
 }
 
 /** A Settings section: the sections list beside it on desktop, a back link to More on phones. */
-function SettingsSection({ current, children }: { current: 'team' | 'discord'; children: ReactNode }) {
+function SettingsSection({ current, children }: { current: SettingsSectionName; children: ReactNode }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const sections = settingsSections.filter((s) => can(ws.me, s.act))
@@ -105,7 +111,6 @@ function GeneralSettings() {
       <PageHeader title={t('global.title')} subtitle={t('global.lead')} />
       <PageBody className="flex max-w-[860px] flex-col gap-4">
         <PlaykeeperCard />
-        <AddonSourcesCard />
         {can(ws.me, 'audit.view') && <AuditCard />}
         <Card as="section" aria-labelledby="about-title">
           <CardTitle id="about-title">{t('global.about')}</CardTitle>

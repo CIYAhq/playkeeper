@@ -55,9 +55,12 @@ export function scopeText(scope: Scope, servers: { id: string; name: string }[])
   return formatList(names)
 }
 
-/** The sections of Settings, each for the accounts that may use it. */
-export const settingsSections: { route: Route & { name: 'team' | 'discord' }; label: MessageKey; act: Action }[] = [
+export type SettingsSectionName = 'team' | 'addon-sources' | 'discord'
+
+/** The sections of Settings in the design's order, each for the accounts that may use it. */
+export const settingsSections: { route: Route & { name: SettingsSectionName }; label: MessageKey; act: Action }[] = [
   { route: { name: 'team' }, label: 'global.nav.team', act: 'team.manage' },
+  { route: { name: 'addon-sources' }, label: 'global.nav.addonSources', act: 'machine.manage' },
   { route: { name: 'discord' }, label: 'global.nav.discord', act: 'machine.manage' },
 ]
 

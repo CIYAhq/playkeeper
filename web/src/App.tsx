@@ -180,6 +180,8 @@ function page(route: Route) {
       return <GlobalSettingsPage section="general" />
     case 'team':
       return <GlobalSettingsPage section="team" />
+    case 'addon-sources':
+      return <GlobalSettingsPage section="addon-sources" />
     case 'discord':
       return <GlobalSettingsPage section="discord" />
     case 'account':
