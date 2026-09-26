@@ -319,11 +319,21 @@ func (f *fakeNames) claim(w http.ResponseWriter, r *http.Request, key string, _ 
 			return
 		}
 	}
-	now := time.Now().UTC().Truncate(time.Second)
-	n = &names.Name{Name: name, Address: names.Address(name, names.DefaultBase), State: names.StateActive, IPv4: testIP.String(),
-		ClaimedAt: now, RefreshedAt: now, RefreshBy: now.Add(namesLapseAfter), FreedAt: now.Add(2 * namesLapseAfter), Servers: []names.Server{}, DNS: f.dns()}
+	n = f.fresh(name)
 	f.names[name], f.owner[name] = n, key
 	jsonOut(w, http.StatusOK, n)
+}
+
+// fresh is name as a claim leaves it.
+func (f *fakeNames) fresh(name string) *names.Name {
+	now := time.Now().UTC().Truncate(time.Second)
+	return &names.Name{Name: name, Address: names.Address(name, names.DefaultBase), State: names.StateActive, IPv4: testIP.String(),
+		ClaimedAt: now, RefreshedAt: now, RefreshBy: now.Add(namesLapseAfter), FreedAt: now.Add(2 * namesLapseAfter), Servers: []names.Server{}, DNS: f.dns()}
+}
+
+// releaseName gives n up as a release does: it is held for its key.
+func releaseName(n *names.Name) {
+	n.State, n.FreedAt, n.RefreshBy, n.Servers, n.IPv4 = names.StateReleased, time.Now().UTC().Add(namesReleaseHold), time.Time{}, []names.Server{}, ""
 }
 
 func (f *fakeNames) owned(w http.ResponseWriter, r *http.Request, key string) *names.Name {
@@ -349,7 +359,7 @@ func (f *fakeNames) release(w http.ResponseWriter, r *http.Request, key string, 
 		refuse(w, http.StatusNotFound, names.CodeNotClaimed, nil)
 		return
 	}
-	n.State, n.FreedAt, n.RefreshBy, n.Servers, n.IPv4 = names.StateReleased, time.Now().UTC().Add(namesReleaseHold), time.Time{}, []names.Server{}, ""
+	releaseName(n)
 	jsonOut(w, http.StatusOK, n)
 }
 
@@ -535,6 +545,19 @@ func (f *fakeNames) count(prefix string) int {
 	return n
 }
 
+// requests counts the requests for route (method and path).
+func (f *fakeNames) requests(route string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		if c == route {
+			n++
+		}
+	}
+	return n
+}
+
 func (f *fakeNames) name(name string) (names.Name, string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -563,6 +586,20 @@ func (f *fakeNames) labels(name string) map[string]int {
 		}
 	}
 	return out
+}
+
+// holds gives name to key, as a claim with that key would have.
+func (f *fakeNames) holds(name, key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.names[name], f.owner[name] = f.fresh(name), key
+}
+
+// released gives name up, as a release by its key would have.
+func (f *fakeNames) released(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	releaseName(f.names[name])
 }
 
 // edit changes name as requests the test doesn't make would have.
@@ -748,6 +785,19 @@ func (e *addressEnv) loopRefreshes(name string) {
 	release()
 	e.a.serversChanged()
 	e.waitFor("the loop to refresh "+name, func() bool { return e.names.count(route) > before })
+}
+
+// settled waits until nothing works on the address: neither the address
+// loop's look nor an operation it or a request started.
+func (e *addressEnv) settled() {
+	e.t.Helper()
+	e.waitFor("the address to be left alone", func() bool {
+		release, err := e.a.holdAddress(e.t.Context(), 0)
+		if err == nil {
+			release()
+		}
+		return err == nil
+	})
 }
 
 // failSaves makes saving the address fail, as with a full disk, or work
@@ -1148,6 +1198,7 @@ func TestFreeNameChangeIsUndoneAfterItsTimeRanOut(t *testing.T) {
 		// The service lists bob as claimed, but the machine can't save the
 		// change.
 		{"the claim is answered too late and the change can't be saved", "PUT /v1/names/bob", true},
+		{"the release is answered too late", "DELETE /v1/names/alex", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
@@ -1183,6 +1234,285 @@ func TestFreeNameChangeIsUndoneAfterItsTimeRanOut(t *testing.T) {
 				t.Fatalf("the machine has %+v", st)
 			}
 		})
+	}
+}
+
+// Whichever step of a change of name, or of the address loop's refresh,
+// fails at the names service, and however, the machine ends on the name
+// the service holds for its key, if any: at once when the service says
+// which, else once the loop has refreshed its name, within the hour. A
+// machine with no name has no loop to refresh one, so a first name the
+// service can't be asked about is released again; when that fails too,
+// the name becomes the machine's at its next claim.
+func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
+	down := &fakeRefusal{status: http.StatusServiceUnavailable, code: names.CodeUnavailable, msg: "Down."}
+	broke := &fakeRefusal{status: http.StatusInternalServerError, code: names.CodeInternal, msg: "Something went wrong in the names service."}
+	lost := &fakeRefusal{status: http.StatusInternalServerError, code: names.CodeInternal, msg: "Something went wrong in the names service.", stored: true}
+	busy := &fakeRefusal{status: http.StatusTooManyRequests, code: names.CodeRateLimited, msg: "Too many requests.", retryAfter: "60"}
+	heldElsewhere := &fakeRefusal{status: http.StatusConflict, code: names.CodeNameHeld, msg: "Held."}
+	const hour, day = time.Hour, 24 * time.Hour
+	type setup = func(e *addressEnv, key string)
+	type refusals = map[string][]*fakeRefusal
+	and := func(steps ...setup) setup {
+		return func(e *addressEnv, key string) {
+			for _, s := range steps {
+				s(e, key)
+			}
+		}
+	}
+	released := func(name string) setup { return func(e *addressEnv, _ string) { e.names.released(name) } }
+	forgotten := func(name string) setup { return func(e *addressEnv, _ string) { e.names.forget(name) } }
+	taken := func(name string) setup { return func(e *addressEnv, _ string) { e.names.takenBy(name) } }
+	holding := func(name string) setup { return func(e *addressEnv, key string) { e.names.holds(name, key) } }
+	// meanwhile runs fn when the request for route comes, and answers it
+	// with rf, or as usual for nil.
+	meanwhile := func(route string, fn func(e *addressEnv), rf *fakeRefusal) setup {
+		return func(e *addressEnv, _ string) {
+			e.names.setFail(func(r *http.Request) *fakeRefusal {
+				if r.Method+" "+r.URL.Path != route {
+					return nil
+				}
+				fn(e)
+				return rf
+			})
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		setup setup
+		fail  refusals
+		// diskFull makes saving the address fail during the step.
+		diskFull bool
+		// change is a change of name to bob, answered with status; the
+		// other steps are the address loop's refresh of alex. first makes
+		// it the machine's first name: it released alex before.
+		change, first bool
+		status        int
+		// want is the machine's name after the step ("" for none), next
+		// when the loop refreshes it, and then its name once the loop has
+		// refreshed it with the service answering.
+		want, then string
+		next       time.Duration
+		// orphan is a name the service keeps for the key although the
+		// machine doesn't use it, until the machine's next claim.
+		orphan string
+	}{
+		// claimFree: releasing alex.
+		{name: "the release is refused", change: true, fail: refusals{"DELETE /v1/names/alex": {busy}}, status: 429, want: "alex", next: day, then: "alex"},
+		{name: "the release is carried out but its answer is lost", change: true, fail: refusals{"DELETE /v1/names/alex": {lost}}, status: 502, want: "alex", next: day, then: "alex"},
+		{name: "the release gets no answer and isn't carried out", change: true, fail: refusals{"DELETE /v1/names/alex": {down}}, status: 503, want: "alex", next: day, then: "alex"},
+		{name: "the release's answer is lost and alex can't be claimed back", change: true, fail: refusals{"DELETE /v1/names/alex": {lost}, "PUT /v1/names/alex": {down}}, status: 502, want: "alex", next: hour, then: "alex"},
+		{name: "the service had given alex back to everyone", change: true, setup: forgotten("alex"), status: 200, want: "bob", next: day, then: "bob"},
+		{name: "the service had alex released", change: true, setup: released("alex"), status: 200, want: "bob", next: day, then: "bob"},
+		{name: "another install had taken alex", change: true, setup: taken("alex"), status: 200, want: "bob", next: day, then: "bob"},
+		// claimFree: claiming bob.
+		{name: "bob is taken", change: true, setup: taken("bob"), status: 409, want: "alex", next: day, then: "alex"},
+		{name: "bob is claimed but the answer is lost", change: true, fail: refusals{"PUT /v1/names/bob": {lost}}, status: 200, want: "bob", next: day, then: "bob"},
+		{name: "the claim of bob fails", change: true, fail: refusals{"PUT /v1/names/bob": {broke}}, status: 502, want: "alex", next: day, then: "alex"},
+		{name: "bob is claimed but the answer and the lists are lost", change: true, fail: refusals{"PUT /v1/names/bob": {lost}, "GET /v1/names": {down, down}}, status: 502, want: "alex", next: hour, then: "bob"},
+		{name: "bob is claimed but the answer and the first list are lost", change: true, fail: refusals{"PUT /v1/names/bob": {lost}, "GET /v1/names": {down}}, status: 200, want: "bob", next: day, then: "bob"},
+		{name: "the claim of bob and the list fail", change: true, fail: refusals{"PUT /v1/names/bob": {broke}, "GET /v1/names": {down}}, status: 502, want: "alex", next: day, then: "alex"},
+		{name: "the service holds a third name for this machine", change: true, setup: and(released("alex"), holding("carol")), status: 409, want: "carol", next: day, then: "carol"},
+		// reclaim: claiming alex back after the claim of bob failed.
+		{name: "alex can't be claimed back", change: true, fail: refusals{"PUT /v1/names/bob": {broke}, "PUT /v1/names/alex": {down}}, status: 502, want: "alex", next: hour, then: "alex"},
+		{name: "alex can't be claimed back and the lists fail", change: true, fail: refusals{"PUT /v1/names/bob": {broke}, "PUT /v1/names/alex": {down}, "GET /v1/names": {down, down}}, status: 502, want: "alex", next: hour, then: "alex"},
+		{name: "alex is claimed back but the answer is lost", change: true, setup: taken("bob"), fail: refusals{"PUT /v1/names/alex": {lost}}, status: 409, want: "alex", next: day, then: "alex"},
+		{name: "alex is refused as held elsewhere but listed for this machine", change: true, setup: taken("bob"), fail: refusals{"PUT /v1/names/alex": {heldElsewhere}}, status: 409, want: "alex", next: hour, then: "alex"},
+		{name: "another install takes alex meanwhile", change: true, setup: meanwhile("PUT /v1/names/bob", func(e *addressEnv) { e.names.takenBy("alex") }, broke), status: 502},
+		// claimFree: saving the change.
+		{name: "the change can't be saved", change: true, diskFull: true, status: 500, want: "alex", next: day, then: "alex"},
+		{name: "the change can't be saved or undone", change: true, diskFull: true, fail: refusals{"DELETE /v1/names/bob": {down}}, status: 500, want: "alex", next: day, then: "bob"},
+		// claimFree: a first name.
+		{name: "a first name", first: true, status: 200, want: "bob", next: day, then: "bob"},
+		{name: "a first name that is taken", first: true, setup: taken("bob"), status: 409},
+		{name: "a first name claimed but the answer is lost", first: true, fail: refusals{"PUT /v1/names/bob": {lost}}, status: 200, want: "bob", next: day, then: "bob"},
+		{name: "a first name claimed but the answer and the list are lost", first: true, fail: refusals{"PUT /v1/names/bob": {lost}, "GET /v1/names": {down}}, status: 502},
+		{name: "the claim of a first name and the list fail", first: true, fail: refusals{"PUT /v1/names/bob": {broke}, "GET /v1/names": {down}}, status: 502},
+		{name: "a first name claimed but the answer, the list and the release are lost", first: true, fail: refusals{"PUT /v1/names/bob": {lost}, "GET /v1/names": {down}, "DELETE /v1/names/bob": {down}}, status: 502, orphan: "bob"},
+		{name: "a first name that can't be saved", first: true, diskFull: true, status: 500},
+		{name: "a first name that can't be saved or undone", first: true, diskFull: true, fail: refusals{"DELETE /v1/names/bob": {down}}, status: 500, orphan: "bob"},
+		{name: "the service holds a name this machine doesn't know of", first: true, setup: holding("carol"), status: 409, want: "carol", next: day, then: "carol"},
+		{name: "the service holds a name this machine doesn't know of and the list fails", first: true, setup: holding("carol"), fail: refusals{"GET /v1/names": {down}}, status: 409, orphan: "carol"},
+		// refreshFree: the address loop's refresh of alex.
+		{name: "the refresh fails and so does the list", fail: refusals{"POST /v1/names/alex/address": {down, down}, "GET /v1/names": {down}}, want: "alex", next: hour, then: "alex"},
+		{name: "the refresh fails and the service lists alex", fail: refusals{"POST /v1/names/alex/address": {down, down}}, want: "alex", next: day, then: "alex"},
+		{name: "the refresh fails again after the service lists alex", fail: refusals{"POST /v1/names/alex/address": {down, down, down, down}}, want: "alex", next: hour, then: "alex"},
+		{name: "the refresh fails and the service holds bob", setup: and(released("alex"), holding("bob")), fail: refusals{"POST /v1/names/alex/address": {down, down}}, want: "bob", next: day, then: "bob"},
+		{name: "alex was released and is claimed back", setup: released("alex"), want: "alex", next: day, then: "alex"},
+		{name: "alex was released and claimed back but the answer is lost", setup: released("alex"), fail: refusals{"PUT /v1/names/alex": {lost}}, want: "alex", next: day, then: "alex"},
+		{name: "alex was released and claiming it back is refused", setup: released("alex"), fail: refusals{"PUT /v1/names/alex": {busy}}, want: "alex", next: hour, then: "alex"},
+		{name: "alex was released and claiming it back and the list fail", setup: released("alex"), fail: refusals{"PUT /v1/names/alex": {down}, "GET /v1/names": {down}}, want: "alex", next: hour, then: "alex"},
+		{name: "alex was released and the service holds bob", setup: and(released("alex"), holding("bob")), want: "bob", next: day, then: "bob"},
+		{name: "alex was released, the service holds bob and the list fails", setup: and(released("alex"), holding("bob")), fail: refusals{"GET /v1/names": {down}}, want: "alex", next: hour, then: "bob"},
+		{name: "alex was given back to everyone and is claimed again", setup: forgotten("alex"), want: "alex", next: day, then: "alex"},
+		{name: "alex was given back to everyone and claiming it again fails", setup: forgotten("alex"), fail: refusals{"PUT /v1/names/alex": {down}}, want: "alex", next: hour, then: "alex"},
+		{name: "alex was given back and another install takes it meanwhile", setup: and(forgotten("alex"), meanwhile("PUT /v1/names/alex", func(e *addressEnv) { e.names.takenBy("alex") }, nil))},
+		{name: "alex was given back and another install holds it meanwhile", setup: and(forgotten("alex"), meanwhile("PUT /v1/names/alex", func(e *addressEnv) { e.names.takenBy("alex"); e.names.released("alex") }, nil))},
+		{name: "another install has alex", setup: taken("alex")},
+		{name: "another install has alex and the service holds bob", setup: and(taken("alex"), holding("bob")), want: "bob", next: day, then: "bob"},
+		{name: "another install has alex, the service holds bob and the list fails", setup: and(taken("alex"), holding("bob")), fail: refusals{"GET /v1/names": {down}}, want: "alex", next: hour, then: "bob"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAddressEnv(t, nil)
+			e.addServerNamed("Survival")
+			e.claim("alex")
+			_, key := e.names.name("alex")
+			if c.first {
+				if code, out := e.call("POST", "/v1/address/release", map[string]any{"actor": "admin"}); code != http.StatusOK {
+					t.Fatalf("releasing alex: %d %v", code, out)
+				}
+			}
+			if c.setup != nil {
+				c.setup(e, key)
+			}
+			if c.fail != nil {
+				e.names.setFail(inTurn(c.fail))
+			}
+			if c.diskFull {
+				e.failSaves(true)
+			}
+			if c.change || c.first {
+				code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"})
+				if code != c.status {
+					t.Fatalf("the change: %d %v", code, out)
+				}
+				if op, ok := out["operation"].(map[string]any); ok {
+					e.waitOp(op["id"].(string))
+				}
+			} else {
+				e.loopRefreshes("alex")
+			}
+			e.settled()
+			if c.diskFull {
+				e.failSaves(false)
+			}
+			e.names.setFail(nil)
+			st := e.a.address()
+			if c.want == "" {
+				if st.Kind != api.AddressNone || st.Free != nil {
+					t.Fatalf("after the step the machine has %+v", st)
+				}
+			} else if st.Free == nil || st.Free.Name.Name != c.want || st.Host != c.want+".playkeeper.io" || !about(time.Until(st.Free.NextRefresh), c.next) {
+				t.Fatalf("after the step the machine has %s (%+v), want %s refreshed in %v", st.Host, st.Free, c.want, c.next)
+			}
+			// A name the machine keeps for a day is one the service holds.
+			if c.next == day && c.then == c.want {
+				if n, owner := e.names.name(c.want); n.State != names.StateActive || owner != key {
+					t.Fatalf("after the step the service has %s as %+v for %q", c.want, n, owner)
+				}
+			}
+
+			if c.want != "" {
+				bobClaims := e.names.requests("PUT /v1/names/bob")
+				e.loopRefreshes(c.want)
+				e.settled()
+				if e.names.requests("PUT /v1/names/bob") != bobClaims {
+					t.Fatal("the address loop claimed bob")
+				}
+			}
+			st = e.a.address()
+			if c.then == "" {
+				if st.Kind != api.AddressNone || st.Free != nil {
+					t.Fatalf("the machine ends with %+v", st)
+				}
+			} else if st.Free == nil || st.Free.Name.Name != c.then || st.Host != c.then+".playkeeper.io" || st.Free.Name.State != names.StateActive || !about(time.Until(st.Free.NextRefresh), day) {
+				t.Fatalf("the machine ends with %s (%+v), want %s", st.Host, st.Free, c.then)
+			}
+			// The machine releases alex, or gives it up, whenever it ends
+			// on another name or none.
+			released := "alex"
+			if c.then == "alex" {
+				released = ""
+			}
+			if st.Released != released {
+				t.Errorf("the machine has %q as released, want %q", st.Released, released)
+			}
+			for _, name := range []string{"alex", "bob", "carol"} {
+				n, owner := e.names.name(name)
+				if held := owner == key && n.State == names.StateActive; held != (name == c.then || name == c.orphan) {
+					t.Errorf("the service holds %s for this machine: %v (%+v)", name, held, n)
+				}
+				if has := e.a.loadCertificate(name+".playkeeper.io") != nil; has != (name == c.then) {
+					t.Errorf("the machine has a certificate for %s: %v", name, has)
+				}
+			}
+			if c.then != "" && e.names.labels(c.then)["survival"] != 25565 {
+				t.Errorf("%s's server records: %v", c.then, e.names.labels(c.then))
+			}
+		})
+	}
+}
+
+// Bugbot's case: the claim of the new name is stored but its answer is
+// lost, and so are the lists of names, so the machine keeps its old name
+// and can't claim it back, as the key holds the new one. The address
+// loop's next refresh finds that out and moves the machine to the new
+// name, records and certificate included, without a new change.
+func TestFreeNameChangeTheMachineCouldNotConfirmEndsOnTheNewName(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	e.addServerNamed("Survival")
+	e.claim("alex")
+	_, key := e.names.name("alex")
+	claims := func() (n int) {
+		for _, a := range e.auditActions() {
+			if a == "address.claim succeeded" {
+				n++
+			}
+		}
+		return n
+	}
+	claimed := claims()
+	e.names.setFail(inTurn(map[string][]*fakeRefusal{
+		"PUT /v1/names/bob": {{status: http.StatusInternalServerError, code: names.CodeInternal, msg: "Something went wrong in the names service.", stored: true}},
+		"GET /v1/names":     {{status: http.StatusServiceUnavailable, code: names.CodeUnavailable, msg: "Down."}, {status: http.StatusServiceUnavailable, code: names.CodeUnavailable, msg: "Down."}},
+	}))
+	code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"})
+	e.names.setFail(nil)
+	if code != http.StatusBadGateway || out["code"] != names.CodeInternal {
+		t.Fatalf("the change: %d %v", code, out)
+	}
+	if n, owner := e.names.name("bob"); n.State != names.StateActive || owner != key {
+		t.Fatalf("the service has bob as %+v for %q", n, owner)
+	}
+	if n, _ := e.names.name("alex"); n.State != names.StateReleased {
+		t.Fatalf("the service has alex as %+v", n)
+	}
+	if st := e.a.address(); st.Host != "alex.playkeeper.io" || e.a.loadCertificate("alex.playkeeper.io") == nil || !about(time.Until(st.Free.NextRefresh), time.Hour) {
+		t.Fatalf("after the change the machine has %+v", st)
+	}
+
+	// The loop's refresh, due within the hour.
+	bobClaims := e.names.requests("PUT /v1/names/bob")
+	e.loopRefreshes("alex")
+	e.settled()
+	v := e.address()
+	if v.Host != "bob.playkeeper.io" || v.Free == nil || v.Free.Name != "bob" || v.Free.State != names.StateActive || len(v.Servers) != 1 || v.Servers[0].Address != "survival.bob.playkeeper.io" || !v.Servers[0].Published {
+		t.Fatalf("after the loop's refresh the machine has %+v, servers %+v", v, v.Servers)
+	}
+	if n, owner := e.names.name("bob"); n.State != names.StateActive || owner != key || e.names.labels("bob")["survival"] != 25565 {
+		t.Fatalf("the service has bob as %+v for %q", n, owner)
+	}
+	if v.Certificate == nil || v.Certificate.Problem != nil || e.a.loadCertificate("bob.playkeeper.io") == nil || e.a.loadCertificate("alex.playkeeper.io") != nil {
+		t.Fatalf("certificates after the loop's refresh: %+v", v.Certificate)
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "alex.playkeeper.io.pem")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the old name's certificate is still served: %v", err)
+	}
+	if st := e.a.address(); st.Released != "alex" || !about(time.Until(st.Free.NextRefresh), 24*time.Hour) {
+		t.Fatalf("after the loop's refresh: %+v", st)
+	}
+	if e.names.requests("PUT /v1/names/bob") != bobClaims {
+		t.Fatal("bob was claimed again")
+	}
+	if n := claims(); n != claimed+1 {
+		t.Fatalf("%d claims recorded, want %d: %v", n, claimed+1, e.auditActions())
+	}
+
+	// From now on the loop refreshes bob.
+	alexRefreshes := e.names.count("POST /v1/names/alex/address")
+	e.loopRefreshes("bob")
+	if n := e.names.count("POST /v1/names/alex/address"); n != alexRefreshes {
+		t.Fatalf("alex was refreshed %d more times after the move to bob", n-alexRefreshes)
 	}
 }
 
