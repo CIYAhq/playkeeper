@@ -147,23 +147,42 @@ var secretProperties = []string{"rcon.password=", "management-server-secret="}
 
 // LevelName reads level-name from server.properties (default "world").
 func LevelName(dataDir string) string {
-	b, err := readProperties(dataDir)
+	level, err := levelName(dataDir)
 	if err != nil {
 		return "world"
 	}
+	return level
+}
+
+// levelName is LevelName for an archive. A server.properties Playkeeper
+// won't read, such as a link or a named pipe a plugin put there, is an error
+// that names it: which world it names can't be known, and "world" could be
+// another world, backed up without its settings.
+func levelName(dataDir string) (string, error) {
+	b, err := readProperties(dataDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "world", nil
+	}
+	if err != nil {
+		return "", err
+	}
 	for _, line := range strings.Split(string(b), "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "level-name="); ok && v != "" && validRel(v) && !strings.Contains(v, "/") {
-			return v
+			return v, nil
 		}
 	}
-	return "world"
+	return "world", nil
 }
 
 // Create archives the allowlisted contents of dataDir to w and returns the
 // manifest written as the final entry. meta supplies descriptive fields. A
-// file or world that lim would make a restore refuse is an error.
+// file or world that lim would make a restore refuse is an error, and so is
+// a server.properties Playkeeper won't read (see levelName).
 func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, error) {
-	level := LevelName(dataDir)
+	level, err := levelName(dataDir)
+	if err != nil {
+		return meta, err
+	}
 	meta.Format = FormatVersion
 	meta.LevelName = level
 	meta.Files = nil
@@ -217,7 +236,10 @@ func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, e
 // The manifest is estimated without Create's descriptive fields, so Check
 // never refuses a world Create accepts.
 func Check(dataDir string, lim Limits) error {
-	level := LevelName(dataDir)
+	level, err := levelName(dataDir)
+	if err != nil {
+		return err
+	}
 	rels, err := archiveFiles(dataDir, level)
 	if err != nil {
 		return err
