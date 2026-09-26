@@ -28,8 +28,8 @@ async function axe(page: Page, where: string) {
 
 for (const size of sizes) {
   for (const motion of ['no-preference', 'reduce'] as const) {
-    test(`every page at ${size.name} size (${motion === 'reduce' ? 'reduced motion' : 'with motion'}): nothing wider than the screen, no serious accessibility violations`, async ({ browser }) => {
-      const ctx = await browser.newContext({ viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: motion })
+    test(`every page at ${size.name} size (${motion === 'reduce' ? 'reduced motion' : 'with motion'}): nothing wider than the screen, no serious accessibility violations`, async ({ browser, baseURL }) => {
+      const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: motion })
       const page = await ctx.newPage()
       const errors: string[] = []
       page.on('pageerror', (e) => errors.push(e.message))
@@ -54,8 +54,8 @@ for (const size of sizes) {
   }
 }
 
-test("the modded guide's Copy copies the whole script of the tab that's showing", async ({ browser }) => {
-  const ctx = await browser.newContext()
+test("the modded guide's Copy copies the whole script of the tab that's showing", async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ baseURL })
   const page = await ctx.newPage()
   await page.goto('/guides/modded-minecraft-server', { waitUntil: 'networkidle' })
   const copy = page.locator('.codeblock .code-copy')
