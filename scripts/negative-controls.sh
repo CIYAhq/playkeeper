@@ -881,8 +881,8 @@ control "template data packs never connect to a private address" internal/templa
   'if false && (err != nil || !allowed(ap)) {' \
   ./internal/templates '^TestPackClientRefusesPrivateAddresses$'
 control "template data packs never download through a proxy" internal/templates/fetch.go \
-  'tr := &http.Transport{' \
-  'tr := &http.Transport{Proxy: http.ProxyFromEnvironment,' \
+  'Proxy:                 nil,' \
+  'Proxy:                 http.ProxyFromEnvironment,' \
   ./internal/templates '^TestPackClientUsesNoProxy$'
 control "template data packs download over HTTPS only" internal/templates/fetch.go \
   'if r.URL.Scheme != "https" {' \
