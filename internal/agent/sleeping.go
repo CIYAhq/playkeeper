@@ -82,18 +82,18 @@ func (s *server) standIn() (*sleep.Manager, error) {
 	return m, nil
 }
 
-// mayWake admits the players who may join anyway. With the allowlist on,
-// that is those on it and operators; with it off, anyone who isn't banned.
-// If server.properties or the ban list can't be read, the allowlist rule
-// holds. Names from the stand-in are only claims.
+// mayWake admits the players who may join anyway: nobody banned, and then
+// with the allowlist on those on it and operators, with it off anyone. If
+// server.properties or the ban list can't be read, the allowlist rule holds.
+// Names from the stand-in are only claims.
 func (s *server) mayWake(player string) bool {
-	if allowlistOff(readProperties(s.dataDir())) {
-		if banned, err := s.bannedNames(); err == nil {
-			for _, name := range banned {
-				if strings.EqualFold(name, player) {
-					return false
-				}
+	if banned, err := s.bannedNames(); err == nil {
+		for _, name := range banned {
+			if strings.EqualFold(name, player) {
+				return false
 			}
+		}
+		if allowlistOff(readProperties(s.dataDir())) {
 			return true
 		}
 	}

@@ -1098,6 +1098,8 @@ func TestWhoMayWakeASleepingServer(t *testing.T) {
 	write("whitelist.json", `[{"name":"Alex","uuid":"00000000-0000-0000-0000-00000000a1e7"}]`)
 	write("ops.json", `[{"name":"Oscar","uuid":"00000000-0000-0000-0000-0000000000c5","level":4}]`)
 	const bans = `[{"name":"Griefer","uuid":"00000000-0000-0000-0000-00000000bad1"}]`
+	// Playkeeper's Ban leaves a player on the allowlist.
+	const listedBans = `[{"name":"Alex","uuid":"00000000-0000-0000-0000-00000000a1e7"},{"name":"Oscar","uuid":"00000000-0000-0000-0000-0000000000c5"}]`
 	cases := []struct {
 		name       string
 		properties string // "" leaves server.properties out
@@ -1118,6 +1120,12 @@ func TestWhoMayWakeASleepingServer(t *testing.T) {
 			wakes: map[string]bool{"Steve": false, "Alex": true}},
 		{name: "no server.properties", bans: bans,
 			wakes: map[string]bool{"Steve": false, "Alex": true, "Oscar": true}},
+		{name: "allowlist on, banned though listed or an operator", properties: "white-list=true\n", bans: listedBans,
+			wakes: map[string]bool{"Alex": false, "alex": false, "Oscar": false, "Steve": false}},
+		{name: "no server.properties, banned though listed", bans: listedBans,
+			wakes: map[string]bool{"Alex": false, "Oscar": false}},
+		{name: "allowlist on, ban list unreadable", properties: "white-list=true\n", bans: `{"not a list`,
+			wakes: map[string]bool{"Alex": true, "Oscar": true, "Steve": false}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
