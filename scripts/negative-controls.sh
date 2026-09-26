@@ -3303,6 +3303,14 @@ control "an away machine's servers are never shown as none when they can't be re
   'known, err := s.lastKnownServers(m)
 			if false && err != nil {' \
   ./internal/panel '^TestAnAwayMachinesServersAreNeverShownAsNone$'
+control "a removed machine's servers show nowhere as servers" internal/panel/workspace.go \
+  'WHERE revoked_at = 0 ORDER BY kind != ?, created_at, id' \
+  'WHERE revoked_at >= 0 ORDER BY kind != ?, created_at, id' \
+  ./internal/panel '^TestARemovedMachinesServersShowNowhere$'
+control "a server made on a machine doesn't take a removed machine's server" internal/panel/machines.go \
+  'INSERT OR IGNORE INTO server_machines(server_id, machine_id, seen_at) VALUES(?,?,?)' \
+  'INSERT OR REPLACE INTO server_machines(server_id, machine_id, seen_at) VALUES(?,?,?)' \
+  ./internal/panel '^TestARemovedMachinesServersShowNowhere$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

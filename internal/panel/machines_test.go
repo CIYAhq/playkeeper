@@ -1865,3 +1865,85 @@ func TestAnAwayMachinesServersAreNeverShownAsNone(t *testing.T) {
 		})
 	}
 }
+
+// A removed machine's servers keep their records, but show nowhere as
+// servers: not in the server list or its slugs, the Team page's servers or
+// a team invite, nor AI agents' list or tools. Another machine gets such a
+// server only by listing it.
+func TestARemovedMachinesServersShowNowhere(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","slug":"survival","name":"Survival","phase":"online"}]`)
+	alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+	e.srv.claimServers(alpha, []map[string]any{{"id": "xxxxxxxxxx", "slug": "survival", "name": "Old survival", "phase": "online"}})
+	e.srv.claimServers(beta, []map[string]any{{"id": "zzzzzzzzzz", "slug": "creative", "name": "Creative", "phase": "online"}})
+	e.removeMachine(t, alpha)
+	listed := func(list []map[string]any) string {
+		var out []string
+		for _, sv := range list {
+			out = append(out, fmt.Sprintf("%v=%v", sv["id"], sv["slug"]))
+		}
+		return strings.Join(out, " ")
+	}
+	for _, c := range []struct {
+		where string
+		check func() error
+	}{
+		{"the server list and its slugs", func() error {
+			var list []map[string]any
+			if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || listed(list) != "abcdefghjk=survival zzzzzzzzzz=creative" {
+				return fmt.Errorf("%d %s", r, listed(list))
+			}
+			return nil
+		}},
+		{"the Team page's servers", func() error {
+			var team struct{ Servers []serverRef }
+			if r := e.get(t, "/api/team", cookie, &team); r != http.StatusOK || len(team.Servers) != 2 || team.Servers[0].ID != "abcdefghjk" || team.Servers[1].ID != "zzzzzzzzzz" {
+				return fmt.Errorf("%d %v", r, team.Servers)
+			}
+			return nil
+		}},
+		{"a team invite for it", func() error {
+			if r := e.do(t, "POST", "/api/team/invites", `{"role":"viewer","servers":{"servers":["xxxxxxxxxx"]}}`, auth(cookie, csrf)); r.status != http.StatusBadRequest {
+				return fmt.Errorf("%d %v", r.status, r.body)
+			}
+			return nil
+		}},
+		{"AI agents' list_servers", func() error {
+			list, err := (mcpBackend{e.srv}).Servers(context.Background())
+			if err != nil || len(list) != 2 || list[0].ID != "abcdefghjk" || list[1].ID != "zzzzzzzzzz" {
+				return fmt.Errorf("%v %v", list, err)
+			}
+			return nil
+		}},
+		{"AI agents' tools", func() error {
+			if _, err := (mcpBackend{e.srv}).Agent(context.Background(), "xxxxxxxxxx"); err == nil {
+				return errors.New("a tool reached a machine for it")
+			}
+			return nil
+		}},
+	} {
+		if err := c.check(); err != nil {
+			t.Errorf("%s: %v", c.where, err)
+		}
+	}
+
+	for _, step := range []struct {
+		name   string
+		act    func()
+		goesTo string // "beta", or "" for no machine
+	}{
+		{"beta makes a server with its id", func() { e.srv.claimCreated(beta, []byte(`{"serverId":"xxxxxxxxxx"}`)) }, ""},
+		{"beta lists its own servers", func() { e.srv.claimServers(beta, serverList("zzzzzzzzzz")) }, ""},
+		{"beta lists it", func() { e.srv.claimServers(beta, serverList("zzzzzzzzzz", "xxxxxxxxxx")) }, "beta"},
+	} {
+		step.act()
+		m, err := e.srv.machineForServer("xxxxxxxxxx")
+		switch {
+		case step.goesTo == "" && !errors.Is(err, errNotFound):
+			t.Errorf("after %s, the removed machine's server goes to %v %v", step.name, m.ID, err)
+		case step.goesTo == "beta" && (err != nil || m.ID != beta.ID):
+			t.Errorf("after %s, it goes to %v %v, want beta", step.name, m.ID, err)
+		}
+	}
+}
