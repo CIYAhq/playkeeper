@@ -4,12 +4,13 @@ import { useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Marker, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { PackModsSection } from '@/components/app/pack-mods'
 import { PackShareNotice } from '@/components/app/pack-share'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
-import { pendingCount, sourceNames, updatableRows, updateKeys, type AddonRow } from '@/lib/addons'
+import { packFiles, pendingCount, sourceNames, updatableRows, updateKeys, type AddonRow } from '@/lib/addons'
 import { formatList } from '@/lib/format'
 import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -29,7 +30,7 @@ export function InstalledView() {
       </Notice>
     )
   }
-  if (a.rows.length === 0) {
+  if (a.rows.length === 0 && !a.addons.modpack) {
     return (
       <div className={cn('flex flex-1 flex-col items-center justify-center py-16 text-center', motion.fade)}>
         <Pip pose="search" size={96} />
@@ -98,11 +99,15 @@ function DesktopList({ browse, browseLabel }: { browse: Route; browseLabel: stri
           </Button>
         </div>
       )}
-      <ul className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
-        {a.rows.map((r) => (
-          <DesktopRow key={r.id} row={r} />
-        ))}
-      </ul>
+      {a.addons?.modpack && a.rows.length > 0 && <SectionLabel className="-mb-2">{t('packMods.addedByYou')}</SectionLabel>}
+      {a.rows.length > 0 && (
+        <ul className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+          {a.rows.map((r) => (
+            <DesktopRow key={r.id} row={r} />
+          ))}
+        </ul>
+      )}
+      {a.addons?.modpack && <PackModsSection server={a.server} pack={a.addons.modpack} files={packFiles(a.addons)} folder={a.addons.target.folder} phone={false} />}
     </section>
   )
 }
@@ -292,14 +297,17 @@ function PhoneList({ browse, browseLabel }: { browse: Route; browseLabel: string
           </Button>
         </div>
       )}
-      <section>
-        <SectionLabel className="px-4 pb-2">{t('addons.onServer', { server: a.server.name })}</SectionLabel>
-        <ul className="overflow-hidden rounded-3xl border border-border bg-white">
-          {a.rows.map((r) => (
-            <PhoneRow key={r.id} row={r} />
-          ))}
-        </ul>
-      </section>
+      {a.rows.length > 0 && (
+        <section>
+          <SectionLabel className="px-4 pb-2">{a.addons?.modpack ? t('packMods.addedByYou') : t('addons.onServer', { server: a.server.name })}</SectionLabel>
+          <ul className="overflow-hidden rounded-3xl border border-border bg-white">
+            {a.rows.map((r) => (
+              <PhoneRow key={r.id} row={r} />
+            ))}
+          </ul>
+        </section>
+      )}
+      {a.addons?.modpack && <PackModsSection server={a.server} pack={a.addons.modpack} files={packFiles(a.addons)} folder={a.addons.target.folder} phone />}
       <div className="fixed inset-x-0 bottom-[calc(52px+env(safe-area-inset-bottom))] z-30 bg-gradient-to-t from-sidebar via-sidebar/95 to-sidebar/0 px-4 pt-4 pb-3">
         <Button size="touch" className="w-full" render={<a {...linkProps(browse)} />}>
           <SearchIcon />

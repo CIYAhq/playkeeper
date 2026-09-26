@@ -539,7 +539,8 @@ export interface AddonKey {
 export interface AddonFile {
   fileName: string
   size: number
-  status: 'managed' | 'modified' | 'identified' | 'unknown'
+  /** pack: the server's modpack put it there and keeps it. */
+  status: 'managed' | 'modified' | 'identified' | 'unknown' | 'pack'
   addon?: Addon
   name?: string
   version?: string
@@ -548,6 +549,8 @@ export interface AddonFile {
 
 export interface Addons {
   target: AddonTarget
+  /** The pack the server runs, once its files are in place. */
+  modpack?: ServerModpack
   files: AddonFile[]
   missing: Addon[]
   warnings: AddonNotice[]

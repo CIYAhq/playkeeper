@@ -1462,4 +1462,9 @@ export const en = {
   'reason.templateBlocked': 'This template can’t be used here.',
   'reason.modpackFirst': 'Pick a modpack first.',
   'modpacks.java': 'Java {java}, for Minecraft {version}',
+  'packMods.addedByYou': 'Added by you',
+  'packMods.fromPack': 'From the modpack',
+  'packMods.line': { one: '{count} mod · version {version}', other: '{count} mods · version {version}' },
+  'packMods.showAll': 'Show all {count}',
+  'packMods.showFewer': 'Show fewer',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

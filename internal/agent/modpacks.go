@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -450,6 +451,23 @@ func packFailure(h *opHandle, err error) error {
 		return &apiError{Msg: n.Message, Hint: n.Hint}
 	}
 	return err
+}
+
+// packFiles are the files in the add-on folder that the server's modpack
+// put there, by name: the pack keeps them up to date, not the add-on
+// library. Files that were on the server before the pack stay the user's.
+func (s *server) packFiles(folder string) (map[string]bool, error) {
+	rec, err := s.packRecord()
+	if err != nil || rec == nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, f := range rec.Files {
+		if dir, name := path.Split(f.Path); dir == folder+"/" && !f.Preexisting {
+			out[name] = true
+		}
+	}
+	return out, nil
 }
 
 // packMods counts the mods among a pack's files on the server.

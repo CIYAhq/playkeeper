@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -395,6 +396,15 @@ func (s *server) hAddons(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := api.Addons{Target: apiTarget(t, sc.MinecraftVersion), Files: []api.AddonFile{}, Missing: []api.Addon{}, Warnings: []api.AddonNotice{}}
+	if sc.Modpack != nil && !sc.Modpack.Pending {
+		m := *sc.Modpack
+		out.Modpack = &m
+	}
+	pack, err := s.packFiles(t.Folder)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	started, running := s.startedAt(r.Context())
 	if s.hasDataDir() {
 		res, err := s.lib().Scan(r.Context(), srv, installed, false)
@@ -403,7 +413,11 @@ func (s *server) hAddons(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, e := range res.Entries {
-			out.Files = append(out.Files, apiFile(e, running, started))
+			f := apiFile(e, running, started)
+			if e.Installed == nil && pack[e.FileName] {
+				f.Status = api.AddonFromPack
+			}
+			out.Files = append(out.Files, f)
 		}
 		out.Missing, out.Warnings = apiAddons(res.Missing), apiNotices(res.Warnings)
 	} else {
@@ -428,12 +442,17 @@ type addonChecks struct {
 // hAddonChecks asks the sources for newer versions of the installed add-ons,
 // and Modrinth which of the files added by hand it knows.
 func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
-	_, srv, _, err := s.addonContext()
+	_, srv, t, err := s.addonContext()
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	installed, err := s.installedAddons()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	pack, err := s.packFiles(t.Folder)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -457,11 +476,13 @@ func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
 	var state struct {
 		Files   []file
 		Records []record
+		Pack    []string
 	}
+	state.Pack = slices.Sorted(maps.Keys(pack))
 	unknown := false
 	for _, e := range res.Entries {
 		state.Files = append(state.Files, file{e.FileName, e.Size, e.Status})
-		unknown = unknown || e.Status == addons.FileUnknown
+		unknown = unknown || e.Status == addons.FileUnknown && !pack[e.FileName]
 	}
 	for _, rec := range installed {
 		state.Records = append(state.Records, record{string(rec.Source), rec.ProjectID, rec.VersionID, rec.FileName})
@@ -499,7 +520,7 @@ func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, e := range ident.Entries {
-			if e.Status == addons.FileIdentified {
+			if e.Status == addons.FileIdentified && !pack[e.FileName] {
 				out.Identified = append(out.Identified, apiFile(e, false, time.Time{}))
 			}
 		}
@@ -1058,7 +1079,7 @@ func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	_, srv, t, err := s.addonContext()
+	sc, srv, t, err := s.addonContext()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1066,6 +1087,15 @@ func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 	installed, err := s.installedAddons()
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	pack, err := s.packFiles(t.Folder)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if pack[req.FileName] && sc.Modpack != nil {
+		writeError(w, errConflict(req.FileName+" is part of "+sc.Modpack.Name+", so it stays with the pack.", ""))
 		return
 	}
 	res, err := s.lib().Scan(r.Context(), srv, installed, true)

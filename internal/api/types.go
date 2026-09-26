@@ -732,7 +732,8 @@ type AddonFile struct {
 	Size     int64  `json:"size"`
 	// Status is managed (Playkeeper installed it, unchanged since),
 	// modified (changed since), identified (added by hand, and Modrinth
-	// knows it) or unknown (added by hand).
+	// knows it), unknown (added by hand) or pack (the server's modpack put
+	// it there, AddonFromPack).
 	Status string `json:"status"`
 	// Addon is the record of a managed or modified file, or what Modrinth
 	// knows an identified file as.
@@ -745,10 +746,16 @@ type AddonFile struct {
 	Pending bool `json:"pending,omitempty"`
 }
 
+// AddonFromPack is the status of a file the server's modpack put in the
+// add-on folder: the pack keeps it, not the add-on library.
+const AddonFromPack = "pack"
+
 // Addons is what is in a server's add-on folder.
 type Addons struct {
 	Target AddonTarget `json:"target"`
-	Files  []AddonFile `json:"files"`
+	// Modpack is the pack the server runs, once its files are in place.
+	Modpack *ServerModpack `json:"modpack,omitempty"`
+	Files   []AddonFile    `json:"files"`
 	// Missing are add-ons Playkeeper installed whose file is gone.
 	Missing  []Addon       `json:"missing"`
 	Warnings []AddonNotice `json:"warnings"`

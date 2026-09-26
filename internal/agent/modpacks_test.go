@@ -11,9 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 )
 
 // fakePack is a small Vanilla pack on the fake Modrinth: two mods it
@@ -312,6 +315,56 @@ func TestAPackForAnOlderVersionRunsOnItsJava(t *testing.T) {
 	}
 	if _, out := e2.call("GET", "/v1/modpacks/modrinth/"+fakePackID+"/versions/"+fakePackVersion+"/preview", nil); out["java"] != nil {
 		t.Fatalf("a pack on the newest Java says nothing about it: %v", out)
+	}
+}
+
+// A modpack's mods are the pack's in the add-on list, not files added by
+// hand: Modrinth isn't asked about them and the library can't take them
+// over. A file that was there before the pack stays the user's.
+func TestPackFilesAreThePacksInTheAddonList(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	e.addIdleServer()
+	plugins := filepath.Join(e.dataDir(), "plugins")
+	chunky, data := f.jar("chunky-v1")
+	writeTestFile(t, filepath.Join(plugins, chunky), data, time.Time{})
+	writeTestFile(t, filepath.Join(plugins, "HomeGrown.jar"), pluginJar(t, "HomeGrown", "0.1"), time.Time{})
+	writeTestFile(t, filepath.Join(plugins, "Mine.jar"), pluginJar(t, "Mine", "1.0"), time.Time{})
+	s := e.srv()
+	rec := modpacks.Record{
+		Pack:  addons.Installed{Source: addons.Modrinth, ProjectID: fakePackID, Name: "Waystones Pack", VersionID: fakePackVersion, VersionNumber: "1.0.0"},
+		Files: []modpacks.File{{Path: "plugins/" + chunky, Origin: modpacks.Download}, {Path: "plugins/Mine.jar", Origin: modpacks.Download, Preexisting: true}, {Path: "config/testpack.toml", Origin: modpacks.Override}},
+	}
+	if err := s.savePackRecord(rec); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := s.serverConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.Modpack = &api.ServerModpack{Source: "modrinth", ProjectID: fakePackID, VersionID: fakePackVersion, Name: "Waystones Pack", VersionNumber: "1.0.0", Mods: 1}
+	if err := s.saveServerConfig(*sc); err != nil {
+		t.Fatal(err)
+	}
+
+	list := e.addonList()
+	if got, want := fileStatus(list.Files), map[string]string{chunky: "pack", "HomeGrown.jar": "unknown", "Mine.jar": "unknown"}; !maps.Equal(got, want) {
+		t.Fatalf("files: %v, want %v", got, want)
+	}
+	if list.Modpack == nil || list.Modpack.Name != "Waystones Pack" || list.Modpack.VersionNumber != "1.0.0" {
+		t.Fatalf("the list names the pack: %+v", list.Modpack)
+	}
+	var checks api.AddonChecks
+	e.decode("GET", e.sp("/addons/checks"), &checks)
+	if len(checks.Identified) != 0 {
+		t.Fatalf("Modrinth knows the pack's copy of Chunky, but it is the pack's: %+v", checks.Identified)
+	}
+	code, out := e.call("POST", e.sp("/addons/adopt"), map[string]any{"fileName": chunky, "actor": "admin"})
+	if msg, _ := out["error"].(string); code != 409 || !strings.Contains(msg, "part of Waystones Pack") {
+		t.Fatalf("adopting a pack's file: %d %v", code, out)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM addons WHERE server_id = ?`, e.sid); n != 0 {
+		t.Fatalf("%d add-on records", n)
 	}
 }
 

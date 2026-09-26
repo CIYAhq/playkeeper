@@ -374,6 +374,49 @@ describe('Plugins tab', () => {
     expect(button('Share with friends').tagName).toBe('BUTTON')
   })
 
+  it('lists a modpack’s mods with the pack, not as added by hand', async () => {
+    const pack = { source: 'modrinth' as const, projectId: 'TPK00001', versionId: 'TPV00001', name: 'Smooth Server', versionNumber: '1.2', mods: 2 }
+    const modded: Addons = {
+      ...installed,
+      target: { ...target, kind: 'mod', folder: 'mods' },
+      modpack: pack,
+      files: [
+        { fileName: chunky.fileName, size: 1, status: 'managed', addon: chunky },
+        { fileName: 'lithium-0.18.jar', size: 1, status: 'pack', name: 'Lithium', version: '0.18.0' },
+        { fileName: 'krypton-0.2.jar', size: 1, status: 'pack', name: 'Krypton', version: '0.2.9' },
+      ],
+      missing: [],
+      restartNeeded: false,
+    }
+    const share: PackShare = {
+      ...packShare,
+      share: {
+        ...packShare.share,
+        pack: { name: 'Smooth Server', version: '1.2', source: 'modrinth', need: 'required', label: { key: 'share.need.required', text: 'Friends need it' } },
+        mods: [{ name: 'Lithium', version: '0.18.0', path: 'mods/lithium-0.18.jar', from: 'pack', onServer: true, need: 'optional', label: { key: 'share.need.optional', text: 'Optional for friends' }, inFile: true }],
+      },
+    }
+    answer([
+      ['/mods/share', share],
+      ['/addons/checks', { ...checks, identified: [] }],
+      ['/addons', modded],
+    ])
+    let text = await render(server({ type: 'fabric' }), 'mods')
+    expect(text).toContain('Added by you')
+    expect(text).toContain('From the modpack')
+    expect(text).toContain('Smooth Server')
+    expect(text).toContain('2 mods · version 1.2')
+    expect(text).toContain('Friends need it')
+    expect(text).not.toContain('Added by hand')
+    expect(text).not.toContain('Let Playkeeper manage it')
+    expect(text).not.toContain('Lithium')
+    text = await click('Show all 2')
+    expect(text).toContain('Lithium0.18.0Optional for friends')
+    expect(text).toContain('Krypton0.2.9')
+    expect(text.indexOf('Krypton')).toBeLessThan(text.indexOf('Lithium'))
+    expect(await click('Show fewer')).not.toContain('Lithium')
+  })
+
   it('doesn’t offer Share with friends on a plugin server', async () => {
     answer([
       ['/mods/share', packShare],
