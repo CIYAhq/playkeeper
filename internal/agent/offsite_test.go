@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
 )
 
@@ -263,6 +264,90 @@ func TestANewKeyReachesTheCopyBeingMade(t *testing.T) {
 		}
 		allWith(e, store, 0, key)
 	})
+}
+
+// Deleting a server deletes its recovery key with it. While copies only that
+// key opens are kept somewhere else, or still made, and the key was never
+// downloaded, the delete is refused with the reason, unless it is confirmed.
+func TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies(t *testing.T) {
+	turnOn := func(e *agentEnv) {
+		e.t.Helper()
+		s3 := map[string]any{"provider": "b2", "endpoint": "s3.eu-central-003.backblazeb2.com", "bucket": "siya-minecraft", "accessKeyId": "003a8f91c2"}
+		if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "owner", "enabled": true, "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+			e.t.Fatalf("turn on: %d %v", code, out)
+		}
+	}
+	turnOff := func(e *agentEnv) {
+		e.t.Helper()
+		if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "owner", "enabled": false}); code != http.StatusOK {
+			e.t.Fatalf("turn off: %d %v", code, out)
+		}
+	}
+	copyKept := func(e *agentEnv) {
+		e.t.Helper()
+		id := e.backup()
+		turnOn(e)
+		e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1 })
+	}
+	downloadKey := func(e *agentEnv) {
+		e.t.Helper()
+		req, _ := http.NewRequest("GET", e.ts.URL+e.sp("/offsite/recovery-key"), nil)
+		req.Header.Set("X-Playkeeper-Actor", "owner")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			e.t.Fatalf("recovery key: %d", resp.StatusCode)
+		}
+	}
+	cases := []struct {
+		name    string
+		setup   func(e *agentEnv)
+		confirm bool
+		copies  float64
+		refused bool
+	}{
+		{name: "a copy kept, the key never downloaded", setup: copyKept, copies: 1, refused: true},
+		{name: "copies on but none made yet, the key never downloaded", setup: turnOn, refused: true},
+		{name: "a copy kept after copies were turned off, the key never downloaded", setup: func(e *agentEnv) { copyKept(e); turnOff(e) }, copies: 1, refused: true},
+		{name: "a copy kept, the key downloaded", setup: func(e *agentEnv) { copyKept(e); downloadKey(e) }},
+		{name: "a copy kept, the key never downloaded, and the delete confirmed", setup: copyKept, confirm: true},
+		{name: "copies turned off before any was made", setup: func(e *agentEnv) { turnOn(e); turnOff(e) }},
+		{name: "copies never turned on", setup: func(*agentEnv) {}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			prev := openOffsite
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.create()
+			c.setup(e)
+			code, out := e.call("POST", e.sp("/delete"), map[string]any{"actor": "admin", "confirm": e.srv().name(), "forgetKey": c.confirm})
+			if c.refused {
+				params, _ := out["params"].(map[string]any)
+				if code != http.StatusConflict || out["reason"] != "recovery_key_not_saved" || params["place"] != "Backblaze B2" || params["copies"] != c.copies {
+					t.Fatalf("delete: %d %v", code, out)
+				}
+				if e.a.serverByID(e.sid) == nil || e.countRows(`SELECT COUNT(*) FROM offsite WHERE server_id = ? AND keys != ''`, e.sid) != 1 {
+					t.Fatal("a refused delete deleted the server or its key")
+				}
+				if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'server.deleted' AND result = 'refused' AND detail = 'its recovery key was never downloaded'`); n != 1 {
+					t.Fatalf("audited %d refusals", n)
+				}
+				return
+			}
+			if code != http.StatusAccepted {
+				t.Fatalf("delete: %d %v", code, out)
+			}
+			if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || e.a.serverByID(e.sid) != nil {
+				t.Fatalf("delete op: %+v", op)
+			}
+		})
+	}
 }
 
 // slowDest hands over its copy of a real backup only after takes, as a home

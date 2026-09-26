@@ -3151,6 +3151,37 @@ control "what waits for a restore from a recovery key says what for" internal/ag
   '' \
   ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
 
+# Wave 7 before Bugbot: deleting a server asks before it deletes the only key
+# to its copies somewhere else.
+control "a delete that deletes the only key to the copies is refused" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); false && err != nil && !req.ForgetKey {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded$'
+control "a confirmed delete goes ahead without the key" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); err != nil {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded,_and_the_delete_confirmed$'
+control "copies still being made count for the key" internal/agent/automation.go \
+  '	if copies == 0 && !row.enabled {' \
+  '	if copies == 0 {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^copies_on_but_none_made_yet'
+control "a downloaded key lets the delete go ahead" internal/agent/automation.go \
+  'if err != nil || !row.hasKeys || row.keySavedAt != nil {' \
+  'if err != nil || !row.hasKeys {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_downloaded$'
+webcontrol "the delete dialog warns while the recovery key was never downloaded" web/src/pages/server/settings.tsx \
+  'return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)' \
+  'return false' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog waits for the box before deleting without the key" web/src/pages/server/settings.tsx \
+  ": keyRisk && !withoutKey ? t('settings.deleteKeyFirst') : undefined}" \
+  ': undefined}' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog confirms deleting without the key" web/src/pages/server/settings.tsx \
+  "keyRisk && withoutKey ? { confirm: typed.trim(), forgetKey: true } : { confirm: typed.trim() }" \
+  '{ confirm: typed.trim() }' \
+  web/src/pages/server/settings.test.tsx 'refusal when the page didn'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
