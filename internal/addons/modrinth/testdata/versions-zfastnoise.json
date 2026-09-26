@@ -1,0 +1,384 @@
+[
+ {
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "id": "RxI4fDfx",
+  "project_id": "OnlVIpq5",
+  "author_id": "RoES2s1n",
+  "featured": false,
+  "name": "Fast Noise 1.1.0-beta.6+26.2",
+  "version_number": "1.1.0-beta.6+26.2",
+  "changelog_url": null,
+  "date_published": "2026-09-06T18:38:42.794144Z",
+  "downloads": 81674,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "u7M4qRJk",
+    "hashes": {
+     "sha512": "3e4d78c668ff02d91aebf5a9f60755f0e4320d63f53fb2a0a625f5584defe47c88fa50f71b656cbd5306628be27466e6a47add19b0d14cbdcce069aa74496200",
+     "sha1": "1c8e66ef04647320697c77fc99bb7d75e7400b7c"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/RxI4fDfx/zfastnoise-1.1.0-beta.6%2B26.2.jar",
+    "filename": "zfastnoise-1.1.0-beta.6+26.2.jar",
+    "primary": true,
+    "size": 52156,
+    "file_type": null
+   },
+   {
+    "id": "uRIaNfLM",
+    "hashes": {
+     "sha512": "64c698ab509306529224a0319119a1700e45c92ab5d3e51acd11cfc2078469cf4fa32b8c399ca04d607992a1f9f05dfbe2134488acb6cd4a960c90627e9d7dc7",
+     "sha1": "47e3e33d2d9b53080566fceff5b2822ff007a4a2"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/RxI4fDfx/zfastnoise-1.1.0-beta.6%2B26.2-sources.jar",
+    "filename": "zfastnoise-1.1.0-beta.6+26.2-sources.jar",
+    "primary": false,
+    "size": 26397,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "vnpqfrJN",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "KOHu7RCS",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "FRSaEVFk",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "sml2FMaA",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "4qmvXRB9",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "id": "hggcKC1t",
+  "project_id": "OnlVIpq5",
+  "author_id": "RoES2s1n",
+  "featured": false,
+  "name": "Fast Noise 1.1.0-beta.5+26.2",
+  "version_number": "1.1.0-beta.5+26.2",
+  "changelog_url": null,
+  "date_published": "2026-09-04T13:08:18.946042Z",
+  "downloads": 33099,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "Zvl5hZ6H",
+    "hashes": {
+     "sha1": "e533815ad397a81f94ef7b1ee55cd731afeaf3ff",
+     "sha512": "694bc42ffb575e9a7b3faba1761168595f8acecf65a2811948921b9fd44a21fca5e0d4b2c485e800d9e3435995cd20115b4f11a3af77321cfa2006f7fb41598d"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/hggcKC1t/zfastnoise-1.1.0-beta.5%2B26.2.jar",
+    "filename": "zfastnoise-1.1.0-beta.5+26.2.jar",
+    "primary": true,
+    "size": 45982,
+    "file_type": null
+   },
+   {
+    "id": "HXUMEbRX",
+    "hashes": {
+     "sha512": "906a1c523f95576233abfb8ff03692f2b06ab206771a19781246163844358b49a67cae771fac05be24ef0be335b050cf17e04a5e05867a9c0d2d7b0111aab957",
+     "sha1": "2ce9e5fcc9098dcf228e3017299d74dbd733dc6b"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/hggcKC1t/zfastnoise-1.1.0-beta.5%2B26.2-sources.jar",
+    "filename": "zfastnoise-1.1.0-beta.5+26.2-sources.jar",
+    "primary": false,
+    "size": 23406,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "sml2FMaA",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "4qmvXRB9",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "KOHu7RCS",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "id": "9TGMeiu2",
+  "project_id": "OnlVIpq5",
+  "author_id": "RoES2s1n",
+  "featured": false,
+  "name": "1.0.40+26.2",
+  "version_number": "1.0.40+26.2",
+  "changelog_url": null,
+  "date_published": "2026-08-13T12:52:41.250029Z",
+  "downloads": 269922,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "uFsQBlMu",
+    "hashes": {
+     "sha512": "9dff1a998f67261c7ba275b923c5e5ed97f5e07e852513b7bbb667dab4a050995c292eec608ca58dfc3160672697584d43c7796068f3793046e92d6cf17360a2",
+     "sha1": "60bf5155fd650c6c01381703a3501f27a2ecb8b0"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/9TGMeiu2/zfastnoise-1.0.40%2B26.2.jar",
+    "filename": "zfastnoise-1.0.40+26.2.jar",
+    "primary": true,
+    "size": 475380,
+    "file_type": null
+   },
+   {
+    "id": "JZLaF6n2",
+    "hashes": {
+     "sha512": "fcc66231a2e71e5b632e2c75bef150644dda23a1bff268733994d8381356bfe7c74d6568f7680d948960d783d2f89f7ca64d0327d076903bfe859656e0301ccf",
+     "sha1": "6f5414241c4526125ee9edcf9527a352d422d538"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/9TGMeiu2/zfastnoise-1.0.40%2B26.2-sources.jar",
+    "filename": "zfastnoise-1.0.40+26.2-sources.jar",
+    "primary": false,
+    "size": 48343,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "KOHu7RCS",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "sml2FMaA",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "id": "bjeF0iDC",
+  "project_id": "OnlVIpq5",
+  "author_id": "RoES2s1n",
+  "featured": false,
+  "name": "Fast Noise 1.1.0-beta.5+26.3",
+  "version_number": "1.1.0-beta.5+26.3",
+  "changelog_url": null,
+  "date_published": "2026-09-15T15:24:14.351589Z",
+  "downloads": 56023,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "5zIMAigk",
+    "hashes": {
+     "sha512": "8a57ed6b4b4c0b47dbe12be9f8645a75a151425e687b6ea5489336fe7a4083fcbfc553aea2a70c0fca58f1c8e8e76523d4c547735d3c927b4ed8a416f000f465",
+     "sha1": "a2da0b33ad65c77e8fef4f9d35051b1caf3c7032"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/bjeF0iDC/zfastnoise-1.1.0-beta.5%2B26.3.jar",
+    "filename": "zfastnoise-1.1.0-beta.5+26.3.jar",
+    "primary": true,
+    "size": 45708,
+    "file_type": null
+   },
+   {
+    "id": "jDoFjPf3",
+    "hashes": {
+     "sha1": "7632f3de93fed58e0389da55624acf44826561e2",
+     "sha512": "770890fcceaad3a4e182be30ac7beda29199a2811d8e923f548c1ed34371956ebe547b6e360f2055a0a2483a94722860aca5da078fb1d4abed266aab9ceaba62"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/bjeF0iDC/zfastnoise-1.1.0-beta.5%2B26.3-sources.jar",
+    "filename": "zfastnoise-1.1.0-beta.5+26.3-sources.jar",
+    "primary": false,
+    "size": 23332,
+    "file_type": "sources-jar"
+   },
+   {
+    "id": "onY5svhH",
+    "hashes": {
+     "sha1": "0af9a3f873c7625b8b76d23ae80914556dcc1333",
+     "sha512": "0c957281cb290b47b641ad8af490296f5cc348a49a203eda984a96c3660acee59e1b233a049a9e280746a421dd9408d3ac384acbb2ab3660566dcc4d8b33921a"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/bjeF0iDC/zfastnoise-ocl-1.0.0-beta.1%2B26.3-sources.jar",
+    "filename": "zfastnoise-ocl-1.0.0-beta.1+26.3-sources.jar",
+    "primary": false,
+    "size": 5025,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "4qmvXRB9",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "sml2FMaA",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "vnpqfrJN",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "FRSaEVFk",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "KOHu7RCS",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.3-rc-3"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "id": "GuhP1m4s",
+  "project_id": "OnlVIpq5",
+  "author_id": "RoES2s1n",
+  "featured": false,
+  "name": "Fast Noise 1.1.0-beta.5+26.3-rc-3",
+  "version_number": "1.1.0-beta.5+26.3-rc-3",
+  "changelog_url": null,
+  "date_published": "2026-09-14T14:48:07.681163Z",
+  "downloads": 153,
+  "version_type": "alpha",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "9GMT7Pxm",
+    "hashes": {
+     "sha512": "176f72abd9d30d76be790b7330863abc3e41f2b6fd07b10aa7dc0a03f42e591873e8e9d3ab53053b47d23abbd54f8defdc1a0e2e6a0c55f81081c0f555d5e35d",
+     "sha1": "3adf097e5a4c58cf29bf0880c6c14d7566574d27"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/GuhP1m4s/zfastnoise-1.1.0-beta.5%2B26.3-rc-3.jar",
+    "filename": "zfastnoise-1.1.0-beta.5+26.3-rc-3.jar",
+    "primary": true,
+    "size": 45740,
+    "file_type": null
+   },
+   {
+    "id": "91IzTIGD",
+    "hashes": {
+     "sha512": "770890fcceaad3a4e182be30ac7beda29199a2811d8e923f548c1ed34371956ebe547b6e360f2055a0a2483a94722860aca5da078fb1d4abed266aab9ceaba62",
+     "sha1": "7632f3de93fed58e0389da55624acf44826561e2"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/GuhP1m4s/zfastnoise-1.1.0-beta.5%2B26.3-rc-3-sources.jar",
+    "filename": "zfastnoise-1.1.0-beta.5+26.3-rc-3-sources.jar",
+    "primary": false,
+    "size": 23332,
+    "file_type": "sources-jar"
+   },
+   {
+    "id": "I8jUhpnP",
+    "hashes": {
+     "sha1": "0af9a3f873c7625b8b76d23ae80914556dcc1333",
+     "sha512": "0c957281cb290b47b641ad8af490296f5cc348a49a203eda984a96c3660acee59e1b233a049a9e280746a421dd9408d3ac384acbb2ab3660566dcc4d8b33921a"
+    },
+    "url": "https://cdn.modrinth.com/data/OnlVIpq5/versions/GuhP1m4s/zfastnoise-ocl-1.0.0-beta.1%2B26.3-rc-3-sources.jar",
+    "filename": "zfastnoise-ocl-1.0.0-beta.1+26.3-rc-3-sources.jar",
+    "primary": false,
+    "size": 5025,
+    "file_type": "sources-jar"
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "sml2FMaA",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   },
+   {
+    "version_id": null,
+    "project_id": "4qmvXRB9",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "KOHu7RCS",
+    "file_name": null,
+    "dependency_type": "incompatible"
+   }
+  ]
+ }
+]

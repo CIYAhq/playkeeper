@@ -27,11 +27,17 @@ const sizes = {
   phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
 } as const
 
+// The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
+const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
+
 async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
-  for (const s of servers) for (const tab of ['', '/console', '/players', '/world', '/settings']) out.push(`/servers/${s.slug}${tab}`)
+  for (const s of servers) {
+    const addons = addonTabs[s.type ?? '']
+    for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
+  }
   out.push('/servers/new')
   for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
   out.push('/settings', '/account', '/account/two-factor')

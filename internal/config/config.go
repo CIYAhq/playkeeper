@@ -123,3 +123,7 @@ func (c Config) TLSDir() string         { return filepath.Join(c.PanelDir(), "tl
 func (c Config) CertsDir() string       { return filepath.Join(c.DataDir, "certs") }
 func (c Config) SetupTokenPath() string { return filepath.Join(c.PanelDir(), "setup-token.sha256") }
 func (c Config) ManifestPath() string   { return filepath.Join(c.DataDir, "install-manifest.json") }
+
+// ResourcePacksDir holds the resource packs servers offer players. The agent
+// writes it; the panel serves the packs from it, so it is readable by all.
+func (c Config) ResourcePacksDir() string { return filepath.Join(c.DataDir, "resourcepacks") }

@@ -4,6 +4,9 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.0
 
+- A Plugins tab, called Mods on Fabric, Quilt and NeoForge servers: search Modrinth and Hangar in one list that only shows what works on your server, install with the dependencies it needs, update one or all, and remove with or without its settings. Every download is checked against the checksum its library publishes before it goes in the folder. Plugins you added by hand are listed too, and Playkeeper can take over the ones the library recognises.
+- **Pre-generate the map** from a server's World tab so exploring doesn't lag: pick how far out from spawn, with the time and disk space each size takes, then follow its progress, pause, resume or cancel it. It can pause by itself while people are playing, and installs the Chunky plugin or mod the first time.
+- **Resource and data packs** on the World tab: offer a resource pack that players download when they join, optionally required and with your own message, served by Playkeeper from the address you opened the dashboard at; and add, switch on or off and remove data packs.
 - A name instead of the IP address: **Machine settings › Address** gives your servers a free `yourname.playkeeper.io` name or your own domain. Each server joins at its own address without a port, Home and each server's Overview show it, and the dashboard gets a Let's Encrypt certificate that renews by itself, so the browser warning goes away. The IP address keeps working. A free name needs the dashboard's port 8443 to stay reachable, which the names service checks, and servers get their own addresses three days after the claim. An own domain needs port 80 open while its certificate is issued and renewed; if you use ufw, allow it after this update with `sudo ufw allow 80/tcp`.
 - Two-factor sign-in with an authenticator app, turned on under **Account**, with ten recovery codes. Wrong codes pause and then block app codes, the dashboard tells you after signing in when someone entered wrong codes or your recovery codes run low, and `sudo playkeeper reset-2fa <user>` turns it off if you lose your phone.
 
@@ -18,6 +21,12 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Less text on every screen: one short line where there was a paragraph.
 - Home no longer shows an old player count while the agent isn't answering.
 - A server icon over 64 KB is turned down next to the upload button before anything is sent, and the agent refuses one that isn't a 64 × 64 PNG before saving it.
+- If a restore is interrupted, for example by a power cut or a restart of Playkeeper, Playkeeper finishes it when it starts again: it keeps the restored world if it starts, and otherwise puts the previous world and its settings back. It never starts the server on an empty world in the meantime. This also covers a restore Playkeeper 0.3.0 was in the middle of when you upgraded.
+- The **World** tab shows a world a restore left behind, such as a restored world that did not start, with a button to discard it and free the space.
+- A backup, restore or Minecraft update that has to refuse the world, for example because a file's name is too long for a restore, now says so before stopping the server, so nobody is disconnected for nothing.
+- `playkeeper uninstall` names the Docker folders it removes, and no longer shows an empty services line when it's run a second time.
+- Restoring a backup as a new server no longer warns that you must accept the Minecraft EULA once you've ticked its box.
+- The one-line installer also stops if the `.sha256` file names another file or none, or if it is over 1 MB or the tarball over 200 MB, before running anything from the download.
 
 ## 0.3.0
 

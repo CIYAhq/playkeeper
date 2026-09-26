@@ -305,7 +305,7 @@ function PhoneShell({ route, overlays, children }: { route: Route; overlays: Rea
   const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
   const inServer = route.name === 'server' || (underMore && !!phoneServer)
   const slug = route.name === 'server' ? route.slug : phoneServer?.slug
-  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' ? 'more' : route.tab) : underMore ? 'more' : undefined
+  const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' || route.tab === 'plugins' || route.tab === 'mods' ? 'more' : route.tab) : underMore ? 'more' : undefined
   const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating
   return (
     <div className="flex min-h-dvh flex-col bg-sidebar">
