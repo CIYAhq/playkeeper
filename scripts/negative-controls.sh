@@ -174,6 +174,10 @@ control "the GC log is read through the game-file helper" internal/agent/running
 	n, _ := f.Read(buf)
 	buf = buf[:n]' \
   ./internal/agent '^TestGCLogIsReadOnce$'
+control "lag is explained from the current run's GC pauses only" internal/agent/running.go \
+  'gc := pausesSince(s.lag.gc, s.runStartedAt)' \
+  'gc := slices.Clone(s.lag.gc)' \
+  ./internal/agent '^TestLagCountsOnlyTheCurrentRunsGC$'
 control "chunk counts read region folders only" internal/agent/running.go \
   'e.Type().IsRegular() && path.Base(dir) == "region" && strings.HasSuffix(p, ".mca")' \
   'e.Type().IsRegular() && path.Base(dir) != "" && strings.HasSuffix(p, ".mca")' \

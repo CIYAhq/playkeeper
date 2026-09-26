@@ -302,6 +302,13 @@ func recentGC(events []diagnose.GCEvent, now time.Time) []diagnose.GCEvent {
 	return slices.Clone(events)
 }
 
+// pausesSince keeps the pauses from start, the current run's, on: those of
+// an earlier run, a crash or a restart ago, say nothing about this one's
+// memory.
+func pausesSince(events []diagnose.GCEvent, start time.Time) []diagnose.GCEvent {
+	return slices.DeleteFunc(slices.Clone(events), func(e diagnose.GCEvent) bool { return e.At.Before(start) })
+}
+
 // storeGC adds events to their windows and moves the cursor past them, in
 // one transaction so an agent restart neither loses nor counts them twice.
 func (s *server) storeGC(events []diagnose.GCEvent, cur gcCursor) error {
@@ -397,7 +404,7 @@ func (s *server) updateLag(now time.Time, sc api.ServerConfig, ticks *diagnose.T
 	view, sim := s.distances()
 	_, _, maxMB := s.memoryFor(s.id)
 	s.mu.Lock()
-	gc := slices.Clone(s.lag.gc)
+	gc := pausesSince(s.lag.gc, s.runStartedAt)
 	s.mu.Unlock()
 	d := diagnose.ExplainLag(diagnose.LagInput{
 		Now: now, Window: lagWindow, ServerType: serverTypeOf(sc), Ticks: ticks, Console: console,
