@@ -770,9 +770,12 @@ func (s *server) hMapDisable(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, op)
 }
 
-// disableMap removes squaremap and what it needed, and with deleteMap what
-// it drew, then restarts a running server to unload it. The shared link
-// stops working with the record.
+// disableMap turns the map off. What the map installed comes out while the
+// server is stopped, so squaremap isn't drawing into the folder deleteMap
+// deletes: a running server stops first and starts again after. squaremap
+// the Plugins or Mods tab installed stays that tab's, with its folder, and
+// the server keeps running it. The record goes, and the shared link with
+// it, even when some of the drawn map can't be deleted.
 func (s *server) disableMap(ctx context.Context, h *opHandle, deleteMap bool) error {
 	rec, err := s.loadMap()
 	if err != nil || rec == nil {
@@ -786,57 +789,85 @@ func (s *server) disableMap(ctx context.Context, h *opHandle, deleteMap bool) er
 		return errNotCreated()
 	}
 	typ := s.serverType(nil)
+	owned := len(rec.addons) > 0
+	running := false
+	if owned {
+		if _, running, err = s.containerRunning(ctx); err != nil {
+			return &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeDockerUnavailable,
+				Msg: "The map is still on: Playkeeper couldn't tell whether the server is running, and squaremap must stop before it comes out. " + errText(err), Hint: "Try again once Docker answers."}
+		}
+		if running {
+			h.phase("stopping")
+			if err := s.stopServer(ctx, h); err != nil {
+				return err
+			}
+		}
+	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")
+		if err := s.startServer(ctx, h, *sc); err != nil {
+			s.startFailed(ctx)
+			return err
+		}
+		return nil
+	}
 	h.phase("removing")
-	srv := s.addonServer(typ, *sc)
-	if err := s.removeMapAddons(ctx, srv, rec.addons, deleteMap); err != nil {
+	if err := s.removeMapAddons(ctx, s.addonServer(typ, *sc), rec.addons, deleteMap); err != nil {
+		if serr := startAgain(); serr != nil {
+			s.log.Warn("could not start the server again after the map failed to turn off", "server", s.id, "err", serr)
+		}
 		return err
 	}
-	if deleteMap {
+	var leftover error
+	if deleteMap && owned {
 		if l, err := webmap.LayoutFor(typ); err == nil {
 			if err := removeInData(s.dataDir(), l.Dir); err != nil {
-				return &apiError{Msg: "squaremap was removed, but what it drew could not be deleted: " + err.Error(), Hint: "Delete the " + l.Dir + " folder in the server's files."}
+				leftover = &apiError{Msg: "The map is off, but some of what squaremap drew could not be deleted: " + err.Error(), Hint: "Delete the " + l.Dir + " folder in the server's files."}
 			}
 		}
 	}
 	if _, err := s.db.Exec(`DELETE FROM maps WHERE server_id = ?`, s.id); err != nil {
+		if serr := startAgain(); serr != nil {
+			s.log.Warn("could not start the server again after the map failed to turn off", "server", s.id, "err", serr)
+		}
 		return err
 	}
 	s.forgetMapLive()
-	h.set("deletedMap", deleteMap)
+	h.set("deletedMap", deleteMap && owned)
 	detail := "drawn map kept"
-	if deleteMap {
+	switch {
+	case !owned:
+		detail = "squaremap and its drawn map stay with the add-on tab that installed it"
+	case leftover != nil:
+		detail = "drawn map partly deleted"
+	case deleteMap:
 		detail = "drawn map deleted"
 	}
 	s.recordEvent(s.now(), "map_disabled", "", "playkeeper", detail)
-	_, running, err := s.containerRunning(ctx)
-	if err != nil {
-		return restartUnchecked("squaremap is removed", "Restart the server to unload the map once Docker answers.", err)
-	}
-	if !running {
-		return nil
-	}
-	h.phase("restarting")
-	if err := s.stopServer(ctx, h); err != nil {
+	if err := startAgain(); err != nil {
 		return err
 	}
-	if err := s.startServer(ctx, h, *sc); err != nil {
-		s.startFailed(ctx)
-		return err
-	}
-	return nil
+	return leftover
 }
 
 // restartUnchecked is the error of a map change that is done but couldn't
 // find out whether the server is running, so a running server may not have
 // loaded it: the change isn't live until a restart.
 func restartUnchecked(done, hint string, err error) error {
-	msg := err.Error()
+	return &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeDockerUnavailable,
+		Msg: done + ", but Playkeeper couldn't tell whether the server is running, so it may not have loaded the change. " + errText(err), Hint: hint}
+}
+
+// errText is an error's message, without the hint of one the agent made.
+func errText(err error) string {
 	var ae *apiError
 	if errors.As(err, &ae) {
-		msg = ae.Msg
+		return ae.Msg
 	}
-	return &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeDockerUnavailable,
-		Msg: done + ", but Playkeeper couldn't tell whether the server is running, so it may not have loaded the change. " + msg, Hint: hint}
+	return err.Error()
 }
 
 // removeMapAddons uninstalls what the map installed, squaremap first, then

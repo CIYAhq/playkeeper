@@ -576,10 +576,112 @@ func TestTheMapUsesSquaremapThePluginsTabInstalled(t *testing.T) {
 	}
 }
 
+// Turning the map off takes out what the map installed while the server is
+// stopped, so squaremap isn't drawing into the folder "Delete the drawn map"
+// deletes, then starts a running server again. The record goes even when
+// some of the drawing can't be deleted. squaremap the Plugins tab installed
+// stays that tab's, folder and all, and the server keeps running it.
+func TestTurningTheMapOffStopsSquaremapFirst(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		pluginsTab bool // the Plugins tab installed squaremap
+		stopped    bool // the server is stopped
+		deleteMap  bool
+		stuck      bool // part of the drawing can't be deleted
+		restarts   bool
+		folder     bool // squaremap's folder is still there after
+		says       string
+	}{
+		{name: "the map's squaremap, deleting the drawing", deleteMap: true, restarts: true},
+		{name: "the map's squaremap, keeping the drawing", restarts: true, folder: true},
+		{name: "the map's squaremap on a stopped server", stopped: true, deleteMap: true},
+		{name: "the map's squaremap, part of the drawing stuck", deleteMap: true, stuck: true, restarts: true, folder: true, says: "The map is off, but some of what squaremap drew could not be deleted"},
+		{name: "the Plugins tab's squaremap", pluginsTab: true, deleteMap: true, folder: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.stuck && os.Geteuid() == 0 {
+				t.Skip("root deletes a read-only folder's files")
+			}
+			e, _, _ := newMapEnv(t)
+			e.create()
+			if c.pluginsTab {
+				e.installAddon(webmap.ModrinthProjectID)
+			}
+			if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+				t.Fatalf("enable: %+v", op)
+			}
+			e.waitFor("online", e.onlineIdle)
+			folder := filepath.Join(e.dataDir(), "plugins", "squaremap")
+			if c.stuck {
+				stuck := filepath.Join(folder, "web", "tiles", "minecraft_the_nether", "0")
+				os.MkdirAll(stuck, 0o755)
+				os.WriteFile(filepath.Join(stuck, "0_0.png"), []byte("\x89PNG nether"), 0o644)
+				os.Chmod(stuck, 0o500)
+				t.Cleanup(func() { os.Chmod(stuck, 0o755) })
+			}
+			if c.stopped {
+				code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+				if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
+					t.Fatalf("stop: %d %v", code, out)
+				}
+			}
+			// squaremap draws tiles until the server stops.
+			tile := filepath.Join(folder, "web", "tiles", "minecraft_overworld", "3", "9_9.png")
+			e.fd.mu.Lock()
+			e.fd.stopped = func(*fakeContainer) {
+				if _, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile)); err == nil {
+					os.MkdirAll(filepath.Dir(tile), 0o755)
+					os.WriteFile(tile, []byte("\x89PNG drawn"), 0o644)
+				}
+			}
+			e.fd.mu.Unlock()
+			t.Cleanup(func() {
+				e.fd.mu.Lock()
+				e.fd.stopped = nil
+				e.fd.mu.Unlock()
+			})
+			started := time.Time{}
+			if !c.stopped {
+				started = e.startedAt()
+			}
+			op := e.mapOp("/map/disable", map[string]any{"deleteMap": c.deleteMap})
+			if c.says == "" && op.Status != api.OpSucceeded || c.says != "" && (op.Status != api.OpFailed || !strings.HasPrefix(op.Error, c.says)) {
+				t.Fatalf("turning the map off: %+v", op)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM maps`); n != 0 {
+				t.Fatalf("the map's record is still there")
+			}
+			_, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile))
+			if kept := err == nil; kept != c.pluginsTab {
+				t.Fatalf("squaremap kept: %v, want %v", kept, c.pluginsTab)
+			}
+			if _, err := os.Stat(folder); (err == nil) != c.folder {
+				t.Fatalf("squaremap's folder there: %v, want %v", err == nil, c.folder)
+			}
+			if c.pluginsTab {
+				if _, err := os.Stat(filepath.Join(folder, "config.yml")); err != nil {
+					t.Fatalf("the Plugins tab's squaremap settings went: %v", err)
+				}
+			}
+			if c.stopped {
+				if e.status().Phase != api.PhaseStopped {
+					t.Fatalf("the stopped server started: %s", e.status().Phase)
+				}
+				return
+			}
+			e.waitFor("online", e.onlineIdle)
+			if restarted := e.startedAt().After(started); restarted != c.restarts {
+				t.Fatalf("the server restarted: %v, want %v", restarted, c.restarts)
+			}
+		})
+	}
+}
+
 // A map change that can't find out whether the server is running doesn't
 // claim to be live. With Docker not answering the look at the container,
-// turning the map on or off does its part, then fails saying to restart and
-// leaves the server as it was; a map turned on then waits for that restart.
+// turning the map on installs squaremap, then fails saying to restart, and
+// the map waits for that restart; turning it off removes nothing, since
+// squaremap must stop first. Either way the server stays as it was.
 func TestAMapChangeThatCantCheckTheServerSaysToRestart(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -587,9 +689,10 @@ func TestAMapChangeThatCantCheckTheServerSaysToRestart(t *testing.T) {
 		path  string
 		body  map[string]any
 		says  string
+		hint  string
 		after func(e *agentEnv)
 	}{
-		{name: "turning the map on", setup: func(*agentEnv) {}, path: "/map/enable", body: map[string]any{}, says: "squaremap is installed, but",
+		{name: "turning the map on", setup: func(*agentEnv) {}, path: "/map/enable", body: map[string]any{}, says: "squaremap is installed, but", hint: "Restart the server",
 			after: func(e *agentEnv) {
 				if m := e.mapInfo(); !m.Enabled || m.State != string(webmap.StateNeedsRestart) {
 					e.t.Fatalf("the map once Docker answers again: %+v", m)
@@ -600,10 +703,13 @@ func TestAMapChangeThatCantCheckTheServerSaysToRestart(t *testing.T) {
 				e.t.Fatalf("enable: %+v", op)
 			}
 			e.waitFor("online", e.onlineIdle)
-		}, path: "/map/disable", body: map[string]any{"deleteMap": false}, says: "squaremap is removed, but",
+		}, path: "/map/disable", body: map[string]any{"deleteMap": true}, says: "The map is still on: Playkeeper couldn't tell whether the server is running", hint: "Try again once Docker answers",
 			after: func(e *agentEnv) {
-				if _, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile)); !errors.Is(err, fs.ErrNotExist) || e.countRows(`SELECT COUNT(*) FROM maps`) != 0 {
-					e.t.Fatalf("the map after turning it off: %v", err)
+				if _, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile)); err != nil || e.countRows(`SELECT COUNT(*) FROM maps`) != 1 {
+					e.t.Fatalf("the map after it couldn't be turned off: %v", err)
+				}
+				if m := e.mapInfo(); !m.Enabled {
+					e.t.Fatalf("the map once Docker answers again: %+v", m)
 				}
 			}},
 	} {
@@ -620,7 +726,7 @@ func TestAMapChangeThatCantCheckTheServerSaysToRestart(t *testing.T) {
 			down("/containers/" + e.cname() + "/json")
 			op := e.mapOp(c.path, c.body)
 			down("")
-			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, c.says) || !strings.Contains(op.Hint, "Restart the server") {
+			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, c.says) || !strings.Contains(op.Hint, c.hint) {
 				t.Fatalf("%s with Docker not answering: %+v", c.name, op)
 			}
 			if !e.startedAt().Equal(started) {

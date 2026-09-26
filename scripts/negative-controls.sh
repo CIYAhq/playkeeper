@@ -2700,10 +2700,8 @@ control "turning the map on doesn't take a failed look at the server for a stopp
 		return restartUnchecked("squaremap is installed",' \
   ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
 control "turning the map off doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
-  '	if err != nil {
-		return restartUnchecked("squaremap is removed",' \
-  '	if false && err != nil {
-		return restartUnchecked("squaremap is removed",' \
+  'if _, running, err = s.containerRunning(ctx); err != nil {' \
+  'if _, running, err = s.containerRunning(ctx); false && err != nil {' \
   ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
 control "a sparse member of a tar or tar.gz is refused" internal/worldimport/archive.go \
   '		if sparse(h) {' \
@@ -2777,6 +2775,37 @@ control "an import the agent stopped during says so" internal/agent/worldimports
   '		if false {
 			return false, &apiError{' \
   ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "turning the map off stops squaremap before deleting what it drew" internal/agent/maps.go \
+  '		if running {
+			h.phase("stopping")
+			if err := s.stopServer(ctx, h); err != nil {
+				return err
+			}
+		}
+	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")' \
+  '	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")
+		if err := s.stopServer(ctx, h); err != nil {
+			return err
+		}' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "the map's record goes even when some of the drawing can't be deleted" internal/agent/maps.go \
+  'leftover = &apiError{Msg: "The map is off, but' \
+  'return &apiError{Msg: "The map is off, but' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "turning the map off leaves the Plugins tab's squaremap and its folder" internal/agent/maps.go \
+  'owned := len(rec.addons) > 0' \
+  'owned := true' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
 webcontrol() { # NAME FILE FROM TO TEST-FILE
   local name=$1 file=$2 test=$5
   ln -sfn "$root/web/node_modules" web/node_modules
