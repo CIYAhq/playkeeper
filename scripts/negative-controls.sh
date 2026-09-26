@@ -1947,6 +1947,10 @@ control "a start after failed starts is not a recovery" internal/agent/collector
   'recovered := take && s.runCrashed' \
   'recovered := take && s.crashed' \
   ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "Discord takes running out of memory, then Stopping server, for a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = false, "Java ran out of memory."' \
+  ./internal/agent '^TestDiscordAlertSequences$/^out_of_memory,_then_Stopping_server'
 control "a Done line delivered again changes nothing" internal/agent/collector.go \
   'take := fresh || !s.runReady' \
   'take := true' \
