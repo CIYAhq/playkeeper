@@ -272,6 +272,87 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if sum != want {' \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
+control "game files: a link on the way to a file is refused" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "game files: a link or special file is refused before it is opened" internal/gamefiles/gamefiles.go \
+  'err = fileError(name, fi)' \
+  'err = nil' \
+  ./internal/gamefiles '^(TestLinksAreRefusedAtEveryStep|TestSpecialFilesAreRefusedWithoutWaiting)$'
+control "game files: a link or special file is not written over" internal/gamefiles/gamefiles.go \
+  'if err := fileError(name, fi); err != nil {' \
+  'if err := fileError(name, fi); false && err != nil {' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "game files: opening a named pipe does not wait" internal/gamefiles/gamefiles.go \
+  'os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)' \
+  'os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+  ./internal/gamefiles '^TestFilesSwappedAfterTheCheckAreRefused$'
+control "game files: the opened file is the one checked" internal/gamefiles/gamefiles.go \
+  'if err == nil && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  'if false && (!st.Mode().IsRegular() || !os.SameFile(fi, st)) {' \
+  ./internal/gamefiles '^TestFilesSwappedAfterTheCheckAreRefused$'
+control "game files: reads are capped" internal/gamefiles/gamefiles.go \
+  'if int64(len(b)) > limit {' \
+  'if false {' \
+  ./internal/gamefiles '^TestOversizedFilesAreRefused$'
+control "game files: a file too large to hash is not read" internal/gamefiles/gamefiles.go \
+  'if size > limit {' \
+  'if false {' \
+  ./internal/gamefiles '^TestHugeSparseFilesAreRefusedQuickly$'
+control "game files: hashing reads only the size it checked" internal/gamefiles/gamefiles.go \
+  'io.LimitReader(f, size)' \
+  'f' \
+  ./internal/gamefiles '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "game files: hashing stops with its context" internal/gamefiles/gamefiles.go \
+  'if err := c.ctx.Err(); err != nil {' \
+  'if err := c.ctx.Err(); false && err != nil {' \
+  ./internal/gamefiles '^TestHashingReadsOnlyTheSizeItSawAndStopsWithItsContext$'
+control "game files: the temporary file is always a new one" internal/gamefiles/gamefiles.go \
+  'os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW' \
+  'os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW' \
+  ./internal/gamefiles '^TestTheTemporaryFileIsAlwaysANewOne$'
+control "game files: a new folder is given to the game through its own handle" internal/gamefiles/gamefiles.go \
+  'if err == nil && (!st.IsDir() || !os.SameFile(fi, st)) {' \
+  'if false && (!st.IsDir() || !os.SameFile(fi, st)) {' \
+  ./internal/gamefiles '^TestNewFoldersAreGivenToTheGameThroughTheirOwnHandle$'
+control "game files: folder listings are capped" internal/gamefiles/gamefiles.go \
+  'if len(es) > limit {' \
+  'if false {' \
+  ./internal/gamefiles '^TestReadDirListsRealFoldersOnly$'
+control "game files: paths stay inside the server's files" internal/gamefiles/gamefiles.go \
+  'if !fs.ValidPath(name) || name == "." {' \
+  'if false {' \
+  ./internal/gamefiles '^TestPathsMustStayInsideTheDataDirectory$'
+control "a planted link stops the start before the bStats write" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
+  ./internal/agent '^TestPlantedLinksCannotRedirectTheBStatsWrite$'
+control "the agent reads no game file through a link" internal/gamefiles/gamefiles.go \
+  'err = fileError(name, fi)' \
+  'err = nil' \
+  ./internal/agent '^TestGameFilesAreReadWithoutFollowingLinks$'
+control "a start that fails before the server's files keeps the refusal" internal/agent/gamefiles.go \
+  'if !refused && !pastFiles {' \
+  'if false {' \
+  ./internal/agent '^TestARefusalLastsUntilAStartGetsPastTheFiles$'
+control "the status keeps the refusal while Docker isn't answering" internal/agent/handlers.go \
+  'st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"
+		st.Refusal = refusal' \
+  'st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"' \
+  ./internal/agent '^TestARefusalLastsUntilAStartGetsPastTheFiles$'
+control "the jar is hashed only up to a size no Paper jar reaches" internal/agent/lifecycle.go \
+  'const maxJarBytes = 256 << 20' \
+  'const maxJarBytes = 1 << 62' \
+  ./internal/agent '^TestAHugeSparseJarDoesNotHoldUpTheStart$'
+control "a backup reads the level name without following a link or waiting on a pipe" internal/backup/archive.go \
+  'b, err := readProperties(dataDir)' \
+  'b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
+  ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "a restored world is given to the game without following links" internal/agent/backups.go \
+  'if d.Type()&fs.ModeSymlink != 0 {' \
+  'if false {' \
+  ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

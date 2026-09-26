@@ -52,11 +52,11 @@ export function LoginPage({ onDone }: { onDone: (m: Me) => void }) {
           </div>
           <PasswordField id="login-password" label={t('login.password')} value={password} onChange={setPassword} autoComplete="current-password" />
           {error && (
-            <p className="text-[13px] text-destructive-foreground" role="alert">
+            <p className="animate-enter text-[13px] text-destructive-foreground" role="alert">
               {error}
             </p>
           )}
-          <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={!username.trim() || !password}>
+          <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={username.trim() && password ? undefined : t('reason.fillIn')}>
             <LogInIcon />
             {busy ? t('login.submitting') : t('login.submit')}
           </Button>

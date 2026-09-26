@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { CheckIcon, ChevronsUpDownIcon } from 'lucide-react'
 import { RadioGroupPrimitive, Radio } from '@/components/ui/radio-group'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -125,14 +125,22 @@ export function CardGroup<T extends string>({ value, onChange, label, className,
 export const choiceCardClass =
   'group/card relative flex cursor-pointer rounded-2xl border border-border bg-card text-left transition-[box-shadow,border-color,background-color] hover:border-input has-[[data-checked]]:border-primary/55 has-[[data-checked]]:bg-selected has-[[data-checked]]:shadow-selected has-[[data-disabled]]:cursor-default has-[[data-disabled]]:bg-muted/50 has-[[data-disabled]]:hover:border-border has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring'
 
-/** One card in a CardGroup. The radio sits where `radio` puts it (default: top right). */
-export function ChoiceCard<T extends string>({ value, disabled, className, children, radio = 'end' }: { value: T; disabled?: boolean; className?: string; children: ReactNode; radio?: 'end' | 'start' | 'none' }) {
+/** One card in a CardGroup. The radio sits where `radio` puts it (default: top right); a disabled card says why with `reason`. */
+export function ChoiceCard<T extends string>({ value, disabled, reason, className, children, radio = 'end' }: { value: T; disabled?: boolean; reason?: string; className?: string; children: ReactNode; radio?: 'end' | 'start' | 'none' }) {
+  const reasonId = useId()
+  const why = disabled ? reason : undefined
+  const button = (cls: string) => <Radio value={value} disabled={disabled} aria-describedby={why ? reasonId : undefined} className={cls} />
   return (
-    <label className={cn(choiceCardClass, className)}>
-      {radio === 'start' && <Radio value={value} disabled={disabled} className="mt-0.5 shrink-0" />}
+    <label className={cn(choiceCardClass, className)} title={why}>
+      {radio === 'start' && button('mt-0.5 shrink-0')}
       <span className="min-w-0 flex-1">{children}</span>
-      {radio === 'end' && <Radio value={value} disabled={disabled} className="shrink-0" />}
-      {radio === 'none' && <Radio value={value} disabled={disabled} className="sr-only" />}
+      {radio === 'end' && button('shrink-0')}
+      {radio === 'none' && button('sr-only')}
+      {why && (
+        <span id={reasonId} className="sr-only">
+          {why}
+        </span>
+      )}
     </label>
   )
 }
@@ -185,16 +193,16 @@ export function Stepper({ steps, current, label, className }: { steps: string[];
           <li key={s} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none" aria-current={state === 'current' ? 'step' : undefined}>
             <span
               className={cn(
-                'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
-                state === 'done' && 'bg-primary text-primary-foreground',
-                state === 'current' && 'border-[1.5px] border-primary text-primary',
-                state === 'todo' && 'bg-muted text-muted-foreground',
+                'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full border-[1.5px] text-[11px] font-semibold transition-colors duration-(--motion-standard) ease-standard',
+                state === 'done' && 'border-primary bg-primary text-primary-foreground',
+                state === 'current' && 'border-primary text-primary',
+                state === 'todo' && 'border-transparent bg-muted text-muted-foreground',
               )}
             >
-              {state === 'done' ? <CheckIcon className="size-3.5" aria-hidden="true" /> : i + 1}
+              {state === 'done' ? <CheckIcon className="size-3.5 animate-fade" aria-hidden="true" /> : i + 1}
             </span>
-            <span className={cn('truncate text-[13px] font-medium', state === 'todo' ? 'text-muted-foreground' : 'text-foreground')}>{s}</span>
-            {i < steps.length - 1 && <span className={cn('h-0.5 min-w-4 flex-1 rounded-full', i < current ? 'bg-primary' : 'bg-border')} aria-hidden="true" />}
+            <span className={cn('truncate text-[13px] font-medium transition-colors duration-(--motion-standard) ease-standard', state === 'todo' ? 'text-muted-foreground' : 'text-foreground')}>{s}</span>
+            {i < steps.length - 1 && <span className={cn('h-0.5 min-w-4 flex-1 rounded-full transition-colors duration-(--motion-slow) ease-standard', i < current ? 'bg-primary' : 'bg-border')} aria-hidden="true" />}
           </li>
         )
       })}
