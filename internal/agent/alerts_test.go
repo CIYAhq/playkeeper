@@ -72,9 +72,10 @@ func (f *fakeHook) alertsSince(t *testing.T, from int) []sentAlert {
 
 // Each sequence of events in a server's life runs once with every alert
 // switched on and once with the defaults, and Discord must get exactly the
-// alerts the sequence calls for that are switched on, in order. The quiet
-// period holds back a second alert about the same thing within five
-// minutes, as it does for real.
+// alerts the sequence calls for that are switched on, in order, and show
+// the server in the live status as the sequence leaves it. The quiet period
+// holds back a second alert about the same thing within five minutes, as it
+// does for real.
 func TestDiscordAlertSequences(t *testing.T) {
 	var (
 		started      = sentAlert{discord.KindStarted, "Server started"}
@@ -131,6 +132,27 @@ func TestDiscordAlertSequences(t *testing.T) {
 		e.t.Helper()
 		e.waitFor(want, func() bool { return strings.Contains(e.status().LastError, want) && !e.a.busy() })
 	}
+	// crashLogged has the server log a crash, then its shutdown, as Paper
+	// does after many unexpected exits, and exit.
+	crashLogged := func(e *agentEnv) {
+		e.fd.addLog("[12:00:30 ERROR]: Encountered an unexpected exception")
+		e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+		e.fd.addLog("[12:00:31 INFO]: Stopping server")
+		e.fd.crash(1)
+	}
+	// logRead waits until the follower has read the stopped server's log to
+	// its end, when the live status can tell how it stopped.
+	logRead := func(e *agentEnv) {
+		e.t.Helper()
+		e.waitFor("the log read to its end", func() bool {
+			s := e.srv()
+			c, err := s.docker.ContainerInspect(context.Background(), s.containerName())
+			fin, _ := c.State.Finished()
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return err == nil && !c.State.Running && !s.followEnded[c.ID].Before(fin)
+		})
+	}
 
 	cases := []struct {
 		name string
@@ -139,74 +161,82 @@ func TestDiscordAlertSequences(t *testing.T) {
 		backoff time.Duration
 		// stopFirst stops the server before Discord is connected.
 		stopFirst bool
+		// reconcile, when set, is how often the reconcile loop looks: an
+		// hour keeps it from handling an exit, as in the seconds before it
+		// does.
+		reconcile time.Duration
 		steps     func(e *agentEnv)
 		want      []sentAlert
+		// status is how the live status shows the server afterwards, as the
+		// dashboard does: a server whose starts failed has no container
+		// left, so it shows as offline.
+		status discord.State
 	}{
-		{name: "a start", stopFirst: true, steps: func(e *agentEnv) { op(e, "start", nil) }, want: []sentAlert{started}},
+		{name: "a start", stopFirst: true, steps: func(e *agentEnv) { op(e, "start", nil) }, want: []sentAlert{started}, status: discord.StateOnline},
 		{name: "starts fail until Playkeeper gives up", steps: func(e *agentEnv) {
 			portTaken(e, true)
 			gone(e)
 			lastError(e, "stopped trying to start")
-		}, want: []sentAlert{didntStart}},
+		}, want: []sentAlert{didntStart}, status: discord.StateOffline},
 		{name: "a start fails, then one works", backoff: 2 * time.Second, steps: func(e *agentEnv) {
 			portTaken(e, true)
 			gone(e)
 			e.waitFor("a failed start", func() bool { return failedStarts(e) == 1 })
 			portTaken(e, false)
 			e.waitFor("online again", e.onlineIdle)
-		}, want: []sentAlert{started}},
+		}, want: []sentAlert{started}, status: discord.StateOnline},
 		{name: "a crash, then a restart that works", steps: func(e *agentEnv) {
 			crash(e)
 			e.waitFor("online again", e.onlineIdle)
-		}, want: []sentAlert{crashed, back}},
+		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
 		{name: "crashes until Playkeeper gives up", steps: func(e *agentEnv) {
 			for i := 1; i <= maxCrashes; i++ {
 				e.waitFor("online before the crash", e.onlineIdle)
 				crash(e)
 			}
 			lastError(e, "stopped restarting")
-		}, want: []sentAlert{crashed, back, gaveUp}},
+		}, want: []sentAlert{crashed, back, gaveUp}, status: discord.StateCrashed},
 		{name: "a crash, then restarts fail until Playkeeper gives up", steps: func(e *agentEnv) {
 			portTaken(e, true)
 			crash(e)
 			lastError(e, "stopped trying to start")
-		}, want: []sentAlert{crashed, didntStart}},
+		}, want: []sentAlert{crashed, didntStart}, status: discord.StateOffline},
 		{name: "a crash, a restart that fails, then one that works", backoff: 2 * time.Second, steps: func(e *agentEnv) {
 			portTaken(e, true)
 			crash(e)
 			e.waitFor("a failed restart", func() bool { return failedStarts(e) == 1 })
 			portTaken(e, false)
 			e.waitFor("online again", e.onlineIdle)
-		}, want: []sentAlert{crashed, back}},
+		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
 		{name: "a crash of a server meant to be off", steps: func(e *agentEnv) {
 			if err := e.srv().setDesired(api.DesiredStopped); err != nil {
 				e.t.Fatal(err)
 			}
 			crash(e)
-		}, want: []sentAlert{crashed}},
-		{name: "a stop", steps: func(e *agentEnv) { op(e, "stop", nil) }, want: []sentAlert{stopped}},
+		}, want: []sentAlert{crashed}, status: discord.StateCrashed},
+		{name: "a stop", steps: func(e *agentEnv) { op(e, "stop", nil) }, want: []sentAlert{stopped}, status: discord.StateOffline},
 		{name: "a restart", steps: func(e *agentEnv) {
 			op(e, "restart", nil)
 			e.waitFor("online again", e.onlineIdle)
-		}, want: []sentAlert{stopped, started}},
+		}, want: []sentAlert{stopped, started}, status: discord.StateOnline},
 		{name: "a clean stop outside Playkeeper", steps: func(e *agentEnv) {
 			e.fd.externalStop()
 			e.waitFor("the stop seen", func() bool {
 				return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`) == 1
 			})
 			e.waitFor("online again", e.onlineIdle)
-		}, want: []sentAlert{stopped, started}},
+		}, want: []sentAlert{stopped, started}, status: discord.StateOnline},
 		{name: "a backup", steps: func(e *agentEnv) {
 			if o := e.backupNow(nil); o.Status != api.OpSucceeded {
 				e.t.Fatalf("backup: %+v", o)
 			}
-		}, want: []sentAlert{backedUp}},
+		}, want: []sentAlert{backedUp}, status: discord.StateOnline},
 		{name: "a backup with the server stopped", steps: func(e *agentEnv) {
 			if o := e.backupNow(map[string]any{"stopped": true}); o.Status != api.OpSucceeded {
 				e.t.Fatalf("backup: %+v", o)
 			}
 			e.waitFor("online again", e.onlineIdle)
-		}, want: []sentAlert{stopped, started, backedUp}},
+		}, want: []sentAlert{stopped, started, backedUp}, status: discord.StateOnline},
 		{name: "a backup without room", steps: func(e *agentEnv) {
 			e.diskFree.Store(1 << 20)
 			e.waitFor("the disk seen as low", func() bool {
@@ -217,7 +247,26 @@ func TestDiscordAlertSequences(t *testing.T) {
 			if o := e.backupNow(nil); o.Status != api.OpFailed {
 				e.t.Fatalf("backup without room: %+v", o)
 			}
-		}, want: []sentAlert{lowDisk, backupFailed}},
+		}, want: []sentAlert{lowDisk, backupFailed}, status: discord.StateOnline},
+		{name: "a crash that logged a shutdown", steps: func(e *agentEnv) {
+			n := e.crashEvents()
+			crashLogged(e)
+			e.waitFor("the crash counted", func() bool { return e.crashEvents() == n+1 })
+			e.waitFor("online again", e.onlineIdle)
+		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
+		{name: "a crash, before the reconcile loop sees it", reconcile: time.Hour, steps: func(e *agentEnv) {
+			e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+			e.fd.crash(137)
+			logRead(e)
+		}, status: discord.StateCrashed},
+		{name: "a crash that logged a shutdown, before the reconcile loop sees it", reconcile: time.Hour, steps: func(e *agentEnv) {
+			crashLogged(e)
+			logRead(e)
+		}, status: discord.StateCrashed},
+		{name: "a clean stop outside Playkeeper, before the reconcile loop sees it", reconcile: time.Hour, steps: func(e *agentEnv) {
+			e.fd.externalStop()
+			logRead(e)
+		}, status: discord.StateOffline},
 	}
 	passes := []struct {
 		name   string
@@ -235,6 +284,9 @@ func TestDiscordAlertSequences(t *testing.T) {
 				e.discordClient = f.client()
 				if c.backoff > 0 {
 					e.crashBackoff = []time.Duration{c.backoff}
+				}
+				if c.reconcile > 0 {
+					e.reconcileInterval = c.reconcile
 				}
 				e.start()
 				e.create()
@@ -261,6 +313,9 @@ func TestDiscordAlertSequences(t *testing.T) {
 				time.Sleep(700 * time.Millisecond)
 				if got := f.alertsSince(t, from); !slices.Equal(got, want) {
 					t.Fatalf("Discord got\n%v\nwant\n%v", got, want)
+				}
+				if got := e.srv().discordStatus(context.Background()).State; got != c.status {
+					t.Fatalf("the live status shows the server %s, want %s", got, c.status)
 				}
 			})
 		}

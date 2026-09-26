@@ -244,7 +244,7 @@ func (s *server) pendingCrash(c docker.ContainerJSON) bool {
 	if last, ok := s.handledExit[c.ID]; ok && last.Equal(fin) || s.followEnded[c.ID].Before(fin) {
 		return false
 	}
-	return !fin.Before(s.started) && !s.intentional[c.ID] && !s.sawStopping
+	return !fin.Before(s.started) && !s.intentional[c.ID] && !s.stoppedCleanly()
 }
 
 func (a *Agent) discordBoard(ctx context.Context) discord.Board {
