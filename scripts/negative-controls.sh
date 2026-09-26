@@ -508,6 +508,21 @@ control "add-on updates: only the confirmed plan is carried out" internal/agent/
   'Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress' \
   'Changed: req.Changed, OnProgress: progress' \
   ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "add-on plans: the order Hangar lists dependencies in does not change the plan" internal/addons/resolve.go \
+  'c.deps = append(c.deps, dd)
+	}
+	sortDeps(c.deps)' \
+  'c.deps = append(c.deps, dd)
+	}' \
+  ./internal/addons '^TestInstallHangarWhateverOrderItListsDependenciesIn$'
+control "add-on plans: the fingerprint ignores the order of the steps" internal/addons/plan.go \
+  'slices.SortStableFunc(steps, ' \
+  'slices.SortStableFunc(steps[:0], ' \
+  ./internal/addons '^TestFingerprintIgnoresOrderButNotVersions$'
+control "add-on plans: the fingerprint ignores the order of what the server already has" internal/addons/plan.go \
+  'slices.SortStableFunc(satisfied, ' \
+  'slices.SortStableFunc(satisfied[:0], ' \
+  ./internal/addons '^TestFingerprintIgnoresOrderButNotVersions$'
 control "port sharing: a connection nobody accepts is closed" internal/portshare/portshare.go \
   't := time.NewTimer(l.s.handoff)' \
   't := time.NewTimer(time.Hour)' \

@@ -86,6 +86,28 @@ func TestPlanInstallModrinthWithRequiredDependencies(t *testing.T) {
 	}
 }
 
+// The fingerprint follows what a plan does, not the order it lists the files
+// and dependencies in.
+func TestFingerprintIgnoresOrderButNotVersions(t *testing.T) {
+	f := newFakes(t)
+	p := mustPlan(t, f.library(), newServer(t, "paper", "26.2"), nil, InstallRequest{Source: Hangar, Project: "ViaRewind"})
+	p.Satisfied = []Satisfied{{Name: "ProtocolLib", For: "ViaRewind", FileName: "ProtocolLib.jar"}, {Name: "packetevents", For: "ViaRewind", FileName: "packetevents.jar", Managed: true}}
+	want := p.fingerprint()
+	reordered := *p
+	reordered.Steps = slices.Clone(p.Steps)
+	slices.Reverse(reordered.Steps)
+	reordered.Steps[2].Requires = []string{"31", "12"}
+	reordered.Satisfied = slices.Clone(p.Satisfied)
+	slices.Reverse(reordered.Satisfied)
+	if got := reordered.fingerprint(); got != want {
+		t.Errorf("the same plan in another order has fingerprint %q, want %q", got, want)
+	}
+	reordered.Steps[1].VersionID, reordered.Steps[1].VersionNumber = "30500", "5.13.0"
+	if reordered.fingerprint() == want {
+		t.Error("a new version of a dependency did not change the fingerprint")
+	}
+}
+
 func TestPlanInstallHangarWithRequiredDependencies(t *testing.T) {
 	f := newFakes(t)
 	p := mustPlan(t, f.library(), newServer(t, "paper", "26.2"), nil, InstallRequest{Source: Hangar, Project: "ViaRewind"})

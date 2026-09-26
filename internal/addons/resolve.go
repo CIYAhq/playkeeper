@@ -1,6 +1,7 @@
 package addons
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -320,6 +321,7 @@ func modrinthCandidate(p *project, v *modrinth.Version, t Target, mc string) (ca
 			c.deps = append(c.deps, dep{typ: d.DependencyType, projectID: d.ProjectID, versionID: d.VersionID, name: d.FileName})
 		}
 	}
+	sortDeps(c.deps)
 	return c, true
 }
 
@@ -366,7 +368,18 @@ func hangarCandidate(p *project, v *hangar.Version, t Target, mc string) (candid
 		}
 		c.deps = append(c.deps, dd)
 	}
+	sortDeps(c.deps)
 	return c, true
+}
+
+// sortDeps orders a version's dependencies by project, so a plan does not
+// depend on the order a source lists them in: Hangar's version list gives
+// them in a new order on each request.
+func sortDeps(ds []dep) {
+	slices.SortFunc(ds, func(a, b dep) int {
+		return cmp.Or(cmp.Compare(a.projectID, b.projectID), cmp.Compare(a.versionID, b.versionID), cmp.Compare(a.name, b.name),
+			cmp.Compare(a.external, b.external), cmp.Compare(a.typ, b.typ))
+	})
 }
 
 func overlaps(a, b []string) bool {

@@ -50,6 +50,7 @@ type fakes struct {
 	hProjects map[string]obj // by id and by slug
 	hVersions map[string]obj
 	hOrder    []string
+	hListed   func(v obj)       // changes each version Hangar's version list serves
 	files     map[string][]byte // by CDN path
 	hooks     map[string]http.HandlerFunc
 	requests  []request
@@ -332,6 +333,9 @@ func (f *fakes) serveHangar(w http.ResponseWriter, r *http.Request) {
 			case platform != "" && pv != "" && !slices.Contains(strs(deps[platform]), pv):
 			case channel != "" && !strings.EqualFold(str(ch["name"]), channel):
 			default:
+				if f.hListed != nil {
+					f.hListed(v)
+				}
 				all = append(all, v)
 			}
 		}
@@ -457,6 +461,14 @@ func (f *fakes) patchHangarVersion(versionID string, fn func(v obj)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	fn(f.hVersions[versionID])
+}
+
+// onHangarList has fn change each version as Hangar's version list serves
+// it, as the real one reorders dependencies from one request to the next.
+func (f *fakes) onHangarList(fn func(v obj)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hListed = fn
 }
 
 func (f *fakes) addModrinthProject(p obj) {

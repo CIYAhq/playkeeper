@@ -247,6 +247,35 @@ func TestInstallRefusesAChangedPlan(t *testing.T) {
 	}
 }
 
+// Hangar's version list gives a version's dependencies in a new order on
+// each request. The plan an install was confirmed with and the one it
+// carries out must still match, and read the same.
+func TestInstallHangarWhateverOrderItListsDependenciesIn(t *testing.T) {
+	f := newFakes(t)
+	f.onHangarList(func(v obj) {
+		if num(v["id"]) == "30418" {
+			slices.Reverse(list(v["pluginDependencies"].(obj)["PAPER"]))
+		}
+	})
+	l := f.library()
+	srv := newServer(t, "paper", "26.2")
+	req := InstallRequest{Source: Hangar, Project: "ViaRewind"}
+	confirmed, again := mustPlan(t, l, srv, nil, req), mustPlan(t, l, srv, nil, req)
+	for _, p := range []*Plan{confirmed, again} {
+		wantSteps(t, p, "ViaRewind 4.2.0 30418, ViaBackwards 5.12.0 30417, ViaVersion 5.12.0 30415")
+	}
+	if confirmed.Fingerprint != again.Fingerprint {
+		t.Errorf("fingerprints %q and %q", confirmed.Fingerprint, again.Fingerprint)
+	}
+	req.Fingerprint = confirmed.Fingerprint
+	if _, err := l.Install(context.Background(), srv, nil, req); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.sentTo("hangar", "/api/v1/projects/112/versions")); n != 3 {
+		t.Errorf("ViaRewind's versions were listed %d times, want once for each plan", n)
+	}
+}
+
 // txn replaces files by name and puts everything back when a later file
 // cannot be placed.
 func TestTxnRestoresTheFolderOnFailure(t *testing.T) {
