@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -565,5 +568,232 @@ func TestServersFrom010KeepTheirPinnedChecksum(t *testing.T) {
 	}
 	if _, err := jarChecksum(api.ServerConfig{MinecraftVersion: "26.2", PaperBuild: 129}); err == nil {
 		t.Fatal("a build without a recorded or known checksum must not run")
+	}
+}
+
+// errDisk is the failure the rollback fault test injects.
+var errDisk = errors.New("disk I/O error")
+
+// failOnce returns a check that is true the first time cond is.
+func failOnce(cond func() bool) func() bool {
+	var mu sync.Mutex
+	done := false
+	return func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if done || !cond() {
+			return false
+		}
+		done = true
+		return true
+	}
+}
+
+// A rollback that one of its writes fails leaves, after the agent restarts,
+// a server that starts with its world and settings in step: the new version
+// on the world it touched, when nothing had moved yet, and else the previous
+// version on the backup's world. Its hint says which, and what to do. So
+// does a rollback that two writes fail, as Bugbot found.
+func TestEveryRollbackWriteThatFailsLeavesAServerThatStarts(t *testing.T) {
+	type faults struct {
+		journal func(state string) bool // the journal write for that state fails
+		rename  func(from, to string) bool
+		give    func() bool
+		copy    func() bool
+		remove  func() bool
+		config  bool // saving the previous settings fails
+		backup  bool // the backup can't be read
+	}
+	journalState := func(state string) func(string) bool {
+		return func(s string) bool { return s == state }
+	}
+	const (
+		restoreHint  = "Your world is safe in backup %s. Restore it from the World page."
+		finishHint   = "It stays stopped. Playkeeper finishes putting the backup back when it restarts."
+		settingsHint = "It stays stopped until they're saved. Playkeeper tries again when it restarts."
+		doneHint     = "Nothing was lost. Open the Console to see why the new version stopped."
+		rolledBack   = "so Playkeeper put the backup from before the update back. The server runs 26.1.2 again."
+	)
+	for _, tc := range []struct {
+		name string
+		f    func(e *agentEnv) faults
+		// wantErr is in the operation's error; hint is its hint, with the
+		// backup's id for %s.
+		wantErr, hint string
+		// refused: a start is refused until the agent restarts.
+		refused bool
+		// previous: afterwards the server runs the previous version on the
+		// backup's world; else the new one on the world it touched.
+		previous bool
+	}{
+		{name: "writing that the rollback began", f: func(*agentEnv) faults { return faults{journal: journalState("reverting")} },
+			wantErr: "and saving the update's progress file failed: disk I/O error", hint: restoreHint},
+		{name: "reading the backup", f: func(*agentEnv) faults { return faults{backup: true} },
+			wantErr: "and putting the backup back failed: ", hint: restoreHint},
+		{name: "moving the new version's world aside", f: func(e *agentEnv) faults {
+			return faults{rename: func(from, to string) bool { return from == e.dataDir() }}
+		}, wantErr: "and putting the backup back failed: disk I/O error", hint: restoreHint},
+		{name: "moving the backup's world in", f: func(e *agentEnv) faults {
+			return faults{rename: func(from, to string) bool { return to == e.dataDir() && strings.HasPrefix(from, e.cfg.StagingDir()) }}
+		}, wantErr: "and putting the backup back failed: disk I/O error", hint: restoreHint},
+		{name: "giving the backup's world to the game's user", f: func(*agentEnv) faults { return faults{give: func() bool { return true }} },
+			wantErr: "and giving the backup's world to the game's user failed: ", hint: finishHint, refused: true, previous: true},
+		{name: "writing that the backup's world is in place", f: func(*agentEnv) faults { return faults{journal: journalState("restored")} },
+			wantErr: rolledBack, hint: doneHint, previous: true},
+		{name: "saving the previous settings", f: func(*agentEnv) faults { return faults{config: true} },
+			wantErr: "The backup was put back, but saving the previous settings failed: ", hint: settingsHint, refused: true, previous: true},
+		{name: "writing that the backup's world is in place, then saving the previous settings", f: func(*agentEnv) faults {
+			return faults{journal: journalState("restored"), config: true}
+		}, wantErr: "The backup was put back, but saving the previous settings failed: ", hint: settingsHint, refused: true, previous: true},
+		{name: "deleting the new version's world", f: func(*agentEnv) faults { return faults{copy: func() bool { return true }} },
+			wantErr: rolledBack, hint: doneHint, previous: true},
+		{name: "removing the journal", f: func(*agentEnv) faults { return faults{remove: func() bool { return true }} },
+			wantErr: rolledBack, hint: doneHint, previous: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			given := e.recordGivenWorlds()
+			e.create()
+			level := filepath.Join(e.dataDir(), "world", "level.dat")
+			before := []byte("the world from before the update")
+			if err := os.WriteFile(level, before, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			e.fd.mu.Lock()
+			e.fd.bootFailsOn = "26.2"
+			e.fd.mu.Unlock()
+
+			f := tc.f(e)
+			t.Cleanup(func() {
+				writeJournalFile, removeJournalFile, removeWorldCopy, renameDir = writeSynced, os.Remove, os.RemoveAll, os.Rename
+			})
+			if f.journal != nil {
+				once := failOnce(func() bool { return true })
+				writeJournalFile = func(path string, data []byte) error {
+					var j versionJournal
+					_ = json.Unmarshal(data, &j)
+					if f.journal(string(j.State)) && once() {
+						return errDisk
+					}
+					return writeSynced(path, data)
+				}
+			}
+			if f.rename != nil {
+				once := failOnce(func() bool { return true })
+				renameDir = func(from, to string) error {
+					if f.rename(from, to) && once() {
+						return errDisk
+					}
+					return os.Rename(from, to)
+				}
+			}
+			if f.give != nil {
+				once := failOnce(f.give)
+				record := giveWorld
+				giveWorld = func(root string, uid, gid int) error {
+					if once() {
+						return errDisk
+					}
+					return record(root, uid, gid)
+				}
+			}
+			if f.copy != nil {
+				once := failOnce(f.copy)
+				removeWorldCopy = func(path string) error {
+					if once() {
+						return errDisk
+					}
+					return os.RemoveAll(path)
+				}
+			}
+			if f.remove != nil {
+				once := failOnce(f.remove)
+				removeJournalFile = func(path string) error {
+					if once() {
+						return errDisk
+					}
+					return os.Remove(path)
+				}
+			}
+			var backupFile string
+			setVersionStep(t, func(_ context.Context, step string) {
+				switch {
+				case step == "reverting" && f.backup:
+					bs, _ := e.srv().listBackups(`kind = 'rollback'`)
+					if len(bs) == 1 {
+						backupFile = e.srv().backupPath(bs[0].FileName)
+						os.Rename(backupFile, backupFile+".away")
+					}
+				case step == "restored" && f.config:
+					e.a.db.Exec(`CREATE TRIGGER fail_config BEFORE UPDATE OF config ON servers BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`)
+				}
+			})
+
+			code, out := e.changeVersion(map[string]any{"versionId": "paper-26.2"})
+			if code != 202 {
+				t.Fatalf("change: %d %v", code, out)
+			}
+			op := e.waitOp(out["id"].(string))
+			backupID, _ := op.Detail["backupId"].(string)
+			hint := tc.hint
+			if strings.Contains(hint, "%s") {
+				hint = fmt.Sprintf(hint, backupID)
+			}
+			if op.Status != api.OpFailed || !strings.Contains(op.Error, tc.wantErr) || op.Hint != hint {
+				t.Fatalf("want an error with %q and the hint %q: %+v", tc.wantErr, hint, op)
+			}
+			if tc.refused {
+				if start := e.startOp(); start.Status != api.OpFailed || !strings.HasPrefix(start.Error, "A Minecraft update's rollback did not finish") {
+					t.Fatalf("no start may run the new version on the backup's world before the rollback finishes: %+v", start)
+				}
+			}
+
+			// The fault is gone once the agent runs again.
+			versionStep = func(context.Context, string) {}
+			writeJournalFile, removeJournalFile, removeWorldCopy, renameDir = writeSynced, os.Remove, os.RemoveAll, os.Rename
+			if backupFile != "" {
+				os.Rename(backupFile+".away", backupFile)
+			}
+			e.a.db.Exec(`DROP TRIGGER IF EXISTS fail_config`)
+			given.reset()
+			e.stop()
+			e.start()
+
+			if copies, journal := e.versionLeftovers(); len(copies) != 0 || journal {
+				t.Fatalf("after the restart, left copies %v and the journal (%v)", copies, journal)
+			}
+			sc, _ := e.srv().serverConfig()
+			world, _ := os.ReadFile(level)
+			if tc.previous {
+				if sc == nil || sc.MinecraftVersion != "26.1.2" || sc.PaperBuild != 74 || string(world) != string(before) {
+					t.Fatalf("want the previous version on the backup's world: %+v, %q", sc, world)
+				}
+				if tc.name == "giving the backup's world to the game's user" && !given.has(e.dataDir()) {
+					t.Fatal("the agent start must give the backup's world to the game's user")
+				}
+			} else {
+				if sc == nil || sc.MinecraftVersion != "26.2" || string(world) != "upgraded by 26.2-129" {
+					t.Fatalf("want the new version on the world it touched: %+v, %q", sc, world)
+				}
+				if b, err := e.srv().getBackup(backupID); err != nil || b.Verified == nil || !*b.Verified {
+					t.Fatalf("the hint's backup must be there to restore: %+v %v", b, err)
+				}
+				e.fd.mu.Lock()
+				e.fd.bootFailsOn = ""
+				e.fd.mu.Unlock()
+			}
+			switch code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"}); {
+			case code == 202:
+				if start := e.waitOp(out["id"].(string)); start.Status != api.OpSucceeded {
+					t.Fatalf("the server must start: %+v", start)
+				}
+			case code != 200 || out["noop"] != true:
+				t.Fatalf("start: %d %v", code, out)
+			}
+			e.waitFor("the server online", e.onlineIdle)
+			if world, _ := os.ReadFile(level); tc.previous && string(world) != string(before) {
+				t.Fatalf("the previous version runs the backup's world: %q", world)
+			}
+		})
 	}
 }
