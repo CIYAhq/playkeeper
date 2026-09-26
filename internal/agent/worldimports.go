@@ -222,15 +222,15 @@ func (a *Agent) uploadAllowance() int64 {
 		list = append(list, imp)
 	}
 	a.imports.mu.Unlock()
-	limit := a.uploadLimit()
+	var unsent int64
 	for _, imp := range list {
 		imp.mu.Lock()
 		for _, f := range imp.files {
-			limit -= f.size - f.received
+			unsent += f.size - f.received
 		}
 		imp.mu.Unlock()
 	}
-	return max(limit, 0)
+	return max(a.uploadLimit()-unsent, 0)
 }
 
 func (a *Agent) importView(imp *worldImport) api.WorldImport {
