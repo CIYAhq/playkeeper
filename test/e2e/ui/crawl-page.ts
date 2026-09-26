@@ -16,6 +16,8 @@ export interface ControlInfo {
   /** Closes its own menu or list when pressed (menu items, list options). */
   autoClose: boolean
   editable: boolean
+  /** A link with a download attribute: pressing it downloads its target. */
+  download: boolean
   /** The control that was pressed last. */
   isTarget: boolean
 }
@@ -279,6 +281,7 @@ export function installPageHelpers() {
         selected: selectedOf(el, role),
         autoClose: inMenu || (role === 'option' && inPopupList),
         editable: el instanceof HTMLInputElement && role === 'combobox',
+        download: el instanceof HTMLAnchorElement && el.hasAttribute('download'),
         isTarget: el === target,
       })
       list.push({ key, el })

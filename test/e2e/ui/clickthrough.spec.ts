@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { answerRead, installJob, isAddonRead, recordedFolder, type World } from './addon-fixtures'
 import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
@@ -332,6 +334,45 @@ test('a combobox choice that differs from the last only in its digits still chan
     document.querySelector('[role=combobox]')!.textContent = '4 GB'
   })
   expect(await combobox()).not.toEqual(before)
+})
+
+test('a download that starts late still counts, and a download link that does nothing is dead', async ({ browser }) => {
+  // The browser fetches a download link itself, past page.route, so a real
+  // server answers, as late as CI's panel once did.
+  const server = http.createServer((req, res) => {
+    if (req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end('<!doctype html><title>Backups</title><div id="root"><h1>Backups</h1><a href="/backups/1/download" download="world.tar.gz">Download</a> <a href="/backups/2/file">Notes</a></div>')
+    } else if (req.url === '/backups/1/download' || req.url === '/backups/2/file') {
+      setTimeout(() => {
+        res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="world.tar.gz"' })
+        res.end('a backup')
+      }, 9000)
+    } else {
+      res.writeHead(404)
+      res.end()
+    }
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const context = await browser.newContext({ baseURL: base })
+  try {
+    const crawler = new Crawler(await context.newPage(), 'desktop', base)
+    await crawler.init()
+    await crawler.crawl('/')
+    const download = crawler.results.find((r) => r.key === 'link "Download"')
+    const attachment = crawler.results.find((r) => r.key === 'link "Notes"')
+    expect(download?.status).toBe('works')
+    expect(download?.effects).toContain('started a download')
+    expect(attachment?.status).toBe('works')
+    expect(attachment?.effects).toContain('started a download')
+    expect(crawler.notes.join('\n')).toContain('› link "Download": its download started')
+    const broken = await crawler.breakAndPress(download!)
+    expect(typeof broken === 'string' ? broken : broken.status).toBe('dead')
+  } finally {
+    await context.close()
+    server.close()
+  }
 })
 
 test('the pass bar fails a failing control, a state it could not get back to, a page under its minimum and a place it missed', () => {

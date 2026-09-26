@@ -49,6 +49,11 @@ export function where(route: string, view: View = 'live'): string {
 const FILL = 'fill in the form'
 const WINDOW_MS = 1600
 const MAX_WAIT_MS = 7000
+// The browser fetches a download link's target itself, out of sight of the
+// page's requests, and reports the download only once the answer starts; in
+// CI the panel has taken over 8 s to start one. A link whose page load
+// answers with an attachment ends the same way.
+const DOWNLOAD_WAIT_MS = 20_000
 // A request cancelled by a page load while its route handler was still
 // fetching never reports back, so old requests stop counting as in flight.
 const STUCK_MS = 10_000
@@ -98,6 +103,8 @@ function isSelected(state: string | null): boolean {
   return !!state && /aria-(selected|checked|pressed)=true|data-checked=|data-pressed=/.test(state)
 }
 
+const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+
 export class Crawler {
   readonly results: Result[] = []
   readonly notes: string[] = []
@@ -118,8 +125,13 @@ export class Crawler {
   private consoleErrors: string[] = []
   private popups = 0
   private downloads = 0
+  private downloadAt = 0
   private choosers = 0
   private pending = new Map<Request, number>()
+  /** Page loads of the main frame that haven't answered yet. */
+  private navs = new Map<Request, number>()
+  /** The control pressed last, and whether its press is still being watched. */
+  private pressed?: { key: string; at: number; watching: boolean }
   private loadedAt = 0
   private loads = 0
   private unheaded = new Set<string>()
@@ -147,14 +159,21 @@ export class Crawler {
       this.popups++
       void p.close().catch(() => {})
     })
-    page.on('download', (d) => {
+    const started = () => {
       this.downloads++
+      this.downloadAt = Date.now()
+    }
+    page.on('download', (d) => {
+      started()
+      const p = this.pressed
+      if (p && !p.watching && !this.quiet) this.notes.push(`[${this.viewport}] ${p.key}: a download started ${secs(this.downloadAt - p.at)} after it was pressed, after its wait`)
       void d.cancel().catch(() => {})
     })
     page.on('filechooser', () => {
       this.choosers++
     })
     page.on('request', (r) => {
+      if (r.isNavigationRequest() && r.frame() === page.mainFrame()) this.navs.set(r, Date.now())
       const url = new URL(r.url())
       if (!url.pathname.startsWith('/api/')) return
       this.pending.set(r, Date.now())
@@ -162,8 +181,20 @@ export class Crawler {
       this.reqs.push({ method: r.method(), path: url.pathname, first: !this.seen.has(key), at: Date.now() })
       this.seen.add(key)
     })
-    page.on('requestfinished', (r) => this.pending.delete(r))
-    page.on('requestfailed', (r) => this.pending.delete(r))
+    page.on('response', (r) => {
+      if (r.request().isNavigationRequest() && /^\s*attachment\b/i.test(r.headers()['content-disposition'] ?? '')) started()
+    })
+    const answered = (r: Request) => {
+      this.pending.delete(r)
+      this.navs.delete(r)
+    }
+    page.on('requestfinished', answered)
+    page.on('requestfailed', answered)
+  }
+
+  /** Whether a page load started since `since` is still waiting for its answer. */
+  private loading(since: number): boolean {
+    return [...this.navs.values()].some((at) => at >= since)
   }
 
   /** API requests of the current page load that are still running. */
@@ -314,7 +345,9 @@ export class Crawler {
           // A slider at its highest value can only go down.
           if ((await value()) === was) await this.page.keyboard.press('ArrowLeft')
         } else {
-          await h.click({ timeout: 4000 })
+          // A link to an attachment starts a page load that never finishes;
+          // the crawl watches what the press did itself.
+          await h.click({ timeout: 4000, noWaitAfter: info?.role === 'link' })
           if (info?.editable) await this.page.keyboard.press('ArrowDown')
         }
         return undefined
@@ -410,6 +443,8 @@ export class Crawler {
     const errs = { page: this.pageErrors.length, console: this.consoleErrors.length, calls: this.calls.length, unfaked: this.unfaked.length, unrecorded: this.unrecorded.length }
     const keysBefore = new Set((await this.controls()).map((x) => x.key))
     const since = Date.now()
+    const pressed = { key: `${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}`, at: since, watching: true }
+    this.pressed = pressed
     const failed = await this.press(h, c)
     if (failed) return { result: this.record(route, via, c, 'could not press', [], [failed]), opened: false, revealed: false }
     let effects: string[] = []
@@ -419,12 +454,15 @@ export class Crawler {
       after = await this.snap(true)
       effects = this.effects(c, before, after, state, since, marks)
       const waited = Date.now() - since
-      if (effects.length || waited > MAX_WAIT_MS || (waited > WINDOW_MS && this.inflight === 0)) break
+      const patient = c.download || this.loading(since)
+      if (effects.length || waited > (patient ? DOWNLOAD_WAIT_MS : MAX_WAIT_MS) || (!patient && waited > WINDOW_MS && this.inflight === 0)) break
     }
     await this.settle(3000)
     await this.page.waitForTimeout(150)
     after = await this.snap(true)
     effects = [...new Set([...effects, ...this.effects(c, before, after, state, since, marks)])]
+    pressed.watching = false
+    if (this.downloads > marks.downloads && this.downloadAt - since > WINDOW_MS && !this.quiet) this.notes.push(`[${this.viewport}] ${pressed.key}: its download started ${secs(this.downloadAt - since)} after the press`)
     const problems = this.problems(since, errs)
     let status: Status = 'works'
     if (problems.length) status = 'broken'
