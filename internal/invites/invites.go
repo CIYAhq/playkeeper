@@ -45,6 +45,9 @@ const (
 const (
 	DefaultPlayerUses = 5
 	MaxPlayerUses     = 100
+	// MaxWorkingPlayerInvites is how many friend links of a server can work
+	// at once: not turned off, expired or used up.
+	MaxWorkingPlayerInvites = 20
 	// A member invite hands out access to run servers, so it works once and
 	// for a fixed time.
 	MemberLifetime = 7 * 24 * time.Hour

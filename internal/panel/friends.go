@@ -49,11 +49,16 @@ func scanInvite(row rowScanner) (invites.Invite, error) {
 }
 
 func (s *Server) insertInvite(inv invites.Invite) error {
+	return s.insertInviteOn(context.Background(), s.db, inv)
+}
+
+// insertInviteOn stores inv with db, which may be a transaction's connection.
+func (s *Server) insertInviteOn(ctx context.Context, db querier, inv invites.Invite) error {
 	servers := ""
 	if inv.Kind == invites.KindMember {
 		servers = inv.Servers.String()
 	}
-	_, err := s.db.Exec(`INSERT INTO invites(`+inviteColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := db.ExecContext(ctx, `INSERT INTO invites(`+inviteColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		inv.ID, string(inv.Kind), inv.CodeHash, inv.Code, inv.ProjectID, inv.ServerID, inv.Role, servers, string(inv.Approval), inv.Label,
 		inv.CreatedBy, invites.Millis(inv.CreatedAt), invites.Millis(inv.ExpiresAt), inv.MaxUses, inv.Uses, invites.Millis(inv.RevokedAt))
 	return err
@@ -311,7 +316,22 @@ func (s *Server) hInviteCreate(w http.ResponseWriter, r *http.Request, sess *ses
 		writeRefusal(w, err)
 		return
 	}
-	if err := s.insertInvite(c.Invite); err != nil {
+	err = s.immediate(r.Context(), func(conn *sql.Conn) error {
+		var working int
+		if err := conn.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM invites WHERE kind = 'player' AND server_id = ? AND revoked_at = 0
+			AND (expires_at = 0 OR expires_at > ?) AND (max_uses = 0 OR uses < max_uses)`, id, s.now().UnixMilli()).Scan(&working); err != nil {
+			return err
+		}
+		if working >= invites.MaxWorkingPlayerInvites {
+			return invites.InvitesFull()
+		}
+		return s.insertInviteOn(r.Context(), conn, c.Invite)
+	})
+	if invites.CodeOf(err) == invites.CodeInvitesFull {
+		writeRefusal(w, err)
+		return
+	}
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}

@@ -21,6 +21,7 @@ const (
 	CodePlayersNotAllowed = "players_not_allowed"
 	CodeTwoFactorRequired = "two_factor_required"
 	CodeRequestsFull      = "join_requests_full"
+	CodeInvitesFull       = "invite_links_full"
 	CodeRequestDecided    = "join_request_decided"
 	CodeRateLimited       = "rate_limited"
 	CodePlayerName        = "player_name_invalid"
@@ -199,6 +200,14 @@ func requestsFull(scope string) *Error {
 		e.Hint = "Ask the person who sent it to answer the requests, then try again."
 	}
 	return e
+}
+
+// InvitesFull is the refusal for a new friend link while a server has
+// MaxWorkingPlayerInvites that work.
+func InvitesFull() *Error {
+	n := strconv.Itoa(MaxWorkingPlayerInvites)
+	return &Error{Code: CodeInvitesFull, Status: http.StatusConflict, Params: map[string]string{"max": n},
+		Msg: "This server already has " + n + " friend links that work.", Hint: "Turn one off on the Players tab, then make the new one."}
 }
 
 // RequestDecided is the refusal when someone else answered a join request
