@@ -176,6 +176,14 @@ control "chunk counts read region folders only" internal/agent/running.go \
   'e.Type().IsRegular() && path.Base(dir) == "region" && strings.HasSuffix(p, ".mca")' \
   'e.Type().IsRegular() && path.Base(dir) != "" && strings.HasSuffix(p, ".mca")' \
   ./internal/agent '^TestNewChunksComeFromRegionFiles$'
+control "a chunk count that can't list a folder is not kept" internal/agent/running.go \
+  'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
+  'if false {' \
+  ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
+control "nether and end folders missing beside the world don't void a chunk count" internal/agent/running.go \
+  'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
+  'if true {' \
+  ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'graceful := s.sawStopping && !s.sawCrash' \
   'graceful := s.sawStopping' \

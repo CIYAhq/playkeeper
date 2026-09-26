@@ -398,3 +398,52 @@ func TestNewChunksComeFromRegionFiles(t *testing.T) {
 		t.Fatal("counts that stopped coming say nothing about now")
 	}
 }
+
+// A chunk count that couldn't list the world's folders is not kept: a world
+// that is missing, or a folder the game replaced with a link, would count as
+// fewer chunks, and the next good count would look like a burst of new land.
+// Nether and end folders beside the world may be missing.
+func TestAChunkCountThatCannotListTheWorldIsNotKept(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	s := e.srv()
+	world := filepath.Join(e.dataDir(), "world")
+	if err := os.MkdirAll(filepath.Join(world, "region"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(world, "region", "r.0.0.mca"), regionHeader(40), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := s.countChunks("world"); !ok || n != 40 {
+		t.Fatalf("a world without nether and end folders beside it: %d %v, want 40", n, ok)
+	}
+
+	elsewhere := filepath.Join(e.dir, "elsewhere")
+	if err := os.MkdirAll(filepath.Join(elsewhere, "DIM-1", "region"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	nether := filepath.Join(e.dataDir(), "world_nether")
+	if err := os.Symlink(elsewhere, nether); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := s.countChunks("world"); ok {
+		t.Fatalf("a nether folder that is a link: counted %d chunks", n)
+	}
+	if err := os.Remove(nether); err != nil {
+		t.Fatal(err)
+	}
+
+	moved := filepath.Join(e.dir, "world-elsewhere")
+	if err := os.Rename(world, moved); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := s.countChunks("world"); ok {
+		t.Fatalf("a missing world: counted %d chunks", n)
+	}
+	if err := os.Symlink(moved, world); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := s.countChunks("world"); ok {
+		t.Fatalf("a world folder that is a link: counted %d chunks", n)
+	}
+}
