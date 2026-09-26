@@ -3078,9 +3078,9 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
   ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
 
 control "a failed lookup of a server's machine sends its requests to no machine, not the dashboard's own" internal/panel/workspace.go \
-  'err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
+  'Scan(&owner, &disputedBy)
 	if err != nil && !isNoRows(err) {' \
-  'err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
+  'Scan(&owner, &disputedBy)
 	if false && err != nil && !isNoRows(err) {' \
   ./internal/panel '^TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp$'
 control "a joined machine's servers still show when their record can't be written" internal/panel/machines.go \
