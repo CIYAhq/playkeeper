@@ -1525,6 +1525,7 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 			s.log.Warn("chown imported world", "err", err)
 		}
 	}
+	s.forgetDrawnMap()
 	sc := *prev
 	sc.Gameplay = gameplayFrom(p.Settings, prev.Gameplay)
 	if err := s.saveServerConfig(sc); err != nil {

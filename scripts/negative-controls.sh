@@ -2826,6 +2826,33 @@ control "turning the map off leaves the Plugins tab's squaremap and its folder" 
   'owned := len(rec.addons) > 0' \
   'owned := true' \
   ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "a replaced world's drawn map is deleted" internal/agent/worldimports.go \
+  '	s.forgetDrawnMap()
+' \
+  '' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "a replaced world is drawn again once it is online" internal/agent/maps.go \
+  'UPDATE maps SET first_render_at = NULL WHERE server_id = ?' \
+  'UPDATE maps SET first_render_at = first_render_at WHERE server_id = ?' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "an import leaves squaremap's folder alone while the map is off" internal/agent/maps.go \
+  '	if err != nil || rec == nil {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  '	if err != nil || rec == nil && false {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
 webcontrol() { # NAME FILE FROM TO TEST-FILE
   local name=$1 file=$2 test=$5
   ln -sfn "$root/web/node_modules" web/node_modules

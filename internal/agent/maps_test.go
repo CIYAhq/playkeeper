@@ -677,6 +677,60 @@ func TestTurningTheMapOffStopsSquaremapFirst(t *testing.T) {
 	}
 }
 
+// Replacing a world with the map on deletes what squaremap drew of the
+// previous world while the server is stopped, and draws the imported one
+// once it is online. With the map off, squaremap's folder isn't the Map
+// tab's to change.
+func TestAReplacedWorldIsDrawnAfresh(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		t.Run(map[bool]string{true: "the map on", false: "the map off"}[on], func(t *testing.T) {
+			e, _, _ := newMapEnv(t)
+			e.create()
+			if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+				t.Fatalf("enable: %+v", op)
+			}
+			e.waitFor("the first render", func() bool {
+				return e.countRows(`SELECT COUNT(*) FROM maps WHERE first_render_at IS NOT NULL`) == 1
+			})
+			if !on {
+				if op := e.mapOp("/map/disable", map[string]any{"deleteMap": false}); op.Status != api.OpSucceeded {
+					t.Fatalf("disable: %+v", op)
+				}
+			}
+			e.waitFor("online", e.onlineIdle)
+			squaremap := filepath.Join(e.dataDir(), "plugins", "squaremap")
+			drawn := []string{filepath.Join(squaremap, "web", "tiles", "minecraft_overworld", "3", "0_0.png"), filepath.Join(squaremap, "data", "minecraft_overworld", "regions.dat")}
+			for _, f := range drawn {
+				os.MkdirAll(filepath.Dir(f), 0o755)
+				os.WriteFile(f, []byte("the previous world"), 0o644)
+			}
+			archive, _ := paperServerUpload(t)
+			imp := e.uploadWorld(e.sp("/world-imports"), "paper-server.zip", archive)
+			phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
+			code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("apply: %d %v", code, out)
+			}
+			if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+				t.Fatalf("the import: %+v", op)
+			}
+			e.waitFor("online", e.onlineIdle)
+			for _, f := range drawn {
+				if _, err := os.Stat(f); (err == nil) == on {
+					t.Fatalf("%s there after the import: %v, want %v", f, err == nil, !on)
+				}
+			}
+			if !on {
+				return
+			}
+			e.waitFor("the imported world to be drawn", func() bool {
+				return e.rcon.count("squaremap fullrender minecraft:overworld") == 2 &&
+					e.countRows(`SELECT COUNT(*) FROM maps WHERE first_render_at IS NOT NULL`) == 1
+			})
+		})
+	}
+}
+
 // A map change that can't find out whether the server is running doesn't
 // claim to be live. With Docker not answering the look at the container,
 // turning the map on installs squaremap, then fails saying to restart, and

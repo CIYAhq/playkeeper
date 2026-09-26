@@ -920,6 +920,30 @@ func neededBy(installed []addons.Installed, rec addons.Installed) string {
 	return ""
 }
 
+// forgetDrawnMap deletes what squaremap drew of a world an import replaced,
+// while the server is stopped, and marks the map as not drawn yet, so no
+// land of the previous world stays on it and the first render draws the
+// imported world once it is online.
+func (s *server) forgetDrawnMap() {
+	rec, err := s.activeMap()
+	if err != nil || rec == nil {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range []string{l.Dir + "/web/tiles", l.Dir + "/data"} {
+		if err := removeInData(s.dataDir(), rel); err != nil {
+			s.log.Warn("could not delete the map of the replaced world", "server", s.id, "folder", rel, "err", err)
+		}
+	}
+	if _, err := s.db.Exec(`UPDATE maps SET first_render_at = NULL WHERE server_id = ?`, s.id); err != nil {
+		s.log.Warn("could not mark the map to be drawn again", "server", s.id, "err", err)
+	}
+	s.forgetMapLive()
+}
+
 // removeInData deletes rel inside the server's data directory without
 // following links out of it.
 func removeInData(dataDir, rel string) error {
