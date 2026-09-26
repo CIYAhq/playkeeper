@@ -687,6 +687,90 @@ func TestStageKeepsTheCurrentCopyOfADimension(t *testing.T) {
 	}
 }
 
+// A Nether or End downloaded on its own, like Aternos's extra zips, joins
+// its world in either layout: DIM-1 and DIM1 before 26.1, dimensions/
+// minecraft since. A world saved by 26.1 or newer takes it into
+// dimensions/minecraft, on Paper too. An older world can't take one saved
+// by 26.1 or newer, and says so instead of becoming two worlds.
+func TestSeparateNetherAndEndDownloadsJoinTheirWorld(t *testing.T) {
+	worlds := []struct {
+		name    string
+		modern  bool
+		files   []tf
+		targets []Target
+	}{
+		{"a world before 26.1", false,
+			[]tf{f("level.dat", levelDat(t, legacyLevel("world", "1.21.4", 4189))), f("region/r.0.0.mca", regionData+"overworld")},
+			[]Target{{Type: TypeVanilla, MinecraftVersion: "1.21.4"}, {Type: TypePaper, MinecraftVersion: "1.21.4"}}},
+		{"a world of 26.1 or newer", true,
+			[]tf{f("level.dat", levelDat(t, modernLevel("world", "26.2", 4903))), f("dimensions/minecraft/overworld/region/r.0.0.mca", regionData+"overworld")},
+			[]Target{{Type: TypeVanilla, MinecraftVersion: "26.2"}, {Type: TypePaper, MinecraftVersion: "26.2"}}},
+	}
+	dims := []struct {
+		id, legacy, suffix string
+	}{
+		{dimNether, "DIM-1", "_nether"},
+		{dimEnd, "DIM1", "_the_end"},
+	}
+	layouts := []struct {
+		name   string
+		modern bool
+	}{{"older layout", false}, {"26.1 layout", true}}
+	for _, w := range worlds {
+		for _, d := range dims {
+			for _, l := range layouts {
+				for _, withLevel := range []bool{true, false} {
+					folder, level := d.legacy, legacyLevel("world", "1.21.4", 4189)
+					if l.modern {
+						folder, level = modernFolder(d.id), modernLevel("world", "26.2", 4903)
+					}
+					name := fmt.Sprintf("%s, %s in the %s", w.name, strings.TrimPrefix(dimName(d.id), "the "), l.name)
+					if !withLevel {
+						name += " without level.dat"
+					}
+					t.Run(name, func(t *testing.T) {
+						zip := "world" + d.suffix + ".zip"
+						extra := []tf{f(folder+"/region/r.0.0.mca", regionData+"extra")}
+						if withLevel {
+							extra = append(extra, f("level.dat", levelDat(t, level)))
+						}
+						in := inspect(t, Limits{}, upload(t, "world.zip", zipBytes(t, w.files)), upload(t, zip, zipBytes(t, extra)))
+						got := onlyWorld(t, in)
+						if !equalLists(got.Companions, []string{zip}) || !equalLists(got.Dimensions, []string{dimOverworld, d.id}) {
+							t.Fatalf("world %+v", got)
+						}
+						for _, target := range w.targets {
+							p, err := in.Plan(target, Options{})
+							if err != nil {
+								t.Fatal(err)
+							}
+							if !w.modern && l.modern {
+								if !equalLists(kinds(p.Problems), []string{KindMixedLayout}) || p.Problems[0].Params["dimension"] != d.id {
+									t.Errorf("%s: problems %+v", target.Type, p.Problems)
+								}
+								continue
+							}
+							if len(p.Problems) != 0 {
+								t.Fatalf("%s: problems %+v", target.Type, p.Problems)
+							}
+							want := "world/" + folder + "/region/r.0.0.mca"
+							switch {
+							case w.modern:
+								want = "world/" + modernFolder(d.id) + "/region/r.0.0.mca"
+							case target.Type == TypePaper:
+								want = "world" + d.suffix + "/" + folder + "/region/r.0.0.mca"
+							}
+							if _, staged := stageTo(t, in, target, Options{}); staged[want] != regionData+"extra" {
+								t.Errorf("%s: staged %v, want %s", target.Type, sortedKeys(staged), want)
+							}
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
 func indexOfKind(ms []Message, kind string) int {
 	for i, m := range ms {
 		if m.Kind == kind {

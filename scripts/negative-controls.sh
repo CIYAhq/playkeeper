@@ -1983,6 +1983,41 @@ control "turning the map off keeps what another add-on needs" internal/agent/map
   'if parent := neededBy(others, rec); parent != "" {' \
   'if parent := neededBy(others, rec); false && parent != "" {' \
   ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "a Nether or End downloaded in the 26.1 layout joins its world" internal/worldimport/detect.go \
+  'case d.id == dimNether && (d.folder == "DIM-1" || d.folder == modernFolder(dimNether)):' \
+  'case d.id == dimNether && d.folder == "DIM-1":' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a Nether or End in the 26.1 layout without level.dat joins its world" internal/worldimport/detect.go \
+  '		{id: dimNether, folder: modernFolder(dimNether), suffix: "_nether"},
+' \
+  '' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a separate dimension joins a 26.1 world instead of blocking it" internal/worldimport/plan.go \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			}
+		}
+	} else {' \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			} else {
+				pl.spigotLayout()
+			}
+		}
+	} else {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world takes an older Nether or End into dimensions/minecraft" internal/worldimport/plan.go \
+  'if pl.modern && legacyFolder(c.folder) {' \
+  'if false && pl.modern && legacyFolder(c.folder) {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world merges its Nether and End on Paper too" internal/worldimport/plan.go \
+  'case pl.fam == familyBukkit && !pl.modern:' \
+  'case pl.fam == familyBukkit:' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "an older world refuses a Nether or End saved by 26.1" internal/worldimport/plan.go \
+  'if vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  'if false && vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
 control "a world no version can load yet is offered none" internal/agent/worldimports.go \
   '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
 		}

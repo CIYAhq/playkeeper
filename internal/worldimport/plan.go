@@ -332,13 +332,13 @@ func (pl *planner) analyze() {
 					"dimension", d.id))
 			}
 		}
+		// A separate Nether, End or custom dimension merges into the world's
+		// own layout (see companionFile), unless the world holds its own copy.
 		for _, c := range w.comps {
 			if kept, ok := modernHas[c.id]; ok {
 				pl.staleComp[c.path] = true
 				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
-				continue
 			}
-			pl.spigotLayout()
 		}
 	} else {
 		for _, d := range w.dims {
@@ -349,6 +349,12 @@ func (pl *planner) analyze() {
 			}
 		}
 		for _, c := range w.comps {
+			if vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",
+					fmt.Sprintf("This world was saved by a Minecraft version older than 26.1, but %s in %s was saved by 26.1 or newer. Playkeeper can't combine them.", dimName(c.id), quoted(pl.in.display(c.path))),
+					"dimension", c.id))
+				continue
+			}
 			for _, d := range w.dims {
 				if d.id == c.id {
 					pl.staleMainDim(d, pl.in.display(c.path))
@@ -531,9 +537,15 @@ func (pl *planner) companionFile(i int, c *companion, rel string) {
 		pl.leave(LeftSessionLock, i)
 	case pl.staleComp[c.path]:
 		pl.leave(LeftStaleCopies, i)
-	case pl.fam == familyBukkit:
+	case pl.fam == familyBukkit && !pl.modern:
 		pl.keep(i, L+c.suffix+"/"+rel, roleWorld)
 	case rel == c.folder || strings.HasPrefix(rel, c.folder+"/"):
+		// A world saved by 26.1 or newer keeps the Nether and the End in
+		// dimensions/minecraft, even on Paper; one downloaded from an older
+		// layout moves there.
+		if pl.modern && legacyFolder(c.folder) {
+			rel = modernFolder(c.id) + strings.TrimPrefix(rel, c.folder)
+		}
 		pl.keep(i, L+"/"+rel, roleWorld)
 	default:
 		pl.leave(LeftCompanionFiles, i)
@@ -854,7 +866,7 @@ func (pl *planner) warnings(terrain, opsKept bool) {
 				fmt.Sprintf("Playkeeper treats %s as %s of this world because it is the only world in the upload.", quoted(pl.in.display(c.path)), dimName(c.id)),
 				"folder", clip(pl.in.display(c.path)), "dimension", c.id))
 		}
-		if pl.fam != familyBukkit && !pl.staleComp[c.path] {
+		if (pl.fam != familyBukkit || pl.modern) && !pl.staleComp[c.path] {
 			merged = append(merged, pl.in.display(c.path))
 		}
 	}

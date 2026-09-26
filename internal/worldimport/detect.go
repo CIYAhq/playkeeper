@@ -376,9 +376,16 @@ func dimName(id string) string {
 	return id
 }
 
+// modernFolder is the folder Minecraft 26.1 and newer keep dimension id in.
+func modernFolder(id string) string {
+	ns, p, _ := strings.Cut(id, ":")
+	return "dimensions/" + ns + "/" + p
+}
+
 // companionOf recognises a folder that holds nothing but one Nether, End or
 // custom dimension, like the world_nether and world_the_end folders of a
-// Paper or Spigot server.
+// Paper or Spigot server, or a Nether or End downloaded on its own, in
+// either layout.
 func companionOf(c *candidate) *companion {
 	if len(c.dims) != 1 {
 		return nil
@@ -386,9 +393,9 @@ func companionOf(c *candidate) *companion {
 	d := c.dims[0]
 	var suffix string
 	switch {
-	case d.folder == "DIM-1":
+	case d.id == dimNether && (d.folder == "DIM-1" || d.folder == modernFolder(dimNether)):
 		suffix = "_nether"
-	case d.folder == "DIM1":
+	case d.id == dimEnd && (d.folder == "DIM1" || d.folder == modernFolder(dimEnd)):
 		suffix = "_the_end"
 	case strings.HasPrefix(d.folder, "dimensions/") && !vanillaDim(d.id):
 		ns, p, _ := strings.Cut(d.id, ":")
@@ -461,12 +468,19 @@ func (w *World) hasDim(id string) bool {
 }
 
 // looseCompanions attaches world_nether and world_the_end folders that came
-// without a level.dat, such as a Nether downloaded on its own.
+// without a level.dat, such as a Nether downloaded on its own, in either
+// layout.
 func (in *Inspection) looseCompanions(worlds []*World) {
+	markers := []companion{
+		{id: dimNether, folder: "DIM-1", suffix: "_nether"},
+		{id: dimEnd, folder: "DIM1", suffix: "_the_end"},
+		{id: dimNether, folder: modernFolder(dimNether), suffix: "_nether"},
+		{id: dimEnd, folder: modernFolder(dimEnd), suffix: "_the_end"},
+	}
 	seen := map[string]bool{}
 	for _, e := range in.ix.entries {
-		for _, marker := range []string{"/DIM-1/", "/DIM1/"} {
-			i := strings.Index(e.name, marker)
+		for _, m := range markers {
+			i := strings.Index(e.name, "/"+m.folder+"/")
 			if i < 0 {
 				continue
 			}
@@ -475,10 +489,7 @@ func (in *Inspection) looseCompanions(worlds []*World) {
 				continue
 			}
 			seen[p] = true
-			c := &companion{path: p, id: dimNether, folder: "DIM-1", suffix: "_nether"}
-			if marker == "/DIM1/" {
-				c.id, c.folder, c.suffix = dimEnd, "DIM1", "_the_end"
-			}
+			c := &companion{path: p, id: m.id, folder: m.folder, suffix: m.suffix}
 			if w := pairByName(worlds, c); w != nil {
 				w.comps = append(w.comps, *c)
 				in.roots[p] = true
