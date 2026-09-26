@@ -3485,6 +3485,38 @@ control "a sleeping server started outside Playkeeper lets go of the stand-in" i
 		s.endSleepPeriod(s.now().UTC(), "")
 		return' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^started_outside_Playkeeper$'
+control "pruning leaves the copies alone while one is being downloaded" internal/agent/offsite.go \
+  '	if !s.copyReads.TryLock() {
+		s.log.Info("a copy is being downloaded, so the backup rules delete copies after the next one", "server", s.id)
+		return
+	}
+	defer s.copyReads.Unlock()
+' \
+  '' \
+  ./internal/agent '^TestPruningLeavesACopyThatIsBeingDownloaded$/^a_restore_is_downloading_it$'
+control "a restore from a copy holds the copy downloads' lock" internal/agent/offsite.go \
+  '	s.copyReads.RLock()
+	got, err := dest.Download(ctx, dl)
+	s.copyReads.RUnlock()' \
+  '	got, err := dest.Download(ctx, dl)' \
+  ./internal/agent '^TestPruningLeavesACopyThatIsBeingDownloaded$/^a_restore_is_downloading_it$'
+control "a join's wake waits for the operation however long it runs" internal/agent/sleeping.go \
+  '	for {
+		if s.ctx.Err() != nil || s.desired() != api.DesiredSleeping {
+			return
+		}
+		_, err := s.beginOp("wake"' \
+  '	giveUp := time.Now().Add(wakeRetry)
+	for {
+		if s.ctx.Err() != nil || s.desired() != api.DesiredSleeping || time.Now().After(giveUp) {
+			return
+		}
+		_, err := s.beginOp("wake"' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup_that_outlasts_its_retries$'
+control "one join's wake waits at a time" internal/agent/sleeping.go \
+  '	if s.auto.wakePending {' \
+  '	if false && s.auto.wakePending {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup_that_outlasts_its_retries$'
 control "a wake whose start stopped the server leaves it stopped" internal/agent/sleeping.go \
   'if d := s.desired(); d != api.DesiredRunning && d != api.DesiredSleeping {
 				s.leaveSleep()' \
