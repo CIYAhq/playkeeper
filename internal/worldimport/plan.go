@@ -678,7 +678,7 @@ func (pl *planner) finish() error {
 		if e.size > lim.MaxFileBytes && tooLarge == nil {
 			tooLarge = &e
 		}
-		if e.csize >= 0 && e.size > 1<<20 && e.size/lim.MaxRatio > e.csize {
+		if e.csize >= 0 && e.size > entryAllowance(e.csize, lim.MaxRatio) {
 			return ratioError(ix.arcs[e.arc].Name, lim.MaxRatio)
 		}
 		top, inside, _ := strings.Cut(op.dest, "/")

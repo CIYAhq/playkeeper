@@ -14,7 +14,10 @@ import (
 // DNSChallenger publishes the TXT records of DNS-01 checks. fqdn is the
 // record's name without a trailing dot, such as
 // _acme-challenge.alex.playkeeper.io. Errors are shown to the admin, so they
-// must not contain secrets; a *Problem from SetTXT is kept as it is.
+// must not contain secrets; a *Problem from SetTXT is kept as it is. An
+// error from SetTXT with a Pending method that reports true means the record
+// was stored but is not published yet: it is waited for like a published
+// one and removed only if it does not show up in time.
 type DNSChallenger interface {
 	SetTXT(ctx context.Context, fqdn, value string) error
 	ClearTXT(ctx context.Context, fqdn, value string) error
@@ -50,7 +53,7 @@ func (d *DNS01) present(ctx context.Context, name, value string) (func(), error)
 		defer cancel()
 		d.Challenger.ClearTXT(cctx, fqdn, value)
 	}
-	if err := d.Challenger.SetTXT(ctx, fqdn, value); err != nil {
+	if err := d.Challenger.SetTXT(ctx, fqdn, value); err != nil && !pending(err) {
 		remove()
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -65,6 +68,13 @@ func (d *DNS01) present(ctx context.Context, name, value string) (func(), error)
 		return nil, err
 	}
 	return remove, nil
+}
+
+// pending reports whether a SetTXT error says the record was stored but is
+// not published yet.
+func pending(err error) bool {
+	var p interface{ Pending() bool }
+	return errors.As(err, &p) && p.Pending()
 }
 
 func (d *DNS01) wait(ctx context.Context, fqdn, value string, params map[string]string) error {

@@ -179,6 +179,8 @@ export interface ServerStatus {
   lastKnownAt?: string
   /** Two joined machines list this server, so the dashboard sends its requests to neither. */
   disputed?: boolean
+  /** A joined machine lists this server, but the dashboard couldn't save that yet, so its requests are refused with "try again" until it can. */
+  unsaved?: boolean
   /** A backup left world saving off since then; Playkeeper keeps turning it back on. */
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */

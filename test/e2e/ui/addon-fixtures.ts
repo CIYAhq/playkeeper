@@ -10,10 +10,13 @@ import { deflateSync } from 'node:zlib'
 // with no add-ons: its folder and checks, the library's cards and each card's
 // details, trimmed to the fields the dashboard reads (release notes left
 // out). A search answers from those cards as though they were all each
-// source lists, so there is never a second page. Details, plans and the jobs
-// that follow them are worked out against the folder the Plugins tab last
-// showed, the way the agent does, and icons are drawn here. A read nothing
-// was recorded for gets no answer, and the harness reports it.
+// source lists, so there is never a second page. The library's picks are
+// Playkeeper's list for Paper (curated.json, from internal/curated), each
+// with its recorded card, and voice chat's UDP port is the one the agent
+// offers on a machine where no server has it yet. Details, plans and the
+// jobs that follow them are worked out against the folder the Plugins tab
+// last showed, the way the agent does, and icons are drawn here. A read
+// nothing was recorded for gets no answer, and the harness reports it.
 
 type Json = Record<string, unknown>
 
@@ -90,6 +93,19 @@ interface Addon extends Key {
   dependencyOf?: string
 }
 
+interface Port {
+  protocol: string
+  port: number
+}
+
+/** One of Playkeeper's picks (api.CuratedAddon), less its card. */
+interface Pick extends Key {
+  id: string
+  permission?: string
+  /** The ports it needs of its own, with the numbers the agent would open. */
+  ports?: Port[]
+}
+
 /** A record as the folder shows it: its file changed since it was installed, or gone. */
 interface Kept {
   rec: Addon
@@ -122,6 +138,7 @@ const recorded = {
   checks: load('checks.json') as Json,
   cards: (load('search.json') as { cards: Card[] }).cards,
   details: load('details.json') as Record<string, Details>,
+  picks: load('curated.json') as Pick[],
 }
 
 /** Whether a request only reads a server's add-ons: a GET under addons/, or what an update would do. */
@@ -144,7 +161,8 @@ export function answerRead(method: string, url: URL, body: unknown, world: World
   if (rest === '') return json(200, recordedFolder())
   if (rest === '/checks') return json(200, { ...structuredClone(recorded.checks), checkedAt: new Date().toISOString() })
   if (rest === '/search') return search(url.searchParams, world)
-  if (rest === '/icon') return icon(url.searchParams.get('url') ?? '')
+  if (rest === '/curated') return curated(world)
+  if (rest === '/icon') return iconAnswer(url.searchParams.get('url') ?? '')
   const project = /^\/project\/([^/]+)\/([^/]+)(\/removal)?$/.exec(rest)
   if (!project) return undefined
   const key = { source: pathValue(project[1] ?? ''), projectId: pathValue(project[2] ?? '') }
@@ -161,16 +179,24 @@ export function addonKeyProblem(k: unknown): string | undefined {
   return undefined
 }
 
-/** An install the dashboard confirmed (hAddonInstall, then Library.Install in the job); undefined when the add-on's details weren't recorded. */
+/**
+ * An install the dashboard confirmed (hAddonInstall, then Library.Install in
+ * the job); undefined when the add-on's details weren't recorded. With
+ * `start`, a stopped server starts once the add-on is in place (Wave 3's
+ * crash screen); an add-on that needs a port of its own installs only with
+ * `openPorts`, and its job opens the port and restarts a running server.
+ */
 export function installJob(body: unknown, world: World): JobStart | undefined {
-  const req = decode(body, ['source', 'projectId', 'fingerprint', 'actor'])
+  const req = decode(body, ['source', 'projectId', 'fingerprint', 'openPorts', 'actor', 'start'])
   if ('refused' in req) return req
-  const { source, projectId, fingerprint } = req.ok
-  if (!isText(source) || !isText(projectId) || !isText(fingerprint)) return { refused: invalid('Invalid request body.') }
+  const { source, projectId, fingerprint, openPorts, start } = req.ok
+  if (!isText(source) || !isText(projectId) || !isText(fingerprint) || !isFlag(openPorts) || !isFlag(start)) return { refused: invalid('Invalid request body.') }
   const problem = addonKeyProblem(req.ok)
   if (problem) return { refused: invalid(problem) }
   if (!confirmed(fingerprint)) return { refused: notConfirmed() }
   const key = { source: String(source), projectId: String(projectId) }
+  const ports = portsOf(key)
+  if (ports && openPorts !== true) return { refused: invalid('Voice chat needs a UDP port of its own, so Playkeeper installs it only when it may open that port too.') }
   const d = recorded.details[id(key)]
   if (!d) return undefined
   const rec = kept(world).find((k) => sameKey(k.rec, key))?.rec
@@ -179,7 +205,11 @@ export function installJob(body: unknown, world: World): JobStart | undefined {
   if (!d.latest) return undefined
   const planned = d.latest.externalUrl ? { plan: sealed({ steps: [], manual: [external(d.card.name, d.latest, folderName(world))], blockers: [], warnings: [] }) } : installPlan(d, world)
   if (!planned) return undefined
-  return { ends: 'notice' in planned ? failed(planned.notice) : applied(planned.plan, String(fingerprint), world) }
+  if ('notice' in planned) return { ends: failed(planned.notice) }
+  const ends = applied(planned.plan, String(fingerprint), world, start === true)
+  const port = ports?.[0]?.port
+  // installVoiceChat: the port is open before the add-on installs, and the server is restarted to publish it.
+  return { ends: port && ends.status === 'succeeded' ? { ...ends, detail: { ...(ends.detail as Json), voiceChatPort: port, restartNeeded: false } } : ends }
 }
 
 /** An update the dashboard confirmed (hAddonUpdate, then Library.Update in the job); undefined when an add-on's details weren't recorded. */
@@ -188,7 +218,7 @@ export function updateJob(body: unknown, world: World): JobStart | undefined {
   if ('refused' in req) return req
   const planned = planUpdate(req.ok, world)
   if (!planned) return undefined
-  return { ends: 'notice' in planned ? failed(planned.notice) : applied(planned.plan, req.ok.fingerprint, world) }
+  return { ends: 'notice' in planned ? failed(planned.notice) : applied(planned.plan, req.ok.fingerprint, world, req.ok.start) }
 }
 
 // Reads.
@@ -266,6 +296,22 @@ function merged(lists: Card[][], sort: string): Card[] {
 const byDownloads = (a: Card, b: Card) => b.downloads - a.downloads
 const byUpdated = (a: Card, b: Card) => Date.parse(b.updated) - Date.parse(a.updated)
 
+/** Playkeeper's picks that have a version for the server, in the list's order (hAddonCurated). */
+function curated(world: World): Answer {
+  const records = kept(world)
+  const picks = recorded.picks.flatMap((p) => {
+    const d = recorded.details[id(p)]
+    if (!d?.latest || d.notice) return []
+    return [{ id: p.id, card: { ...structuredClone(d.card), installed: records.some((k) => sameProject(k.rec, d.card)) }, permission: p.permission, ports: p.ports }]
+  })
+  return json(200, { picks })
+}
+
+/** The ports an add-on needs of its own, with the numbers the agent would open (addonPorts); undefined for most. */
+function portsOf(key: Key): Port[] | undefined {
+  return recorded.picks.find((p) => sameKey(p, key))?.ports
+}
+
 /** One add-on's detail sheet (hAddonDetails). */
 function details(key: Key, world: World): Answer | undefined {
   const asked = recorded.details[id(key)]
@@ -276,7 +322,7 @@ function details(key: Key, world: World): Answer | undefined {
   const d = k && !sameKey(k.rec, asked.card) ? recorded.details[id(k.rec)] : asked
   if (!d) return undefined
   const latest = d.notice ? undefined : d.latest
-  const out = { card: { ...d.card, installed: records.some((x) => sameProject(x.rec, d.card)) }, latest, notice: d.notice }
+  const out = { card: { ...d.card, installed: records.some((x) => sameProject(x.rec, d.card)) }, latest, notice: d.notice, ports: portsOf(key) }
   if (k) {
     const updateAvailable = !!latest && !latest.externalUrl && newer(latest, k.rec)
     return json(200, { ...out, installed: k.rec, changed: k.modified || undefined, missing: k.gone || undefined, updateAvailable: updateAvailable || undefined })
@@ -311,8 +357,8 @@ function updatePlan(body: unknown, world: World): Answer | undefined {
 
 const iconHosts = ['cdn.modrinth.com', 'hangarcdn.papermc.io']
 
-/** The icon proxy (the panel's hAddonIcon, the agent's, Library.FetchIcon), drawing a stand-in for what the address would fetch. */
-function icon(raw: string): Answer {
+/** The icon proxy of add-ons and modpacks (the panel's hAddonIcon, the agent's, Library.FetchIcon), drawing a stand-in for what the address would fetch. */
+export function iconAnswer(raw: string): Answer {
   if (!raw || Buffer.byteLength(raw) > 2048) return invalid('invalid icon address')
   let u: URL | undefined
   try {
@@ -350,6 +396,7 @@ interface UpdateRequest {
   keys: Key[]
   changed: boolean
   fingerprint: string
+  start: boolean
 }
 
 /**
@@ -417,14 +464,14 @@ function fingerprint(p: Unsealed): string {
   return createHash('sha256').update(JSON.stringify({ steps, manual: p.manual, blockers: p.blockers })).digest('hex').slice(0, 32)
 }
 
-/** How a confirmed job ends once it has its plan (Library.apply, the agent's installAddons). */
-function applied(p: Plan, confirmedAs: string, world: World): Json {
+/** How a confirmed job ends once it has its plan (Library.apply, the agent's addonJob); with start, a stopped server is started rather than left to restart. */
+function applied(p: Plan, confirmedAs: string, world: World, start: boolean): Json {
   if (confirmedAs !== p.fingerprint) return failed({ kind: 'plan_changed', message: 'What this would do has changed since you confirmed it.', hint: 'Review the new plan and confirm again.' })
   const blocker = p.blockers[0]
   if (blocker) return failed(blocker)
   if (p.steps.length === 0) return failed(p.manual[0] ?? { kind: 'up_to_date', message: 'There is nothing to install.' })
   const files = p.steps.map((s) => ({ name: s.name, versionNumber: s.versionNumber, was: s.was, neededBy: s.neededBy, size: s.size, received: s.size, state: 'verified' }))
-  return { status: 'succeeded', phase: 'downloading', detail: { files, manual: p.manual.length > 0 ? p.manual : undefined, restartNeeded: world.running } }
+  return { status: 'succeeded', phase: 'downloading', detail: { files, manual: p.manual.length > 0 ? p.manual : undefined, restartNeeded: start && !world.running ? undefined : world.running } }
 }
 
 /** A job that failed while planning, as the agent records it: the notice's message and hint, and the notice without its link. */
@@ -468,12 +515,12 @@ function decode(body: unknown, allowed: string[]): { ok: Json } | { refused: Ans
   return unknown === undefined ? { ok: body as Json } : { refused: invalid(`Invalid request body: json: unknown field "${unknown}"`) }
 }
 
-/** An update or its plan as the agent reads it (updateKeys, confirmedPlan). */
+/** An update or its plan as the agent reads it (updateKeys, confirmedPlan); only the update itself may start a stopped server. */
 function updateRequest(body: unknown, confirming: boolean): { ok: UpdateRequest } | { refused: Answer } {
-  const req = decode(body, confirming ? ['addons', 'changed', 'fingerprint', 'actor'] : ['addons', 'changed', 'actor'])
+  const req = decode(body, confirming ? ['addons', 'changed', 'fingerprint', 'actor', 'start'] : ['addons', 'changed', 'actor'])
   if ('refused' in req) return req
-  const { addons, changed, fingerprint } = req.ok
-  if ((addons != null && !Array.isArray(addons)) || (changed != null && typeof changed !== 'boolean') || !isText(fingerprint)) return { refused: invalid('Invalid request body.') }
+  const { addons, changed, fingerprint, start } = req.ok
+  if ((addons != null && !Array.isArray(addons)) || !isFlag(changed) || !isText(fingerprint) || !isFlag(start)) return { refused: invalid('Invalid request body.') }
   const keys = (addons ?? []) as unknown[]
   if (keys.length > 200) return { refused: invalid('At most 200 add-ons can be updated at once.') }
   for (const k of keys) {
@@ -484,12 +531,17 @@ function updateRequest(body: unknown, confirming: boolean): { ok: UpdateRequest 
     if (problem) return { refused: invalid(problem) }
   }
   if (confirming && !confirmed(fingerprint)) return { refused: notConfirmed() }
-  return { ok: { keys: keys as Key[], changed: changed === true, fingerprint: String(fingerprint ?? '') } }
+  return { ok: { keys: keys as Key[], changed: changed === true, fingerprint: String(fingerprint ?? ''), start: start === true } }
 }
 
 /** A JSON string field, or one left out or null, which Go decodes as empty. */
 function isText(v: unknown): boolean {
   return v == null || typeof v === 'string'
+}
+
+/** A JSON boolean field, or one left out or null, which Go decodes as false. */
+function isFlag(v: unknown): boolean {
+  return v == null || typeof v === 'boolean'
 }
 
 /** An install or update carries the fingerprint of the plan the user confirmed (confirmedPlan). */
@@ -503,11 +555,11 @@ function notConfirmed(): Answer {
 
 // Answers.
 
-function json(status: number, body: unknown): Answer {
+export function json(status: number, body: unknown): Answer {
   return { status, body, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
 }
 
-function invalid(error: string): Answer {
+export function invalid(error: string): Answer {
   return json(400, { error, code: 'invalid_request' })
 }
 

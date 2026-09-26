@@ -69,6 +69,9 @@ type fakes struct {
 	offHosts []string
 	cfMods   map[int64]obj
 	cfFiles  map[int64]obj
+	// handedOut holds the addresses given out on the file hosts, by host and
+	// path, served or not; url adds to it with or without mu held.
+	handedOut sync.Map
 }
 
 type request struct {
@@ -93,6 +96,9 @@ func newFakes(t *testing.T) *fakes {
 	f.github = httptest.NewTLSServer(http.HandlerFunc(f.serveGitHub))
 	f.assets = httptest.NewTLSServer(http.HandlerFunc(f.serveFiles("assets")))
 	f.evil = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f.foreign("evil", w, r) {
+			return
+		}
 		f.mu.Lock()
 		f.evilHits++
 		f.mu.Unlock()
@@ -171,6 +177,7 @@ func (f *fakes) loadModrinth() {
 				if folder := folders[str(v["id"])]; folder != "" {
 					setSums(file, "size", f.put(f.cdn, u.Path, f.folderPack(folder)))
 				}
+				f.handedOut.Store(host(f.cdn)+u.Path, true)
 				file["url"] = f.cdn.URL + u.EscapedPath()
 			}
 			f.versions[str(v["id"])] = v
@@ -256,6 +263,7 @@ func (f *fakes) put(s *httptest.Server, p string, data []byte) []byte {
 
 // url is the address of path on s.
 func (f *fakes) url(s *httptest.Server, p string) string {
+	f.handedOut.Store(host(s)+p, true)
 	return s.URL + (&url.URL{Path: p}).EscapedPath()
 }
 
@@ -371,7 +379,36 @@ func (f *fakes) hook(p string, h http.HandlerFunc) {
 	f.hooks[p] = h
 }
 
+// foreign fails the test on a request for nothing the service serves or a
+// test gave out an address for, and answers it 404, so it isn't counted
+// with the fakes' requests. Such a request comes from another package's
+// test that found one of these servers on a port it had just closed.
+func (f *fakes) foreign(service string, w http.ResponseWriter, r *http.Request) bool {
+	owned := false
+	switch service {
+	case "modrinth":
+		owned = strings.HasPrefix(r.URL.Path, "/v2/")
+	case "curseforge":
+		owned = strings.HasPrefix(r.URL.Path, "/v1/")
+	default:
+		_, owned = f.handedOut.Load(r.Host + r.URL.Path)
+		f.mu.Lock()
+		_, served := f.files[r.Host+r.URL.Path]
+		owned = owned || served || f.hooks[r.URL.Path] != nil
+		f.mu.Unlock()
+	}
+	if owned {
+		return false
+	}
+	f.t.Errorf("the fake %s got %s %s, an address no test gave out: a request from another package's test, on a port it closed and this server reused?", service, r.Method, r.URL.Path)
+	http.NotFound(w, r)
+	return true
+}
+
 func (f *fakes) serveModrinth(w http.ResponseWriter, r *http.Request) {
+	if f.foreign("modrinth", w, r) {
+		return
+	}
 	f.log("modrinth", r)
 	f.mu.Lock()
 	hook := f.hooks["modrinth "+r.URL.Path]
@@ -428,6 +465,9 @@ func overlaps(have, want []string) bool {
 
 func (f *fakes) serveFiles(service string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if f.foreign(service, w, r) {
+			return
+		}
 		f.log(service, r)
 		f.mu.Lock()
 		hook := f.hooks[r.URL.Path]
@@ -448,6 +488,9 @@ func (f *fakes) serveFiles(service string) http.HandlerFunc {
 // serveGitHub redirects /release/<path> to <path> on the assets host and
 // /elsewhere/<path> to the evil host, like GitHub's release downloads.
 func (f *fakes) serveGitHub(w http.ResponseWriter, r *http.Request) {
+	if f.foreign("github", w, r) {
+		return
+	}
 	f.log("github", r)
 	if rest, ok := strings.CutPrefix(r.URL.Path, "/release"); ok {
 		http.Redirect(w, r, f.url(f.assets, rest), http.StatusFound)
@@ -604,6 +647,9 @@ func (f *fakes) cfServe(id int64, data []byte) {
 }
 
 func (f *fakes) serveCurseForge(w http.ResponseWriter, r *http.Request) {
+	if f.foreign("curseforge", w, r) {
+		return
+	}
 	body := f.log("curseforge", r)
 	if r.Header.Get("x-api-key") != testKey {
 		w.WriteHeader(http.StatusForbidden)

@@ -81,7 +81,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 	// Fields the panel adds to what the agent sends, and rttMs, which
 	// machinelink.Status's MarshalJSON adds.
 	addedByPanel := map[string]bool{
-		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true,
+		"ServerStatus.machineId": true, "ServerStatus.lastKnownAt": true, "ServerStatus.disputed": true, "ServerStatus.unsaved": true,
 		"AuditEntry.source": true, "AuditEntry.machineId": true, "AuditEntry.actorKind": true, "AuditEntry.actorName": true,
 		"Activity.actorKind": true, "Activity.actorName": true, "MachineLink.rttMs": true,
 	}

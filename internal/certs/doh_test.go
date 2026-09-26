@@ -148,11 +148,19 @@ func TestPublicResolverFailover(t *testing.T) {
 		http.Error(w, "overloaded", http.StatusServiceUnavailable)
 	}))
 	defer brokenSrv.Close()
-	closed := httptest.NewTLSServer(http.NotFoundHandler())
-	closedURL := closed.URL
-	closed.Close()
+	// An endpoint that hangs up without answering. A closed server's port
+	// won't do: another package's test, run in parallel, can take it and answer.
+	hangsUp := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("the endpoint could not hang up: %v", err)
+			return
+		}
+		conn.Close()
+	}))
+	defer hangsUp.Close()
 
-	r := PublicResolver{Endpoints: []string{brokenSrv.URL, closedURL, goodSrv.URL}, Client: goodSrv.Client()}
+	r := PublicResolver{Endpoints: []string{brokenSrv.URL, hangsUp.URL, goodSrv.URL}, Client: goodSrv.Client()}
 	if addrs, err := r.LookupNetIP(ctx, "ip4", "www.github.com"); err != nil || len(addrs) != 1 {
 		t.Fatalf("failover lookup = %v, %v", addrs, err)
 	}
@@ -170,7 +178,7 @@ func TestPublicResolverFailover(t *testing.T) {
 		t.Errorf("a final answer was asked again: %d, %d", nx.count(), later.count())
 	}
 
-	r = PublicResolver{Endpoints: []string{brokenSrv.URL, closedURL}, Client: goodSrv.Client()}
+	r = PublicResolver{Endpoints: []string{brokenSrv.URL, hangsUp.URL}, Client: goodSrv.Client()}
 	_, err := r.LookupTXT(ctx, "example.com")
 	if err == nil || !strings.Contains(err.Error(), "could not reach") {
 		t.Errorf("all endpoints down = %v, want the last endpoint's error", err)
