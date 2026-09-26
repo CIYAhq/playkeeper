@@ -19,6 +19,7 @@ import { OwnSteps } from './own'
 import {
   aliveCheckPort,
   CertificateNotice,
+  certProblemText,
   ConfirmDialog,
   CopyIconButton,
   dashboardRow,
@@ -603,11 +604,13 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
       <DoneView
         header={header}
         notices={
-          <>
-            <UnreachableNotice a={a} />
-            <ServersWaitNotice a={a} machine={machine} />
+          certProblemText(a, now) ? (
             <CertificateNotice a={a} now={now} busy={busy === 'certificate'} onRetry={() => void act('certificate')} />
-          </>
+          ) : a.names.unreachable ? (
+            <UnreachableNotice />
+          ) : (
+            <ServersWaitNotice a={a} machine={machine} />
+          )
         }
         rows={rows}
         ip={a.ip}

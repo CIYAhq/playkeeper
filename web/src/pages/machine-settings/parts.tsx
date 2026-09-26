@@ -241,12 +241,12 @@ export function CertificateNotice({ a, now, busy, onRetry }: { a: Address; now: 
   )
 }
 
-export function UnreachableNotice({ a }: { a: Address }) {
-  if (!a.names.unreachable) return null
+/** A working free address while the names service doesn't answer: one quiet line, since nothing needs doing. */
+export function UnreachableNotice() {
   return (
-    <Notice tone="warning" stacked title={t('address.unreachable')} className="mt-4">
-      {t('address.unreachableKeep')}
-    </Notice>
+    <p className="mt-4 text-[13px] text-muted-foreground" role="status">
+      {t('address.namesDown')}
+    </p>
   )
 }
 

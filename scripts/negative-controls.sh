@@ -1894,6 +1894,18 @@ webcontrol "free addresses: names that can't be had now show as a preview only" 
   'const preview = !name || unavailable' \
   'const preview = !name' \
   web/src/pages/machine-settings/address.test.tsx 'one quiet line'
+webcontrol "free addresses: a working name says the service isn't answering" web/src/pages/machine-settings/free.tsx \
+  ') : a.names.unreachable ? (' \
+  ') : false ? (' \
+  web/src/pages/machine-settings/address.test.tsx 'one quiet line when the service'
+webcontrol "free addresses: one notice at a time while the service isn't answering" web/src/pages/machine-settings/free.tsx \
+  '            <UnreachableNotice />' \
+  '            <><UnreachableNotice /><ServersWaitNotice a={a} machine={machine} /></>' \
+  web/src/pages/machine-settings/address.test.tsx 'one notice at a time'
+webcontrol "free addresses: a certificate problem is the notice that shows" web/src/pages/machine-settings/free.tsx \
+  'certProblemText(a, now) ? (' \
+  'certProblemText(a, now) && !a.names.unreachable ? (' \
+  web/src/pages/machine-settings/address.test.tsx 'as the one notice'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

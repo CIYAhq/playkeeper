@@ -438,16 +438,33 @@ describe('a free address', () => {
     expect(text()).toContain('Pick a name')
   })
 
-  it('shows a certificate problem with Try again, and when the service is unreachable', async () => {
+  it('shows a certificate problem with Try again, as the one notice even while the service doesn’t answer', async () => {
     vi.mocked(client.post).mockRejectedValueOnce(refusal(409, 'retry_later', 'Let’s Encrypt refuses new attempts until 2026-09-26 10:00 UTC.', undefined, 'Playkeeper tries again by itself then.'))
     const add = vi.spyOn(toastManager, 'add')
     await show(free({ names: { url: 'https://names.playkeeper.io', unreachable: true }, certificate: { names: ['alex.playkeeper.io'], challenge: 'dns-01', problem: { code: 'dns_timeout', message: 'The challenge record didn’t show up in time.', hint: 'Try again in a few minutes.' } } }))
     expect(text()).toContain('Couldn’t get a certificate')
     expect(text()).toContain('The challenge record didn’t show up in time. Try again in a few minutes.')
-    expect(text()).toContain('Addresses that already work keep working.')
+    expect(text()).not.toContain('isn’t answering')
     await click(button('Try again'))
     expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/certificate', { acceptTerms: true })
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'Let’s Encrypt refuses new attempts until 2026-09-26 10:00 UTC. Playkeeper tries again by itself then.', type: 'error' }))
+  })
+
+  it('says in one quiet line when the service doesn’t answer, and the addresses keep working', async () => {
+    await show(free({ names: { url: 'https://names.playkeeper.io', unreachable: true } }))
+    expect(text()).toContain('alex.playkeeper.io is yours')
+    expect(text()).toContain('The free address service isn’t answering right now. Your addresses keep working.')
+    expect(text()).not.toContain('couldn’t reach')
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    expect(link('Open https://alex.playkeeper.io:8443')).toBeTruthy()
+  })
+
+  it('shows one notice at a time: the service not answering before the servers’ wait, whose date stays on each row', async () => {
+    const serversFrom = '2026-09-28T12:00:00Z'
+    await show(free({ ...waiting, names: { url: 'https://names.playkeeper.io', unreachable: true } }, { serversWait: 'server_address_not_yet', serversFrom }))
+    expect(text()).toContain('The free address service isn’t answering right now.')
+    expect(text()).not.toContain('Server addresses start on')
+    expect(text()).toContain(`survival.alex.playkeeper.io from ${formatDate(serversFrom)}`)
   })
 
   it('says why it lapsed when the dashboard didn’t answer on port 8443, and a refresh that still can’t reach it says so', async () => {
