@@ -28,12 +28,13 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
       - name: Switch on KVM for the runner's user (the udev rule used for Android emulators)
+        timeout-minutes: 3
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
-          python3 -c 'import fcntl, os; vm = fcntl.ioctl(os.open("/dev/kvm", os.O_RDWR), 0xAE01, 0); fcntl.ioctl(vm, 0xAE41, 0); print("KVM can create a virtual CPU")'
+          scripts/e2e/vm-rehearsal.sh kvm-check
       - name: Lab tools, pinned toolchains and the test browser
         run: |
           sudo apt-get update -qq
@@ -79,7 +80,7 @@ jobs:
           sudo dmesg | tee "$out/runner-dmesg.txt" >/dev/null || true
           sudo chown -R "$(id -u)" test/e2e/out
           find test/e2e/out \( -name 'state*.json' -o -name browser-session.json \) -delete
-          grep -rlIE 'setup code: |#code=' test/e2e/out | xargs -r sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g'
+          scripts/e2e/vm-rehearsal.sh redact test/e2e/out
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

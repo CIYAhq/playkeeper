@@ -1134,6 +1134,16 @@ shcontrol "package.sh builds CURSEFORGE_API_KEY into the binary" scripts/package
   'ldflags+=" -X $curseforge.BuildKey=$CURSEFORGE_API_KEY"' \
   ':' \
   scripts/package_test.sh
+# shellcheck disable=SC2016
+shcontrol "the VM rehearsal's KVM check gives up on a KVM that hangs" scripts/e2e/vm-rehearsal.sh \
+  'timeout --kill-after=10 "$limit" python3' \
+  'python3' \
+  scripts/e2e/vm-rehearsal_test.sh
+# shellcheck disable=SC2016
+shcontrol "the VM rehearsal keeps evidence without setup codes" scripts/e2e/vm-rehearsal.sh \
+  ' || [ $? = 1 ]; }' \
+  '; }' \
+  scripts/e2e/vm-rehearsal_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \

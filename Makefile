@@ -49,6 +49,7 @@ test-sh:
 	bash packaging/get_test.sh
 	bash scripts/setup_test.sh
 	bash scripts/package_test.sh
+	bash scripts/e2e/vm-rehearsal_test.sh
 
 web: ## Build the browser UI into web/dist
 	cd web && npm run build
