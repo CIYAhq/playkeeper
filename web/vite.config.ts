@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 import { demoBuild, noDemo } from './src/demo/vite.ts'
+import { firstLoadBudget } from './src/lib/first-load.ts'
 
 // `npm run dev` proxies the API to a local `playkeeper dev` panel (self-signed).
 // `--mode demo` makes the live demo instead: the dashboard with sample data
@@ -21,7 +22,7 @@ export default defineConfig(({ command, mode }) => {
   const demo = mode === 'demo'
   return {
     base: demo ? '/demo/' : '/',
-    plugins: [react(), tailwindcss(), demo ? demoBuild() : noDemo()],
+    plugins: [react(), tailwindcss(), ...(demo ? [demoBuild()] : [noDemo(), firstLoadBudget()])],
     resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
     // Game addresses in the demo name a made-up server, not the site serving it.
     // Only in the build: the dev server's own client reads the same name.
