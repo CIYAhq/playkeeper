@@ -1633,6 +1633,10 @@ control "own domain: a certificate attempt that finds the name wrong brings the 
   'if !saved || ready {' \
   'if true || !saved || ready {' \
   ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "the machine's Docker health needs no server" internal/agent/host.go \
+  'a.dockerOK = err == nil' \
+  '_ = err == nil' \
+  ./internal/agent '^TestDockerHealthNeedsNoServer$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

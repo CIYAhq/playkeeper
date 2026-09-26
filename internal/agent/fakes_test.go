@@ -41,6 +41,7 @@ type fakeDocker struct {
 	failBoots    int           // the next failBoots servers to start exit with code 1
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
+	versionDown  bool          // version requests fail too, as when the daemon itself stops answering
 	stopDelay    time.Duration // before a container stop takes effect
 	setupHangs   bool          // setup containers end their log streams but keep running
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
@@ -229,6 +230,13 @@ func jsonOut(w http.ResponseWriter, status int, v any) {
 func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if path == "/version" {
+		fd.mu.Lock()
+		down := fd.versionDown
+		fd.mu.Unlock()
+		if down {
+			jsonOut(w, 500, map[string]string{"message": "fake Docker is not answering"})
+			return
+		}
 		jsonOut(w, 200, map[string]string{"Version": "29.0.0-fake", "ApiVersion": "1.52", "MinAPIVersion": "1.44"})
 		return
 	}
