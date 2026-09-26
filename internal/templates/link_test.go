@@ -51,13 +51,16 @@ func TestLinkRoundTrip(t *testing.T) {
 
 // The site check opens the testdata/share-link*.txt links on the share page
 // in a browser: the Paper fixture's link, the same with markup in its name,
-// and one holding the fixture padded with spaces past what a template can
-// be. Decoding them keeps them in step with this package; run the tests
-// with -update to write them again.
+// the same with the day it was made and an author filled in by hand, which
+// the page never shows, and one holding the fixture padded with spaces past
+// what a template can be. Decoding them keeps them in step with this
+// package; run the tests with -update to write them again.
 func TestShareLinkFixtures(t *testing.T) {
 	paper := fixture(t, "paper-server.json")
 	markup := fixture(t, "paper-server.json")
 	markup.Name = "<b>Survival</b> & <i>friends</i>"
+	signed := fixture(t, "paper-server.json")
+	signed.Author, signed.Created = "siya", "2026-09-25"
 	js, err := canonicalJSON(paper)
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +73,7 @@ func TestShareLinkFixtures(t *testing.T) {
 	}{
 		{"share-link.txt", mustLink(t, paper).URL, paper},
 		{"share-link-markup.txt", mustLink(t, markup).URL, markup},
+		{"share-link-author.txt", mustLink(t, signed).URL, signed},
 		{"share-link-oversized.txt", ShareURL + "#" + craft(linkVersion, deflate(t, padded)), nil},
 	} {
 		if *update {

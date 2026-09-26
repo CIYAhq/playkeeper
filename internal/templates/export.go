@@ -71,9 +71,7 @@ type ExportOptions struct {
 	// Latest names each add-on as "the newest version that fits" rather
 	// than the version installed.
 	Latest bool
-	// Author and Created say who made the template and when; both may be
-	// left out.
-	Author  string
+	// Created is when the template is made; zero leaves the day out.
 	Created time.Time
 }
 
@@ -89,7 +87,7 @@ type Report struct {
 func Export(s Setup, opts ExportOptions) (*Template, *Report, error) {
 	t := &Template{
 		Format: Format, Name: cmp.Or(clean(s.Name, maxName), "My server"), Description: clean(s.Description, maxDescription),
-		Author: clean(opts.Author, maxLabel), Game: Game, Server: Server{Type: cmp.Or(s.Type, "paper"), MinecraftVersion: s.MinecraftVersion},
+		Game: Game, Server: Server{Type: cmp.Or(s.Type, "paper"), MinecraftVersion: s.MinecraftVersion},
 	}
 	if !opts.Created.IsZero() {
 		t.Created = opts.Created.UTC().Format(time.DateOnly)

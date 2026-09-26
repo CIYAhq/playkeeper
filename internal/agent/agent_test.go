@@ -1692,6 +1692,21 @@ func TestBackupRefusesAServerPropertiesItWontReadBeforeStopping(t *testing.T) {
 	if n := e.dockerStops() - stops; n != 0 {
 		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
 	}
+
+	// A backup of a running server doesn't stop it, so the check before a
+	// stop is what a version update relies on: it backs the world up only
+	// after stopping the server.
+	code, out = e.changeVersion(map[string]any{"versionId": "paper-26.2"})
+	if code != 202 {
+		t.Fatalf("version update: %d %v", code, out)
+	}
+	op = e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "could not be backed up") || !strings.HasPrefix(op.Hint, "Nothing was changed.") {
+		t.Fatalf("updating past a planted server.properties must fail before the server stops: %+v", op)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for an update that was refused", n)
+	}
 }
 
 // Re-compressing a backup keeps every file and per-file hash, so only the

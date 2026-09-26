@@ -195,6 +195,11 @@ if [ -n "$chrome" ]; then
     grep -qF "$text" "$dom" || fail "/t does not show '$text' for the Paper template"
   done
   if form_hidden; then fail "/t does not offer to open the Paper template"; fi
+  grep -q '<p id="t-made"[^>]* hidden' "$dom" || fail "/t shows a day for a template that doesn't say one"
+  # A template can name anyone as its author, so the page shows only the day.
+  expect_state "$(link_data share-link-author.txt)" ready
+  grep -qF 'Made 25 Sep 2026' "$dom" || fail "/t does not show the day the template was made"
+  if grep -qF 'siya' "$dom"; then fail "/t shows the author the template names"; fi
   expect_state "template=$payload" ready
   expect_state "$payload)." ready
   expect_state "${payload:0:500}%20${payload:500}" ready
@@ -212,7 +217,7 @@ if [ -n "$chrome" ]; then
 
   logs=$(docker logs "$name" 2>&1)
   grep -q '"GET /t HTTP/.*HeadlessChrome' <<<"$logs" || fail "Chrome's visits to /t are not in the server's log"
-  for f in share-link.txt share-link-markup.txt share-link-oversized.txt; do
+  for f in share-link.txt share-link-markup.txt share-link-author.txt share-link-oversized.txt; do
     data=$(link_data "$f")
     if grep -qF "${data:0:32}" <<<"$logs"; then fail "the template in $f reached the server"; fi
   done

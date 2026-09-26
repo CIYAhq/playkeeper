@@ -1202,10 +1202,12 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		prevPack = prev.ResourcePack
 	}
 	j.Restored.ResourcePack = restoredPackOffer(prevPack, st.data)
-	if err := s.restoredVoiceChat(&j.Restored, prev, m, st.data); err != nil {
+	releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)
+	if err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
 		return fmt.Errorf("could not give the restored voice chat its port, so nothing was replaced: %w", err)
 	}
+	defer releasePort()
 	if rollback != nil {
 		j.Detail += "; rollback archive " + rollback.ID
 	}
