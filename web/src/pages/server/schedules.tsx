@@ -596,16 +596,16 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   const label = 'text-[13px] font-medium'
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[400px]">
+      <DialogPopup className="sm:max-w-[560px]">
         <div className="px-6 pt-6 pb-1 max-sm:px-5">
           <DialogTitle className="text-lg leading-6 font-bold">{existing ? t('schedules.editTitle') : t('schedules.newTitle', { server: server.name })}</DialogTitle>
         </div>
         <DialogPanel className="flex flex-col gap-4 pt-3 max-sm:px-5">
           <div>
             <div className={label}>{t('schedules.what')}</div>
-            <CardGroup value={form.kind} onChange={(k) => set('kind', k)} label={t('schedules.what')} className="mt-1.5 grid grid-cols-3 gap-2">
+            <CardGroup value={form.kind} onChange={(k) => set('kind', k)} label={t('schedules.what')} className="mt-1.5 flex flex-wrap gap-2 sm:grid sm:grid-cols-3">
               {(['restart', 'backup', 'command'] as const).map((k) => (
-                <ChoiceCard key={k} value={k} radio="start" className="items-center gap-2 px-2.5 py-2 text-[13px] font-medium">
+                <ChoiceCard key={k} value={k} radio="start" className="flex-auto items-center gap-2 px-2.5 py-2 text-[13px] font-medium max-sm:px-2 max-sm:whitespace-nowrap">
                   {t(k === 'restart' ? 'schedules.what.restart' : k === 'backup' ? 'schedules.what.backup' : 'schedules.what.command')}
                 </ChoiceCard>
               ))}
@@ -616,11 +616,12 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
               <div className={label}>{t('schedules.howOften')}</div>
               <ChoiceSelect value={form.often} onChange={(v) => set('often', v)} options={oftenChoices(form.often)} label={t('schedules.howOften')} className="mt-1.5 w-full max-sm:border max-sm:border-input" />
             </div>
-            <div className="w-[114px] shrink-0">
+            <div className="flex shrink-0 flex-col">
               <label htmlFor="schedule-at" className={label}>
                 {form.often.startsWith('interval:') ? t('schedules.from') : t('schedules.at')}
               </label>
-              <Input id="schedule-at" type="time" value={form.at} onChange={(e) => set('at', e.target.value)} className="mt-1.5" required />
+              {/* Left to its own width, a time field fits its locale's format, 12- or 24-hour. */}
+              <Input id="schedule-at" type="time" value={form.at} onChange={(e) => set('at', e.target.value)} className="mt-1.5 w-auto sm:min-w-40" required />
             </div>
           </div>
           {form.kind === 'restart' && (
