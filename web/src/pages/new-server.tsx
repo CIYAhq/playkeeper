@@ -478,12 +478,12 @@ export function NewServerPage() {
     }
   }
 
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} />
+  const note = createNote(step, from, from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type)
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} note={note} />
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
   const continueLabel =
     step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
   const nextHint = step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
-  const note = createNote(step, from, from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type)
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
@@ -603,7 +603,6 @@ export function NewServerPage() {
           </div>
           <aside className="self-start">
             {summary}
-            {note && <p className="mt-3 px-1 text-xs text-muted-foreground">{note}</p>}
           </aside>
         </div>
       </PageBody>
@@ -628,7 +627,7 @@ function GameCard({ phone }: { phone?: boolean }) {
   )
 }
 
-function Summary({ choices: c, step, port, version, from, pack, plan }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice; plan?: TemplatePlan }) {
+function Summary({ choices: c, step, port, version, from, pack, plan, note }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice; plan?: TemplatePlan; note?: string }) {
   const ws = useWorkspace()
   const p = preset(c.style)
   const v = (done: boolean, value: string) =>
@@ -689,6 +688,11 @@ function Summary({ choices: c, step, port, version, from, pack, plan }: { choice
           </div>
         ))}
       </dl>
+      {note && (
+        <p key={note} className="mt-4 animate-fade border-t border-border pt-3 text-xs text-muted-foreground">
+          {note}
+        </p>
+      )}
     </Card>
   )
 }
