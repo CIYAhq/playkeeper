@@ -214,7 +214,7 @@ func (s *server) hDataPackAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("add the data pack again"); err != nil {
 		writeError(w, err)
 		return
 	}

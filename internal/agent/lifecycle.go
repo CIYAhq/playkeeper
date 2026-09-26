@@ -421,12 +421,14 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 	return nil
 }
 
-func (s *server) ensureDirs() error {
+// ensureDirs makes the server's folders. then is what to do once the world
+// folder is back, for the refusal while a restore left it missing.
+func (s *server) ensureDirs(then string) error {
 	data := s.dataDir()
 	// A server started without its world directory generates a new world, so
 	// never recreate one a restore moved aside and could not put back.
 	if m := s.worldMissing(); m != nil {
-		return errWorldMissing(m, "press Start")
+		return errWorldMissing(m, then)
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
@@ -634,7 +636,7 @@ func lastNonEmpty(lines []string) string {
 func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("press Start"); err != nil {
 		refusedForMissingWorld(h, err)
 		return err
 	}

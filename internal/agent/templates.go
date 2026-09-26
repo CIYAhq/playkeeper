@@ -537,7 +537,7 @@ func (s *server) installTemplatePacks(ctx context.Context, h *opHandle, sc *api.
 	if len(list) == 0 {
 		return nil, nil
 	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("press Start"); err != nil {
 		return nil, err
 	}
 	h.phase("installing_addons")

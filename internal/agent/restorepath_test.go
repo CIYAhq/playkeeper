@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/png"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -68,6 +72,49 @@ func TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack(t *testing.T) {
 	if m := e.status().WorldMissing; m != nil {
 		t.Fatalf("the previous world is back, but the status still says it's missing: %+v", m)
 	}
+}
+
+// worldLeftMissing makes a restore leave the world folder missing, the way a
+// disk fault does, and returns what the status says about it.
+func worldLeftMissing(t *testing.T) (*agentEnv, *api.WorldMissing) {
+	t.Helper()
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	failPuttingBack(t, e, id)
+	if op := e.applyRestore(id, phrase); op.Status != api.OpFailed {
+		t.Fatalf("restore: %+v", op)
+	}
+	m := e.status().WorldMissing
+	if m == nil {
+		t.Fatal("the restore should have left the world folder missing")
+	}
+	return e, m
+}
+
+// refusedForMissingWorldFolder fails unless a request was refused with a
+// start's words for the missing world folder, ending with then.
+func refusedForMissingWorldFolder(t *testing.T, m *api.WorldMissing, what string, code int, out map[string]any, then string) {
+	t.Helper()
+	if code != http.StatusConflict || out["code"] != codeWorldMissing ||
+		out["error"] != "The world folder is missing because a restore did not finish; the previous world is at "+m.Previous+"." ||
+		out["hint"] != "Move that folder back to "+m.DataDir+", then "+then+"." {
+		t.Fatalf("%s must be refused for the missing world folder: %d %v", what, code, out)
+	}
+}
+
+// A new server icon or data pack refused for the missing world folder says
+// to upload or add it again once the folder is back, not to press Start.
+func TestAnIconOrPackRefusedForTheMissingWorldFolderSaysWhatToRedo(t *testing.T) {
+	e, m := worldLeftMissing(t)
+	code, out := e.uploadTo(e.sp("/datapacks?name=extra.zip"), dataPackZip(t, "Extra", false))
+	refusedForMissingWorldFolder(t, m, "a new data pack", code, out, "add the data pack again")
+	var icon bytes.Buffer
+	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
+		t.Fatal(err)
+	}
+	code, out = e.uploadTo(e.sp("/icon"), icon.Bytes())
+	refusedForMissingWorldFolder(t, m, "a new server icon", code, out, "upload the icon again")
 }
 
 // A restore whose previous world the next start put back says so: its record
