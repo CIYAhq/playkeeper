@@ -1163,6 +1163,8 @@ export const en = {
   'invites.friendsBody': 'Send a link to add friends.',
   'profile.listed': 'On the allowlist',
   'profile.listedOp': 'On the allowlist · operator',
+  'profile.listedSince': 'On the allowlist since {date}',
+  'profile.listedOpSince': 'On the allowlist since {date} · operator',
   'profile.onlineFor': 'Online now · on {server} for {duration}',
   'profile.onlineShort': 'Online · {duration}',
   'profile.neverPlayed': 'Hasn’t played yet',

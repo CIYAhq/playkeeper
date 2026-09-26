@@ -705,23 +705,25 @@ describe('Discord', () => {
 })
 
 describe('Player profile', () => {
+  const maraProfile = (): PlayerProfile => ({
+    name: 'mara_k',
+    uuid: '0f3a6c2e9b1d4e7fa2c5b8d1e4f7a0c3',
+    online: true,
+    onlineSince: hoursAgo(0.5),
+    allowlisted: true,
+    operator: false,
+    firstSeen: '2026-09-20T18:00:00Z',
+    sessions: 12,
+    playtimeSeconds: 14 * 3600 + 20 * 60,
+    longestSeconds: 3 * 3600 + 5 * 60,
+    tz: 'UTC',
+    days: [],
+    recent: [],
+    joined: { key: 'invite.origin.link', params: { link: 'Discord crew' }, text: 'Joined with the Discord crew link', at: '2026-09-20T18:00:00Z' },
+  })
+
   it('shows who a player is, how they got in and what a moderator can do', async () => {
-    const profile: PlayerProfile = {
-      name: 'mara_k',
-      uuid: '0f3a6c2e9b1d4e7fa2c5b8d1e4f7a0c3',
-      online: true,
-      onlineSince: hoursAgo(0.5),
-      allowlisted: true,
-      operator: false,
-      firstSeen: '2026-09-20T18:00:00Z',
-      sessions: 12,
-      playtimeSeconds: 14 * 3600 + 20 * 60,
-      longestSeconds: 3 * 3600 + 5 * 60,
-      tz: 'UTC',
-      days: [],
-      recent: [],
-      joined: { key: 'invite.origin.link', params: { link: 'Discord crew' }, text: 'Joined with the Discord crew link', at: '2026-09-20T18:00:00Z' },
-    }
+    const profile = maraProfile()
     answer({ '/players/profile': profile })
     const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
     expect(client.get).toHaveBeenCalledWith(expect.stringContaining('/api/servers/abcdefghjk/players/profile?name=mara_k&tz='))
@@ -735,6 +737,22 @@ describe('Player profile', () => {
     expect(viewer).toContain('On the allowlist')
     expect(buttons('Send a message')).toHaveLength(0)
     expect(buttons('Kick')).toHaveLength(0)
+  })
+
+  it('says since when a player is on the allowlist on a phone, where the line is short', async () => {
+    const happy = (window as unknown as { happyDOM: { setViewport(size: { width: number; height: number }): void } }).happyDOM
+    happy.setViewport({ width: 390, height: 844 })
+    try {
+      answer({ '/players/profile': maraProfile() })
+      const text = await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))
+      expect(text).toContain(`On the allowlist since ${formatDate('2026-09-20T18:00:00Z')}`)
+      expect(text).not.toContain('Joined with the Discord crew link')
+      expect(buttons('Message')).toHaveLength(1)
+      answer({ '/players/profile': { ...maraProfile(), joined: undefined, operator: true } })
+      expect(await render(<PlayerProfilePage server={server()} name="mara_k" />, workspace({ me: member('moderator', moderatorCan) }))).toContain('On the allowlist · operator')
+    } finally {
+      happy.setViewport({ width: 1024, height: 768 })
+    }
   })
 
   it('says when there is no such player', async () => {

@@ -77,6 +77,13 @@ function listedText(p: PlayerProfile): { text: string; tone: 'green' | 'muted' }
   return { text: t('players.access.none'), tone: 'muted' }
 }
 
+/** The phone's one line under the status: "On the allowlist since 22 Sep", or the marker alone. */
+function listedSinceText(p: PlayerProfile): string {
+  if (!p.allowlisted || !p.joined?.at) return listedText(p).text
+  const date = formatDate(p.joined.at)
+  return p.operator ? t('profile.listedOpSince', { date }) : t('profile.listedSince', { date })
+}
+
 function joinedText(p: PlayerProfile): string | undefined {
   if (!p.joined) return undefined
   return p.joined.at ? t('profile.joinedOn', { how: p.joined.text, date: formatDate(p.joined.at) }) : p.joined.text
@@ -160,7 +167,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
                 {p.online && <Dot tone="online" />}
                 <span className={cn(!p.online && 'text-muted-foreground')}>{status}</span>
               </p>
-              <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{joined ?? listed.text}</p>
+              <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{listedSinceText(p)}</p>
             </div>
           </div>
           {canTalk && (
