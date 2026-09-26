@@ -186,6 +186,18 @@ control "nether and end folders missing beside the world don't void a chunk coun
   'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
   'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
+control "running out of memory, then Stopping server, is still a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = false, "Java ran out of memory."' \
+  ./internal/agent '^TestAnOutOfMemoryErrorThenStoppingServerIsACrash$'
+control "the GC log's folder is given to the game user on every start" internal/agent/lifecycle.go \
+  'return f.Chown(uid, gid)' \
+  'return nil' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
+control "giving the GC log's folder never follows a link at logs" internal/agent/lifecycle.go \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK' \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'return s.sawStopping && !s.sawCrash' \
   'return s.sawStopping' \
@@ -868,6 +880,26 @@ control "a template plan without a version creates nothing" internal/agent/templ
   'if p.Version == nil {' \
   'if false {' \
   ./internal/agent '^TestTemplateCreateNeedsAVersion$'
+control "a server made from a template is recorded with what the template adds" internal/agent/handlers.go \
+  'record = func(tx *sql.Tx, id string) error { return saveTemplateInstall(tx, id, planned, dataPacks, at) }' \
+  'record = func(tx *sql.Tx, id string) error { _, _, _ = planned, dataPacks, at; return nil }' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a new server whose record can't be written is not made" internal/agent/servers.go \
+  '		if err := spec.record(tx, id); err != nil {
+			return nil, nil, err
+		}' \
+  '		_ = spec.record(tx, id)' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a start that finds a template's record gone says so" internal/agent/templates.go \
+  '	if !found {
+		return s.templateLost(h, sc)' \
+  '	if false && !found {
+		return s.templateLost(h, sc)' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a template's record and settings settle together" internal/agent/templates.go \
+  '	defer tx.Rollback()' \
+  '	defer tx.Commit()' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
 control "packs cannot suggest operator or function permission levels" internal/modpacks/rules.go \
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
@@ -974,6 +1006,31 @@ control "a backup records voice chat's UDP port" internal/agent/backups.go \
   'm.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
   '_ = sc.VoiceChatPort' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "a backup records its server's modpack" internal/agent/backups.go \
+  '	if v := s.packSetting(sc); v != "" {' \
+  '	if v := s.packSetting(sc); false && v != "" {' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restore takes the modpack from its backup, not the live server" internal/agent/backups.go \
+  '	j.RestoredPack = restoredModpack(&j.Restored, setting, recorded)' \
+  '	_, _ = setting, recorded
+	j.Restored.Modpack = prev.Modpack' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restore swaps the modpack's record with the world" internal/agent/backups.go \
+  '	err = s.saveWithPack(j.Restored, j.RestoredPack)' \
+  '	err = s.saveServerConfig(j.Restored)' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "an undone restore puts the live server's modpack record back" internal/agent/backups.go \
+  'return s.saveWithPack(*j.Previous, j.PreviousPack)' \
+  'return s.saveWithPack(*j.Previous, nil)' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restored server whose backup doesn't record its modpack says so" internal/agent/modpacks.go \
+  'sc.ModpackUnknown = true' \
+  'sc.ModpackUnknown = false' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a backup's modpack record must stay inside the server's folder" internal/agent/modpacks.go \
+  'if !filepath.IsLocal(f.Path) {' \
+  'if false && !filepath.IsLocal(f.Path) {' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
 control "a restore gives voice chat back its UDP port" internal/agent/backups.go \
   'releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)' \
   'releasePort, err := func() {}, error(nil)' \
@@ -1063,7 +1120,7 @@ control "an interrupted restore gets the previous world back at start" internal/
   'if false && dirExists(aside) {' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
 control "an interrupted restore gets the previous settings back at start" internal/agent/backups.go \
-  'return s.saveServerConfig(*j.Previous)' \
+  'return s.saveWithPack(*j.Previous, j.PreviousPack)' \
   'return nil' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
 control "a restore stage is kept while its swap is not settled" internal/agent/backups.go \
@@ -1129,7 +1186,7 @@ control "a restored world still starting after a restart is kept only once onlin
   'err = nil' \
   ./internal/agent '^TestRestoredWorldThatDoesNotStartIsSwappedBackOut$/^after_the_agent_stops_while_the_restored_world_boots$'
 control "a restore finished after a restart saves the restored settings" internal/agent/backups.go \
-  'if err := s.saveServerConfig(j.Restored); err != nil {' \
+  'if err := s.saveWithPack(j.Restored, j.RestoredPack); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_after_the_swap$'
 control "a restored world that does not start is swapped back out" internal/agent/backups.go \
