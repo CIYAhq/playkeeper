@@ -636,6 +636,9 @@ var (
 	reInstallLine = regexp.MustCompile(`<span class="install-line">([^<]*)</span>`)
 )
 
+// The install box's own attribute, not the header's data-install-link.
+const installBox = " data-install>"
+
 // The install command is one setting: every page shows the same one, in its
 // install boxes, Copy buttons and terminals, and follows the setting when it
 // changes. Docs pages say what the repository's Markdown says.
@@ -653,7 +656,7 @@ func TestInstallCommandIsOneSetting(t *testing.T) {
 				t.Errorf("%s copies %q as the install command", p, got)
 			}
 		}
-		if strings.Contains(html, "data-install") && shown == 0 {
+		if strings.Contains(html, installBox) && shown == 0 {
 			t.Errorf("%s has an install box without the command", p)
 		}
 	}
@@ -666,7 +669,7 @@ func TestInstallCommandIsOneSetting(t *testing.T) {
 		if strings.Contains(html, "playkeeper.io/install") {
 			t.Errorf("%s still shows playkeeper.io/install with another install command set", p)
 		}
-		if strings.Contains(html, "data-install") && !strings.Contains(html, `<span class="install-line">`+template.HTMLEscapeString(other.InstallCommand)+`</span>`) {
+		if strings.Contains(html, installBox) && !strings.Contains(html, `<span class="install-line">`+template.HTMLEscapeString(other.InstallCommand)+`</span>`) {
 			t.Errorf("%s doesn't show the install command that's set", p)
 		}
 	}
