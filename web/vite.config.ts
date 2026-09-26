@@ -11,13 +11,14 @@ import { demoBuild, noDemo } from './src/demo/vite.ts'
 
 // The panel takes changes only from an HTTPS page on its own host, so the dev
 // server serves HTTPS with the certificate of `make dev`'s panel once it exists.
+// `vite preview`, which the fake-panel browser checks use, stays on HTTP.
 function devCertificate() {
   const dir = fileURLToPath(new URL('../.dev/data/panel/tls/', import.meta.url))
   const [cert, key] = [`${dir}cert.pem`, `${dir}key.pem`]
   return existsSync(cert) && existsSync(key) ? { cert: readFileSync(cert), key: readFileSync(key) } : undefined
 }
 
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ command, mode, isPreview }) => {
   const demo = mode === 'demo'
   return {
     base: demo ? '/demo/' : '/',
@@ -29,7 +30,7 @@ export default defineConfig(({ command, mode }) => {
     build: { outDir: demo ? 'dist-demo' : 'dist', emptyOutDir: true, sourcemap: false, target: 'es2022', assetsInlineLimit: 0 },
     server: {
       port: 5173,
-      https: command === 'serve' && !demo ? devCertificate() : undefined,
+      https: command === 'serve' && !isPreview && !demo ? devCertificate() : undefined,
       proxy: demo ? undefined : { '/api': { target: 'https://localhost:8443', secure: false, changeOrigin: false } },
     },
     test: { environment: 'node', include: ['src/**/*.test.ts', 'src/**/*.test.tsx'] },

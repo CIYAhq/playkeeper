@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -46,15 +45,12 @@ func heapMB(sc api.ServerConfig) int {
 }
 
 // sizeHeap sizes a mod loader's heap for the mods it has now and records it,
-// before a start defines the container. A running container keeps the heap
-// it was made with until the next restart: a start that finds the server
-// running leaves it and its recorded heap alone, whatever mods were installed
-// meanwhile, so it neither bounces the server nor asks for a restart.
-func (s *server) sizeHeap(ctx context.Context, sc *api.ServerConfig) error {
+// for a start that is about to make the server's container. A start that
+// keeps a running container as it is doesn't call it: that container keeps
+// the heap it was made with until the next restart, whatever mods were
+// installed meanwhile, so the start neither bounces it nor asks for a restart.
+func (s *server) sizeHeap(sc *api.ServerConfig) error {
 	if !minecraft.ModLoader(serverTypeOf(*sc)) {
-		return nil
-	}
-	if _, running, err := s.containerRunning(ctx); err == nil && running {
 		return nil
 	}
 	heap := minecraft.HeapFor(sc.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))
