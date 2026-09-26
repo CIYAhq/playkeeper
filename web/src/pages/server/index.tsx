@@ -27,12 +27,17 @@ import { PluginsPhoneHeader } from './plugins/header'
 
 // The Overview comes with the server page; each other tab's code loads the
 // first time it shows.
+const BackupRulesPage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPage })))
+const BackupRulesPhonePage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPhonePage })))
 const ConsolePage = lazy(() => import('./console').then((m) => ({ default: m.ConsolePage })))
+const CopiesCard = lazy(() => import('./copies').then((m) => ({ default: m.CopiesCard })))
+const CopiesPhonePage = lazy(() => import('./copies').then((m) => ({ default: m.CopiesPhonePage })))
 const MapPage = lazy(() => import('./map').then((m) => ({ default: m.MapPage })))
 const PlayersPage = lazy(() => import('./players').then((m) => ({ default: m.PlayersPage })))
 const PlayerProfilePage = lazy(() => import('./profile').then((m) => ({ default: m.PlayerProfilePage })))
 const PluginsPage = lazy(() => import('./plugins').then((m) => ({ default: m.PluginsPage })))
 const RunningPage = lazy(() => import('./running').then((m) => ({ default: m.RunningPage })))
+const SchedulesPhonePage = lazy(() => import('./schedules').then((m) => ({ default: m.SchedulesPhonePage })))
 const ServerSettingsPage = lazy(() => import('./settings').then((m) => ({ default: m.ServerSettingsPage })))
 const WorldPage = lazy(() => import('./world').then((m) => ({ default: m.WorldPage })))
 const PacksPage = lazy(() => import('./world-packs').then((m) => ({ default: m.PacksPage })))
@@ -75,7 +80,12 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
       body = player ? <PlayerProfilePage server={server} name={player} /> : <PlayersPage server={server} />
       break
     case 'world':
-      body = sub === 'pregen' ? <PregenPage server={server} /> : sub === 'packs' ? <PacksPage server={server} /> : <WorldPage server={server} />
+      if (phone && sub === 'backup-copies') body = <CopiesPhonePage server={server} />
+      else if (phone && sub === 'backup-rules') body = <BackupRulesPhonePage server={server} />
+      else if (sub === 'backup-rules' || sub === 'backup-copies') body = <BackupRulesPage server={server} copies={(changeRules) => <CopiesCard server={server} onChangeRules={changeRules} />} />
+      else if (sub === 'pregen') body = <PregenPage server={server} />
+      else if (sub === 'packs') body = <PacksPage server={server} />
+      else body = <WorldPage server={server} />
       break
     case 'plugins':
     case 'mods':
@@ -85,7 +95,7 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
       body = <MapPage server={server} />
       break
     case 'settings':
-      body = <ServerSettingsPage server={server} />
+      body = phone && sub === 'schedules' ? <SchedulesPhonePage server={server} /> : <ServerSettingsPage server={server} focus={sub} />
       break
     default: {
       const unreachable: never = tab
@@ -94,12 +104,22 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
   }
   const locked = settingUp && (!!page || (tab !== 'overview' && tab !== 'console'))
   if (locked) body = <Overview server={server} />
-  // The Plugins tab keeps its running job and highlighted file across its
-  // views, and animates switching between them itself.
-  const pageKey = tab === 'plugins' || tab === 'mods' ? tab : player ? `${tab}:${player}` : `${tab}:${sub ?? page ?? ''}`
+  // A page inside a tab animates in like a tab of its own. On desktop, both
+  // backup pages are one page and Schedules is a section of Settings. The
+  // Plugins tab keeps its running job and highlighted file across its views,
+  // and animates switching between them itself.
+  const inner = sub ?? page
+  let view = inner ? `${tab}/${inner}` : tab
+  if (tab === 'plugins' || tab === 'mods') view = tab
+  else if (player) view = `${tab}/${player}`
+  else if (!phone && sub === 'backup-copies') view = 'world/backup-rules'
+  else if (!phone && tab === 'settings') view = 'settings'
+  // Pages inside a tab bring their own phone header with a way back; the
+  // Plugins tab's header serves all its views.
+  const ownHeader = phone && !locked && sub !== undefined && tab !== 'plugins' && tab !== 'mods'
   return (
     <>
-      {phone ? (
+      {ownHeader ? null : phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
         ) : player ? (
@@ -114,7 +134,7 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
       ) : (
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
-      <PageBody key={pageKey} className="flex flex-1 animate-page flex-col gap-4">
+      <PageBody key={view} className="flex flex-1 animate-page flex-col gap-4">
         <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
       </PageBody>
     </>
@@ -167,6 +187,8 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
     setBusy(false)
   }
   if (!can(me, 'servers.run')) return null
+  // Asleep, Overview's card wakes it; there's nothing to restart.
+  if (!stale && server.phase === 'asleep') return null
   const tone = statusTone(server)
   if (!stale && (tone === 'crashed' || (tone === 'stopped' && server.exists))) {
     return (
@@ -287,7 +309,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </nav>
         {op && (
           <div className="ml-auto">
-            <JobPill op={op} server={s.name} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' ? 'world' : 'overview' })} />
+            <JobPill op={op} server={s.name} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' || op.kind === 'offsite-restore' ? 'world' : 'overview' })} />
           </div>
         )}
       </div>

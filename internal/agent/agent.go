@@ -258,6 +258,12 @@ type Agent struct {
 	maps      mapState
 	mapClient *http.Client
 	imports   importRegistry
+
+	// Wave 7 (0.4.0): the Disk space page's last scan.
+	disk diskCache
+	// unreadableSwaps is the error last logged for each stage whose swap
+	// journal can't be read, so each is logged once.
+	unreadableSwaps sync.Map
 }
 
 func New(opts Options) (*Agent, error) {
@@ -676,7 +682,7 @@ type Route struct {
 
 func (a *Agent) routeTable() []Route {
 	srv := a.withServer
-	return []Route{
+	return append([]Route{
 		{"GET", "/v1/health", a.hHealth},
 		{"GET", "/v1/machine", a.hMachine},
 		{"GET", "/v1/preflight", a.hPreflight},
@@ -822,7 +828,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/world-imports/{imp}/preview", a.hWorldImportPreview},
 		{"POST", "/v1/world-imports/{imp}/apply", a.hWorldImportApply},
 		{"POST", "/v1/world-imports/{imp}/create", a.hWorldImportCreate},
-	}
+	}, a.automationRoutes()...)
 }
 
 // Routes exposes the route table so tests can iterate every allowlisted verb.

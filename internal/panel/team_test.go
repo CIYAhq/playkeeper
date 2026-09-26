@@ -239,6 +239,9 @@ func TestMachineWideActionsNeedEveryServer(t *testing.T) {
 		{"POST", "/api/machines/" + mid + "/address/check"},
 		{"POST", "/api/machines/" + mid + "/address/certificate"},
 		{"DELETE", "/api/machines/" + mid + "/address"},
+		{"POST", "/api/machines/" + mid + "/disk/clean"},
+		{"POST", "/api/machines/" + mid + "/offsite/recover"},
+		{"POST", "/api/machines/" + mid + "/offsite/recover/restore"},
 	}
 	scoped := addAdmin(t, e, "ada", otherServer)
 	unconfirmed := addMember(t, e, "una", invites.RoleAdmin, "*")
@@ -250,6 +253,15 @@ func TestMachineWideActionsNeedEveryServer(t *testing.T) {
 		}
 		if r := e.do(t, c[0], c[1], `{}`, unconfirmed.auth()); r.status != http.StatusForbidden || r.body["code"] != invites.CodeTwoFactorRequired {
 			t.Errorf("an admin without two-factor, %s %s: %d %v", c[0], c[1], r.status, r.body)
+		}
+	}
+	// Pages that show every server need every server to look at them.
+	viewer := addMember(t, e, "vic", invites.RoleViewer, otherServer)
+	for _, p := range []string{"/api/machines/" + mid + "/address", "/api/machines/" + mid + "/disk"} {
+		for who, m := range map[string]member{"an admin": scoped, "a viewer": viewer} {
+			if r := e.do(t, "GET", p, "", m.auth()); r.status != http.StatusForbidden || r.body["error"] != errEveryServer.Msg {
+				t.Errorf("%s of one server, GET %s: %d %v", who, p, r.status, r.body)
+			}
 		}
 	}
 	if hits := e.agentHits(); len(hits) != 0 {

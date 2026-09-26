@@ -20,7 +20,9 @@ import { login, outDir } from './helpers'
 // pages that change are crawled again in states it isn't in, laid over the
 // panel's real answers (View in fakes.ts): the server stopped, crashed and
 // busy, no players or backups, no servers at all (Home's empty page and
-// /welcome), a Playkeeper update to install, and first-run setup.
+// /welcome), a Playkeeper update to install, space to free on the machine's
+// disk, first-run setup, set up to look after itself or asleep, and the
+// states the other views in fakes.ts describe.
 //
 // The sign-in page, first-run setup, a friends' pack link that opens nothing
 // and the shared map pages (a shared map, and a link no map has) are opened
@@ -69,6 +71,9 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
     if (map.public && map.path) shared.push(map.path)
     const addons = addonTabs[s.type ?? '']
     for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    // On desktop, copies are part of the backup rules page and Schedules is a section of Settings.
+    out.push(`/servers/${s.slug}/world/backup-rules`)
+    if (phone) out.push(`/servers/${s.slug}/world/backup-rules/copies`, `/servers/${s.slug}/settings/schedules`)
     const listed: unknown = await (await page.request.get(`/api/servers/${s.id}/whitelist`)).json().catch(() => [])
     const player = Array.isArray(listed) ? (listed[0] as { name?: string } | undefined)?.name : undefined
     if (player) out.push(`/servers/${s.slug}/players/${encodeURIComponent(player)}`)
@@ -86,8 +91,8 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
     const payload = exported.link?.split('#')[1]
     if (payload) out.push(`/servers/new#template=${payload}`)
   }
-  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
-  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/account', '/account/two-factor')
+  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`, `/machines/${m.id}/disk`)
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/account', '/account/two-factor', '/recover')
   if (phone) out.push('/more')
   return { live: out, shared }
 }
@@ -110,6 +115,7 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
   const first = live.find((r) => /^\/servers\/(?!new$)[^/]+$/.test(r))
   const plugins = live.find((r) => /^\/servers\/[^/]+\/plugins$/.test(r))
   const map = live.find((r) => /^\/servers\/[^/]+\/map$/.test(r))
+  const disk = live.find((r) => /^\/machines\/[^/]+\/disk$/.test(r))
   const byView: [View, string[]][] = [
     ['stopped', first ? ['/', first, `${first}/console`, `${first}/settings`] : []],
     ['crashed', first ? ['/', first] : []],
@@ -118,6 +124,11 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['empty lists', first ? [`${first}/players`, `${first}/world`] : []],
     ['no servers', ['/', '/welcome']],
     ['update available', phone ? ['/settings', '/more'] : ['/settings']],
+    ['space to free', disk ? [disk] : []],
+    // Desktop's Settings holds its schedules among every other switch, and each schedule's switch changes its row, so crawling
+    // every combination there would take hours; the phone's Schedules page has the same rows on their own.
+    ['looks after itself', first ? [`${first}/world/backup-rules`, `${first}/world`, ...(phone ? [`${first}/settings`, `${first}/settings/schedules`, `${first}/world/backup-rules/copies`] : [])] : []],
+    ['asleep', first ? ['/', first] : []],
     ['in use', [...(plugins ? [plugins] : []), ...(first ? [`${first}/world`, `${first}/world/packs`, `${first}/world/pregen`] : [])]],
     ['paused', first ? [`${first}/world/pregen`] : []],
     ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord']],
@@ -142,7 +153,10 @@ function pageOf(c: { route: string; view?: View }): string {
  * it is broken. A page's count leaves out controls pressed on an earlier
  * page, such as the sidebar. A page that isn't listed needs one. A dev build
  * (make dev) can't update itself, so its /settings has no "Check for updates"
- * and one control fewer than an installed panel's.
+ * and one control fewer than an installed panel's. A fresh install has
+ * nothing to free on the Disk space page, whose way back to the machine is
+ * pressed on the machine's other pages first, so its controls count in the
+ * space to free view.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -157,6 +171,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 36,
     '/machines/*': 3,
     '/machines/*/settings': 6,
+    '/machines/*/disk': 0,
     '/settings': 2,
     '/account': 7,
     '/account/two-factor': 7,
@@ -184,6 +199,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/ (no servers)': 1,
     '/welcome (no servers)': 11,
     '/settings (update available)': 5,
+    '/machines/*/disk (space to free)': 11,
   },
   phone: {
     '/login': 3,
@@ -197,6 +213,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 29,
     '/machines/*': 1,
     '/machines/*/settings': 6,
+    '/machines/*/disk': 0,
     '/settings': 1,
     '/account': 6,
     '/account/two-factor': 8,
@@ -224,6 +241,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/welcome (no servers)': 15,
     '/settings (update available)': 3,
     '/more (update available)': 1,
+    '/machines/*/disk (space to free)': 14,
   },
 }
 
@@ -239,10 +257,10 @@ interface Place {
 }
 
 /**
- * Places the click-through didn't reach before 0.3.1's audit. In each, one
- * control must come out as `status`, and a negative control breaks it and
- * presses it again (a disabled one loses its reason instead): the crawl must
- * then report it.
+ * Places the click-through didn't reach before 0.3.1's audit, and the Disk
+ * space page's clean-up. In each, one control must come out as `status`,
+ * and a negative control breaks it and presses it again (a disabled one
+ * loses its reason instead): the crawl must then report it.
  */
 const places: Place[] = [
   { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
@@ -261,6 +279,10 @@ const places: Place[] = [
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
+  { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', key: /^button "Wake up now" in ".+ is asleep"$/ },
+  { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', key: /^button "Download new key" in dialog "New recovery key made"$/ },
+  { what: 'pausing a schedule', sizes: ['phone'], view: 'looks after itself', key: /^switch "Run “Restart every day at #:#”" in row "Restart every day at #:#"$/ },
+  { what: 'deleting old backups on the Disk space page', sizes: ['desktop', 'phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
   { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
   { what: 'two-factor sign-in’s second step', sizes: ['desktop', 'phone'], view: 'second step', key: /^button "Sign in" in "Enter your code"$/ },
   { what: 'finishing two-factor setup', sizes: ['desktop', 'phone'], key: /^button "I’ve saved them"/ },

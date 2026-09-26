@@ -62,6 +62,7 @@ func (a *Agent) Machine(ctx context.Context) api.Machine {
 		m.CPUPercent = &v
 	}
 	a.mu.Unlock()
+	a.machineAutomation(&m)
 	return m
 }
 
@@ -227,7 +228,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		t := reachableAt
 		st.ReachableAt = &t
 	}
-	if list, err := s.listBackups(`verified = 1 AND kind = 'manual'`); err == nil && len(list) > 0 {
+	if list, err := s.listBackups(`verified = 1 AND kind IN ('manual', 'scheduled')`); err == nil && len(list) > 0 {
 		st.LastBackup = &list[0]
 	} else if list, err := s.listBackups(`verified = 1`); err == nil && len(list) > 0 {
 		st.LastBackup = &list[0]
@@ -246,6 +247,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	if recovered != nil && running && s.now().Sub(recovered.At) < recoveredFor {
 		st.RecoveredCrash = recovered
 	}
+	s.automationStatus(&st)
 	return st
 }
 
@@ -301,7 +303,7 @@ func (s *server) firstSteps() api.FirstSteps {
 		fs.FriendJoined, fs.FriendJoinedAt = player, &t
 	}
 	var n, dl int
-	_ = s.db.QueryRow(`SELECT COUNT(*), COUNT(downloaded_at) FROM backups WHERE server_id = ? AND kind = 'manual' AND verified = 1`, s.id).Scan(&n, &dl)
+	_ = s.db.QueryRow(`SELECT COUNT(*), COUNT(downloaded_at) FROM backups WHERE server_id = ? AND kind IN ('manual', 'scheduled') AND verified = 1`, s.id).Scan(&n, &dl)
 	fs.BackedUp, fs.Downloaded = n > 0, dl > 0
 	return fs
 }
@@ -585,6 +587,7 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.crashed, s.runCrashed, s.crash = false, false, nil
 		s.mu.Unlock()
+		s.leaveSleep()
 	}
 	release()
 	if err != nil {
@@ -1139,6 +1142,7 @@ func (s *server) hBackupDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.noteRemoved(b.ID, actor)
 	s.audit(actor, "backup.deleted", b.ID, "succeeded", b.FileName)
 	w.WriteHeader(http.StatusNoContent)
 }

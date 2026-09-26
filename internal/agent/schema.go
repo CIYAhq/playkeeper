@@ -304,4 +304,110 @@ UPDATE maps SET public = 0;
 	`
 ALTER TABLE servers ADD COLUMN original_due TEXT NOT NULL DEFAULT '';
 `,
+	// Wave 7 (0.4.0): schedules, sleep when nobody's playing, and backup rules
+	// with encrypted copies somewhere else. Off-site secrets and keys live in
+	// the offsite table, never in logs or responses.
+	`
+CREATE TABLE schedules (
+  id         TEXT PRIMARY KEY,
+  server_id  TEXT NOT NULL,
+  name       TEXT NOT NULL DEFAULT '',
+  kind       TEXT NOT NULL,
+  timing     TEXT NOT NULL,
+  payload    TEXT NOT NULL DEFAULT '{}',
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL DEFAULT '',
+  last_run   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX schedules_server ON schedules(server_id, created_at);
+CREATE TABLE schedule_runs (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  schedule_id  TEXT NOT NULL,
+  server_id    TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  due          INTEGER NOT NULL,
+  started_at   INTEGER,
+  finished_at  INTEGER,
+  result       TEXT NOT NULL,
+  reason       TEXT NOT NULL DEFAULT '',
+  detail       TEXT NOT NULL DEFAULT '',
+  operation_id TEXT NOT NULL DEFAULT '',
+  players      INTEGER,
+  UNIQUE (schedule_id, due)
+);
+CREATE INDEX schedule_runs_server ON schedule_runs(server_id, due);
+ALTER TABLE servers ADD COLUMN sleep TEXT NOT NULL DEFAULT '{}';
+CREATE TABLE sleep_periods (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id TEXT NOT NULL,
+  start_ts  INTEGER NOT NULL,
+  end_ts    INTEGER,
+  woke_by   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX sleep_periods_server ON sleep_periods(server_id, start_ts);
+ALTER TABLE servers ADD COLUMN backup_rules TEXT NOT NULL DEFAULT '';
+CREATE TABLE offsite (
+  server_id    TEXT PRIMARY KEY,
+  enabled      INTEGER NOT NULL DEFAULT 0,
+  config       TEXT NOT NULL DEFAULT '{}',
+  secret       TEXT NOT NULL DEFAULT '',
+  password     TEXT NOT NULL DEFAULT '',
+  private_key  TEXT NOT NULL DEFAULT '',
+  ssh_public   TEXT NOT NULL DEFAULT '',
+  keys         TEXT NOT NULL DEFAULT '',
+  key_saved_at INTEGER,
+  updated_at   INTEGER NOT NULL
+);
+CREATE TABLE offsite_copies (
+  server_id         TEXT NOT NULL,
+  backup_id         TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  backup_created_at INTEGER NOT NULL,
+  file_name         TEXT NOT NULL,
+  size_bytes        INTEGER NOT NULL,
+  minecraft_version TEXT NOT NULL DEFAULT '',
+  level_name        TEXT NOT NULL DEFAULT '',
+  copy              TEXT NOT NULL,
+  copied_at         INTEGER NOT NULL,
+  PRIMARY KEY (server_id, backup_id)
+);
+CREATE TABLE offsite_uploads (
+  server_id    TEXT NOT NULL,
+  backup_id    TEXT NOT NULL,
+  state        TEXT NOT NULL DEFAULT '',
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_attempt INTEGER NOT NULL DEFAULT 0,
+  last_error   TEXT NOT NULL DEFAULT '',
+  error_hint   TEXT NOT NULL DEFAULT '',
+  error_kind   TEXT NOT NULL DEFAULT '',
+  error_params TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (server_id, backup_id)
+);
+`,
+	// Wave 7 (0.4.0): the folder the last recovery key file downloaded names,
+	// so a change of folder asks for the key again. NULL when not known.
+	`
+ALTER TABLE offsite ADD COLUMN key_saved_folder TEXT;
+`,
+	// Wave 7 (0.4.0): who removed a copied backup from this machine, as the
+	// audit names them, so the World tab says why only the copy is left.
+	// Empty while the backup is here, or when not known.
+	`
+ALTER TABLE offsite_copies ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
+`,
+	// Wave 7 (0.4.0): how many copies were made to the place copies go to
+	// now, so the card calls only the first one the first.
+	`
+ALTER TABLE offsite ADD COLUMN copies_made INTEGER NOT NULL DEFAULT 0;
+`,
+	// Wave 7 (0.4.0): the scheduled backups refused since the last backup
+	// that succeeded, because world saving couldn't be paused, as JSON, or
+	// '' when none were.
+	`
+ALTER TABLE servers ADD COLUMN backup_refused TEXT NOT NULL DEFAULT '';
+`,
 }

@@ -83,7 +83,7 @@ function pageKey(route: Route): string {
     case 'player':
       return `server/${route.slug}`
     case 'machine':
-      return `machine/${route.id}`
+      return route.sub ? `machine/${route.id}/${route.sub}` : `machine/${route.id}`
     case 'legacy':
       return `legacy/${route.tab}`
     case 'team':
@@ -104,6 +104,7 @@ function pageKey(route: Route): string {
     case 'settings':
     case 'more':
     case 'join':
+    case 'recover':
       return route.name
     default: {
       const unreachable: never = route
@@ -319,6 +320,7 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
+  // Settings, the machine's pages and the account open from More (More › my-vps › Disk space).
   const underMore = route.name === 'more' || route.name === 'settings' || route.name === 'team' || route.name === 'addon-sources' || route.name === 'discord' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
   const inServer = route.name === 'server' || route.name === 'player' || (underMore && !!phoneServer)
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug

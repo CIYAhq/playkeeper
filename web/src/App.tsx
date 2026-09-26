@@ -15,6 +15,7 @@ import { afterSignIn, signInPath } from '@/lib/templates'
 // wait for the others; once signed in, the rest load while the browser is idle.
 const pages = {
   account: () => import('@/pages/account'),
+  disk: () => import('@/pages/disk'),
   home: () => import('@/pages/home'),
   join: () => import('@/pages/join'),
   login: () => import('@/pages/login'),
@@ -24,10 +25,12 @@ const pages = {
   newServer: () => import('@/pages/new-server'),
   onboarding: () => import('@/pages/onboarding'),
   pack: () => import('@/pages/pack'),
+  recover: () => import('@/pages/recover'),
   server: () => import('@/pages/server'),
   settings: () => import('@/pages/settings'),
 }
 const AccountPage = lazy(() => pages.account().then((m) => ({ default: m.AccountPage })))
+const DiskPage = lazy(() => pages.disk().then((m) => ({ default: m.DiskPage })))
 const HomePage = lazy(() => pages.home().then((m) => ({ default: m.HomePage })))
 const JoinPage = lazy(() => pages.join().then((m) => ({ default: m.JoinPage })))
 const LoginPage = lazy(() => pages.login().then((m) => ({ default: m.LoginPage })))
@@ -38,6 +41,7 @@ const NewServerPage = lazy(() => pages.newServer().then((m) => ({ default: m.New
 const AccountStep = lazy(() => pages.onboarding().then((m) => ({ default: m.AccountStep })))
 const Onboarding = lazy(() => pages.onboarding().then((m) => ({ default: m.Onboarding })))
 const PackPage = lazy(() => pages.pack().then((m) => ({ default: m.PackPage })))
+const RecoverPage = lazy(() => pages.recover().then((m) => ({ default: m.RecoverPage })))
 const ServerPage = lazy(() => pages.server().then((m) => ({ default: m.ServerPage })))
 const GlobalSettingsPage = lazy(() => pages.settings().then((m) => ({ default: m.GlobalSettingsPage })))
 
@@ -226,7 +230,7 @@ function page(route: Route) {
     case 'player':
       return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':
-      return <MachinePage id={route.id} />
+      return route.sub === 'disk' ? <DiskPage id={route.id} /> : <MachinePage id={route.id} />
     case 'machine-settings':
       return <MachineSettingsPage id={route.id} />
     case 'settings':
@@ -243,6 +247,8 @@ function page(route: Route) {
       return <MorePage />
     case 'pack':
       return <PackPage token={route.token} />
+    case 'recover':
+      return <RecoverPage />
     default: {
       const unreachable: never = route
       return unreachable
