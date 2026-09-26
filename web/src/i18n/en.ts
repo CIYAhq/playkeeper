@@ -485,6 +485,7 @@ export const en = {
   'crash.portInside': 'Something inside {server} was already using its port.',
   'crash.portAddress': 'It’s set to an address {machine} doesn’t have.',
   'crash.portHolder': 'It’s {name}, process {pid}, not started by Playkeeper.',
+  'crash.portContainer': 'It’s the Docker container {name}, not started by Playkeeper.',
   'crash.java': '{who} needs Java {required}, but {server} runs Java {available}.',
   'crash.dependency': { one: '{addon} needs {deps}, which isn’t installed.', other: '{addon} needs {deps}, which aren’t installed.' },
   'crash.addonFailed': '{addon} hit an error while starting.',

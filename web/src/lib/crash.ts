@@ -126,6 +126,8 @@ export function crashDetail(c: Crash): string | undefined {
   const holder = str(c.params, 'holder')
   const pid = num(c.params, 'holder_pid')
   if (c.kind === 'port_in_use' && holder && pid) return t('crash.portHolder', { name: holder, pid: String(pid) })
+  const container = str(c.params, 'holder_container')
+  if (c.kind === 'port_in_use' && container) return t('crash.portContainer', { name: container })
   return undefined
 }
 

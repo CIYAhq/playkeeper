@@ -827,6 +827,22 @@ describe('Crash helper', () => {
     expect(labelled('Move Survival to another port')?.title).toBe('Coming later')
   })
 
+  it('names the Docker container on a taken port', async () => {
+    const port = crash({
+      start: true,
+      kind: 'port_in_use',
+      params: { port: 25565, holder_container: 'old-minecraft' },
+      fixes: [
+        { kind: 'change_port', params: { port: 25565 }, title: 'Change the port', recommended: true },
+        { kind: 'restart', title: 'Start again' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: port })} />)
+    expect(text).toContain('Another program on my-vps is using port 25565.')
+    expect(text).toContain('It’s the Docker container old-minecraft, not started by Playkeeper.')
+    expect(labelled('Start again on 25565')?.querySelector('[data-checked]')).not.toBeNull()
+  })
+
   it('puts the damaged area back as the agent recommends, or restores the backup it names', async () => {
     vi.mocked(client.post).mockClear()
     const made = new Date()
