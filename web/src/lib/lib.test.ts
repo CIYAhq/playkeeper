@@ -843,4 +843,11 @@ describe('a restore that didn’t finish', () => {
     expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), 'start', false)).toBe('Its world folder is missing. Move the previous world back first.')
     expect(whyNot(server({ phase: 'stopped' }), 'start', false)).toBeUndefined()
   })
+
+  it('won’t back up a server whose world folder a restore left missing, and says why', () => {
+    const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), 'backup', false)).toBe('Its world folder is missing. Move the previous world back first.')
+    expect(whyNot(server({ phase: 'online' }), 'backup', false)).toBeUndefined()
+    expect(whyNot(server({ phase: 'online' }), 'backup', true)).toBe(whyNot(server({ phase: 'online' }), 'change', true))
+  })
 })

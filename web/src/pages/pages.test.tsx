@@ -19,6 +19,7 @@ import { MachinePage } from './machine'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { RecoverPage } from './recover'
+import { ServerPage } from './server'
 import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
@@ -1979,5 +1980,29 @@ describe('A restore that didn’t finish', () => {
     expect(text).not.toContain('Napping')
     expect(button('Start')).toBeUndefined()
     expect(await render(<HomePage />, workspace({ servers: [server({ phase: 'stopped', stoppedAt })] }))).toContain('Napping for 5 minutes')
+  })
+
+  it('doesn’t offer a backup while the world folder is missing, and says why', async () => {
+    const why = 'Its world folder is missing. Move the previous world back first.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies, '/backups': [] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Make my first backup')?.disabled).toBe(true)
+    expect(button('Make my first backup')?.title).toBe(why)
+    answer({ '/world-copies': copies, '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Back up now')?.disabled).toBe(true)
+    expect(button('Back up now')?.title).toBe(why)
+    answer({ '/world-copies': [], '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    expect(button('Back up now')?.disabled).toBe(false)
+
+    await render(<ServerPage slug="survival" tab="overview" />, workspace({ servers: [server({ phase: 'stopped', worldMissing: missing })] }))
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="More actions"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === 'Back up now')
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
   })
 })

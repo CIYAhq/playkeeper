@@ -108,7 +108,7 @@ export function busyReason(st: ServerStatus): string | undefined {
   return st.operation ? t('reason.busy', { what: opLabel(st.operation, st.name) }) : undefined
 }
 
-export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change'
+export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change' | 'backup'
 
 /** Why an action can't run on a server right now, in a few plain words; undefined when it can. */
 export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): string | undefined {
@@ -131,6 +131,8 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): 
       return st.phase === 'online' ? undefined : (settling ?? t('reason.startFirst', { server: st.name }))
     case 'change':
       return undefined
+    case 'backup':
+      return st.worldMissing ? t('reason.worldMissing') : undefined
     default: {
       const unreachable: never = action
       return unreachable

@@ -203,7 +203,7 @@ function MoreMenu({ server }: { server: ServerStatus }) {
   const { stale } = useWorkspace()
   const c = controls(server)
   const [sharing, setSharing] = useState(false)
-  const backUpBlocked = whyNot(server, 'change', stale)
+  const backUpBlocked = whyNot(server, 'backup', stale)
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>

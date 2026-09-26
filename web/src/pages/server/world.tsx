@@ -290,7 +290,7 @@ function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatu
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
-  const blocked = whyNot(s, 'change', ws.stale)
+  const blocked = whyNot(s, 'backup', ws.stale)
 
   async function backup() {
     setBusy(true)
@@ -531,7 +531,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         size={phone ? 'touch' : 'lg'}
         className="mt-5 max-sm:w-full"
         loading={busy || running}
-        disabledReason={whyNot(s, 'change', ws.stale)}
+        disabledReason={whyNot(s, 'backup', ws.stale)}
         onClick={async () => {
           setBusy(true)
           try {
