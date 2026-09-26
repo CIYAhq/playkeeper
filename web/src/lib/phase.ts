@@ -108,7 +108,12 @@ export function busyReason(st: ServerStatus): string | undefined {
   return st.operation ? t('reason.busy', { what: opLabel(st.operation, st.name) }) : undefined
 }
 
-export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change' | 'backup'
+/** "Its world folder is missing…" while a restore that didn't finish left it missing; undefined otherwise. */
+export function worldMissingReason(st: ServerStatus): string | undefined {
+  return st.worldMissing ? t('reason.worldMissing') : undefined
+}
+
+export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change' | 'backup' | 'pregen' | 'restore'
 
 /** Why an action can't run on a server right now, in a few plain words; undefined when it can. */
 export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): string | undefined {
@@ -132,7 +137,9 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): 
     case 'change':
       return undefined
     case 'backup':
-      return st.worldMissing ? t('reason.worldMissing') : undefined
+    case 'pregen':
+    case 'restore':
+      return worldMissingReason(st)
     default: {
       const unreachable: never = action
       return unreachable

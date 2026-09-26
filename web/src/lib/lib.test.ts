@@ -850,4 +850,12 @@ describe('a restore that didn’t finish', () => {
     expect(whyNot(server({ phase: 'online' }), 'backup', false)).toBeUndefined()
     expect(whyNot(server({ phase: 'online' }), 'backup', true)).toBe(whyNot(server({ phase: 'online' }), 'change', true))
   })
+
+  it('won’t pre-generate or restore while a restore left the world folder missing, and says why', () => {
+    const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    for (const action of ['pregen', 'restore'] as const) {
+      expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), action, false)).toBe('Its world folder is missing. Move the previous world back first.')
+      expect(whyNot(server({ phase: 'stopped' }), action, false)).toBeUndefined()
+    }
+  })
 })

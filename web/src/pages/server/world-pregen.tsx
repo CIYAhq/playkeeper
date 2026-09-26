@@ -240,7 +240,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   const [busy, setBusy] = useState(false)
   const chosen = pg.presets.find((p) => p.id === preset)
   const otherJob = s.operation && s.operation.kind !== 'pregen-start' ? s.operation : undefined
-  const blocked = whyNot({ ...s, operation: otherJob }, 'change', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
+  const blocked = whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
 
   async function start() {
     setBusy(true)

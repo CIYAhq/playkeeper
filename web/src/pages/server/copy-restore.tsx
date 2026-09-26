@@ -88,6 +88,7 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
   const when = formatDay(c.createdAt)
   const path = `/offsite/copies/${encodeURIComponent(c.name)}`
   const cantRun = whyNot(s, 'change', ws.stale)
+  const cantRestore = whyNot(s, 'restore', ws.stale)
   const cantDelete = holdsBackupKeys(ws.me?.user.role ?? '') ? cantRun : t('world.copyOwnerOnly', { place })
   const noChecksum = c.sha256 ? undefined : t('world.noChecksum')
 
@@ -127,7 +128,7 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
       <td className="px-3">{storedCell(row, place)}</td>
       <td className="px-3">
         <span className="flex items-center justify-end gap-1">
-          <Button size="sm" variant="outline" onClick={onRestore}>
+          <Button size="sm" variant="outline" disabledReason={cantRestore} onClick={onRestore}>
             <RotateCcwIcon />
             {t('world.restoreCopy')}
           </Button>
@@ -136,7 +137,7 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
               <EllipsisIcon />
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-60">
-              <MenuItem onClick={onRestore} className="items-start py-1.5">
+              <MenuItem disabled={!!cantRestore} title={cantRestore} onClick={onRestore} className={cn('items-start py-1.5', cantRestore && 'data-disabled:pointer-events-auto')}>
                 <HistoryIcon className="mt-0.5" />
                 <span>
                   <span className="block">{t('world.restoreThis')}</span>

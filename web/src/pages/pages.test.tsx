@@ -1745,6 +1745,15 @@ describe('World backups with copies', () => {
     await rerender(server({ lastOperation: { id: 'op-restore', kind: 'restore', status: 'succeeded', phase: 'starting', actor: 'siya', startedAt: '2026-09-25T18:52:00Z' } }))
     expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
   })
+
+  it('won’t restore a copy while a restore left the world folder missing, and says why', async () => {
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing })} />)
+    const restore = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore…')
+    expect(restore?.disabled).toBe(true)
+    expect(restore?.title).toBe('Its world folder is missing. Move the previous world back first.')
+  })
 })
 
 describe('Restore from a recovery key', () => {
@@ -2004,6 +2013,31 @@ describe('A restore that didn’t finish', () => {
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === 'Back up now')
     expect(item?.getAttribute('aria-disabled')).toBe('true')
     expect(item?.title).toBe(why)
+  })
+
+  it('doesn’t offer a restore while the world folder is missing, and says why', async () => {
+    const why = 'Its world folder is missing. Move the previous world back first.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies, '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('choose a file')?.disabled).toBe(true)
+    expect(button('choose a file')?.title).toBe(why)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.startsWith('Restore this backup'))
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
+
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Restore a world')?.disabled).toBe(true)
+    expect(button('Restore a world')?.title).toBe(why)
+    phone.mockRestore()
+
+    answer({ '/world-copies': [], '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    expect(button('choose a file')?.disabled).toBe(false)
   })
 
   it('shortens a long activity line instead of widening the page', async () => {

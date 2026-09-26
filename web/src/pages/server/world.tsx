@@ -91,6 +91,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   const all = useMemo(() => storedRows(backups.data ?? [], stored.data?.copies ?? [], stored.data?.view), [backups.data, stored.data])
   const rows = useListPresence(backups.data ? (showAll ? all : all.slice(0, newestShown)) : undefined, rowKey)
   const restore = useCopyRestore(s, setPreview)
+  const restoreBlocked = whyNot(s, 'restore', ws.stale)
   const jobDialog = <CopyRestoreDialog restore={restore} copies={copies} place={place} />
   const more =
     all.length > newestShown ? (
@@ -139,7 +140,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
                       <span className="block text-base">{formatDay(r.copy.createdAt)}</span>
                       <span className="block text-[13px] text-muted-foreground">{[formatBytes(r.copy.sizeBytes), phoneStored(r, place)].join(t('common.dot'))}</span>
                     </span>
-                    <Button size="lg" variant="outline" onClick={() => void restore.start(r.copy)}>
+                    <Button size="lg" variant="outline" disabledReason={restoreBlocked} onClick={() => void restore.start(r.copy)}>
                       <RotateCcwIcon />
                       {t('world.restoreCopyShort')}
                     </Button>
@@ -172,7 +173,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             </a>
           </li>
           <li className="border-b border-border">
-            <button type="button" onClick={() => setRestoreSheet(true)} className={phoneRow}>
+            <button type="button" disabled={!!restoreBlocked} title={restoreBlocked} onClick={() => setRestoreSheet(true)} className={cn(phoneRow, 'disabled:cursor-not-allowed disabled:opacity-64')}>
               <RotateCcwIcon aria-hidden="true" />
               <span className="min-w-0 flex-1 text-base">{t('world.restorePhone')}</span>
               <ChevronRightIcon aria-hidden="true" />
@@ -212,6 +213,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
               <RestoreDropZone
                 server={s}
                 compact
+                disabledReason={restoreBlocked}
                 onPreview={(p) => {
                   setRestoreSheet(false)
                   setPreview(p)
@@ -274,7 +276,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
       <Card className="mt-2">
         <CardTitle>{t('world.restore')}</CardTitle>
         <div className="mt-4 grid items-center gap-5 md:grid-cols-[1.6fr_1fr]">
-          <RestoreDropZone server={s} onPreview={setPreview} />
+          <RestoreDropZone server={s} onPreview={setPreview} disabledReason={restoreBlocked} />
           <p className="text-[13px] text-muted-foreground">{t('world.restoreNote')}</p>
         </div>
       </Card>
@@ -387,8 +389,10 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
 }
 
 function BackupRow({ server: s, backup: b, state, newest, copiesOn, stored, onRestore, onChanged }: { server: ServerStatus; backup: Backup; state: Presence; newest: boolean; copiesOn?: boolean; stored?: ReactNode; onRestore: () => void; onChanged: () => void }) {
+  const ws = useWorkspace()
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
+  const restoreBlocked = whyNot(s, 'restore', ws.stale)
 
   async function verify() {
     try {
@@ -458,7 +462,7 @@ function BackupRow({ server: s, backup: b, state, newest, copiesOn, stored, onRe
               <EllipsisIcon />
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-60">
-              <MenuItem onClick={onRestore} className="items-start py-1.5">
+              <MenuItem disabled={!!restoreBlocked} title={restoreBlocked} onClick={onRestore} className={cn('items-start py-1.5', restoreBlocked && 'data-disabled:pointer-events-auto')}>
                 <HistoryIcon className="mt-0.5" />
                 <span>
                   <span className="block">{t('world.restoreThis')}</span>
