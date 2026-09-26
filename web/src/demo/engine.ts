@@ -8,7 +8,7 @@ import { ApiError } from '@/api/client'
 import type { Activity, ActivityKind, ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
 import { t } from '@/i18n'
 import { opLabel } from '@/lib/phase'
-import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versionsOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
+import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versionsOf, buildsFor, pinOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
 import { demoMarker } from './marker'
 import { dt } from './messages'
 import { demoToast, type DemoAction } from './toast'
@@ -222,7 +222,7 @@ function finish(s: DemoState, srv: ServerStatus, live: Live, job: Job, at: numbe
     case 'update-version': {
       const v = versionsOf(srv.type ?? 'paper').find((x) => x.id === job.args.versionId)
       const from = srv.config?.minecraftVersion ?? ''
-      if (v && srv.config) Object.assign(srv.config, { versionId: v.id, minecraftVersion: v.minecraftVersion, paperBuild: v.paperBuild, software: v.software ?? srv.config.software, jarSha256: v.jarSha256, jarVerifiedAt: iso(at) })
+      if (v && srv.config) Object.assign(srv.config, { versionId: v.id, minecraftVersion: v.minecraftVersion, paperBuild: v.paperBuild, software: v.software, jarSha256: v.jarSha256, jarVerifiedAt: iso(at) })
       if (srv.phase === 'online') up(srv, live, at)
       note(s, at, srv.id, 'version', { ...actor, detail: `${from} → ${v?.minecraftVersion ?? from}` })
       audit(s, at, 'server.version', srv, undefined, `${from} → ${v?.minecraftVersion ?? from}`)
@@ -375,6 +375,7 @@ interface CreateBody {
   name?: string
   type?: string
   versionId?: string
+  build?: string
   memoryMB?: number
   motd?: string
   maxPlayers?: number
@@ -410,7 +411,19 @@ function create(s: DemoState, r: Request): Operation {
     desired: 'running',
     phase: 'pulling_image',
     reachable: false,
-    config: config({ type, versionId: v?.id, minecraftVersion: v?.minecraftVersion ?? '', software: v?.software, jarSha256: v?.jarSha256, memoryMB, motd: b.motd || name, createdAt: created, maxPlayers: b.maxPlayers ?? 10, playStyle: b.playStyle ?? '' }),
+    config: config({
+      type,
+      versionId: v?.id,
+      minecraftVersion: v?.minecraftVersion ?? '',
+      paperBuild: v?.paperBuild ?? 0,
+      software: v?.software && pinOf(type, v.minecraftVersion, b.build && buildsFor(type, v.minecraftVersion).includes(b.build) ? b.build : undefined),
+      jarSha256: v?.jarSha256,
+      memoryMB,
+      motd: b.motd || name,
+      createdAt: created,
+      maxPlayers: b.maxPlayers ?? 10,
+      playStyle: b.playStyle ?? '',
+    }),
     gameplay: { difficulty: 'normal', pvp: true, gameMode: 'survival', hardcore: false, viewDistance: 10, levelType: 'normal', ...b.gameplay },
     gamePort: port,
     offlineModeTest: false,

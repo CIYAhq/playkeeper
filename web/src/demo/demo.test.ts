@@ -2,8 +2,9 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, AddonSources, Catalog, CuratedAddons, DataPacks, LogsResponse, MemoryAdvice, PackShare, Pregen, ResourcePack, Running, ServerStatus, SoftwareBuilds, TwoFactorStatus } from '@/api/types'
+import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, AddonSources, Catalog, CatalogEntry, CuratedAddons, DataPacks, LogsResponse, MemoryAdvice, PackShare, Pregen, ResourcePack, Running, ServerStatus, SoftwareBuilds, TwoFactorStatus } from '@/api/types'
 import { addonIconOf, faceOf, library, samplePlayers } from './data'
+import { hasBuilds, pinBuild } from '@/lib/software'
 import { upgradeTargets } from '@/lib/versions'
 import { answer, resetDemo } from './engine'
 import { faceCount } from './faces'
@@ -373,4 +374,40 @@ it('gives Quilt and NeoForge servers mods, not plugins', async () => {
     expect((await ask<AddonBrowse>('GET', `/api/servers/${id}/addons/search`)).cards.every((c) => ['Fabric API', 'Cobblemon', 'Lithium'].includes(c.name))).toBe(true)
   }
   expect((await ask<PackShare>('GET', `/api/servers/${(await server('a-quilt-world')).id}/mods/share`)).loaderName).toBe('Quilt')
+})
+
+it('keeps every type’s version, build and loader in step with the catalog entry chosen, through create and a version change', async () => {
+  const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
+  const agrees = (srv: ServerStatus, type: string, entry: CatalogEntry, build: string | undefined, step: string) => {
+    const where = `${type} ${step} ${entry.id}`
+    expect(srv.type, where).toBe(type)
+    expect(srv.config, where).toMatchObject({ type, versionId: entry.id, minecraftVersion: entry.minecraftVersion })
+    if (type === 'paper') {
+      expect(srv.config?.paperBuild, where).toBe(entry.paperBuild)
+      expect(srv.config?.software, where).toBeUndefined()
+      return
+    }
+    expect(srv.config?.software, where).toMatchObject({ type, minecraftVersion: entry.minecraftVersion })
+    expect(pinBuild(srv.config?.software), where).toBe(build ?? entry.build ?? '')
+  }
+  let n = 0
+  for (const type of ['paper', 'purpur', 'fabric', 'quilt', 'neoforge', 'vanilla']) {
+    const catalog = await ask<Catalog>('GET', `/api/machines/${m?.id}/catalog?type=${type}`)
+    expect(catalog.versions.every((v) => hasBuilds(type) === !!v.build), type).toBe(true)
+    const newest = catalog.versions[0]!
+    for (const [i, from] of catalog.versions.slice(1).entries()) {
+      const offered = hasBuilds(type) ? (await ask<SoftwareBuilds>('GET', `/api/machines/${m?.id}/catalog/builds?type=${type}&version=${from.minecraftVersion}`)).builds : []
+      // Every other server takes a build other than the recommended one.
+      const build = i % 2 ? offered[1]?.version : undefined
+      const name = `Table ${++n}`
+      await ask('POST', `/api/machines/${m?.id}/servers`, { name, type, versionId: from.id, memoryMB: 512, ...(build ? { build } : {}) })
+      await vi.advanceTimersByTimeAsync(30_000)
+      const made = await server(`table-${n}`)
+      agrees(made, type, from, build, 'created')
+      expect(upgradeTargets(made.config!, catalog.versions).map((v) => v.id), type).toContain(newest.id)
+      await ask('POST', `/api/servers/${made.id}/version`, { versionId: newest.id })
+      await vi.advanceTimersByTimeAsync(30_000)
+      agrees(await server(`table-${n}`), type, newest, undefined, 'changed')
+    }
+  }
 })

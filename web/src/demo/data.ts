@@ -60,6 +60,7 @@ import type {
   ShareMod,
   ShareNeed,
   SoftwareBuilds,
+  SoftwarePin,
   TwoFactorStatus,
   UpdateInfo,
   WhitelistEntry,
@@ -384,7 +385,7 @@ export function sample(now: number): DemoState {
       createdAt: iso(cobblemonCreated),
       playStyle: 'friends',
       type: 'fabric',
-      software: { type: 'fabric', minecraftVersion: '26.1.2', fabricLoader: '0.19.3' },
+      software: pinOf('fabric', '26.1.2'),
     }),
     gameplay: { difficulty: 'normal', pvp: false, gameMode: 'survival', hardcore: false, viewDistance: 10, levelType: 'normal' },
     gamePort: 25567,
@@ -690,19 +691,48 @@ const serverTypes = [
   { id: 'vanilla', name: 'Vanilla' },
 ]
 
-/** The Minecraft versions a type offers: Paper's, pinned to that type for the others. */
-export function versionsOf(type: string): CatalogEntry[] {
-  if (type === 'paper') return versions
-  return versions.map((v) => ({ ...v, id: `${type}-${v.minecraftVersion}`, paperBuild: 0, software: { type, minecraftVersion: v.minecraftVersion } }))
+/** The builds a type offers for a Minecraft version, newest and recommended first; Paper and Vanilla have none. */
+export function buildsFor(type: string, minecraftVersion: string): string[] {
+  switch (type) {
+    case 'purpur':
+      return ['2461', '2460', '2457']
+    case 'fabric':
+      return ['0.19.3', '0.19.2', '0.18.4']
+    case 'quilt':
+      return ['0.30.1', '0.30.0']
+    case 'neoforge':
+      return [`${minecraftVersion}.18`, `${minecraftVersion}.11`]
+    default:
+      return []
+  }
 }
 
-/** The builds of a type that has them, newest first. */
-const buildsOf: Record<string, string[]> = { purpur: ['2461', '2460', '2457'], fabric: ['0.19.3', '0.19.2', '0.18.4'], quilt: ['0.30.1', '0.30.0'], neoforge: ['26.1.2.18', '26.1.2.11'] }
+/** A server's pin on a type and Minecraft version, at the given build or the recommended one. */
+export function pinOf(type: string, minecraftVersion: string, build = buildsFor(type, minecraftVersion)[0]): SoftwarePin {
+  switch (type) {
+    case 'purpur':
+      return { type, minecraftVersion, purpurBuild: Number(build) }
+    case 'fabric':
+      return { type, minecraftVersion, fabricLoader: build }
+    case 'quilt':
+      return { type, minecraftVersion, quiltLoader: build }
+    case 'neoforge':
+      return { type, minecraftVersion, neoforgeVersion: build }
+    default:
+      return { type, minecraftVersion }
+  }
+}
+
+/** The Minecraft versions a type offers: Paper's builds, or the same versions pinned to the type's recommended build. */
+export function versionsOf(type: string): CatalogEntry[] {
+  if (type === 'paper') return versions
+  return versions.map((v) => ({ ...v, id: `${type}-${v.minecraftVersion}`, paperBuild: 0, software: pinOf(type, v.minecraftVersion), build: buildsFor(type, v.minecraftVersion)[0] }))
+}
 
 function builds(_s: DemoState, r: Request): SoftwareBuilds {
   const type = r.query.get('type') ?? ''
-  const list = buildsOf[type] ?? []
-  return { type, minecraftVersion: r.query.get('version') ?? '', builds: list.map((version, i) => ({ version, channel: 'stable', recommended: i === 0 })), checkedAt: iso(r.now - 20 * minute) }
+  const version = r.query.get('version') ?? ''
+  return { type, minecraftVersion: version, builds: buildsFor(type, version).map((build, i) => ({ version: build, channel: 'stable', recommended: i === 0 })), checkedAt: iso(r.now - 20 * minute) }
 }
 
 function catalog(s: DemoState, r: Request): Catalog {
