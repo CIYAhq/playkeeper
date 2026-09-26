@@ -34,12 +34,20 @@ const (
 )
 
 // Wave 7 (0.4.0): where copies of backups go, and the key that opens them.
-// Only the owner may use these; once co-admins arrive, admins with two-factor
-// sign-in may too.
+// mayHoldBackupKeys alone decides who may use these.
 const (
 	actManageBackupCopies action = "backups.copies.manage"
 	actRecoveryKey        action = "backups.recovery_key"
 )
+
+// mayHoldBackupKeys reports whether an account may change where backup
+// copies go, and see or download the recovery key that opens them. It is the
+// only check for both. While there is one admin account, that is the owner;
+// when co-admins (Wave 5) and two-factor sign-in (Wave 2) arrive it becomes
+// "the owner, or an admin with two-factor on", changed here and nowhere else.
+func mayHoldBackupKeys(sess *session) bool {
+	return sess != nil && sess.User.Role == roleOwner
+}
 
 // permit reports whether the signed-in account may take an action. Only
 // owners exist in 0.3.0; members get what their project role allows once
@@ -47,6 +55,9 @@ const (
 func permit(sess *session, a action) bool {
 	if sess == nil {
 		return false
+	}
+	if a == actManageBackupCopies || a == actRecoveryKey {
+		return mayHoldBackupKeys(sess)
 	}
 	switch sess.User.Role {
 	case roleOwner:

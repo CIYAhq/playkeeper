@@ -179,6 +179,12 @@ type RecoveryFile struct {
 // RecoveryFile writes k as the recovery key file of the server named
 // server, with plain instructions.
 func (k Keys) RecoveryFile(server string, now time.Time) (RecoveryFile, error) {
+	return k.RecoveryFileFor(server, "", now)
+}
+
+// RecoveryFileFor is RecoveryFile that also notes folder, the bucket
+// prefix or SFTP folder the copies go to, so a new machine finds them.
+func (k Keys) RecoveryFileFor(server, folder string, now time.Time) (RecoveryFile, error) {
 	if err := k.Validate(); err != nil {
 		return RecoveryFile{}, err
 	}
@@ -213,6 +219,9 @@ func (k Keys) RecoveryFile(server string, now time.Time) (RecoveryFile, error) {
 		"#",
 		"# Made "+now.UTC().Format("2006-01-02 15:04")+" UTC. The newest key comes first; older keys open copies",
 		"# made before the key was changed.")
+	if folder != "" && len(folder) <= 256 && printable(folder) {
+		line("#", "# folder: "+folder)
+	}
 	for _, id := range k.all() {
 		line("")
 		if !id.CreatedAt.IsZero() {
@@ -226,8 +235,25 @@ func (k Keys) RecoveryFile(server string, now time.Time) (RecoveryFile, error) {
 // ParseRecoveryFile reads the keys back from a recovery key file, the
 // first as Current. Its errors never quote the file.
 func ParseRecoveryFile(r io.Reader) (Keys, error) {
-	fail := func(msg string) (Keys, error) {
-		return Keys{}, invalid("recoveryKey", msg, "Use the recovery key file Playkeeper made for this server, unchanged.")
+	rec, err := ReadRecoveryFile(r)
+	return rec.Keys, err
+}
+
+// Recovery is what a recovery key file holds: the keys, and what it says
+// about the server they belong to.
+type Recovery struct {
+	Keys   Keys
+	Server string    // the server's name, from the file's first line
+	Folder string    // the bucket prefix or SFTP folder of its copies, if the file says
+	Made   time.Time // when the file was made, if it says
+}
+
+// ReadRecoveryFile is ParseRecoveryFile with the rest of what the file
+// says. Its errors never quote the file.
+func ReadRecoveryFile(r io.Reader) (Recovery, error) {
+	var rec Recovery
+	fail := func(msg string) (Recovery, error) {
+		return Recovery{}, invalid("recoveryKey", msg, "Use the recovery key file Playkeeper made for this server, unchanged.")
 	}
 	data, err := io.ReadAll(io.LimitReader(r, maxRecoveryFile+1))
 	switch {
@@ -249,8 +275,17 @@ func ParseRecoveryFile(r io.Reader) (Keys, error) {
 			continue
 		}
 		if c, ok := strings.CutPrefix(l, "#"); ok {
-			if v, ok := strings.CutPrefix(strings.TrimSpace(c), "created:"); ok {
+			c = strings.TrimSpace(c)
+			if v, ok := strings.CutPrefix(c, "created:"); ok {
 				created, _ = time.Parse(time.RFC3339, strings.TrimSpace(v))
+			} else if v, ok := strings.CutPrefix(c, "Playkeeper recovery key for "); ok && rec.Server == "" && len(keys) == 0 {
+				rec.Server = displayName(v)
+			} else if v, ok := strings.CutPrefix(c, "folder:"); ok && len(keys) == 0 {
+				if v = strings.TrimSpace(v); len(v) <= 256 && printable(v) {
+					rec.Folder = v
+				}
+			} else if v, ok := strings.CutPrefix(c, "Made "); ok && len(v) >= 16 && len(keys) == 0 {
+				rec.Made, _ = time.Parse("2006-01-02 15:04", v[:16])
 			}
 			continue
 		}
@@ -271,7 +306,8 @@ func ParseRecoveryFile(r io.Reader) (Keys, error) {
 	if len(keys) == 0 {
 		return fail("The file has no age keys in it.")
 	}
-	return Keys{Current: keys[0], Old: keys[1:]}, nil
+	rec.Keys = Keys{Current: keys[0], Old: keys[1:]}
+	return rec, nil
 }
 
 // slug makes a server's name safe for a file name or a key comment:

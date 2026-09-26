@@ -13,12 +13,14 @@ import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { rich } from '@/i18n/rich'
 import { formatBytes, formatMB, formatPercent, formatSpan, joinAddress } from '@/lib/format'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { holdsBackupKeys } from '@/pages/server/copies'
 import { AsleepDetail, gaveBackText } from '@/pages/server/sleep'
 
 export function HomePage() {
@@ -51,6 +53,17 @@ export function HomePage() {
             </Button>
           ) : (
             <div className="mt-5">{newButton}</div>
+          )}
+          {holdsBackupKeys(ws.me?.user.role ?? '') && (
+            <p className="mt-3 text-xs text-muted-foreground max-sm:text-[13px]">
+              {rich('recover.homeLink', {
+                recover: (chunk) => (
+                  <a {...linkProps({ name: 'recover' })} className="font-medium text-success-strong hover:underline">
+                    {chunk}
+                  </a>
+                ),
+              })}
+            </p>
           )}
           <EmptySteps phone={phone} />
         </PageBody>

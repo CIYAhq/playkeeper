@@ -247,11 +247,11 @@ export function MeterRow({ label, value, percent, className }: { label: string; 
   )
 }
 
-export function Progress({ value, tone = 'primary', className, label }: { value: number; tone?: 'primary' | 'info'; className?: string; label?: string }) {
+export function Progress({ value, tone = 'primary', className, label }: { value: number; tone?: 'primary' | 'info' | 'muted'; className?: string; label?: string }) {
   const pct = Math.max(0, Math.min(100, value))
   return (
     <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-foreground/8', className)} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label={label}>
-      <div className={cn('h-full rounded-full transition-[width]', tone === 'primary' ? 'bg-primary' : 'bg-info')} style={{ width: `${pct}%` }} />
+      <div className={cn('h-full rounded-full transition-[width]', { primary: 'bg-primary', info: 'bg-info', muted: 'bg-muted-foreground/60' }[tone])} style={{ width: `${pct}%` }} />
     </div>
   )
 }

@@ -848,8 +848,14 @@ func (s *server) hOffsiteSSHKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // hOffsiteRecoveryKey returns the recovery key file. The panel lets only
-// the owner fetch it; neither the response nor the audit line is kept.
+// the owner fetch it and names who did; the response is never cached, and
+// the audit line, written before the key leaves, never holds its content.
 func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
+	actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	row, err := s.loadOffsite()
 	if err != nil {
 		writeError(w, err)
@@ -859,12 +865,17 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("There is no recovery key yet.", "Turn on copies somewhere else first; the key is made then."))
 		return
 	}
-	f, err := row.keys.RecoveryFile(s.name(), s.now())
+	folder := row.cfg.S3.Prefix
+	if row.cfg.Type == offsite.TypeSFTP {
+		folder = row.cfg.SFTP.Folder
+	}
+	f, err := row.keys.RecoveryFileFor(s.name(), folder, s.now())
 	if err != nil {
 		writeError(w, automationError(err))
 		return
 	}
 	body := f.Content.Reveal()
+	s.audit(actor, "offsite.recovery_key.downloaded", "server", "succeeded", f.Name)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+f.Name+`"`)
 	w.Header().Set("Cache-Control", "no-store")
@@ -875,7 +886,6 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ? WHERE server_id = ?`, s.now().UnixMilli(), s.id)
-	s.audit(actorFromHeader(r), "offsite.recovery_key.downloaded", "server", "succeeded", f.Name)
 }
 
 // hOffsiteNewKey makes a new encryption key for new copies and keeps the

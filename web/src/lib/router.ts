@@ -4,11 +4,11 @@ export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'settings
 export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'settings']
 
 // Wave 7: pages inside a server's tab, and the machine's Disk space page.
-export type ServerSub = 'schedules' | 'backup-rules' | 'backup-rules-edit'
+export type ServerSub = 'schedules' | 'backup-rules' | 'backup-copies'
 const serverSubs: Record<ServerSub, { tab: ServerTab; path: string }> = {
   schedules: { tab: 'settings', path: 'schedules' },
   'backup-rules': { tab: 'world', path: 'backup-rules' },
-  'backup-rules-edit': { tab: 'world', path: 'backup-rules/edit' },
+  'backup-copies': { tab: 'world', path: 'backup-rules/copies' },
 }
 export type MachineSub = 'disk'
 
@@ -22,6 +22,8 @@ export type Route =
   | { name: 'machine'; id: string; sub?: MachineSub }
   | { name: 'settings' }
   | { name: 'more' }
+  // Wave 7: bring a server back from its copies with its recovery key.
+  | { name: 'recover' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
 
@@ -43,6 +45,8 @@ export function parse(pathname: string): Route {
       return { name: 'settings' }
     case 'more':
       return { name: 'more' }
+    case 'recover':
+      return second ? { name: 'home' } : { name: 'recover' }
     case 'console':
     case 'players':
     case 'world':
@@ -86,6 +90,8 @@ export function href(route: Route): string {
       return '/settings'
     case 'more':
       return '/more'
+    case 'recover':
+      return '/recover'
     case 'legacy':
       return `/${route.tab}`
     default: {

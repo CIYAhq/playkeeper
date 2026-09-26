@@ -273,6 +273,46 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
 
+# Wave 7: who may change where backup copies go and hold the recovery key.
+control "only the owner holds backup keys" internal/panel/workspace.go \
+  'return sess != nil && sess.User.Role == roleOwner' \
+  'return sess != nil' \
+  ./internal/panel '^(TestMembersCannotTouchBackupCopiesOrTheRecoveryKey|TestOneCheckDecidesWhoHoldsBackupKeys)$'
+control "changing where copies go is a backup key action" internal/panel/server.go \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies,' \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "the recovery key is a backup key action" internal/panel/server.go \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actRecoveryKey,' \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "restoring from a recovery key is a backup key action" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoveryKey),' \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actManageMachine),' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "refused recovery key requests are audited" internal/panel/server.go \
+  'if rt.Act == actRecoveryKey {' \
+  'if false && rt.Act == actRecoveryKey {' \
+  ./internal/panel '^TestMembersCannotTouchBackupCopiesOrTheRecoveryKey$'
+control "the panel never caches the recovery key" internal/panel/automation.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/panel '^TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt$'
+control "the agent never caches the recovery key" internal/agent/offsite.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads name who took them" internal/agent/offsite.go \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if err != nil {' \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if false && err != nil {' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads are audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.recovery_key.downloaded", "server", "succeeded", f.Name)' \
+  '_, _ = actor, f.Name' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

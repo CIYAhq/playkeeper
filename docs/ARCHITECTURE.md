@@ -11,6 +11,12 @@ All of it is one Go binary with the TypeScript/React UI compiled in; the process
 - Operations are exclusive per server, so two servers can back up or restart at the same time; a Playkeeper update waits until every server is idle. Each server reserves its memory budget even while stopped, so it can always start.
 - The panel routes each request by server to the machine that runs it. Player faces are fetched from Mojang by the panel and cached in its database; browsers never contact Mojang.
 
+## Backups and copies somewhere else
+
+- Each server's backup rules (`internal/backup/retention`) decide when the agent makes a backup and which backups it keeps, here and somewhere else; the agent deletes the rest.
+- With copies on, the root agent encrypts each new backup with age in a spool folder of the server's own, uploads it (`internal/offsite`: S3 signed with SigV4, or SFTP with a pinned host key), tries again with backoff when that fails, and records each copy in its database. The panel only forwards requests: it never holds the storage secrets or the keys.
+- Getting a copy back downloads, decrypts and checks it into the same staging area as an uploaded backup, so it goes through the same preview and rollback. Restoring on a new machine lists and stages copies with the key file and storage details sent with the request, and saves neither.
+
 ## Invariants
 
 - Preflight existing listeners, services, resources and file paths before changing a host. Never assume ownership of a running Crafty or systemd Minecraft world. Keep an install manifest and a reversible uninstall path that does not destroy user worlds.

@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
+import { BackupRulesPage, BackupRulesPhonePage } from './backups'
+import { CopiesCard, CopiesPhonePage } from './copies'
 import { SchedulesPhonePage } from './schedules'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
@@ -69,7 +71,10 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
       body = <PlayersPage server={server} />
       break
     case 'world':
-      body = <WorldPage server={server} />
+      if (phone && sub === 'backup-copies') body = <CopiesPhonePage server={server} />
+      else if (phone && sub === 'backup-rules') body = <BackupRulesPhonePage server={server} />
+      else if (sub === 'backup-rules' || sub === 'backup-copies') body = <BackupRulesPage server={server} copies={(changeRules) => <CopiesCard server={server} onChangeRules={changeRules} />} />
+      else body = <WorldPage server={server} />
       break
     case 'settings':
       body = phone && sub === 'schedules' ? <SchedulesPhonePage server={server} /> : <ServerSettingsPage server={server} focus={sub} />
@@ -246,7 +251,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </nav>
         {op && (
           <div className="ml-auto">
-            <JobPill op={op} server={s.name} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' ? 'world' : 'overview' })} />
+            <JobPill op={op} server={s.name} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' || op.kind === 'offsite-restore' ? 'world' : 'overview' })} />
           </div>
         )}
       </div>

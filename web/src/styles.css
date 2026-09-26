@@ -188,3 +188,23 @@
     animation: none !important;
   }
 }
+
+/* A bar for work that can't say how far along it is. */
+@keyframes progress-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.progress-indeterminate {
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate {
+    animation: none !important;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

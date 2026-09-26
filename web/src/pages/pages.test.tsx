@@ -3,14 +3,17 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
+import type { Backup, MachineView, Me, OffsiteCopy, OffsiteTestResult, OffsiteView, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
+import { RecoverPage } from './recover'
+import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
+import { WorldPage } from './server/world'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -301,5 +304,239 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+})
+
+describe('Copies somewhere else', () => {
+  const sftp: OffsiteView = {
+    enabled: false,
+    configured: true,
+    type: 'sftp',
+    place: 'vault.example.net',
+    sftp: { host: 'vault.example.net', port: 22, user: 'playkeeper', folder: 'backups/survival', auth: 'key' },
+    sshKey: { publicKey: 'ssh-ed25519 AAAA', authorizedKey: 'restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGm4bWJpbmFyeWtleWJ5dGVzZm9yYXRlc3Q1q7Rk playkeeper-survival', fingerprint: 'SHA256:x' },
+    copies: 0,
+    copiesBytes: 0,
+    queued: 0,
+    providers: [],
+  }
+  const hostKey = { key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey', type: 'ssh-ed25519', fingerprint: 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA' }
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))
+    if (!button) throw new Error(`no button "${label}"`)
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+
+  it('confirms a new host key, saves it and tests again before turning copies on', async () => {
+    answer({ '/offsite': sftp })
+    const unknown: OffsiteTestResult = { ok: false, skew: 0, hostKey, checks: [{ step: 'connect', ok: false, msg: 'Playkeeper has not seen this host key yet.', kind: 'host_key_unknown' }] }
+    const passed: OffsiteTestResult = { ok: true, skew: 0, checks: ['connect', 'folder', 'write', 'rename', 'read', 'list', 'delete'].map((step) => ({ step, ok: true, msg: '' })) }
+    const tests = [unknown, passed]
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/test') ? tests.shift() : sftp)) as typeof client.post)
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Encrypted before they leave. Copies start once the test passes.')
+    await click('Test connection')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
+    expect(document.body.textContent).not.toContain('A check failed')
+    expect(document.body.textContent).toContain(hostKey.fingerprint)
+    expect(document.body.textContent).toContain('ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub')
+    await click('It matches, confirm')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite', { hostKey: hostKey.key })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('All checks passed')
+    expect(text).toContain('Connected and signed in as playkeeper')
+    expect(text).toContain('Turn on copies')
+  })
+
+  it('stops copies when the host key changed and shows both fingerprints', async () => {
+    const pinned = 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA'
+    const now = 'SHA256:Zx81bQe4Wn7cHs2LmP0vA9tYd6KfR3gJuN5oE1iXwTk'
+    answer({
+      '/offsite': {
+        ...sftp,
+        enabled: true,
+        key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt' },
+        pending: { backupId: 'b1', fileName: 'b1.tar.zst', uploading: false, sent: 0, total: 1, attempts: 1, error: 'The key changed.', errorKind: 'host_key_changed', params: { fingerprint: now, pinnedFingerprint: pinned } },
+      },
+    })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+    expect(document.body.textContent).toContain('Stopped')
+    expect(document.body.textContent).toContain('Copies stopped: vault.example.net’s key changed')
+    expect(document.body.textContent).toContain('Downloaded')
+    await click('Review')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('vault.example.net’s key changed')
+    expect(text).toContain(pinned)
+    expect(text).toContain(now)
+    expect(text).toContain('Check the new key')
+  })
+
+  it('lets only the owner change where copies go or download the key', async () => {
+    answer({ '/offsite': { ...sftp, enabled: true, key: { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, fileName: 'playkeeper-recovery-key-survival.txt' } } })
+    await render(<CopiesCard server={server()} onChangeRules={() => {}} />, workspace({ me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(document.body.textContent).toContain('Only the owner can change where copies go.')
+    expect(document.querySelector<HTMLInputElement>('#offsite-host')?.disabled).toBe(true)
+    const download = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Download')
+    expect(download?.disabled).toBe(true)
+  })
+})
+
+describe('World backups with copies', () => {
+  const b2: OffsiteView = {
+    enabled: true,
+    configured: true,
+    type: 's3',
+    place: 'Backblaze B2',
+    copies: 2,
+    copiesBytes: 0,
+    queued: 0,
+    providers: [],
+    pending: { backupId: 'b3', fileName: 'survival-3.tar.zst', uploading: true, sent: 62, total: 100, attempts: 1 },
+  }
+  const backup = (id: string, createdAt: string): Backup => ({ id, serverId: 'abcdefghjk', kind: 'scheduled', createdAt, fileName: `survival-${id}.tar.zst`, sizeBytes: 311e6, sha256: 'a'.repeat(64), location: '', verified: true, downtimeMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 2110, createdBy: 'playkeeper' })
+  const copy = (backupId: string, createdAt: string, onHost: boolean): OffsiteCopy => ({ backupId, kind: 'scheduled', createdAt, fileName: `survival-${backupId}.tar.zst`, name: `survival-${backupId}.tar.zst.age`, sizeBytes: 305e6, copySizeBytes: 318e6, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: createdAt, checked: 'sha256', onHost })
+  const started: Operation = { id: 'op-copy', kind: 'offsite-restore', status: 'running', phase: 'downloading', actor: 'siya', startedAt: '2026-09-25T18:50:00Z', detail: { name: 'survival-b1.tar.zst.age' } }
+  const rerender = async (s: ServerStatus) => {
+    await act(async () => root?.render(<WorkspaceContext.Provider value={workspace()}>{<WorldPage server={s} />}</WorkspaceContext.Provider>))
+    await act(async () => {})
+  }
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+
+  async function restoreOldCopy() {
+    answer({ '/offsite/copies': { copies: [copy('b2', '2026-09-25T12:47:00Z', true), copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z'), backup('b2', '2026-09-25T12:47:00Z')] })
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/restore') ? started : {})) as typeof client.post)
+    await render(<WorldPage server={server()} />)
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore…')
+    if (!button) throw new Error('no Restore… button')
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+
+  it('says where each backup is and fetches one that is only in the copies', async () => {
+    await restoreOldCopy()
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Stored here and on Backblaze B2.')
+    expect(text).toContain('Backup rules')
+    expect(text).toContain('Here · copying')
+    expect(text).toContain('62% to Backblaze B2')
+    expect(text).toContain('Here and on Backblaze B2')
+    expect(text).toContain('Only on Backblaze B2')
+    expect(text).toContain('Removed here by your rules')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/restore', { name: 'survival-b1.tar.zst.age' })
+    expect(text).toContain('The encrypted copy from Backblaze B2')
+    expect(text).toContain('You can close this. Progress stays in the top bar.')
+
+    await rerender(server({ lastOperation: { ...started, status: 'succeeded', phase: 'checking', detail: { name: 'survival-b1.tar.zst.age', restoreId: 'r1' } } }))
+    expect(document.body.textContent).toContain('Decrypted and checked')
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/machines/m2345abcde/restore/r1')
+  })
+
+  it('says why a copy could not be fetched', async () => {
+    await restoreOldCopy()
+    await rerender(server({ lastOperation: { ...started, status: 'failed', error: 'That copy is no longer there.', hint: 'Restore another copy.' } }))
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('The copy couldn’t be restored')
+    expect(text).toContain('That copy is no longer there.')
+    expect(text).toContain('Restore another copy.')
+  })
+
+  it('stays closed once the restore that follows takes over the status', async () => {
+    await restoreOldCopy()
+    const preview: RestorePreview = { id: 'r1', serverId: 'abcdefghjk', source: 'copy survival-b1.tar.zst.age', receivedAt: '2026-09-25T18:51:00Z', sizeBytes: 305e6, sha256: 'b'.repeat(64), compatible: true, problems: [], warnings: [], currentWorld: { exists: true, levelName: 'world', sizeBytes: 311e6 }, willCreateRollback: true, needsEula: false, memoryMB: 2048, confirmPhrase: 'replace world', steps: [], notRestored: [] }
+    answer({ '/restore/r1': preview, '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await rerender(server({ lastOperation: { ...started, status: 'succeeded', phase: 'checking', detail: { name: 'survival-b1.tar.zst.age', restoreId: 'r1' } } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
+    await rerender(server({ lastOperation: { id: 'op-restore', kind: 'restore', status: 'succeeded', phase: 'starting', actor: 'siya', startedAt: '2026-09-25T18:52:00Z' } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
+  })
+})
+
+describe('Restore from a recovery key', () => {
+  const keyText = ['# Playkeeper recovery key for Survival', '#', '# Made 2026-09-24 18:47 UTC. The newest key comes first.', '', '# public key: age1new', 'AGE-SECRET-KEY-1NEWKEY', '', '# public key: age1old', 'AGE-SECRET-KEY-1OLDKEY', ''].join('\n')
+  const copies = Array.from({ length: 5 }, (_, i) => ({ name: `survival-2026092${5 - i}-184700-abcd.tar.gz.age`, sizeBytes: (318 - i) * 2 ** 20, createdAt: `2026-09-2${5 - i}T18:47:00Z` }))
+  afterEach(() => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+  const typeInto = async (id: string, value: string) => {
+    const el = document.getElementById(id) as HTMLInputElement
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    await act(async () => {
+      setValue?.call(el, value)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const click = async (label: string) => {
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))
+    if (!button) throw new Error(`no button "${label}"`)
+    await act(async () => button.click())
+    await act(async () => {})
+  }
+  async function pickKeyFile() {
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no file input')
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File([keyText], 'playkeeper-recovery-key-survival.txt', { type: 'text/plain' })] })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await act(async () => {})
+  }
+
+  it('reads the key file, finds the copies and fetches the one picked', async () => {
+    vi.mocked(client.post).mockImplementation(((path: string) =>
+      Promise.resolve(path.endsWith('/recover/restore') ? { id: 'op-recover', kind: 'offsite-recover', status: 'running', phase: 'listing', actor: 'siya', startedAt: '2026-09-25T19:00:00Z', detail: {} } : { server: 'Survival', keys: 2, place: 'Backblaze B2', copies })) as typeof client.post)
+    await render(<RecoverPage />, workspace({ servers: [] }))
+    expect(document.body.textContent).toContain('Choose the recovery key file')
+    await pickKeyFile()
+    expect(document.body.textContent).toContain('playkeeper-recovery-key-survival.txt')
+    expect(document.body.textContent).toContain('Survival · 2 keys')
+    await typeInto('recover-endpoint', 's3.eu-central-003.backblazeb2.com')
+    await typeInto('recover-bucket', 'siya-minecraft')
+    await typeInto('recover-keyid', '003a8f91c2')
+    await typeInto('recover-secret', 'not-a-real-secret')
+    await click('Find the copies')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/offsite/recover', {
+      recoveryKey: keyText,
+      config: { type: 's3', s3: { endpoint: 's3.eu-central-003.backblazeb2.com', bucket: 'siya-minecraft', accessKeyId: '003a8f91c2' } },
+      secretKey: 'not-a-real-secret',
+    })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Connected · 5 copies of Survival found')
+    expect(text).toContain('Show all 5')
+    expect(text).toContain('318 MB · encrypted')
+    await click('Next: check what’s inside')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/machines/m2345abcde/offsite/recover/restore', expect.objectContaining({ recoveryKey: keyText, name: copies[0]?.name }))
+    expect(document.body.textContent).toContain('Keep this page open until it’s done.')
+  })
+
+  it('asks before trusting an SFTP host key it has not seen', async () => {
+    const refusal = new client.ApiError(400, { error: 'Playkeeper has not seen this host key yet.', code: 'invalid', reason: 'host_key_unknown', params: { hostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey', keyType: 'ssh-ed25519', fingerprint: 'SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA' } })
+    const answers: (() => Promise<unknown>)[] = [() => Promise.reject(refusal), () => Promise.resolve({ server: 'Survival', keys: 2, place: 'vault.example.net', copies })]
+    vi.mocked(client.post).mockImplementation((() => answers.shift()?.()) as typeof client.post)
+    await render(<RecoverPage />, workspace({ servers: [] }))
+    await pickKeyFile()
+    const sftp = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Another machine over SFTP'))
+    await act(async () => sftp?.click())
+    await typeInto('recover-host', 'vault.example.net')
+    await typeInto('recover-user', 'playkeeper')
+    await typeInto('recover-password', 'not-a-real-password')
+    await click('Find the copies')
+    expect(document.body.textContent).toContain('Is this really vault.example.net?')
+    expect(document.body.textContent).toContain('SHA256:q3Jd8m0tLr4w9KbXo2V7yZ1cN5sF6hPaE8gT0uRkIiA')
+    await click('It matches, confirm')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/machines/m2345abcde/offsite/recover', expect.objectContaining({ password: 'not-a-real-password', hostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey' }))
+    expect(document.body.textContent).toContain('Connected · 5 copies of Survival found')
+  })
+
+  it('is the owner’s alone', async () => {
+    const text = await render(<RecoverPage />, workspace({ servers: [], me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(text).toContain('Only the owner can restore from a recovery key.')
+    expect(document.querySelector('input[type=file]')).toBeNull()
   })
 })

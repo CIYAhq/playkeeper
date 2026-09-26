@@ -75,3 +75,25 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
 export const get = <T>(path: string) => api<T>('GET', path)
 export const post = <T>(path: string, body: unknown = {}) => api<T>('POST', path, body)
 export const del = <T>(path: string) => api<T>('DELETE', path)
+
+/** Saves a file the API sends as an attachment, failing like api() so the error can be shown. */
+export async function download(path: string, fallbackName: string): Promise<string> {
+  let res: Response
+  try {
+    res = await fetch(path, { headers: { 'X-Requested-With': 'playkeeper' }, credentials: 'same-origin', cache: 'no-store' })
+  } catch {
+    throw new ApiError(0, { error: t('error.network'), code: 'network' })
+  }
+  if (res.status === 401) unauthorizedListeners.forEach((fn) => fn())
+  if (!res.ok) throw await parseError(res)
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  return name
+}

@@ -578,6 +578,20 @@ func TestCopiesSomewhereElseUploadRetryAndFollowTheRules(t *testing.T) {
 		t.Fatalf("audited the deletion %d times", n)
 	}
 
+	// Nobody named, no key: every download is attributable.
+	anon, err := http.Get(e.ts.URL + e.sp("/offsite/recovery-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonBody, _ := io.ReadAll(anon.Body)
+	anon.Body.Close()
+	if anon.StatusCode != http.StatusBadRequest || strings.Contains(string(anonBody), "AGE-SECRET-KEY") {
+		t.Fatalf("recovery key without an actor: %d %q", anon.StatusCode, anonBody)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM offsite WHERE key_saved_at IS NOT NULL`); n != 0 {
+		t.Fatal("a refused download marked the key as saved")
+	}
+
 	// The recovery key file: never cached, audited without its content.
 	req, _ := http.NewRequest("GET", e.ts.URL+e.sp("/offsite/recovery-key"), nil)
 	req.Header.Set("X-Playkeeper-Actor", "owner")

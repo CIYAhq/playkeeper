@@ -680,6 +680,7 @@ export interface OffsitePending {
   hint?: string
   errorKind?: string
   params?: Record<string, string>
+  backupCreatedAt?: string
 }
 
 export interface OffsiteView {
@@ -719,6 +720,15 @@ export interface OffsiteTestResult {
 export interface OffsiteNewKey {
   rotation: { recipient: string; oldRecipient: string; oldKeys: number; code: string; msg: string; hint: string }
   offsite: OffsiteView
+}
+
+/** A server's copies, as a new machine finds them with its recovery key file. */
+export interface RecoverView {
+  server: string
+  keys: number
+  madeAt?: string
+  place: string
+  copies: { name: string; sizeBytes: number; createdAt: string }[]
 }
 
 export type DiskGroup = 'backups' | 'worlds' | 'server_files' | 'logs' | 'other' | 'free'
