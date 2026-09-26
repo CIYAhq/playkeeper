@@ -229,6 +229,10 @@ webcontrol "a long activity line shortens instead of widening the page" web/src/
   '<span className="w-0 flex-1 truncate">' \
   '<span className="min-w-0 flex-1 truncate">' \
   web/src/pages/pages.test.tsx 'long activity line'
+webcontrol "a pack's plan names the voice chat port the agent works out now" web/src/api/modpacks.ts \
+  'if (hit && !fresh && Date.now() - hit.at < maxAge && tick === 0) {' \
+  'if (hit && Date.now() - hit.at < maxAge && tick === 0) {' \
+  web/src/api/modpacks.test.tsx 'asked for again'
 webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
   '      <LoadBoundary resetKey={JSON.stringify(route)}>
         <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
