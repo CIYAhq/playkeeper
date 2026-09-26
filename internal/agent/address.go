@@ -215,8 +215,7 @@ func (a *Agent) startAddressOp(kind, actor string, fn func(ctx context.Context, 
 		done := finishOp(op, h, err, a.now().UTC())
 		a.addr.op = nil
 		a.addr.mu.Unlock()
-		a.saveOperation(&done)
-		a.audit(actor, kind, "machine", done.Status, done.Error)
+		a.finishOperation("", "machine", &done)
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}

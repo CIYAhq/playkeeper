@@ -821,6 +821,31 @@ func about(d, want time.Duration) bool {
 	return d > want-time.Minute && d <= want
 }
 
+// Whoever sees an address operation finished finds it audited, as with the
+// agent's other operations (TestAFinishedOperationIsAlreadyAudited).
+func TestAFinishedAddressOperationIsAlreadyAudited(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	for _, q := range []string{
+		`CREATE TABLE unaudited(id TEXT)`,
+		`CREATE TRIGGER finished_unaudited AFTER UPDATE OF status ON operations
+			WHEN NEW.status != 'running' AND NOT EXISTS (
+				SELECT 1 FROM audit WHERE action = NEW.kind AND result = NEW.status AND server_id = NEW.server_id)
+			BEGIN INSERT INTO unaudited VALUES (NEW.id); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.addServerNamed("Survival")
+	e.claim("alex")
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'address.publish' AND status != 'running'`); n != 1 {
+		t.Fatalf("%d address operations finished", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM unaudited`); n != 0 {
+		t.Fatalf("%d address operations were stored as finished before their audit entry", n)
+	}
+}
+
 func TestFreeAddressClaimPublishesServersAndCertificate(t *testing.T) {
 	e := newAddressEnv(t, nil)
 	survival := e.addServerNamed("Survival")
