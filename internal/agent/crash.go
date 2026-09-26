@@ -61,7 +61,7 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, s
 	in := diagnose.CrashInput{
 		ServerType: serverTypeOf(*sc), MCVersion: sc.MinecraftVersion, JavaVersion: minecraft.ImageJava,
 		ExitCode: st.ExitCode, OOMKilled: st.OOMKilled, DockerError: st.Error,
-		BudgetMB: sc.MemoryMB, HeapMB: minecraft.HeapMB(sc.MemoryMB), HostMB: s.opts.HostMemoryMB(),
+		BudgetMB: sc.MemoryMB, HeapMB: heapMB(*sc), HostMB: s.opts.HostMemoryMB(),
 		RoomMB: max(maxMB-sc.MemoryMB, 0), Port: s.gamePort,
 	}
 	var dockerErr *docker.APIError

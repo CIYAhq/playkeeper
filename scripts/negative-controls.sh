@@ -1642,6 +1642,29 @@ control "the machine's Docker health needs no server" internal/agent/host.go \
   'a.dockerOK = err == nil' \
   '_ = err == nil' \
   ./internal/agent '^TestDockerHealthNeedsNoServer$'
+control "a mod loader keeps more memory outside the heap than Paper" internal/minecraft/catalog.go \
+  'overhead = max(overhead, min(base+modOverheadMB*max(mods, 0), budgetMB/2))' \
+  'overhead = max(overhead, min(base+modOverheadMB*max(mods, 0), 0))' \
+  ./internal/minecraft '^TestHeapForModLoaders$'
+control "each mod keeps more memory outside the heap" internal/minecraft/catalog.go \
+  'overhead = max(overhead, min(base+modOverheadMB*max(mods, 0), budgetMB/2))' \
+  'overhead = max(overhead, min(base+modOverheadMB*0, budgetMB/2))' \
+  ./internal/minecraft '^TestHeapForModLoaders$'
+control "a start sizes a mod loader's heap for the mods it has" internal/agent/lifecycle.go \
+  'if err := s.sizeHeap(&sc); err != nil {
+		return err
+	}
+	pastFiles = true' \
+  'pastFiles = true' \
+  ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
+control "the container runs the heap sized for its mods" internal/agent/lifecycle.go \
+  '"MEMORY="+strconv.Itoa(heapMB(sc))+"M",' \
+  '"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",' \
+  ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
+control "memory advice reads a mod loader's heap" internal/diagnose/memory.go \
+  'return minecraft.HeapFor(budgetMB, in.ServerType, in.Mods)' \
+  'return minecraft.HeapMB(budgetMB)' \
+  ./internal/diagnose '^TestAdviseMemory$'
 
 webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
   local name=$1 file=$2 test=${5#web/} pattern=$6

@@ -265,7 +265,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 	env := append([]string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}, typeEnv...)
 	env = append(env,
 		"SKIP_DOWNLOAD_DEFAULTS=TRUE",
-		"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",
+		"MEMORY="+strconv.Itoa(heapMB(sc))+"M",
 		"MOTD="+sc.MOTD,
 		"MAX_PLAYERS="+strconv.Itoa(sc.MaxPlayers),
 		"ONLINE_MODE="+online,
@@ -619,6 +619,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		if err := s.ensureTelemetryOff(); err != nil {
 			return err
 		}
+	}
+	if err := s.sizeHeap(&sc); err != nil {
+		return err
 	}
 	pastFiles = true
 	name := s.containerName()
