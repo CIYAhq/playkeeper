@@ -34,6 +34,10 @@ type Estimate struct {
 	Summary Text  `json:"summary"`
 }
 
+// CodeEstimateOff is the summary of rules that have nothing to keep because
+// automatic backups are off, which the rules editor words its own way.
+const CodeEstimateOff = "estimate_off"
+
 // Row is one rule in the editor, in the order the design lists them.
 type Row struct {
 	// Rule is "keep_all", "hours", "last", "daily", "weekly", "monthly" or
@@ -70,7 +74,7 @@ func (s Settings) Estimate(where Where, p Pace) Estimate {
 	}
 	if p.Every <= 0 {
 		e.Rows = append(r.rows(0, false), manual)
-		e.Summary = Text{Code: "estimate_off", Params: params, Text: "Automatic backups are off, so the rules have nothing to keep yet."}
+		e.Summary = Text{Code: CodeEstimateOff, Params: params, Text: "Automatic backups are off, so the rules have nothing to keep yet."}
 		return e
 	}
 

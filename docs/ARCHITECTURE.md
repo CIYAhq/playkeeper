@@ -11,6 +11,12 @@ All of it is one Go binary with the TypeScript/React UI compiled in; the process
 - Operations are exclusive per server, so two servers can back up or restart at the same time; a Playkeeper update waits until every server is idle. Each server reserves its memory budget even while stopped, so it can always start.
 - The panel routes each request by server to the machine that runs it. Player faces are fetched from Mojang by the panel and cached in its database; browsers never contact Mojang.
 
+## Pre-generation and packs
+
+- Pre-generating the map drives [Chunky](https://modrinth.com/plugin/chunky), installed as a managed add-on, through the server's console; `internal/pregen` speaks its console language on Paper, Fabric and NeoForge and reads the task it saves, and Chunky's config is set so a task continues after a restart. The agent keeps the task it started last on each server (the `pregen` table) and checks it every 5 seconds while the server runs: it pauses the task while players are online, continues it once the server has been empty for 2 minutes, and leaves alone a task someone paused. A task finishes when Chunky logs that it finished, as Chunky saves a finished task as cancelled while its last chunks still load; one that Chunky reports as cancelled, or no longer has, for a minute ends as cancelled.
+- Data packs live in the world's `datapacks` folder, which the agent writes only inside the server's data folder (`os.OpenRoot`) and as the game's user. They are switched on and off through the running server's console with Minecraft's own `datapack` commands (`minecraft:datapack` on Paper, so plugins can't replace them), and the agent waits until the server reports the change; a stopped server switches a new pack on when it starts.
+- Resource packs are kept once per machine, named by their SHA-1, in `/var/lib/playkeeper/resourcepacks`. Offering one sets the server's container environment (the pack's URL and SHA-1), so it applies from the next start. Players' games refuse the panel's self-signed certificate, so the panel's port also answers plain HTTP: `/resource-packs/<sha1>.zip` serves, without a sign-in, only packs a server offers, and every other plain-HTTP request is redirected to HTTPS.
+
 ## Backups and copies somewhere else
 
 - Each server's backup rules (`internal/backup/retention`) decide when the agent makes a backup and which backups it keeps, here and somewhere else; the agent deletes the rest.

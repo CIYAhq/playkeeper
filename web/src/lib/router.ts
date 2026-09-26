@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 
-export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'settings'
-export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'settings']
+export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'plugins' | 'mods' | 'settings'
+export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'plugins', 'mods', 'settings']
 
-// Wave 7: pages inside a server's tab, and the machine's Disk space page.
-export type ServerSub = 'schedules' | 'backup-rules' | 'backup-copies'
-const serverSubs: Record<ServerSub, { tab: ServerTab; path: string }> = {
-  schedules: { tab: 'settings', path: 'schedules' },
-  'backup-rules': { tab: 'world', path: 'backup-rules' },
-  'backup-copies': { tab: 'world', path: 'backup-rules/copies' },
+/** Pages under a tab, such as /servers/survival/world/pregen, and their paths under it. */
+export type ServerSub = 'pregen' | 'packs' | 'browse' | 'schedules' | 'backup-rules' | 'backup-copies'
+const serverSubs: Partial<Record<ServerTab, Partial<Record<ServerSub, string>>>> = {
+  world: { pregen: 'pregen', packs: 'packs', 'backup-rules': 'backup-rules', 'backup-copies': 'backup-rules/copies' },
+  plugins: { browse: 'browse' },
+  mods: { browse: 'browse' },
+  settings: { schedules: 'schedules' },
 }
+// Wave 7: the machine's Disk space page.
 export type MachineSub = 'disk'
 
 export type Route =
@@ -57,7 +59,8 @@ export function parse(pathname: string): Route {
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
         const rest = parts.slice(3).join('/')
-        const sub = (Object.keys(serverSubs) as ServerSub[]).find((k) => serverSubs[k].tab === tab && serverSubs[k].path === rest)
+        const subs = serverSubs[tab] ?? {}
+        const sub = (Object.keys(subs) as ServerSub[]).find((k) => subs[k] === rest)
         if (sub) return { name: 'server', slug: second, tab, sub }
       }
       return { name: 'home' }
@@ -81,9 +84,11 @@ export function href(route: Route): string {
       return '/welcome'
     case 'new-server':
       return '/servers/new'
-    case 'server':
-      if (route.sub) return `/servers/${route.slug}/${serverSubs[route.sub].tab}/${serverSubs[route.sub].path}`
-      return route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
+    case 'server': {
+      const path = route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
+      const sub = route.sub && serverSubs[route.tab]?.[route.sub]
+      return sub ? `${path}/${sub}` : path
+    }
     case 'machine':
       return route.sub ? `/machines/${route.id}/${route.sub}` : `/machines/${route.id}`
     case 'settings':

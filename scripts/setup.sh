@@ -41,6 +41,12 @@ case "$(uname -m)" in
 esac
 go_version=$(awk '$1 == "go" {print $2}' "$pins")
 node_version=$(awk '$1 == "node" {print $2}' "$pins")
+# --retry alone gives up when a connection drops mid-download (curl errors 18
+# and 92); curl before 7.71 has no --retry-all-errors.
+retry=(--retry 3)
+case "$(curl --help all 2>/dev/null || true)" in
+  *--retry-all-errors*) retry+=(--retry-all-errors) ;;
+esac
 
 fetch() { # url file
   local url=$1 file=$2 want got
@@ -52,7 +58,7 @@ fetch() { # url file
   mkdir -p "$tools/downloads"
   if [ ! -f "$tools/downloads/$file" ]; then
     echo "Downloading $file"
-    curl -fsSL --retry 3 -o "$tools/downloads/$file.part" "$url"
+    curl -fsSL "${retry[@]}" -o "$tools/downloads/$file.part" "$url"
     mv "$tools/downloads/$file.part" "$tools/downloads/$file"
   fi
   got=$(sha256sum "$tools/downloads/$file" | awk '{print $1}')

@@ -107,6 +107,10 @@ func (l Layout) diskDir() string {
 	return ""
 }
 
+// CodeDiskSpace is the problem of a disk whose size isn't known, which the
+// Disk space page explains instead of drawing the bar.
+const CodeDiskSpace = "disk_space"
+
 // measureDisk reads how large and how full the disk is, and which device
 // it is, so that only what is on it goes into the bar.
 func (s *scan) measureDisk(l Layout) {
@@ -117,10 +121,10 @@ func (s *scan) measureDisk(l Layout) {
 	free, total, err := s.o.DiskSpace(dir)
 	switch {
 	case err != nil:
-		s.problem("disk_space", dir, "Playkeeper couldn't read the size of the disk that holds "+dir+" ("+why(err)+").")
+		s.problem(CodeDiskSpace, dir, "Playkeeper couldn't read the size of the disk that holds "+dir+" ("+why(err)+").")
 		return
 	case total <= 0:
-		s.problem("disk_space", dir, "The disk that holds "+dir+" reported no size, so how full it is isn't known.")
+		s.problem(CodeDiskSpace, dir, "The disk that holds "+dir+" reported no size, so how full it is isn't known.")
 		return
 	}
 	free = min(max(free, 0), total)

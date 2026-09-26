@@ -162,6 +162,7 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 	if ts.After(s.console.lastTS()) {
 		s.console.append(ts, text)
 	}
+	s.pregenLogLine(ts, text)
 	p := minecraft.Parse(text)
 	if p.Kind == minecraft.EventNone {
 		return
@@ -379,6 +380,14 @@ func (s *server) measureWorld(now time.Time, level string) {
 	if !due || level == "" {
 		return
 	}
+	total := s.worldSize(level)
+	s.mu.Lock()
+	s.worldBytes, s.worldAt = total, now
+	s.mu.Unlock()
+}
+
+// worldSize adds up the files of the world's three dimensions.
+func (s *server) worldSize(level string) int64 {
 	var total int64
 	for _, dir := range []string{level, level + "_nether", level + "_the_end"} {
 		filepath.WalkDir(filepath.Join(s.dataDir(), dir), func(_ string, d fs.DirEntry, err error) error {
@@ -391,9 +400,7 @@ func (s *server) measureWorld(now time.Time, level string) {
 			return nil
 		})
 	}
-	s.mu.Lock()
-	s.worldBytes, s.worldAt = total, now
-	s.mu.Unlock()
+	return total
 }
 
 func (s *server) sampleLoop(ctx context.Context) {
@@ -540,29 +547,43 @@ func (a *Agent) setDockerOK(ok bool) {
 
 // rconCommand sends one console command over the private Docker bridge.
 func (s *server) rconCommand(cmd string) (string, error) {
+	return s.rconExec(s.ctx, cmd)
+}
+
+// rconExec sends one console command, giving up when ctx ends. A command is
+// sent again on a fresh connection only if none of it was written, so the
+// server never runs it twice.
+func (s *server) rconExec(ctx context.Context, cmd string) (string, error) {
 	s.rconMu.Lock()
 	defer s.rconMu.Unlock()
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; ; attempt++ {
 		if s.rcon == nil {
-			if err := s.dialRCON(); err != nil {
+			if err := s.dialRCON(ctx); err != nil {
 				return "", err
 			}
 		}
-		out, err := s.rcon.Command(cmd, 10*time.Second)
+		out, err := s.rcon.Exec(ctx, cmd, 10*time.Second)
 		if err == nil {
 			return out, nil
 		}
 		s.rcon.Close()
 		s.rcon = nil
-		if attempt == 1 {
+		if attempt == 1 || !errors.Is(err, minecraft.ErrUnsent) || ctx.Err() != nil {
 			return "", err
 		}
 	}
-	return "", errors.New("rcon unavailable")
 }
 
-func (s *server) dialRCON() error {
-	c, err := s.docker.ContainerInspect(s.ctx, s.containerName())
+// rconConsole is the server's console for packages that drive it, such as
+// Chunky's pre-generation and data packs.
+type rconConsole struct{ s *server }
+
+func (c rconConsole) Command(ctx context.Context, cmd string) (string, error) {
+	return c.s.rconExec(ctx, cmd)
+}
+
+func (s *server) dialRCON(ctx context.Context) error {
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if err != nil {
 		return err
 	}
@@ -577,7 +598,7 @@ func (s *server) dialRCON() error {
 	if err != nil {
 		return err
 	}
-	r, err := minecraft.DialRCON(s.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
+	r, err := minecraft.DialRCONContext(ctx, s.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -601,6 +622,7 @@ func (a *Agent) pruneLoop(ctx context.Context) {
 	defer t.Stop()
 	for {
 		a.prune()
+		a.prunePacks(ctx)
 		select {
 		case <-ctx.Done():
 			return

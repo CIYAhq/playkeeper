@@ -390,6 +390,7 @@ type ContainerJSON struct {
 	State  ContainerState `json:"State"`
 	Config struct {
 		Image  string            `json:"Image"`
+		Env    []string          `json:"Env"`
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 	NetworkSettings struct {

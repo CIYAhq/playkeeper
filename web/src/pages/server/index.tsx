@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from 'react'
-import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
+import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, PuzzleIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
@@ -16,6 +16,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
 import { controls, isSettingUp, phaseTone, whyNot } from '@/lib/phase'
+import { addonTab } from '@/lib/addons'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -24,15 +25,20 @@ import { Overview } from './overview'
 import { PlayersPage } from './players'
 import { BackupRulesPage, BackupRulesPhonePage } from './backups'
 import { CopiesCard, CopiesPhonePage } from './copies'
+import { PluginsPage, PluginsPhoneHeader } from './plugins'
 import { SchedulesPhonePage } from './schedules'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
+import { PacksPage } from './world-packs'
+import { PregenPage } from './world-pregen'
 
 const tabs: { tab: ServerTab; key: MessageKey; icon: ReactNode }[] = [
   { tab: 'overview', key: 'tab.overview', icon: <LayoutGridIcon /> },
   { tab: 'console', key: 'tab.console', icon: <SquareTerminalIcon /> },
   { tab: 'players', key: 'tab.players', icon: <UsersIcon /> },
   { tab: 'world', key: 'tab.world', icon: <GlobeIcon /> },
+  { tab: 'plugins', key: 'tab.plugins', icon: <PuzzleIcon /> },
+  { tab: 'mods', key: 'tab.mods', icon: <PuzzleIcon /> },
   { tab: 'settings', key: 'tab.settings', icon: <SlidersHorizontalIcon /> },
 ]
 
@@ -76,7 +82,13 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
       if (phone && sub === 'backup-copies') body = <CopiesPhonePage server={server} />
       else if (phone && sub === 'backup-rules') body = <BackupRulesPhonePage server={server} />
       else if (sub === 'backup-rules' || sub === 'backup-copies') body = <BackupRulesPage server={server} copies={(changeRules) => <CopiesCard server={server} onChangeRules={changeRules} />} />
+      else if (sub === 'pregen') body = <PregenPage server={server} />
+      else if (sub === 'packs') body = <PacksPage server={server} />
       else body = <WorldPage server={server} />
+      break
+    case 'plugins':
+    case 'mods':
+      body = <PluginsPage server={server} tab={tab} sub={sub} />
       break
     case 'settings':
       body = phone && sub === 'schedules' ? <SchedulesPhonePage server={server} /> : <ServerSettingsPage server={server} focus={sub} />
@@ -88,18 +100,24 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
   }
   if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
   // A page inside a tab animates in like a tab of its own. On desktop, both
-  // backup pages are one page and Schedules is a section of Settings.
-  let view: string = tab
-  if (tab === 'world' && sub) view = phone ? `world/${sub}` : 'world/backup-rules'
-  if (tab === 'settings' && phone && sub === 'schedules') view = 'settings/schedules'
-  // Pages inside a tab bring their own phone header with a way back.
-  const ownHeader = phone && !settingUp && sub !== undefined
+  // backup pages are one page and Schedules is a section of Settings. The
+  // Plugins tab keeps its running job and highlighted file across its views,
+  // and animates switching between them itself.
+  let view = sub ? `${tab}/${sub}` : tab
+  if (tab === 'plugins' || tab === 'mods') view = tab
+  else if (!phone && sub === 'backup-copies') view = 'world/backup-rules'
+  else if (!phone && tab === 'settings') view = 'settings'
+  // Pages inside a tab bring their own phone header with a way back; the
+  // Plugins tab's header serves all its views.
+  const ownHeader = phone && !settingUp && sub !== undefined && tab !== 'plugins' && tab !== 'mods'
   return (
     <>
       {ownHeader ? null : phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
-        ) : (
+        ) : (tab === 'plugins' || tab === 'mods') && !settingUp ? (
+          <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
+        ) : tab === 'world' && sub && !settingUp ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (
@@ -284,7 +302,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
-        {tabs.map((x) => {
+        {tabs.filter((x) => (x.tab !== 'plugins' && x.tab !== 'mods') || x.tab === addonTab(s.type)).map((x) => {
           const active = x.tab === tab
           const cls = cn(
             'inline-flex h-10 shrink-0 items-center gap-2 border-b-2 text-sm font-medium outline-none [&_svg]:size-4',

@@ -44,6 +44,7 @@ interface FakeState {
 
 const name = /^[A-Za-z0-9_]{3,16}$/
 const prefKey = /^[a-z][a-z0-9.:_-]{0,63}$/
+const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
@@ -290,6 +291,7 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
+  ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
   [
     'POST',
     /^\/api\/servers\/(\w+)\/schedules$/,
@@ -449,6 +451,9 @@ const routes: [string, RegExp, Handler][] = [
   ],
 ]
 
+/** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
+const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
+
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
 export function standInFace(player: string): string {
   let h = 2166136261
@@ -544,6 +549,11 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       if (/^\/api\/machines\/\w+\/restore\/fakerestore$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(restorePreview(undefined)) })
+        return
+      }
+      if (/^\/api\/servers\/\w+\/world-copies$/.test(path)) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([leftoverWorld]) })
         return
       }
       const res = await fetchFromPanel(route, compute)

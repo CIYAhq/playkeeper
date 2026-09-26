@@ -4,12 +4,15 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.0
 
+- A Plugins tab, called Mods on Fabric, Quilt and NeoForge servers: search Modrinth and Hangar in one list that only shows what works on your server, install with the dependencies it needs, update one or all, and remove with or without its settings. Every download is checked against the checksum its library publishes before it goes in the folder. Plugins you added by hand are listed too, and Playkeeper can take over the ones the library recognises.
+- **Pre-generate the map** from a server's World tab so exploring doesn't lag: pick how far out from spawn, with the time and disk space each size takes, then follow its progress, pause, resume or cancel it. It can pause by itself while people are playing, and installs the Chunky plugin or mod the first time.
+- **Resource and data packs** on the World tab: offer a resource pack that players download when they join, optionally required and with your own message, served by Playkeeper from the address you opened the dashboard at; and add, switch on or off and remove data packs.
 - **Schedules** for each server: restarts that warn players in the game first, backups, messages and a short list of safe console commands, every day, on chosen days, every few hours, once, or by a cron expression, in your time zone. A restart or backup can skip while people are playing and try again an hour later, and schedules keep running while the dashboard is down.
 - **Sleep when nobody's playing**, off unless you turn it on: after a set time with nobody on, a server stops and gives back its memory, and the server list shows "Asleep · join to wake it". The first join wakes it in about 30 seconds, or wake it from the dashboard.
 - **Backup rules** for each server: automatic backups every few hours or once a day, only when someone played if you like, and which ones to keep: every backup from the last hours, then one a day, one a week and one a month. Playkeeper shows about how many backups that keeps and how much space they take, and removes the rest.
 - **Copies somewhere else:** every backup is also copied to S3-compatible storage (Backblaze B2, Cloudflare R2, Wasabi and similar) or to another machine over SFTP, encrypted on your server before it leaves. A connection test runs before copies start, an SFTP machine's host key is confirmed once and a changed key stops copies until you look at it, and a failed copy is tried again.
 - The **recovery key** opens the copies: download it when you turn copies on and keep it off the server. Only the owner can see or download it, and each download is in the audit log. **Make a new key** if the file got out; the new file opens older copies too.
-- The World tab says where each backup is kept and gets back a copy that is only kept somewhere else. On a new machine, **Restore from a recovery key** on Home finds a server's copies with its key file and restores one as a new server.
+- The World tab says where each backup is kept and gets back a copy that is only kept somewhere else: Playkeeper downloads and checks it, which you can cancel, then restores it like any other backup, saving a rollback archive of the current world first. On a new machine, **Restore from a recovery key** on Home finds a server's copies with its key file and restores one as a new server.
 - **Disk space**, opened from the machine's Disk meter, shows what fills the disk and what each server uses, with ways to free space: old backups, logs and crash reports, unused server versions, folders set aside by restores and updates, and unfinished backups. Nothing is deleted until you've reviewed it, and off-site copies stay.
 
 ## 0.3.1
@@ -23,6 +26,13 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Less text on every screen: one short line where there was a paragraph.
 - Home no longer shows an old player count while the agent isn't answering.
 - A server icon over 64 KB is turned down next to the upload button before anything is sent, and the agent refuses one that isn't a 64 × 64 PNG before saving it.
+- If a restore is interrupted, for example by a power cut or a restart of Playkeeper, Playkeeper finishes it when it starts again: it keeps the restored world if it starts, and otherwise puts the previous world and its settings back. It never starts the server on an empty world in the meantime. This also covers a restore Playkeeper 0.3.0 was in the middle of when you upgraded.
+- The **World** tab shows a world a restore left behind, such as a restored world that did not start, with a button to discard it and free the space.
+- A backup, restore or Minecraft update that has to refuse the world, for example because a file's name is too long for a restore, now says so before stopping the server, so nobody is disconnected for nothing.
+- `playkeeper uninstall` names the Docker folders it removes, and no longer shows an empty services line when it's run a second time.
+- Restoring a backup as a new server no longer warns that you must accept the Minecraft EULA once you've ticked its box.
+- The one-line installer also stops if the `.sha256` file names another file or none, or if it is over 1 MB or the tarball over 200 MB, before running anything from the download.
+- Uploading a backup from the dashboard works again. Since 0.3.0, every file was turned down as too big before it was sent.
 
 ## 0.3.0
 

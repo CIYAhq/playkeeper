@@ -38,11 +38,15 @@ Follow the install steps in the [README](../README.md#install-on-your-vps). Open
 
 To restore over an existing world instead (the server's **World** tab → a backup's **…** menu → **Restore this backup…**, or drop a file under **Restore a world**), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
 
+If a restore is interrupted, for example by a power cut or an agent restart, Playkeeper finishes it when it starts again: it keeps the restored world if that is in place and starts, and otherwise puts the previous world and its settings back. That includes a restore Playkeeper 0.3.0 was in the middle of when you upgraded, which is kept only if the server already had the backup's settings. If it cannot, the server stays stopped and its error names the folder the previous world is in (`data.replaced-<time>`, next to the server's `data` folder): move that folder back to `data` and press **Start**.
+
+A world a restore leaves behind, such as a restored world that did not start, stays next to the server's `data` folder, and the **World** tab shows it until you press **Discard**.
+
 ## Copies somewhere else
 
 From 0.4.0 a server can copy every backup to S3-compatible storage or to another machine over SFTP (the server's **World** tab → **Backup rules** → **Copies somewhere else**). Each copy is encrypted on the server before it leaves, and only the server's recovery key file opens it: download it (**Download recovery key**) when you turn copies on and keep it somewhere other than the server, like a password manager. Without it nobody can open the copies, you included.
 
-- **The server still runs:** on its **World** tab, a backup that is only kept somewhere else says **Only on …**. Press **Restore…**: Playkeeper downloads the copy, decrypts it and checks it, then shows the same preview as for any backup. Nothing changes until you confirm.
+- **The server still runs:** on its **World** tab, a backup that is only kept somewhere else says **Only on …**. Press **Restore…**: Playkeeper downloads the copy, decrypts it and checks it, then shows the same preview as for any backup. Nothing changes until you confirm: **Cancel** stops the download and deletes what it fetched, and so does an agent restart. Once you confirm, it is a restore like any other, with a rollback archive first.
 - **On a new machine:** install Playkeeper (step 2) and choose **Skip for now**, then on Home press **Restore from a recovery key**:
   1. Pick the recovery key file (`playkeeper-recovery-key-<server>.txt`), unchanged.
   2. Enter where the copies are: for S3, the endpoint, bucket, key ID and secret key; for SFTP, the host, port, user and a password (on a new machine Playkeeper signs in with a password, not with the key it made before). The folder comes from the key file. For SFTP, compare the host key fingerprint Playkeeper shows with the one on that machine before you trust it: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` (or the `.pub` file for the key type shown).

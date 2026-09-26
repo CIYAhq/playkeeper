@@ -25,12 +25,16 @@ const sizes = {
   phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
 } as const
 
+// The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
+const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
+
 async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
   for (const s of servers) {
-    for (const tab of ['', '/console', '/players', '/world', '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    const addons = addonTabs[s.type ?? '']
+    for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
     // On desktop, copies are part of the backup rules page and Schedules is a section of Settings.
     out.push(`/servers/${s.slug}/world/backup-rules`)
     if (phone) out.push(`/servers/${s.slug}/world/backup-rules/copies`, `/servers/${s.slug}/settings/schedules`)
