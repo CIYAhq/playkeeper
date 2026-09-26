@@ -51,8 +51,7 @@ const WINDOW_MS = 1600
 const MAX_WAIT_MS = 7000
 // The browser fetches a download link's target itself, out of sight of the
 // page's requests, and reports the download only once the answer starts; in
-// CI the panel has taken over 8 s to start one. A link whose page load
-// answers with an attachment ends the same way.
+// CI the panel has taken over 8 s to start one.
 const DOWNLOAD_WAIT_MS = 20_000
 // A request cancelled by a page load while its route handler was still
 // fetching never reports back, so old requests stop counting as in flight.
@@ -128,8 +127,6 @@ export class Crawler {
   private downloadAt = 0
   private choosers = 0
   private pending = new Map<Request, number>()
-  /** Page loads of the main frame that haven't answered yet. */
-  private navs = new Map<Request, number>()
   /** The control pressed last, and whether its press is still being watched. */
   private pressed?: { key: string; at: number; watching: boolean }
   private loadedAt = 0
@@ -159,12 +156,9 @@ export class Crawler {
       this.popups++
       void p.close().catch(() => {})
     })
-    const started = () => {
+    page.on('download', (d) => {
       this.downloads++
       this.downloadAt = Date.now()
-    }
-    page.on('download', (d) => {
-      started()
       const p = this.pressed
       if (p && !p.watching && !this.quiet) this.notes.push(`[${this.viewport}] ${p.key}: a download started ${secs(this.downloadAt - p.at)} after it was pressed, after its wait`)
       void d.cancel().catch(() => {})
@@ -173,7 +167,6 @@ export class Crawler {
       this.choosers++
     })
     page.on('request', (r) => {
-      if (r.isNavigationRequest() && r.frame() === page.mainFrame()) this.navs.set(r, Date.now())
       const url = new URL(r.url())
       if (!url.pathname.startsWith('/api/')) return
       this.pending.set(r, Date.now())
@@ -181,20 +174,8 @@ export class Crawler {
       this.reqs.push({ method: r.method(), path: url.pathname, first: !this.seen.has(key), at: Date.now() })
       this.seen.add(key)
     })
-    page.on('response', (r) => {
-      if (r.request().isNavigationRequest() && /^\s*attachment\b/i.test(r.headers()['content-disposition'] ?? '')) started()
-    })
-    const answered = (r: Request) => {
-      this.pending.delete(r)
-      this.navs.delete(r)
-    }
-    page.on('requestfinished', answered)
-    page.on('requestfailed', answered)
-  }
-
-  /** Whether a page load started since `since` is still waiting for its answer. */
-  private loading(since: number): boolean {
-    return [...this.navs.values()].some((at) => at >= since)
+    page.on('requestfinished', (r) => this.pending.delete(r))
+    page.on('requestfailed', (r) => this.pending.delete(r))
   }
 
   /** API requests of the current page load that are still running. */
@@ -454,8 +435,7 @@ export class Crawler {
       after = await this.snap(true)
       effects = this.effects(c, before, after, state, since, marks)
       const waited = Date.now() - since
-      const patient = c.download || this.loading(since)
-      if (effects.length || waited > (patient ? DOWNLOAD_WAIT_MS : MAX_WAIT_MS) || (!patient && waited > WINDOW_MS && this.inflight === 0)) break
+      if (effects.length || waited > (c.download ? DOWNLOAD_WAIT_MS : MAX_WAIT_MS) || (!c.download && waited > WINDOW_MS && this.inflight === 0)) break
     }
     await this.settle(3000)
     await this.page.waitForTimeout(150)
