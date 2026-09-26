@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { LinkIcon, SendIcon } from 'lucide-react'
 import { ApiError, del, get, post, put } from '@/api/client'
-import type { DiscordKind, DiscordSettings, ServerStatus } from '@/api/types'
+import type { DiscordKind, DiscordSettings, MachineView, ServerStatus } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { BrandMark } from '@/components/app/art'
 import { Card, CardHint, CardTitle, Marker, Notice, useNow } from '@/components/app/bits'
@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatClock, joinAddress, relativeTime } from '@/lib/format'
+import { machineOf } from '@/lib/machines'
 import { phaseTone } from '@/lib/phase'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -269,7 +270,15 @@ function AlertsCard({ settings: s, onSave }: { settings: DiscordSettings; onSave
   )
 }
 
+/** The servers the live status message lists: the dashboard's agent posts it, and knows only its own machine's servers. */
+export function postedServers(servers: ServerStatus[], machines: MachineView[]): ServerStatus[] {
+  return servers.filter((x) => machineOf(x, machines)?.kind !== 'remote')
+}
+
 function LiveStatusCard({ settings: s, onSave }: { settings: DiscordSettings; onSave: (next: Pick<DiscordSettings, 'alerts' | 'liveStatus'>) => Promise<void> }) {
+  const ws = useWorkspace()
+  const servers = ws.servers ?? []
+  const posted = postedServers(servers, ws.machines)
   return (
     <Card aria-labelledby="live-title">
       <CardTitle id="live-title">{t('discord.live')}</CardTitle>
@@ -282,7 +291,8 @@ function LiveStatusCard({ settings: s, onSave }: { settings: DiscordSettings; on
         <Switch id="live-status" checked={s.liveStatus} onCheckedChange={(v) => void onSave({ alerts: s.alerts, liveStatus: v })} />
       </div>
       <p className="mt-2.5 text-xs text-muted-foreground">{t('discord.previewLabel')}</p>
-      <LivePreview className={cn('mt-2 transition-opacity duration-(--motion-standard) ease-standard', !s.liveStatus && 'opacity-60')} />
+      <LivePreview servers={posted} className={cn('mt-2 transition-opacity duration-(--motion-standard) ease-standard', !s.liveStatus && 'opacity-60')} />
+      {posted.length < servers.length && <p className="mt-2 text-xs text-muted-foreground">{t('discord.otherMachines', { machine: ws.machineName })}</p>}
     </Card>
   )
 }
@@ -310,11 +320,9 @@ function stateLine(st: ServerStatus): { dot: string; text: string } {
   }
 }
 
-/** How the live status message looks in the channel: a plain box, built from the servers here. */
-function LivePreview({ className }: { className?: string }) {
-  const ws = useWorkspace()
+/** How the live status message looks in the channel: a plain box, built from the servers it lists. */
+function LivePreview({ servers, className }: { servers: ServerStatus[]; className?: string }) {
   const now = useNow(30_000)
-  const servers = ws.servers ?? []
   const joinable = servers.find((x) => phaseTone(x.phase) === 'online') ?? servers[0]
   const clock = formatClock(new Date(now).toISOString())
   return (

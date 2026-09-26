@@ -2633,6 +2633,7 @@ export const en = {
   'discord.previewTime': 'today at {time}',
   'discord.previewFooter': 'Join: {address} · updated {time}',
   'discord.noServers': 'No servers yet.',
+  'discord.otherMachines': 'It lists the servers on {machine}. Servers on your other machines aren’t posted yet.',
   'discord.state.online': 'Online',
   'discord.state.starting': 'Starting',
   'discord.state.crashed': 'Crashed',

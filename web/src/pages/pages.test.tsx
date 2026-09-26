@@ -2258,6 +2258,29 @@ describe('Discord', () => {
     await click(players)
     expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true })
   })
+
+  // The dashboard's agent posts the message with its own machine's servers, so the preview shows only those.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const survival = server({ machineId: machine.id, gamePort: 25566 })
+  const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25570 })
+  it.each([
+    { name: 'the dashboard’s servers only', servers: [survival], note: false },
+    { name: 'the same and a joined machine’s server that is first online', servers: [cobblemon, survival], note: true },
+  ])('previews the live status with $name', async ({ servers, note }) => {
+    answer({ '/api/discord': { connected: true, webhookName: 'Playkeeper alerts', connectedAt: hoursAgo(1), alerts: [], liveStatus: true, delivery: {}, kinds } satisfies DiscordSettings })
+    const text = await render(<DiscordSettingsSection />, workspace({ machines: [machine, home], servers }))
+    const preview = document.querySelector('[role="img"][aria-label="How it looks in the channel"]')
+    expect([...(preview?.querySelectorAll('li') ?? [])].map((li) => li.textContent?.split('Online')[0])).toEqual(['Survival'])
+    expect(preview?.textContent).toContain(`Join: ${window.location.hostname}:25566`)
+    expect(preview?.textContent).not.toContain('25570')
+    expect(text.includes('Servers on your other machines aren’t posted yet.')).toBe(note)
+  })
 })
 
 describe('Player profile', () => {
