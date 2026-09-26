@@ -115,19 +115,19 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
-  'release, ok := a.holdOpLock()
+  'release, ok := s.holdOpLock()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
-  'release, ok := func() { }, !a.busy()
+  'release, ok := func() { }, !s.busy()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
   ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 5
 
@@ -274,7 +274,7 @@ control "Minecraft never goes back to an older version" internal/agent/versions.
   '	case false:' \
   ./internal/agent '^TestVersionChangesNeverGoBack$'
 control "a version that does not start gets the world back" internal/agent/versions.go \
-  'if err := a.putBackupBack(b); err != nil {' \
+  'if err := s.putBackupBack(b); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestVersionThatDoesNotStartPutsTheWorldBack$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
@@ -400,13 +400,13 @@ control "add-on scan: stops with its context" internal/addons/scan.go \
   'l.readLocal(ctx, root, lf, identify, verify)
 			if err := ctx.Err(); false && err != nil {' \
   ./internal/addons '^TestAScanStopsWithItsContext$'
-control "pre-generation: a named pipe for the plugins folder is not waited on" internal/pregen/detect.go \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
   ./internal/pregen '^TestDetectDoesNotWaitOnAPipe$'
-control "data packs: a named pipe for the datapacks folder is not waited on" internal/packs/datapacks.go \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+control "data packs: a named pipe for the datapacks folder is refused before it is opened" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
   ./internal/packs '^TestListDoesNotWaitOnAPipe$'
 control "add-on jars: the table of contents is checked before archive/zip reads it" internal/addons/jar.go \
   'n, err := zipdir.Check(r, size, zipdir.Metadata)
