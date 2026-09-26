@@ -694,11 +694,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	if err := s.waitReady(ctx, h, id); err != nil {
-		return err
-	}
-	s.mapStarted()
-	return nil
+	return s.waitReady(ctx, h, id)
 }
 
 func classifyStartError(err error, port int) error {
