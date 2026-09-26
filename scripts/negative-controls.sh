@@ -2787,6 +2787,21 @@ webcontrol "leaving the page keeps an upload a server was made from" web/src/com
   'if (!j.upload || !machineId || kept.current) return' \
   'if (!j.upload || !machineId) return' \
   web/src/pages/new-server.test.tsx
+# shellcheck disable=SC2016
+webcontrol "carrying on with an upload asks the machine which files it has" web/src/lib/upload.ts \
+  'let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))' \
+  'let imp = seen(o.resume ?? (await post<WorldImport>(o.base, {})))' \
+  web/src/lib/upload.test.ts
+webcontrol "carrying on refuses an upload whose files differ" web/src/lib/upload.ts \
+  ' || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)' \
+  '' \
+  web/src/lib/upload.test.ts
+webcontrol "Try again carries on with the upload as the machine last described it" web/src/components/app/world-import.tsx \
+  '          j.upload = imp
+        },' \
+  '          j.upload ??= imp
+        },' \
+  web/src/pages/new-server.test.tsx
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -105,7 +105,7 @@ export function useWorldUpload(machineId: string | undefined): WorldUpload {
         files,
         signal: j.ctl.signal,
         resume,
-        onStart: (imp) => {
+        onImport: (imp) => {
           j.upload = imp
         },
         onProgress: (p) => {

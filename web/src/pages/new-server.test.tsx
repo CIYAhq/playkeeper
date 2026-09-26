@@ -148,7 +148,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/servers/new#world')
   vi.mocked(client.get).mockImplementation(((path: string) => (path.includes('/catalog') ? Promise.resolve(catalog) : new Promise(() => {}))) as typeof client.get)
   vi.mocked(upload.uploadWorld).mockImplementation((o) => {
-    o.onStart?.(uploaded)
+    o.onImport?.(uploaded)
     o.onProgress?.({ sent: 62, total: 100, retrying: false })
     return new Promise((resolve) => {
       finish = resolve
@@ -299,5 +299,39 @@ describe('New server from a world', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(client.del).not.toHaveBeenCalled()
     fetch.mockRestore()
+  })
+
+  it('carries on after the disk filled up without announcing the file again', async () => {
+    const actual = await vi.importActual<typeof upload>('@/lib/upload')
+    const files: { name: string; size: number; received: number }[] = []
+    const view = (): WorldImport => ({ ...uploaded, files: files.map((f, index) => ({ index, ...f })) })
+    let full = true
+    const put: upload.Put = async (url, body) => {
+      if (full) return { status: 507, text: JSON.stringify({ error: 'The disk filled up during the upload.', code: 'insufficient_space' }) }
+      const f = files[Number(/\/files\/(\d+)\?/.exec(url)?.[1])]
+      if (f) f.received += body.size
+      return { status: 200, text: JSON.stringify(view()) }
+    }
+    vi.mocked(upload.uploadWorld).mockImplementation((o) => actual.uploadWorld({ ...o, put, wait: async () => {} }))
+    const get = vi.mocked(client.get).getMockImplementation()
+    vi.mocked(client.get).mockImplementation(((path: string) => (path === `${base}/${uploaded.id}` ? Promise.resolve(view()) : get?.(path))) as typeof client.get)
+    const post = vi.mocked(client.post).getMockImplementation()
+    vi.mocked(client.post).mockImplementation(((path: string, body?: { name: string; size: number }) => {
+      if (path === base) return Promise.resolve(view())
+      if (path === `${base}/${uploaded.id}/files` && body) {
+        files.push({ name: body.name, size: body.size, received: 0 })
+        return Promise.resolve(view())
+      }
+      return post?.(path, body)
+    }) as typeof client.post)
+
+    await render()
+    await chooseFile('Survival-2024.zip')
+    expect(text()).toContain('The disk filled up during the upload.')
+    full = false
+    await click(button('Try again'))
+    expect(vi.mocked(upload.uploadWorld).mock.calls[1]?.[0].resume?.files).toEqual([{ index: 0, name: 'Survival-2024.zip', size: 1, received: 0 }])
+    expect(files).toEqual([{ name: 'Survival-2024.zip', size: 1, received: 1 }])
+    expect(text()).toContain('1 B · uploaded')
   })
 })
