@@ -1754,6 +1754,29 @@ describe('World backups with copies', () => {
     expect(restore?.disabled).toBe(true)
     expect(restore?.title).toBe('Its world folder is missing. Move the previous world back first.')
   })
+
+  const onPhone = () => vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+
+  it('stops offering restores in the phone’s sheet once a restore isn’t finished, and says why', async () => {
+    const why = 'A restore isn’t finished. With the server stopped, restart the Playkeeper agent first.'
+    const phone = onPhone()
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore a world')?.click())
+    await act(async () => {})
+    await rerender(server({ phase: 'stopped', restoreUnsettled: true }))
+    const sheet = document.querySelector('[role="dialog"]')
+    const choose = [...(sheet?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'choose a file')
+    expect(choose?.disabled).toBe(true)
+    expect(choose?.title).toBe(why)
+    const rows = [...(sheet?.querySelectorAll<HTMLButtonElement>('ul li button') ?? [])]
+    expect(rows).toHaveLength(2)
+    expect(rows.map((b) => [b.disabled, b.title])).toEqual([
+      [true, why],
+      [true, why],
+    ])
+    phone.mockRestore()
+  })
 })
 
 describe('Restore from a recovery key', () => {
@@ -2038,6 +2061,22 @@ describe('A restore that didn’t finish', () => {
     answer({ '/world-copies': [], '/backups': [made] })
     await render(<WorldPage server={server({ phase: 'stopped' })} />)
     expect(button('choose a file')?.disabled).toBe(false)
+  })
+
+  it('doesn’t offer a restore while another isn’t finished, and says why', async () => {
+    const why = 'A restore isn’t finished. With the server stopped, restart the Playkeeper agent first.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', restoreUnsettled: true })} />)
+    expect(button('choose a file')?.disabled).toBe(true)
+    expect(button('choose a file')?.title).toBe(why)
+    expect(button('Back up now')?.disabled).toBe(false)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.startsWith('Restore this backup'))
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
   })
 
   it('says what to do when a new icon is refused for the missing world folder', async () => {

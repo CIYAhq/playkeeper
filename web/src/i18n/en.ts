@@ -100,6 +100,7 @@ export const en = {
   'reason.stopped': '{server} is already stopped.',
   'reason.startFirst': 'Start {server} first.',
   'reason.worldMissing': 'Its world folder is missing. Move the previous world back first.',
+  'reason.restoreUnsettled': 'A restore isn’t finished. With the server stopped, restart the Playkeeper agent first.',
   'reason.fillIn': 'Fill in the fields above first.',
   'reason.passwordShort': 'Passwords need at least 10 characters.',
   'reason.nameFirst': 'Give the server a name first.',

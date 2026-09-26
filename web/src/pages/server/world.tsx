@@ -194,7 +194,9 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
                     <li key={r.kind === 'there' ? r.copy.name : r.backup.id} className="border-b border-border last:border-b-0">
                       <button
                         type="button"
-                        className="flex min-h-14 w-full items-center gap-3 px-4 text-left"
+                        disabled={!!restoreBlocked}
+                        title={restoreBlocked}
+                        className="flex min-h-14 w-full items-center gap-3 px-4 text-left disabled:cursor-not-allowed disabled:opacity-64"
                         onClick={() => {
                           setRestoreSheet(false)
                           void (r.kind === 'there' ? restore.start(r.copy) : restoreFrom(r.backup))

@@ -138,8 +138,9 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): 
       return undefined
     case 'backup':
     case 'pregen':
-    case 'restore':
       return worldMissingReason(st)
+    case 'restore':
+      return worldMissingReason(st) ?? (st.restoreUnsettled ? t('reason.restoreUnsettled') : undefined)
     default: {
       const unreachable: never = action
       return unreachable

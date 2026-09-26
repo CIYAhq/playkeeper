@@ -164,6 +164,8 @@ export interface ServerStatus {
   worldBytes?: number
   /** Set for as long as the world folder is missing because a restore didn't finish. */
   worldMissing?: WorldMissing
+  /** A restore that didn't finish keeps its journal until an agent start settles it; no other restore starts meanwhile. */
+  restoreUnsettled?: boolean
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
