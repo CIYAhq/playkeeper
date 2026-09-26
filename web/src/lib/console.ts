@@ -8,13 +8,18 @@ export interface ParsedLine {
   kind: LineKind
 }
 
+// Paper and Purpur: "[18:41:07 INFO]: …".
 const reServer = /^\[(\d{2}:\d{2}:\d{2})(?: [^\]]*?)? ?(INFO|WARN|WARNING|ERROR|FATAL|DEBUG)\]:? ?(.*)$/
+// Vanilla, Fabric, Quilt and NeoForge: "[18:41:07] [Server thread/INFO]: …", where NeoForge adds its
+// logger, "[18:41:07] [Server thread/INFO] [minecraft/DedicatedServer]: …". A thread's name can
+// hold a slash and a redacted address, as in "[RCON Client /[ip redacted] #2/INFO]".
+const reThread = /^\[(\d{2}:\d{2}:\d{2})\] \[.+?\/(INFO|WARN|WARNING|ERROR|FATAL|DEBUG|TRACE)\](?: \[[^\]]*\])?: ?(.*)$/
 const reChat = /^(?:\[Not Secure\] )?<([A-Za-z0-9_]{1,16})> /
 const rePlayers = /^[A-Za-z0-9_]{1,16} (joined|left) the game$|^[A-Za-z0-9_]{1,16} lost connection: |^Disconnecting [A-Za-z0-9_]{1,16}/
 
 /** Splits a Minecraft server log line into its time, level and message, and says what kind it is. */
 export function parseLine(raw: string): ParsedLine {
-  const m = reServer.exec(raw)
+  const m = reServer.exec(raw) ?? reThread.exec(raw)
   const time = m?.[1]
   const level = m?.[2] === 'WARNING' ? 'WARN' : m?.[2]
   const text = m ? (m[3] ?? '') : raw

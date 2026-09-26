@@ -291,6 +291,24 @@ describe('console', () => {
     expect(parseLine('plain output').kind).toBe('info')
   })
 
+  // Real lines from Vanilla 26.1.2, Fabric 26.3, Quilt 26.1.2 and NeoForge 26.2 servers, as the log API gives them.
+  it.each([
+    ['[08:36:29] [Server thread/INFO]: pkbotfriend joined the game', '08:36:29', 'INFO', 'players', 'pkbotfriend joined the game'],
+    ['[08:36:30] [Server thread/INFO]: [Not Secure] <pkbotfriend> hello from the Playkeeper check bot', '08:36:30', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello from the Playkeeper check bot'],
+    ['[08:36:55] [Server thread/INFO]: pkbotfriend lost connection: Disconnected', '08:36:55', 'INFO', 'players', 'pkbotfriend lost connection: Disconnected'],
+    ['[08:35:40] [Server thread/WARN]: handleDisconnection() called twice', '08:35:40', 'WARN', 'problem', 'handleDisconnection() called twice'],
+    ['[00:28:35] [main/INFO]: Loading Minecraft 26.3 with Fabric Loader 0.19.5', '00:28:35', 'INFO', 'info', 'Loading Minecraft 26.3 with Fabric Loader 0.19.5'],
+    ["[00:45:44] [main/WARN]: Option 'mixin.perf.release_protochunks' overriden (by mods [c2me]) to 'false'", '00:45:44', 'WARN', 'problem', "Option 'mixin.perf.release_protochunks' overriden (by mods [c2me]) to 'false'"],
+    ['[08:41:09] [Server thread/INFO]: pkbotfriend joined the game', '08:41:09', 'INFO', 'players', 'pkbotfriend joined the game'],
+    ['[08:41:10] [Server thread/INFO]: [Not Secure] <pkbotfriend> hello Quilt', '08:41:10', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello Quilt'],
+    ['[08:39:22] [main/INFO]: Loading Minecraft 26.1.2 with Quilt Loader 0.30.1', '08:39:22', 'INFO', 'info', 'Loading Minecraft 26.1.2 with Quilt Loader 0.30.1'],
+    ['[00:32:41] [Server thread/INFO] [minecraft/DedicatedServer]: Done (2.863s)! For help, type "help"', '00:32:41', 'INFO', 'info', 'Done (2.863s)! For help, type "help"'],
+    ['[00:32:37] [modloading-worker-0/INFO] [ne.ne.ne.co.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 26.2.0.88, for MC 26.2', '00:32:37', 'INFO', 'info', 'NeoForge mod loading, version 26.2.0.88, for MC 26.2'],
+    ['[00:34:26] [RCON Client /[ip redacted] #3/INFO] [minecraft/RconClient]: Thread RCON Client /[ip redacted] shutting down', '00:34:26', 'INFO', 'info', 'Thread RCON Client /[ip redacted] shutting down'],
+  ])('reads a line from a server that is not Paper: %s', (raw, time, level, kind, text) => {
+    expect(parseLine(raw)).toEqual({ time, level, kind, text })
+  })
+
   it('reads how far behind a lagging server is', () => {
     expect(behindSeconds('Running 2143ms or 42 ticks behind')).toBeCloseTo(2.143)
   })
