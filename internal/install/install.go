@@ -1055,9 +1055,14 @@ func chownR(sys System, root string, uid, gid int, recursive bool) error {
 
 // waitHealthy checks the agent socket and the panel's HTTPS endpoint. The
 // panel certificate is pinned (loaded from disk), never skipped. Port 0
-// means the machine has no panel.
+// means the machine has no panel, so a timeout names only the agent's
+// journal.
 func waitHealthy(ctx context.Context, socket, certPath string, port int) error {
 	ac := agentclient.New(socket)
+	journals := "-u playkeeper-agent -u playkeeper-panel"
+	if port == 0 {
+		journals = "-u playkeeper-agent"
+	}
 	var lastErr error
 	for {
 		var h api.Health
@@ -1075,7 +1080,7 @@ func waitHealthy(ctx context.Context, socket, certPath string, port int) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("services did not become healthy: %v (see: sudo journalctl -u playkeeper-agent -u playkeeper-panel)", lastErr)
+			return fmt.Errorf("services did not become healthy: %v (see: sudo journalctl %s)", lastErr, journals)
 		case <-time.After(time.Second):
 		}
 	}

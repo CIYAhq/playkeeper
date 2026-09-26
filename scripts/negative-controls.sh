@@ -438,6 +438,10 @@ control "a machine installed to join opens only the game port" internal/install/
   'return []int{o.GamePort}' \
   'return []int{o.PanelPort, o.GamePort}' \
   ./internal/install '^TestInstallingToJoinRunsNoDashboardAndOpensOnlyTheGamePort$'
+control "services that don't come up on a machine without a panel point only at the agent's journal" internal/install/install.go \
+  'journals = "-u playkeeper-agent"' \
+  'journals = "-u playkeeper-agent -u playkeeper-panel"' \
+  ./internal/install '^TestAHealthTimeoutNamesOnlyTheUnitsTheMachineRuns$'
 control "the hub keeps the wrong join codes it counts" internal/machinelink/hub.go \
   'if err := h.store.SetJoinFailures(ctx, h.guard.fail(now, from)); err != nil {' \
   'if err := h.store.SetJoinFailures(ctx, nil); h.guard.fail(now, from) == nil && err != nil {' \

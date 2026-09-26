@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -509,6 +511,62 @@ func TestHealthFailureRollsBack(t *testing.T) {
 	}
 	if d := diff(before, snapshot(t, h.root)); len(d) != 0 {
 		t.Fatalf("rollback left changes: %v", d)
+	}
+}
+
+// A machine installed to join a dashboard runs no panel, so when its
+// services don't come up the error points only at the agent's journal.
+func TestAHealthTimeoutNamesOnlyTheUnitsTheMachineRuns(t *testing.T) {
+	dir, err := os.MkdirTemp("", "pk-health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	answering := filepath.Join(dir, "agent.sock")
+	ln, err := net.Listen("unix", answering)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"ok":true,"version":"0.4.0","docker":true}`)
+	})}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	silent := filepath.Join(dir, "gone.sock")
+	// The panel's certificate is never written, so no panel ever answers.
+	cert := filepath.Join(dir, "cert.pem")
+
+	both, agentOnly := "(see: sudo journalctl -u playkeeper-agent -u playkeeper-panel)", "(see: sudo journalctl -u playkeeper-agent)"
+	for _, c := range []struct {
+		name, socket string
+		port         int
+		// cause is what didn't answer, and hint how the error must end;
+		// both are empty when the services are healthy.
+		cause, hint string
+	}{
+		{"a dashboard whose agent doesn't answer", silent, 8443, "agent is not reachable", both},
+		{"a dashboard whose panel doesn't answer", answering, 8443, "cert.pem", both},
+		{"a machine without a panel whose agent doesn't answer", silent, 0, "agent is not reachable", agentOnly},
+		{"a machine without a panel whose agent answers", answering, 0, "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			err := waitHealthy(ctx, c.socket, cert, c.port)
+			switch {
+			case c.hint == "":
+				if err != nil {
+					t.Fatalf("healthy services, but: %v", err)
+				}
+			case err == nil:
+				t.Fatal("services that don't answer passed as healthy")
+			case !strings.Contains(err.Error(), c.cause) || !strings.HasSuffix(err.Error(), c.hint):
+				t.Fatalf("got %q, want it to say %q and end with %q", err, c.cause, c.hint)
+			case c.port == 0 && strings.Contains(err.Error(), "playkeeper-panel"):
+				t.Fatalf("a machine without a panel is told to read the panel's journal: %q", err)
+			}
+		})
 	}
 }
 
