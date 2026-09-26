@@ -3,8 +3,11 @@ package worldimport
 import (
 	"encoding/json"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
@@ -21,14 +24,11 @@ func guideTexts(g Guide) []Text {
 
 // Help pages the guides follow; a new guide needs its host here.
 var guideHosts = map[string]string{
-	"singleplayer":  "help.minecraft.net",
-	"realms":        "help.minecraft.net",
-	"aternos":       "support.aternos.org",
-	"minehut":       "support.minehut.com",
-	"apexhosting":   "apexminecrafthosting.com",
-	"bisecthosting": "help.bisecthosting.com",
-	"shockbyte":     "shockbyte.com",
-	"other":         "",
+	"singleplayer": "help.minecraft.net",
+	"realms":       "help.minecraft.net",
+	"aternos":      "support.aternos.org",
+	"minehut":      "support.minehut.com",
+	"other":        "",
 }
 
 func TestGuides(t *testing.T) {
@@ -103,9 +103,6 @@ func TestGuides(t *testing.T) {
 			t.Errorf("no guide for %s", id)
 		}
 	}
-	if len(guides) < 7 {
-		t.Errorf("%d guides, want Realms, Aternos, Minehut and at least two other hosts besides singleplayer and other", len(guides))
-	}
 	if guides[0].ID != "singleplayer" || guides[len(guides)-1].ID != "other" {
 		t.Errorf("the picker starts with %s and ends with %s", guides[0].ID, guides[len(guides)-1].ID)
 	}
@@ -130,6 +127,31 @@ func checkGuideSentence(t *testing.T, x Text) {
 	}
 	if !strings.HasSuffix(x.Text, " "+link) {
 		t.Errorf("%s: %q doesn't end with its link, which a full stop would break", x.Key, x.Text)
+	}
+}
+
+// The guides are the sources the world-import screen offers, no more and no
+// fewer: a guide it doesn't list is never shown.
+func TestGuidesAreTheSourcesTheImportScreenOffers(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "components", "app", "world-import.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := regexp.MustCompile(`const worldSources: WorldSource\[\] = \[([^\]]*)\]`).FindSubmatch(src)
+	if list == nil {
+		t.Fatal("the world-import screen's list of sources wasn't found")
+	}
+	var offered, ids []string
+	for _, m := range regexp.MustCompile(`'([a-z]+)'`).FindAllSubmatch(list[1], -1) {
+		offered = append(offered, string(m[1]))
+	}
+	for _, g := range Guides() {
+		ids = append(ids, g.ID)
+	}
+	slices.Sort(offered)
+	slices.Sort(ids)
+	if len(offered) == 0 || !slices.Equal(ids, offered) {
+		t.Fatalf("guides %v, want the sources the screen offers: %v", ids, offered)
 	}
 }
 

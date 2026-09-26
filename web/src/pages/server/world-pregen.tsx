@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { MapIcon, PauseIcon, PlayIcon } from 'lucide-react'
 import { get, post } from '@/api/client'
 import type { Pregen, PregenPreset, PregenPresetId, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, Marker, Notice, SectionLabel, Spinner } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
@@ -233,14 +233,14 @@ function PregenError({ message, unsupported, onRetry }: { message: string; unsup
 }
 
 function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; pregen: Pregen; onStarted: () => Promise<void> }) {
-  const ws = useWorkspace()
+  const place = useServerMachine(s)
   const phone = useIsPhone()
   const [preset, setPreset] = useState<PregenPresetId>(() => firstPreset(pg.presets, pg.state === 'finished' ? pg.radius : undefined))
   const [pause, setPause] = useState(pg.pauseForPlayers)
   const [busy, setBusy] = useState(false)
   const chosen = pg.presets.find((p) => p.id === preset)
   const otherJob = s.operation && s.operation.kind !== 'pregen-start' ? s.operation : undefined
-  const blocked = whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
+  const blocked = whyNot({ ...s, operation: otherJob }, 'pregen', place.offline) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
 
   async function start() {
     setBusy(true)
@@ -286,7 +286,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
       {opLabel(otherJob, s)}
     </span>
   ) : pg.diskFreeBytes !== undefined ? (
-    t('pregen.diskFree', { machine: ws.machineName, free: formatBytes(pg.diskFreeBytes) })
+    t('pregen.diskFree', { machine: place.name, free: formatBytes(pg.diskFreeBytes) })
   ) : null
 
   if (phone) {
@@ -359,7 +359,7 @@ function Bar({ value, tone, label, className }: { value: number; tone: 'info' | 
 }
 
 function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; pregen: Pregen; onChanged: () => Promise<void> }) {
-  const ws = useWorkspace()
+  const { offline } = useServerMachine(s)
   const phone = useIsPhone()
   const [acting, setActing] = useState<'pause' | 'continue' | 'cancel'>()
   const starting = pg.state === 'starting'
@@ -381,7 +381,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
   const status = paused ? pausedText(pg, s.name) : pg.etaSeconds >= 0 ? t('pregen.left', { time: longTime(pg.etaSeconds) }) : undefined
   const resume = paused && pg.pausedBy !== 'server'
   const size = phone ? 'touch' : 'default'
-  const blocked = ws.stale ? t('reason.noAgent') : acting ? t('reason.busy', { what: t(actingKeys[acting]) }) : undefined
+  const blocked = offline ?? (acting ? t('reason.busy', { what: t(actingKeys[acting]) }) : undefined)
   const actions = !starting && (
     <>
       <Button variant="outline" size={size} className={phone ? 'flex-1' : undefined} onClick={() => void act(resume ? 'continue' : 'pause')} loading={acting === 'continue' || acting === 'pause'} disabledReason={blocked}>

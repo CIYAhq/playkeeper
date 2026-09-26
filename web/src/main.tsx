@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CSPProvider } from '@base-ui/react/csp-provider'
+import { LoadBoundary, reloadWhenCodeIsStale } from '@/components/app/load-boundary'
 import { ToastProvider } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parse, publicMapToken } from '@/lib/router'
@@ -24,6 +25,7 @@ function Loading() {
 const route = parse(window.location.pathname)
 const mapToken = publicMapToken(window.location.pathname)
 
+reloadWhenCodeIsStale()
 const root = document.getElementById('root')
 if (root) {
   createRoot(root).render(
@@ -31,7 +33,9 @@ if (root) {
       {/* The panel's Content Security Policy allows only its own style files. */}
       <CSPProvider disableStyleElements>
         <ToastProvider position="bottom-right" limit={3}>
-          <Suspense fallback={<Loading />}>{route.name === 'pack' ? <PackPage token={route.token} /> : mapToken !== undefined ? <PublicMapPage token={mapToken} /> : <App />}</Suspense>
+          <LoadBoundary>
+            <Suspense fallback={<Loading />}>{route.name === 'pack' ? <PackPage token={route.token} /> : mapToken !== undefined ? <PublicMapPage token={mapToken} /> : <App />}</Suspense>
+          </LoadBoundary>
         </ToastProvider>
       </CSPProvider>
     </StrictMode>,

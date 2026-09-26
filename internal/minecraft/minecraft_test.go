@@ -83,6 +83,40 @@ func TestParseIgnoresSpoofedChat(t *testing.T) {
 	}
 }
 
+// Java running out of memory counts only from lines players can't write: raw
+// JVM output, and WARN, ERROR and FATAL entries whose message is the error.
+// Chat, /me, /say, commands and other INFO entries never do, nor does the
+// error inside another exception's message, where a plugin may log what a
+// player typed.
+func TestParseTakesOutOfMemoryOnlyFromLinesPlayersCantWrite(t *testing.T) {
+	const oom = "java.lang.OutOfMemoryError: Java heap space"
+	for line, want := range map[string]bool{
+		oom: true,
+		`Exception in thread "Server thread" ` + oom:                                        true,
+		"Caused by: java.lang.OutOfMemoryError: Metaspace":                                  true,
+		"Terminating due to " + oom:                                                         true,
+		`Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler`:    true,
+		"[03:11:30 ERROR]: " + oom:                                                          true,
+		"[03:11:30 WARN]: java.lang.OutOfMemoryError: unable to create native thread":       true,
+		"[03:11:30] [Server thread/ERROR]: " + oom:                                          true,
+		"[03:11:30] [Server Watchdog/FATAL] [minecraft/MinecraftServer]: " + oom:            true,
+		"[03:11:30 INFO]: <PkBotFriend> " + oom:                                             false,
+		"[03:11:30 INFO]: [Not Secure] <PkBotFriend> " + oom:                                false,
+		"[03:11:30 INFO]: * PkBotFriend " + oom:                                             false,
+		"[03:11:30 INFO]: [PkBotFriend] " + oom:                                             false,
+		"[03:11:30 INFO]: PkBotFriend issued server command: /msg PkBotBuilder " + oom:      false,
+		"[03:11:30] [Server thread/INFO] [minecraft/MinecraftServer]: <PkBotFriend> " + oom: false,
+		"[03:11:30 INFO]: " + oom:                                                           false,
+		"[03:11:30 ERROR]: <PkBotFriend> " + oom:                                            false,
+		"[03:11:30 WARN]: Unknown command: " + oom:                                          false,
+		"java.lang.IllegalArgumentException: " + oom:                                        false,
+	} {
+		if got := Parse(line).Kind == EventOOM; got != want {
+			t.Errorf("Parse(%q) out of memory: %v, want %v", line, got, want)
+		}
+	}
+}
+
 func TestRedactIPs(t *testing.T) {
 	in := "[13:35:18 INFO]: PkSpikeBot[/172.18.0.1:50284] logged in with entity id 10; Thread RCON Client /10.0.0.5 started; v6 /[2001:db8::1]:25565; Paper 26.1.2 build 74"
 	out := RedactIPs(in)

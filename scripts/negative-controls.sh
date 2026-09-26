@@ -162,6 +162,16 @@ control "a restore the next start put back says so" internal/agent/backups.go \
   's.restoreSettled(j, movedBack, atStart)' \
   '_, _ = movedBack, atStart' \
   ./internal/agent '^TestARestoreSettledAtStartSaysSo$'
+control "a settle tried again says Playkeeper put the world back" internal/agent/backups.go \
+  'movedBack := j.MovedBack || dirExists(s.copyPath(j.Aside))' \
+  'movedBack := dirExists(s.copyPath(j.Aside))' \
+  ./internal/agent '^TestASettleTriedAgainSaysPlaykeeperPutTheWorldBack$'
+control "the journal records that Playkeeper moved the world back" internal/agent/backups.go \
+  '		j.MovedBack = true
+		if err := writeSwapJournal(stageDir, j); err != nil {' \
+  '		j.MovedBack = true
+		if err := error(nil); err != nil {' \
+  ./internal/agent '^TestASettleTriedAgainSaysPlaykeeperPutTheWorldBack$'
 control "a restore finished after a restart has its own activity line" internal/agent/backups.go \
   'kind = "world_restored_after_restart"' \
   'kind = "world_restored"' \
@@ -231,6 +241,52 @@ webcontrol "a long activity line shortens instead of widening the page" web/src/
   '<span className="w-0 flex-1 truncate">' \
   '<span className="min-w-0 flex-1 truncate">' \
   web/src/pages/pages.test.tsx 'long activity line'
+webcontrol "pre-generating's Start goes by the server's own machine" web/src/pages/server/world-pregen.tsx \
+  "'pregen', place.offline)" \
+  "'pregen', undefined)" \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
+webcontrol "pre-generating's Pause and Cancel go by the server's own machine" web/src/pages/server/world-pregen.tsx \
+  'const blocked = offline ?? (acting' \
+  'const blocked = undefined ?? (acting' \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
+webcontrol "a new schedule's Save goes by the server's own machine" web/src/pages/server/schedules.tsx \
+  'const cantSave = offline ?? (' \
+  'const cantSave = undefined ?? (' \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
+webcontrol "New schedule goes by the server's own machine" web/src/pages/server/schedules.tsx \
+  'if (offline) return offline' \
+  'if (!offline && offline) return offline' \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
+webcontrol "a pack's plan names the voice chat port the agent works out now" web/src/api/modpacks.ts \
+  'if (hit && !fresh && Date.now() - hit.at < maxAge && tick === 0) {' \
+  'if (hit && Date.now() - hit.at < maxAge && tick === 0) {' \
+  web/src/api/modpacks.test.tsx 'asked for again'
+webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
+  '      <LoadBoundary resetKey={JSON.stringify(route)}>
+        <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+      </LoadBoundary>' \
+  '      <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>' \
+  web/src/components/app/load-boundary.test.tsx 'page whose code never loads'
+webcontrol "a server tab whose code doesn't load keeps the server page on screen" web/src/pages/server/index.tsx \
+  '        <LoadBoundary>
+          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+        </LoadBoundary>' \
+  '        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>' \
+  web/src/components/app/load-boundary.test.tsx 'server tab whose code never loads'
+webcontrol "every server tab's code loads after sign-in" web/src/App.tsx \
+  '  void pages.server().then((m) => m.preloadTabs(), () => {})
+' \
+  '' \
+  web/src/pages/server/preload.test.tsx 'every server tab'
+webcontrol "code that can't load reloads the page" web/src/components/app/load-boundary.tsx \
+  '    e.preventDefault()
+    window.location.reload()' \
+  '    e.preventDefault()' \
+  web/src/components/app/load-boundary.test.tsx 'at most once a minute'
+webcontrol "a page that still can't load doesn't reload over and over" web/src/components/app/load-boundary.tsx \
+  'if (Date.now() - Number(sessionStorage.getItem(reloadedAt) ?? 0) < 60_000) return' \
+  'if (Date.now() < 0) return' \
+  web/src/components/app/load-boundary.test.tsx 'at most once a minute'
 control "the data pack list waits for the missing world folder" internal/agent/packs.go \
   'if m := s.worldMissing(); m != nil {
 		return nil, errWorldMissing(m, "try again")' \
@@ -266,8 +322,8 @@ webcontrol "a restore says it waits for the missing world folder" web/src/lib/ph
   "return restoreUnsettledReason(st)" \
   web/src/lib/lib.test.ts 'pre-generate or restore while'
 webcontrol "the pre-generation page's Start waits for the missing world folder" web/src/pages/server/world-pregen.tsx \
-  "whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale)" \
-  "whyNot({ ...s, operation: otherJob }, 'change', ws.stale)" \
+  "whyNot({ ...s, operation: otherJob }, 'pregen', place.offline)" \
+  "whyNot({ ...s, operation: otherJob }, 'change', place.offline)" \
   web/src/pages/server/world.test.tsx 'waits for a world folder a restore left missing'
 webcontrol "the World card's pre-generation row waits for the missing world folder" web/src/pages/server/world-links.tsx \
   'lineKey={pg?.state} busy={working(pg)} disabledReason={worldMissingReason(s)}' \
@@ -408,6 +464,16 @@ control "the status says a swap journal can't be read" internal/agent/backups.go
   'if _, err := readSwapJournal(s.stageDir(stage)); err != nil {' \
   'if _, err := readSwapJournal(s.stageDir(stage)); false && err != nil {' \
   ./internal/agent '^TestAnUnreadableSwapJournalHoldsNoServerBack$'
+control "nothing makes a world folder while the restored world is only in its stage" internal/agent/lifecycle.go \
+  'if staged := s.stagedRestoredWorld(); staged != "" {' \
+  'if staged := s.stagedRestoredWorld(); false && staged != "" {' \
+  ./internal/agent '^TestNothingMakesAWorldFolderWhileTheRestoredWorldIsInTheStage$'
+control "a restored world still in its stage is never settled away" internal/agent/backups.go \
+  '			case !dirExists(staged):
+				return nil' \
+  '			case !dirExists(staged) || dirExists(s.dataDir()):
+				return nil' \
+  ./internal/agent '^TestARestoredWorldInTheStageIsNeverSettledAway$'
 webcontrol "the World tab says a restore isn't finished, and what finishes it" web/src/pages/server/world.tsx \
   '      <RestoreUnsettledNotice server={s} className={className} />
 ' \
@@ -1656,6 +1722,10 @@ control "a pack's plan names the port its voice chat would get" internal/agent/c
   'if p.voiceChat {' \
   'if false {' \
   ./internal/agent '^TestAPacksPreviewNamesVoiceChatsPort$'
+control "a pack's plan reads the held voice chat ports under their lock" internal/agent/curated.go \
+  'if port, err := a.freeVoicePort("", curated.VoiceChatPort); err == nil {' \
+  'if port, err := curated.PickPort(curated.VoiceChatPort, a.voicePortTaken("")); err == nil {' \
+  ./internal/agent '^TestAPacksPreviewReadsHeldVoicePortsUnderTheirLock$'
 control "voice chat in a CurseForge pack is known by CurseForge's project" internal/agent/curated.go \
   'return c.Project == curseForgeVoiceChat' \
   'return false' \
@@ -2987,6 +3057,34 @@ control "the last use of a link goes to one friend" internal/panel/friends.go \
   'AND (max_uses = 0 OR uses < max_uses)' \
   'AND (max_uses = 0 OR 1)' \
   ./internal/panel '^TestTheLastUseGoesToOneFriend$' 3
+control "the world import guides are the sources the import screen offers" internal/worldimport/guides.go \
+  'minehutGuide(), otherHostGuide()}' \
+  'otherHostGuide()}' \
+  ./internal/worldimport '^TestGuidesAreTheSourcesTheImportScreenOffers$'
+control "the fake panel refuses an invalid request with the panel's code" test/e2e/ui/fakes.ts \
+  "  return { status: 400, body: { error, code: 'invalid_request' } }" \
+  "  return { status: 400, body: { error, code: 'invalid' } }" \
+  ./internal/panel '^TestTheFakePanelRefusesWithCodesThePanelSends$'
+control "a server has at most 20 friend links that work" internal/panel/friends.go \
+  'if working >= invites.MaxWorkingPlayerInvites {' \
+  'if false && working >= invites.MaxWorkingPlayerInvites {' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
+control "a friend link turned off makes room for another" internal/panel/friends.go \
+  'AND server_id = ? AND revoked_at = 0
+			AND (expires_at' \
+  'AND server_id = ?
+			AND (expires_at' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
+control "an expired friend link makes room for another" internal/panel/friends.go \
+  'revoked_at = 0
+			AND (expires_at = 0 OR expires_at > ?)' \
+  'revoked_at = 0
+			AND (expires_at = 0 OR expires_at > ? OR 1)' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
+control "a used-up friend link makes room for another" internal/panel/friends.go \
+  '			AND (expires_at = 0 OR expires_at > ?) AND (max_uses = 0 OR uses < max_uses)' \
+  '			AND (expires_at = 0 OR expires_at > ?) AND (max_uses = 0 OR uses <= max_uses)' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
 control "one join request per player" internal/panel/join.go \
   'if waiting > 0 {' \
   'if false && waiting > 0 {' \
@@ -3171,6 +3269,28 @@ control "memory advice reads a mod loader's heap" internal/diagnose/memory.go \
   'return minecraft.HeapFor(budgetMB, in.ServerType, in.Mods)' \
   'return minecraft.HeapMB(budgetMB)' \
   ./internal/diagnose '^TestAdviseMemory$'
+control "memory advice reads the heap the server has, not today's mods'" internal/diagnose/memory.go \
+  'if budgetMB == in.BudgetMB && in.HeapMB > 0 {' \
+  'if false {' \
+  ./internal/agent '^TestMemoryAdviceReadsTheHeapTheServerRunsWith$'
+control "memory advice reads the heap of the server's container" internal/agent/memory.go \
+  'budget, heap := s.runMemory(ctx, *sc)' \
+  'budget, heap := sc.MemoryMB, heapMB(*sc)' \
+  ./internal/agent '^TestMemoryAdviceReadsTheHeapTheServerRunsWith$'
+control "memory advice reads a budget saved since against its restart's heap" internal/agent/memory.go \
+  '	if budget != sc.MemoryMB {
+		heap = heapMB(*sc)' \
+  '	if budget < 0 {
+		heap = heapMB(*sc)' \
+  ./internal/agent '^TestMemoryAdviceReadsTheHeapTheServerRunsWith$'
+control "crash help explains the heap the server ran with" internal/agent/crash.go \
+  'budget, heap := s.runMemory(ctx, *sc)' \
+  'budget, heap := sc.MemoryMB, heapMB(*sc)' \
+  ./internal/agent '^TestCrashHelpExplainsTheMemoryTheServerRanWith$'
+control "crash help explains the memory limit the server ran with" internal/agent/heap.go \
+  'budgetMB = int(c.HostConfig.Memory >> 20)' \
+  '_ = c.HostConfig.Memory' \
+  ./internal/agent '^TestCrashHelpExplainsTheMemoryTheServerRanWith$'
 control "a server that came back on its own still says why it crashed" internal/agent/collector.go \
   'if s.crash != nil {
 					s.recovered = s.crash
@@ -4282,6 +4402,18 @@ control "Forge's crash report line counts as a crash" internal/minecraft/logpars
   'This crash report has been saved to: |Crash report saved to |' \
   'This crash report has been saved to: |' \
   ./internal/minecraft '^TestParseRecognisesPlayerEvents$'
+control "a player typing Java's out-of-memory error doesn't count" internal/minecraft/logparse.go \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  '(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  ./internal/minecraft '^TestParseTakesOutOfMemoryOnlyFromLinesPlayersCantWrite$'
+control "an INFO entry never says Java ran out of memory" internal/minecraft/logparse.go \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:INFO|WARN|ERROR|FATAL)\]' \
+  ./internal/minecraft '^TestParseTakesOutOfMemoryOnlyFromLinesPlayersCantWrite$'
+control "a player's chat turns no stop or crash into one for memory" internal/minecraft/logparse.go \
+  '^(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  '(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]' \
+  ./internal/agent '^TestOnlyJavaSaysItRanOutOfMemory$'
 control "crash help on a Forge server names Forge" internal/diagnose/crashaddons.go \
   'if c.in.ServerType == "forge" {
 		return "Forge"' \
