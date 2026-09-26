@@ -7,11 +7,15 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$PATH" CGO_ENABLED=0
+export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
 wt="$(mktemp -d)/playkeeper"
 git -C "$root" worktree add --detach -q "$wt" HEAD
 trap 'git -C "$root" worktree remove --force "$wt"' EXIT
 cd "$wt"
+# The web controls use the checkout's npm dependencies (scripts/setup.sh).
+if [ -d "$root/web/node_modules" ]; then
+  ln -s "$root/web/node_modules" web/node_modules
+fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
@@ -26,6 +30,27 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
     bad=1
   else
     echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
+  fi
+  git checkout -q -- "$file"
+}
+
+# webcontrol is control for the web UI: the mutated code must type-check,
+# and the Vitest tests in TESTFILE (under web/) whose names match TESTS must
+# fail.
+webcontrol() { # NAME FILE FROM TO TESTFILE TESTS
+  local name=$1 file=$2 testfile=$5 tests=$6
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if ! (cd web && npx tsc --noEmit >/dev/null 2>&1); then
+    echo "INVALID  $name: the mutated code does not type-check"
+    bad=1
+  elif (cd web && npx vitest run "$testfile" -t "$tests" >/tmp/negative-control.out 2>&1); then
+    echo "MISSED   $name: $tests still pass without the guard"
+    bad=1
+  elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
+    echo "INVALID  $name: no test ran to fail"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): ' /tmp/negative-control.out)"
   fi
   git checkout -q -- "$file"
 }
@@ -3221,6 +3246,83 @@ control "a failed claim never shows another machine's server" internal/panel/mac
   'case false && rec.machineID != m.ID:
 			continue' \
   ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
+
+# Wave 8 after the joined-machine bug hunt on 1062eae9: friends' pack links
+# and shared maps go to the machine that made them, resource packs stay with
+# the dashboard's machine, New server never falls back to it, and each
+# machine's audit rows are its own.
+control "a recorded friends' pack link is asked only of the machine that made it" internal/panel/packshare.go \
+  'm, serverID, err := s.linkMachine(packLink, token)' \
+  'm, serverID, err := machine{}, "", errNoLinkRecord' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$'
+control "sharing a server's pack records its link" internal/panel/packshare.go \
+  's.recordLink(packLink, ps.Token, serverID, m)' \
+  '_ = ps.Token' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$'
+control "a recorded link opens only its own server's pack" internal/panel/packshare.go \
+  'case fp.link.Server != serverID:' \
+  'case false && fp.link.Server != serverID:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/answers_for_another_server$'
+control "a link with no record that two machines open opens on neither" internal/panel/packshare.go \
+  'case len(found) > 1:' \
+  'case false && len(found) > 1:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/two_machines_open'
+control "a link with no record opens on none while a machine can't answer" internal/panel/packshare.go \
+  'case failed != nil:' \
+  'case false && failed != nil:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/a_machine_can.t_answer$'
+control "a shared map is asked of the machine that shared it" internal/panel/maps.go \
+  'agent, ok := s.mapAgent(token)' \
+  'agent, ok := s.agent, true' \
+  ./internal/panel '^TestASharedMapOpensOnTheMachineThatSharedIt$/joined_machine'
+control "sharing a map records its link" internal/panel/maps.go \
+  's.recordLink(mapLink, token, serverID, m)' \
+  '_ = token' \
+  ./internal/panel '^TestASharedMapOpensOnTheMachineThatSharedIt$/joined_machine'
+control "a joined machine's server refuses a resource pack" internal/panel/packs.go \
+  'if m.Kind == remoteKind {' \
+  'if false && m.Kind == remoteKind {' \
+  ./internal/panel '^TestResourcePacksAreForTheDashboardsMachine$'
+control "a machine installed to join a dashboard refuses a resource pack" internal/agent/packs.go \
+  'if s.cfg.NoPanel {' \
+  'if false && s.cfg.NoPanel {' \
+  ./internal/agent '^TestAMachineWithoutADashboardRefusesResourcePacks$'
+webcontrol "the Packs page holds resource packs back on a joined machine's server" web/src/pages/server/world-packs.tsx \
+  'resource: joined ?' \
+  'resource: joined && false ?' \
+  src/pages/server/world.test.tsx 'holds resource pack uploads back'
+webcontrol "New server never swaps a machine that's away for the dashboard's" web/src/pages/new-server.tsx \
+  'const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine' \
+  'const target = ws.machines.filter((m) => !isAway(m)).find((m) => m.id === machine) ?? ws.machine' \
+  src/pages/new-server.test.tsx 'New server on a joined machine'
+webcontrol "New server holds Create back while its machine is away" web/src/pages/new-server.tsx \
+  'if (away) return away' \
+  'if (false) return away' \
+  src/pages/new-server.test.tsx 'New server on a joined machine'
+webcontrol "New server keeps its machine once the flow starts" web/src/pages/new-server.tsx \
+  'const choices = started ?' \
+  'const choices = started && false ?' \
+  src/pages/new-server.test.tsx 'keeps the machine once the flow starts'
+control "the audit log takes at most 200 rows from each machine" internal/panel/server.go \
+  'if len(out) == maxMachineAudit {' \
+  'if false && len(out) == maxMachineAudit {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/500_rows'
+control "the audit log dates no machine's row after now" internal/panel/server.go \
+  'if a.TS.After(now) {' \
+  'if false && a.TS.After(now) {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/500_rows'
+control "the audit log takes each of a machine's rows once" internal/panel/server.go \
+  'if seen[a.ID] {' \
+  'if false && seen[a.ID] {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/again_and_again'
+webcontrol "the audit log keys each row by its machine" web/src/pages/settings.tsx \
+  "e.machineId ?? ''}" \
+  "''}" \
+  src/pages/settings.test.tsx 'numbered alike'
+webcontrol "the audit log names the machine of an agent's row" web/src/pages/settings.tsx \
+  'ws.machines.length > 1 ?' \
+  'ws.machines.length > 99 ?' \
+  src/pages/settings.test.tsx 'numbered alike'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
