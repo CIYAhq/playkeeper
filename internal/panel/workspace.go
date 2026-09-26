@@ -625,9 +625,10 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 
 // allServers lists every server on every machine, each with its machine's
 // id, and the machines. A machine that can't be reached shows its servers
-// as it last listed them, with lastKnownAt. When the dashboard's own
-// machine is the only one, its error is the list's. When every machine
-// answered, servers that no longer exist lose their invites.
+// as it last listed them, with lastKnownAt, and when those can't be read
+// the list fails with errDB. When the dashboard's own machine is the only
+// one, its error is the list's. When every machine answered, servers that
+// no longer exist lose their invites.
 func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -668,7 +669,13 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 		switch {
 		case got[i].err != nil:
 			everyMachine = false
-			servers = s.lastKnownServers(m)
+			known, err := s.lastKnownServers(m)
+			if err != nil {
+				// Shown as none, the machine's servers would look deleted.
+				s.log.Error("read a machine's last known servers", "machine", m.ID, "err", err)
+				return nil, nil, errDB
+			}
+			servers = known
 		case m.Kind == localKind:
 		default:
 			servers = s.claimListing(m, servers, listedAt)

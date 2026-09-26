@@ -530,6 +530,13 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 		}
 		return m.ID
 	}
+	lastKnown := func(m machine) []map[string]any {
+		last, err := s.lastKnownServers(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return last
+	}
 	events := func(m machine) string {
 		rows, err := s.db.Query(`SELECT kind || ' ' || code FROM machine_events WHERE machine_id = ? ORDER BY id`, m.ID)
 		if err != nil {
@@ -596,17 +603,17 @@ func TestServersStayWithTheMachineThatRunsThem(t *testing.T) {
 	stopped := []map[string]any{{"id": "xxxxxxxxxx", "name": "x", "phase": "stopped"}}
 	e.clock.add(10 * time.Second)
 	s.claimServers(alpha, stopped)
-	if last := s.lastKnownServers(alpha); len(last) != 1 || last[0]["phase"] != "online" || !lastKnownAt(last[0]).Equal(e.clock.now().Add(-10*time.Second)) {
+	if last := lastKnown(alpha); len(last) != 1 || last[0]["phase"] != "online" || !lastKnownAt(last[0]).Equal(e.clock.now().Add(-10*time.Second)) {
 		t.Fatalf("within 30 s: %v", last)
 	}
 	e.clock.add(25 * time.Second)
 	s.claimServers(alpha, stopped)
-	if last := s.lastKnownServers(alpha); len(last) != 1 || last[0]["phase"] != "stopped" || !lastKnownAt(last[0]).Equal(e.clock.now()) {
+	if last := lastKnown(alpha); len(last) != 1 || last[0]["phase"] != "stopped" || !lastKnownAt(last[0]).Equal(e.clock.now()) {
 		t.Fatalf("after 30 s: %v", last)
 	}
 
 	s.claimServers(alpha, nil)
-	if owner("xxxxxxxxxx") != local.ID || len(s.lastKnownServers(alpha)) != 0 {
+	if owner("xxxxxxxxxx") != local.ID || len(lastKnown(alpha)) != 0 {
 		t.Fatal("a server alpha no longer lists is forgotten")
 	}
 	s.claimCreated(alpha, []byte(`{"id":"0123456789abcdef","serverId":"newsrvabcd"}`))
@@ -1806,6 +1813,54 @@ func TestAMachineThatCantAnswerHoldsUpNoTeamChange(t *testing.T) {
 			}
 			if r := e.public(t, "accept", codeBody(code, "username", "sam", "password", "member password 1")); r.status != http.StatusOK {
 				t.Fatalf("accept the invite: %d %v", r.status, r.body)
+			}
+		})
+	}
+}
+
+// A joined machine that can't be reached shows its servers as it last
+// listed them. When those can't be read, the list fails as a database
+// error, for the dashboard and AI agents alike, rather than show the
+// machine with no servers, as though they had been deleted.
+func TestAnAwayMachinesServersAreNeverShownAsNone(t *testing.T) {
+	for _, tc := range []struct {
+		name, breaks string
+		readable     bool
+	}{
+		{"its last known servers can be read", "", true},
+		{"its last known servers can't be read", `ALTER TABLE server_machines RENAME TO server_machines_gone`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, csrf := e.setup(t)
+			e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+			alpha := e.addRemote(t, "alphaalpha", "alpha")
+			e.srv.claimServers(alpha, serverList("xxxxxxxxxx"))
+			if tc.breaks != "" {
+				if _, err := e.srv.db.Exec(tc.breaks); err != nil {
+					t.Fatal(err)
+				}
+			}
+			servers, err := (mcpBackend{e.srv}).Servers(context.Background())
+			if tc.readable {
+				var list []map[string]any
+				if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk xxxxxxxxxx" || list[1]["lastKnownAt"] == nil {
+					t.Fatalf("servers: %d %v", r, list)
+				}
+				if err != nil || len(servers) != 2 {
+					t.Fatalf("an AI agent's list: %v %v", servers, err)
+				}
+				return
+			}
+			if r := e.do(t, "GET", "/api/servers", "", auth(cookie, csrf)); r.status != http.StatusInternalServerError || r.body["error"] != "Database error." {
+				t.Fatalf("servers: %d %v", r.status, r.body)
+			}
+			var te *mcp.ToolError
+			if !errors.As(err, &te) || te.Kind != mcp.KindInternal {
+				t.Fatalf("an AI agent's list: %v %v", servers, err)
+			}
+			if !strings.Contains(e.logs.String(), "read a machine's last known servers") {
+				t.Fatal("the failed read isn't logged")
 			}
 		})
 	}

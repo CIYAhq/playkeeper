@@ -3297,6 +3297,12 @@ control "taking a member's rights away never waits for a machine" internal/panel
   'case !invites.Narrows(t.Account, req.Role, req.Servers):' \
   'case true:' \
   ./internal/panel '^TestAMachineThatCantAnswerHoldsUpNoTeamChange$'
+control "an away machine's servers are never shown as none when they can't be read" internal/panel/workspace.go \
+  'known, err := s.lastKnownServers(m)
+			if err != nil {' \
+  'known, err := s.lastKnownServers(m)
+			if false && err != nil {' \
+  ./internal/panel '^TestAnAwayMachinesServersAreNeverShownAsNone$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

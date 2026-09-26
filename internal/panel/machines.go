@@ -874,19 +874,20 @@ func notIn(column string, n int) string {
 }
 
 // lastKnownServers are a machine's servers as it last listed them, each
-// with lastKnownAt, for while it can't be reached.
-func (s *Server) lastKnownServers(m machine) []map[string]any {
+// with lastKnownAt, for while it can't be reached. It fails when they can't
+// be read, rather than give none.
+func (s *Server) lastKnownServers(m machine) ([]map[string]any, error) {
 	rows, err := s.db.Query(`SELECT status, seen_at, disputed_by FROM server_machines WHERE machine_id = ? ORDER BY server_id`, m.ID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
 		var raw, disputedBy string
 		var seen int64
-		if rows.Scan(&raw, &seen, &disputedBy) != nil {
-			continue
+		if err := rows.Scan(&raw, &seen, &disputedBy); err != nil {
+			return nil, err
 		}
 		var sv map[string]any
 		if json.Unmarshal([]byte(raw), &sv) != nil {
@@ -898,7 +899,7 @@ func (s *Server) lastKnownServers(m machine) []map[string]any {
 		}
 		out = append(out, sv)
 	}
-	return out
+	return out, rows.Err()
 }
 
 // claimCreated records the server a machine route created (a new server or
