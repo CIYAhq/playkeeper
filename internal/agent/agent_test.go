@@ -55,6 +55,9 @@ type agentEnv struct {
 	sid string
 	// live is the running agent, for the fake RCON's password check.
 	live atomic.Pointer[Agent]
+	// skew moves the running agent's clock (nanoseconds), as time passing
+	// would.
+	skew atomic.Int64
 }
 
 // srv is the current server's runtime handle.
@@ -120,7 +123,7 @@ func (e *agentEnv) start() {
 		backoff = []time.Duration{0}
 	}
 	a, err := New(Options{
-		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
+		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
 		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
 		HostMemoryMB: func() int { return 4096 }, ProcStat: e.procStat, DiskUsage: func(string) (int64, int64, error) {
@@ -263,6 +266,27 @@ func (e *agentEnv) waitExitRead() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return err == nil && ok && !c.State.Running && !s.followEnded[c.ID].Before(fin)
+	})
+}
+
+// waitReread waits until the log follower has read the stopped container's
+// log once more after reaching its end, as it does every two seconds; Docker
+// sends the last line again each time.
+func (e *agentEnv) waitReread() {
+	e.t.Helper()
+	e.waitExitRead()
+	s := e.srv()
+	c, err := e.a.docker.ContainerInspect(context.Background(), s.containerName())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	s.mu.Lock()
+	first := s.followEnded[c.ID]
+	s.mu.Unlock()
+	e.waitFor("the follower to read the log again", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.followEnded[c.ID].After(first)
 	})
 }
 
