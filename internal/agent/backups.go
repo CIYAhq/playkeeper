@@ -1329,7 +1329,7 @@ func (s *server) finishRestore(ctx context.Context, h *opHandle, stageDir string
 			s.forgetPregen()
 			return err
 		}
-		j.Why = "The restored world did not start (" + err.Error() + ")."
+		j.Why = "The restored world did not start (" + clause(err) + ")."
 		return s.revertRestore(h, stageDir, j)
 	}
 	restoreStep(ctx, "online")
@@ -1365,7 +1365,7 @@ func (s *server) revertRestore(h *opHandle, stageDir string, j *swapJournal) err
 			h.continues = true
 			return nil
 		}
-		return fmt.Errorf("%s Stopping it failed (%v), so nothing was moved: the restored world is at %s and the previous world at %s.", j.Why, err, live, aside)
+		return fmt.Errorf("%s Stopping it failed (%s), so nothing was moved: the restored world is at %s and the previous world at %s.", j.Why, clause(err), live, aside)
 	}
 	if err := s.putPreviousBack(j); err != nil {
 		_ = s.setDesired(api.DesiredStopped)
@@ -1447,6 +1447,12 @@ func (s *server) rollForward(stageDir string, j *swapJournal) error {
 	}
 	j.State = swapChecking
 	return writeSwapJournal(stageDir, j)
+}
+
+// clause is an error message to put inside a sentence, in parentheses: its
+// own full stop would end up doubled.
+func clause(err error) string {
+	return strings.TrimSuffix(strings.TrimSpace(err.Error()), ".")
 }
 
 // sentence makes an error message a sentence: capitalized, with a full stop.

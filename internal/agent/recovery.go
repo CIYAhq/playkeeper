@@ -122,9 +122,9 @@ func (s *server) recoverRestore(ctx context.Context, h *opHandle, p *pendingRest
 	case swapMoving:
 		if err := s.rollForward(p.stageDir, j); err != nil {
 			if !j.HadLive || j.Previous == nil {
-				return &apiError{Msg: "The restore could not be finished after the Playkeeper agent restarted: " + err.Error() + ".", Hint: "Nothing was deleted. Restore the backup again."}
+				return &apiError{Msg: "The restore could not be finished after the Playkeeper agent restarted: " + clause(err) + ".", Hint: "Nothing was deleted. Restore the backup again."}
 			}
-			j.Why = "The restore could not be finished after the Playkeeper agent restarted (" + err.Error() + ")."
+			j.Why = "The restore could not be finished after the Playkeeper agent restarted (" + clause(err) + ")."
 			return s.revertRestore(h, p.stageDir, j)
 		}
 		restoreStep(ctx, "checking")
