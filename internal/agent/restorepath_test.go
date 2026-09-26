@@ -519,6 +519,102 @@ func TestARestoreSettledAtStartSaysSo(t *testing.T) {
 	}
 }
 
+// restoreLeftInTheWay has a restore's world fail to start and its undo fail
+// to move the restored world out of the way, as a disk fault would: the
+// restored world is still in the world folder, the previous world is set
+// aside and the journal is kept. It returns the restore and where the
+// previous world was set aside.
+func restoreLeftInTheWay(t *testing.T, e *agentEnv) (*api.Operation, string) {
+	t.Helper()
+	id, phrase, _, _ := e.restoreScenario()
+	live := e.dataDir()
+	renameDir = func(from, to string) error {
+		if from == live && strings.HasPrefix(to, live+".failed-restore-") {
+			return errors.New("injected rename failure")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { renameDir = os.Rename })
+	e.fd.mu.Lock()
+	e.fd.failBoots = 1
+	e.fd.mu.Unlock()
+	op := e.waitOp(e.startRestore(id, phrase))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "Moving the restored world out of the way failed") {
+		t.Fatalf("want the undo to fail moving the restored world out of the way: %+v", op)
+	}
+	renameDir = os.Rename
+	asides, _ := filepath.Glob(live + ".replaced-*")
+	if len(asides) != 1 {
+		t.Fatalf("want the previous world's copy, got %v", asides)
+	}
+	return op, asides[0]
+}
+
+// A settle says Playkeeper put the previous world back whenever Playkeeper
+// moved it, also when saving its settings failed after the move and a second
+// try finished the job. Only a world someone moved back by hand was already
+// back in place.
+func TestASettleTriedAgainSaysPlaykeeperPutTheWorldBack(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		// ready runs before the first try; the func it returns, if any, runs
+		// before a second.
+		ready         func(t *testing.T, e *agentEnv, aside string) func()
+		back, audited string
+	}{
+		{"at once", nil, " Playkeeper put your previous world back.", "put the previous world back"},
+		{"once saving the settings works again", func(t *testing.T, e *agentEnv, aside string) func() {
+			e.failConfigSaves()
+			return func() {
+				if _, err := e.a.db.Exec(`DROP TRIGGER fail_config`); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}, " Playkeeper put your previous world back.", "put the previous world back"},
+		{"with the world moved back by hand", func(t *testing.T, e *agentEnv, aside string) func() {
+			if err := os.RemoveAll(e.dataDir()); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(aside, e.dataDir()); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}, " Your previous world was already back in place, and Playkeeper put its settings back.", "put the previous world's settings back; the world was already back in place"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) {
+				e.tweak = func(o *Options) { o.ReconcileInterval = time.Hour }
+			})
+			op, aside := restoreLeftInTheWay(t, e)
+			var again func()
+			if c.ready != nil {
+				again = c.ready(t, e, aside)
+			}
+			e.srv().settleWhenBack(context.Background())
+			if again != nil {
+				if u := e.status().RestoreUnsettled; u == nil || !strings.Contains(u.Problem, "disk I/O error") || dirExists(aside) {
+					t.Fatalf("the first try must move the world back and fail to save its settings: %+v, copy still aside %v", u, dirExists(aside))
+				}
+				again()
+				e.srv().settleWhenBack(context.Background())
+			}
+			if u := e.status().RestoreUnsettled; u != nil {
+				t.Fatalf("the restore must be settled: %+v", u)
+			}
+			settled, err := e.a.loadOperation(op.ID)
+			if err != nil || !strings.HasSuffix(settled.Error, c.back) {
+				t.Fatalf("the restore's record must end %q: %+v %v", c.back, settled, err)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.settled' AND detail = ?`, c.audited); n != 1 {
+				t.Fatalf("want the settle audited once as %q, got %d", c.audited, n)
+			}
+			if sc, _ := e.srv().serverConfig(); sc.MOTD != "Before the restore" {
+				t.Fatalf("the settings must be the ones from before the restore: %+v", sc)
+			}
+		})
+	}
+}
+
 // restoreLeftInTheStage leaves the current server as a restore onto a server
 // without a world yet, such as every restore as a new server, leaves it when
 // the agent stops before the restored world is in place and can't move it
