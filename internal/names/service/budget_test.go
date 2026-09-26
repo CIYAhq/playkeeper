@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -207,6 +208,47 @@ func TestNamesFromBeforeNetworksGetOne(t *testing.T) {
 	m.set("5.75.166.12", "")
 	if _, err := old.Refresh(ctx); codeOf(err) != names.CodeNetworkLimit {
 		t.Fatalf("moving a name from before networks were recorded into a full network: got %v, want %s", err, names.CodeNetworkLimit)
+	}
+}
+
+func TestConcurrentMovesTakeANetworksLastPlaceOnce(t *testing.T) {
+	e := newEnv(t, func(e *testEnv) { e.cfg.MaxNamesPerNetwork = 2 })
+	ctx := context.Background()
+	e.claimed("there", "there", newMachine("5.75.200.10", ""))
+	movers := make([]*names.Client, 16)
+	machines := make([]*machine, len(movers))
+	for i := range movers {
+		machines[i] = newMachine(fmt.Sprintf("5.75.%d.10", 170+i), "")
+		movers[i] = e.claimed(fmt.Sprintf("mover-%d", i), fmt.Sprintf("mover-%d", i), machines[i])
+	}
+	for i, m := range machines {
+		m.set(fmt.Sprintf("5.75.200.%d", 20+i), "")
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, len(movers))
+	for i, c := range movers {
+		wg.Go(func() { _, errs[i] = c.Refresh(ctx) })
+	}
+	wg.Wait()
+	moved := 0
+	for i, err := range errs {
+		switch codeOf(err) {
+		case "":
+			if err != nil {
+				t.Errorf("mover-%d: unexpected error: %v", i, err)
+			}
+			moved++
+		case names.CodeNetworkLimit:
+		default:
+			t.Errorf("mover-%d: unexpected refusal: %v", i, err)
+		}
+	}
+	var n int
+	if err := e.svc.db.QueryRow(`SELECT count(*) FROM names WHERE network = '5.75.200.0/24'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if moved != 1 || n != 2 {
+		t.Errorf("%d names moved and the network holds %d, want 1 and 2", moved, n)
 	}
 }
 
