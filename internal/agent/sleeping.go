@@ -78,9 +78,21 @@ func (s *server) standIn() (*sleep.Manager, error) {
 	return m, nil
 }
 
-// mayWake admits the players who may join anyway: those on the whitelist
-// and operators. Names from the stand-in are only claims.
+// mayWake admits the players who may join anyway. With the allowlist on,
+// that is those on it and operators; with it off, anyone who isn't banned.
+// If server.properties or the ban list can't be read, the allowlist rule
+// holds. Names from the stand-in are only claims.
 func (s *server) mayWake(player string) bool {
+	if allowlistOff(readProperties(s.dataDir())) {
+		if banned, err := s.bannedNames(); err == nil {
+			for _, name := range banned {
+				if strings.EqualFold(name, player) {
+					return false
+				}
+			}
+			return true
+		}
+	}
 	if list, err := s.whitelist(); err == nil {
 		for _, e := range list {
 			if strings.EqualFold(e.Name, player) {
@@ -96,6 +108,13 @@ func (s *server) mayWake(player string) bool {
 		}
 	}
 	return false
+}
+
+// allowlistOff reports whether server.properties, as readProperties read it,
+// lets anyone join. Minecraft turns the allowlist on only for white-list=true,
+// in any case; nil props, a file that couldn't be read, counts as on.
+func allowlistOff(props map[string]string) bool {
+	return props != nil && !strings.EqualFold(props["white-list"], "true")
 }
 
 // refreshStandIn sets what the stand-in shows: the server's name, version,
@@ -133,14 +152,14 @@ func (s *server) standInIcon() string {
 }
 
 // observeSleep feeds one sample to the sleep tracker and puts an empty
-// server to sleep when it is time. A running map pre-generation keeps it
-// awake, as an operation does.
+// server to sleep when it is time. A running map pre-generation or a
+// scheduled restart's countdown keeps it awake, as an operation does.
 func (s *server) observeSleep(now time.Time, state string, snap *api.PlayerSnapshot) {
 	set := s.sleepSettings()
 	s.mu.Lock()
 	startedAt := s.runStartedAt
 	s.mu.Unlock()
-	o := sleep.Observation{At: now, Running: state == "online", Busy: s.busy() || s.pregenRunning(), StartedAt: startedAt}
+	o := sleep.Observation{At: now, Running: state == "online", Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(), StartedAt: startedAt}
 	if snap != nil {
 		o.Players, o.PlayersKnown = snap.Online, true
 	}

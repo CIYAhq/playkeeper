@@ -104,6 +104,11 @@ type Server struct {
 	auditMaxAge time.Duration
 	maxAudit    int
 
+	// beforeCodeCheck, when set, runs in each second sign-in step just
+	// before the transaction that claims the sign-in and checks its code;
+	// tests line up concurrent requests with it.
+	beforeCodeCheck func()
+
 	public      *publicGroup
 	activePacks *activePacks
 	// listings are the servers each machine last listed.

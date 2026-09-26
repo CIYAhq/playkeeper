@@ -1047,17 +1047,22 @@ func (s *server) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // hSavingResume turns world saving back on after a backup left it off, for
-// the "Turn saving back on" action. It holds the operation lock, so it can't
-// run during a backup, which pauses saving on purpose.
+// the "Turn saving back on" action. It is refused during an operation, such
+// as a backup that pauses saving on purpose, and holds the saving lock, which
+// a backup starting meanwhile waits for, rather than the operation lock.
 func (s *server) hSavingResume(w http.ResponseWriter, r *http.Request) {
 	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	release, ok := s.holdOpLock()
-	if !ok {
+	if s.busy() {
 		writeError(w, s.busyError())
+		return
+	}
+	release, err := s.holdSavingLock(r.Context())
+	if err != nil {
+		writeError(w, err)
 		return
 	}
 	defer release()

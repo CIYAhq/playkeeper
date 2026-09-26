@@ -598,6 +598,15 @@ func ratioAllowance(n, ratio int64) int64 {
 	return n*ratio + slack
 }
 
+// entryAllowance is how many bytes a zip entry of csize compressed bytes may
+// expand to: any file up to 1 MB, and a larger one up to ratio times csize.
+func entryAllowance(csize, ratio int64) int64 {
+	if csize >= (math.MaxInt64-ratio)/ratio {
+		return math.MaxInt64
+	}
+	return max(1<<20, (csize+1)*ratio-1)
+}
+
 // walkTar reads a tar or tar.gz archive from the start and calls fn with
 // each header and a reader for its data. It reads to the end of the gzip
 // stream so its checksum is verified.
@@ -645,6 +654,9 @@ func tarEntry(h *tar.Header, lim Limits) (name string, dir bool, err error) {
 	case tar.TypeXGlobalHeader:
 		return "", false, nil
 	case tar.TypeReg, tar.TypeGNUSparse:
+		if sparse(h) {
+			return "", false, sparseError(h.Name)
+		}
 	case tar.TypeDir:
 		dir = true
 	case tar.TypeSymlink, tar.TypeLink:
@@ -662,6 +674,21 @@ func tarEntry(h *tar.Header, lim Limits) (name string, dir bool, err error) {
 		return "", false, unsafeError(h.Name)
 	}
 	return name, dir, nil
+}
+
+// sparse reports whether a tar member is a sparse file, in GNU's old format
+// or as PAX records: its holes read as zeros that aren't in the archive, so
+// it can expand far past it.
+func sparse(h *tar.Header) bool {
+	if h.Typeflag == tar.TypeGNUSparse {
+		return true
+	}
+	for k := range h.PAXRecords {
+		if strings.HasPrefix(k, "GNU.sparse.") {
+			return true
+		}
+	}
+	return false
 }
 
 func (ix *index) addTar(ctx context.Context, f *os.File, info *ArchiveInfo, arc int, lim Limits, budget *int64) error {
@@ -951,6 +978,12 @@ func pathTooLongError(p string, limit int) *Error {
 func linkError(p string) *Error {
 	return refuse(KindLink, "Create the archive again without links, for example from a copy of the world folder.",
 		fmt.Sprintf("The archive contains a link, %s. Playkeeper doesn't unpack links because they can point to files outside the world.", quoted(p)),
+		"path", clip(p))
+}
+
+func sparseError(p string) *Error {
+	return refuse(KindSparseFile, "Create the archive again without the sparse option, for example with tar -czf.",
+		fmt.Sprintf("The archive stores %s as a sparse file, whose zeros aren't in the archive. Playkeeper doesn't unpack sparse files, since a small archive can expand them to fill a disk.", quoted(p)),
 		"path", clip(p))
 }
 
