@@ -491,6 +491,66 @@ func TestJavaRunningOutOfMemoryIsAMemoryCrash(t *testing.T) {
 	}
 }
 
+// Java running out of memory counts only from lines players can't write: its
+// own output, or an ERROR entry that is the error. A player typing it in
+// chat, a /me or a command neither turns the next clean stop into a crash nor
+// the next crash into one for memory.
+func TestOnlyJavaSaysItRanOutOfMemory(t *testing.T) {
+	const oom = "java.lang.OutOfMemoryError: Java heap space"
+	for _, line := range []struct {
+		name, text string
+		oom        bool
+	}{
+		{"chat", "[03:11:30 INFO]: <PkBotFriend> " + oom, false},
+		{"a /me", "[03:11:30 INFO]: * PkBotFriend " + oom, false},
+		{"a command", "[03:11:30 INFO]: PkBotFriend issued server command: /msg PkBotBuilder " + oom, false},
+		{"Java's own line", oom, true},
+		{"an ERROR entry", "[03:11:30 ERROR]: " + oom, true},
+	} {
+		for _, exit := range []struct {
+			name     string
+			stopping bool
+			code     int
+		}{
+			{"then a clean stop", true, 0},
+			{"then a crash", false, 1},
+		} {
+			t.Run(line.name+" "+exit.name, func(t *testing.T) {
+				e := newAgentEnvWith(t, func(e *agentEnv) { e.crashBackoff = []time.Duration{time.Hour} })
+				e.create()
+				e.fd.addLog(line.text)
+				if exit.stopping {
+					e.fd.addLog("[03:11:31 INFO]: Stopping server")
+				}
+				e.fd.crash(exit.code)
+				if !line.oom && exit.stopping {
+					e.waitFor("the stop", func() bool {
+						return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`) == 1
+					})
+					if n := e.crashEvents(); n != 0 {
+						t.Fatalf("a clean stop was counted as %d crash(es)", n)
+					}
+					return
+				}
+				e.waitFor("the crash", func() bool { return e.crashEvents() == 1 })
+				acts, err := e.a.Activity(e.sid, 10)
+				if err != nil {
+					t.Fatal(err)
+				}
+				kinds := []string{}
+				for _, a := range acts {
+					kinds = append(kinds, a.Kind)
+				}
+				memory := slices.Contains(kinds, "crashed_memory")
+				javaOOM := strings.Contains(e.warnings.String(), "cause=java_oom")
+				if heap := e.status().LastError == heapCrash; memory != line.oom || javaOOM != line.oom || heap != line.oom {
+					t.Fatalf("a crash for memory %v, want %v: activity %v, error %q, logged java_oom %v", memory, line.oom, kinds, e.status().LastError, javaOOM)
+				}
+			})
+		}
+	}
+}
+
 // A start that isn't accepted, and a remove-and-start whose remove fails,
 // leave the crash and the crash count as they were: nothing started, so the
 // crash still says why the server is down.
