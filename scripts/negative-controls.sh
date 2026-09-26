@@ -4021,6 +4021,14 @@ webcontrol "a modpack links only to its page on another site" web/src/components
   '{card.pageUrl && (
                 <a href={card.pageUrl}' \
   web/src/pages/pages.test.tsx 'links a pack to'
+control "a removed machine's servers keep their invites for when it joins again" internal/panel/workspace.go \
+  'm.revoked_at = 0))`' \
+  'm.revoked_at >= 0))`' \
+  ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
+control "a server deleted on a machine that is still joined loses its invites" internal/panel/workspace.go \
+  'if everyMachine && len(ids) > 0 {' \
+  'if false && everyMachine && len(ids) > 0 {' \
+  ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

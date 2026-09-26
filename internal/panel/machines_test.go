@@ -718,6 +718,97 @@ func TestServerRecordsFollowWhichMachinesAreStillJoined(t *testing.T) {
 	}
 }
 
+// A machine that is removed or leaves takes its servers' friend invites,
+// join requests and origins nowhere: its servers keep them, as they keep
+// their records, so they work again when the same host joins again. A
+// server deleted on a machine that is still joined loses them.
+func TestARemovedMachinesServersKeepTheirInvites(t *testing.T) {
+	type joinedMachine struct {
+		d        machinelink.Dashboard
+		identity *machinelink.Identity
+		agent    *remoteAgent
+	}
+	remove := func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+		t.Helper()
+		if r := e.do(t, "DELETE", "/api/machines/"+j.d.MachineID, "", auth(cookie, csrf)); r.status != http.StatusNoContent {
+			t.Fatalf("remove: %d %v", r.status, r.body)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		then func(t *testing.T, e *env, cookie, csrf string, j joinedMachine)
+		kept bool
+	}{
+		{"the machine is removed", remove, true},
+		{"the machine leaves", func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+			if err := machinelink.Leave(context.Background(), machinelink.LeaveOptions{Dashboard: j.d, Identity: j.identity}); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"the same host joins again", func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+			remove(t, e, cookie, csrf, j)
+			e.get(t, "/api/servers", cookie, nil)
+			again, _ := e.joined(t, cookie, csrf, j.agent)
+			var list []map[string]any
+			if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" || list[1]["machineId"] != again {
+				t.Fatalf("servers once it joined again: %v", list)
+			}
+		}, true},
+		{"the server is deleted on a machine that is still joined", func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+			j.agent.reply("GET /v1/servers", `[]`)
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnvConfig(t, withDomain, nil)
+			cookie, csrf := e.setup(t)
+			e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+			e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+			ra := newRemoteAgent()
+			d, identity, _ := e.joinedAs(t, cookie, csrf, ra)
+			var list []map[string]any
+			if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" {
+				t.Fatalf("servers: %v", list)
+			}
+			var project string
+			if err := e.srv.db.QueryRow(`SELECT id FROM projects LIMIT 1`).Scan(&project); err != nil {
+				t.Fatal(err)
+			}
+			now := millis(e.clock.now())
+			for _, server := range []string{"abcdefghjk", "rstuvwxyzq"} {
+				for _, q := range []struct {
+					sql  string
+					args []any
+				}{
+					{`INSERT INTO invites(id, kind, code_hash, project_id, server_id, created_by, created_at, expires_at, max_uses) VALUES(?, 'player', ?, ?, ?, 1, ?, 0, 0)`,
+						[]any{"inv-" + server, "hash-" + server, project, server, now}},
+					{`INSERT INTO join_requests(id, invite_id, server_id, player_uuid, player_name, state, created_at) VALUES(?, ?, ?, 'uuid-steve', 'Steve', 'pending', ?)`,
+						[]any{"req-" + server, "inv-" + server, server, now}},
+					{`INSERT INTO player_origins(server_id, player_uuid, player_name, invite_id, joined_at) VALUES(?, 'uuid-alex', 'Alex', ?, ?)`,
+						[]any{server, "inv-" + server, now}},
+				} {
+					if _, err := e.srv.db.Exec(q.sql, q.args...); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			tc.then(t, e, cookie, csrf, joinedMachine{d: d, identity: identity, agent: ra})
+			e.get(t, "/api/servers", cookie, nil)
+			for _, server := range []string{"abcdefghjk", "rstuvwxyzq"} {
+				want := 1
+				if server == "rstuvwxyzq" && !tc.kept {
+					want = 0
+				}
+				for _, table := range []string{"invites", "join_requests", "player_origins"} {
+					var n int
+					if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE server_id = ?`, server).Scan(&n); err != nil || n != want {
+						t.Errorf("%s of %s: %d, want %d (%v)", table, server, n, want, err)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestAMachineCantFillTheDatabaseWithServers(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.addRemote(t, "alphaalpha", "alpha")
@@ -1507,6 +1598,14 @@ func TestFailuresOfJoinedMachines(t *testing.T) {
 // joined joins a machine whose agent is h and waits until it's connected.
 func (e *env) joined(t *testing.T, cookie, csrf string, h http.Handler) (string, *runningLink) {
 	t.Helper()
+	d, _, link := e.joinedAs(t, cookie, csrf, h)
+	return d.MachineID, link
+}
+
+// joinedAs is joined, returning what the machine joined with too, so that
+// it can leave as `playkeeper leave` does.
+func (e *env) joinedAs(t *testing.T, cookie, csrf string, h http.Handler) (machinelink.Dashboard, *machinelink.Identity, *runningLink) {
+	t.Helper()
 	addr := e.sharePort(t)
 	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
 	code, _ := e.joinCode(t, cookie, csrf, `{"name":"home-server"}`)["code"].(string)
@@ -1518,7 +1617,7 @@ func (e *env) joined(t *testing.T, cookie, csrf string, h http.Handler) (string,
 	}
 	link := e.runLink(t, d, id, h)
 	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
-	return d.MachineID, link
+	return d, id, link
 }
 
 // fetch sends a request as the browser would and returns the answer with

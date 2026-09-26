@@ -730,13 +730,17 @@ func uniqueSlugs(servers []map[string]any) {
 
 // forgetDeletedServers drops the friend invites, join requests and origins
 // of servers that no longer exist. ids must list every server on every
-// machine.
+// machine. A removed machine's servers keep theirs, as they keep their
+// records (see onMachineEvent): the same host joining again brings them
+// back.
 func (s *Server) forgetDeletedServers(ids []string) {
 	list, _ := json.Marshal(ids)
+	const gone = `server_id NOT IN (SELECT value FROM json_each(?)) AND server_id NOT IN (SELECT sm.server_id FROM server_machines sm
+		WHERE NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = sm.machine_id AND m.revoked_at = 0))`
 	for _, q := range []string{
-		`DELETE FROM join_requests WHERE server_id NOT IN (SELECT value FROM json_each(?))`,
-		`DELETE FROM invites WHERE kind = 'player' AND server_id NOT IN (SELECT value FROM json_each(?))`,
-		`DELETE FROM player_origins WHERE server_id NOT IN (SELECT value FROM json_each(?))`,
+		`DELETE FROM join_requests WHERE ` + gone,
+		`DELETE FROM invites WHERE kind = 'player' AND ` + gone,
+		`DELETE FROM player_origins WHERE ` + gone,
 	} {
 		if _, err := s.db.Exec(q, string(list)); err != nil {
 			s.log.Warn("could not forget a deleted server's invites", "err", err)
