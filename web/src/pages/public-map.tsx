@@ -77,7 +77,7 @@ function Footer() {
         <BrandMark size={18} className="max-sm:size-4" />
         {t('publicMap.madeWith')}
       </span>
-      <p className="text-[11px] text-muted-foreground/80 max-sm:leading-[13px]">{t('footer.notOfficial')}</p>
+      <p className="text-[11px] max-sm:leading-[13px]">{t('footer.notOfficial')}</p>
     </footer>
   )
 }

@@ -872,7 +872,7 @@ function Summary({ choices: c, step, port, version, machine, from, pack, plan, w
     ) : step >= 0 && value ? (
       <span className="font-semibold text-success-foreground">{value}</span>
     ) : (
-      <span className="text-muted-foreground/70">{t('common.notPicked')}</span>
+      <span className="text-muted-foreground">{t('common.notPicked')}</span>
     )
   const upNext = <span className="font-semibold text-success-foreground">{t('common.notPicked')}</span>
   const muted = (text: string) => <span className="text-muted-foreground tabular-nums">{text}</span>
