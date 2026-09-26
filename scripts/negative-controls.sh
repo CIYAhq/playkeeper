@@ -972,8 +972,8 @@ control "voice chat installs only with leave to open its port" internal/agent/ad
   'if false && voice && !req.OpenPorts {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "removing voice chat closes its port" internal/agent/addons.go \
-  'if slices.ContainsFunc(drop, voiceChat) {' \
-  'if false && slices.ContainsFunc(drop, voiceChat) {' \
+  'if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {' \
+  'if false && (voiceChat(key) || slices.ContainsFunc(extra, voiceChat)) {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "voice chat gets a UDP port nothing on the machine uses" internal/agent/curated.go \
   'return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }' \
@@ -992,6 +992,33 @@ control "voice chat a template's Try again installs gets its UDP port" internal/
 	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   'packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   ./internal/agent '^TestTemplateVoiceChatTriedAgainGetsItsPort$'
+control "a template whose modpack is made for another Minecraft version is blocked" internal/agent/templates.go \
+  'case v.MinecraftVersion != "" && v.MinecraftVersion != p.Version.MinecraftVersion:' \
+  'case false:' \
+  ./internal/agent '^TestTemplateModpackRunsOnTheTypeItNames$'
+control "an ask for a share that waited reads the setup again" internal/agent/packshare.go \
+  '	fs := &s.shares
+	for {
+		fs.mu.Lock()
+		setup, err := s.shareSetup()' \
+  '	fs := &s.shares
+	setup, err := s.shareSetup()
+	for {
+		fs.mu.Lock()' \
+  ./internal/agent '^TestFriendsShareKeepsTheNewestBuild$'
+control "removing voice chat closes its port before anything is removed" internal/agent/addons.go \
+  'if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {' \
+  'if false && (voiceChat(key) || slices.ContainsFunc(extra, voiceChat)) {' \
+  ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
+control "voice chat that a removal leaves gets its port back" internal/agent/addons.go \
+  '		s.reopenVoiceChat(voicePort, actor)
+		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
+  '		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
+  ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
+control "each version list is fetched on its own" internal/agent/software.go \
+  'err := c.fetchOnce(ctx, "catalog "+typ, func() error {' \
+  'err := c.fetchOnce(ctx, "catalog", func() error {' \
+  ./internal/agent '^TestSlowVersionListHoldsUpOnlyItsOwnCallers$'
 control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \

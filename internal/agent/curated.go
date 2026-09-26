@@ -310,20 +310,39 @@ func voiceChatError(err error) error {
 	return err
 }
 
-// closeVoiceChat stops publishing voice chat's port once the add-on is
-// removed: the container is made without it at the next start.
-func (s *server) closeVoiceChat(actor string) error {
+// closeVoiceChat stops publishing voice chat's port as the add-on is
+// removed, and returns the port it closed: the container is made without it
+// at the next start.
+func (s *server) closeVoiceChat(actor string) (int, error) {
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil || sc.VoiceChatPort == 0 {
-		return err
+		return 0, err
 	}
 	port := sc.VoiceChatPort
 	sc.VoiceChatPort = 0
 	if err := s.saveServerConfig(*sc); err != nil {
-		return err
+		return 0, err
 	}
 	s.audit(actor, "addon.port_closed", string(addons.Modrinth)+":"+curatedVoiceChatProject(), "succeeded", fmt.Sprintf("voice chat's UDP %d", port))
-	return nil
+	return port, nil
+}
+
+// reopenVoiceChat gives voice chat back the port closeVoiceChat closed, when
+// its removal didn't go ahead after all.
+func (s *server) reopenVoiceChat(port int, actor string) {
+	if port == 0 {
+		return
+	}
+	sc, err := s.serverConfig()
+	if err == nil && sc != nil {
+		sc.VoiceChatPort = port
+		err = s.saveServerConfig(*sc)
+	}
+	if err != nil {
+		s.log.Warn("voice chat stayed but its port could not be opened again", "server", s.id, "port", port, "err", err)
+		return
+	}
+	s.audit(actor, "addon.port_opened", string(addons.Modrinth)+":"+curatedVoiceChatProject(), "succeeded", fmt.Sprintf("voice chat on UDP %d again", port))
 }
 
 func curatedVoiceChatProject() string {

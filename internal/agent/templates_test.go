@@ -365,16 +365,16 @@ func TestSkippedTemplateAddonsStayUntilTriedAgain(t *testing.T) {
 }
 
 // A template carries a Vanilla modpack on a Vanilla server. One naming
-// another type than its modpack runs on is blocked: the new server would
-// run the pack's type, not the one the plan shows.
+// another type or Minecraft version than its modpack runs on is blocked:
+// the new server would run the pack's, not what the plan shows.
 func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
 	e := newAgentEnv(t)
 	e.up.servePack()
 	e.up.serveFabricLists()
-	plan := func(typ string) api.TemplatePlan {
+	plan := func(typ, mc string) api.TemplatePlan {
 		t.Helper()
 		file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Waystones", Game: templates.Game,
-			Server: templates.Server{Type: typ, MinecraftVersion: "26.2"},
+			Server: templates.Server{Type: typ, MinecraftVersion: mc},
 			Modpack: &templates.Modpack{Source: addons.Modrinth, Project: fakePackID, Slug: "testpack", Name: "Waystones Pack",
 				Pin: templates.Pin{VersionID: fakePackVersion, VersionNumber: "1.0.0", Channel: "release", HashAlgo: "sha512", Hash: strings.Repeat("a", 128)}}})
 		if err != nil {
@@ -386,13 +386,21 @@ func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
 		}
 		return p
 	}
-	if p := plan("vanilla"); !p.Ready || p.Type != "vanilla" || len(p.Blockers) != 0 {
+	if p := plan("vanilla", "26.2"); !p.Ready || p.Type != "vanilla" || len(p.Blockers) != 0 {
 		t.Fatalf("a Vanilla pack on a Vanilla server: %+v", p)
 	}
-	p := plan("fabric")
+	p := plan("fabric", "26.2")
 	if p.Ready || !slices.Equal(noticeKinds(p.Blockers), []string{string(kindTemplatePackType)}) ||
 		p.Blockers[0].Message != "The template names a Fabric server, but its modpack Waystones Pack runs on Vanilla." {
 		t.Fatalf("a Vanilla pack in a Fabric template: %+v", p)
+	}
+	if code, out := e.createFromTemplate(p.Fingerprint, nil); code == 202 {
+		t.Fatalf("a blocked template must not create a server: %v", out)
+	}
+	p = plan("vanilla", "26.1.2")
+	if p.Ready || p.MinecraftVersion != "26.1.2" || !slices.Equal(noticeKinds(p.Blockers), []string{string(kindTemplatePackVersion)}) ||
+		p.Blockers[0].Message != "The template names Minecraft 26.1.2, but its modpack Waystones Pack is made for Minecraft 26.2." {
+		t.Fatalf("a pack for Minecraft 26.2 in a template for 26.1.2: %+v", p)
 	}
 	if code, out := e.createFromTemplate(p.Fingerprint, nil); code == 202 {
 		t.Fatalf("a blocked template must not create a server: %v", out)
