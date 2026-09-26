@@ -3572,7 +3572,7 @@ control "a backup with no record leaves the queue" internal/agent/offsite.go \
   ./internal/agent '^TestOnlyABackupThatIsGoneLeavesTheCopyQueue$/^its_record_deleted$'
 control "a backup whose archive doesn't exist leaves the queue" internal/agent/offsite.go \
   '	case errors.Is(err, fs.ErrNotExist):' \
-  '	case false:' \
+  '	case false && errors.Is(err, fs.ErrNotExist):' \
   ./internal/agent '^TestOnlyABackupThatIsGoneLeavesTheCopyQueue$/^its_archive_deleted$'
 control "a backup is queued when whether copies are on can't be read" internal/agent/offsite.go \
   "		s.log.Warn(\"whether copies somewhere else are on can't be read, so the backup is queued for its copy anyway\", \"server\", s.id, \"backup\", backupID, \"err\", err)" \
