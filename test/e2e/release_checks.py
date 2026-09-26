@@ -2,9 +2,12 @@
 """Checks of a release rehearsal (scripts/e2e/vm-release.sh) against an
 installed Playkeeper, through its dashboard API.
 
-owner-players  on the previous release, after update.py prepare: two players
-               join, then a backup with a player online. The state update.py
-               verify compares is then recorded again in OUT/before.json.
+owner-prepare  update.py prepare on the previous release, with the server on
+               the Minecraft version the protocol bot speaks and the bots on
+               its allowlist: setup, a server with settings to keep, a world
+               marker and a backup, recorded in OUT/before.json.
+owner-players  then two players join, and a backup with a player online. The
+               state update.py verify compares is recorded again.
 still-running  the server started when OUT/before.json says (nothing since
                has restarted it).
 owner-after    after the update: the players from before are still listed, a
@@ -46,6 +49,8 @@ import update  # noqa: E402
 PASSWORD = os.environ.get("PK_ADMIN_PASSWORD") or os.environ.get("PK_PASSWORD") or ""
 BOT = os.path.join(HERE, "bot", "bot.js")
 PENDING = "__Host-playkeeper-2fa"
+BOT_VERSION = "paper-26.1.2"  # the protocol bot speaks Minecraft 26.1
+OWNER_BOTS = ("PkOwnerOne", "PkOwnerTwo", "PkOwnerThree", "PkOwnerFour")
 # A webhook link in Discord's format with a random token, so no channel owns
 # it; the guest's /etc/hosts sends discord.com to 127.0.0.1 anyway.
 FAKE_WEBHOOK = "https://discord.com/api/webhooks/123456789012345678/" + secrets.token_urlsafe(51)
@@ -152,13 +157,47 @@ def bot(a, name, stay):
                             stdout=log, stderr=subprocess.STDOUT)
 
 
+def owner_prepare(a):
+    c = session(a)
+    step("First-run setup of the release installed from GitHub")
+    c.setup(a.code, "admin", PASSWORD)
+    cat = c.ok("GET", c.mp("/catalog"))
+    offered = [v["id"] for v in cat["versions"]]
+    check(BOT_VERSION in offered, f"{BOT_VERSION} is offered ({', '.join(offered[:6])}…)")
+    step(f"Create a server on {BOT_VERSION} with settings to keep: name {update.MOTD!r}, at most {update.MAX_PLAYERS} players")
+    op = c.create(BOT_VERSION, cat["recommendedMemoryMB"], update.MOTD, max_players=update.MAX_PLAYERS)
+    check(op["status"] == "succeeded", f"server created ({op.get('error', '')})")
+    c.wait_online(timeout=600)
+    step("The players go on the allowlist; a world marker is set on the console, then a backup")
+    for name in OWNER_BOTS:
+        r = c.ok("POST", c.sp("/whitelist"), {"name": name})
+        check(name in r.get("message", ""), f"allowlist {name}: {r.get('message')}")
+    nonce = secrets.randbelow(2**31 - 2) + 1
+    update.console(c, f"scoreboard objectives add {update.OBJECTIVE} dummy")
+    out = update.console(c, f"scoreboard players set marker {update.OBJECTIVE} {nonce}")
+    check(str(nonce) in out, f"marker set: {out.strip()}")
+    update.console(c, "save-all flush")
+    op = c.wait_op(c.ok("POST", c.sp("/backups"), {"note": "before the update"})["id"], timeout=900)
+    check(op["status"] == "succeeded", f"backup taken ({op.get('error', '')})")
+    c.wait_online(timeout=600)
+    before = update.record(c)
+    before["nonce"] = nonce
+    check(before["config"]["motd"] == update.MOTD and before["config"]["maxPlayers"] == update.MAX_PLAYERS, "the settings are in place")
+    check(len(before["backups"]) == 1, f"one backup: {before['backups']}")
+    update.save(a, "before.json", before)
+
+
 def owner_players(a):
     c = session(a)
     step("Two players join the previous release")
-    bots = [bot(a, name, 25) for name in ("PkOwnerOne", "PkOwnerTwo")]
+    first = bot(a, "PkOwnerOne", 35)
+    check(players_online(c, 1), "the first player is online")
+    time.sleep(6)  # Paper refuses a second connection from one address within 4 s
+    second = bot(a, "PkOwnerTwo", 25)
     check(players_online(c, 2), "both players are online")
-    for b in bots:
+    for b in (first, second):
         b.wait(timeout=120)
+    time.sleep(6)
     step("A backup with a player online")
     b = bot(a, "PkOwnerThree", 90)
     check(players_online(c, 1), "a player is online")
@@ -358,8 +397,9 @@ def logs(a):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["owner-players", "still-running", "owner-after", "signin", "after-reset", "degrade", "logs"])
+    p.add_argument("cmd", choices=["owner-prepare", "owner-players", "still-running", "owner-after", "signin", "after-reset", "degrade", "logs"])
     p.add_argument("--url")
+    p.add_argument("--code", help="owner-prepare: the setup code the installer printed")
     p.add_argument("--cacert")
     p.add_argument("--out", default=".")
     p.add_argument("--game-host")
@@ -371,7 +411,7 @@ def main():
     if a.cmd != "logs" and not PASSWORD:
         raise SystemExit("set PK_ADMIN_PASSWORD")
     os.makedirs(a.out, exist_ok=True)
-    {"owner-players": owner_players, "still-running": still_running, "owner-after": owner_after, "signin": signin,
+    {"owner-prepare": owner_prepare, "owner-players": owner_players, "still-running": still_running, "owner-after": owner_after, "signin": signin,
      "after-reset": after_reset, "degrade": degrade, "logs": logs}[a.cmd](a)
 
 
