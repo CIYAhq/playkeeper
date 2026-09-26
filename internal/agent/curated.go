@@ -236,20 +236,42 @@ func udpPortInUse(port int) bool {
 	return false
 }
 
-// openVoiceChat gives voice chat its UDP port: written into its settings
-// and published from the container, which a running server is restarted
-// for. The provider's firewall is left to the owner.
-func (s *server) openVoiceChat(ctx context.Context, h *opHandle, actor string) error {
+// installVoiceChat gives voice chat its UDP port, written into its settings
+// and published from the container, before installing it: an install that
+// can't open the port installs nothing, and one that fails closes the port
+// it opened, so voice chat never stays without one. A running server is
+// restarted to publish the port and load the add-on; with start, a stopped
+// one is started. The provider's firewall is left to the owner.
+func (s *server) installVoiceChat(ctx context.Context, h *opHandle, actor string, start bool, run func(addons.Server, []addons.Installed, func(addons.Progress)) (*addons.Result, error)) error {
 	sc, srv, _, err := s.addonContext()
 	if err != nil {
 		return err
 	}
+	opened := sc.VoiceChatPort == 0
 	h.phase("opening_port")
 	if err := s.setUpVoiceChat(h, sc, srv, actor); err != nil {
 		return err
 	}
-	if _, running, _ := s.containerRunning(ctx); !running {
-		return nil
+	if err := s.installAddons(ctx, h, actor, run); err != nil {
+		if opened {
+			_, release, cerr := s.closeVoiceChat(actor)
+			release()
+			if cerr != nil {
+				s.log.Warn("voice chat wasn't installed and its port could not be closed", "server", s.id, "err", cerr)
+			}
+		}
+		return err
+	}
+	_, running, err := s.containerRunning(ctx)
+	if !running {
+		if !start {
+			h.set("restartNeeded", false)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return s.startNow(ctx, h)
 	}
 	if err := s.stopServer(ctx, h); err != nil {
 		return err

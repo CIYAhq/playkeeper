@@ -755,13 +755,13 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := s.beginOp("addon-install", actor, func(ctx context.Context, h *opHandle) error {
-		err := s.addonJob(ctx, h, actor, req.Start, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
+		install := func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
 			return s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: key.Source, Project: key.ProjectID, Fingerprint: req.Fingerprint, OnProgress: progress})
-		})
-		if err != nil || !voice {
-			return err
 		}
-		return s.openVoiceChat(ctx, h, actor)
+		if voice {
+			return s.installVoiceChat(ctx, h, actor, req.Start, install)
+		}
+		return s.addonJob(ctx, h, actor, req.Start, install)
 	})
 	if err != nil {
 		writeError(w, err)

@@ -982,6 +982,32 @@ control "a finished removal frees voice chat's port" internal/agent/addons.go \
   '		defer releasePort()' \
   '		_ = releasePort' \
   ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "voice chat's port opens before voice chat installs" internal/agent/curated.go \
+  '	if err := s.setUpVoiceChat(h, sc, srv, actor); err != nil {
+		return err
+	}
+	if err := s.installAddons(ctx, h, actor, run); err != nil {' \
+  '	if err := s.installAddons(ctx, h, actor, run); err != nil {
+		return err
+	}
+	if err := s.setUpVoiceChat(h, sc, srv, actor); err != nil {' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
+control "a voice chat install that fails closes the port it opened" internal/agent/curated.go \
+  '		if opened {
+			_, release, cerr := s.closeVoiceChat(actor)' \
+  '		if false && opened {
+			_, release, cerr := s.closeVoiceChat(actor)' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
+control "a running server restarts to publish voice chat's port" internal/agent/curated.go \
+  '	if !running {
+		if !start {' \
+  '	if true || !running {
+		if !start {' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
+control "voice chat installed with start starts a stopped server" internal/agent/curated.go \
+  'return s.startNow(ctx, h)' \
+  'return nil' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
 control "a setup container still running when its output ends fails" internal/agent/software.go \
   'if c.State.Running {' \
   'if false && c.State.Running {' \
