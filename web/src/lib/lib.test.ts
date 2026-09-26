@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { Address, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MemoryAdvice, MetricsBucket, Operation, Running, ServerConfig, ServerStatus } from '@/api/types'
-import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
+import { templateQuery } from '@/api/templates'
+import type { Address, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MemoryAdvice, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
+import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
 import { lineRuns } from '@/components/app/line-chart'
+import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/pages/onboarding'
 import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
@@ -10,11 +12,13 @@ import { behindSeconds, parseLine } from './console'
 import { crashDetail, crashFixes, crashSummary, failureLine, lookupKey, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
 import { formatBytes, formatCountdown, formatDuration, formatList, formatMB, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
-import { busyReason, controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from './phase'
+import { busyReason, controls, createStepOf, isCreating, isSettingUp, packStepOf, phaseTone, statusLabel, statusTone, templateStepOf, whyNot } from './phase'
 import { href, parse, type Route } from './router'
 import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadline, tickRateAxis, tickTimeAxis, timeLabels } from './running'
-import { newerStable, softwareLabel } from './servers'
+import { newerStable, softwareLabel, softwareName } from './servers'
+import { addonKind, formatReleased, shortHash } from './software'
 import { memoryForStyle } from './styles'
+import { addonsLine, afterSignIn, leftOutAddons, madeBy, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
 import { upgradeTargets } from './versions'
 
 function server(over: Partial<ServerStatus> = {}): ServerStatus {
@@ -225,6 +229,18 @@ describe('server state', () => {
     expect(isSettingUp(server({ phase: 'online', startedAt: at, lastOperation: { id: '1', kind: 'create', status: 'succeeded', phase: '', actor: 'a', startedAt: at } }))).toBe(false)
   })
 
+  it('says to reinstall first when a server’s software changed', () => {
+    const change = { file: 'paper-26.1.2-74.jar', algorithm: 'sha256', recorded: 'a'.repeat(64), found: 'b'.repeat(64), detectedAt: '2026-09-25T10:00:00Z', software: 'Paper 26.1.2 build 74' }
+    expect(whyNot(server({ phase: 'crashed', softwareChanged: change }), 'start', false)).toBe('Reinstall the server software first.')
+  })
+
+  it('calls a server creating only while its create runs', () => {
+    const at = '2026-09-25T10:00:00Z'
+    expect(isCreating(server({ operation: { id: '1', kind: 'create', status: 'running', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(true)
+    expect(isCreating(server({ phase: 'stopped', lastOperation: { id: '1', kind: 'create', status: 'failed', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(false)
+    expect(isCreating(server({ operation: { id: '2', kind: 'start', status: 'running', phase: 'starting', actor: 'a', startedAt: at }, lastOperation: { id: '1', kind: 'create', status: 'failed', phase: '', actor: 'a', startedAt: at } }))).toBe(false)
+  })
+
   it('says in a few words why a control can’t be used', () => {
     const backup = { id: '1', kind: 'backup', status: 'running', phase: '', actor: 'a', startedAt: '2026-09-25T10:00:00Z' } as const
     expect(whyNot(server(), 'restart', false)).toBeUndefined()
@@ -246,6 +262,24 @@ describe('server state', () => {
     expect(phaseTone('not_created')).toBe('stopped')
     expect(createStepOf('verifying_download')).toBe(1)
     expect(createStepOf('preparing_world')).toBe(2)
+  })
+
+  it('puts a modpack’s files between the software and the first start', () => {
+    expect(packStepOf('')).toBe(0)
+    expect(packStepOf('preparing_modpack')).toBe(1)
+    expect(packStepOf('verifying_download')).toBe(1)
+    expect(packStepOf('installing_modpack')).toBe(2)
+    expect(packStepOf('installing_addons')).toBe(2)
+    expect(packStepOf('starting_container')).toBe(3)
+    expect(packStepOf('online')).toBe(4)
+  })
+
+  it('puts a template’s add-ons between the software and the first start', () => {
+    expect(templateStepOf('')).toBe(0)
+    expect(templateStepOf('verifying_download')).toBe(1)
+    expect(templateStepOf('installing_addons')).toBe(2)
+    expect(templateStepOf('preparing_world')).toBe(3)
+    expect(templateStepOf('online')).toBe(4)
   })
 })
 
@@ -400,8 +434,32 @@ describe('versions', () => {
     const others = [server({ id: 'x', name: 'Survival', config: { ...cfg } as ServerConfig })]
     const { cards, older } = versionCards(versions, others)
     expect(cards.map((c) => c.entry.id)).toEqual(['paper-26.2.1', 'paper-26.3', 'paper-26.2', 'paper-26.1.2'])
-    expect(cards[3]?.hint).toContain('Survival')
+    expect(cards.map((c) => c.note)).toEqual(['Paper build 41', 'plugins and worlds can break', '', 'same as Survival'])
     expect(older.map((v) => v.id)).toEqual(['old', 'paper-1.21.11'])
+  })
+
+  it('writes each version’s release date and a note for its type', () => {
+    const released = entry('26.2.1', { recommended: true, paperBuild: 41, releasedAt: '2026-09-02T09:30:00Z' })
+    const date = formatReleased('2026-09-02T09:30:00Z')
+    expect(date).toMatch(/Sep/)
+    expect(versionLine(released, 'Paper build 41')).toBe(`Released ${date} · Paper build 41`)
+    expect(versionLine(released, '')).toBe(`Released ${date}`)
+    expect(versionLine(entry('26.2'), 'same as Survival')).toBe('same as Survival')
+    const fabric = (v: string, over: Partial<CatalogEntry> = {}) => entry(v, { id: `fabric-${v}`, software: { type: 'fabric', minecraftVersion: v, fabricLoader: '0.17.2' }, build: '0.17.2', paperBuild: 0, ...over })
+    const { cards } = versionCards([fabric('26.2.1', { recommended: true }), fabric('26.3', { experimental: true }), fabric('26.2')], [], false, 'fabric')
+    expect(cards.map((c) => c.note)).toEqual(['most Fabric mods support it', 'many mods aren’t ready yet', ''])
+    const purpur = entry('26.2.1', { id: 'purpur-26.2.1', recommended: true, software: { type: 'purpur', minecraftVersion: '26.2.1', purpurBuild: 2430 }, build: '2430', paperBuild: 0 })
+    expect(versionCards([purpur], [], false, 'purpur').cards[0]?.note).toBe('Purpur build 2430')
+    expect(versionCards([purpur], [], true, 'purpur').cards[0]?.note).toBe('latest stable, recommended')
+  })
+
+  it('only offers a server versions of its own type', () => {
+    const fabricCfg = { type: 'fabric', minecraftVersion: '26.2', paperBuild: 0, software: { type: 'fabric', minecraftVersion: '26.2', fabricLoader: '0.16.14' } } as ServerConfig
+    const fabric = (v: string, loader: string, over: Partial<CatalogEntry> = {}) => entry(v, { id: `fabric-${v}`, software: { type: 'fabric', minecraftVersion: v, fabricLoader: loader }, build: loader, paperBuild: 0, ...over })
+    const mixed = [entry('26.2.1', { recommended: true }), fabric('26.2.1', '0.17.2', { recommended: true }), fabric('26.2', '0.17.2'), fabric('26.1.2', '0.17.2')]
+    expect(upgradeTargets(fabricCfg, mixed).map((v) => v.id)).toEqual(['fabric-26.2.1', 'fabric-26.2'])
+    expect(newerStable(fabricCfg, mixed)?.id).toBe('fabric-26.2.1')
+    expect(newerStable(fabricCfg, [entry('26.3', { recommended: true })])).toBeUndefined()
   })
 
   it('keeps offering older versions PaperMC no longer updates', () => {
@@ -410,7 +468,7 @@ describe('versions', () => {
     expect(cards.map((c) => c.entry.id)).toEqual(['paper-26.2', 'paper-26.3', 'paper-26.1.2'])
     expect(older.map((v) => v.id)).toEqual(['paper-1.21.11'])
     const legacy = [server({ id: 'x', name: 'Legacy', config: { minecraftVersion: '1.21.11', paperBuild: 132 } as ServerConfig })]
-    expect(versionCards(live, legacy).cards.at(-1)?.hint).toContain('Legacy')
+    expect(versionCards(live, legacy).cards.at(-1)?.note).toContain('Legacy')
   })
 })
 
@@ -421,8 +479,33 @@ describe('creating a server', () => {
   })
 
   it('turns hardcore on as a play style with hard difficulty', () => {
-    const req = createRequest({ type: 'paper', versionId: 'v', acceptExperimental: false, style: 'friends', hardcore: true, levelType: 'flat', memoryMB: 4096, name: ' Hard ', motd: '', eula: true })
+    const req = createRequest({ type: 'paper', versionId: 'v', acceptExperimental: false, style: 'friends', hardcore: true, levelType: 'flat', memoryMB: 4096, name: ' Hard ', motd: '', eula: true, build: '' })
     expect(req).toMatchObject({ name: 'Hard', motd: 'Hard', playStyle: 'hardcore', gameplay: { hardcore: true, difficulty: 'hard', levelType: 'flat', pvp: false } })
+    expect(req).not.toHaveProperty('build')
+  })
+
+  it('sends the chosen build only for types that have one', () => {
+    const base = { versionId: 'v', acceptExperimental: false, style: 'friends' as const, hardcore: false, levelType: 'normal' as const, memoryMB: 2048, name: 'Mods', motd: '', eula: true }
+    expect(createRequest({ ...base, type: 'fabric', build: '0.17.2' })).toMatchObject({ type: 'fabric', build: '0.17.2' })
+    expect(createRequest({ ...base, type: 'fabric', build: '' })).not.toHaveProperty('build')
+    expect(createRequest({ ...base, type: 'vanilla', build: '0.17.2' })).not.toHaveProperty('build')
+  })
+
+  it('lets a modpack decide the type, version and game settings', () => {
+    const c = { type: 'paper', versionId: 'paper-26.2', acceptExperimental: true, style: 'friends' as const, hardcore: false, levelType: 'flat' as const, memoryMB: 4096, name: 'Cobblemon', motd: '', eula: true, build: '41' }
+    const pack = { source: 'modrinth' as const, projectId: 'TPK00001', versionId: 'TPV00001', name: 'Cobblemon Modpack', type: 'fabric', minecraftVersion: '1.21.1', memoryMB: 6144 }
+    expect(packRequest(c, pack)).toEqual({ name: 'Cobblemon', acceptEula: true, memoryMB: 4096, motd: 'Cobblemon', maxPlayers: 10, acceptExperimental: false, modpack: { source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001' } })
+  })
+
+  it('names each type’s build the way people say it', () => {
+    expect(softwareName('paper', 41)).toBe('Paper build 41')
+    expect(softwareName('fabric', '0.17.2')).toBe('Fabric loader 0.17.2')
+    expect(softwareName('neoforge', '26.2.1.7')).toBe('NeoForge version 26.2.1.7')
+    expect(softwareName('vanilla', 0)).toBe('Vanilla')
+    expect(addonKind('purpur')).toBe('plugins')
+    expect(addonKind('quilt')).toBe('mods')
+    expect(addonKind('vanilla')).toBe('none')
+    expect(shortHash('9f3c1a0e22b4c6d87b2da17e')).toBe('9f3c 1a0e … 7b2d a17e')
   })
 
   it('rates passwords', () => {
@@ -434,6 +517,85 @@ describe('creating a server', () => {
 
   it('labels the software', () => {
     expect(softwareLabel(server({ config: { minecraftVersion: '26.1.2' } as ServerConfig }))).toBe('Paper 26.1.2')
+  })
+})
+
+describe('templates', () => {
+  const contents = (over: Partial<TemplateContents> = {}): TemplateContents => ({
+    name: 'Survival with friends',
+    type: 'paper',
+    minecraftVersion: '26.1.2',
+    settings: {},
+    addons: [
+      { source: 'modrinth', name: 'Chunky', versionNumber: '1.4.40' },
+      { source: 'hangar', name: 'LuckPerms', versionNumber: 'v5.5.0' },
+    ],
+    resourcePacks: 0,
+    dataPacks: 0,
+    packs: [],
+    ...over,
+  })
+
+  it('says who made a template and on which day only when it says both', () => {
+    const now = new Date('2026-09-26T04:00:00Z')
+    expect(madeBy(contents({ author: 'siya', created: '2026-09-25' }), now)).toMatch(/^from siya · made (25 Sep|Sep 25)$/)
+    expect(madeBy(contents({ author: 'siya', created: '2025-12-31' }), now)).toMatch(/^from siya · made (31 Dec 2025|Dec 31, 2025)$/)
+    expect(madeBy(contents({ author: 'siya' }), now)).toBeUndefined()
+    expect(madeBy(contents({ created: '2026-09-25' }), now)).toBeUndefined()
+    expect(madeBy(contents({ author: 'siya', created: 'yesterday' }), now)).toBeUndefined()
+  })
+
+  it('names the settings a template carries, four at most', () => {
+    expect(settingNames({ difficulty: 'normal', pvp: false, viewDistance: 10, motd: 'Hi' })).toBe('Difficulty, PvP, view distance, server list message')
+    expect(settingNames({ difficulty: 'normal', pvp: false, viewDistance: 10, motd: 'Hi', maxPlayers: 10, hardcore: false })).toBe('Difficulty, PvP, view distance, server list message and 2 more')
+    expect(settingNames({ motd: '' })).toBe('')
+  })
+
+  it('sums up the settings for the create page', () => {
+    expect(settingsSummary({ difficulty: 'normal', pvp: false, viewDistance: 10, maxPlayers: 10 })).toBe('Normal difficulty · friends can’t hurt each other · view distance 10 · up to 10 players')
+    expect(settingsSummary({ hardcore: true, pvp: true })).toBe('Hardcore · friends can hurt each other')
+    expect(settingsSummary({})).toBe('')
+  })
+
+  it('describes add-ons and packs', () => {
+    expect(addonsLine(contents())).toBe('2 plugins')
+    expect(addonsLine(contents({ type: 'fabric', addons: [{ source: 'modrinth', name: 'Lithium' }] }))).toBe('1 mod')
+    expect(addonsLine(contents({ type: 'fabric', modpack: { source: 'modrinth', name: 'Fabulously Optimized', versionNumber: '9.0.0' } }))).toBe('Fabulously Optimized and 2 more mods')
+    expect(addonsLine(contents({ type: 'fabric', addons: [], modpack: { source: 'modrinth', name: 'Fabulously Optimized' } }))).toBe('Fabulously Optimized')
+    expect(packsLine(contents({ resourcePacks: 1, dataPacks: 3, packs: ['Faithful 32x', 'a', 'b', 'c'] }))).toBe('Faithful 32x and 3 data packs')
+    expect(packsLine(contents({ resourcePacks: 1, packs: ['Faithful 32x'] }))).toBe('Faithful 32x')
+    expect(packsLine(contents({ dataPacks: 1, packs: ['Terralith'] }))).toBe('1 data pack')
+  })
+
+  it('knows when every add-on keeps its version', () => {
+    expect(pinned(contents())).toBe(true)
+    expect(pinned(contents({ addons: [{ source: 'modrinth', name: 'Chunky' }] }))).toBe(false)
+    expect(pinned(contents({ modpack: { source: 'modrinth', name: 'Pack' } }))).toBe(false)
+  })
+
+  it('lists the add-ons an export left out', () => {
+    const notices = [
+      { kind: 'left_out_addon_upload', params: { name: 'MyPlugin' }, message: '' },
+      { kind: 'left_out_modpack', params: { name: 'Pack' }, message: '' },
+      { kind: 'left_out_icon', message: '' },
+      { kind: 'left_out_addon_missing', message: '' },
+    ]
+    expect(leftOutAddons(notices)).toEqual(['MyPlugin', 'Pack'])
+  })
+
+  it('carries a shared template through signing in', () => {
+    expect(templateFromHash('#template=eyJ2IjoxfQ')).toBe('eyJ2IjoxfQ')
+    expect(templateFromHash('#template=')).toBeUndefined()
+    expect(templateFromHash('#code=abc')).toBeUndefined()
+    expect(signInPath({ hash: '#template=eyJ2IjoxfQ' })).toBe('/login#template=eyJ2IjoxfQ')
+    expect(signInPath({ hash: '' })).toBe('/login')
+    expect(afterSignIn({ hash: '#template=eyJ2IjoxfQ' })).toBe('/servers/new#template=eyJ2IjoxfQ')
+    expect(afterSignIn({ hash: '#code=abc' })).toBe('/')
+  })
+
+  it('asks for the parts the dialog leaves out', () => {
+    expect(templateQuery({ addons: true, settings: true, packs: true, latest: false })).toBe('')
+    expect(templateQuery({ addons: false, settings: false, packs: false, latest: true })).toBe('?addons=off&settings=off&packs=off&versions=latest')
   })
 })
 

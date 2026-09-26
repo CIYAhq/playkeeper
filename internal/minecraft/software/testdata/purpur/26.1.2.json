@@ -1,0 +1,154 @@
+{
+ "project": "purpur",
+ "version": "26.1.2",
+ "builds": {
+  "latest": {
+   "project": "purpur",
+   "version": "26.1.2",
+   "build": "2592",
+   "result": "SUCCESS",
+   "timestamp": 1781553371655,
+   "duration": 451967,
+   "metadata": {},
+   "md5": "0d01a9bcabd5e32b1e5e5d48901f1f17"
+  },
+  "all": [
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2580",
+    "result": "SUCCESS",
+    "timestamp": 1777497404364,
+    "duration": 374566,
+    "metadata": {
+     "type": "experimental"
+    },
+    "md5": "0b777fc68b0dff4ab39b547ed3c809a0"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2581",
+    "result": "SUCCESS",
+    "timestamp": 1777603598012,
+    "duration": 365907,
+    "metadata": {
+     "type": "experimental"
+    },
+    "md5": "cb7b4b1adda730a4d7a36dbf730c2769"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2582",
+    "result": "SUCCESS",
+    "timestamp": 1777676380559,
+    "duration": 370347,
+    "metadata": {
+     "type": "experimental"
+    },
+    "md5": "c6e3f8cfb3a3cf71e1a9f557473c44b9"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2583",
+    "result": "SUCCESS",
+    "timestamp": 1777679300670,
+    "duration": 303166,
+    "metadata": {},
+    "md5": "05dd430e37a0a99b25bdd255863dcba0"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2584",
+    "result": "SUCCESS",
+    "timestamp": 1777874082465,
+    "duration": 380361,
+    "metadata": {},
+    "md5": "fe19985697254bab22aef70acd2bd003"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2585",
+    "result": "SUCCESS",
+    "timestamp": 1778022447730,
+    "duration": 376899,
+    "metadata": {},
+    "md5": "5c01ec06a1e53e522716b32b79cdc76f"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2586",
+    "result": "SUCCESS",
+    "timestamp": 1778637954785,
+    "duration": 450484,
+    "metadata": {},
+    "md5": "3b4cf2cd7ca448a499d774aeb4956893"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2587",
+    "result": "SUCCESS",
+    "timestamp": 1779002978050,
+    "duration": 379242,
+    "metadata": {},
+    "md5": "c97b1ae3bedbfebd761f9f4f7fb11b2b"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2588",
+    "result": "SUCCESS",
+    "timestamp": 1780270969552,
+    "duration": 464845,
+    "metadata": {},
+    "md5": "977a6be3877ef570ea88422393e42cc2"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2589",
+    "result": "SUCCESS",
+    "timestamp": 1780271639576,
+    "duration": 373851,
+    "metadata": {},
+    "md5": "f1fd9b7e9a0e0671d7328290f8943ba8"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2590",
+    "result": "SUCCESS",
+    "timestamp": 1780454096226,
+    "duration": 454725,
+    "metadata": {},
+    "md5": "b238901ff3913c5b4423fdf052ba0d79"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2591",
+    "result": "SUCCESS",
+    "timestamp": 1780525233784,
+    "duration": 389056,
+    "metadata": {},
+    "md5": "dcb329eabfabbf621c6eede675c1eae6"
+   },
+   {
+    "project": "purpur",
+    "version": "26.1.2",
+    "build": "2592",
+    "result": "SUCCESS",
+    "timestamp": 1781553371655,
+    "duration": 451967,
+    "metadata": {},
+    "md5": "0d01a9bcabd5e32b1e5e5d48901f1f17"
+   }
+  ]
+ }
+}

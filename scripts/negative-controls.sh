@@ -423,12 +423,12 @@ control "Paper versions are sorted newest first" internal/minecraft/fill.go \
   'return 0' \
   ./internal/minecraft '^TestCatalogDoesNotDependOnTheOrderPaperMCListsVersionsIn$'
 control "experimental versions need consent" internal/agent/handlers.go \
-  'if entry.Experimental && !req.AcceptExperimental {' \
-  'if false && entry.Experimental && !req.AcceptExperimental {' \
+  'if experimental && !req.AcceptExperimental {' \
+  'if false && experimental && !req.AcceptExperimental {' \
   ./internal/agent '^TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent$'
 control "version changes to experimental versions need consent" internal/agent/versions.go \
-  'if e.Experimental && !req.AcceptExperimental {' \
-  'if false && e.Experimental && !req.AcceptExperimental {' \
+  'if experimental && !req.AcceptExperimental {' \
+  'if false && experimental && !req.AcceptExperimental {' \
   ./internal/agent '^TestVersionChangesNeverGoBack$'
 control "Minecraft never goes back to an older version" internal/agent/versions.go \
   '	case c < 0:' \
@@ -446,6 +446,59 @@ control "Paper jar checksum" internal/agent/lifecycle.go \
   'if sum != want {' \
   'if false && sum != want {' \
   ./internal/agent '^(TestJarChecksumMismatchIsNeverRun|TestServersFrom010KeepTheirPinnedChecksum)$'
+# Wave 4: the friends' pack page at /packs/<token>.
+control "friends' pack links hold at least 128 random bits" internal/modpacks/share/token.go \
+  'const TokenLen = 22' \
+  'const TokenLen = 12' \
+  ./internal/modpacks/share '^TestNewTokenHasTheInviteCodesShape$'
+control "friends' pack links favour no letter" internal/modpacks/share/token.go \
+  'if b < 248 && len(out) < TokenLen {' \
+  'if len(out) < TokenLen {' \
+  ./internal/modpacks/share '^TestNewToken(IsUniform|SkipsBiasedBytes)$'
+control "stopping sharing forgets the friends' pack link" internal/agent/packshare.go \
+  "UPDATE servers SET packs_public = 0, packs_token = '' WHERE id = ?" \
+  'UPDATE servers SET packs_public = 0 WHERE id = ?' \
+  ./internal/agent '^TestPackShareLinkIsMadeWhenSharedAndReplacedAfterward$'
+control "a friends' pack link opens only with its own token" internal/agent/packshare.go \
+  'subtle.ConstantTimeCompare([]byte(t), []byte(token)) == 1' \
+  'subtle.ConstantTimeCompare([]byte(t), []byte(t)) == 1' \
+  ./internal/agent '^TestPackLinkAnswersAlikeWhateverTheReason$'
+control "a stopped server's pack page is unavailable" internal/agent/packshare.go \
+  ' || s.desired() != api.DesiredRunning {' \
+  ' {' \
+  ./internal/agent '^TestPackLinkAnswersAlikeWhateverTheReason$'
+control "server-only mods stay off the friends' pack page" internal/modpacks/share/page.go \
+  'if m.InFile || m.ByHand {' \
+  'if true {' \
+  ./internal/panel '^TestFriendsPackPageIsPublicAndListsOnlyWhatFriendsGet$'
+control "every unavailable friends' pack link gets one answer" internal/panel/packshare.go \
+  'default:
+			packGone(w)' \
+  'default:
+			http.Error(w, fp.share.Server+" has no such file.", http.StatusNotFound)' \
+  ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
+control "a machine that can't answer leaves a friends' pack link unavailable" internal/panel/packshare.go \
+  'case err != nil:
+			packGone(w)' \
+  'case errors.Is(err, errPackGone):
+			packGone(w)
+		case err != nil:
+			http.Error(w, "Try again later.", http.StatusServiceUnavailable)' \
+  ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
+control "the friends' pack page itself never tells a working link from another" internal/panel/packshare.go \
+  'if !sub {
+			s.packPage(w, r)' \
+  'if !sub {
+			if _, err := s.friendsPack(r.Context(), token); err != nil {
+				packGone(w)
+				return
+			}
+			s.packPage(w, r)' \
+  ./internal/panel '^TestFriendsPackLinksAnswerAlikeWhateverTheReason$'
+control "friends' pack pages are limited by the connection's address" internal/panel/public.go \
+  'key := rt.prefix + " " + addressKey(r.RemoteAddr)' \
+  'key := rt.prefix + " " + r.Header.Get("X-Forwarded-For")' \
+  ./internal/panel '^TestFriendsPackPagesAreLimitedPerAddress$'
 control "game files: a link on the way to a file is refused" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
@@ -730,6 +783,119 @@ control "port sharing: a connection nobody accepts is closed" internal/portshare
   't := time.NewTimer(l.s.handoff)' \
   't := time.NewTimer(time.Hour)' \
   ./internal/portshare '^TestHandoffTimeout$'
+control "creating from a template checks the plan the user confirmed" internal/agent/templates.go \
+  'if err := p.Confirm(fingerprint); err != nil {' \
+  'if err := p.Confirm(p.Fingerprint); err != nil {' \
+  ./internal/agent '^TestCreateFromTemplateRefusesAChangedPlan$'
+control "a source that does not answer stops a template's first start" internal/agent/templates.go \
+  'if sourceDown(res.Reason.Kind) {' \
+  'if false && sourceDown(res.Reason.Kind) {' \
+  ./internal/agent '^TestCreateFromTemplateTriesAgainOnTheNextStart$'
+control "a template decides the type, version and settings" internal/agent/handlers.go \
+  'if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateRequestsAreChecked$'
+control "packs cannot suggest operator or function permission levels" internal/modpacks/rules.go \
+  '"force-gamemode", "gamemode",' \
+  '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
+  ./internal/modpacks '^TestPacksCannotSuggestPermissionLevels$'
+control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
+  'cur, err := d.ReadProperties()
+	if errors.Is(err, fs.ErrNotExist) {
+		cur, err = nil, nil
+	}
+	if err == nil {
+		err = d.WriteProperties(mergeProperties(cur, props))
+	}' \
+  'cur, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))
+	if errors.Is(err, fs.ErrNotExist) {
+		cur, err = nil, nil
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(s.dataDir(), "server.properties"), mergeProperties(cur, props), 0o640)
+	}' \
+  ./internal/agent '^TestPackSettingsAreNotReadOrWrittenThroughALink$'
+control "a CurseForge key is saved only once CurseForge accepts it" internal/agent/addonsources.go \
+  'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); err != nil {' \
+  'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); false && err != nil {' \
+  ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
+control "the CurseForge key file is readable by root only" internal/agent/addonsources.go \
+  'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
+  'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)' \
+  ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
+control "only who manages the machine changes its CurseForge key" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
+  ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
+control "a template's author is the account that exports it" internal/panel/server.go \
+  'q.Set("author", sess.User.Username)' \
+  '_ = sess.User.Username' \
+  ./internal/panel '^TestTemplateRoutesReachTheAgent$'
+control "voice chat installs only with leave to open its port" internal/agent/addons.go \
+  'if voice && !req.OpenPorts {' \
+  'if false && voice && !req.OpenPorts {' \
+  ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
+control "removing voice chat closes its port" internal/agent/addons.go \
+  'if slices.ContainsFunc(drop, voiceChat) {' \
+  'if false && slices.ContainsFunc(drop, voiceChat) {' \
+  ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
+control "voice chat gets a UDP port nothing on the machine uses" internal/agent/curated.go \
+  'return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }' \
+  'return func(p int) bool { return used[p] }' \
+  ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
+control "voice chat that comes with a template gets its UDP port" internal/agent/curated.go \
+  'h.phase("opening_port")
+	return s.setUpVoiceChat(h, sc, srv, h.op.Actor)' \
+  '_ = srv
+	return nil' \
+  ./internal/agent '^TestTemplateVoiceChatGetsItsPort$'
+control "voice chat a template's Try again installs gets its UDP port" internal/agent/templates.go \
+  'if err := s.templateVoiceChat(h, sc, planned); err != nil {
+		return err
+	}
+	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
+  'packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
+  ./internal/agent '^TestTemplateVoiceChatTriedAgainGetsItsPort$'
+control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
+  'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
+  '_ = n' \
+  ./internal/agent '^TestTemplateModpackRunsOnTheTypeItNames$'
+control "a backup records voice chat's UDP port" internal/agent/backups.go \
+  'm.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
+  '_ = sc.VoiceChatPort' \
+  ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "a restore gives voice chat back its UDP port" internal/agent/backups.go \
+  'if err := s.restoredVoiceChat(&j.Restored, prev, m, st.data); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "a setup container still running when its output ends fails" internal/agent/software.go \
+  'if c.State.Running {' \
+  'if false && c.State.Running {' \
+  ./internal/agent '^TestSetupStillRunningWhenItsOutputEndsFails$'
+control "server software is written inside the data directory's root" internal/minecraft/software/files.go \
+  'f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
+  'f, err := os.OpenFile(root.Name()+"/"+tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
+  ./internal/minecraft/software '^TestDownload$'
+control "template data packs never connect to a private address" internal/templates/fetch.go \
+  'if err != nil || !allowed(ap) {' \
+  'if false && (err != nil || !allowed(ap)) {' \
+  ./internal/templates '^TestPackClientRefusesPrivateAddresses$'
+control "template data packs never download through a proxy" internal/templates/fetch.go \
+  'Proxy:                 nil,' \
+  'Proxy:                 http.ProxyFromEnvironment,' \
+  ./internal/templates '^TestPackClientIgnoresProxyVariables$'
+control "template data packs download over HTTPS only" internal/templates/fetch.go \
+  'if r.URL.Scheme != "https" {' \
+  'if false {' \
+  ./internal/templates '^TestPackClientRefusesPlainHTTP$'
+control "each redirect of a template data pack is checked again" internal/templates/fetch.go \
+  'if u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") || !publicHost(u.Hostname()) {' \
+  'if false {' \
+  ./internal/templates '^TestPackRedirectsAreCheckedAgain$'
+control "a template data pack must match the template's checksum" internal/templates/fetch.go \
+  'if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, want) {' \
+  'if got := hex.EncodeToString(h.Sum(nil)); false && !strings.EqualFold(got, want) {' \
+  ./internal/templates '^TestFetchPack$'
 
 # Follow-ups after 0.3.0.
 control "an interrupted restore gets the previous world back at start" internal/agent/backups.go \
@@ -869,9 +1035,11 @@ control "the pre-stop check sizes server.properties without following a link or 
 		b, err := os.ReadFile(filepath.Join(dataDir, rel))' \
   ./internal/backup '^TestArchivedSizeDoesNotFollowALinkOrWaitOnAPipe$'
 shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
-  local name=$1 file=$2 test=$5
+  local name=$1 file=$2 test=$5 shell=sh
+  # A bash script is parsed by bash, a POSIX one by sh.
+  case $(head -n1 "$file") in *bash*) shell=bash ;; esac
   FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if ! sh -n "$file" 2>/dev/null; then
+  if ! "$shell" -n "$file" 2>/dev/null; then
     echo "INVALID  $name: the mutated script does not parse"
     bad=1
   elif bash "$test" >/tmp/negative-control.out 2>&1; then
@@ -897,6 +1065,11 @@ shcontrol "get.sh says a download curl stopped is too large" packaging/get.sh \
   '[ "$rc" = 63 ] || ' \
   '' \
   packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "package.sh builds CURSEFORGE_API_KEY into the binary" scripts/package.sh \
+  'ldflags+=" -X $curseforge.BuildKey=$CURSEFORGE_API_KEY"' \
+  ':' \
+  scripts/package_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
@@ -1386,6 +1559,10 @@ control "own domain: removing it keeps the released free name claimable" interna
   'if err := a.setAddress(addressState{IP: st.IP, Released: st.Released}); err != nil {' \
   'if err := a.setAddress(addressState{IP: st.IP}); err != nil {' \
   ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "own domain: a certificate attempt that finds the name wrong brings the next look forward" internal/agent/certificates.go \
+  'if !saved || ready {' \
+  'if true || !saved || ready {' \
+  ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
 # Wave 5: roles and server scopes, the team, invite links and Discord.
 control "an account uses only its own servers" internal/panel/workspace.go \
   'case serverID != "" && !a.covers(serverID):' \
@@ -1528,13 +1705,17 @@ control "a Minecraft update alert goes out once per version for each server" int
   'WHERE id = ? AND ? IS NOT NULL' \
   ./internal/agent '^TestMinecraftUpdateAlertGoesOutOncePerVersion$'
 control "Minecraft update alerts are about stable versions only" internal/agent/versions.go \
-  'if e.Experimental || !e.Supported ||' \
-  'if !e.Supported ||' \
+  '|| e.Experimental || !e.Supported ||' \
+  '|| !e.Supported ||' \
   ./internal/agent '^TestNewerStableMatchesTheDashboard$'
-control "Minecraft update alerts are for Paper servers only" internal/agent/discord.go \
-  ' || s.serverType(sc) != api.TypePaper {' \
-  ' {' \
-  ./internal/agent '^TestMinecraftUpdateAlertsAreForPaperServersOnly$'
+control "a Minecraft update is one of the server's own type" internal/agent/versions.go \
+  'if entryType(e) != typ || e.Experimental' \
+  'if false && entryType(e) != typ || e.Experimental' \
+  ./internal/agent '^TestNewerStableMatchesTheDashboard$'
+control "Minecraft update alerts read each server type's own versions" internal/agent/discord.go \
+  'versions, _, _ = a.typeCatalog(ctx, typ)' \
+  'versions, _, _ = a.versionCatalog(ctx)' \
+  ./internal/agent '^TestMinecraftUpdateAlertsReadEachTypesOwnVersions$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

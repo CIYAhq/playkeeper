@@ -526,19 +526,28 @@ func TestMinecraftUpdateAlertGoesOutOncePerVersion(t *testing.T) {
 	}
 }
 
-func TestMinecraftUpdateAlertsAreForPaperServersOnly(t *testing.T) {
+func TestMinecraftUpdateAlertsReadEachTypesOwnVersions(t *testing.T) {
 	e, f := newDiscordEnv(t)
+	e.up.serveMojangReleases([]struct{ id, released string }{
+		{"26.2.1", "2026-09-20T09:00:00+00:00"},
+		{"26.2", "2026-09-02T09:14:07+00:00"},
+		{"26.1.2", "2026-04-02T12:00:00+00:00"},
+	})
 	e.connectDiscord()
-	fabric := e.addIdleServer()
-	if _, err := e.a.db.Exec(`UPDATE servers SET type = 'fabric' WHERE id = ?`, fabric); err != nil {
+	e.addIdleServer()
+	e.addIdleServer()
+	sc, _ := e.srv().serverConfig()
+	sc.Type, sc.VersionID, sc.PaperBuild = "vanilla", "vanilla-26.1.2", 0
+	sc.Software = &api.SoftwarePin{Type: "vanilla", MinecraftVersion: "26.1.2"}
+	if err := e.srv().saveServerConfig(*sc); err != nil {
 		t.Fatal(err)
 	}
-	e.addIdleServer()
 	e.a.alertMinecraftUpdates(t.Context())
-	f.waitMessage(e, "**My server 2** can be updated to Minecraft 26.2 on the Settings tab.")
+	f.waitMessage(e, "**My server** can be updated to Minecraft 26.2 on the Settings tab.")
+	f.waitMessage(e, "**My server 2** can be updated to Minecraft 26.2.1 on the Settings tab.")
 	time.Sleep(300 * time.Millisecond)
-	if n := f.count("Minecraft update available"); n != 1 {
-		t.Fatalf("%d Minecraft update alerts: PaperMC's versions are for the Paper server, not the Fabric one", n)
+	if n := f.count("Minecraft update available"); n != 2 {
+		t.Fatalf("%d Minecraft update alerts, want one for each server from its own type's versions", n)
 	}
 }
 

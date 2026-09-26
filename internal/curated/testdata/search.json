@@ -1,0 +1,71 @@
+{
+  "hits": [
+    {
+      "project_id": "9eGKb6K1",
+      "slug": "simple-voice-chat",
+      "title": "Simple Voice Chat",
+      "author": "henkelmax",
+      "license": "LicenseRef-All-Rights-Reserved",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "l6YH9Als",
+      "slug": "spark",
+      "title": "spark",
+      "author": "lucko",
+      "license": "GPL-3.0-only",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "fALzjamp",
+      "slug": "chunky",
+      "title": "Chunky",
+      "author": "pop4959",
+      "license": "GPL-3.0-only",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "P1OZGk5p",
+      "slug": "viaversion",
+      "title": "ViaVersion",
+      "author": "kennytv",
+      "license": "GPL-3.0-or-later",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Vebnzrzj",
+      "slug": "luckperms",
+      "title": "LuckPerms",
+      "author": "lucko",
+      "license": "MIT",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "hXiIvTyT",
+      "slug": "essentialsx",
+      "title": "EssentialsX",
+      "author": "mdcfe",
+      "license": "GPL-3.0-only",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Lu3KuzdV",
+      "slug": "coreprotect",
+      "title": "CoreProtect",
+      "author": "Intelli",
+      "license": "Artistic-2.0",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "LVN9ygNV",
+      "slug": "ledger",
+      "title": "Ledger",
+      "author": "Potatoboy9999",
+      "license": "LGPL-3.0-only",
+      "project_type": "mod"
+    }
+  ],
+  "offset": 0,
+  "limit": 20,
+  "total_hits": 8
+}

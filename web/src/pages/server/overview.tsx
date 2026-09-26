@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Activity, Crash, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
+import type { Activity, AddonNotice, Crash, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
 import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
+import { loaderLabel } from '@/components/app/modpacks'
 import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
 import { PlayersChart } from '@/components/app/players-chart'
 import { RestoreDialog } from '@/components/app/restore'
 import { SignInNotice } from '@/components/app/sign-in-notice'
+import { SoftwareChangedView } from '@/components/app/software'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
@@ -19,10 +21,11 @@ import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, serverJoinAddress } from '@/lib/format'
-import { createStepOf, failedJob, isSettingUp, statusTone, whyNot } from '@/lib/phase'
+import { busyReason, createStepOf, failedJob, isSettingUp, packStepOf, statusTone, templateStepOf, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { formatTPS } from '@/lib/running'
 import { typeName } from '@/lib/servers'
+import { addonKind } from '@/lib/software'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { serverAction } from '.'
@@ -31,6 +34,7 @@ export function Overview({ server }: { server: ServerStatus }) {
   const ws = useWorkspace()
   if (ws.agentDown) return <AgentDownView />
   if (!ws.stale && isSettingUp(server)) return <SettingUpView server={server} />
+  if (!ws.stale && server.softwareChanged && !server.operation) return <SoftwareChangedView server={server} change={server.softwareChanged} />
   if (!ws.stale && statusTone(server) === 'crashed' && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }
@@ -68,7 +72,7 @@ function Running({ server: s }: { server: ServerStatus }) {
 
 /** One quiet line at a time: test mode, Docker, world saving paused, a failed job, or settings waiting for a restart. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
-  const { stale, machine } = useWorkspace()
+  const { stale, machine, refresh } = useWorkspace()
   const [dismissed, setDismissed] = useState<string>()
   const [busy, setBusy] = useState(false)
   if (stale) return null
@@ -102,6 +106,39 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
         }
       >
         {t('overview.pendingRestartBody', { server: s.name })}
+      </Notice>
+    )
+  }
+  const skipped = s.config?.template?.skipped ?? []
+  if (skipped.length > 0 && !s.config?.template?.pending) {
+    const names = skipped.map((n) => n.params?.name ?? n.message)
+    return (
+      <Notice
+        title={t('templateSkipped.title', { count: skipped.length, names: formatList(names) })}
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            loading={busy}
+            disabledReason={busyReason(s)}
+            onClick={async () => {
+              setBusy(true)
+              try {
+                await post(serverApi(s.id, '/template/retry'), {})
+                await refresh()
+              } catch (e) {
+                toastManager.add({ title: errorText(e), type: 'error' })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <RefreshCwIcon />
+            {t('common.tryAgain')}
+          </Button>
+        }
+      >
+        {skipped.length === 1 ? skipped[0]?.message : t('templateSkipped.body')}
       </Notice>
     )
   }
@@ -323,30 +360,77 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const cfg = s.config
   const type = typeName(s.type)
   const version = cfg?.minecraftVersion ?? ''
-  const at = createStepOf(failed ? (op?.phase ?? '') : s.phase)
+  const pack = cfg?.modpack
+  const addonsDone = Number(op?.detail?.addons ?? 0)
+  const addonsTotal = Number(op?.detail?.addonsTotal ?? 0)
+  const packsDone = Number(op?.detail?.packs ?? 0)
+  const packsTotal = Number(op?.detail?.packsTotal ?? 0)
+  const onlyPacks = packsTotal > 0 && addonsTotal === 0
+  // A template's add-ons and data packs install on the first start; the detail stays once they're in.
+  const tpl = !pack && !!cfg?.template && (!!cfg.template.pending || addonsTotal > 0 || packsTotal > 0)
+  // The pack's own steps only show in the operation's phase.
+  const at = pack ? packStepOf(op?.phase ?? s.phase) : tpl ? templateStepOf(op?.phase ?? s.phase) : createStepOf(failed ? (op?.phase ?? '') : s.phase)
   const state = (i: number): StepState => (i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo')
   const pct = /(\d{1,3})\s*%/.exec(s.phaseDetail ?? '')?.[1]
   const other = (ws.servers ?? []).find((o) => o.id !== s.id)
   const disk = ws.machine?.live?.diskFreeBytes
+  // Until the pack itself is read, the config holds the recommended loader, not the pack's.
+  const packRead = !pack?.pending || !['', 'pulling_image', 'preparing_modpack'].includes(op?.phase ?? '')
+  const loader = packRead ? (cfg?.software?.fabricLoader ?? cfg?.software?.quiltLoader) : undefined
+  const done = Number(op?.detail?.packFiles ?? 0)
+  const total = Number(op?.detail?.packFilesTotal ?? 0)
+  // Only a finished download has matched its checksum.
+  const checked = state(1) === 'done'
+  const software = {
+    title: loader ? t(at > 1 ? 'creating.downloadedPack' : 'creating.downloadingPack', { type, version, loader: loaderLabel(s.type, loader) }) : at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }),
+    hint: checked ? t(loader ? 'creating.downloadedPackDetail' : 'creating.downloadedDetail') : undefined,
+    state: state(1),
+  }
+  const starting = (i: number) => ({ title: t('creating.starting'), hint: pct ? t('creating.startingPercent', { percent: pct }) : t('creating.startingDetail'), state: state(i), progress: pct ? Number(pct) : undefined })
+  const mods = addonKind(s.type) === 'mods'
+  const skippedDetail = op?.detail?.skipped
+  const skipped = Array.isArray(skippedDetail) ? (skippedDetail as AddonNotice[]).map((n) => n.params?.name ?? n.message) : []
+  const [fetched, fetching] = onlyPacks ? [packsDone, packsTotal] : [addonsDone, addonsTotal]
+  const addonsHint = [fetching ? t('creating.packFiles', { done: fetched, total: fetching }) : '', skipped.length ? t('creating.templateSkipped', { count: skipped.length, names: skipped.join(', ') }) : ''].filter(Boolean).join(t('common.dot'))
+  const steps = tpl
+    ? [
+        { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: checked ? t('creating.downloadedDetail') : undefined },
+        {
+          title: t(at > 2 ? (onlyPacks ? 'creating.templatePacksDone' : mods ? 'creating.templateModsDone' : 'creating.templatePluginsDone') : onlyPacks ? 'creating.templatePacks' : mods ? 'creating.templateMods' : 'creating.templatePlugins'),
+          hint: addonsHint || undefined,
+          state: state(2),
+          progress: at === 2 && fetching ? (fetched / fetching) * 100 : undefined,
+        },
+        starting(3),
+        { title: t('creating.reachable', { port: s.gamePort }), state: state(4) },
+      ]
+    : pack
+    ? [
+        { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        software,
+        { title: t(at > 2 ? 'creating.packModsDone' : 'creating.packMods'), hint: total ? t('creating.packFiles', { done, total }) : undefined, state: state(2), progress: at === 2 && total ? (done / total) * 100 : undefined },
+        starting(3),
+        { title: t('creating.reachable', { port: s.gamePort }), state: state(4) },
+      ]
+    : [
+        { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
+        { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: checked ? t('creating.downloadedDetail') : undefined },
+        starting(2),
+        { title: t('creating.reachable', { port: s.gamePort }), state: state(3) },
+      ]
   return (
     <Card className="mx-auto w-full max-w-[520px] p-6 max-sm:p-4">
       <div className="flex items-start gap-4">
         <Pip pose={failed ? 'hurt' : 'hardhat'} size={64} />
         <div className="min-w-0 pt-1">
           <h2 className="text-lg font-bold">{failed ? t('creating.failedTitle', { server: s.name }) : t('creating.title', { server: s.name })}</h2>
-          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{failed ? (op?.error ?? '') : t('creating.lead')}</p>
+          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{failed ? (op?.error ?? '') : t(pack ? 'creating.leadPack' : 'creating.lead')}</p>
           {failed && op?.hint && <p className="mt-1 text-[13px] text-muted-foreground">{op.hint}</p>}
         </div>
       </div>
       <div className="mt-5 border-t border-border pt-5">
-        <JobSteps
-          steps={[
-            { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
-            { title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: t('creating.downloadedDetail'), state: state(1) },
-            { title: t('creating.starting'), hint: pct ? t('creating.startingPercent', { percent: pct }) : t('creating.startingDetail'), state: state(2), progress: pct ? Number(pct) : undefined },
-            { title: t('creating.reachable', { port: s.gamePort }), state: state(3) },
-          ]}
-        />
+        <JobSteps steps={steps} />
       </div>
       {tail.length > 0 && (
         <div className="mt-5">

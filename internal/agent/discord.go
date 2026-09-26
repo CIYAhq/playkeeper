@@ -207,7 +207,7 @@ func (s *server) discordStatus(ctx context.Context) discord.Status {
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	s.mu.Lock()
 	crashed := s.crashed || err == nil && !busy && s.pendingCrash(c)
-	phase := observedPhase(c, err, sc != nil, s.runPhase, crashed, op)
+	phase := observedPhase(c, err, sc != nil, s.runPhase, crashed, s.softwareChanged != nil, op)
 	players := s.players
 	s.mu.Unlock()
 	st := discord.Status{State: discord.StateOffline}
@@ -311,26 +311,25 @@ func (a *Agent) alertUpdate(version string) {
 	}
 }
 
-// alertMinecraftUpdates posts, once per version for each Paper server, that
-// a newer Minecraft version is out: the update its Settings tab offers.
-// PaperMC's list is only fetched when there is a Paper server to check.
+// alertMinecraftUpdates posts, once per version for each server, that a
+// newer Minecraft version is out: the update its Settings tab offers. Each
+// server type's list is fetched once, and only when a server of that type is
+// there to check.
 func (a *Agent) alertMinecraftUpdates(ctx context.Context) {
 	if !a.discordConnected() {
 		return
 	}
-	var versions []api.CatalogEntry
-	loaded := false
+	catalogs := map[string][]api.CatalogEntry{}
 	for _, s := range a.serverList() {
 		sc, _ := s.serverConfig()
-		if sc == nil || sc.MinecraftVersion == "" || s.serverType(sc) != api.TypePaper {
+		if sc == nil || sc.MinecraftVersion == "" {
 			continue
 		}
-		if !loaded {
-			var err error
-			if versions, _, err = a.versionCatalog(ctx); err != nil {
-				return
-			}
-			loaded = true
+		typ := configType(*sc)
+		versions, fetched := catalogs[typ]
+		if !fetched {
+			versions, _, _ = a.typeCatalog(ctx, typ)
+			catalogs[typ] = versions
 		}
 		e, ok := newerStable(*sc, versions)
 		if !ok {

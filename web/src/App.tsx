@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
+import { afterSignIn, signInPath } from '@/lib/templates'
 import { AccountPage } from '@/pages/account'
 import { HomePage } from '@/pages/home'
 import { JoinPage } from '@/pages/join'
@@ -17,6 +18,7 @@ import { MachineSettingsPage } from '@/pages/machine-settings'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
 import { AccountStep, Onboarding } from '@/pages/onboarding'
+import { PackPage } from '@/pages/pack'
 import { ServerPage } from '@/pages/server'
 import { GlobalSettingsPage } from '@/pages/settings'
 
@@ -37,7 +39,7 @@ export function App() {
   const signedOut = useCallback(() => {
     setMe(undefined)
     setState('login')
-    navigate('/login', true)
+    navigate(signInPath(window.location), true)
   }, [])
 
   // The invite page works without an account, so it skips signing in.
@@ -119,7 +121,7 @@ export function App() {
           version={status?.version}
           onDone={(m) => {
             signedIn(m)
-            navigate('/', true)
+            navigate(afterSignIn(window.location), true)
           }}
         />
       )
@@ -184,6 +186,8 @@ function page(route: Route) {
       return <AccountPage section={route.section} />
     case 'more':
       return <MorePage />
+    case 'pack':
+      return <PackPage token={route.token} />
     default: {
       const unreachable: never = route
       return unreachable

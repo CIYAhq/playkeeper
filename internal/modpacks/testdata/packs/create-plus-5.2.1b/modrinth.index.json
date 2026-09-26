@@ -1,0 +1,58 @@
+{
+  "game": "minecraft",
+  "formatVersion": 1,
+  "versionId": "5.2.1b",
+  "name": "Create+",
+  "summary": "",
+  "files": [
+    {
+      "path": "mods/BlockRunner-v4.2.2-1.19.2-Forge.jar",
+      "hashes": {
+        "sha512": "02533996303a376900d5091a068227db5c92584b9ddbd44085cf90207c7f3d2dc9fddc2c0ea4b13a717691537de6cef2629282f8af3b48037562ca28e2b7f65e",
+        "sha1": "959f4abf0d1902c4d805227196444265cdc533fa"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/1VSGxqkt/versions/MxlSUiGV/BlockRunner-v4.2.2-1.19.2-Forge.jar"
+      ],
+      "fileSize": 73526
+    },
+    {
+      "path": "mods/corn_delight-1.0.3-1.19.2.jar",
+      "hashes": {
+        "sha1": "9f67fd87e43ab44d912ae148ca5dc1e70d68cccd",
+        "sha512": "f7f6480616cfd97b1af103664e19b49509dfadf3b58a473e1602be81f234911740a17ce087176392db6e3fd66e757ea588f9cf5a71b337a50cc3388f4b9f8d63"
+      },
+      "env": {
+        "server": "required",
+        "client": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/uxLAKWU8/versions/yOYdkPX6/corn_delight-1.0.3-1.19.2.jar"
+      ],
+      "fileSize": 158100
+    },
+    {
+      "path": "mods/farmers-cutting-quark-1.0.0-1.19.jar",
+      "hashes": {
+        "sha512": "908af75db9ec60b0296b1c3bf4e6acc66bb1f606ce3ce24ac98db6baf938d4a647c7f6eb7f18c5ada5b04fccad235e66d9819d1bacac7dfa3b8bf3cd2b6e5f56",
+        "sha1": "6a2e9de7789bfd1c58004a731799638aa1c62894"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/rH2QzhPh/versions/pPKj4Q5L/farmers-cutting-quark-1.0.0-1.19.jar"
+      ],
+      "fileSize": 10545
+    }
+  ],
+  "dependencies": {
+    "minecraft": "1.19.2",
+    "forge": "43.5.1"
+  }
+}

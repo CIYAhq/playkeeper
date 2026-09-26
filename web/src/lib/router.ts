@@ -31,10 +31,13 @@ export type Route =
   | { name: 'player'; slug: string; player: string }
   | { name: 'team' }
   | { name: 'discord' }
+  // A friends' pack page, public; token is "" for a link that can't be one.
+  | { name: 'pack'; token: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reCode = /^[A-Za-z0-9]{1,64}$/
 export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
+const rePackToken = /^[A-Za-z0-9]{22}$/
 
 export function parse(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
@@ -81,6 +84,8 @@ export function parse(pathname: string): Route {
         if (third === 'settings' && parts.length === 3) return { name: 'machine-settings', id: second }
       }
       return { name: 'home' }
+    case 'packs':
+      return { name: 'pack', token: second && rePackToken.test(second) && !third ? second : '' }
   }
   return { name: 'home' }
 }
@@ -122,6 +127,8 @@ export function href(route: Route): string {
       return '/settings/team'
     case 'discord':
       return '/settings/discord'
+    case 'pack':
+      return `/packs/${route.token}`
     default: {
       const unreachable: never = route
       return unreachable

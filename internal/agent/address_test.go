@@ -964,6 +964,12 @@ func TestOwnDomainChecksTheNameBeforeHTTP01(t *testing.T) {
 	if v = e.address(); v.Check.Name.OK || v.Servers[0].Published {
 		t.Fatalf("the failed look was not kept: %+v", v.Check)
 	}
+	e.a.addr.mu.Lock()
+	recheck := e.a.addr.recheck
+	e.a.addr.mu.Unlock()
+	if limit := time.Now().Add(ownRecheckPending); recheck.After(limit) {
+		t.Fatalf("after the failed look the records are looked at again at %v, later than %v", recheck, limit)
+	}
 
 	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "alex", "actor": "admin"}); code != 409 {
 		t.Fatalf("claiming a free name while using a domain: %d %v", code, out)

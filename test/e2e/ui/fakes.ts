@@ -12,7 +12,7 @@ export interface ApiCall {
   status: number
   faked: boolean
   error?: string
-  /** A fake that answers with an error on purpose, like a wrong password. */
+  /** An error the dashboard expects: a fake's on purpose, like a wrong password, or an icon it shows a stand-in for. */
   expected?: boolean
   at: number
 }
@@ -350,6 +350,21 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
   ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => (confirmed(r.body) && Array.isArray((r.body as { addons?: unknown }).addons) ? op(state, 'addon-update', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
   ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => (confirmed(r.body) && typeof (r.body as { projectId?: unknown }).projectId === 'string' ? op(state, 'addon-install', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
+  // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
+  ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
+  // Wave 4: the CurseForge key. A key typed here isn't one CurseForge knows, so it's refused as the real check would.
+  ['POST', /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/, () => ({ status: 400, body: { error: "That key didn't work. Copy it again from console.curseforge.com.", code: 'curseforge_key_refused' }, expected: true })],
+  ['DELETE', /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/, () => ({ status: 200, body: { curseforge: { key: 'none' } } })],
+  ['POST', /^\/api\/servers\/(\w+)\/template\/retry$/, (r, state) => op(state, 'template-retry', r.params[0])],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/mods\/share$/,
+    ({ body }) => {
+      const on = (body as { public?: unknown } | null)?.public
+      if (typeof on !== 'boolean') return invalid('Say whether to share the pack.')
+      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
+    },
+  ],
 ]
 
 const addonJar = /^[^./\\][^/\\]{0,195}\.jar$/
@@ -427,7 +442,9 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    if (method === 'GET' || method === 'HEAD') {
+    // Planning a template reads it and changes nothing, so the real panel answers.
+    const planning = method === 'POST' && /^\/api\/machines\/\w+\/templates\/plan$/.test(path)
+    if (method === 'GET' || method === 'HEAD' || planning) {
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
@@ -437,6 +454,14 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       if (/^\/api\/servers\/\w+\/backups\/[\w-]+\/download$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
+        return
+      }
+      // A faked job finishes at once, for the dialogs that follow it.
+      const fakeOp = /^\/api\/machines\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
+      if (fakeOp?.[1]) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        const done = new Date().toISOString()
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: fakeOp[1], kind: 'addon-install', status: 'succeeded', phase: '', actor: 'admin', startedAt: done, finishedAt: done, detail: { files: [] } }) })
         return
       }
       if (/^\/api\/servers\/\w+\/world-copies$/.test(path)) {
@@ -457,9 +482,12 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         await route.abort().catch(() => {})
         return
       }
+      // Add-on icons come from their sites through the panel, and one that
+      // can't be had shows a stand-in, so its error is expected.
+      const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
       // The records for a domain that isn't one are refused, like a wrong password.
       const refusedDomain = res.status() === 400 && /^\/api\/machines\/\w+\/address\/plan$/.test(path)
-      calls.push({ method, path, status: res.status(), faked: false, expected: refusedDomain || undefined, at })
+      calls.push({ method, path, status: res.status(), faked: false, expected: (icon && !res.ok()) || refusedDomain || undefined, at })
       if (res.ok()) {
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)

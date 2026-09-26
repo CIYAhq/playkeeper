@@ -65,7 +65,7 @@ export function statusTone(st: ServerStatus): Tone {
 
 /** Did the server's last start fail before it came up? */
 export function couldntStart(st: ServerStatus): boolean {
-  return !!st.refusal || !!st.crash?.start
+  return !!st.refusal || !!st.crash?.start || !!st.softwareChanged
 }
 
 /** "Crashed", "Couldn't start" when it never came up, or the phase. */
@@ -81,13 +81,18 @@ export function isSettingUp(st: ServerStatus): boolean {
   return !!op && op.kind === 'create' && op.status === 'failed' && !st.startedAt && st.phase !== 'online'
 }
 
+/** Is the server's create running right now? A create that failed isn't: the server is stopped. */
+export function isCreating(st: ServerStatus): boolean {
+  return st.operation?.kind === 'create'
+}
+
 /** Which lifecycle controls make sense in the current state. */
 export function controls(st: ServerStatus) {
   const busy = st.operation !== undefined
   const running = ['online', 'starting', 'starting_container', 'preparing_world', 'downloading_server', 'stopping'].includes(st.phase)
   const dockerDown = st.phase === 'docker_unavailable'
   return {
-    canStart: st.exists && !busy && !dockerDown && !running,
+    canStart: st.exists && !busy && !dockerDown && !running && !st.softwareChanged,
     canStop: st.exists && !busy && !dockerDown && running && st.phase !== 'stopping',
     canRestart: st.exists && !busy && !dockerDown && st.phase === 'online',
     busy,
@@ -112,6 +117,7 @@ export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): 
   const settling = phaseTone(st.phase) === 'busy' ? t('reason.busy', { what: t(st.phase === 'stopping' ? 'op.stop' : 'op.start', { server: st.name }) }) : undefined
   switch (action) {
     case 'start':
+      if (st.softwareChanged) return t('reason.softwareChanged')
       return c.canStart ? undefined : (settling ?? t('reason.running', { server: st.name }))
     case 'stop':
       return c.canStop ? undefined : (settling ?? t('reason.stopped', { server: st.name }))
@@ -140,6 +146,9 @@ const opKeys: Record<string, MessageKey> = {
   delete: 'op.delete',
   update: 'op.update',
   'remove-addon': 'op.remove-addon',
+  // Wave 4.
+  reinstall: 'op.reinstall',
+  'template-retry': 'op.templateRetry',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */
@@ -185,4 +194,30 @@ export function createStepOf(phase: string): number {
       return 3
   }
   return 0
+}
+
+/**
+ * The setup steps of a server made from a modpack: checked, the server
+ * software, the pack's files, starting, reachable.
+ */
+export function packStepOf(phase: string): number {
+  switch (phase) {
+    case 'preparing_modpack':
+      return 1
+    case 'installing_modpack':
+    case 'installing_addons':
+      return 2
+  }
+  const at = createStepOf(phase)
+  return at >= 2 ? at + 1 : at
+}
+
+/**
+ * The setup steps of a server made from a template with add-ons: checked,
+ * the server software, the add-ons, starting, reachable.
+ */
+export function templateStepOf(phase: string): number {
+  if (phase === 'installing_addons') return 2
+  const at = createStepOf(phase)
+  return at >= 2 ? at + 1 : at
 }

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -69,13 +71,27 @@ func (a *Agent) hMachine(w http.ResponseWriter, r *http.Request) {
 // catalogInfo is what a server can choose: for a new server when forServer
 // is empty, or for an existing one's settings.
 func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
+	return a.catalogFor(ctx, forServer, "")
+}
+
+// catalogFor is catalogInfo with the versions of one server type: typ, or
+// the server's own type, or Paper.
+func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catalog {
+	if typ == "" {
+		typ = api.TypePaper
+		if s := a.serverByID(forServer); s != nil {
+			if sc, _ := s.serverConfig(); sc != nil && sc.Type != "" {
+				typ = sc.Type
+			}
+		}
+	}
 	host := a.opts.HostMemoryMB()
 	opts, rec, max := a.memoryFor(forServer)
 	if opts == nil {
 		opts = []int{}
 	}
 	c := api.Catalog{
-		Type: api.TypePaper, Types: serverTypes(), Versions: []api.CatalogEntry{},
+		Type: typ, Types: serverTypes(), Versions: []api.CatalogEntry{},
 		MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max,
 		SystemReserveMB: minecraft.HostReserveMB, MemoryFreeMB: max, Servers: []api.ServerMemory{}, Image: minecraft.ImageTag,
 	}
@@ -92,11 +108,22 @@ func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
 			c.SuggestedPort = p
 		}
 	}
-	if v, at, err := a.versionCatalog(ctx); err != nil {
+	dates := make(chan map[string]time.Time, 1)
+	go func() { dates <- a.releaseDates(context.WithoutCancel(ctx)) }()
+	v, at, err := a.typeCatalog(ctx, typ)
+	var ae *apiError
+	switch {
+	case err != nil && typ == api.TypePaper:
 		c.VersionsError = "Could not load the Minecraft versions from PaperMC: " + err.Error() + ". Check that this server can reach fill.papermc.io."
-	} else {
-		c.Versions = v
+	case err != nil && errors.As(softwareError(err), &ae):
+		c.VersionsError = strings.TrimSpace(ae.Msg + " " + ae.Hint)
+	case err != nil:
+		c.VersionsError = fmt.Sprintf("Could not load the %s versions: %v.", typeName(typ), err)
+	default:
+		d := <-dates
+		c.Versions = withReleaseDates(v, d)
 		c.VersionsCheckedAt = &at
+		c.LatestRelease = latestRelease(d)
 	}
 	return c
 }
@@ -107,11 +134,12 @@ func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotFound("Server"))
 		return
 	}
-	if t := r.URL.Query().Get("type"); t != "" && t != api.TypePaper {
-		writeError(w, errInvalid("Only Paper servers can be created for now."))
+	typ := r.URL.Query().Get("type")
+	if typ != "" && !typeAvailable(typ) {
+		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
-	writeJSON(w, http.StatusOK, a.catalogInfo(r.Context(), forServer))
+	writeJSON(w, http.StatusOK, a.catalogFor(r.Context(), forServer, typ))
 }
 
 // Status assembles the server's desired and observed state. Nothing here is
@@ -138,6 +166,10 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	refusal := s.refusal
 	crashed, crash := s.crashed, s.crash
 	st.CrashCount = len(s.crashes)
+	if s.softwareChanged != nil {
+		change := *s.softwareChanged
+		st.SoftwareChanged = &change
+	}
 	players, res := s.players, s.resources
 	reachable, reachableAt := s.reachable, s.reachableAt
 	if !s.worldAt.IsZero() {
@@ -146,7 +178,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	}
 	s.mu.Unlock()
 	fresh := s.fresh
-	st.Phase = observedPhase(c, err, sc != nil, runPhase, crashed, st.Operation)
+	st.Phase = observedPhase(c, err, sc != nil, runPhase, crashed, st.SoftwareChanged != nil, st.Operation)
 	running := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
@@ -217,8 +249,9 @@ func (s *server) fresh(t time.Time) bool {
 
 // observedPhase is the server's phase from its container c (err from
 // inspecting it), whether the server has been created, the phase its log
-// shows, whether its last run crashed and the operation in progress.
-func observedPhase(c docker.ContainerJSON, err error, created bool, logPhase api.Phase, crashed bool, op *api.Operation) api.Phase {
+// shows, whether its last run crashed, whether a start was refused because
+// its software changed, and the operation in progress.
+func observedPhase(c docker.ContainerJSON, err error, created bool, logPhase api.Phase, crashed, changed bool, op *api.Operation) api.Phase {
 	p := api.PhaseStopped
 	switch {
 	case err != nil && !docker.IsNotFound(err):
@@ -226,12 +259,15 @@ func observedPhase(c docker.ContainerJSON, err error, created bool, logPhase api
 	case !created:
 		p = api.PhaseNotCreated
 	case docker.IsNotFound(err):
+		if changed {
+			p = api.PhaseCrashed
+		}
 	case c.State.Running:
 		p = logPhase
 		if p == "" || p == api.PhaseCrashed {
 			p = api.PhaseStartingContainer
 		}
-	case crashed:
+	case crashed || changed:
 		p = api.PhaseCrashed
 	}
 	if op != nil {
@@ -319,12 +355,29 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, api.CodeEULARequired, "You must accept the Minecraft EULA before Playkeeper downloads or starts a server.", "Read https://www.minecraft.net/en-us/eula and tick the box to accept it.")
 		return
 	}
+	var tpl *templateImport
+	if req.Template != nil {
+		if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {
+			writeError(w, errInvalid("A server made from a template takes its type, version and settings from the template."))
+			return
+		}
+		if tpl, err = a.confirmTemplate(r.Context(), req.Template.Fingerprint); err != nil {
+			writeError(w, err)
+			return
+		}
+		tpl.fill(&req)
+	}
 	typ := req.Type
 	if typ == "" {
 		typ = api.TypePaper
 	}
-	if !typeAvailable(typ) {
-		writeError(w, errInvalid("%s servers can't be created yet. Choose Paper.", typeName(typ)))
+	if req.Modpack != nil {
+		if req.Type != "" || req.VersionID != "" || req.Build != "" {
+			writeError(w, errInvalid("A server made from a modpack runs the type and version the pack names."))
+			return
+		}
+	} else if !typeAvailable(typ) {
+		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
 	name := ""
@@ -338,12 +391,44 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Unknown play style."))
 		return
 	}
-	entry, err := a.catalogEntry(r.Context(), req.VersionID)
-	if err != nil {
+	var entry api.CatalogEntry
+	var pin software.Pin
+	var pack *api.ServerModpack
+	if req.Modpack != nil {
+		var rt restoreTarget
+		if rt, pack, err = a.packCreateTarget(r.Context(), *req.Modpack); err != nil {
+			writeError(w, err)
+			return
+		}
+		if tpl != nil && rt.typ != tpl.p.Type.ID {
+			writeError(w, errConflict(fmt.Sprintf("The template names a %s server, but its modpack runs on %s, so nothing was created.", tpl.p.Type.Name, typeName(rt.typ)),
+				"Ask whoever shared the template for a new one."))
+			return
+		}
+		typ, entry, pin = rt.typ, rt.entry, rt.pin
+	} else if entry, err = a.typeEntry(r.Context(), typ, req.VersionID); err != nil {
 		writeError(w, err)
 		return
 	}
-	if entry.Experimental && !req.AcceptExperimental {
+	experimental := entry.Experimental
+	switch {
+	case pack != nil:
+		// The pack names its loader, and its authors chose it.
+		experimental = false
+	case typ == api.TypePaper:
+		if req.Build != "" {
+			writeError(w, errInvalid("Paper servers run the build the version list names."))
+			return
+		}
+	default:
+		var channel software.Channel
+		if pin, channel, err = a.pinFor(r.Context(), entry, req.Build); err != nil {
+			writeError(w, err)
+			return
+		}
+		experimental = experimental || channel != software.Stable
+	}
+	if experimental && !req.AcceptExperimental {
 		writeError(w, errInvalid("%s is experimental. Confirm that you accept the risk to your world to use it.", entry.Label))
 		return
 	}
@@ -365,15 +450,32 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := a.now().UTC()
-	sc := withBuild(api.ServerConfig{
+	base := api.ServerConfig{
 		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
 		PlayStyle: req.PlayStyle, Gameplay: gp,
-	}, entry)
+	}
+	sc, label := withBuild(base, entry), entry.Label
+	if typ != api.TypePaper {
+		sc = withPin(base, entry, pin)
+		label = softwareLabel(sc)
+	}
+	if pack != nil {
+		sc.Modpack, label = pack, pack.Name+" "+pack.VersionNumber
+	}
+	if tpl != nil {
+		sc.Template = &api.ServerTemplate{Name: tpl.p.Name, Pending: len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0}
+	}
 	_, op, err := a.addServer(newServerSpec{name: name, typ: typ, config: sc, desired: api.DesiredRunning, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
 			s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
-			s.recordEvent(s.now(), "server_created", "", "playkeeper", entry.Label)
+			if tpl != nil && (len(tpl.p.Addons) > 0 || len(tpl.p.Packs) > 0) {
+				if err := s.saveTemplateInstall(tpl.p.Addons, templateDataPacks(tpl.p)); err != nil {
+					s.startFailed(ctx)
+					return err
+				}
+			}
+			s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
 			if err := s.startServer(ctx, h, sc); err != nil {
 				s.startFailed(ctx)
 				return err

@@ -42,6 +42,16 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     if (player) out.push(`/servers/${s.slug}/players/${encodeURIComponent(player)}`)
   }
   out.push('/servers/new')
+  // The add-on library with Playkeeper's picks, for the first server that
+  // has one (each library takes minutes), and a template someone shared.
+  const library = servers.find((s) => addonTabs[s.type ?? ''])
+  if (library) out.push(`/servers/${library.slug}${addonTabs[library.type ?? '']}/browse`)
+  const first = servers[0]
+  if (first) {
+    const exported = (await (await page.request.get(`/api/servers/${first.id}/template`)).json()) as { link?: string }
+    const payload = exported.link?.split('#')[1]
+    if (payload) out.push(`/servers/new#template=${payload}`)
+  }
   for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
   out.push('/settings', '/settings/team', '/settings/discord', '/account', '/account/two-factor')
   if (phone) out.push('/more')
@@ -66,6 +76,8 @@ for (const [name, size] of Object.entries(sizes)) {
     const outCrawler = new Crawler(outPage, name, base, log)
     await outCrawler.init()
     await outCrawler.crawl('/login')
+    // A friends' pack link that opens nothing: the page every unavailable link gets.
+    await outCrawler.crawl('/packs/Pk0Unknown0Link0Abcdef')
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
     await signedOut.close()

@@ -96,24 +96,34 @@ func TestNewerStableMatchesTheDashboard(t *testing.T) {
 		{MinecraftVersion: "26.1.2", PaperBuild: 60, Supported: true},
 		{MinecraftVersion: "1.21.11", PaperBuild: 10, Supported: true},
 	}
+	vanilla := func(v string) api.CatalogEntry {
+		return api.CatalogEntry{MinecraftVersion: v, Supported: true, Software: &api.SoftwarePin{Type: "vanilla", MinecraftVersion: v}}
+	}
+	mixed := []api.CatalogEntry{vanilla("26.3"), {MinecraftVersion: "26.2", PaperBuild: 10, Supported: true}}
 	for _, c := range []struct {
-		cur      string
+		typ, cur string
 		versions []api.CatalogEntry
 		want     string
 	}{
-		{"26.1.2", versions, "26.2.1#41"},
-		{"26.2", versions, "26.2.1#41"},
-		{"26.2.1", versions, ""},
-		{"26.3", versions, ""},
-		{"26.1.2", []api.CatalogEntry{{MinecraftVersion: "26.2", PaperBuild: 10, Supported: true}, {MinecraftVersion: "26.2", PaperBuild: 12, Supported: true}}, "26.2#12"},
-		{"26.1.2", []api.CatalogEntry{{MinecraftVersion: "26.2", PaperBuild: 10}}, ""},
+		{"", "26.1.2", versions, "26.2.1#41"},
+		{"", "26.2", versions, "26.2.1#41"},
+		{"", "26.2.1", versions, ""},
+		{"", "26.3", versions, ""},
+		{"", "26.1.2", []api.CatalogEntry{{MinecraftVersion: "26.2", PaperBuild: 10, Supported: true}, {MinecraftVersion: "26.2", PaperBuild: 12, Supported: true}}, "26.2#12"},
+		{"", "26.1.2", []api.CatalogEntry{{MinecraftVersion: "26.2", PaperBuild: 10}}, ""},
+		{"", "26.1.2", mixed, "26.2#10"},
+		{"vanilla", "26.1.2", mixed, "26.3#0"},
 	} {
+		cur := api.ServerConfig{MinecraftVersion: c.cur, PaperBuild: 74}
+		if c.typ != "" {
+			cur.Type, cur.PaperBuild, cur.Software = c.typ, 0, &api.SoftwarePin{Type: c.typ, MinecraftVersion: c.cur}
+		}
 		got := ""
-		if e, ok := newerStable(api.ServerConfig{MinecraftVersion: c.cur, PaperBuild: 74}, c.versions); ok {
+		if e, ok := newerStable(cur, c.versions); ok {
 			got = e.MinecraftVersion + "#" + strconv.Itoa(e.PaperBuild)
 		}
 		if got != c.want {
-			t.Errorf("from %s: got %q, want %q", c.cur, got, c.want)
+			t.Errorf("%s from %s: got %q, want %q", nonEmptyOr(c.typ, "paper"), c.cur, got, c.want)
 		}
 	}
 }

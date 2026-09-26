@@ -8,6 +8,7 @@ import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel } from '@/components/app/skeletons'
+import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
@@ -144,7 +145,7 @@ function metaLine(s: ServerStatus, settingUp: boolean, stale: boolean, lastSeenA
   if (stale) {
     if (lastSeenAt && s.phase === 'online') parts.push(t('server.lastSeen', { time: relativeTime(new Date(lastSeenAt).toISOString()) }))
   } else {
-    const style = styleTitle(cfg)
+    const style = cfg?.modpack?.name ?? styleTitle(cfg)
     if (style) parts.push(style)
     if (settingUp && cfg?.memoryMB) parts.push(formatMB(cfg.memoryMB))
   }
@@ -190,8 +191,10 @@ function MoreMenu({ server }: { server: ServerStatus }) {
   const run = can(me, 'servers.run')
   const backUp = can(me, 'backups.make')
   const remove = can(me, 'servers.create')
+  const share = can(me, 'view')
+  const [sharing, setSharing] = useState(false)
   const backUpBlocked = whyNot(server, 'change', stale)
-  if (!run && !backUp && !remove) return null
+  if (!run && !backUp && !remove && !share) return null
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>
@@ -216,9 +219,10 @@ function MoreMenu({ server }: { server: ServerStatus }) {
             {t('server.backUp')}
           </MenuItem>
         )}
+        {share && <TemplateMenuItem onClick={() => setSharing(true)} />}
         {remove && (
           <>
-            {(run || backUp) && <MenuSeparator />}
+            {(run || backUp || share) && <MenuSeparator />}
             <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
               <Trash2Icon />
               {t('server.deleteMenu')}
@@ -226,6 +230,7 @@ function MoreMenu({ server }: { server: ServerStatus }) {
           </>
         )}
       </MenuPopup>
+      <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />
     </Menu>
   )
 }
