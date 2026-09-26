@@ -1120,7 +1120,7 @@ control "an interrupted restore gets the previous world back at start" internal/
   'if false && dirExists(aside) {' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
 control "an interrupted restore gets the previous settings back at start" internal/agent/backups.go \
-  'return s.saveServerConfig(*j.Previous)' \
+  'return s.saveWithPack(*j.Previous, j.PreviousPack)' \
   'return nil' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
 control "a restore stage is kept while its swap is not settled" internal/agent/backups.go \
@@ -1186,7 +1186,7 @@ control "a restored world still starting after a restart is kept only once onlin
   'err = nil' \
   ./internal/agent '^TestRestoredWorldThatDoesNotStartIsSwappedBackOut$/^after_the_agent_stops_while_the_restored_world_boots$'
 control "a restore finished after a restart saves the restored settings" internal/agent/backups.go \
-  'if err := s.saveServerConfig(j.Restored); err != nil {' \
+  'if err := s.saveWithPack(j.Restored, j.RestoredPack); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_after_the_swap$'
 control "a restored world that does not start is swapped back out" internal/agent/backups.go \
