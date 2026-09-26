@@ -786,8 +786,18 @@ control "resource packs: a listed pack doesn't wait while the agent is asked abo
   'if wait == nil || known && !started && false {' \
   ./internal/panel '^TestListedPacksDontWaitForTheAgent$'
 control "add-on installs: a confirmed plan is required" internal/agent/addons.go \
-  'if err := confirmedPlan(req.Fingerprint); err != nil {' \
-  'if err := confirmedPlan(req.Fingerprint); false && err != nil {' \
+  'key, err := parseAddonKey(req.Source, req.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := confirmedPlan(req.Fingerprint); err != nil {' \
+  'key, err := parseAddonKey(req.Source, req.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := confirmedPlan(req.Fingerprint); false && err != nil {' \
   ./internal/agent '^TestAddonRoutesRejectBadInput$'
 control "add-on updates: a confirmed plan is required" internal/agent/addons.go \
   'keys, err := updateKeys(req.Addons)
@@ -1342,8 +1352,12 @@ control "Cloudflare errors never show the token" internal/names/service/cloudfla
   'scrub(nil, c.token)' \
   ./internal/names/service '^TestCloudflareErrorsNeverShowTheToken$'
 control "names service follows no redirects from Cloudflare" internal/names/service/service.go \
-  'CheckRedirect: noRedirects,' \
-  'CheckRedirect: nil,' \
+  'cfg.HTTP = &http.Client{
+			Timeout:       30 * time.Second,
+			CheckRedirect: noRedirects,' \
+  'cfg.HTTP = &http.Client{
+			Timeout:       30 * time.Second,
+			CheckRedirect: nil,' \
   ./internal/names/service '^TestTheServiceFollowsNoRedirects$'
 control "names claimed from one network are limited" internal/names/service/handlers.go \
   'if n < s.cfg.MaxNamesPerNetwork {' \
