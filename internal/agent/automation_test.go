@@ -646,6 +646,58 @@ func TestCopiesSomewhereElseUploadRetryAndFollowTheRules(t *testing.T) {
 	}
 }
 
+// stoppingDest is a destination whose first upload stores a part, then
+// waits for the agent to stop and fails with nothing to resume from, as an
+// upload does when it is cancelled before the storage says more.
+type stoppingDest struct {
+	fakeDest
+	part  *offsite.UploadState
+	saved chan struct{}
+}
+
+func (d *stoppingDest) Upload(ctx context.Context, up offsite.Upload) (offsite.Copy, error) {
+	d.mu.Lock()
+	first := len(d.names) == 0
+	if first {
+		d.names, d.resumes = append(d.names, up.Name), append(d.resumes, up.Resume)
+	}
+	d.mu.Unlock()
+	if !first {
+		return d.fakeDest.Upload(ctx, up)
+	}
+	up.Progress(offsite.Progress{Sent: 400, Total: up.Size, State: d.part})
+	close(d.saved)
+	<-ctx.Done()
+	return offsite.Copy{}, ctx.Err()
+}
+
+// A copy the agent stopped in carries on, when it starts again, from the
+// part the storage already holds.
+func TestACopyTheAgentStoppedInResumesFromItsSavedPart(t *testing.T) {
+	part := &offsite.UploadState{Archive: "x.tar.gz", Name: "x.tar.gz.age", Size: 1000, S3: &offsite.S3Upload{Key: "k", UploadID: "u1", PartSize: 5 << 20, Parts: []offsite.Part{{Number: 1, Size: 400}}}}
+	dest := &stoppingDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}, part: part, saved: make(chan struct{})}
+	prev := openOffsite
+	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	e.create()
+	id := e.backup()
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != 200 {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	waitClosed(t, dest.saved, "the first part to be stored")
+	e.stop()
+	e.start()
+	e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1 })
+	dest.mu.Lock()
+	resumes := append([]*offsite.UploadState(nil), dest.resumes...)
+	dest.mu.Unlock()
+	if len(resumes) != 2 || resumes[1] == nil || resumes[1].S3 == nil || resumes[1].S3.UploadID != "u1" || len(resumes[1].S3.Parts) != 1 {
+		t.Fatalf("after the restart the copy didn't carry on from the stored part: %+v", resumes)
+	}
+}
+
 func TestDiskSpaceShowsWhatToFreeAndDeletesOnlyWhatWasChosen(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()

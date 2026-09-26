@@ -1535,7 +1535,9 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, 
 func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob, err error) {
 	var oe *offsite.Error
 	errors.As(err, &oe)
-	state := ""
+	// The state the upload's progress saved stays, as NULL leaves it, unless
+	// the error carries a newer one.
+	var state any
 	if oe != nil && oe.Resume != nil {
 		if raw, jerr := json.Marshal(oe.Resume); jerr == nil {
 			state = string(raw)
@@ -1543,7 +1545,7 @@ func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob,
 	}
 	if ctx.Err() != nil {
 		// Playkeeper is stopping: the upload carries on next time.
-		_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = ? WHERE server_id = ? AND backup_id = ?`, state, s.id, b.ID)
+		_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state) WHERE server_id = ? AND backup_id = ?`, state, s.id, b.ID)
 		return
 	}
 	msg, hint, kind, params := err.Error(), "", "", ""
@@ -1564,7 +1566,7 @@ func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob,
 	if attempts <= 8 {
 		wait = min(offsiteFirstBackoff<<(attempts-1), offsiteMaxBackoff)
 	}
-	_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = ?, attempts = ?, next_attempt = ?, last_error = ?, error_hint = ?, error_kind = ?, error_params = ?
+	_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state), attempts = ?, next_attempt = ?, last_error = ?, error_hint = ?, error_kind = ?, error_params = ?
 		WHERE server_id = ? AND backup_id = ?`, state, attempts, s.now().Add(wait).UnixMilli(), msg, hint, kind, params, s.id, b.ID)
 	if attempts == 1 {
 		s.audit("playkeeper", "offsite.copy_failed", b.ID, "failed", msg)
