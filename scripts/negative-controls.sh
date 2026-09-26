@@ -3173,6 +3173,28 @@ control "memory advice reads a mod loader's heap" internal/diagnose/memory.go \
   'return minecraft.HeapFor(budgetMB, in.ServerType, in.Mods)' \
   'return minecraft.HeapMB(budgetMB)' \
   ./internal/diagnose '^TestAdviseMemory$'
+control "memory advice reads the heap the server has, not today's mods'" internal/diagnose/memory.go \
+  'if budgetMB == in.BudgetMB && in.HeapMB > 0 {' \
+  'if false {' \
+  ./internal/agent '^TestMemoryAdviceReadsTheHeapTheServerRunsWith$'
+control "memory advice reads the heap of the server's container" internal/agent/memory.go \
+  'budget, heap := s.runMemory(ctx, *sc)' \
+  'budget, heap := sc.MemoryMB, heapMB(*sc)' \
+  ./internal/agent '^TestMemoryAdviceReadsTheHeapTheServerRunsWith$'
+control "memory advice reads a budget saved since against its restart's heap" internal/agent/memory.go \
+  '	if budget != sc.MemoryMB {
+		heap = heapMB(*sc)' \
+  '	if budget < 0 {
+		heap = heapMB(*sc)' \
+  ./internal/agent '^TestMemoryAdviceReadsTheHeapTheServerRunsWith$'
+control "crash help explains the heap the server ran with" internal/agent/crash.go \
+  'budget, heap := s.runMemory(ctx, *sc)' \
+  'budget, heap := sc.MemoryMB, heapMB(*sc)' \
+  ./internal/agent '^TestCrashHelpExplainsTheMemoryTheServerRanWith$'
+control "crash help explains the memory limit the server ran with" internal/agent/heap.go \
+  'budgetMB = int(c.HostConfig.Memory >> 20)' \
+  '_ = c.HostConfig.Memory' \
+  ./internal/agent '^TestCrashHelpExplainsTheMemoryTheServerRanWith$'
 control "a server that came back on its own still says why it crashed" internal/agent/collector.go \
   'if s.crash != nil {
 					s.recovered = s.crash
