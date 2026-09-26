@@ -184,7 +184,7 @@ func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
 		return
 	}
 	s.runStartedAt = runStart
-	s.sawStopping, s.sawCrash, s.runReady = false, false, false
+	s.sawStopping, s.sawCrash, s.sawOOM, s.runReady = false, false, false, false
 	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
 		s.runPhase = api.PhaseStartingContainer
 	}
@@ -262,6 +262,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 				s.lastError, s.lastErrorHint = "", ""
 			}
 			s.mu.Unlock()
+			if take {
+				s.mapRunOnline(runStart)
+			}
 			if recovered && fresh {
 				s.alert(discord.Event{Kind: discord.KindRecovered, At: ts})
 			} else if fresh {
@@ -307,7 +310,10 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 	case minecraft.EventOOM:
 		if current {
 			s.mu.Lock()
-			s.lastError = "Java ran out of memory."
+			// Java can log "Stopping server" after this with no crash line of
+			// its own, and the run has still crashed.
+			s.sawCrash, s.lastError = true, "Java ran out of memory."
+			s.sawOOM = true
 			s.lastErrorHint = "Choose a larger memory budget in Settings."
 			s.mu.Unlock()
 		}

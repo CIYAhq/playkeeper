@@ -73,22 +73,31 @@ func (r *fakeRelease) serve(w http.ResponseWriter, req *http.Request) {
 // finds releases at a local release location.
 func updateEnv(t *testing.T) (*agentEnv, *fakeRelease, ed25519.PrivateKey) {
 	t.Helper()
+	e := newAgentEnv(t)
+	e.stop()
+	rel, priv := e.useReleases()
+	e.start()
+	return e, rel, priv
+}
+
+// useReleases sets up a stopped agent to start as release 0.2.0 that trusts
+// a test key and finds releases, 0.2.1 among them, at a local release
+// location.
+func (e *agentEnv) useReleases() (*fakeRelease, ed25519.PrivateKey) {
+	e.t.Helper()
 	old := version.Version
 	version.Version = "0.2.0"
-	t.Cleanup(func() { version.Version = old })
+	e.t.Cleanup(func() { version.Version = old })
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	rel := &fakeRelease{}
 	rel.srv = httptest.NewServer(http.HandlerFunc(rel.serve))
-	t.Cleanup(rel.srv.Close)
-	rel.publish(t, priv, "0.2.1")
-	e := newAgentEnv(t)
-	e.stop()
+	e.t.Cleanup(rel.srv.Close)
+	rel.publish(e.t, priv, "0.2.1")
 	e.cfg.Dev = false
 	e.cfg.ReleaseURL = rel.srv.URL
 	e.updateKeys = []ed25519.PublicKey{pub}
 	e.stagedVersion = "0.2.1"
-	e.start()
-	return e, rel, priv
+	return rel, priv
 }
 
 func (e *agentEnv) updateInfo() api.UpdateInfo {

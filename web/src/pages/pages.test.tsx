@@ -606,6 +606,19 @@ describe('Overview', () => {
     expect(await render(<Overview server={server({ config: { ...config, template: { name: 'Paper check', skipped: two } } })} />)).toContain('ViaRewind and Terralith from the template aren’t installed')
   })
 
+  it('says when a restored backup doesn’t record which modpack the server ran', async () => {
+    const text = await render(<Overview server={server({ config: { ...config, modpackUnknown: true } })} />)
+    expect(text).toContain('The backup doesn’t say which modpack Survival ran')
+    expect(text).toContain('Playkeeper doesn’t manage a pack on it')
+  })
+
+  it('says when the list of what a template adds was lost, with nothing to try again', async () => {
+    const text = await render(<Overview server={server({ config: { ...config, template: { name: 'Paper check', lost: true } } })} />)
+    expect(text).toContain('Playkeeper lost the list of what Paper check adds')
+    expect(text).toContain('None of the template’s add-ons or data packs were installed.')
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Try again'))).toBe(false)
+  })
+
   it('counts a modpack’s files as each one is checked', async () => {
     const at = new Date().toISOString()
     const s = server({

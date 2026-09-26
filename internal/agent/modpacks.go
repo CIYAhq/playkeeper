@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -518,11 +519,129 @@ func (s *server) savePackRecord(rec modpacks.Record) error {
 	if err != nil {
 		return err
 	}
-	now := s.now().UnixMilli()
-	_, err = s.db.Exec(`INSERT INTO modpacks(server_id, source, project_id, record, installed_at, updated_at) VALUES(?,?,?,?,?,?)
+	return writePackRecord(s.db, s.id, rec, b, s.now())
+}
+
+// writePackRecord stores, through ex, rec as the record of the modpack
+// files on the server with id; b is rec as JSON.
+func writePackRecord(ex execer, id string, rec modpacks.Record, b []byte, at time.Time) error {
+	now := at.UnixMilli()
+	_, err := ex.Exec(`INSERT INTO modpacks(server_id, source, project_id, record, installed_at, updated_at) VALUES(?,?,?,?,?,?)
 		ON CONFLICT(server_id) DO UPDATE SET source = excluded.source, project_id = excluded.project_id, record = excluded.record, updated_at = excluded.updated_at`,
-		s.id, string(rec.Pack.Source), rec.Pack.ProjectID, string(b), now, now)
+		id, string(rec.Pack.Source), rec.Pack.ProjectID, string(b), now, now)
 	return err
+}
+
+// packRecordJSON is the stored record of the server's modpack files, as
+// JSON; nil when it has none.
+func (s *server) packRecordJSON() (json.RawMessage, error) {
+	var v string
+	err := s.db.QueryRow(`SELECT record FROM modpacks WHERE server_id = ?`, s.id).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(v), nil
+}
+
+// manifestModpack is the backup manifest setting that records the server's
+// modpack: "none", or the pack and the files it put on the server as JSON
+// (packBackup). Archives made before it was recorded don't say. It is a
+// setting rather than a manifest field, so earlier Playkeeper versions still
+// read the archive.
+const manifestModpack = "modpack"
+
+// packBackup is what a backup records of the server's modpack.
+type packBackup struct {
+	Modpack api.ServerModpack `json:"modpack"`
+	Record  modpacks.Record   `json:"record"`
+}
+
+// packSetting is the manifest setting for the server's modpack, or "" when
+// its record can't be read, which leaves the backup not saying.
+func (s *server) packSetting(sc api.ServerConfig) string {
+	if sc.Modpack == nil || sc.Modpack.Pending {
+		return "none"
+	}
+	rec, err := s.packRecord()
+	if err == nil && rec != nil {
+		b, merr := json.Marshal(packBackup{Modpack: *sc.Modpack, Record: *rec})
+		if merr == nil {
+			return string(b)
+		}
+		err = merr
+	}
+	s.log.Warn("the modpack's record could not be read, so the backup doesn't say which pack the server ran", "server", s.id, "err", err)
+	return ""
+}
+
+// restoredModpack gives a restored server the modpack its backup records,
+// setting records it from the manifest, and returns the record of the pack's
+// files to store with it; nil leaves the server without one. A backup that
+// doesn't say leaves a server that could run a pack saying so, rather than
+// keeping a pack its files may not have.
+func restoredModpack(sc *api.ServerConfig, setting string, recorded bool) json.RawMessage {
+	sc.Modpack, sc.ModpackUnknown = nil, false
+	if recorded && setting == "none" {
+		return nil
+	}
+	var pk packBackup
+	if recorded && json.Unmarshal([]byte(setting), &pk) == nil && validPackBackup(pk) {
+		if rec, err := json.Marshal(pk.Record); err == nil {
+			mp := pk.Modpack
+			mp.Pending = false
+			sc.Modpack = &mp
+			return rec
+		}
+	}
+	if t, err := addons.TargetFor(cmp.Or(sc.Type, api.TypePaper)); err != nil || t.Kind != "plugin" {
+		sc.ModpackUnknown = true
+	}
+	return nil
+}
+
+// validPackBackup reports whether a backup's record of its modpack is one
+// Playkeeper could have made: a pack from Modrinth or CurseForge whose files
+// are inside the server's folder. An uploaded archive can say anything.
+func validPackBackup(pk packBackup) bool {
+	m := pk.Modpack
+	if _, err := parsePackRef(m.Source, m.ProjectID, m.VersionID); err != nil || string(pk.Record.Pack.Source) != m.Source || pk.Record.Pack.ProjectID != m.ProjectID {
+		return false
+	}
+	for _, f := range pk.Record.Files {
+		if !filepath.IsLocal(f.Path) {
+			return false
+		}
+	}
+	return true
+}
+
+// saveWithPack saves the server's settings and the record of its modpack's
+// files in one transaction, as a restore swaps both with the world; a nil
+// record removes the server's.
+func (s *server) saveWithPack(sc api.ServerConfig, rec json.RawMessage) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := saveConfig(tx, s.id, sc); err != nil {
+		return err
+	}
+	if len(rec) == 0 {
+		_, err = tx.Exec(`DELETE FROM modpacks WHERE server_id = ?`, s.id)
+	} else {
+		var r modpacks.Record
+		if err = json.Unmarshal(rec, &r); err == nil {
+			err = writePackRecord(tx, s.id, r, rec, s.now())
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ttlCache keeps a few answers from the pack sources for a little while.

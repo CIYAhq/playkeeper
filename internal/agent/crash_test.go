@@ -189,6 +189,31 @@ func TestFailedStartIsExplained(t *testing.T) {
 	}
 }
 
+// Java can log "Stopping server" after running out of memory, with no crash
+// line of its own. The run still crashed: it is explained and counted, the
+// automatic restart waits for its backoff, and the open session ends as a
+// crash, not as a stop.
+func TestAnOutOfMemoryErrorThenStoppingServerIsACrash(t *testing.T) {
+	e := crashEnv(t)
+	e.fd.addLog("[03:10:02 INFO]: PkBotBuilder joined the game")
+	e.waitFor("the session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
+	e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+	e.fd.addLog("[03:11:31 INFO]: Stopping server")
+	e.fd.crash(1)
+	c := e.waitCrash()
+	if c.Kind != "heap_out_of_memory" || c.Start {
+		t.Fatalf("got %s (start %v): %s", c.Kind, c.Start, c.Explanation)
+	}
+	if st := e.status(); st.Phase != api.PhaseCrashed || st.CrashCount != 1 || e.crashEvents() != 1 || e.autoRestarts() != 0 {
+		t.Fatalf("phase %s, %d crash(es) counted, %d crash event(s), %d automatic restart(s); want crashed, 1, 1, none before the backoff",
+			st.Phase, st.CrashCount, e.crashEvents(), e.autoRestarts())
+	}
+	var reason string
+	if err := e.a.db.QueryRow(`SELECT end_reason FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason); err != nil || reason != "server_crashed" {
+		t.Fatalf("the session ended as %q (%v), want server_crashed", reason, err)
+	}
+}
+
 // A start Docker refused because the game port is taken names the program
 // holding the port, when the agent can see it; one it can't see is left out.
 // A start that failed for another reason doesn't look.
@@ -381,6 +406,44 @@ func TestAMemoryKillIsExplainedAfterTheServerComesBack(t *testing.T) {
 	}
 	if c := e.status().RecoveredCrash; c != nil {
 		t.Fatalf("still shown after its memory changed: %+v", c)
+	}
+}
+
+// Java running out of memory and stopping the server is a crash for memory,
+// as Docker's kill is: the error says so, and so does the activity. The next
+// run that crashes without that line is a plain crash.
+func TestJavaRunningOutOfMemoryIsAMemoryCrash(t *testing.T) {
+	e := crashEnv(t)
+	kinds := func() []string {
+		acts, err := e.a.Activity(e.sid, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, a := range acts {
+			out = append(out, a.Kind)
+		}
+		return out
+	}
+	e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+	e.fd.addLog("[03:11:31 INFO]: Stopping server")
+	e.fd.crash(1)
+	e.waitCrash()
+	if st := e.status(); st.LastError != heapCrash {
+		t.Fatalf("the error says %q, want %q", st.LastError, heapCrash)
+	}
+	if k := kinds(); !slices.Contains(k, "crashed_memory") || slices.Contains(k, "crashed") {
+		t.Fatalf("activity after running out of memory: %v", k)
+	}
+
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	e.fd.crash(1)
+	e.waitFor("the second crash", func() bool { return e.crashEvents() == 2 })
+	if k := kinds(); len(k) == 0 || k[0] != "crashed" || !slices.Contains(k, "crashed_memory") {
+		t.Fatalf("activity after a crash without the line: %v", k)
 	}
 }
 

@@ -400,8 +400,8 @@ func (s *server) Events(limit int) ([]api.Event, error) {
 }
 
 // activityEvents and activityAudit are the event and audit kinds worth a line
-// in the recent activity, and what the line is called. A crash Docker
-// reported as a kill for memory is called "crashed_memory".
+// in the recent activity, and what the line is called. A crash for memory,
+// Docker's kill or Java running out, is called "crashed_memory".
 var (
 	activityEvents = map[string]string{
 		"join": "joined", "server_crashed": "crashed", "server_created": "created", "world_restored": "restored",
@@ -451,7 +451,7 @@ func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
 		e.TS = time.UnixMilli(ts).UTC()
 		if source == "event" {
 			e.Kind = activityEvents[kind]
-			if kind == "server_crashed" && strings.HasPrefix(e.Detail, oomCrash) {
+			if kind == "server_crashed" && (strings.HasPrefix(e.Detail, oomCrash) || strings.HasPrefix(e.Detail, heapCrash)) {
 				e.Kind = "crashed_memory"
 			}
 		} else {

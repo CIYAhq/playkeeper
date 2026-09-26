@@ -161,6 +161,62 @@ func TestCPUStealExplainsLag(t *testing.T) {
 	}
 }
 
+// The GC log's folder is given to the game user on every start, not only when
+// Playkeeper makes it, so a chown that failed once is tried again and Java can
+// write its log. A link or a file the game put at logs is left alone, and so
+// is the folder a link leads to.
+func TestTheLogsFolderIsGivenToTheGameOnEveryStart(t *testing.T) {
+	changed := func(p string) syscall.Timespec {
+		t.Helper()
+		var st syscall.Stat_t
+		if err := syscall.Lstat(p, &st); err != nil {
+			t.Fatal(err)
+		}
+		return st.Ctim
+	}
+	give := func(p string) {
+		t.Helper()
+		time.Sleep(20 * time.Millisecond) // the change time moves in clock ticks
+		if err := giveFolder(p, os.Getuid(), os.Getgid()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logs := filepath.Join(t.TempDir(), "logs")
+	if err := os.Mkdir(logs, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	folder := changed(logs)
+	give(logs)
+	if changed(logs) == folder {
+		t.Fatal("a logs folder that was already there was not given to the game user")
+	}
+
+	elsewhere := t.TempDir()
+	if err := os.Remove(logs); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, logs); err != nil {
+		t.Fatal(err)
+	}
+	link, target := changed(logs), changed(elsewhere)
+	give(logs)
+	if changed(logs) != link || changed(elsewhere) != target {
+		t.Fatal("a link at logs, or the folder it leads to, was changed")
+	}
+
+	if err := os.Remove(logs); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logs, []byte("not a folder"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := changed(logs)
+	give(logs)
+	if changed(logs) != file {
+		t.Fatal("a file at logs was changed")
+	}
+}
+
 // The GC log belongs to the game, which can write anything to it or put
 // something else in its place. Each pause is counted once, across lines still
 // being written, agent restarts and the JVM rotating the file; a pipe or a

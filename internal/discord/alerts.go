@@ -307,10 +307,16 @@ func (e Event) embed(info ServerInfo) embed {
 		title, text = "Back online", name+" is running again after the crash."
 	case KindLowDisk:
 		title = "Low disk space"
+		// The disk is the machine's, so without a server's name the alert
+		// is about all of them.
+		runs := name
+		if userText(info.Name, 100) == "" {
+			runs = "your servers"
+		}
 		if e.Bytes > 0 {
-			text = "Only " + formatBytes(e.Bytes) + " of disk space is left on the machine that runs " + name + "."
+			text = "Only " + formatBytes(e.Bytes) + " of disk space is left on the machine that runs " + runs + "."
 		} else {
-			text = "The machine that runs " + name + " is almost out of disk space."
+			text = "The machine that runs " + runs + " is almost out of disk space."
 		}
 		text += " Backups and world saves fail when the disk is full: delete old backups or free up space."
 	case KindBackupFailed:

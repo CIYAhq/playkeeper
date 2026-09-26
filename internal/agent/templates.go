@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -428,9 +429,12 @@ func (ti *templateImport) fill(req *api.CreateServerRequest) error {
 // skipped and reported; a failure such as an unreachable source stops the
 // start, and the next start installs the rest.
 func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *api.ServerConfig) error {
-	planned, remaining, dataPacks, err := s.templateInstall()
+	planned, remaining, dataPacks, found, err := s.templateInstall()
 	if err != nil {
 		return err
+	}
+	if !found {
+		return s.templateLost(h, sc)
 	}
 	var skips []templateSkip
 	if len(remaining) > 0 {
@@ -587,29 +591,60 @@ func skipNotices(skips []templateSkip) []api.AddonNotice {
 
 // settleTemplate records that the template's install is over: what it
 // skipped stays, for the server page and Try again, and the rest of the
-// record goes.
+// record goes. The record and the settings change in one transaction, so a
+// server whose template is pending always has its record.
 func (s *server) settleTemplate(sc *api.ServerConfig, skips []templateSkip) error {
-	if len(skips) == 0 {
-		if _, err := s.db.Exec(`DELETE FROM template_installs WHERE server_id = ?`, s.id); err != nil {
-			return err
-		}
-	} else {
-		b, err := json.Marshal(skips)
-		if err != nil {
-			return err
-		}
-		if _, err := s.db.Exec(`UPDATE template_installs SET remaining = '[]', packs = '[]', skipped = ? WHERE server_id = ?`, string(b), s.id); err != nil {
-			return err
-		}
-	}
 	t := *sc.Template
 	t.Pending = false
 	t.Skipped = nil
 	if len(skips) > 0 {
 		t.Skipped = skipNotices(skips)
 	}
-	sc.Template = &t
-	return s.saveServerConfig(*sc)
+	settled := *sc
+	settled.Template = &t
+	b, err := json.Marshal(skips)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if len(skips) == 0 {
+		_, err = tx.Exec(`DELETE FROM template_installs WHERE server_id = ?`, s.id)
+	} else {
+		_, err = tx.Exec(`UPDATE template_installs SET remaining = '[]', packs = '[]', skipped = ? WHERE server_id = ?`, string(b), s.id)
+	}
+	if err != nil {
+		return err
+	}
+	if err := saveConfig(tx, s.id, settled); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	*sc = settled
+	return nil
+}
+
+// templateLost records that a server's template was pending but its record
+// was gone, so what the template adds is unknown and none of it was
+// installed. The server page says so, rather than the import settling as if
+// it had finished.
+func (s *server) templateLost(h *opHandle, sc *api.ServerConfig) error {
+	t := *sc.Template
+	t.Pending, t.Skipped, t.Lost = false, nil, true
+	lost := *sc
+	lost.Template = &t
+	if err := s.saveServerConfig(lost); err != nil {
+		return err
+	}
+	*sc = lost
+	s.log.Warn("the template's record is gone, so none of its add-ons or data packs were installed", "server", s.id, "template", t.Name)
+	s.audit(h.op.Actor, "template.lost", t.Name, "failed", "its record was gone, so none of its add-ons or data packs were installed")
+	return nil
 }
 
 // templateSkips are the template's add-ons and data packs that were skipped.
@@ -666,7 +701,7 @@ func (s *server) retryTemplate(ctx context.Context, h *opHandle, skips []templat
 	if err != nil || sc == nil || sc.Template == nil {
 		return errConflict("The server no longer has its template's record.", "")
 	}
-	planned, _, _, err := s.templateInstall()
+	planned, _, _, _, err := s.templateInstall()
 	if err != nil {
 		return err
 	}
@@ -753,29 +788,33 @@ func sourceDown(k addons.Kind) bool {
 }
 
 // templateInstall is the template's add-ons, all of them and those still
-// to install, and its data packs.
-func (s *server) templateInstall() (planned, remaining []templates.PlannedAddon, dataPacks []templates.Pack, err error) {
+// to install, and its data packs; found is false when the server has no
+// record of them.
+func (s *server) templateInstall() (planned, remaining []templates.PlannedAddon, dataPacks []templates.Pack, found bool, err error) {
 	var p, r, d string
 	err = s.db.QueryRow(`SELECT planned, remaining, packs FROM template_installs WHERE server_id = ?`, s.id).Scan(&p, &r, &d)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, nil, nil
+		return nil, nil, nil, false, nil
 	}
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, false, err
 	}
 	if err := json.Unmarshal([]byte(p), &planned); err != nil {
-		return nil, nil, nil, fmt.Errorf("the stored template add-ons are damaged: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("the stored template add-ons are damaged: %w", err)
 	}
 	if err := json.Unmarshal([]byte(r), &remaining); err != nil {
-		return nil, nil, nil, fmt.Errorf("the stored template add-ons are damaged: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("the stored template add-ons are damaged: %w", err)
 	}
 	if err := json.Unmarshal([]byte(d), &dataPacks); err != nil {
-		return nil, nil, nil, fmt.Errorf("the stored template data packs are damaged: %w", err)
+		return nil, nil, nil, false, fmt.Errorf("the stored template data packs are damaged: %w", err)
 	}
-	return planned, remaining, dataPacks, nil
+	return planned, remaining, dataPacks, true, nil
 }
 
-func (s *server) saveTemplateInstall(planned []templates.PlannedAddon, dataPacks []templates.Pack) error {
+// saveTemplateInstall records, through ex, the add-ons and data packs the
+// template the server with id was created from brings, for its first start
+// to install.
+func saveTemplateInstall(ex execer, id string, planned []templates.PlannedAddon, dataPacks []templates.Pack, at time.Time) error {
 	b, err := json.Marshal(append([]templates.PlannedAddon{}, planned...))
 	if err != nil {
 		return err
@@ -784,9 +823,9 @@ func (s *server) saveTemplateInstall(planned []templates.PlannedAddon, dataPacks
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO template_installs(server_id, planned, remaining, packs, created_at) VALUES(?,?,?,?,?)
+	_, err = ex.Exec(`INSERT INTO template_installs(server_id, planned, remaining, packs, created_at) VALUES(?,?,?,?,?)
 		ON CONFLICT(server_id) DO UPDATE SET planned = excluded.planned, remaining = excluded.remaining, packs = excluded.packs`,
-		s.id, string(b), string(b), string(d), s.now().UnixMilli())
+		id, string(b), string(b), string(d), at.UnixMilli())
 	return err
 }
 

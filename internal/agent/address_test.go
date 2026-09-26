@@ -1052,6 +1052,13 @@ func TestFreeNameIsRefreshedAtStartAndDaily(t *testing.T) {
 	e.stop()
 	e.start()
 	e.waitFor("the refresh at start", func() bool { return e.names.count("POST /v1/names/alex/address") == refreshes+2 })
+	// The names service counts a request when it arrives, before the loop
+	// has the answer and saves when the next refresh is due. Change the
+	// address under its lock, as the loop does, so that save comes first.
+	release, err := e.a.holdAddress(t.Context(), 15*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	st := e.a.address()
 	if d := time.Until(st.Free.NextRefresh); d < 23*time.Hour || d > 25*time.Hour {
 		t.Fatalf("next refresh in %v", d)
@@ -1070,6 +1077,7 @@ func TestFreeNameIsRefreshedAtStartAndDaily(t *testing.T) {
 		f.NextRefresh = time.Now().Add(-time.Minute)
 		st.Free = &f
 	})
+	release()
 	e.a.serversChanged()
 	e.waitFor("a refresh attempt", func() bool { return e.names.count("POST /v1/names/alex/address") > refreshes+2 })
 	e.waitFor("the retry to be planned", func() bool {

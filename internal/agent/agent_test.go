@@ -1531,9 +1531,19 @@ func TestCoverageCountsTimeNotSamples(t *testing.T) {
 func TestRetentionBoundsTables(t *testing.T) {
 	e := newAgentEnv(t)
 	e.stop()
+	// The limits are set before the start: the agent's first prune reads
+	// them. New fills in defaults only for a zero Retention, so this starts
+	// from them.
+	prev := e.tweak
+	e.tweak = func(o *Options) {
+		if prev != nil {
+			prev(o)
+		}
+		o.Retention = DefaultRetention()
+		o.Retention.MaxSamples = 100
+		o.Retention.MaxEvents = 50
+	}
 	e.start()
-	e.a.opts.Retention.MaxSamples = 100
-	e.a.opts.Retention.MaxEvents = 50
 	old := time.Now().Add(-400 * 24 * time.Hour).UnixMilli()
 	for i := 0; i < 300; i++ {
 		e.a.db.Exec(`INSERT OR IGNORE INTO samples(ts, state) VALUES(?, 'online')`, time.Now().UnixMilli()-int64(i))

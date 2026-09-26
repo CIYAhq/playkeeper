@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -404,18 +405,34 @@ func (s *server) ensureDirs() error {
 			return err
 		}
 	}
-	// Java refuses to start when its GC log's folder is missing. The game
-	// owns data/, so whatever already stands at logs is left alone, and
-	// Lchown never follows a symlink swapped in after Mkdir.
+	// Java refuses to start when its GC log's folder is missing.
 	logs := filepath.Join(data, "logs")
-	if err := os.Mkdir(logs, 0o750); err == nil && os.Geteuid() == 0 {
-		if err := os.Lchown(logs, s.cfg.GameUID, s.cfg.GameGID); err != nil {
-			return err
-		}
-	} else if err != nil && !errors.Is(err, fs.ErrExist) {
+	if err := os.Mkdir(logs, 0o750); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
+	if os.Geteuid() == 0 {
+		if err := giveFolder(logs, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+			return err
+		}
+	}
 	return s.ensureRCONSecret()
+}
+
+// giveFolder gives the game user the folder at path on every start, not only
+// when Playkeeper makes it, so a chown that failed once doesn't keep Java from
+// writing there. The game owns data/: the folder is changed through a handle
+// opened without following a link or waiting on a pipe, and a link or anything
+// but a folder at path is left alone.
+func giveFolder(path string, uid, gid int) error {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Chown(uid, gid)
 }
 
 // ensureRCONSecret creates the host-generated RCON password: a root-only copy
@@ -627,19 +644,15 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
-	name := s.containerName()
-	c, err := s.docker.ContainerInspect(ctx, name)
-	// A server running as defined keeps the heap it started with: a mod added
-	// since mustn't make a Start stop it. Its next start sizes the heap.
-	if _, was := s.containerSpec(sc, false, c.Config.Env); err != nil || !c.State.Running || c.Config.Labels[labelSpec] != was {
-		if err := s.sizeHeap(&sc); err != nil {
-			return err
-		}
+	if err := s.sizeHeap(ctx, &sc); err != nil {
+		return err
 	}
 	if err := s.writeMapConfig(); err != nil {
 		return err
 	}
 	pastFiles = true
+	name := s.containerName()
+	c, err := s.docker.ContainerInspect(ctx, name)
 	spec, hash := s.containerSpec(sc, false, c.Config.Env)
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
@@ -684,11 +697,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	if err := s.waitReady(ctx, h, id); err != nil {
-		return err
-	}
-	s.mapStarted()
-	return nil
+	return s.waitReady(ctx, h, id)
 }
 
 func classifyStartError(err error, port int) error {
@@ -822,7 +831,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping, s.sawCrash = false, false
+	s.sawStopping, s.sawCrash, s.sawOOM = false, false, false
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }
@@ -850,8 +859,10 @@ const (
 	// recoveredFor is how long the status keeps saying why a server that
 	// came back on its own had crashed.
 	recoveredFor = 24 * time.Hour
-	// oomCrash starts the event detail of a server Docker killed for memory.
-	oomCrash = "The server ran out of memory and was killed."
+	// oomCrash starts the event detail of a server Docker killed for memory,
+	// heapCrash that of one whose Java ran out of memory and stopped it.
+	oomCrash  = "The server ran out of memory and was killed."
+	heapCrash = "Java ran out of memory and the server stopped."
 )
 
 // stoppedCleanly reports whether the run that ended logged a clean shutdown.
@@ -997,10 +1008,14 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	n := len(s.crashes)
 	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
-	if st.OOMKilled {
+	switch {
+	case st.OOMKilled:
 		s.lastError = oomCrash
 		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
-	} else {
+	case s.sawOOM:
+		s.lastError = heapCrash
+		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
+	default:
 		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
 		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
@@ -1012,12 +1027,14 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 		s.nextAutoRestart = s.now().Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
 	}
 	detail := s.lastError
-	oom := st.OOMKilled
-	s.mu.Unlock()
 	kind := "exit"
-	if oom {
+	switch {
+	case st.OOMKilled:
 		kind = "oom"
+	case s.sawOOM:
+		kind = "java_oom"
 	}
+	s.mu.Unlock()
 	s.recordEvent(fin, "server_crashed", "", "docker", detail)
 	s.log.Warn("server crashed", "server", s.id, "exit", st.ExitCode, "cause", kind, "crashes", n)
 	return cause

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -119,62 +120,104 @@ func TestVoiceChatOpensItsPortAndClosesItWhenRemoved(t *testing.T) {
 	}
 }
 
-// Removing voice chat closes its port first: a removal that can't close it
-// removes nothing, so no later start publishes a port with nothing behind
-// it, and one whose file can't be removed gives the port back.
-func TestVoiceChatRemovalClosesItsPortFirst(t *testing.T) {
-	e := newAgentEnv(t)
-	withCuratedProjects(e.withSources())
-	e.a.opts.UDPPortInUse = func(int) bool { return false }
-	e.create()
-	e.waitFor("online", e.onlineIdle)
-	var d api.AddonDetails
-	e.decode("GET", e.sp("/addons/project/modrinth/"+voiceChatProject), &d)
-	if op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": voiceChatProject, "fingerprint": d.Plan.Fingerprint,
-		"openPorts": true, "actor": "admin"}); op.Status != api.OpSucceeded {
-		t.Fatalf("install voice chat: %+v", op)
+// Voice chat's record and its port never disagree, however a removal ends:
+// the port closes in the transaction that drops the record. A removal that
+// fails leaves both, and removing again finishes it; one that keeps voice
+// chat keeps its port.
+func TestVoiceChatRecordAndPortNeverDisagree(t *testing.T) {
+	removal := func(project string, extra map[string]any) map[string]any {
+		body := map[string]any{"source": "modrinth", "projectId": project, "keepConfig": true, "actor": "admin"}
+		maps.Copy(body, extra)
+		return body
 	}
-	plugins := filepath.Join(e.dataDir(), "plugins")
-	left := func() (int, int, int) {
+	changeJar := func(t *testing.T, e *agentEnv) {
 		recs, _ := e.srv().installedAddons()
-		jars, _ := filepath.Glob(filepath.Join(plugins, "*.jar"))
-		sc, _ := e.srv().serverConfig()
-		return len(recs), len(jars), sc.VoiceChatPort
-	}
-	remove := map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}
-
-	if _, err := e.a.db.Exec(`CREATE TRIGGER stuck_config BEFORE UPDATE OF config ON servers BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
-		t.Fatal(err)
-	}
-	if code, out := e.call("POST", e.sp("/addons/remove"), remove); code < 400 {
-		t.Fatalf("a removal whose port can't be closed: %d %v", code, out)
-	}
-	if recs, jars, port := left(); recs != 1 || jars != 1 || port != curated.VoiceChatPort {
-		t.Fatalf("a removal whose port can't be closed left %d records, %d jars and port %d, want voice chat as it was", recs, jars, port)
-	}
-	if _, err := e.a.db.Exec(`DROP TRIGGER stuck_config`); err != nil {
-		t.Fatal(err)
-	}
-
-	if os.Geteuid() != 0 {
-		if err := os.Chmod(plugins, 0o500); err != nil {
+		i := slices.IndexFunc(recs, func(r addons.Installed) bool { return r.ProjectID == voiceChatProject })
+		if i < 0 {
+			t.Fatal("voice chat isn't installed")
+		}
+		if err := os.WriteFile(filepath.Join(e.dataDir(), "plugins", recs[i].FileName), []byte("changed by hand"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		code, out := e.call("POST", e.sp("/addons/remove"), remove)
-		os.Chmod(plugins, 0o755)
-		if code < 400 {
-			t.Fatalf("a removal whose file can't be removed: %d %v", code, out)
+	}
+	trigger := func(t *testing.T, e *agentEnv, create string) func() {
+		if _, err := e.a.db.Exec(create); err != nil {
+			t.Fatal(err)
 		}
-		if recs, jars, port := left(); recs != 1 || jars != 1 || port != curated.VoiceChatPort {
-			t.Fatalf("voice chat stayed, so its port must too: %d records, %d jars, port %d", recs, jars, port)
+		return func() {
+			if _, err := e.a.db.Exec(`DROP TRIGGER stuck`); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
-
-	if code, out := e.call("POST", e.sp("/addons/remove"), remove); code != 200 {
-		t.Fatalf("remove: %d %v", code, out)
-	}
-	if recs, jars, port := left(); recs != 0 || jars != 0 || port != 0 {
-		t.Fatalf("after removing voice chat: %d records, %d jars, port %d", recs, jars, port)
+	confirmed := map[string]any{"changed": true}
+	for _, tc := range []struct {
+		name string
+		// setup makes the removal go wrong, and returns what puts it right
+		// before removing again.
+		setup   func(t *testing.T, e *agentEnv) func()
+		remove  map[string]any
+		removed bool // the removal succeeds
+		kept    bool // voice chat is still installed after it
+		again   map[string]any
+	}{
+		{"voice chat's file can't be removed", func(t *testing.T, e *agentEnv) func() {
+			changeJar(t, e)
+			return func() {}
+		}, removal(voiceChatProject, nil), false, true, removal(voiceChatProject, confirmed)},
+		{"voice chat is left out of what's removed", func(t *testing.T, e *agentEnv) func() {
+			e.installAddon("Lu3KuzdV")
+			if _, err := e.a.db.Exec(`UPDATE addons SET dependency_of = 'Lu3KuzdV' WHERE server_id = ? AND project_id = ?`, e.sid, voiceChatProject); err != nil {
+				t.Fatal(err)
+			}
+			changeJar(t, e)
+			return func() {}
+		}, removal("Lu3KuzdV", map[string]any{"orphans": []map[string]any{{"source": "modrinth", "projectId": voiceChatProject}}}), true, true, removal(voiceChatProject, confirmed)},
+		{"saving the records fails", func(t *testing.T, e *agentEnv) func() {
+			return trigger(t, e, `CREATE TRIGGER stuck BEFORE DELETE ON addons BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
+		}, removal(voiceChatProject, nil), false, true, removal(voiceChatProject, nil)},
+		{"closing the port fails", func(t *testing.T, e *agentEnv) func() {
+			return trigger(t, e, `CREATE TRIGGER stuck BEFORE UPDATE OF config ON servers
+				WHEN json_extract(OLD.config, '$.voiceChatPort') > 0 AND json_extract(NEW.config, '$.voiceChatPort') IS NULL
+				BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
+		}, removal(voiceChatProject, nil), false, true, removal(voiceChatProject, nil)},
+		{"the removal succeeds", nil, removal(voiceChatProject, nil), true, false, removal(voiceChatProject, nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			withCuratedProjects(e.withSources())
+			e.create()
+			e.waitFor("online", e.onlineIdle)
+			e.installVoiceChat(e.sid)
+			agree := func(when string) bool {
+				t.Helper()
+				recs, _ := e.srv().installedAddons()
+				sc, _ := e.srv().serverConfig()
+				installed := slices.ContainsFunc(recs, func(r addons.Installed) bool { return r.ProjectID == voiceChatProject })
+				if installed != (sc.VoiceChatPort > 0) {
+					t.Fatalf("%s: voice chat's record says installed %v, but its port is %d", when, installed, sc.VoiceChatPort)
+				}
+				return installed
+			}
+			putRight := func() {}
+			if tc.setup != nil {
+				putRight = tc.setup(t, e)
+			}
+			if code, out := e.call("POST", e.sp("/addons/remove"), tc.remove); (code == 200) != tc.removed {
+				t.Fatalf("the removal: %d %v", code, out)
+			}
+			if agree("after the removal") != tc.kept {
+				t.Fatalf("voice chat must be installed after the removal: %v", tc.kept)
+			}
+			putRight()
+			code, out := e.call("POST", e.sp("/addons/remove"), tc.again)
+			if (code == 200) != tc.kept {
+				t.Fatalf("removing voice chat again: %d %v", code, out)
+			}
+			if agree("after removing it again") {
+				t.Fatal("removing voice chat again removes it")
+			}
+		})
 	}
 }
 
@@ -440,10 +483,10 @@ func (e *agentEnv) stageRestore(id, backupID string) (string, string) {
 }
 
 // Voice chat on two servers never gets the same port: a port stays held for
-// the server it's given to until the server's settings record it. A removal
-// holds the one it closes until it knows whether voice chat stays, and a
-// restore holds the one it gives voice chat back until the restored settings
-// are saved, so voice chat installed elsewhere meanwhile gets the next one.
+// the server it's given to until the server's settings record it. A restore
+// holds the one it gives voice chat back until the restored settings are
+// saved, so voice chat installed elsewhere meanwhile gets the next one, and
+// the port of voice chat that was removed is free again.
 func TestVoiceChatPortsAreHeldUntilSaved(t *testing.T) {
 	e, survival, creative, backupID := voiceChatServers(t)
 	ports := func() (int, int) {
@@ -452,22 +495,10 @@ func TestVoiceChatPortsAreHeldUntilSaved(t *testing.T) {
 		return ps[0], ps[1]
 	}
 
-	// Survival's removal has closed its port when Creative installs voice chat.
-	closed, releasePort, err := e.a.serverByID(survival).closeVoiceChat("admin")
-	if err != nil || closed != curated.VoiceChatPort {
-		t.Fatalf("close Survival's port: %d %v", closed, err)
-	}
-	e.installVoiceChat(creative)
-	e.a.serverByID(survival).reopenVoiceChat(closed, "admin")
-	releasePort()
-	if s, c := ports(); s != curated.VoiceChatPort || c != curated.VoiceChatPort+1 {
-		t.Fatalf("a removal holds the port it closed: Survival %d, Creative %d", s, c)
-	}
 	e.removeVoiceChat(survival)
-	e.removeVoiceChat(creative)
 	e.installVoiceChat(creative)
-	if _, c := ports(); c != curated.VoiceChatPort {
-		t.Fatalf("the port of voice chat that was removed is free again: Creative got %d", c)
+	if s, c := ports(); s != 0 || c != curated.VoiceChatPort {
+		t.Fatalf("the port of voice chat that was removed is free again: Survival %d, Creative %d", s, c)
 	}
 	e.removeVoiceChat(creative)
 
