@@ -130,7 +130,6 @@ func (m *mapRecord) sharePath() string {
 	return "/map/" + m.shareToken
 }
 
-// serverType is the server software, with the pre-0.3.0 default.
 func (s *server) gameOwned() bool { return os.Geteuid() == 0 }
 
 func (s *server) webMap(typ, addr string) webmap.Map {
