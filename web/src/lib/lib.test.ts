@@ -6,7 +6,7 @@ import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
-import { crashFixes, crashSummary, failureLine, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
+import { crashDetail, crashFixes, crashSummary, failureLine, lookupKey, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
 import { busyReason, controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from './phase'
@@ -253,6 +253,9 @@ describe('crash helper', () => {
       ['Start again on 25565', 'start'],
     ])
     expect(preselect(crashFixes(port, 'Survival', 'my-vps', false))?.title).toBe('Start again on 25565')
+    expect(crashDetail(port)).toBeUndefined()
+    expect(crashDetail({ ...port, params: { port: 25565, holder: 'java', holder_pid: 48211 } })).toBe('It’s java, process 48211, not started by Playkeeper.')
+    expect(crashDetail({ ...port, params: { port: 25565, holder: 'java' } })).toBeUndefined()
     expect(crashSummary(crash({ kind: 'port_in_use', params: { port: 25565, reason: 'in_use' } }), 'Survival', 'my-vps')).toBe('Something inside Survival was already using its port.')
     expect(crashSummary(crash({ kind: 'port_in_use' }), 'Survival', 'my-vps')).toBe('The agent’s words.')
   })
@@ -268,9 +271,41 @@ describe('crash helper', () => {
     })
     expect(crashSummary(dep, 'Survival', 'my-vps')).toBe('Multiverse-Portals needs Multiverse-Core and Vault, which aren’t installed.')
     expect(titles(dep)).toEqual([
-      ['Install Multiverse-Core', 'Coming later'],
+      ['Install Multiverse-Core', 'Checking the library…'],
       ['Remove Multiverse-Portals', 'remove-addon'],
     ])
+    expect(preselect(crashFixes(dep, 'Survival', 'my-vps', false))?.title).toBe('Remove Multiverse-Portals')
+    const core = { source: 'modrinth', projectId: 'mvcore00' } as const
+    const found = crashFixes(dep, 'Survival', 'my-vps', false, new Date(), { 'install:Multiverse-Core': { state: 'ready', key: core, name: 'Multiverse-Core', version: '5.1.2', fingerprint: 'f'.repeat(32), madeFor: '26.1.2' } })
+    expect(found[0]).toMatchObject({ title: 'Install Multiverse-Core 5.1.2', hint: 'The version it asks for', recommended: true, plan: { kind: 'install-addon', key: core, fingerprint: 'f'.repeat(32) }, button: 'Install and start Survival' })
+    expect(preselect(found)?.title).toBe('Install Multiverse-Core 5.1.2')
+    const missing = crashFixes(dep, 'Survival', 'my-vps', false, new Date(), { 'install:Multiverse-Core': { state: 'unavailable', reason: 'Not in the library' } })
+    expect(missing[0]).toMatchObject({ title: 'Install Multiverse-Core', reason: 'Not in the library' })
+    expect(missing[0]?.plan).toBeUndefined()
+  })
+
+  it('updates the add-on that failed through the library, or says why it can’t', () => {
+    const plugin = crash({
+      start: true,
+      kind: 'addon_failed',
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.0.2.jar' },
+      fixes: [
+        { kind: 'update_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Update it', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Remove it' },
+      ],
+    })
+    expect(lookupKey(plugin.fixes[0]!)).toBe('update:Multiverse-Portals-5.0.2.jar')
+    expect(lookupKey(plugin.fixes[1]!)).toBeUndefined()
+    const portals = { source: 'modrinth', projectId: 'mvportal' } as const
+    const ready = crashFixes(plugin, 'Survival', 'my-vps', false, new Date(), { 'update:Multiverse-Portals-5.0.2.jar': { state: 'ready', key: portals, name: 'Multiverse-Portals', version: '5.1.0', fingerprint: 'a'.repeat(32), madeFor: '26.1.2' } })
+    expect(ready.map((o) => [o.title, o.hint, o.plan?.kind, o.button])).toEqual([
+      ['Update Multiverse-Portals to 5.1.0', 'Made for 26.1.2', 'update-addon', 'Update and start Survival'],
+      ['Remove Multiverse-Portals', 'Survival starts without it. The file is kept.', 'remove-addon', 'Remove and start Survival'],
+    ])
+    expect(preselect(ready)?.plan).toEqual({ kind: 'update-addon', key: portals, fingerprint: 'a'.repeat(32) })
+    const byHand = crashFixes(plugin, 'Survival', 'my-vps', false, new Date(), { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })
+    expect(byHand[0]).toMatchObject({ title: 'Update Multiverse-Portals', reason: 'Added by hand, so Playkeeper can’t update it' })
+    expect(preselect(byHand)?.title).toBe('Remove Multiverse-Portals')
   })
 
   it('says where the memory would come from on a phone', () => {

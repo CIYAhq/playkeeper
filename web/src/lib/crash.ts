@@ -1,5 +1,8 @@
-import type { Crash, CrashLine, DiagnosisAction, FileRefusal, Operation, Params, ServerStatus } from '@/api/types'
+import { get, post } from '@/api/client'
+import type { AddonBrowse, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Crash, CrashLine, DiagnosisAction, FileRefusal, Operation, Params, ServerStatus } from '@/api/types'
+import { errorText, serverApi } from '@/api/workspace'
 import { t } from '@/i18n'
+import { keyFrom, libraryMatch, sameKey, searchPath } from '@/lib/addons'
 import { formatClock, formatDate, formatList, formatMB, sameDay } from '@/lib/format'
 import { num, str, strs } from '@/lib/params'
 
@@ -120,6 +123,9 @@ export function crashDetail(c: Crash): string | undefined {
   const backups = num(c.params, 'backups_mb')
   const disk = num(c.params, 'disk_mb')
   if (c.kind === 'disk_full' && backups && disk) return t('crash.diskDetail', { backups: formatMB(backups), disk: formatMB(disk) })
+  const holder = str(c.params, 'holder')
+  const pid = num(c.params, 'holder_pid')
+  if (c.kind === 'port_in_use' && holder && pid) return t('crash.portHolder', { name: holder, pid: String(pid) })
   return undefined
 }
 
@@ -133,8 +139,77 @@ export type FixPlan =
   | { kind: 'settings'; body: { memoryMB?: number; gameplay?: { viewDistance: number } } }
   | { kind: 'start' }
   | { kind: 'remove-addon'; jar: string }
+  | { kind: 'update-addon'; key: AddonKey; fingerprint: string }
+  | { kind: 'install-addon'; key: AddonKey; fingerprint: string }
   | { kind: 'restore'; backupId: string }
   | { kind: 'delete-backups'; ids: string[] }
+
+/** What the library says about updating or installing an add-on for a fix. */
+export type AddonLookup =
+  | { state: 'checking' }
+  | { state: 'ready'; key: AddonKey; name: string; version: string; fingerprint: string; madeFor: string }
+  | { state: 'unavailable'; reason: string }
+
+/** Lookups by the fix they are for; see lookupKey. */
+export type AddonLookups = Record<string, AddonLookup>
+
+/** The fix a lookup belongs to: the jar to update or the add-on to install. */
+export function lookupKey(f: DiagnosisAction): string | undefined {
+  const jar = str(f.params, 'jar')
+  const name = str(f.params, 'name')
+  if (f.kind === 'update_addon' && jar) return `update:${jar}`
+  if (f.kind === 'install_addon' && name) return `install:${name}`
+  return undefined
+}
+
+/**
+ * Asks the library what update and install fixes would do (keys as from
+ * lookupKey): the version each would put in place and the plan the user
+ * confirms by pressing the button. A jar is updated only when Playkeeper
+ * installed it; an add-on to install is looked up in the library by the name
+ * the server logged.
+ */
+export async function lookUpAddonFixes(serverId: string, keys: string[], minecraft: string): Promise<AddonLookups> {
+  const out: AddonLookups = {}
+  let files: Addons['files'] | undefined
+  for (const key of keys) {
+    const [what, ...rest] = key.split(':')
+    const target = rest.join(':')
+    try {
+      if (what === 'update') {
+        files ??= (await get<Addons>(serverApi(serverId, '/addons'))).files
+        const file = files.find((x) => x.fileName === target)
+        if (!file?.addon || (file.status !== 'managed' && file.status !== 'modified')) {
+          out[key] = { state: 'unavailable', reason: t('crash.fix.byHand') }
+          continue
+        }
+        const k = keyFrom(file.addon)
+        out[key] = fromPlan(await post<AddonPlan>(serverApi(serverId, '/addons/update/plan'), { addons: [k] }), k, minecraft)
+      } else if (what === 'install') {
+        const card = libraryMatch((await get<AddonBrowse>(searchPath(serverId, { q: target, category: '', sort: 'downloads' }))).cards, target)
+        if (!card) {
+          out[key] = { state: 'unavailable', reason: t('crash.fix.notInLibrary') }
+          continue
+        }
+        const d = await get<AddonDetails>(serverApi(serverId, `/addons/project/${card.source}/${encodeURIComponent(card.projectId)}`))
+        out[key] = d.plan ? fromPlan(d.plan, keyFrom(card), minecraft) : { state: 'unavailable', reason: (d.planError ?? d.notice)?.message ?? t('crash.fix.notInLibrary') }
+      }
+    } catch (e) {
+      out[key] = { state: 'unavailable', reason: errorText(e) }
+    }
+  }
+  return out
+}
+
+/** A plan the library made: ready with the version it puts in place, or why not. */
+function fromPlan(p: AddonPlan, key: AddonKey, minecraft: string): AddonLookup {
+  const step = p.steps.find((s) => sameKey(s, key))
+  if (!p.ready || !step) {
+    const why: AddonNotice | undefined = p.blockers[0] ?? p.manual[0]
+    return { state: 'unavailable', reason: why?.message ?? t('crash.fix.notInLibrary') }
+  }
+  return { state: 'ready', key, name: step.name, version: step.versionNumber, fingerprint: p.fingerprint, madeFor: minecraft }
+}
 
 export interface FixOption {
   id: string
@@ -156,8 +231,8 @@ type FixText = Omit<FixOption, 'id' | 'recommended'>
  * yet stays in the list, disabled with a reason, and something always starts
  * the server.
  */
-export function crashFixes(c: Crash, server: string, machine: string, phone: boolean, now: Date = new Date()): FixOption[] {
-  const out = c.fixes.map((f, i): FixOption => ({ id: `${i}:${f.kind}`, recommended: !!f.recommended, ...fixText(c, f, server, machine, phone, now) }))
+export function crashFixes(c: Crash, server: string, machine: string, phone: boolean, now: Date = new Date(), lookups: AddonLookups = {}): FixOption[] {
+  const out = c.fixes.map((f, i): FixOption => ({ id: `${i}:${f.kind}`, recommended: !!f.recommended, ...fixText(c, f, server, machine, phone, now, lookups) }))
   const starts = out.some((o) => o.plan?.kind === 'start')
   if (c.kind === 'disk_full' && !starts && out.some((o) => o.plan?.kind === 'delete-backups')) {
     out.push({ id: 'myself', recommended: false, ...startText(t('crash.fix.myself'), server) })
@@ -186,7 +261,7 @@ function addonName(c: Crash, jar: string): string {
   return str(c.params, 'jar') === jar ? (str(c.params, 'addon') ?? jar) : jar
 }
 
-function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, phone: boolean, now: Date): FixText {
+function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, phone: boolean, now: Date, lookups: AddonLookups): FixText {
   const p = f.params
   const later = t('common.comingLater')
   switch (f.kind) {
@@ -209,10 +284,20 @@ function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, 
       if (!jar) return { title: f.title, reason: later }
       return { title: t('crash.fix.remove', { addon: addonName(c, jar) }), hint: t('crash.fix.removeHint', { server }), plan: { kind: 'remove-addon', jar }, button: t('crash.do.remove', { server }) }
     }
-    case 'update_addon':
-      return { title: t('crash.fix.update', { addon: addonName(c, str(p, 'jar') ?? '') }), reason: later }
-    case 'install_addon':
-      return { title: t('crash.fix.install', { addon: str(p, 'name') ?? '' }), reason: later }
+    case 'update_addon': {
+      const l = lookups[lookupKey(f) ?? '']
+      if (l?.state === 'ready') {
+        return { title: t('crash.fix.updateTo', { addon: l.name, version: l.version }), hint: t('crash.fix.madeFor', { version: l.madeFor }), plan: { kind: 'update-addon', key: l.key, fingerprint: l.fingerprint }, button: t('crash.do.update', { server }) }
+      }
+      return { title: t('crash.fix.update', { addon: addonName(c, str(p, 'jar') ?? '') }), reason: l?.state === 'unavailable' ? l.reason : t('crash.fix.checking') }
+    }
+    case 'install_addon': {
+      const l = lookups[lookupKey(f) ?? '']
+      if (l?.state === 'ready') {
+        return { title: t('crash.fix.installVersion', { addon: l.name, version: l.version }), hint: t('crash.fix.asksFor'), plan: { kind: 'install-addon', key: l.key, fingerprint: l.fingerprint }, button: t('crash.do.install', { server }) }
+      }
+      return { title: t('crash.fix.install', { addon: str(p, 'name') ?? '' }), reason: l?.state === 'unavailable' ? l.reason : t('crash.fix.checking') }
+    }
     case 'remove_datapack':
       return { title: t('crash.fix.removePack', { pack: str(p, 'pack') ?? '' }), reason: later }
     case 'restore_backup':

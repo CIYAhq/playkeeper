@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Activity, Crash, LagStatus, LogsResponse, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
-import { crashDetail, crashFixes, crashSummary, phoneLines, preselect, refusalFixes, refusalLine } from '@/lib/crash'
+import { crashDetail, crashFixes, crashSummary, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
 import { createStepOf, failedJob, isSettingUp, statusTone, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
@@ -392,6 +392,26 @@ function fallbackCrash(s: ServerStatus): Crash {
   return { at: s.stoppedAt ?? '', start: false, kind: 'unknown', certain: false, title: '', explanation: '', evidence: [], fixes: [{ kind: 'restart', title: '' }], lines: [], roomMB: 0 }
 }
 
+/**
+ * What the library says about the crash's update and install fixes, asked
+ * once per crash; empty while it's asked, and without such fixes.
+ */
+function useAddonLookups(s: ServerStatus): AddonLookups {
+  const keys = (s.crash?.fixes ?? []).flatMap((f) => lookupKey(f) ?? []).join('\n')
+  const at = keys ? `${s.id}:${s.crash?.at}:${keys}` : ''
+  const minecraft = s.config?.minecraftVersion ?? ''
+  const [found, setFound] = useState<{ at: string; lookups: AddonLookups }>()
+  useEffect(() => {
+    if (!at) return
+    let stale = false
+    void lookUpAddonFixes(s.id, keys.split('\n'), minecraft).then((lookups) => !stale && setFound({ at, lookups }))
+    return () => {
+      stale = true
+    }
+  }, [at, s.id, keys, minecraft])
+  return found?.at === at ? found.lookups : {}
+}
+
 /** Why the server stopped or didn't start, and fixes that act. */
 function CrashedView({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
@@ -404,7 +424,8 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, ws.machineName) : (s.lastError ?? t('crash.generic', { server: s.name }))
   const detail = refusal ? undefined : s.crash ? crashDetail(s.crash) : s.lastErrorHint
   const lines: ConsoleLine[] = refusal ? [] : s.crash ? s.crash.lines : (logs.data?.lines ?? []).map((l) => parseLine(l.text))
-  const options = refusal ? refusalFixes(refusal, s.name) : crashFixes(s.crash ?? fallbackCrash(s), s.name, ws.machineName, phone)
+  const lookups = useAddonLookups(s)
+  const options = refusal ? refusalFixes(refusal, s.name) : crashFixes(s.crash ?? fallbackCrash(s), s.name, ws.machineName, phone, new Date(), lookups)
   const choice = options.find((o) => o.id === picked && o.plan) ?? preselect(options)
 
   async function act() {
@@ -422,6 +443,12 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
           break
         case 'remove-addon':
           await post(serverApi(s.id, '/addons/remove-file'), { jar: plan.jar, start: true })
+          break
+        case 'update-addon':
+          await post(serverApi(s.id, '/addons/update'), { addons: [plan.key], fingerprint: plan.fingerprint, start: true })
+          break
+        case 'install-addon':
+          await post(serverApi(s.id, '/addons/install'), { ...plan.key, fingerprint: plan.fingerprint, start: true })
           break
         case 'restore':
           setPreview(await post<RestorePreview>(serverApi(s.id, `/backups/${encodeURIComponent(plan.backupId)}/restore`)))

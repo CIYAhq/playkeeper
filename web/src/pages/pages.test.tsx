@@ -634,13 +634,116 @@ describe('Crash helper', () => {
     })
     const text = await render(<Overview server={server({ phase: 'stopped', crash: plugin })} />)
     expect(text).toContain('Multiverse-Portals hit an error while starting.')
-    expect(text).toContain('Update Multiverse-PortalsComing later')
+    expect(text).toContain('Update Multiverse-PortalsChecking the library…')
     expect(text).not.toContain('Recommended')
     expect(labelled('Update Multiverse-Portals')?.querySelector('[data-disabled]')).not.toBeNull()
-    expect(labelled('Update Multiverse-Portals')?.title).toBe('Coming later')
     expect(labelled('Remove Multiverse-Portals')?.querySelector('[data-checked]')).not.toBeNull()
     await press('Remove and start Survival')
     expect(posts()).toEqual([['/addons/remove-file', { jar: 'Multiverse-Portals-5.0.2.jar', start: true }]])
+  })
+
+  const portals = { source: 'modrinth', projectId: 'mvportal' } as const
+  const core = { source: 'modrinth', projectId: 'mvcore00' } as const
+  const portalsRecord = { ...portals, name: 'Multiverse-Portals', slug: 'multiverse-portals', summary: '', versionId: 'v1', versionNumber: '5.0.2', channel: 'release', published: '2026-06-02T12:00:00Z', fileName: 'Multiverse-Portals-5.0.2.jar', size: 1000, installedAt: '2026-09-20T10:00:00Z' }
+  const addonFiles = (status: 'managed' | 'unknown') => ({
+    target: { kind: 'plugin', folder: 'plugins', sources: ['modrinth', 'hangar'], categories: [], minecraftVersion: '26.1.2' },
+    files: [{ fileName: 'Multiverse-Portals-5.0.2.jar', size: 1000, status, addon: status === 'managed' ? portalsRecord : undefined }],
+    missing: [],
+    warnings: [],
+    restartNeeded: false,
+  })
+  const plan = (key: typeof portals | typeof core, name: string, version: string) => ({
+    steps: [{ action: key === core ? 'install' : 'update', ...key, name, versionNumber: version, channel: 'release', fileName: `${name}-${version}.jar`, size: 1000 }],
+    manual: [],
+    blockers: [],
+    warnings: [],
+    ready: true,
+    fingerprint: 'c'.repeat(32),
+  })
+
+  it('updates the plugin that broke through the library, then starts', async () => {
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/addons/update/plan') ? plan(portals, 'Multiverse-Portals', '5.1.0') : {})) as typeof client.post)
+    answer({ '/addons': addonFiles('managed') })
+    const plugin = crash({
+      start: true,
+      kind: 'addon_failed',
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.0.2.jar' },
+      fixes: [
+        { kind: 'update_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Update it', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Remove it' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: plugin })} />)
+    expect(text).toContain('Update Multiverse-Portals to 5.1.0RecommendedMade for 26.1.2')
+    expect(text).toContain('Remove Multiverse-Portals')
+    expect(labelled('Update Multiverse-Portals to 5.1.0')?.querySelector('[data-checked]')).not.toBeNull()
+    await press('Update and start Survival')
+    expect(posts()).toEqual([
+      ['/addons/update/plan', { addons: [portals] }],
+      ['/addons/update', { addons: [portals], fingerprint: 'c'.repeat(32), start: true }],
+    ])
+    vi.mocked(client.post).mockReset()
+    vi.mocked(client.post).mockImplementation(() => Promise.resolve({}))
+  })
+
+  it('says a plugin added by hand can’t be updated, and keeps Remove', async () => {
+    vi.mocked(client.post).mockClear()
+    answer({ '/addons': addonFiles('unknown') })
+    const plugin = crash({
+      start: true,
+      kind: 'addon_failed',
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.0.2.jar' },
+      fixes: [
+        { kind: 'update_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Update it', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Remove it' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: plugin })} />)
+    expect(text).toContain('Update Multiverse-PortalsAdded by hand, so Playkeeper can’t update it')
+    expect(labelled('Remove Multiverse-Portals')?.querySelector('[data-checked]')).not.toBeNull()
+    expect(posts()).toEqual([])
+  })
+
+  it('installs the missing plugin from the library, then starts', async () => {
+    vi.mocked(client.post).mockClear()
+    const card = { ...core, slug: 'multiverse-core', name: 'Multiverse-Core', summary: '', categories: [], downloads: 900000, updated: '2026-09-01T00:00:00Z', pageUrl: '', installed: false }
+    answer({
+      '/addons/search': { cards: [{ ...card, projectId: 'other', name: 'Multiverse-Inventories', slug: 'multiverse-inventories' }, card], more: false, unanswered: [] },
+      '/addons/project/modrinth/mvcore00': { card, plan: plan(core, 'Multiverse-Core', '5.1.2') },
+    })
+    const dep = crash({
+      start: true,
+      kind: 'missing_dependency',
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.1.0.jar', dependencies: ['Multiverse-Core'] },
+      fixes: [
+        { kind: 'install_addon', params: { name: 'Multiverse-Core' }, title: 'Install Multiverse-Core', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.1.0.jar' }, title: 'Remove it' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: dep })} />)
+    expect(text).toContain('Multiverse-Portals needs Multiverse-Core, which isn’t installed.')
+    expect(text).toContain('Install Multiverse-Core 5.1.2RecommendedThe version it asks for')
+    expect(vi.mocked(client.get).mock.calls.map(([path]) => path)).toContain('/api/servers/abcdefghjk/addons/search?q=Multiverse-Core')
+    await press('Install and start Survival')
+    expect(posts()).toEqual([['/addons/install', { ...core, fingerprint: 'c'.repeat(32), start: true }]])
+  })
+
+  it('names the program on a taken port', async () => {
+    const port = crash({
+      start: true,
+      kind: 'port_in_use',
+      params: { port: 25565, holder: 'java', holder_pid: 48211 },
+      fixes: [
+        { kind: 'change_port', params: { port: 25565 }, title: 'Change the port', recommended: true },
+        { kind: 'restart', title: 'Start again' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: port })} />)
+    expect(text).toContain('Another program on my-vps is using port 25565.')
+    expect(text).toContain('It’s java, process 48211, not started by Playkeeper.')
+    expect(labelled('Start again on 25565')?.querySelector('[data-checked]')).not.toBeNull()
+    expect(labelled('Move Survival to another port')?.title).toBe('Coming later')
   })
 
   it('puts the damaged area back as the agent recommends, or restores the backup it names', async () => {
