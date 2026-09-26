@@ -149,6 +149,8 @@ export function NewServerPage() {
   const update = (patch: Partial<CreateChoices>) => setC((prev) => (prev ? { ...prev, ...patch } : prev))
   const options = memoryOptions(catalog)
   const noMemory = !!catalog && options.length === 0
+  const runsType = from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type
+  const runsMods = from === 'modpack' ? (pack?.mods ?? 0) : from === 'template' ? (tpl?.plan.contents.addons.length ?? 0) : 0
 
   function blocked(): string | undefined {
     if (!c) return t('common.loading')
@@ -421,7 +423,7 @@ export function NewServerPage() {
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
               {!noMemory && (
                 <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
-                  {templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { memory: formatMB(suggested), players: playersFor(suggested) })}
+                  {templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { memory: formatMB(suggested), count: playersFor(suggested, runsType) })}
                 </p>
               )}
             </div>
@@ -441,7 +443,7 @@ export function NewServerPage() {
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} type={runsType} mods={runsMods} recommended={c.memoryMB === suggested} style={c.style} />
                     </div>
                   </div>
                   {largest !== undefined && (
@@ -499,7 +501,7 @@ export function NewServerPage() {
     }
   }
 
-  const note = createNote(step, from, from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type)
+  const note = createNote(step, from, runsType)
   const stepBody = (
     <div key={step} className={cn(stepped && 'animate-page')}>
       {body}

@@ -1223,6 +1223,34 @@ func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
 	})
 }
 
+// Docker's health is the machine's: a machine without servers says Docker
+// answers when it does, and says it doesn't when the daemon stops answering.
+func TestDockerHealthNeedsNoServer(t *testing.T) {
+	e := newAgentEnv(t)
+	e.start()
+	docker := func() (bool, string) {
+		m := e.a.Machine(context.Background())
+		return m.Docker, m.DockerVersion
+	}
+	e.waitFor("Docker reported up with no servers", func() bool { ok, _ := docker(); return ok })
+	if _, v := docker(); v != "29.0.0-fake" || len(e.a.serverList()) != 0 {
+		t.Fatalf("Docker %q with %d servers", v, len(e.a.serverList()))
+	}
+	var h api.Health
+	e.decode("GET", "/v1/health", &h)
+	if !h.Docker {
+		t.Fatalf("health says Docker is down with no servers: %+v", h)
+	}
+	e.fd.mu.Lock()
+	e.fd.versionDown = true
+	e.fd.mu.Unlock()
+	e.waitFor("Docker reported down", func() bool { ok, _ := docker(); return !ok })
+	e.fd.mu.Lock()
+	e.fd.versionDown = false
+	e.fd.mu.Unlock()
+	e.waitFor("Docker reported up again", func() bool { ok, _ := docker(); return ok })
+}
+
 // The Overview warns about low disk space with the preflight's thresholds and
 // advice, and a backup refused for space records how much it needed, so its
 // failure can be dropped once that much is free again.

@@ -1093,7 +1093,7 @@ func (a *Agent) restoredConfig(m backup.Manifest, entry api.CatalogEntry, mem in
 func (a *Agent) restoredConfigFor(m backup.Manifest, rt restoreTarget, mem int, prev *api.ServerConfig, actor string) api.ServerConfig {
 	now := a.now().UTC()
 	sc := rt.config(api.ServerConfig{
-		MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
+		MemoryMB: mem, HeapMB: minecraft.HeapFor(mem, rt.typ, 0), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
 		MaxPlayers: manifestMaxPlayers(m), Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
 	})
 	if prev != nil {

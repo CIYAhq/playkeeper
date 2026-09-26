@@ -269,7 +269,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 	env := append([]string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}, typeEnv...)
 	env = append(env,
 		"SKIP_DOWNLOAD_DEFAULTS=TRUE",
-		"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",
+		"MEMORY="+strconv.Itoa(heapMB(sc))+"M",
 		"MOTD="+sc.MOTD,
 		"MAX_PLAYERS="+strconv.Itoa(sc.MaxPlayers),
 		"ONLINE_MODE="+online,
@@ -624,6 +624,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
+	if err := s.sizeHeap(&sc); err != nil {
+		return err
+	}
 	pastFiles = true
 	name := s.containerName()
 	c, err := s.docker.ContainerInspect(ctx, name)
@@ -830,6 +833,11 @@ const (
 	crashWindow   = 15 * time.Minute
 	maxCrashes    = 3
 	followerGrace = 20 * time.Second
+	// recoveredFor is how long the status keeps saying why a server that
+	// came back on its own had crashed.
+	recoveredFor = 24 * time.Hour
+	// oomCrash starts the event detail of a server Docker killed for memory.
+	oomCrash = "The server ran out of memory and was killed."
 )
 
 // stoppedCleanly reports whether the run that ended logged a clean shutdown.
@@ -976,7 +984,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
 	if st.OOMKilled {
-		s.lastError = "The server ran out of memory and was killed."
+		s.lastError = oomCrash
 		s.lastErrorHint = "Choose a larger memory budget in Settings, then start the server."
 	} else {
 		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)

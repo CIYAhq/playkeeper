@@ -49,7 +49,7 @@ import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
-import { formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { formatClock, formatDate, formatDuration, formatLongDate } from '@/lib/format'
 import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
 import { JoinPage } from './join'
@@ -493,6 +493,54 @@ describe('Overview notices', () => {
   it('asks for a restart when settings changed', async () => {
     expect(await render(<Overview server={server({ pendingRestart: true })} />)).toContain('Restart Survival to use them.')
   })
+
+  const memoryKill = (over: Partial<Crash>): Crash => ({
+    at: new Date(Date.now() - 60_000).toISOString(),
+    start: false,
+    kind: 'container_memory_limit',
+    params: { budget_mb: 2048, heap_mb: 1268 },
+    certain: true,
+    title: 'It ran out of memory',
+    explanation: '',
+    evidence: [],
+    fixes: [
+      { kind: 'raise_memory', params: { from_mb: 2048, to_mb: 3072 }, title: 'Give it 3 GB instead of 2 GB', recommended: true },
+      { kind: 'restart', title: 'Start the server again' },
+    ],
+    lines: [],
+    roomMB: 1280,
+    ...over,
+  })
+  const noticeButton = (label: string) => {
+    const notice = [...document.querySelectorAll('[role="status"]')].find((n) => n.textContent?.includes('ran out of memory'))
+    return [...(notice?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.includes(label))
+  }
+
+  it('says a server that came back on its own had run out of memory, and gives it more with a restart', async () => {
+    vi.mocked(client.post).mockClear()
+    const recoveredCrash = memoryKill({})
+    const text = await render(<Overview server={server({ recoveredCrash })} />)
+    expect(text).toContain(`Survival ran out of memory at ${formatClock(recoveredCrash.at)}`)
+    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again.')
+    await press('Give Survival 3 GB')
+    expect(posts()).toEqual([['/settings', { memoryMB: 3072, restart: true }]])
+    await act(async () => noticeButton('Dismiss')?.click())
+    expect(document.body.textContent).not.toContain('ran out of memory')
+  })
+
+  it('says when the machine has no memory to give a server that ran out of it', async () => {
+    const recoveredCrash = memoryKill({
+      roomMB: 0,
+      fixes: [
+        { kind: 'lower_view_distance', params: { from: 12, to: 8 }, title: 'Lower the view distance from 12 to 8', recommended: true },
+        { kind: 'upgrade_host', params: { resource: 'memory' }, title: 'Move to a machine with more memory' },
+      ],
+    })
+    const text = await render(<Overview server={server({ recoveredCrash })} />)
+    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again. my-vps has no memory to spare for more.')
+    expect(noticeButton('Lower view distance to 8')).toBeDefined()
+    expect(await render(<Overview server={server({ recoveredCrash: memoryKill({ kind: 'port_in_use', params: { port: 25565 } }) })} />)).not.toContain('ran out of memory')
+  })
 })
 
 describe('Overview', () => {
@@ -518,6 +566,24 @@ describe('Overview', () => {
     expect(steps[2]?.querySelector('.text-destructive-foreground')).toBeNull()
     expect(steps[1]?.textContent).not.toContain('Checksum matched')
     expect(text).not.toContain('Checksum matched')
+  })
+
+  // A create that failed before the server ever started shows this card on every
+  // tab, Settings too, so its Delete server… has to open the dialog right here.
+  it('deletes a server whose create never started from the card', async () => {
+    const s = server({ phase: 'stopped', startedAt: undefined, lastOperation: failed('create', 'downloading_server', 'Downloading the Minecraft server software failed (exit code 1).') })
+    vi.mocked(client.post).mockClear()
+    await render(<Overview server={s} />)
+    await press('Delete server')
+    expect(document.body.textContent).toContain('Delete Survival?')
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')
+    if (!input) throw new Error('no name field in the delete dialog')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'Survival')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await press('Delete Survival')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/delete', { confirm: 'Survival' })
   })
 
   it('keeps a template’s skipped add-on on the Overview after setup, with Try again', async () => {
@@ -790,6 +856,13 @@ describe('Settings › Memory', () => {
     expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('33')
     expect(text).toContain('Day 1 of 3')
     expect(document.querySelector('[role="img"]')).toBeNull()
+  })
+
+  it('counts fewer friends for a mod loader until it can suggest a size', async () => {
+    const early: MemoryAdvice = { ...keep, verdict: 'not_enough_data', params: { days: 1, min_days: 3, min_span_days: 7, span_days: 1 }, recommendedMB: undefined, options: options.map((o) => ({ ...o, fit: undefined })) }
+    answer({ '/memory': early })
+    const text = await render(<ServerSettingsPage server={server({ type: 'neoforge' })} />)
+    expect(text).toContain('Suggests a size after 3 days of play. Until then, 4 GB suits up to 4 friends.')
   })
 
   it('keeps the section in the address current in the nav while the one above it is still in view', async () => {
@@ -1277,6 +1350,18 @@ describe('Templates', () => {
     await toggle('I accept the Minecraft End User License Agreement')
     await click('Create and start Survival with friends')
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
+  })
+
+  it('sizes a mod loader template’s memory for its type and mods', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValue({ ...plan, type: 'quilt', versionId: 'quilt-26.1.2', contents: { ...contents, type: 'quilt' } })
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    await click('Continue to memory')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Room for about 4 players')
+    expect(text).toContain('Java gets 2.2 GB of it')
   })
 
   it('says who made a template and when, when it says both', async () => {

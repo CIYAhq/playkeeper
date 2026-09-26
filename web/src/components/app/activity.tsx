@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
+import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MemoryStickIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
@@ -15,6 +15,8 @@ function icon(kind: ActivityKind): ReactNode {
       return <LogInIcon />
     case 'crashed':
       return <CircleAlertIcon />
+    case 'crashed_memory':
+      return <MemoryStickIcon />
     case 'created':
       return <SproutIcon />
     case 'restored':
@@ -63,6 +65,8 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return here ? t('activity.joinedHere', { player }) : t('activity.joined', { player, server })
     case 'crashed':
       return t('activity.crashed', { server })
+    case 'crashed_memory':
+      return t('activity.crashedMemory', { server })
     case 'created':
       return a.detail ? t('activity.created', { server, detail: a.detail }) : t('activity.createdPlain', { server })
     case 'restored':

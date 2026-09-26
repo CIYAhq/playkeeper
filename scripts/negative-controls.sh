@@ -7,11 +7,16 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$PATH" CGO_ENABLED=0
+export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
 wt="$(mktemp -d)/playkeeper"
 git -C "$root" worktree add --detach -q "$wt" HEAD
 trap 'git -C "$root" worktree remove --force "$wt"' EXIT
 cd "$wt"
+# The web controls run vitest with the checkout's own dependencies, which
+# scripts/setup.sh installs.
+if [ -d "$root/web/node_modules" ]; then
+  ln -s "$root/web/node_modules" web/node_modules
+fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
@@ -1893,6 +1898,113 @@ control "Minecraft update alerts read each server type's own versions" internal/
   'versions, _, _ = a.typeCatalog(ctx, typ)' \
   'versions, _, _ = a.versionCatalog(ctx)' \
   ./internal/agent '^TestMinecraftUpdateAlertsReadEachTypesOwnVersions$'
+control "the machine's Docker health needs no server" internal/agent/host.go \
+  'a.dockerOK = err == nil' \
+  '_ = err == nil' \
+  ./internal/agent '^TestDockerHealthNeedsNoServer$'
+control "a mod loader keeps more memory outside the heap than Paper" internal/minecraft/catalog.go \
+  'overhead = max(overhead, min(base+modOverheadMB*max(mods, 0), budgetMB/2))' \
+  'overhead = max(overhead, min(base+modOverheadMB*max(mods, 0), 0))' \
+  ./internal/minecraft '^TestHeapForModLoaders$'
+control "each mod keeps more memory outside the heap" internal/minecraft/catalog.go \
+  'overhead = max(overhead, min(base+modOverheadMB*max(mods, 0), budgetMB/2))' \
+  'overhead = max(overhead, min(base+modOverheadMB*0, budgetMB/2))' \
+  ./internal/minecraft '^TestHeapForModLoaders$'
+control "a start sizes a mod loader's heap for the mods it has" internal/agent/lifecycle.go \
+  'if err := s.sizeHeap(&sc); err != nil {
+		return err
+	}
+	pastFiles = true' \
+  'pastFiles = true' \
+  ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
+control "the container runs the heap sized for its mods" internal/agent/lifecycle.go \
+  '"MEMORY="+strconv.Itoa(heapMB(sc))+"M",' \
+  '"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",' \
+  ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
+control "memory advice reads a mod loader's heap" internal/diagnose/memory.go \
+  'return minecraft.HeapFor(budgetMB, in.ServerType, in.Mods)' \
+  'return minecraft.HeapMB(budgetMB)' \
+  ./internal/diagnose '^TestAdviseMemory$'
+control "a server that came back on its own still says why it crashed" internal/agent/collector.go \
+  'if s.crash != nil {
+				s.recovered = s.crash
+			}' \
+  'if false {
+				s.recovered = s.crash
+			}' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+control "why a server that came back on its own crashed is shown for a day at most" internal/agent/handlers.go \
+  'if recovered != nil && running && s.now().Sub(recovered.At) < recoveredFor {' \
+  'if recovered != nil && running {' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+control "giving a server more memory drops why it crashed" internal/agent/handlers.go \
+  'if memoryChanged {
+		s.mu.Lock()
+		s.recovered = nil' \
+  'if false && memoryChanged {
+		s.mu.Lock()
+		s.recovered = nil' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+control "the activity says a server ran out of memory" internal/agent/analytics.go \
+  'e.Kind = "crashed_memory"' \
+  'e.Kind = "crashed"' \
+  ./internal/agent '^TestAMemoryKillIsExplainedAfterTheServerComesBack$'
+
+webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
+  local name=$1 file=$2 test=${5#web/} pattern=$6
+  if [ ! -d web/node_modules ]; then
+    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    bad=1
+    return
+  fi
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+    bad=1
+  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
+    echo "INVALID  $name: the mutated code does not run"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+webcontrol "the console reads Vanilla, Fabric, Quilt and NeoForge lines" web/src/lib/console.ts \
+  'const m = reServer.exec(raw) ?? reThread.exec(raw)' \
+  'const m = reServer.exec(raw)' \
+  web/src/lib/lib.test.ts 'not Paper'
+webcontrol "a create that never started can be deleted from its card" web/src/pages/server/overview.tsx \
+  'onClick={() => setDeleting(true)}' \
+  'onClick={() => setDeleting(false)}' \
+  web/src/pages/pages.test.tsx 'create never started'
+webcontrol "a mod loader suits fewer players at the same memory" web/src/lib/styles.ts \
+  'const mb = memoryMB - (moddedMB[type] ?? 0)' \
+  'const mb = memoryMB' \
+  web/src/lib/lib.test.ts 'fewer players on a mod loader'
+webcontrol "the dashboard gives a mod loader the heap the agent gives it" web/src/components/app/create.tsx \
+  'if (base !== undefined) overhead =' \
+  'if (base === -1) overhead =' \
+  web/src/lib/lib.test.ts 'how much of it Java gets'
+webcontrol "the memory step counts for the type and mods the new server runs" web/src/pages/new-server.tsx \
+  '<MemoryReadout memoryMB={c.memoryMB} type={runsType} mods={runsMods}' \
+  '<MemoryReadout memoryMB={c.memoryMB}' \
+  web/src/pages/pages.test.tsx 'memory for its type and mods'
+webcontrol "Settings › Memory counts friends for the server's type" web/src/pages/server/settings.tsx \
+  '{memoryAdviceLine(advice, ws.machineName, s.type)}' \
+  '{memoryAdviceLine(advice, ws.machineName)}' \
+  web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
+webcontrol "the Overview says a server that came back on its own had run out of memory" web/src/pages/server/overview.tsx \
+  'const recovered = s.recoveredCrash' \
+  'const recovered = s.crash' \
+  web/src/pages/pages.test.tsx 'had run out of memory'
+webcontrol "more memory from the Overview restarts the server to use it" web/src/components/app/notices.tsx \
+  '{ ...plan.body, ...(restart ? { restart: true } : {}) }' \
+  '{ ...plan.body }' \
+  web/src/pages/pages.test.tsx 'had run out of memory'
+webcontrol "the activity says a server ran out of memory" web/src/components/app/activity.tsx \
+  "return t('activity.crashedMemory', { server })" \
+  "return t('activity.crashed', { server })" \
+  web/src/lib/lib.test.ts 'when a server ran out of memory'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

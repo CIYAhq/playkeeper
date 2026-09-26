@@ -449,20 +449,27 @@ export function MemorySlider({ options, value, onChange }: { options: number[]; 
   )
 }
 
-/** Java's share of a memory budget; matches minecraft.HeapMB in the agent. */
-export function heapMB(budgetMB: number): number {
-  return budgetMB - Math.max(512, Math.floor(budgetMB / 4))
+/** What a mod loader keeps outside the heap before its mods, and what each mod adds; match the agent's minecraft package. */
+const loaderOverheadMB: Record<string, number> = { fabric: 768, quilt: 768, neoforge: 1024 }
+const modOverheadMB = 6
+
+/** Java's share of a memory budget on a server of the type with that many mods; matches minecraft.HeapFor in the agent. */
+export function heapMB(budgetMB: number, type = 'paper', mods = 0): number {
+  let overhead = Math.max(512, Math.floor(budgetMB / 4))
+  const base = loaderOverheadMB[type]
+  if (base !== undefined) overhead = Math.max(overhead, Math.min(base + modOverheadMB * Math.max(mods, 0), Math.floor(budgetMB / 2)))
+  return budgetMB - overhead
 }
 
-export function MemoryReadout({ memoryMB, recommended, style }: { memoryMB: number; recommended: boolean; style: PlayStyle }) {
-  const heap = heapMB(memoryMB)
+export function MemoryReadout({ memoryMB, type, mods = 0, recommended, style }: { memoryMB: number; type?: string; mods?: number; recommended: boolean; style: PlayStyle }) {
+  const heap = heapMB(memoryMB, type, mods)
   return (
     <div>
       <div className="flex items-baseline gap-2">
         <span className="text-[34px] leading-10 font-extrabold tabular-nums">{formatMB(memoryMB)}</span>
         {recommended && <span className="text-xs font-medium text-success-foreground">{t('common.recommended')}</span>}
       </div>
-      <p className="mt-1 text-[13px] font-medium">{t('new.roomFor', { players: playersFor(memoryMB) })}</p>
+      <p className="mt-1 text-[13px] font-medium">{t('new.roomFor', { count: playersFor(memoryMB, type) })}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{t('new.javaGets', { heap: formatMB(heap) })}</p>
       <span className="sr-only">{t(preset(style)?.title ?? 'style.friends.title')}</span>
     </div>

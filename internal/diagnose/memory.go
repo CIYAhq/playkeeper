@@ -27,6 +27,13 @@ type MemoryInput struct {
 	HostMB       int        // the machine's memory, for the budgets minecraft.MemoryOptions offers
 	RoomMB       int        // memory the machine could still give this server on top of BudgetMB
 	ViewDistance int        // from ParseDistances, for advice when there is no room
+	ServerType   string     // registry id; a mod loader keeps more of each budget outside the heap
+	Mods         int        // the jars in a mod loader's mods folder
+}
+
+// heapMB is the heap a budget gives this server.
+func (in MemoryInput) heapMB(budgetMB int) int {
+	return minecraft.HeapFor(budgetMB, in.ServerType, in.Mods)
 }
 
 // KeepReason says why AdviseMemory keeps a budget, in Params["reason"].
@@ -77,7 +84,7 @@ const (
 // history, to the smallest offered budget whose heap keeps the busiest moment
 // within two thirds and is larger than any heap the server ran short with.
 func AdviseMemory(in MemoryInput) MemoryAdvice {
-	heap := minecraft.HeapMB(in.BudgetMB)
+	heap := in.heapMB(in.BudgetMB)
 	var h memoryHistory
 	if in.BudgetMB > 0 {
 		h = readMemoryHistory(in, heap)
@@ -90,7 +97,7 @@ func AdviseMemory(in MemoryInput) MemoryAdvice {
 	case h.span < memoryMinSpanDays*oneDay || h.days < memoryMinDays:
 		return notEnoughMemoryData(h, heap)
 	}
-	if to, ok := smallerBudget(in.BudgetMB, h); ok && h.short == 0 {
+	if to, ok := smallerBudget(in, h); ok && h.short == 0 {
 		return lowerMemory(in, h, heap, to)
 	}
 	return keepMemory(in, h, heap)
@@ -180,14 +187,14 @@ func lastDays(n int) string {
 	return fmt.Sprintf("the last %d days", n)
 }
 
-// smallerBudget is the smallest offered budget below budgetMB whose heap
+// smallerBudget is the smallest offered budget below the server's whose heap
 // keeps the busiest moment within comfortableShare and is larger than any
 // heap the server ran short with.
-func smallerBudget(budgetMB int, h memoryHistory) (int, bool) {
-	options, _, _ := minecraft.MemoryOptions(budgetMB + minecraft.HostReserveMB)
+func smallerBudget(in MemoryInput, h memoryHistory) (int, bool) {
+	options, _, _ := minecraft.MemoryOptions(in.BudgetMB + minecraft.HostReserveMB)
 	for _, o := range options {
-		heap := minecraft.HeapMB(o)
-		if o < budgetMB && heap > h.tooSmallMB && float64(h.peakMB) <= comfortableShare*float64(heap) {
+		heap := in.heapMB(o)
+		if o < in.BudgetMB && heap > h.tooSmallMB && float64(h.peakMB) <= comfortableShare*float64(heap) {
 			return o, true
 		}
 	}
@@ -225,13 +232,13 @@ func FitBudgets(in MemoryInput, budgets []int) []MemoryFit {
 	if in.BudgetMB <= 0 {
 		return out
 	}
-	h := readMemoryHistory(in, minecraft.HeapMB(in.BudgetMB))
+	h := readMemoryHistory(in, in.heapMB(in.BudgetMB))
 	if h.windows == 0 {
 		return out
 	}
 	peak, roomy := float64(h.peakMB), false
 	for i, b := range budgets {
-		heap := minecraft.HeapMB(b)
+		heap := in.heapMB(b)
 		switch {
 		case heap <= h.tooSmallMB,
 			b <= in.BudgetMB && (h.fullGCs > 0 || h.short >= 2),
@@ -306,7 +313,7 @@ func raiseMemory(in MemoryInput, h memoryHistory, heap int) MemoryAdvice {
 
 func lowerMemory(in MemoryInput, h memoryHistory, heap, to int) MemoryAdvice {
 	days := h.periodDays()
-	toHeap := minecraft.HeapMB(to)
+	toHeap := in.heapMB(to)
 	return MemoryAdvice{
 		Verdict: MemoryLower,
 		Params:  map[string]any{"budget_mb": in.BudgetMB, "heap_mb": heap, "peak_mb": h.peakMB, "days": days, "to_mb": to, "to_heap_mb": toHeap},
@@ -330,7 +337,7 @@ func keepMemory(in MemoryInput, h memoryHistory, heap int) MemoryAdvice {
 	}
 	text := fmt.Sprintf("It needed up to %s in %s, and it has %s for the game.", sizeText(h.peakMB), lastDays(days), sizeText(heap))
 	smaller, hasSmaller := nextSmaller(in.BudgetMB)
-	smallerHeap := minecraft.HeapMB(smaller)
+	smallerHeap := in.heapMB(smaller)
 	var reason KeepReason
 	switch {
 	case h.short > 0:

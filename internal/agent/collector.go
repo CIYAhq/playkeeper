@@ -247,6 +247,11 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
 			recovered := s.runCrashed
+			// A start someone asked for forgets the crash first, so one still
+			// here is what an automatic restart came back from.
+			if s.crash != nil {
+				s.recovered = s.crash
+			}
 			s.crashed, s.runCrashed, s.crash = false, false, nil
 			s.lastError, s.lastErrorHint = "", ""
 			s.mu.Unlock()
@@ -515,16 +520,12 @@ func (s *server) sample(ctx context.Context) {
 	reachable := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
-		s.setDockerOK(false)
 		row.state = "docker_unavailable"
 	case sc == nil:
-		s.setDockerOK(true)
 		row.state = "not_created"
 	case err != nil:
-		s.setDockerOK(true)
 		row.state = "stopped"
 	case c.State.Running:
-		s.setDockerOK(true)
 		if st, err := s.docker.ContainerStats(ctx, c.ID); err == nil {
 			s.mu.Lock()
 			row.cpu = cpuPercent(s.prevCPU, &st)
@@ -569,7 +570,6 @@ func (s *server) sample(ctx context.Context) {
 			row.online, row.max = &snap.Online, &snap.Max
 		}
 	default:
-		s.setDockerOK(true)
 		s.mu.Lock()
 		if s.crashed {
 			row.state = "crashed"
@@ -618,12 +618,6 @@ func cpuPercent(prev, cur *docker.Stats) *float64 {
 	}
 	v := dCPU / dSys * cpus * 100
 	return &v
-}
-
-func (a *Agent) setDockerOK(ok bool) {
-	a.mu.Lock()
-	a.dockerOK = ok
-	a.mu.Unlock()
 }
 
 // rconCommand sends one console command, waiting up to 10 seconds.

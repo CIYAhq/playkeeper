@@ -6,6 +6,11 @@ import { keyFrom, libraryMatch, sameKey, searchPath } from '@/lib/addons'
 import { formatClock, formatDate, formatList, formatMB, sameDay } from '@/lib/format'
 import { num, str, strs } from '@/lib/params'
 
+/** Whether the server ran out of the memory its budget gives it, which more memory fixes. */
+export function isMemoryCrash(c: Crash): boolean {
+  return c.kind === 'container_memory_limit' || c.kind === 'heap_out_of_memory'
+}
+
 /**
  * What happened, in one line. Kinds without a line of their own, or without
  * the params it needs, fall back to the agent's English explanation.

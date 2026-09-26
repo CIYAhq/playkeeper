@@ -4,7 +4,8 @@ import { useCatalog } from '@/api/catalog'
 import { api, ApiError, get, post } from '@/api/client'
 import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, MemoryAdvice, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
-import { Emblem, Pip } from '@/components/app/art'
+import { Emblem } from '@/components/app/art'
+import { DeleteServerDialog } from '@/components/app/delete-server'
 import { Card, CardHint, CardTitle, Progress, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
 import { InlineSkeleton } from '@/components/app/skeletons'
@@ -18,11 +19,9 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { rich } from '@/i18n/rich'
 import { formatDate, formatMB, localTimeZone } from '@/lib/format'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress } from '@/lib/memory'
 import { busyReason, whyNot } from '@/lib/phase'
-import { navigate } from '@/lib/router'
 import { iconURL, newerStable, typeName } from '@/lib/servers'
 import { buildLabel, configBuild } from '@/lib/software'
 import { cn } from '@/lib/utils'
@@ -212,11 +211,11 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     }
   }
 
-  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, ws.machineName), disabled: !o.fits }))
+  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, ws.machineName, s.type), disabled: !o.fits }))
   const progress = advice && memoryProgress(advice)
   const memoryHint = advice ? (
     <>
-      {memoryAdviceLine(advice, ws.machineName)}
+      {memoryAdviceLine(advice, ws.machineName, s.type)}
       {advice.verdict !== 'not_enough_data' && advice.days.length > 0 && <MemoryDays advice={advice} />}
       {progress && (
         <div className="mt-2 flex items-center gap-3">
@@ -678,23 +677,9 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
 function DangerRows({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const [open, setOpen] = useState(false)
-  const [typed, setTyped] = useState('')
-  const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
   const list = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 30_000, s.id)
   const backups = list.data?.length ?? 0
-  async function remove() {
-    setBusy(true)
-    try {
-      await post(serverApi(s.id, '/delete'), { confirm: typed.trim() })
-      setOpen(false)
-      navigate({ name: 'home' })
-    } catch (e) {
-      toastManager.add({ title: errorText(e), type: 'error' })
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     <>
       <SettingRow
@@ -727,32 +712,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
           </Button>
         }
       />
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogPopup className="sm:max-w-[480px]">
-          <div className="flex items-start gap-4 px-6 pt-6 pb-2">
-            <Pip pose="hurt" size={52} />
-            <div className="min-w-0 pt-1">
-              <DialogTitle className="text-lg font-bold">{t('settings.deleteDialog', { server: s.name })}</DialogTitle>
-              <DialogDescription className="mt-0.5 text-[13px]">{t('settings.deleteDialogBody')}</DialogDescription>
-            </div>
-          </div>
-          <DialogPanel className="pt-3">
-            <label className="flex flex-col gap-1.5 text-[13px]">
-              <span>{rich('settings.deleteType', { b: (chunk) => <strong className="font-semibold">{chunk}</strong> }, { server: s.name })}</span>
-              <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
-            </label>
-          </DialogPanel>
-          <DialogFooter variant="bare" className="border-t border-border pt-4">
-            <Button variant="ghost" onClick={() => setOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" onClick={remove} loading={busy} disabledReason={typed.trim() === s.name ? undefined : t('settings.deleteTypeFirst', { server: s.name })}>
-              <Trash2Icon />
-              {t('settings.deleteConfirm', { server: s.name })}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
+      <DeleteServerDialog server={s} open={open} onOpenChange={setOpen} />
     </>
   )
 }

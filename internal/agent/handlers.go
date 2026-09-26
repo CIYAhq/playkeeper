@@ -164,7 +164,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	runPhase, detail := s.runPhase, s.runPhaseDetail
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
 	refusal := s.refusal
-	crashed, crash := s.crashed, s.crash
+	crashed, crash, recovered := s.crashed, s.crash, s.recovered
 	st.CrashCount = len(s.crashes)
 	if s.softwareChanged != nil {
 		change := *s.softwareChanged
@@ -238,6 +238,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {
 			st.Crash = crash
 		}
+	}
+	if recovered != nil && running && s.now().Sub(recovered.At) < recoveredFor {
+		st.RecoveredCrash = recovered
 	}
 	return st
 }
@@ -451,7 +454,7 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	now := a.now().UTC()
 	base := api.ServerConfig{
-		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapMB(req.MemoryMB),
+		Type: typ, MemoryMB: req.MemoryMB, HeapMB: minecraft.HeapFor(req.MemoryMB, typ, 0),
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
 		PlayStyle: req.PlayStyle, Gameplay: gp,
 	}
@@ -699,6 +702,7 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 		return errNotCreated()
 	}
 	var changed []string
+	memoryChanged := false
 	old := s.name()
 	name := old
 	if req.Name != nil {
@@ -718,8 +722,9 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 		}
 		if sc.MemoryMB != *req.MemoryMB {
 			changed = append(changed, fmt.Sprintf("memoryMB %d→%d", sc.MemoryMB, *req.MemoryMB))
+			memoryChanged = true
 		}
-		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapMB(*req.MemoryMB)
+		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))
 	}
 	if req.MOTD != nil {
 		m, err := validMOTD(*req.MOTD)
@@ -757,6 +762,11 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 	}
 	if err := s.saveServerConfig(*sc); err != nil {
 		return err
+	}
+	if memoryChanged {
+		s.mu.Lock()
+		s.recovered = nil
+		s.mu.Unlock()
 	}
 	s.audit(actor, "settings.changed", "server", "succeeded", strings.Join(changed, ", "))
 	return nil

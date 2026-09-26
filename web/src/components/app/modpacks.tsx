@@ -29,6 +29,8 @@ export interface ModpackChoice {
   type: string
   minecraftVersion: string
   memoryMB: number
+  /** The mods the version bundles; 0 or missing when unknown. */
+  mods?: number
 }
 
 function choiceOf(card: ModpackCard, detail?: ModpackDetail): ModpackChoice {
@@ -41,6 +43,7 @@ function choiceOf(card: ModpackCard, detail?: ModpackDetail): ModpackChoice {
     type: newest?.type ?? card.types[0] ?? '',
     minecraftVersion: newest?.minecraftVersion ?? card.minecraftVersions[0] ?? '',
     memoryMB: detail?.memoryMB ?? card.memoryMB ?? 0,
+    mods: newest?.mods ?? detail?.mods ?? card.mods ?? 0,
   }
 }
 

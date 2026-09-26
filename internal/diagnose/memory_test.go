@@ -98,6 +98,11 @@ func TestAdviseMemory(t *testing.T) {
 			explanation: []string{"It needed up to 2.5 GB in the last 14 days, and it has 4.5 GB for the game.", "a 4 GB budget would give it only 3 GB for the game"},
 		},
 		{
+			name:    "a mod loader keeps a budget whose smaller one leaves too little for the game beside its mods",
+			in:      with(memIn(3072, gcWindows(14, 0, 3072-870, 700, 1000)), func(in *MemoryInput) { in.ServerType, in.Mods = "fabric", 17 }),
+			verdict: MemoryKeep, params: map[string]any{"heap_mb": 3072 - 870, "reason": KeepFits, "smaller_mb": 2048, "smaller_heap_mb": 2048 - 870},
+		},
+		{
 			name: "keeps a tight budget that hasn't run short", in: memIn(4096, gcWindows(14, 0, 3072, 1800, 2400)),
 			verdict: MemoryKeep, params: map[string]any{"reason": KeepTight},
 			explanation: []string{"close to all of it, though it hasn't run short at this size"},

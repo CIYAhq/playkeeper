@@ -178,6 +178,43 @@ func TestMemoryBudgets(t *testing.T) {
 	}
 }
 
+// A mod loader keeps more memory outside the heap than Paper, more with
+// each mod, and never more than half the budget; Paper, Purpur and Vanilla
+// keep the heap they always had, so their containers don't change.
+func TestHeapForModLoaders(t *testing.T) {
+	budgets, _, _ := MemoryOptions(64 << 10)
+	for _, b := range budgets {
+		for _, typ := range []string{"paper", "purpur", "vanilla", ""} {
+			if got := HeapFor(b, typ, 40); got != HeapMB(b) {
+				t.Errorf("%s at %d MB: heap %d, want the %d it always had", typ, b, got, HeapMB(b))
+			}
+		}
+		for _, typ := range []string{"fabric", "quilt", "neoforge"} {
+			none, some, many := HeapFor(b, typ, 0), HeapFor(b, typ, 17), HeapFor(b, typ, 400)
+			if none > HeapMB(b) || some > none || many > some || many < b/2 {
+				t.Errorf("%s at %d MB: heap %d with no mods, %d with 17, %d with 400; Paper gets %d", typ, b, none, some, many, HeapMB(b))
+			}
+		}
+	}
+	for _, c := range []struct {
+		typ          string
+		budget, mods int
+		want         int
+	}{
+		// The Quilt server a player's join got killed: 2 GB, Chunky and Fabric API.
+		{"quilt", 2048, 2, 2048 - 780},
+		{"fabric", 2048, 17, 2048 - 870},
+		{"neoforge", 2048, 0, 1024},
+		{"neoforge", 3072, 1, 3072 - 1030},
+		{"fabric", 4096, 12, 3072},
+		{"neoforge", 6144, 150, 6144 - 1924},
+	} {
+		if got := HeapFor(c.budget, c.typ, c.mods); got != c.want {
+			t.Errorf("%s at %d MB with %d mods: heap %d, want %d", c.typ, c.budget, c.mods, got, c.want)
+		}
+	}
+}
+
 func TestImageAndKnownBuildsArePinned(t *testing.T) {
 	if !strings.Contains(Image, "@sha256:") {
 		t.Fatalf("image must be pinned by digest: %s", Image)

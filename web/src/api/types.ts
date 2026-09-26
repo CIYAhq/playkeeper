@@ -171,6 +171,8 @@ export interface ServerStatus {
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */
   crash?: Crash
+  /** Why the server last stopped unexpectedly, when an automatic restart brought it back; kept a day at most, until its memory changes. */
+  recoveredCrash?: Crash
   /** Set when the server's software no longer matches what Playkeeper installed. */
   softwareChanged?: SoftwareChange
 }
@@ -560,6 +562,7 @@ export interface PlayersSummary {
 export type ActivityKind =
   | 'joined'
   | 'crashed'
+  | 'crashed_memory'
   | 'created'
   | 'restored'
   | 'version'

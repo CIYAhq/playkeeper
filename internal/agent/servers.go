@@ -80,6 +80,7 @@ type server struct {
 	crashed         bool
 	runCrashed      bool // a run crashed and the server hasn't been online since; a failed automatic start sets only crashed
 	crash           *api.Crash
+	recovered       *api.Crash // the crash an automatic restart brought the server back from
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
 	intentional     map[string]bool

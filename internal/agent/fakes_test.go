@@ -42,6 +42,7 @@ type fakeDocker struct {
 	failBoots    int           // the next failBoots servers to start exit with code 1
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
+	versionDown  bool          // version requests fail too, as when the daemon itself stops answering
 	stopDelay    time.Duration // before a container stop takes effect
 	setupHangs   bool          // setup containers end their log streams but keep running
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
@@ -176,6 +177,17 @@ func (fd *fakeDocker) crash(code int) {
 	c.wake = make(chan struct{})
 }
 
+// oomKill is the kernel killing the server at its memory limit: Docker says
+// OOMKilled, exit code 137.
+func (fd *fakeDocker) oomKill() {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	c := fd.server()
+	c.running, c.exitCode, c.finished, c.oom = false, 137, time.Now().UTC(), true
+	close(c.wake)
+	c.wake = make(chan struct{})
+}
+
 // externalStop stops the container the way `docker stop` or a host shutdown
 // does: the server logs its clean shutdown.
 func (fd *fakeDocker) externalStop() {
@@ -230,6 +242,13 @@ func jsonOut(w http.ResponseWriter, status int, v any) {
 func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if path == "/version" {
+		fd.mu.Lock()
+		down := fd.versionDown
+		fd.mu.Unlock()
+		if down {
+			jsonOut(w, 500, map[string]string{"message": "fake Docker is not answering"})
+			return
+		}
 		jsonOut(w, 200, map[string]string{"Version": "29.0.0-fake", "ApiVersion": "1.52", "MinAPIVersion": "1.44"})
 		return
 	}
@@ -392,7 +411,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 			w.WriteHeader(304)
 			return
 		}
-		c.running, c.started, c.finished, c.exitCode = true, time.Now().UTC(), time.Time{}, 0
+		c.running, c.started, c.finished, c.exitCode, c.oom = true, time.Now().UTC(), time.Time{}, 0, false
 		setup := env(c.cfg, "SETUP_ONLY") == "TRUE"
 		fd.log(c, "[init] Running as uid=1000 gid=1000")
 		fd.log(c, "[init] Resolving type given PAPER")
