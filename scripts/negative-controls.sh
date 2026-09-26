@@ -792,6 +792,24 @@ control "the shared map reads the server's icon without following a link" intern
   'b, err := s.readIcon()' \
   'b, err := os.ReadFile(s.dataDir() + "/" + iconFile)' \
   ./internal/agent '^TestTheSharedMapsIconIsReadWithoutFollowingLinks$'
+control "the Plugins tab lists the map's squaremap as the Map's" internal/agent/addons.go \
+  'if e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  'if false && e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab never offers to manage the map's squaremap" internal/agent/addons.go \
+  'withMap := append(slices.Clone(installed), s.mapAddons(installed)...)
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  'withMap := installed
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab refuses to change what the map installed" internal/agent/maps.go \
+  'if slices.Contains(keys, a.Key()) {' \
+  'if false && slices.Contains(keys, a.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "a map whose squaremap is gone counts as off and turns on again" internal/agent/maps.go \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); err != nil || !fi.Mode().IsRegular() {' \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); false && (err != nil || !fi.Mode().IsRegular()) {' \
+  ./internal/agent '^TestTurningOnTheMapInstallsAMissingSquaremapAgain$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
