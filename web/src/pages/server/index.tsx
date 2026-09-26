@@ -15,6 +15,7 @@ import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
+import { demo } from '@/lib/demo'
 import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
 import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
@@ -219,7 +220,7 @@ function MoreMenu({ server }: { server: ServerStatus }) {
           <ArchiveIcon />
           {t('server.backUp')}
         </MenuItem>
-        <TemplateMenuItem onClick={() => setSharing(true)} />
+        {demo?.templates !== false && <TemplateMenuItem onClick={() => setSharing(true)} />}
         <MenuSeparator />
         <MenuItem variant="destructive" onClick={() => navigate(`/servers/${server.slug}/settings#danger`)}>
           <Trash2Icon />

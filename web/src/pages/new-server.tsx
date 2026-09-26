@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
+import { demo } from '@/lib/demo'
 import { formatList, formatMB } from '@/lib/format'
 import { isAway, machineLabel } from '@/lib/machines'
 import { linkProps, navigate } from '@/lib/router'
@@ -39,11 +40,12 @@ const noteKeys: MessageKey[] = ['new.note.type', 'new.note.version', 'new.note.v
 
 export type StartFrom = 'type' | 'modpack' | 'template'
 
-const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
+const allStartFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
   { value: 'type', long: 'new.from.type', short: 'new.from.typeShort' },
   { value: 'modpack', long: 'new.from.modpack', short: 'new.from.modpackShort' },
   { value: 'template', long: 'new.from.template', short: 'new.from.templateShort' },
 ]
+const startFroms = allStartFroms.filter((f) => f.value === 'type' || demo?.templates !== false)
 
 /** A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped. */
 export function packRequest(c: CreateChoices, pack: ModpackChoice) {
@@ -268,7 +270,9 @@ export function NewServerPage({ machine }: { machine?: string }) {
             <section>
               {phone ? (
                 <>
-                  <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-3 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  {startFroms.length > 1 && (
+                    <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-3 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  )}
                   {from === 'type' && (
                     <div className="mt-1 mb-2 flex justify-end">
                       <button type="button" onClick={() => setCompareOpen(true)} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
@@ -281,8 +285,8 @@ export function NewServerPage({ machine }: { machine?: string }) {
               ) : (
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h2 className="text-[15px] font-semibold">{t('new.startFrom')}</h2>
-                    <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />
+                    <h2 className="text-[15px] font-semibold">{startFroms.length > 1 ? t('new.startFrom') : t('new.from.type')}</h2>
+                    {startFroms.length > 1 && <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />}
                   </div>
                   <p className="mt-0.5 text-[13px] text-muted-foreground">
                     {from === 'modpack' ? (

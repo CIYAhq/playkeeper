@@ -10,6 +10,7 @@ import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
 import { addonTab } from '@/lib/addons'
 import { checklist, complete, progress } from '@/lib/checklist'
+import { demo } from '@/lib/demo'
 import { formatMB } from '@/lib/format'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -99,9 +100,11 @@ export function MorePage() {
           <li>
             <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
           </li>
-          <li>
-            <Row icon={<Share2Icon />} title={t('template.menu')} hint={t('more.templateHint')} onClick={() => setSharing(true)} />
-          </li>
+          {demo?.templates !== false && (
+            <li>
+              <Row icon={<Share2Icon />} title={t('template.menu')} hint={t('more.templateHint')} onClick={() => setSharing(true)} />
+            </li>
+          )}
           {!complete(steps) && p.next && (
             <li>
               <Row icon={<ListChecksIcon />} title={t('checklist.title')} hint={t('checklist.nextLower', { done: p.done, total: p.total, step: stepTitle(p.next.id, true).toLowerCase() })} to={stepRoute(p.next.id, server)} />

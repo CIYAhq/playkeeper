@@ -43,4 +43,4 @@ function HomeCard() {
 }
 
 /** What the live demo adds to the dashboard; the demo build puts this in place of lib/demo. */
-export const demo: DemoParts = { BrandLine, homeSubtitle: () => dt('demo.subtitle'), HomeAction, HomeCard }
+export const demo: DemoParts = { BrandLine, homeSubtitle: () => dt('demo.subtitle'), HomeAction, HomeCard, templates: false }

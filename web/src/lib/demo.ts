@@ -10,6 +10,8 @@ export interface DemoParts {
   HomeAction: ComponentType
   /** The card after the server cards, in place of the New server card. */
   HomeCard: ComponentType
+  /** Whether a server can start from a modpack or a template and be shared as one: the demo has no machine to fetch or plan them. */
+  templates: boolean
 }
 
 /**
