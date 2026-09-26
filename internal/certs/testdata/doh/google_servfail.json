@@ -1,0 +1,1 @@
+{"Status":2,"TC":false,"RD":true,"RA":true,"AD":false,"CD":false,"Question":[{"name":"dnssec-failed.org.","type":1}],"Comment":"DNSSEC validation failure. Check http://dnsviz.net/d/dnssec-failed.org/dnssec/ and http://dnssec-debugger.verisignlabs.com/dnssec-failed.org for errors","extended_dns_errors":[{"info_code":9,"extra_text":"No DNSKEY matches DS RRs of dnssec-failed.org"}]}

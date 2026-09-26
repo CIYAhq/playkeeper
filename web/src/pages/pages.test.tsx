@@ -3,13 +3,15 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Backup, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus } from '@/api/types'
+import type { Address, Backup, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus, SignInNotice } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { toastManager } from '@/components/ui/toast'
+import { formatLongDate } from '@/lib/format'
 import { HomePage } from './home'
+import { MachinePage } from './machine'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
@@ -99,6 +101,9 @@ function workspace(over: Partial<Workspace> = {}): Workspace {
     lastSlug: undefined,
     setLastSlug: () => {},
     signOut: async () => {},
+    reloadMe: async () => {},
+    signInNotice: undefined,
+    dismissSignInNotice: () => {},
     ...over,
   }
 }
@@ -173,6 +178,82 @@ describe('Home', () => {
     expect(text).toContain('No live status')
     expect(text).toContain('1 server on my-vps')
     expect(text).not.toContain('playing')
+  })
+})
+
+describe('The notice after signing in', () => {
+  const wrongCodes: SignInNotice = { kind: 'failed_attempts', count: 3, text: '' }
+  const codesLow: SignInNotice = { kind: 'recovery_codes_low', count: 2, text: '' }
+  const signedIn = (notices: SignInNotice[]) => (
+    <WorkspaceProvider me={{ ...me, notices }} onMe={() => {}} onSignedOut={() => {}}>
+      <HomePage />
+    </WorkspaceProvider>
+  )
+  const control = (name: string) => {
+    const found = [...document.querySelectorAll<HTMLElement>('button, a')].find((el) => el.getAttribute('aria-label') === name || el.textContent === name)
+    if (!found) throw new Error(`no control named ${name}`)
+    return found
+  }
+  const click = (el: HTMLElement) => act(async () => el.click())
+  const shown = () => document.body.textContent ?? ''
+
+  it('says wrong codes first, then the recovery codes left, one at a time', async () => {
+    await render(signedIn([{ kind: 'recovery_code_used', count: 2, text: '' }, codesLow, wrongCodes]))
+    expect(shown()).toContain('Someone entered a wrong code 3 times since you last signed in')
+    expect(shown()).toContain('Your password was right each time, so change it if that wasn’t you.')
+    expect(shown()).not.toContain('recovery codes left')
+    await click(control('It was me'))
+    expect(shown()).not.toContain('wrong code')
+    expect(shown()).toContain('2 recovery codes left')
+    expect(control('Go to Account').getAttribute('href')).toBe('/account')
+    await click(control('Dismiss'))
+    expect(shown()).not.toContain('recovery codes left')
+  })
+
+  it('opens the password dialog from Change password, which dismisses it', async () => {
+    await render(signedIn([wrongCodes]))
+    const link = control('Change password')
+    expect(link.getAttribute('href')).toBe('/account#password')
+    await click(link)
+    expect(window.location.pathname + window.location.hash).toBe('/account#password')
+    expect(shown()).not.toContain('wrong code')
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('reads naturally for one wrong code and for no codes left', async () => {
+    const one = await render(<HomePage />, workspace({ signInNotice: { kind: 'failed_attempts', count: 1, text: '' } }))
+    expect(one).toContain('Someone entered a wrong code once since you last signed in')
+    expect(one).toContain('Your password was right, so change it if that wasn’t you.')
+    expect(await render(<HomePage />, workspace({ signInNotice: { kind: 'no_recovery_codes', count: 0, text: '' } }))).toContain('No recovery codes left')
+  })
+
+  it('comes before low disk space but not before the agent not answering', async () => {
+    const diskWarning = { id: 'disk', label: 'Disk space', status: 'warn' as const, detail: 'Only 3 GB free.', fix: 'Free some disk space.' }
+    const low = await render(<HomePage />, workspace({ signInNotice: codesLow, machine: { ...machine, live: machine.live && { ...machine.live, diskWarning } } }))
+    expect(low).toContain('2 recovery codes left')
+    expect(low).not.toContain('Low disk space')
+    const down = await render(<HomePage />, workspace({ signInNotice: codesLow, agentDown: true, stale: true }))
+    expect(down).toContain('Playkeeper can’t see your servers right now')
+    expect(down).not.toContain('recovery codes left')
+  })
+
+  it('is a card above the join address on a phone’s Overview, and not on a computer’s', async () => {
+    expect(await render(<Overview server={server()} />, workspace({ signInNotice: wrongCodes }))).not.toContain('wrong code')
+    const real = window.matchMedia.bind(window)
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => {
+      const list = real(query)
+      if (query === '(max-width: 639px)') Object.defineProperty(list, 'matches', { value: true })
+      return list
+    })
+    try {
+      const text = await render(<Overview server={server()} />, workspace({ signInNotice: wrongCodes }))
+      expect(text.indexOf('Someone entered a wrong code 3 times')).toBeGreaterThanOrEqual(0)
+      expect(text.indexOf('Someone entered a wrong code 3 times')).toBeLessThan(text.indexOf('Join address'))
+      expect(control('It was me').tagName).toBe('BUTTON')
+      expect(control('Change password').getAttribute('href')).toBe('/account#password')
+    } finally {
+      phone.mockRestore()
+    }
   })
 })
 
@@ -979,7 +1060,7 @@ describe('Get started', () => {
       )
     }
     await render(
-      <WorkspaceProvider me={me} onSignedOut={() => {}}>
+      <WorkspaceProvider me={me} onMe={() => {}} onSignedOut={() => {}}>
         <Hide />
       </WorkspaceProvider>,
     )
@@ -1012,6 +1093,34 @@ describe('Onboarding', () => {
     expect(text).toContain('Port 25565 is free')
     expect(text).toContain('Your provider’s firewall')
     expect(text).toContain('6 of 7 look good')
+  })
+})
+
+describe('Machine page', () => {
+  const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.io', servers: [], names: { url: 'https://names.playkeeper.io' } }
+  const day = 24 * 3600_000
+  const certificate = { names: ['alex.playkeeper.io'], challenge: 'dns-01', notBefore: new Date(Date.now() - 30 * day).toISOString(), notAfter: new Date(Date.now() + 60 * day).toISOString() }
+  const free: Address = { ...none, kind: 'playkeeper', host: 'alex.playkeeper.io', certificate }
+
+  const health = async (address: Address) => {
+    answer({ '/address': address })
+    await render(<MachinePage id={machine.id} />)
+    const line = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes('Dashboard certificate'))
+    if (!line) throw new Error('the machine page has no certificate line')
+    return line
+  }
+
+  it('says the dashboard’s certificate is self-signed until there’s an address, and links to Machine settings', async () => {
+    const line = await health(none)
+    expect(line.textContent).toBe('Dashboard certificateSelf-signed')
+    expect(line.getAttribute('href')).toBe(`/machines/${machine.id}/settings`)
+  })
+
+  it('names the real certificate with the day it runs out, and a failed renewal', async () => {
+    expect((await health(free)).textContent).toContain(`Let’s Encrypt until ${formatLongDate(certificate.notAfter)}`)
+    const renewal = { ...certificate, problem: { code: 'port80_unreachable', message: 'Port 80 is closed.' } }
+    expect((await health({ ...free, certificate: renewal })).textContent).toContain('Couldn’t renew the certificate')
+    expect((await health({ ...free, certificate: { ...renewal, notAfter: undefined, notBefore: undefined } })).textContent).toContain('Couldn’t get a certificate')
   })
 })
 

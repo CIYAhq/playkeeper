@@ -217,6 +217,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Gameplay = effectiveGameplay(sc.Gameplay, readProperties(s.dataDir()))
 	}
 	st.FirstSteps = s.firstSteps()
+	st.JoinAddress = s.joinAddress()
 	if st.Operation == nil {
 		st.SavingPausedSince = s.savingPausedSince()
 		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {
@@ -753,6 +754,10 @@ func (a *Agent) hOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cur := a.machineOp(); cur != nil && cur.ID == id {
+		writeJSON(w, http.StatusOK, cur)
+		return
+	}
+	if cur := a.addressOp(); cur != nil && cur.ID == id {
 		writeJSON(w, http.StatusOK, cur)
 		return
 	}

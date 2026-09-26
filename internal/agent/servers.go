@@ -427,6 +427,7 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 		<-s.opLock
 	}
 	s.startLoops()
+	a.serversChanged()
 	return s, op, nil
 }
 
@@ -563,6 +564,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	delete(s.servers, s.id)
 	s.srvMu.Unlock()
 	s.audit(actor, "server.deleted", s.id, "succeeded", fmt.Sprintf("%d backup(s) deleted with it", len(backups)))
+	s.serversChanged()
 	return nil
 }
 

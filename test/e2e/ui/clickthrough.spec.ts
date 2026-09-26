@@ -15,8 +15,10 @@ import { login, outDir } from './helpers'
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. There is no list of exceptions: a control that should do nothing
 // right now must be disabled and say why (aria-describedby or a title). The
-// selected tab or option of a group may stay selected. Each page gets a fresh
-// load before a control is pressed unless the page is provably unchanged.
+// selected tab or option of a group may stay selected. A link another app
+// opens (an authenticator's otpauth:, mailto:, tel:) counts as working, since
+// a headless browser has no app to open. Each page gets a fresh load before a
+// control is pressed unless the page is provably unchanged.
 
 test.describe.configure({ mode: 'parallel' })
 
@@ -37,8 +39,8 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
   }
   out.push('/servers/new')
-  for (const m of machines) out.push(`/machines/${m.id}`)
-  out.push('/settings')
+  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
+  out.push('/settings', '/account', '/account/two-factor')
   if (phone) out.push('/more')
   return out
 }

@@ -36,6 +36,8 @@ Follow the install steps in the [README](../README.md#install-on-your-vps). Open
 4. Press **Restore as a new server**. Playkeeper downloads Paper for the backup's Minecraft version from PaperMC (the newest stable build, never an older build than the backup was made with), checks it against the SHA-256 PaperMC publishes and starts the server, so the new server needs outbound HTTPS to Docker Hub, PaperMC and Mojang while it restores.
 5. When the server shows **Online**, give players the new join address. They are still on the allowlist from the backup.
 
+   **Addresses:** a free `playkeeper.io` name belongs to the install that claimed it and cannot move to another VPS, so pick a new one on the new server under **Machine settings › Address**. If the old VPS still runs, release its name there (**Release it**) before you delete the VPS, so the name stops pointing at an IP address your provider will hand to someone else. With your own domain, set it up again on the new server and change the records it lists (the A record now points to the new VPS); players keep their address.
+
 To restore over an existing world instead (the server's **World** tab → a backup's **…** menu → **Restore this backup…**, or drop a file under **Restore a world**), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
 
 If a restore is interrupted, for example by a power cut or an agent restart, Playkeeper finishes it when it starts again: it keeps the restored world if that is in place and starts, and otherwise puts the previous world and its settings back. That includes a restore Playkeeper 0.3.0 was in the middle of when you upgraded, which is kept only if the server already had the backup's settings. If it cannot, the server stays stopped and its error names the folder the previous world is in (`data.replaced-<time>`, next to the server's `data` folder): move that folder back to `data` and press **Start**.
@@ -44,7 +46,8 @@ A world a restore leaves behind, such as a restored world that did not start, st
 
 ## What is not restored
 
-- Playkeeper admin accounts and sessions (the new server keeps its own).
+- Playkeeper admin accounts, their two-factor sign-in and sessions (the new server keeps its own).
+- The machine's address and its certificate (see **Addresses** above).
 - Player analytics, sessions and the audit log from the old server (history starts again on the new one).
 - Server jar and libraries (downloaded again, checksum-verified).
 - The RCON password (each server generates its own).

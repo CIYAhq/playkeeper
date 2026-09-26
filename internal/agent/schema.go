@@ -175,6 +175,27 @@ CREATE TABLE pregen (
 );
 ALTER TABLE servers ADD COLUMN addons_changed_at INTEGER;
 `,
+	// 0.4.0: the dashboard's certificates, one row per name: certs.Status
+	// and its Certificate. Times are Unix milliseconds.
+	`
+CREATE TABLE certificates (
+  name         TEXT PRIMARY KEY,
+  names        TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  challenge    TEXT NOT NULL,
+  file         TEXT NOT NULL DEFAULT '',
+  not_before   INTEGER,
+  not_after    INTEGER,
+  renew_at     INTEGER,
+  issuer       TEXT NOT NULL DEFAULT '',
+  serial       TEXT NOT NULL DEFAULT '',
+  sha256       TEXT NOT NULL DEFAULT '',
+  last_attempt INTEGER,
+  next_attempt INTEGER,
+  failures     INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT NOT NULL DEFAULT ''
+);
+`,
 	// Online backups, and the history behind lag and memory advice.
 	// saving_paused_since is set while a backup may have left world saving
 	// off; gc_windows holds 15-minute summaries of the JVM's GC log.

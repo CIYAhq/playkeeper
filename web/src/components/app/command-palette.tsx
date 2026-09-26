@@ -21,7 +21,7 @@ import {
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
-import { joinAddress } from '@/lib/format'
+import { serverJoinAddress } from '@/lib/format'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
 
@@ -75,10 +75,10 @@ function actionsFor(s: ServerStatus): PaletteItem[] {
   items.push({
     value: `copy:${s.id}`,
     label: t('cmd.copyAddress', { server: s.name }),
-    hint: joinAddress(window.location.hostname, s.gamePort),
+    hint: serverJoinAddress(s),
     icon: <CopyIcon />,
     run: () =>
-      void copyText(joinAddress(window.location.hostname, s.gamePort)).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
+      void copyText(serverJoinAddress(s)).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
   })
   items.push({ value: `add:${s.id}`, label: t('cmd.addPlayer', { server: s.name }), icon: <UserPlusIcon />, run: () => navigate(`/servers/${s.slug}/players#add`) })
   return items
@@ -121,6 +121,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
     if (ws.machine) {
       const id = ws.machine.id
       go.push({ value: 'go:machine', label: t('cmd.pageMachine', { machine: ws.machineName }), icon: <ServerIcon />, run: () => navigate({ name: 'machine', id }) })
+      go.push({ value: 'go:machine-settings', label: t('machine.settings'), hint: t('address.title'), icon: <GlobeIcon />, run: () => navigate({ name: 'machine-settings', id }) })
     }
     go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate({ name: 'settings' }) })
     const help: PaletteItem[] = [

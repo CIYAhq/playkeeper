@@ -514,13 +514,18 @@ func TestPanelPortServesPacksOverPlainHTTP(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- e.srv.serve(ctx, ln, cert) }()
+	go func() {
+		done <- e.srv.serve(ctx, ln, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}})
+	}()
 	addr := ln.Addr().String()
 
 	secure := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
 	defer secure.CloseIdleConnections()
 	if r, body := get(t, secure, "GET", "https://"+addr+"/api/health", nil); r.StatusCode != 200 || !strings.Contains(body, `"ok":true`) {
 		t.Errorf("HTTPS health: %d %q", r.StatusCode, body)
+	}
+	if r, body := get(t, secure, "GET", "https://"+addr+"/resource-packs/"+sumA+".zip", nil); r.StatusCode != 200 || body != "pack A" {
+		t.Errorf("a pack over HTTPS, for links when the panel has a trusted certificate: %d %q", r.StatusCode, body)
 	}
 	plain := &http.Client{Transport: &http.Transport{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	defer plain.CloseIdleConnections()

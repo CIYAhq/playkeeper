@@ -155,6 +155,8 @@ export interface ServerStatus {
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
+  /** The friendly join address, set once it works. */
+  joinAddress?: string
   /** The file that stopped the last start, while the server stays stopped. */
   refusal?: FileRefusal
   /** A backup left world saving off since then; Playkeeper keeps turning it back on. */
@@ -348,6 +350,8 @@ export interface ApiErrorBody {
   code: string
   hint?: string
   operation?: Operation
+  /** Values a translated message needs, such as retryAfterSeconds. */
+  params?: Record<string, unknown>
 }
 
 /** A machine the panel manages, with what its agent reports now. */
@@ -609,12 +613,219 @@ export interface AuditEntry {
   source: 'panel' | 'agent'
 }
 
+/** Served before sign-in, so only what is public anyway. */
+export interface SetupStatus {
+  needsSetup: boolean
+  machine?: string
+  version: string
+}
+
 export interface Me {
   user: { username: string; role: string }
   csrfToken: string
   expiresAt: string
   idleTimeoutSeconds: number
   version: string
+  passwordChangedAt?: string
+  /** What to tell the user once, right after the second sign-in step. */
+  notices?: SignInNotice[]
+}
+
+// Two-factor sign-in (internal/twofactor and internal/panel/twofactor.go).
+
+export type SecondFactorMethod = 'app_code' | 'recovery_code'
+
+/** What the sign-in page needs for the second step. */
+export interface Challenge {
+  methods: SecondFactorMethod[]
+  appCodesLockedUntil?: string
+  appCodesBlocked: boolean
+}
+
+/** The password was right and the second step is next. */
+export interface SecondFactorNeeded {
+  secondFactor: Challenge
+  user: { username: string }
+  expiresAt: string
+}
+
+export type LoginAnswer = Me | SecondFactorNeeded
+
+export interface TwoFactorStatus {
+  state: 'off' | 'pending' | 'on'
+  setupExpiresAt?: string
+  confirmedAt?: string
+  lastUsedAt?: string
+  recoveryCodesLeft: number
+  recoveryCodesMadeAt?: string
+  appCodesLockedUntil?: string
+  appCodesBlocked: boolean
+}
+
+export interface TwoFactorSetup {
+  qrCodeSvg: string
+  manualKey: string
+  uri: string
+  issuer: string
+  account: string
+  expiresAt: string
+}
+
+export type SignInNoticeKind = 'failed_attempts' | 'recovery_code_used' | 'recovery_codes_low' | 'no_recovery_codes'
+
+export interface SignInNotice {
+  kind: SignInNoticeKind
+  count: number
+  text: string
+}
+
+// The machine's address (internal/api/types.go, Address).
+
+export type AddressKind = '' | 'playkeeper' | 'own'
+
+/** What players type to join one server. */
+export interface JoinAddress {
+  serverId: string
+  name: string
+  port: number
+  /** The server's part of the address: "survival" in survival.alex.playkeeper.io. */
+  label: string
+  address?: string
+  /** The IP address with the port, which always works. */
+  direct?: string
+  published: boolean
+}
+
+export interface FreeAddress {
+  name: string
+  state: 'active' | 'lapsed' | 'released'
+  /** Why a lapsed name stopped: not refreshed for a month, or the dashboard not answering on port 8443 for a week. */
+  lapseReason?: 'not_refreshed' | 'no_answer'
+  /** Why the servers have no address under the name yet; players join at the name with the port meanwhile. */
+  serversWait?: 'server_address_not_yet' | 'not_answering'
+  serversFrom?: string
+  dns: 'ok' | 'pending'
+  ipv4?: string
+  ipv6?: string
+  claimedAt: string
+  refreshedAt: string
+  stoppedAt?: string
+  checkedAt: string
+  holdDays: number
+}
+
+export interface NamesService {
+  url: string
+  unreachable?: boolean
+  error?: string
+  checkedAt?: string
+}
+
+export interface NameAvailability {
+  name: string
+  address?: string
+  available: boolean
+  /** invalid_name, name_reserved, name_taken or name_held (params.until is a Unix time). */
+  code?: string
+  message?: string
+  params?: Record<string, unknown>
+  suggestions?: string[]
+}
+
+export interface SRVParts {
+  service: string
+  protocol: string
+  host: string
+  priority: number
+  weight: number
+  port: number
+  target: string
+}
+
+export interface DNSRecord {
+  serverId?: string
+  type: string
+  name: string
+  value: string
+  ttl: number
+  srv?: SRVParts
+}
+
+/** Code and params are what the page translates; message and hint are the backend's English. */
+export interface Note {
+  code: string
+  params?: Record<string, string>
+  message: string
+  hint?: string
+}
+
+export interface AddrRecord {
+  type: string
+  addr: string
+  here: boolean
+  kind?: string
+}
+
+export interface NameCheck extends Note {
+  name: string
+  ok: boolean
+  records?: AddrRecord[]
+}
+
+export interface RecordCheck extends Note {
+  record: DNSRecord
+  ok: boolean
+  found?: string[]
+}
+
+export interface AddressCheck {
+  at: string
+  name: NameCheck
+  records?: RecordCheck[]
+  ready: boolean
+}
+
+export interface CertificateProblem extends Note {
+  retryAt?: string
+  needsAction?: boolean
+  detail?: string
+}
+
+export interface CertificateStatus {
+  names: string[]
+  challenge: string
+  notBefore?: string
+  notAfter?: string
+  renewAt?: string
+  issuer?: string
+  lastAttempt?: string
+  nextAttempt?: string
+  failures?: number
+  problem?: CertificateProblem
+}
+
+export interface Address {
+  kind: AddressKind
+  host?: string
+  since?: string
+  ip?: string
+  panelPort: number
+  base: string
+  servers: JoinAddress[] | null
+  free?: FreeAddress
+  records?: DNSRecord[] | null
+  check?: AddressCheck
+  certificate?: CertificateStatus
+  names: NamesService
+  termsAccepted?: string
+  operation?: Operation
+}
+
+/** What a domain would need, before it is saved. */
+export interface AddressPlan {
+  domain: string
+  records: DNSRecord[] | null
+  servers: JoinAddress[] | null
 }
 
 // Follow-ups after 0.3.0.

@@ -12,7 +12,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatDay, formatDuration, joinAddress, localTimeZone, relativeTime } from '@/lib/format'
+import { formatDay, formatDuration, localTimeZone, relativeTime, serverJoinAddress } from '@/lib/format'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
@@ -232,7 +232,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   const [days, setDays] = useState<Days>('7')
   const p = usePlayers(s, days)
   const lists = usePlayerLists(s, p.whitelist, p.operators, p.refresh)
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = serverJoinAddress(s)
   const online = !ws.stale && s.phase === 'online'
   const onlineNames = online ? (s.players?.names ?? []) : []
   const isOnline = (n: string) => onlineNames.some((o) => o.toLowerCase() === n.toLowerCase())

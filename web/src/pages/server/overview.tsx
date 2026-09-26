@@ -11,13 +11,14 @@ import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
 import { PlayersChart } from '@/components/app/players-chart'
 import { RestoreDialog } from '@/components/app/restore'
+import { SignInNotice } from '@/components/app/sign-in-notice'
 import { JobSteps, type StepState } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
-import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime } from '@/lib/format'
+import { formatBytes, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, serverJoinAddress } from '@/lib/format'
 import { createStepOf, failedJob, isSettingUp, statusTone, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { formatTPS } from '@/lib/running'
@@ -40,6 +41,7 @@ function Running({ server: s }: { server: ServerStatus }) {
   const { servers } = useWorkspace()
   return (
     <>
+      {phone && <SignInNotice />}
       <ServerNotices server={s} />
       <FirstStepsCard server={s} phone={phone} onBackup={() => void serverAction(s, 'backups')} />
       <div className="grid gap-4 lg:grid-cols-3">
@@ -109,21 +111,22 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
 function JoinCard({ server: s }: { server: ServerStatus }) {
   const { stale } = useWorkspace()
   const phone = useIsPhone()
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = serverJoinAddress(s)
   const online = !stale && s.phase === 'online'
+  const long = address.length > 20
   return (
     <Card>
       <div className="flex items-start justify-between gap-3">
         <CardTitle className="max-sm:text-[17px]">{t('overview.join')}</CardTitle>
         <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />
       </div>
-      <p className="mt-2 text-[26px] leading-8 font-extrabold tracking-[-0.01em] break-all tabular-nums max-sm:text-[28px]">{address}</p>
+      <p className={cn('mt-2 font-extrabold tracking-[-0.01em] break-all tabular-nums', long ? 'text-xl leading-[26px]' : 'text-[26px] leading-8 max-sm:text-[28px]')}>{address}</p>
       {!phone && <p className="mt-1 text-[13px] text-muted-foreground">{t('overview.joinHelp')}</p>}
       <p className="mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground max-sm:pt-3 max-sm:text-[13px]">
         {online && s.reachable ? (
           <>
             <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-            {phone ? t('overview.answeringPhone', { time: relativeTime(s.reachableAt) }) : t('overview.answering', { port: s.gamePort, time: relativeTime(s.reachableAt) })}
+            {phone || s.joinAddress ? t('overview.answeringPhone', { time: relativeTime(s.reachableAt) }) : t('overview.answering', { port: s.gamePort, time: relativeTime(s.reachableAt) })}
           </>
         ) : online ? (
           <>

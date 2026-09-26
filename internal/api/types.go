@@ -62,6 +62,10 @@ type ServerStatus struct {
 	CrashCount      int             `json:"crashCount"`
 	Resources       *Resources      `json:"resources,omitempty"`
 	LastBackup      *Backup         `json:"lastBackup,omitempty"`
+	// JoinAddress is the server's address under the machine's name, such as
+	// survival.alex.playkeeper.io, once its DNS records work; empty until
+	// then, when players use the IP address and port.
+	JoinAddress string `json:"joinAddress,omitempty"`
 	// WorldBytes is the world's size on disk (all its dimensions), measured
 	// every few minutes.
 	WorldBytes      *int64     `json:"worldBytes,omitempty"`
@@ -762,6 +766,15 @@ type Health struct {
 	Docker  bool   `json:"docker"`
 }
 
+// SetupStatus is what the dashboard shows before anyone signs in, so it
+// holds nothing that isn't public anyway: the machine's name is in the
+// panel's self-signed certificate and the version in /api/health.
+type SetupStatus struct {
+	NeedsSetup bool   `json:"needsSetup"`
+	Machine    string `json:"machine,omitempty"`
+	Version    string `json:"version"`
+}
+
 // Add-ons are a server's plugins (Paper) or mods, installed from Modrinth
 // and Hangar.
 
@@ -1176,6 +1189,9 @@ type Error struct {
 	Code      string     `json:"code"`
 	Hint      string     `json:"hint,omitempty"`
 	Operation *Operation `json:"operation,omitempty"`
+	// Params carries the values a translated message needs, such as
+	// retryAfterSeconds.
+	Params map[string]any `json:"params,omitempty"`
 }
 
 const (
@@ -1192,7 +1208,12 @@ const (
 	CodeInternal          = "internal"
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
-	CodeIconInvalid       = "icon_invalid"
+	// CodeNamesUnreachable: the free address service could not be reached.
+	CodeNamesUnreachable = "names_unreachable"
+	// CodeRetryLater: the certificate authority refuses attempts until
+	// params.retryAt.
+	CodeRetryLater  = "retry_later"
+	CodeIconInvalid = "icon_invalid"
 )
 
 // WorldCopy is a world folder a restore left next to the live one: the
@@ -1208,3 +1229,240 @@ const (
 	WorldCopyPrevious      = "previous"
 	WorldCopyFailedRestore = "failed_restore"
 )
+
+// Kinds of machine address.
+const (
+	AddressNone       = ""
+	AddressPlaykeeper = "playkeeper"
+	AddressOwn        = "own"
+)
+
+// Address is how people reach a machine by name instead of its IP address:
+// a free playkeeper.io address or the admin's own domain. Each server's join
+// address and the dashboard's certificate follow from it.
+type Address struct {
+	// Kind is AddressNone, AddressPlaykeeper or AddressOwn.
+	Kind string `json:"kind"`
+	// Host is the machine's name, such as alex.playkeeper.io or
+	// play.example.com.
+	Host  string     `json:"host,omitempty"`
+	Since *time.Time `json:"since,omitempty"`
+	// IP is the machine's public address as far as Playkeeper can tell (the
+	// one the dashboard was opened with, or a network interface's). It keeps
+	// working next to any name.
+	IP        string `json:"ip,omitempty"`
+	PanelPort int    `json:"panelPort"`
+	// Base is the domain free addresses live under.
+	Base string `json:"base"`
+	// Servers are the servers' join addresses, in display order.
+	Servers []JoinAddress `json:"servers"`
+	// Free is the free address as the names service last described it.
+	Free *FreeAddress `json:"free,omitempty"`
+	// Records are the DNS records the own domain needs; Check is the last
+	// look at them.
+	Records []DNSRecord   `json:"records,omitempty"`
+	Check   *AddressCheck `json:"check,omitempty"`
+	// Certificate is the dashboard's certificate for Host.
+	Certificate *CertificateStatus `json:"certificate,omitempty"`
+	Names       NamesService       `json:"names"`
+	// TermsAccepted is when an admin accepted Let's Encrypt's terms.
+	TermsAccepted *time.Time `json:"termsAccepted,omitempty"`
+	// Operation is the address's work in progress: publishing a free
+	// address or getting a certificate.
+	Operation *Operation `json:"operation,omitempty"`
+}
+
+// JoinAddress is what players type to join one server.
+type JoinAddress struct {
+	ServerID string `json:"serverId"`
+	Name     string `json:"name"`
+	Port     int    `json:"port"`
+	// Label is the server's part of its address: "survival" in
+	// survival.alex.playkeeper.io.
+	Label string `json:"label"`
+	// Address is the friendly address, empty without a machine name. Direct
+	// is the IP address with the port, which always works.
+	Address string `json:"address,omitempty"`
+	Direct  string `json:"direct,omitempty"`
+	// Published: Address works (a free address's records are published, or
+	// the last check found an own domain's).
+	Published bool `json:"published"`
+}
+
+// FreeAddress is a free playkeeper.io address at the names service.
+type FreeAddress struct {
+	Name string `json:"name"`
+	// State is "active", "lapsed" (its records were removed, for the
+	// reason in LapseReason) or "released".
+	State string `json:"state"`
+	// LapseReason is "not_refreshed" (the machine did not refresh the name
+	// for a month) or "no_answer" (the names service could not reach the
+	// dashboard on port 8443 for a week).
+	LapseReason string `json:"lapseReason,omitempty"`
+	// ServersWait is why the servers have no address under the name yet:
+	// "server_address_not_yet" until ServersFrom, a few days after the
+	// claim, or "not_answering" until the names service has reached the
+	// dashboard on port 8443. Players join at the name with the server's
+	// port meanwhile.
+	ServersWait string     `json:"serversWait,omitempty"`
+	ServersFrom *time.Time `json:"serversFrom,omitempty"`
+	// DNS is "ok" once the name's own records are published, else
+	// "pending".
+	DNS         string    `json:"dns"`
+	IPv4        string    `json:"ipv4,omitempty"`
+	IPv6        string    `json:"ipv6,omitempty"`
+	ClaimedAt   time.Time `json:"claimedAt"`
+	RefreshedAt time.Time `json:"refreshedAt"`
+	// StoppedAt is when a lapsed name stopped pointing at the machine.
+	StoppedAt *time.Time `json:"stoppedAt,omitempty"`
+	// CheckedAt is when the names service last answered about it.
+	CheckedAt time.Time `json:"checkedAt"`
+	// HoldDays is how long a released name is held from others.
+	HoldDays int `json:"holdDays"`
+}
+
+// NamesService is the service behind free addresses.
+type NamesService struct {
+	URL string `json:"url"`
+	// Unreachable: the last request could not reach it; Error says how.
+	Unreachable bool       `json:"unreachable,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	CheckedAt   *time.Time `json:"checkedAt,omitempty"`
+}
+
+// NameAvailability says whether a free address can be claimed.
+type NameAvailability struct {
+	Name      string `json:"name"`
+	Address   string `json:"address,omitempty"`
+	Available bool   `json:"available"`
+	// Code and Params say why not: invalid_name, name_reserved, name_taken
+	// or name_held (params.until is a Unix time).
+	Code    string         `json:"code,omitempty"`
+	Message string         `json:"message,omitempty"`
+	Params  map[string]any `json:"params,omitempty"`
+	// Suggestions are similar names that are free right now.
+	Suggestions []string `json:"suggestions,omitempty"`
+}
+
+// DNSRecord is a record to create where the own domain's DNS is managed.
+type DNSRecord struct {
+	// ServerID is the server an SRV record is for.
+	ServerID string    `json:"serverId,omitempty"`
+	Type     string    `json:"type"`
+	Name     string    `json:"name"`
+	Value    string    `json:"value"`
+	TTL      int       `json:"ttl"`
+	SRV      *SRVParts `json:"srv,omitempty"`
+}
+
+// SRVParts are an SRV record's fields, for DNS providers that ask for them
+// one by one.
+type SRVParts struct {
+	Service  string `json:"service"`
+	Protocol string `json:"protocol"`
+	Host     string `json:"host"`
+	Priority int    `json:"priority"`
+	Weight   int    `json:"weight"`
+	Port     int    `json:"port"`
+	Target   string `json:"target"`
+}
+
+// Note is something to show about a name or a certificate. Code, with
+// Params, is what the UI translates; Message and Hint are the English text.
+type Note struct {
+	Code    string            `json:"code"`
+	Params  map[string]string `json:"params,omitempty"`
+	Message string            `json:"message"`
+	Hint    string            `json:"hint,omitempty"`
+}
+
+// AddressCheck is a look at the own domain's records, as players and Let's
+// Encrypt see them.
+type AddressCheck struct {
+	At      time.Time     `json:"at"`
+	Name    NameCheck     `json:"name"`
+	Records []RecordCheck `json:"records,omitempty"`
+	// Ready: the name points here and every SRV record is right.
+	Ready bool `json:"ready"`
+}
+
+// NameCheck is where the own domain points, compared with this machine.
+type NameCheck struct {
+	Note
+	Name    string       `json:"name"`
+	OK      bool         `json:"ok"`
+	Records []AddrRecord `json:"records,omitempty"`
+}
+
+// AddrRecord is an A or AAAA record found for a name.
+type AddrRecord struct {
+	Type string `json:"type"`
+	Addr string `json:"addr"`
+	// Here: the address is this machine's.
+	Here bool   `json:"here"`
+	Kind string `json:"kind,omitempty"`
+}
+
+// RecordCheck is the state of one SRV record.
+type RecordCheck struct {
+	Note
+	Record DNSRecord `json:"record"`
+	OK     bool      `json:"ok"`
+	Found  []string  `json:"found,omitempty"`
+}
+
+// CertificateStatus is the dashboard's certificate for the machine's name,
+// and how getting or renewing it went.
+type CertificateStatus struct {
+	Names []string `json:"names"`
+	// Challenge is how Let's Encrypt checks the name: "http-01" (port 80)
+	// or "dns-01" (a record the names service publishes).
+	Challenge   string              `json:"challenge"`
+	NotBefore   *time.Time          `json:"notBefore,omitempty"`
+	NotAfter    *time.Time          `json:"notAfter,omitempty"`
+	RenewAt     *time.Time          `json:"renewAt,omitempty"`
+	Issuer      string              `json:"issuer,omitempty"`
+	LastAttempt *time.Time          `json:"lastAttempt,omitempty"`
+	NextAttempt *time.Time          `json:"nextAttempt,omitempty"`
+	Failures    int                 `json:"failures,omitempty"`
+	Problem     *CertificateProblem `json:"problem,omitempty"`
+}
+
+// CertificateProblem is why the last attempt failed.
+type CertificateProblem struct {
+	Note
+	// RetryAt is the earliest time another attempt can succeed.
+	RetryAt     *time.Time `json:"retryAt,omitempty"`
+	NeedsAction bool       `json:"needsAction,omitempty"`
+	// Detail is the certificate authority's or the system's own words.
+	Detail string `json:"detail,omitempty"`
+}
+
+// AddressPlan is what a domain would need, before it is saved.
+type AddressPlan struct {
+	Domain  string        `json:"domain"`
+	Records []DNSRecord   `json:"records"`
+	Servers []JoinAddress `json:"servers"`
+}
+
+// Address requests. PanelHost is the host the dashboard was opened with;
+// the panel adds it, as it adds the actor.
+type AddressClaimRequest struct {
+	Name        string `json:"name"`
+	AcceptTerms bool   `json:"acceptTerms"`
+	PanelHost   string `json:"panelHost"`
+	Actor       string `json:"actor"`
+}
+
+type AddressCheckRequest struct {
+	Domain      string `json:"domain"`
+	AcceptTerms bool   `json:"acceptTerms"`
+	PanelHost   string `json:"panelHost"`
+	Actor       string `json:"actor"`
+}
+
+type AddressActionRequest struct {
+	AcceptTerms bool   `json:"acceptTerms"`
+	PanelHost   string `json:"panelHost"`
+	Actor       string `json:"actor"`
+}
