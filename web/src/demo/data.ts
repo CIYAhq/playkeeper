@@ -8,6 +8,7 @@
 
 import { ApiError } from '@/api/client'
 import type {
+  Action,
   Activity,
   Address,
   Addon,
@@ -598,8 +599,18 @@ export function serverOf(s: DemoState, r: Request): ServerStatus {
 
 const limit = (r: Request, fallback: number) => Number(r.query.get('limit') ?? fallback) || fallback
 
+/** Everything an owner may do, as the panel's permit lists it for them. */
+const ownerCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+
 export function me(now: number): Me {
-  return { user: { username: demoUser, role: 'owner' }, csrfToken: 'demo', expiresAt: iso(now + 12 * hour), idleTimeoutSeconds: 12 * 3600, version: demoVersion }
+  return {
+    user: { username: demoUser, role: 'owner' },
+    csrfToken: 'demo',
+    expiresAt: iso(now + 12 * hour),
+    idleTimeoutSeconds: 12 * 3600,
+    version: demoVersion,
+    access: { role: 'admin', servers: { all: true }, twoFactor: false, can: ownerCan },
+  }
 }
 
 function logs(s: DemoState, r: Request): LogsResponse {

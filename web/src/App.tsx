@@ -10,12 +10,15 @@ import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
 import { AccountPage } from '@/pages/account'
+import { DiskPage } from '@/pages/disk'
 import { HomePage } from '@/pages/home'
+import { JoinPage } from '@/pages/join'
 import { LoginPage } from '@/pages/login'
 import { DashboardMachineOnly, MachinePage } from '@/pages/machine'
 import { MachineSettingsPage } from '@/pages/machine-settings'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
+import { RecoverPage } from '@/pages/recover'
 import { AccountStep, Onboarding } from '@/pages/onboarding'
 import { PackPage } from '@/pages/pack'
 import { ServerPage } from '@/pages/server'
@@ -41,7 +44,11 @@ export function App() {
     navigate(signInPath(window.location), true)
   }, [])
 
+  // The invite page works without an account, so it skips signing in.
+  const onJoin = route.name === 'join'
+
   useEffect(() => {
+    if (onJoin) return
     let cancelled = false
     async function boot() {
       try {
@@ -67,7 +74,19 @@ export function App() {
       cancelled = true
       off()
     }
-  }, [signedIn, signedOut])
+  }, [signedIn, signedOut, onJoin])
+
+  if (route.name === 'join') {
+    return (
+      <JoinPage
+        code={route.code}
+        onSignedIn={(m, to) => {
+          signedIn(m)
+          navigate(to ?? '/', true)
+        }}
+      />
+    )
+  }
 
   switch (state) {
     case 'loading':
@@ -147,13 +166,18 @@ function page(route: Route) {
     case 'setup':
     case 'welcome':
     case 'legacy':
+    case 'join':
       return <HomePage />
     case 'new-server':
       return <NewServerPage key={route.machine ?? ''} machine={route.machine} />
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
+    case 'player':
+      return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':
-      return (
+      return route.sub === 'disk' ? (
+        <DiskPage id={route.id} />
+      ) : (
         <DashboardMachineOnly id={route.id}>
           <MachinePage id={route.id} />
         </DashboardMachineOnly>
@@ -165,6 +189,9 @@ function page(route: Route) {
         </DashboardMachineOnly>
       )
     case 'settings':
+    case 'team':
+    case 'addon-sources':
+    case 'discord':
     case 'ai-agents':
     case 'machines':
     case 'machine-details':
@@ -175,6 +202,8 @@ function page(route: Route) {
       return <MorePage />
     case 'pack':
       return <PackPage token={route.token} />
+    case 'recover':
+      return <RecoverPage />
     default: {
       const unreachable: never = route
       return unreachable

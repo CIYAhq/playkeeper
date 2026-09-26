@@ -19,7 +19,13 @@ import { login, outDir } from './helpers'
 // pages that change are crawled again in states it isn't in, laid over the
 // panel's real answers (View in fakes.ts): the server stopped, crashed and
 // busy, no players or backups, no servers at all (Home's empty page and
-// /welcome), a Playkeeper update to install, and first-run setup.
+// /welcome), a Playkeeper update to install, space to free on the machine's
+// disk, and first-run setup.
+//
+// The sign-in page, first-run setup, a friends' pack link that opens nothing
+// and the shared map pages (a shared map, and a link no map has) are opened
+// signed out. A world file picker gets a small archive, so the world upload's
+// later steps are pressed too.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. The only real write is one AI agent token, made before the
@@ -48,15 +54,31 @@ const sizes = {
 // The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
 const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
 
-async function routes(page: Page, phone: boolean): Promise<string[]> {
+// A well-formed share link that no map has, for the "isn't available" page.
+const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'
+// A friends' pack link that opens nothing: the page every unavailable link gets.
+const unknownPackLink = '/packs/Pk0Unknown0Link0Abcdef'
+
+/** The pages to open signed in, and the shared maps anyone can open without signing in. */
+async function routes(page: Page, phone: boolean): Promise<{ live: string[]; shared: string[] }> {
   const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string; kind: string }[]
   const out = ['/']
+  const shared: string[] = []
   for (const s of servers) {
+    const res = await page.request.get(`/api/servers/${s.id}/map`)
+    const map = (res.ok() ? await res.json() : {}) as { supported?: boolean; public?: boolean; path?: string }
+    if (map.public && map.path) shared.push(map.path)
     const addons = addonTabs[s.type ?? '']
-    for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    // On desktop, copies are part of the backup rules page and Schedules is a section of Settings.
+    out.push(`/servers/${s.slug}/world/backup-rules`)
+    if (phone) out.push(`/servers/${s.slug}/world/backup-rules/copies`, `/servers/${s.slug}/settings/schedules`)
+    const listed: unknown = await (await page.request.get(`/api/servers/${s.id}/whitelist`)).json().catch(() => [])
+    const player = Array.isArray(listed) ? (listed[0] as { name?: string } | undefined)?.name : undefined
+    if (player) out.push(`/servers/${s.slug}/players/${encodeURIComponent(player)}`)
   }
-  out.push('/servers/new')
+  out.push('/servers/new', '/servers/new#world')
   // The add-on library with Playkeeper's picks, for the first server that
   // has one (each library takes minutes), and a template someone shared.
   const library = servers.find((s) => addonTabs[s.type ?? ''])
@@ -68,11 +90,12 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     if (payload) out.push(`/servers/new#template=${payload}`)
   }
   // A joined machine's page is in Settings › Machines, and it has no Machine
-  // settings; the dashboard's own machine has both pages.
-  for (const m of machines) out.push(...(m.kind === 'remote' ? [`/settings/machines/${m.id}`] : [`/machines/${m.id}`, `/machines/${m.id}/settings`]))
-  out.push('/settings', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor')
+  // settings; the dashboard's own machine has both pages. Every machine has a
+  // Disk space page.
+  for (const m of machines) out.push(...(m.kind === 'remote' ? [`/settings/machines/${m.id}`] : [`/machines/${m.id}`, `/machines/${m.id}/settings`]), `/machines/${m.id}/disk`)
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor', '/recover')
   if (phone) out.push('/more')
-  return out
+  return { live: out, shared }
 }
 
 const seedToken = 'Claude on my laptop'
@@ -105,6 +128,7 @@ interface Crawl {
 /** After the live pages: the pages each faked state changes, for the first server in `live`. */
 function fakedCrawls(live: string[], phone: boolean): Crawl[] {
   const first = live.find((r) => /^\/servers\/(?!new$)[^/]+$/.test(r))
+  const disk = live.find((r) => /^\/machines\/[^/]+\/disk$/.test(r))
   const byView: [View, string[]][] = [
     ['stopped', first ? ['/', first, `${first}/console`, `${first}/settings`] : []],
     ['crashed', first ? ['/', first] : []],
@@ -113,6 +137,7 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['empty lists', first ? [`${first}/players`, `${first}/world`] : []],
     ['no servers', ['/', '/welcome']],
     ['update available', phone ? ['/settings', '/more'] : ['/settings']],
+    ['space to free', disk ? [disk] : []],
   ]
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }
@@ -132,7 +157,10 @@ function pageOf(c: { route: string; view?: View }): string {
  * it is broken. A page's count leaves out controls pressed on an earlier
  * page, such as the sidebar. A page that isn't listed needs one. A dev build
  * (make dev) can't update itself, so its /settings has no "Check for updates"
- * and one control fewer than an installed panel's.
+ * and one control fewer than an installed panel's. A fresh install has
+ * nothing to free on the Disk space page, whose way back to the machine is
+ * pressed on the machine's other pages first, so its controls count in the
+ * space to free view.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -147,6 +175,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 36,
     '/machines/*': 3,
     '/machines/*/settings': 6,
+    '/machines/*/disk': 0,
     '/settings': 2,
     '/account': 7,
     '/account/two-factor': 4,
@@ -163,6 +192,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/ (no servers)': 1,
     '/welcome (no servers)': 11,
     '/settings (update available)': 5,
+    '/machines/*/disk (space to free)': 11,
   },
   phone: {
     '/login': 3,
@@ -176,6 +206,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 29,
     '/machines/*': 1,
     '/machines/*/settings': 6,
+    '/machines/*/disk': 0,
     '/settings': 1,
     '/account': 6,
     '/account/two-factor': 1,
@@ -193,6 +224,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/welcome (no servers)': 15,
     '/settings (update available)': 3,
     '/more (update available)': 1,
+    '/machines/*/disk (space to free)': 14,
   },
 }
 
@@ -208,10 +240,10 @@ interface Place {
 }
 
 /**
- * Places the click-through didn't reach before 0.3.1's audit. In each, one
- * control must come out as `status`, and a negative control breaks it and
- * presses it again (a disabled one loses its reason instead): the crawl must
- * then report it.
+ * Places the click-through didn't reach before 0.3.1's audit, and the Disk
+ * space page's clean-up. In each, one control must come out as `status`,
+ * and a negative control breaks it and presses it again (a disabled one
+ * loses its reason instead): the crawl must then report it.
  */
 const places: Place[] = [
   { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
@@ -229,6 +261,7 @@ const places: Place[] = [
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
+  { what: 'deleting old backups on the Disk space page', sizes: ['desktop', 'phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
   { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
 ]
 
@@ -298,9 +331,10 @@ for (const [name, size] of Object.entries(sizes)) {
       await outCrawler.crawl(c.route, c.view)
       pages.push(pageOf(c))
     }
-    // A friends' pack link that opens nothing: the page every unavailable link gets. It has
-    // no controls, so it isn't one of the pages with a minimum.
-    await outCrawler.crawl('/packs/Pk0Unknown0Link0Abcdef')
+    // A friends' pack link and a map link that open nothing: the page every unavailable
+    // link gets. They have no controls, so they aren't pages with a minimum.
+    await outCrawler.crawl(unknownPackLink)
+    await outCrawler.crawl(unknownMapLink)
     negatives.push(...(await negativeControls(outCrawler, name as Size, false)))
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
@@ -313,7 +347,7 @@ for (const [name, size] of Object.entries(sizes)) {
     await seedAiToken(page)
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
-    const live = await routes(page, name === 'phone')
+    const { live, shared } = await routes(page, name === 'phone')
     for (const c of [...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, name === 'phone')]) {
       await crawler.crawl(c.route, c.view)
       pages.push(pageOf(c))
@@ -323,6 +357,18 @@ for (const [name, size] of Object.entries(sizes)) {
     report.notes.push(...crawler.notes)
     report.unreached.push(...crawler.unreached)
     await context.close()
+
+    // Shared maps open signed out; the signed-in pages said which there are.
+    if (shared.length > 0) {
+      const mapContext = await browser.newContext(options)
+      const mapCrawler = new Crawler(await mapContext.newPage(), name, base, log)
+      await mapCrawler.init()
+      for (const route of shared) await mapCrawler.crawl(route)
+      report.results.push(...mapCrawler.results)
+      report.notes.push(...mapCrawler.notes)
+      report.unreached.push(...mapCrawler.unreached)
+      await mapContext.close()
+    }
 
     fs.mkdirSync(outDir, { recursive: true })
     fs.writeFileSync(path.join(outDir, `clickthrough-${name}.json`), JSON.stringify({ ...report, negatives }, null, 2))

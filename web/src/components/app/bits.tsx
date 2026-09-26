@@ -5,7 +5,7 @@ import type { Operation, ServerStatus } from '@/api/types'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { relativeTime } from '@/lib/format'
+import { formatClock, relativeTime } from '@/lib/format'
 import { awayShort } from '@/lib/machines'
 import { isSettingUp, opLabel, phaseLabel, statusLabel, statusTone, type Tone } from '@/lib/phase'
 import { cn } from '@/lib/utils'
@@ -76,7 +76,12 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
       return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }
     case 'stopped':
     case 'unknown':
-      return { tone, label: phaseLabel(st.phase), labelClass: 'text-foreground' }
+      return {
+        tone,
+        label: phaseLabel(st.phase),
+        detail: st.phase === 'asleep' && st.sleep?.asleepSince ? t('status.asleepSince', { time: formatClock(st.sleep.asleepSince) }) : undefined,
+        labelClass: 'text-foreground',
+      }
     default: {
       const unreachable: never = tone
       return unreachable
@@ -271,11 +276,12 @@ export function MeterRow({ label, value, percent, className }: { label: string; 
   )
 }
 
-export function Progress({ value, tone = 'primary', className, label }: { value: number; tone?: 'primary' | 'info'; className?: string; label?: string }) {
+export function Progress({ value, tone = 'primary', className, label }: { value: number; tone?: 'primary' | 'info' | 'muted'; className?: string; label?: string }) {
   const pct = Math.max(0, Math.min(100, value))
   return (
     <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-foreground/8', className)} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label={label}>
-      <div className={cn('h-full rounded-full transition-[width,background-color] duration-(--motion-slow) ease-standard', tone === 'primary' ? 'bg-primary' : 'bg-info')} style={{ width: `${pct}%` }} />
+      <div className={cn('h-full rounded-full transition-[width,background-color] duration-(--motion-slow) ease-standard', { primary: 'bg-primary', info: 'bg-info', muted: 'bg-muted-foreground/60' }[tone])} style={{ width: `${pct}%` }} />
+
     </div>
   )
 }

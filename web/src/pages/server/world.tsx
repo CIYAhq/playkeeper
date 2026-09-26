@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
-import { del, get, post } from '@/api/client'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArchiveIcon, ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ApiError, del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
-import { errorText, serverApi, useServerMachine } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
@@ -17,12 +17,19 @@ import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
 import { busyReason, failedJob, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
+import { linkPath, linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { CopyRestoreDialog, CopyRow, phoneStored, storedCell, storedRows, useCopyRestore, useStoredCopies, type StoredRow } from './copy-restore'
 import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
+
+const newestShown = 6
+
+const rowKey = (r: StoredRow) => (r.kind === 'here' ? r.backup.id : `copy:${r.copy.name}`)
 
 function downloadURL(s: ServerStatus, b: Backup): string {
   return serverApi(s.id, `/backups/${b.id}/download`)
@@ -63,16 +70,31 @@ function useReloadAfterJobs(s: ServerStatus, reload: () => Promise<void>) {
 }
 
 export function WorldPage({ server: s }: { server: ServerStatus }) {
+  const ws = useWorkspace()
   const { stale } = useServerMachine(s)
   const phone = useIsPhone()
   const backups = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 10_000, s.id)
   useReloadAfterJobs(s, backups.refresh)
   const [preview, setPreview] = useState<RestorePreview>()
   const [restoreSheet, setRestoreSheet] = useState(false)
-  const list = backups.data ?? []
-  const rows = useListPresence(backups.data, (b) => b.id)
-  const newest = list[0]?.id
+  const [showAll, setShowAll] = useState(false)
+  const newest = backups.data?.[0]?.id
   const refresh = () => void backups.refresh()
+  const stored = useStoredCopies(s.id)
+  const copies = stored.data?.copies ?? []
+  const copiesOn = !!stored.data?.view.enabled
+  const place = stored.data?.view.place ?? ''
+  const all = useMemo(() => storedRows(backups.data ?? [], stored.data?.copies ?? [], stored.data?.view), [backups.data, stored.data])
+  const rows = useListPresence(backups.data ? (showAll ? all : all.slice(0, newestShown)) : undefined, rowKey)
+  const restore = useCopyRestore(s, setPreview)
+  const jobDialog = <CopyRestoreDialog restore={restore} copies={copies} place={place} />
+  const more =
+    all.length > newestShown ? (
+      <button type="button" onClick={() => setShowAll(!showAll)} className="inline-flex min-h-8 items-center gap-1 self-start rounded-md text-[13px] font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring max-sm:px-4">
+        {showAll ? t('world.showFewer') : t('world.showAll', { count: all.length })}
+        {showAll ? <ChevronUpIcon className="size-3.5" aria-hidden="true" /> : <ChevronDownIcon className="size-3.5" aria-hidden="true" />}
+      </button>
+    ) : null
 
   async function restoreFrom(b: Backup) {
     try {
@@ -84,12 +106,13 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
 
   const dialog = <RestoreDialog preview={preview} server={s} onClose={() => setPreview(undefined)} />
 
-  if (backups.data && list.length === 0) {
+  if (backups.data && all.length === 0) {
     return (
       <>
         <WorldNotice server={s} className="max-sm:px-1" />
         <EmptyBackups server={s} phone={phone} />
         {dialog}
+        {jobDialog}
       </>
     )
   }
@@ -98,31 +121,54 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
     return (
       <div className="flex flex-col gap-4">
         <WorldNotice server={s} className="px-1" />
-        <MakeBackup server={s} backups={list} phone onDone={refresh} />
+        <MakeBackup server={s} backups={backups.data ?? []} phone onDone={refresh} />
         <section aria-labelledby="backups">
           <SectionLabel className="px-4">
-            <span id="backups">{t('world.listPhone')}</span>
+            <span id="backups">{copiesOn ? t('world.phoneListCopies', { place }) : t('world.listPhone')}</span>
           </SectionLabel>
           {backups.data ? (
             <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-              {rows.map(({ key, item: b, state }) => (
-                <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-base">{formatDay(b.createdAt)}</span>
-                    <span className="block text-[13px] text-muted-foreground">{[b.note, formatBytes(b.sizeBytes), b.downloadedAt ? t('world.phoneDownloaded') : t('world.phoneNotDownloaded')].filter(Boolean).join(t('common.dot'))}</span>
-                  </span>
-                  <Button size="lg" variant={b.id === newest && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
-                    <DownloadIcon />
-                    {t('common.download')}
-                  </Button>
-                </li>
-              ))}
+              {rows.map(({ key, item: r, state }) =>
+                r.kind === 'there' ? (
+                  <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-base">{formatDay(r.copy.createdAt)}</span>
+                      <span className="block text-[13px] text-muted-foreground">{[formatBytes(r.copy.sizeBytes), phoneStored(r, place)].join(t('common.dot'))}</span>
+                    </span>
+                    {can(ws.me, 'backups.restore') && (
+                      <Button size="lg" variant="outline" onClick={() => void restore.start(r.copy)}>
+                        <RotateCcwIcon />
+                        {t('world.restoreCopyShort')}
+                      </Button>
+                    )}
+                  </li>
+                ) : (
+                  <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-base">{formatDay(r.backup.createdAt)}</span>
+                      <span className="block text-[13px] text-muted-foreground">{[r.backup.note, formatBytes(r.backup.sizeBytes), phoneStored(r, place) ?? (r.backup.downloadedAt ? t('world.phoneDownloaded') : t('world.phoneNotDownloaded'))].filter(Boolean).join(t('common.dot'))}</span>
+                    </span>
+                    <Button size="lg" variant={r.backup.id === newest && !r.backup.downloadedAt && !copiesOn ? 'default' : 'outline'} render={<a href={downloadURL(s, r.backup)} download={r.backup.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
+                      <DownloadIcon />
+                      {t('common.download')}
+                    </Button>
+                  </li>
+                ),
+              )}
             </ul>
           ) : (
             <ListSkeleton rowClassName="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0" className="mt-2 overflow-hidden rounded-3xl border border-border bg-white" trailing={<Skeleton className="h-10 w-28 shrink-0 rounded-lg" />} />
           )}
+          {more && <div className="mt-2 flex">{more}</div>}
         </section>
         <ul className="overflow-hidden rounded-3xl border border-border bg-white">
+          <li className="border-b border-border">
+            <a {...linkProps({ name: 'server', slug: s.slug, tab: 'world', sub: 'backup-rules' })} className={phoneRow}>
+              <SlidersHorizontalIcon aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-base">{t('world.rules')}</span>
+              <ChevronRightIcon aria-hidden="true" />
+            </a>
+          </li>
           <li className="border-b border-border">
             <button type="button" onClick={() => setRestoreSheet(true)} className={phoneRow}>
               <RotateCcwIcon aria-hidden="true" />
@@ -139,24 +185,27 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             </div>
             <SheetPanel className="flex flex-col gap-3 px-5 pt-4">
               <ul className="overflow-hidden rounded-2xl border border-border">
-                {list.map((b) => (
-                  <li key={b.id} className="border-b border-border last:border-b-0">
-                    <button
-                      type="button"
-                      className="flex min-h-14 w-full items-center gap-3 px-4 text-left"
-                      onClick={() => {
-                        setRestoreSheet(false)
-                        void restoreFrom(b)
-                      }}
-                    >
-                      <HistoryIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-base">{formatDay(b.createdAt)}</span>
-                        {b.note && <span className="block truncate text-[13px] text-muted-foreground">{b.note}</span>}
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                {all.map((r) => {
+                  const hint = r.kind === 'there' ? phoneStored(r, place) : r.backup.note
+                  return (
+                    <li key={r.kind === 'there' ? r.copy.name : r.backup.id} className="border-b border-border last:border-b-0">
+                      <button
+                        type="button"
+                        className="flex min-h-14 w-full items-center gap-3 px-4 text-left"
+                        onClick={() => {
+                          setRestoreSheet(false)
+                          void (r.kind === 'there' ? restore.start(r.copy) : restoreFrom(r.backup))
+                        }}
+                      >
+                        <HistoryIcon className="size-5 text-muted-foreground" aria-hidden="true" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-base">{formatDay(r.kind === 'there' ? r.copy.createdAt : r.backup.createdAt)}</span>
+                          {hint && <span className="block truncate text-[13px] text-muted-foreground">{hint}</span>}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
               </ul>
               <RestoreDropZone
                 server={s}
@@ -170,6 +219,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
           </SheetPopup>
         </Sheet>
         {dialog}
+        {jobDialog}
       </div>
     )
   }
@@ -178,14 +228,22 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
     <>
       <WorldNotice server={s} />
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
-        <MakeBackup server={s} backups={list} onDone={refresh} />
+        <MakeBackup server={s} backups={backups.data ?? []} onDone={refresh} />
         <WorldInfo server={s} backups={backups.data} />
       </div>
-      <section aria-labelledby="backups" className="mt-2">
-        <h2 id="backups" className="text-[15px] font-semibold">
-          {t('world.list')}
-        </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t('world.listHint')}</p>
+      <section aria-labelledby="backups" className="mt-2 flex flex-col">
+        <div className="flex items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h2 id="backups" className="text-[15px] font-semibold">
+              {t('world.list')}
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">{copiesOn ? t('world.listHintCopies', { place }) : t('world.listHint')}</p>
+          </div>
+          <a {...linkProps({ name: 'server', slug: s.slug, tab: 'world', sub: 'backup-rules' })} className="inline-flex shrink-0 items-center gap-1 rounded-md text-[13px] font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+            {t('world.rules')}
+            <ArrowRightIcon className="size-3.5" aria-hidden="true" />
+          </a>
+        </div>
         <div className="mt-3 overflow-x-auto rounded-2xl border border-border" tabIndex={0} role="region" aria-labelledby="backups">
           <table className="w-full min-w-[680px] text-[13px]">
             <thead className="bg-muted text-left text-xs text-muted-foreground">
@@ -199,12 +257,17 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
             </thead>
             <tbody>
               {!backups.data && <TableSkeleton cols={['start', 'end', 'start', 'start', 'end']} rowClassName="h-12 border-t border-border" />}
-              {rows.map(({ key, item: b, state }) => (
-                <BackupRow key={key} server={s} backup={b} state={state} newest={b.id === newest} onRestore={() => void restoreFrom(b)} onChanged={refresh} />
-              ))}
+              {rows.map(({ key, item: r, state }) =>
+                r.kind === 'there' ? (
+                  <CopyRow key={key} server={s} row={r} state={state} place={place} onRestore={() => void restore.start(r.copy)} onChanged={() => void stored.refresh()} />
+                ) : (
+                  <BackupRow key={key} server={s} backup={r.backup} state={state} newest={r.backup.id === newest} copiesOn={copiesOn} stored={storedCell(r, place)} onRestore={() => void restoreFrom(r.backup)} onChanged={refresh} />
+                ),
+              )}
             </tbody>
           </table>
         </div>
+        {more && <div className="mt-2 flex">{more}</div>}
       </section>
       <Card className="mt-2">
         <CardTitle>{t('world.restore')}</CardTitle>
@@ -214,17 +277,20 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
         </div>
       </Card>
       {stale ? null : dialog}
+      {stale ? null : jobDialog}
     </>
   )
 }
 
 function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatus; backups: Backup[]; phone?: boolean; onDone: () => void }) {
+  const ws = useWorkspace()
   const { offline } = useServerMachine(s)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
   const blocked = whyNot(s, 'change', offline)
+  if (!can(ws.me, 'backups.make')) return null
 
   async function backup() {
     setBusy(true)
@@ -282,9 +348,6 @@ function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatu
 }
 
 function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] | undefined }) {
-  const later = [
-    { icon: <UploadIcon />, title: t('world.ownWorld'), hint: t('world.ownWorldHint') },
-  ]
   return (
     <Card>
       <CardTitle>{t('world.info')}</CardTitle>
@@ -305,22 +368,25 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
       </dl>
       <ul className="mt-3 flex flex-col">
         <WorldLinks server={s} />
-        {later.map((l) => (
-          <li key={l.title} className="flex items-center gap-3 py-1 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
-            {l.icon}
+        <li>
+          <a
+            {...linkPath('/servers/new#world')}
+            className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+          >
+            <UploadIcon />
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-semibold">{l.title}</span>
-              <span className="block text-xs text-muted-foreground">{l.hint}</span>
+              <span className="block text-[13px] font-semibold">{t('world.ownWorld')}</span>
+              <span className="block text-xs text-muted-foreground">{t('world.ownWorldHint')}</span>
             </span>
-            <span className="text-xs text-muted-foreground">{t('common.later')}</span>
-          </li>
-        ))}
+            <ChevronRightIcon className="transition-transform duration-(--motion-fast) ease-standard group-hover:translate-x-0.5" aria-hidden="true" />
+          </a>
+        </li>
       </ul>
     </Card>
   )
 }
 
-function BackupRow({ server: s, backup: b, state, newest, onRestore, onChanged }: { server: ServerStatus; backup: Backup; state: Presence; newest: boolean; onRestore: () => void; onChanged: () => void }) {
+function BackupRow({ server: s, backup: b, state, newest, copiesOn, stored, onRestore, onChanged }: { server: ServerStatus; backup: Backup; state: Presence; newest: boolean; copiesOn?: boolean; stored?: ReactNode; onRestore: () => void; onChanged: () => void }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -368,21 +434,22 @@ function BackupRow({ server: s, backup: b, state, newest, onRestore, onChanged }
       <td className="px-3 text-right tabular-nums">{formatBytes(b.sizeBytes)}</td>
       <td className={cn('px-3 font-medium', b.verified ? 'text-success-foreground' : b.verifyError ? 'text-destructive-foreground' : 'text-muted-foreground')}>{b.verified ? t('world.verified') : b.verifyError ? t('world.failed') : t('world.unchecked')}</td>
       <td className="px-3">
-        {b.downloadedAt ? (
-          <>
-            <span className="block">{t('world.onVps')}</span>
-            <span className="block text-xs text-muted-foreground">{t('world.downloadedAt', { time: relativeTime(b.downloadedAt) })}</span>
-          </>
-        ) : (
-          <>
-            <span className="block font-medium text-warning-foreground">{t('world.onlyHere')}</span>
-            <span className="block text-xs text-muted-foreground">{t('world.notDownloaded')}</span>
-          </>
-        )}
+        {stored ??
+          (b.downloadedAt ? (
+            <>
+              <span className="block">{t('world.onVps')}</span>
+              <span className="block text-xs text-muted-foreground">{t('world.downloadedAt', { time: relativeTime(b.downloadedAt) })}</span>
+            </>
+          ) : (
+            <>
+              <span className="block font-medium text-warning-foreground">{t('world.onlyHere')}</span>
+              <span className="block text-xs text-muted-foreground">{t('world.notDownloaded')}</span>
+            </>
+          ))}
       </td>
       <td className="px-3">
         <span className="flex items-center justify-end gap-1">
-          <Button size="sm" variant={newest && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(onChanged, 3000)} />}>
+          <Button size="sm" variant={newest && !b.downloadedAt && !copiesOn ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(onChanged, 3000)} />}>
             <DownloadIcon />
             {t('common.download')}
           </Button>
@@ -446,6 +513,7 @@ function BackupRow({ server: s, backup: b, state, newest, onRestore, onChanged }
 }
 
 function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boolean }) {
+  const ws = useWorkspace()
   const { offline } = useServerMachine(s)
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
@@ -460,25 +528,27 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
       <EmptyArt kind="backups" scale={phone ? 6 : 5} />
       <h2 className="mt-5 text-title font-extrabold tracking-[-0.015em] max-sm:text-[22px]">{t('world.emptyTitle')}</h2>
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('world.emptyBody')}</p>
-      <Button
-        size={phone ? 'touch' : 'lg'}
-        className="mt-5 max-sm:w-full"
-        loading={busy || running}
-        disabledReason={whyNot(s, 'change', offline)}
-        onClick={async () => {
-          setBusy(true)
-          try {
-            await post(serverApi(s.id, '/backups'))
-          } catch (e) {
-            toastManager.add({ title: errorText(e), type: 'error' })
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        <ArchiveIcon />
-        {running ? t('world.backingUp') : t('world.emptyButton')}
-      </Button>
+      {can(ws.me, 'backups.make') && (
+        <Button
+          size={phone ? 'touch' : 'lg'}
+          className="mt-5 max-sm:w-full"
+          loading={busy || running}
+          disabledReason={whyNot(s, 'change', offline)}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              await post(serverApi(s.id, '/backups'))
+            } catch (e) {
+              toastManager.add({ title: errorText(e), type: 'error' })
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <ArchiveIcon />
+          {running ? t('world.backingUp') : t('world.emptyButton')}
+        </Button>
+      )}
       <p className="mt-3 text-xs text-muted-foreground">{online ? t('world.emptyNoteOnline') : t('world.emptyNote')}</p>
       <ol className="mt-8 grid w-full max-w-[720px] gap-4 border-t border-border pt-5 text-left sm:grid-cols-3">
         {steps.map((st, i) => (
@@ -536,7 +606,7 @@ function LeftoverNotice({ server: s, copy: c, state, onDiscarded, className }: {
       setConfirm(false)
       await onDiscarded()
     } catch (e) {
-      toastManager.add({ title: errorText(e), type: 'error' })
+      toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })
     } finally {
       setBusy(false)
     }

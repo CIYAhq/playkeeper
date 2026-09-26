@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, PackPage as PackPageData, PackShare, ServerStatus, ShareText } from '@/api/types'
+import type { Action, MachineView, PackPage as PackPageData, PackShare, ServerStatus, ShareText } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { PackShareNotice } from '@/components/app/pack-share'
 import { href, parse } from '@/lib/router'
@@ -85,7 +85,14 @@ let root: Root | undefined
 const dashboard = { id: 'm2345abcde', projectId: 'p2345abcde', name: 'my-vps', kind: 'local' } as MachineView
 
 const workspace: Workspace = {
-  me: { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.4.0' },
+  me: {
+    user: { username: 'siya', role: 'owner' },
+    csrfToken: 't',
+    expiresAt: '2026-09-26T00:00:00Z',
+    idleTimeoutSeconds: 43200,
+    version: '0.4.0',
+    access: { role: 'admin', servers: { all: true }, twoFactor: false, can: ['view', 'servers.manage', 'machine.manage'] satisfies Action[] },
+  },
   servers: [],
   serversError: undefined,
   machine: dashboard,

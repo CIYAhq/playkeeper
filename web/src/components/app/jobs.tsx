@@ -6,11 +6,23 @@ import { t } from '@/i18n'
 import { failureLine } from '@/lib/crash'
 import { formatMs } from '@/lib/format'
 import { opLabel } from '@/lib/phase'
+import { href, navigate } from '@/lib/router'
+
+/** Jobs a page is showing itself; a toast when one finishes would say it twice. */
+export const jobsOnScreen = new Set<string>()
+
+/** Where a "copy is ready" toast sends the admin: the World tab picks the restore up again. */
+export const restoreCopyHash = '#restore-copy'
 
 function finished(op: Operation, server: ServerStatus, machine: string) {
+  if (jobsOnScreen.has(op.id)) return
   const name = server.name
   if (op.status === 'failed') {
     toastManager.add({ title: t('op.failed', { what: opLabel(op, name) }), description: failureLine(op, server, machine), type: 'error', timeout: 10_000 })
+    return
+  }
+  if (op.status === 'cancelled') {
+    toastManager.add({ title: t('op.cancelled', { what: opLabel(op, name) }), description: t('offsiteRestore.nothingChanged') })
     return
   }
   const downtime = typeof op.detail?.downtimeMs === 'number' ? op.detail.downtimeMs : undefined
@@ -26,6 +38,18 @@ function finished(op: Operation, server: ServerStatus, machine: string) {
       return
     case 'update-version':
       toastManager.add({ title: t('toast.versionDone', { server: name, version: server.config?.minecraftVersion ?? '' }), type: 'success' })
+      return
+    case 'offsite-restore':
+      toastManager.add({
+        title: t('offsiteRestore.ready'),
+        description: t('offsiteRestore.body'),
+        type: 'success',
+        timeout: 0,
+        actionProps: { children: t('offsiteRestore.inside'), onClick: () => navigate(href({ name: 'server', slug: server.slug, tab: 'world' }) + restoreCopyHash) },
+      })
+      return
+    case 'offsite-check':
+      toastManager.add({ title: t('world.copyCheckedToast'), type: 'success' })
       return
   }
 }

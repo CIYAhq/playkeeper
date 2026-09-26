@@ -256,4 +256,136 @@ ALTER TABLE servers ADD COLUMN packs_token TEXT NOT NULL DEFAULT '';
 	// Wave 4: the template's add-ons and data packs that could not be
 	// installed, as a JSON list, kept after the first start for Try again.
 	`ALTER TABLE template_installs ADD COLUMN skipped TEXT NOT NULL DEFAULT '[]';`,
+	// wave 5: Discord alerts and the live status message, one webhook for
+	// the whole machine. webhook_url is a secret: it never leaves the agent.
+	`
+CREATE TABLE discord (
+  id                INTEGER PRIMARY KEY CHECK (id = 1),
+  webhook_url       TEXT NOT NULL DEFAULT '',
+  webhook_name      TEXT NOT NULL DEFAULT '',
+  alerts            TEXT NOT NULL,
+  live_status       INTEGER NOT NULL DEFAULT 0,
+  status_message_id TEXT NOT NULL DEFAULT '',
+  public_host       TEXT NOT NULL DEFAULT '',
+  connected_at      INTEGER NOT NULL DEFAULT 0,
+  update_alerted    TEXT NOT NULL DEFAULT ''
+);
+`,
+	// wave 5: the Minecraft version each server's Discord update alert last
+	// went out for.
+	`
+ALTER TABLE servers ADD COLUMN minecraft_update_alerted TEXT NOT NULL DEFAULT '';
+`,
+	// Wave 6: each server's map. A row exists while the map is turned on. It
+	// keeps the add-on records of squaremap (and anything it needed) as JSON,
+	// the two sharing switches, when the first full drawing was asked for,
+	// and who asked for a restart once nobody is playing.
+	`
+CREATE TABLE maps (
+  server_id          TEXT PRIMARY KEY,
+  addons             TEXT NOT NULL DEFAULT '[]',
+  installed_at       INTEGER NOT NULL,
+  public             INTEGER NOT NULL DEFAULT 0,
+  public_players     INTEGER NOT NULL DEFAULT 0,
+  first_render_at    INTEGER,
+  restart_when_empty TEXT NOT NULL DEFAULT ''
+);
+`,
+	// Wave 6: the shared map's link token, new each time sharing is switched
+	// on. Maps shared before tokens existed have none, so they stop being
+	// shared until someone switches sharing on again.
+	`
+ALTER TABLE maps ADD COLUMN share_token TEXT NOT NULL DEFAULT '';
+UPDATE maps SET public = 0;
+`,
+	// Wave 6: the copy of the world as uploaded that a server made from an
+	// upload has to save before its first start upgrades the world, as JSON,
+	// or '' when none is due.
+	`
+ALTER TABLE servers ADD COLUMN original_due TEXT NOT NULL DEFAULT '';
+`,
+	// Wave 7 (0.4.0): schedules, sleep when nobody's playing, and backup rules
+	// with encrypted copies somewhere else. Off-site secrets and keys live in
+	// the offsite table, never in logs or responses.
+	`
+CREATE TABLE schedules (
+  id         TEXT PRIMARY KEY,
+  server_id  TEXT NOT NULL,
+  name       TEXT NOT NULL DEFAULT '',
+  kind       TEXT NOT NULL,
+  timing     TEXT NOT NULL,
+  payload    TEXT NOT NULL DEFAULT '{}',
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL DEFAULT '',
+  last_run   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX schedules_server ON schedules(server_id, created_at);
+CREATE TABLE schedule_runs (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  schedule_id  TEXT NOT NULL,
+  server_id    TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  due          INTEGER NOT NULL,
+  started_at   INTEGER,
+  finished_at  INTEGER,
+  result       TEXT NOT NULL,
+  reason       TEXT NOT NULL DEFAULT '',
+  detail       TEXT NOT NULL DEFAULT '',
+  operation_id TEXT NOT NULL DEFAULT '',
+  players      INTEGER,
+  UNIQUE (schedule_id, due)
+);
+CREATE INDEX schedule_runs_server ON schedule_runs(server_id, due);
+ALTER TABLE servers ADD COLUMN sleep TEXT NOT NULL DEFAULT '{}';
+CREATE TABLE sleep_periods (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id TEXT NOT NULL,
+  start_ts  INTEGER NOT NULL,
+  end_ts    INTEGER,
+  woke_by   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX sleep_periods_server ON sleep_periods(server_id, start_ts);
+ALTER TABLE servers ADD COLUMN backup_rules TEXT NOT NULL DEFAULT '';
+CREATE TABLE offsite (
+  server_id    TEXT PRIMARY KEY,
+  enabled      INTEGER NOT NULL DEFAULT 0,
+  config       TEXT NOT NULL DEFAULT '{}',
+  secret       TEXT NOT NULL DEFAULT '',
+  password     TEXT NOT NULL DEFAULT '',
+  private_key  TEXT NOT NULL DEFAULT '',
+  ssh_public   TEXT NOT NULL DEFAULT '',
+  keys         TEXT NOT NULL DEFAULT '',
+  key_saved_at INTEGER,
+  updated_at   INTEGER NOT NULL
+);
+CREATE TABLE offsite_copies (
+  server_id         TEXT NOT NULL,
+  backup_id         TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  backup_created_at INTEGER NOT NULL,
+  file_name         TEXT NOT NULL,
+  size_bytes        INTEGER NOT NULL,
+  minecraft_version TEXT NOT NULL DEFAULT '',
+  level_name        TEXT NOT NULL DEFAULT '',
+  copy              TEXT NOT NULL,
+  copied_at         INTEGER NOT NULL,
+  PRIMARY KEY (server_id, backup_id)
+);
+CREATE TABLE offsite_uploads (
+  server_id    TEXT NOT NULL,
+  backup_id    TEXT NOT NULL,
+  state        TEXT NOT NULL DEFAULT '',
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_attempt INTEGER NOT NULL DEFAULT 0,
+  last_error   TEXT NOT NULL DEFAULT '',
+  error_hint   TEXT NOT NULL DEFAULT '',
+  error_kind   TEXT NOT NULL DEFAULT '',
+  error_params TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (server_id, backup_id)
+);
+`,
 }

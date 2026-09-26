@@ -39,6 +39,7 @@ typecheck: ## TypeScript type check
 
 test: test-go test-web test-sh ## Go, web and installer-script unit tests
 
+# The agent's tests take longer than go test's default ten minutes on CI runners.
 test-go:
 	go test -count=1 -timeout 20m $(GO_PKGS)
 

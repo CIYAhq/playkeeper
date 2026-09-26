@@ -29,6 +29,8 @@ import { cn } from '@/lib/utils'
 import { usePoll } from '@/lib/usePoll'
 import { upgradeTargets } from '@/lib/versions'
 import { serverAction } from '.'
+import { SchedulesPhoneRow, SchedulesSection } from './schedules'
+import { SleepRows } from './sleep'
 
 interface Draft {
   name: string
@@ -59,6 +61,7 @@ const sections = [
   { id: 'game', key: 'settings.game' },
   { id: 'list', key: 'settings.list' },
   { id: 'memory', key: 'settings.memory' },
+  { id: 'schedules', key: 'settings.schedules' },
   { id: 'version', key: 'settings.version' },
   { id: 'danger', key: 'settings.danger' },
 ] as const
@@ -156,7 +159,7 @@ async function iconPNG(file: File): Promise<{ blob: Blob; url: string }> {
   return { blob, url }
 }
 
-export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
+export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus; focus?: string }) {
   const ws = useWorkspace()
   const { stale, machine, name: machineName } = useServerMachine(s)
   const phone = useIsPhone()
@@ -184,10 +187,10 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     setAsked({})
   }
   const active = useActiveSection(sectionIds)
-  const hash = window.location.hash
+  const target = focus ?? window.location.hash.slice(1)
   useEffect(() => {
-    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
-  }, [hash])
+    if (target) document.getElementById(target)?.scrollIntoView({ block: 'start' })
+  }, [target])
 
   async function save() {
     setSaving(true)
@@ -306,7 +309,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         changed={changed('memoryMB')}
         control={<ChoiceSelect value={String(v.memoryMB)} onChange={(mb) => set('memoryMB', Number(mb))} options={memoryChoices} label={t('settings.memoryRow')} />}
       />
-      <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={<span className="text-xs text-muted-foreground">{t('common.comingLater')}</span>} />
+      <SleepRows server={s} />
     </>
   )
 
@@ -340,6 +343,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         {group('game', t('settings.game'), game)}
         {group('list', t('settings.list'), list)}
         {group('memory', t('settings.memory'), memory)}
+        {group('schedules', t('settings.schedules'), <SchedulesPhoneRow server={s} />)}
         {group('version', t('settings.version'), <VersionRows server={s} versions={catalog?.versions} />)}
         {group('danger', t('settings.danger'), <DangerRows server={s} />)}
         {unsaved}
@@ -371,6 +375,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         <Section id="memory" title={t('settings.memory')}>
           {memory}
         </Section>
+        <SchedulesSection server={s} />
         <Section id="version" title={t('settings.version')} hint={versionMeta(s)}>
           <VersionRows server={s} versions={catalog?.versions} />
         </Section>

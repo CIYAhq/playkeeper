@@ -12,6 +12,8 @@ export type Phase =
   | 'stopping'
   | 'crashed'
   | 'docker_unavailable'
+  // Wave 7: stopped because nobody played; the first join wakes it.
+  | 'asleep'
 
 export interface PlayerSnapshot {
   online: number
@@ -85,7 +87,7 @@ export interface Operation {
   id: string
   serverId?: string
   kind: string
-  status: 'running' | 'succeeded' | 'failed'
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled'
   phase: string
   actor: string
   startedAt: string
@@ -98,7 +100,7 @@ export interface Operation {
 export interface Backup {
   id: string
   serverId: string
-  kind: 'manual' | 'rollback'
+  kind: 'manual' | 'scheduled' | 'rollback'
   createdAt: string
   fileName: string
   sizeBytes: number
@@ -138,7 +140,7 @@ export interface ServerStatus {
   createdAt: string
   machineId?: string
   exists: boolean
-  desired: 'running' | 'stopped'
+  desired: 'running' | 'stopped' | 'sleeping'
   phase: Phase
   phaseDetail?: string
   reachable: boolean
@@ -177,6 +179,8 @@ export interface ServerStatus {
   crash?: Crash
   /** Set when the server's software no longer matches what Playkeeper installed. */
   softwareChanged?: SoftwareChange
+  // Wave 7: sleep when nobody's playing.
+  sleep?: SleepStatus
 }
 
 /** A file in the server's folder that Playkeeper would not follow or change. */
@@ -357,6 +361,8 @@ export interface Machine {
   updateAvailable?: string
   updateInstalling?: string
   servers: number
+  /** Wave 7: the part of serversMemoryMB that sleeping servers gave back for now. */
+  sleepingMemoryMB?: number
 }
 
 export interface ApiErrorBody {
@@ -366,6 +372,9 @@ export interface ApiErrorBody {
   operation?: Operation
   /** Values a translated message needs, such as retryAfterSeconds. */
   params?: Record<string, unknown>
+  // Wave 7: the form field at fault and a stable reason code, with its values in params.
+  field?: string
+  reason?: string
 }
 
 export type LinkState = 'connected' | 'offline' | 'waiting' | 'removed'
@@ -495,9 +504,6 @@ export interface AgentActivity {
   count: number
   at: string
 }
-
-/** What a route asks the panel's permit for. */
-export type Action = 'view' | 'servers.manage' | 'machine.manage' | 'account.manage' | 'audit.view'
 
 export interface Project {
   id: string
@@ -721,6 +727,11 @@ export type ActivityKind =
   | 'stopped'
   | 'restarted'
   | 'settings'
+  // Wave 5: someone joined the team with a team invite; detail is their role.
+  | 'team_joined'
+  // Wave 7
+  | 'fell_asleep'
+  | 'woke_up'
 
 /** An actor that isn't an account: an AI agent's token, or root running `playkeeper mcp` for a user. */
 export type ActorKind = 'token' | 'cli'
@@ -1059,6 +1070,8 @@ export interface Addon {
   size: number
   dependencyOf?: string
   installedAt: string
+  /** The part of Playkeeper that installed it and alone removes it: the Map, for squaremap. */
+  usedBy?: 'map'
 }
 
 export interface AddonKey {
@@ -1592,4 +1605,766 @@ export interface TemplatePlan {
   blockers: AddonNotice[]
   ready: boolean
   fingerprint: string
+}
+
+// Wave 5: invite links, the team, Discord and player profiles.
+
+export type Action =
+  | 'view'
+  | 'account.manage'
+  | 'servers.run'
+  | 'servers.console'
+  | 'players.manage'
+  | 'backups.make'
+  | 'backups.restore'
+  | 'servers.manage'
+  | 'servers.create'
+  | 'team.manage'
+  | 'machine.manage'
+  | 'audit.view'
+  | 'backups.copies.manage'
+  | 'backups.recovery_key'
+  | 'backups.recover'
+
+export type ProjectRole = 'admin' | 'moderator' | 'viewer'
+
+/** Which servers an account or invite covers: all of them, or these. */
+export interface Scope {
+  all?: boolean
+  servers?: string[]
+}
+
+/** What the signed-in account may do; the panel checks every request anyway. */
+export interface Access {
+  projectId?: string
+  /** The team's name; empty while it has the default one. */
+  team?: string
+  role: ProjectRole
+  servers: Scope
+  twoFactor: boolean
+  /** An admin whose Admin rights wait for two-factor sign-in. */
+  needsTwoFactor?: boolean
+  /** An admin with two-factor on, waiting for the owner or an admin to confirm them. */
+  awaitingConfirmation?: boolean
+  can: Action[]
+}
+
+export interface Me {
+  access: Access
+}
+
+/** A sentence the UI shows; text is the backend's English. */
+export interface Phrase {
+  key: string
+  params?: Record<string, string>
+  text: string
+  at?: string
+}
+
+export interface WhitelistEntry {
+  /** How they got in, when an invite link let them in. */
+  joined?: Phrase
+}
+
+export type InviteStatus = 'active' | 'used_up' | 'expired' | 'revoked'
+export type Expiry = '1d' | '7d' | '30d' | 'until_turned_off'
+export type Approval = 'right_away' | 'after_yes'
+
+export interface Invite {
+  id: string
+  kind: 'player' | 'member'
+  projectId: string
+  serverId?: string
+  role?: ProjectRole
+  servers?: Scope
+  approval?: Approval
+  label?: string
+  createdBy: number
+  createdAt: string
+  expiresAt?: string
+  /** 0 for a friend link with no limit. */
+  maxUses: number
+  uses: number
+  revokedAt?: string
+  status: InviteStatus
+  usesLeft?: number
+  /** /join/<code>; only for links whose code is still known. */
+  path?: string
+}
+
+/** Where invite links start: base is https://host:port; friendly is false for a bare address. */
+export interface LinkBase {
+  base: string
+  friendly: boolean
+}
+
+export interface InvitesResponse {
+  invites: Invite[]
+  expiries: Expiry[]
+  link: LinkBase
+}
+
+export interface NewInvite {
+  label: string
+  expiry: Expiry
+  maxUses: number
+  unlimited: boolean
+  approval: Approval
+}
+
+export interface JoinRequest {
+  id: string
+  inviteId: string
+  serverId: string
+  playerName: string
+  playerUuid: string
+  state: 'pending' | 'approved' | 'declined'
+  createdAt: string
+  decidedAt?: string
+  decidedBy?: number
+}
+
+export interface JoinRequestView {
+  request: JoinRequest
+  notice: { title: Phrase; detail: Phrase }
+}
+
+export interface PlayerDay {
+  date: string
+  playtimeSeconds: number
+}
+
+export interface PlayerProfile {
+  name: string
+  uuid?: string
+  online: boolean
+  onlineSince?: string
+  allowlisted: boolean
+  operator: boolean
+  /** On the server's ban list. */
+  banned?: boolean
+  firstSeen?: string
+  sessions: number
+  playtimeSeconds: number
+  longestSeconds: number
+  playtimeUncertain?: boolean
+  tz: string
+  /** The last 14 days, oldest first. */
+  days: PlayerDay[]
+  mostly?: 'morning' | 'afternoon' | 'evening' | 'night'
+  /** Newest first. */
+  recent: Session[]
+  joined?: Phrase
+}
+
+export interface TeamMember {
+  id: number
+  username: string
+  owner: boolean
+  you: boolean
+  role: ProjectRole
+  servers: Scope
+  twoFactor: boolean
+  addedAt: string
+  canEdit: boolean
+  /** An admin with two-factor on whose Admin rights wait for confirmation. */
+  waiting?: boolean
+  canConfirm?: boolean
+}
+
+export interface TeamInvite extends Invite {
+  canEdit: boolean
+}
+
+export interface TeamResponse {
+  projectId: string
+  project: string
+  members: TeamMember[]
+  invites: TeamInvite[]
+  grantableRoles: ProjectRole[]
+  servers: { id: string; name: string }[]
+}
+
+export interface Grant {
+  role: ProjectRole
+  servers: Scope
+  label?: string
+}
+
+/** A new team invite: its link is link.base + path, shown only now. */
+export interface CreatedTeamInvite {
+  invite: Invite
+  path: string
+  link: LinkBase
+}
+
+export type DiscordKind =
+  | 'crash'
+  | 'recovered'
+  | 'low_disk'
+  | 'backup_failed'
+  | 'backup_succeeded'
+  | 'update_available'
+  | 'started'
+  | 'stopped'
+  | 'player_joined'
+  | 'player_left'
+  | 'join_requested'
+
+export interface DiscordDelivery {
+  sent?: string
+  failed?: string
+  code?: string
+  msg?: string
+  hint?: string
+  retryAfterSeconds?: number
+  stopped?: boolean
+}
+
+export interface DiscordSettings {
+  connected: boolean
+  webhookName?: string
+  connectedAt?: string
+  alerts: string[]
+  liveStatus: boolean
+  delivery: DiscordDelivery
+  kinds: string[]
+}
+
+export interface PlayerPreview {
+  kind: 'player'
+  inviter: string
+  server: string
+  version?: string
+  online: boolean
+  playing: number
+  approval: Approval
+}
+
+/** A condition the new account has, such as turning on two-factor sign-in. */
+export interface Requirement {
+  code: string
+  text: string
+  hint: string
+}
+
+export interface MemberPreview {
+  kind: 'member'
+  inviter: string
+  role: ProjectRole
+  servers: Scope
+  expiresAt: string
+  requires?: Requirement[]
+  team?: string
+  serverNames: string[]
+}
+
+export type JoinPreview = PlayerPreview | MemberPreview
+
+export interface Candidate {
+  name: string
+  uuid: string
+  /** A data: URL of their face. */
+  face?: string
+}
+
+export interface JoinInfo {
+  player: string
+  server: string
+  address: string
+  version?: string
+  /** An invite that needs a yes: they're waiting for it. */
+  waiting?: boolean
+  steps: Phrase[]
+}
+
+export interface AcceptResponse extends Me {
+  requires?: Requirement[]
+}
+
+// Wave 6: each server's live map (MapInfo, and internal/webmap's worlds and
+// players), and starting a server from a world (WorldImport and its preview).
+
+export type MapState = 'unsupported' | 'not_installed' | 'server_stopped' | 'needs_restart' | 'not_answering' | 'drawing' | 'ready'
+
+export interface MapProgress {
+  done: number
+  total: number
+  percent: number
+  secondsLeft?: number
+}
+
+export interface MapInfo {
+  supported: boolean
+  enabled: boolean
+  /** The map was on, but the files it installed are gone; turning it on installs them again. */
+  missing?: boolean
+  state: MapState
+  params?: Record<string, string>
+  message: string
+  hint?: string
+  areas: number
+  bytes: number
+  lastDrawn?: string
+  progress?: MapProgress
+  plugin: string
+  pluginVersion?: string
+  estimatedMinutes: number
+  estimatedMegabytes: number
+  public: boolean
+  publicPlayers: boolean
+  /** The shared map under the machine's name; empty until the name points at the machine and has a certificate. */
+  link?: string
+  /** /map/<link token>, new each time sharing is switched on; empty while the map isn't shared. */
+  path: string
+  restartWhenEmpty: boolean
+  checkedAt: string
+}
+
+export type MapDimension = 'overworld' | 'nether' | 'end' | 'custom'
+
+export interface MapWorld {
+  name: string
+  dimension: MapDimension
+  label: string
+  spawn: { x: number; z: number }
+  /** Tiles exist for 0 to max; at max one pixel is one block. */
+  zoom: { max: number; default: number; extra: number }
+  refreshSeconds: number
+}
+
+export interface MapWorlds {
+  worlds: MapWorld[]
+  tileSize: number
+}
+
+export type MapPlaceKind = 'near_spawn' | 'exploring' | 'nether' | 'end' | 'other_world'
+
+export interface MapPlayer {
+  name: string
+  uuid: string
+  world: string
+  dimension: MapDimension
+  x: number
+  z: number
+  place?: { kind: MapPlaceKind; params?: Record<string, string>; text: string }
+}
+
+export interface MapPlayers {
+  players: MapPlayer[]
+  updatedAt: string
+}
+
+/** What the shared map page may know about a server. */
+export interface PublicMap {
+  name: string
+  players: boolean
+}
+
+export interface ImportMessage {
+  kind: string
+  params?: Record<string, unknown>
+  text: string
+  hint?: string
+}
+
+export interface ImportLevel {
+  name: string
+  version?: string
+  dataVersion?: number
+  snapshot?: boolean
+  gameMode?: string
+  hardcore: boolean
+  difficulty?: string
+  dataPacks?: string[]
+  seed?: string
+  spawn?: { x: number; z: number }
+}
+
+export interface ImportWorld {
+  id: string
+  archive: string
+  path: string
+  level?: ImportLevel
+  levelError?: string
+  origin: 'singleplayer' | 'server' | 'unknown'
+  software?: string
+  default?: boolean
+  dimensions: string[]
+  players: number
+  sizeBytes: number
+  files: number
+}
+
+export interface WorldImportFile {
+  index: number
+  name: string
+  size: number
+  received: number
+  sha256?: string
+}
+
+export interface WorldImport {
+  id: string
+  serverId?: string
+  createdAt: string
+  files: WorldImportFile[]
+  limitBytes: number
+  inspection?: { archives: { name: string; format: string; bytes: number; entries: number }[]; worlds: ImportWorld[]; warnings?: ImportMessage[] }
+}
+
+export interface ImportPreview {
+  world: ImportWorld
+  target: { type: string; minecraftVersion: string; levelName: string }
+  version?: { compat: 'same' | 'upgrade' | 'newer' | 'unknown'; world?: string; target: string; problem?: ImportMessage; warnings?: ImportMessage[] }
+  folders: string[]
+  fileCount: number
+  sizeBytes: number
+  dimensions: { id: string; folder: string; files: number; bytes: number }[]
+  dataPacks?: string[]
+  players: number
+  settings?: { key: string; value: string; source: string }[]
+  leftOut?: { kind: string; files: number; bytes: number; examples?: string[]; text: string }[]
+  warnings?: ImportMessage[]
+  problems?: ImportMessage[]
+}
+
+export interface WorldImportVersion extends CatalogEntry {
+  /** The world's own version, so the world isn't upgraded. */
+  keep: boolean
+}
+
+export interface WorldImportPreview {
+  id: string
+  serverId?: string
+  preview: ImportPreview
+  /** A new server's choices, recommended first. */
+  versions?: WorldImportVersion[]
+  versionId: string
+  keepsOriginal: boolean
+  memoryMB?: number
+}
+
+// --- Wave 7 (0.4.0): schedules, sleep, backup rules, copies somewhere else, disk space ---
+
+export interface SleepStatus {
+  enabled: boolean
+  idleMinutes: number
+  asleepSince?: string
+  listening: boolean
+  sleepAt?: string
+}
+
+export interface SleepView extends SleepStatus {
+  defaultIdleMinutes: number
+  minIdleMinutes: number
+  maxIdleMinutes: number
+  today: { count: number; seconds: number }
+}
+
+export type ScheduleKind = 'restart' | 'backup' | 'announcement' | 'command'
+export type TimingKind = 'daily' | 'weekly' | 'interval' | 'once' | 'cron'
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+export interface ScheduleTiming {
+  kind: TimingKind
+  timeZone: string
+  at?: string
+  days?: Weekday[]
+  everyHours?: number
+  date?: string
+  cron?: string
+  graceMinutes?: number
+}
+
+export interface SchedulePayload {
+  warnSeconds?: number[]
+  message?: string
+  ifEmpty?: '' | 'skip' | 'now'
+  command?: string
+  note?: string
+  skipIfPlaying?: boolean
+  onlyIfPlayed?: boolean
+}
+
+export type RunResult = 'running' | 'succeeded' | 'failed' | 'skipped' | 'missed'
+
+export interface ScheduleLastRun {
+  due: string
+  started?: string
+  finished?: string
+  result: RunResult
+  reason?: string
+  detail?: string
+  operationId?: string
+  players?: number
+  retryAt?: string
+}
+
+export interface Schedule {
+  id: string
+  serverId: string
+  name?: string
+  kind: ScheduleKind
+  timing: ScheduleTiming
+  payload: SchedulePayload
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+  updatedBy: string
+  lastRun?: ScheduleLastRun
+  nextRun?: string
+  summary: string
+}
+
+export interface SchedulesResponse {
+  schedules: Schedule[]
+  current?: { scheduleId: string; kind: ScheduleKind; due: string; restartAt?: string }
+}
+
+export interface SchedulePreview {
+  valid: boolean
+  nextRuns: string[]
+  summary?: string
+  error?: ApiErrorBody
+}
+
+export interface ScheduleRun {
+  scheduleId: string
+  kind: ScheduleKind
+  due: string
+  startedAt?: string
+  finishedAt?: string
+  result: RunResult
+  reason?: string
+  detail?: string
+  operationId?: string
+  players?: number
+  backup?: { id: string; sizeBytes: number; verified: boolean; downtimeMs: number }
+}
+
+export interface RetentionRules {
+  keepAll?: boolean
+  hours?: number
+  last?: number
+  daily?: number
+  weekly?: number
+  monthly?: number
+}
+
+export interface RetentionSettings {
+  onHost: RetentionRules
+  offSite: RetentionRules
+  includeManual?: boolean
+  deleteOnlyCopies?: boolean
+}
+
+/** A plain English sentence with a stable code and its values. */
+export interface RetentionText {
+  code: string
+  params?: Record<string, string>
+  text: string
+}
+
+export type RetentionRule = 'keep_all' | 'hours' | 'last' | 'daily' | 'weekly' | 'monthly' | 'manual'
+
+export interface RetentionEstimate {
+  where: 'on-host' | 'off-site'
+  rows: { rule: RetentionRule; n: number; count: number; upTo: boolean; text: RetentionText }[]
+  /** The most backups kept at once; -1 when every backup is kept. */
+  count: number
+  bytes: number
+  summary: RetentionText
+}
+
+export interface AutomaticBackups {
+  enabled: boolean
+  everyHours: number
+  onlyIfPlayed: boolean
+  scheduleId?: string
+  nextRun?: string
+}
+
+export interface BackupRulesView {
+  automatic: AutomaticBackups
+  rules: RetentionSettings
+  custom: boolean
+  describe: RetentionText[]
+  onHost: RetentionEstimate
+  offSite: RetentionEstimate
+  limits: Record<'hours' | 'last' | 'daily' | 'weekly' | 'monthly', number>
+}
+
+export interface OffsiteProvider {
+  id: string
+  name: string
+  endpoint: string
+  region: string
+  pathStyle: boolean
+  hint: string
+}
+
+export interface OffsiteS3 {
+  provider: string
+  endpoint: string
+  region: string
+  bucket: string
+  prefix: string
+  accessKeyId: string
+  pathStyle: boolean
+  secretKeySet?: boolean
+}
+
+export interface OffsiteSFTP {
+  host: string
+  port: number
+  user: string
+  folder: string
+  hostKey?: string
+  auth?: 'key' | 'password'
+  passwordSet?: boolean
+  hostKeyType?: string
+  hostKeyFingerprint?: string
+}
+
+export interface OffsiteCopy {
+  backupId: string
+  kind: string
+  createdAt: string
+  fileName: string
+  name: string
+  sizeBytes: number
+  copySizeBytes: number
+  minecraftVersion: string
+  levelName: string
+  copiedAt: string
+  checked: string
+  onHost: boolean
+  /** The backup's SHA-256, as recorded when it was copied. */
+  sha256?: string
+  /** Why the last check found the copy missing or damaged. */
+  checkError?: string
+}
+
+export interface OffsitePending {
+  backupId: string
+  fileName: string
+  uploading: boolean
+  sent: number
+  total: number
+  bytesPerSec?: number
+  attempts: number
+  nextAttempt?: string
+  error?: string
+  hint?: string
+  errorKind?: string
+  params?: Record<string, string>
+  backupCreatedAt?: string
+}
+
+export interface OffsiteView {
+  enabled: boolean
+  configured: boolean
+  type: '' | 's3' | 'sftp'
+  place: string
+  s3?: OffsiteS3
+  sftp?: OffsiteSFTP
+  sshKey?: { publicKey: string; authorizedKey: string; fingerprint: string }
+  key?: { recipient: string; createdAt: string; oldKeys: number; savedAt?: string; fileName: string }
+  lastCopy?: OffsiteCopy
+  copies: number
+  copiesBytes: number
+  pending?: OffsitePending
+  queued: number
+  providers: OffsiteProvider[]
+}
+
+export interface OffsiteCheck {
+  step: string
+  ok: boolean
+  msg: string
+  hint?: string
+  kind?: string
+  params?: Record<string, string>
+}
+
+export interface OffsiteTestResult {
+  ok: boolean
+  checks: OffsiteCheck[]
+  skew: number
+  hostKey?: { key: string; type: string; fingerprint: string }
+  warning?: string
+}
+
+export interface OffsiteNewKey {
+  rotation: { recipient: string; oldRecipient: string; oldKeys: number; code: string; msg: string; hint: string }
+  offsite: OffsiteView
+}
+
+/** A server's copies, as a new machine finds them with its recovery key file. */
+export interface RecoverView {
+  server: string
+  keys: number
+  madeAt?: string
+  place: string
+  copies: { name: string; sizeBytes: number; createdAt: string }[]
+}
+
+export type DiskGroup = 'backups' | 'worlds' | 'server_files' | 'logs' | 'other' | 'free'
+export type DiskWayID = 'old_backups' | 'old_logs' | 'old_crash_reports' | 'unused_software' | 'downloads' | 'set_aside' | 'unfinished'
+
+export interface DiskCandidate {
+  id: string
+  serverId?: string
+  kind: string
+  reason: string
+  risk: string
+  path: string
+  backupId?: string
+  bytes: number
+  files: number
+  modifiedAt: string
+  params?: Record<string, string>
+  text: string
+}
+
+export interface DiskWay {
+  id: DiskWayID
+  action: 'review' | 'delete' | 'clear'
+  bytes: number
+  candidateIds: string[]
+  serverIds?: string[]
+  everyServer?: boolean
+  versions?: { software: string; version: string; build?: string }[]
+  params?: Record<string, string>
+  title: string
+  text: string
+}
+
+export interface DiskUsage {
+  bytes: number
+  files: number
+}
+
+export interface DiskServer {
+  id: string
+  name: string
+  total: DiskUsage
+  kinds: (DiskUsage & { kind: string })[]
+  groups: { group: DiskGroup; bytes: number }[]
+}
+
+export interface DiskReport {
+  scannedAt: string
+  disk: { dir: string; total: number; free: number; used: number; bar: { group: DiskGroup; bytes: number }[] } | null
+  servers: DiskServer[]
+  machine: (DiskUsage & { kind: string })[]
+  total: DiskUsage
+  candidates: DiskCandidate[]
+  ways: DiskWay[]
+  freeable: number
+  truncated: boolean
+  problems?: { code: string; path: string; text: string }[]
+  moreProblems?: number
 }

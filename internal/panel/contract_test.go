@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 // jsonFields adds the names of t's fields in JSON to into, with the fields
@@ -27,16 +29,21 @@ func jsonFields(t reflect.Type, into map[string]bool) {
 	}
 }
 
-// The dashboard's types for the machine, join code and AI agent token
-// answers the panel builds itself, checked like internal/api's contract test
-// checks the agent's: a field the panel never sends is always undefined in
-// the browser.
+// The dashboard's types for the invite, team and access answers, and the
+// machine, join code and AI agent token answers, that the panel builds
+// itself, checked like internal/api's contract test checks the agent's: a
+// field the panel never sends is always undefined in the browser.
+// internal/api can't import these types, as invites imports it.
 func TestTheDashboardDeclaresOnlyFieldsThePanelSends(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "api", "types.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	sent := map[string]any{
+		"Access": accessBody{}, "Candidate": candidate{}, "Grant": grantBody{}, "Invite": invites.Summary{}, "InvitesResponse": invitesBody{},
+		"JoinInfo": invites.JoinInfo{}, "JoinRequest": invites.JoinRequest{}, "JoinRequestView": requestView{}, "LinkBase": linkBase{},
+		"MemberPreview": memberPreview{}, "PlayerPreview": invites.PlayerPage{}, "Requirement": invites.Requirement{}, "Scope": invites.Scope{},
+		"TeamInvite": teamInvite{}, "TeamMember": teamMember{}, "TeamResponse": teamBody{},
 		"AgentActivity": agentActivityView{}, "ApiToken": tokenView{}, "DialAddress": dialAddress{}, "JoinCode": joinCodeView{},
 		"JoinCommand": joinCommandView{}, "MachineEvent": machineEventView{}, "MachineView": machineView{},
 	}

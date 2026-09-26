@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
-import { formatClock, formatDate, formatList, formatWhen, relativeTime } from '@/lib/format'
+import { formatBytes, formatClock, formatDate, formatList, formatWhen, relativeTime } from '@/lib/format'
 import { byMachine, countdown, groupFingerprint, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
@@ -519,6 +519,16 @@ export function MachineDetailsSection({ id }: { id: string }) {
           <Fact label={t('machines.fact.version')}>{version ?? t('common.none')}</Fact>
           <Fact label={t('machines.fact.dials')}>{m.dials || t('common.none')}</Fact>
           <Fact label={t('machines.fact.system')}>{systemLine(m.live, servers.length ? t('machines.fact.runs', { servers: formatList(servers.map((s) => s.name)) }) : '') || t('common.none')}</Fact>
+          <Fact label={t('machine.disk')}>
+            {m.live ? (
+              <a {...linkProps({ name: 'machine', id: m.id, sub: 'disk' })} className="inline-flex items-center gap-0.5 rounded font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                {t('home.diskFree', { free: formatBytes(m.live.diskFreeBytes) })}
+                <ChevronRightIcon className="size-3.5" aria-hidden="true" />
+              </a>
+            ) : (
+              t('common.none')
+            )}
+          </Fact>
         </dl>
       </Card>
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">

@@ -9,6 +9,8 @@ export class ApiError extends Error {
   params?: Record<string, unknown>
   /** Seconds from the Retry-After header. */
   retryAfter?: number
+  field?: string
+  reason?: string
 
   constructor(status: number, body: ApiErrorBody, retryAfter?: number) {
     super(body.error)
@@ -18,6 +20,8 @@ export class ApiError extends Error {
     this.operation = body.operation
     this.params = body.params
     this.retryAfter = retryAfter
+    this.field = body.field
+    this.reason = body.reason
   }
 }
 
@@ -80,9 +84,51 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
 export const get = <T>(path: string) => api<T>('GET', path)
 export const post = <T>(path: string, body: unknown = {}) => api<T>('POST', path, body)
 export const del = <T>(path: string) => api<T>('DELETE', path)
+export const put = <T>(path: string, body: unknown) => api<T>('PUT', path, body)
+
+// Wave 6: world uploads send their bytes with XMLHttpRequest, which reports progress.
+
+/** The headers a write needs when it doesn't go through api(). */
+export function writeHeaders(): Record<string, string> {
+  return { 'X-Requested-With': 'playkeeper', 'X-CSRF-Token': csrfToken }
+}
+
+/** The error for a response api() didn't make: its JSON body, or a generic one. */
+export function responseError(status: number, text: string): ApiError {
+  if (status === 0) return new ApiError(0, { error: t('error.network'), code: 'network' })
+  try {
+    const parsed = JSON.parse(text) as ApiErrorBody
+    if (parsed && typeof parsed.error === 'string') return new ApiError(status, parsed)
+  } catch {
+    // Non-JSON error bodies keep the generic message.
+  }
+  return new ApiError(status, { error: t('error.http', { status: String(status) }), code: 'internal' })
+}
 
 /** A player's face, which the panel draws from their own skin. */
 export const playerHeadUrl = (name: string, uuid?: string) => `/api/players/${encodeURIComponent(name)}/head${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`
 
 /** An add-on's icon, which the panel fetches from its library; undefined when there is none to show. */
 export const addonIconUrl = (serverId: string, url: string): string | undefined => `/api/servers/${serverId}/addons/icon?url=${encodeURIComponent(url)}`
+
+/** Saves a file the API sends as an attachment, failing like api() so the error can be shown. */
+export async function download(path: string, fallbackName: string): Promise<string> {
+  let res: Response
+  try {
+    res = await fetch(path, { headers: { 'X-Requested-With': 'playkeeper' }, credentials: 'same-origin', cache: 'no-store' })
+  } catch {
+    throw new ApiError(0, { error: t('error.network'), code: 'network' })
+  }
+  if (res.status === 401) unauthorizedListeners.forEach((fn) => fn())
+  if (!res.ok) throw await parseError(res)
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  return name
+}

@@ -70,11 +70,36 @@ type agentEnv struct {
 	sid string
 	// live is the running agent, for the fake RCON's password check.
 	live atomic.Pointer[Agent]
+	// discordClient, when set, is what the agent talks to Discord with.
+	discordClient *http.Client
+	// sampleInterval and reconcileInterval, when set, replace the tests'
+	// short ones.
+	sampleInterval, reconcileInterval time.Duration
 	// tweak changes the options each start builds.
 	tweak func(o *Options)
 	// skew moves the running agent's clock (nanoseconds), as time passing
 	// would.
 	skew atomic.Int64
+	// warnings is what the agent logged at warning level or above.
+	warnings logBuffer
+}
+
+// logBuffer is a log the agent writes while a test reads it.
+type logBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 // srv is the current server's runtime handle.
@@ -161,13 +186,20 @@ func (e *agentEnv) start() {
 	if backoff == nil {
 		backoff = []time.Duration{0}
 	}
+	sample, reconcile := 100*time.Millisecond, 50*time.Millisecond
+	if e.sampleInterval > 0 {
+		sample = e.sampleInterval
+	}
+	if e.reconcileInterval > 0 {
+		reconcile = e.reconcileInterval
+	}
 	holder := e.portHolder
 	if holder == nil {
 		holder = func(int) (string, int, bool) { return "", 0, false }
 	}
 	opts := Options{
-		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
-		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
+		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(&e.warnings, &slog.HandlerOptions{Level: slog.LevelWarn})), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
+		SampleInterval: sample, ReconcileInterval: reconcile, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
 		HostMemoryMB: func() int { return 4096 }, ProcStat: e.procStat, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {
@@ -178,7 +210,8 @@ func (e *agentEnv) start() {
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false }, UDPPortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
-		Addons: e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
+		DiscordClient: e.discordClient,
+		Addons:        e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
 		UpstreamClient: e.up.client(), PackClient: e.up.client(),
 		// No public DNS and no certificate authority in these tests.
 		Resolver: &fakeResolver{}, Issue: noCA, AddressInterval: -1, PublishPoll: 10 * time.Millisecond,

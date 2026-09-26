@@ -40,6 +40,8 @@ func (c *clock) add(d time.Duration) {
 type fakeAgent struct {
 	mu   sync.Mutex
 	hits []string
+	// bodies are the request bodies and queries, in the order of hits.
+	bodies []string
 	// reqs are the forwarded requests with their query and JSON body.
 	reqs []agentRequest
 	// replies are canned bodies by "METHOD /path"; others get {"ok":true}.
@@ -47,8 +49,10 @@ type fakeAgent struct {
 	// statuses are the replies' HTTP statuses by "METHOD /path"; others
 	// are 200.
 	statuses map[string]int
-	// bodies are the last request body by "METHOD /path".
-	bodies map[string]string
+	// headers are the last request headers by "METHOD /path".
+	headers map[string]http.Header
+	// lastBody is the last request body by "METHOD /path".
+	lastBody map[string]string
 	// gates hold requests to "METHOD /path" until closed, or until the
 	// request is cancelled.
 	gates map[string]chan struct{}
@@ -67,18 +71,20 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, bodies: map[string]string{}, gates: map[string]chan struct{}{}}
+	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, headers: map[string]http.Header{}, lastBody: map[string]string{}, gates: map[string]chan struct{}{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := r.Method + " " + r.URL.Path
-		b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var body map[string]any
-		if len(b) > 0 {
-			_ = json.Unmarshal(b, &body)
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &body)
 		}
+		key := r.Method + " " + r.URL.Path
 		fa.mu.Lock()
 		fa.hits = append(fa.hits, key)
+		fa.bodies = append(fa.bodies, r.URL.RawQuery+string(raw))
 		fa.reqs = append(fa.reqs, agentRequest{r.Method, r.URL.Path, r.URL.Query(), body})
-		fa.bodies[key] = string(b)
+		fa.headers[key] = r.Header.Clone()
+		fa.lastBody[key] = string(raw)
 		reply, ok := fa.replies[key]
 		status := fa.statuses[key]
 		gate := fa.gates[key]
@@ -142,12 +148,16 @@ func newEnv(t *testing.T) *env {
 	return newEnvWith(t, nil)
 }
 
-func newEnvWith(t *testing.T, heads *HeadSources) *env {
+// newEnvWith lets a test change the panel's options, for example to point
+// faces and name lookups at local fakes.
+func newEnvWith(t *testing.T, tweak func(*Options)) *env {
 	t.Helper()
-	return newEnvConfig(t, heads, nil)
+	return newEnvConfig(t, nil, tweak)
 }
 
-func newEnvConfig(t *testing.T, heads *HeadSources, mod func(*config.Config)) *env {
+// newEnvConfig is newEnvWith with the install's configuration changed by
+// mod first.
+func newEnvConfig(t *testing.T, mod func(*config.Config), tweak func(*Options)) *env {
 	t.Helper()
 	dir := t.TempDir()
 	sock, fa := startFakeAgent(t, dir)
@@ -160,8 +170,13 @@ func newEnvConfig(t *testing.T, heads *HeadSources, mod func(*config.Config)) *e
 	clk := &clock{t: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
 	names := &fakeResolver{addrs: map[string][]netip.Addr{}}
 	logs := &syncBuffer{}
-	s, err := New(Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(logs, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour, Heads: heads,
-		LinkRoutes: agent.LinkRoutes(), LookupIP: names.lookup})
+	opts := Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(logs, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour,
+		LinkRoutes: agent.LinkRoutes(), LookupIP: names.lookup}
+	if tweak != nil {
+		tweak(&opts)
+		cfg = opts.Config
+	}
+	s, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,9 +257,13 @@ func auth(cookie, csrf string) map[string]string {
 
 const sampleServer = "abcdefghjk"
 
+// sampleCode has the shape of an invite code but opens nothing.
+const sampleCode = "AbCdEfGhJkMnPqRsTuVwXy"
+
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001").Replace(p)
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{sid}", "qrstuvwxyz", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001",
+		"{invite}", "qrstuvwxyz", "{request}", "zyxwvutsrq", "{uid}", "2", "{code}", sampleCode).Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {
@@ -354,6 +373,23 @@ func TestSetupCodeIsSingleUseAndExpires(t *testing.T) {
 
 // The first-admin check and the insert used to be separate steps, with a slow
 // password hash between them, so concurrent setups with one code all got in.
+// The first admin is made only on an empty install: with any account
+// there, even one that isn't the owner, setup makes nobody.
+func TestFirstAdminOnlyOnAnEmptyInstall(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('mara', 'x', 0, 0, 'member')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.createFirstAdmin("admin", "correct horse battery"); err != errSetupDone {
+		t.Fatalf("setup with an account already there: %v", err)
+	}
+	var owners int
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'owner'`).Scan(&owners)
+	if owners != 0 {
+		t.Fatalf("%d owner accounts made", owners)
+	}
+}
+
 func TestConcurrentSetupsCreateOneAdmin(t *testing.T) {
 	e := newEnv(t)
 	code, err := NewSetupToken(e.cfg.SetupTokenPath(), time.Hour, e.clock.now())

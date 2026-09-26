@@ -417,7 +417,7 @@ func (s *Server) hMachineLink(w http.ResponseWriter, r *http.Request, sess *sess
 		out["fingerprint"] = s.hub.Fingerprint()
 		out["joinPausedSeconds"] = int((s.hub.JoinPause() + time.Second - 1) / time.Second)
 	}
-	if permit(sess, actManageMachine) {
+	if permit(sess.Access, actManageMachine, "") == nil {
 		codes, err := s.joinCodes()
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")

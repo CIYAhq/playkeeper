@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -30,6 +31,28 @@ type opHandle struct {
 	// process (an update handed to the updater, or a restore the next agent
 	// process finishes): it stays running until its result is recorded.
 	continues bool
+	// cancel ends the operation's context. cancellable is set by an operation
+	// that can stop without changing anything, until it commits; cancelled
+	// records that it was asked to. The caller holds mu for both.
+	cancel      context.CancelFunc
+	cancellable bool
+	cancelled   bool
+}
+
+// allowCancel lets the operation be cancelled until it commits.
+func (h *opHandle) allowCancel() {
+	unlock := h.mu()
+	h.cancellable = true
+	unlock()
+}
+
+// commit ends the part of the operation that can be cancelled. It is false
+// when a cancel came first; the operation then undoes what it did.
+func (h *opHandle) commit() bool {
+	unlock := h.mu()
+	defer unlock()
+	h.cancellable = false
+	return !h.cancelled
 }
 
 func (h *opHandle) phase(p string) {
@@ -96,6 +119,8 @@ var opLabels = map[string]string{
 	"remove-addon": "removing a plugin or mod",
 	// Wave 4.
 	"reinstall": "reinstalling its server software",
+	// Wave 7 (0.4.0)
+	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy", "offsite-check": "checking a copy",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -163,32 +188,51 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		op.Detail = map[string]any{}
 	}
 	kind, actor := op.Kind, op.Actor
+	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
+	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }, cancel: cancel}
 	s.opMu.Lock()
-	s.op = op
+	s.op, s.opH = op, h
 	snap := copyOp(op)
 	s.opMu.Unlock()
 	s.saveOperation(snap)
-	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		defer func() { <-s.opLock }()
-		ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
 		defer cancel()
 		err := runOp(ctx, h, fn)
 		s.opMu.Lock()
 		done := finishOp(op, h, err, s.now().UTC())
-		s.op = nil
+		s.op, s.opH = nil, nil
 		s.opMu.Unlock()
 		s.saveOperation(&done)
 		if done.Status != api.OpRunning {
 			s.audit(actor, kind, "server", done.Status, done.Error)
 		}
-		if err != nil {
+		if kind == "backup" && done.Status == api.OpFailed {
+			s.alert(discord.BackupFailed(done.Error))
+		}
+		if done.Status == api.OpFailed {
 			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
 		}
 	}()
 	return snap
+}
+
+// cancelOp cancels the running operation id, of the given kind, while it can
+// still stop without changing anything.
+func (s *server) cancelOp(kind, id string) (*api.Operation, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	if s.op == nil || s.op.ID != id || s.op.Kind != kind {
+		return nil, errConflict("That isn't running any more.", "")
+	}
+	if !s.opH.cancellable {
+		return nil, errConflict("It's too late to cancel: it's nearly done.", "Wait a moment for it to finish.")
+	}
+	s.opH.cancelled = true
+	s.opH.cancel()
+	return copyOp(s.op), nil
 }
 
 func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opHandle) error) (err error) {
@@ -203,6 +247,9 @@ func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opH
 // finishOp records how an operation ended; the caller holds its mutex.
 func finishOp(op *api.Operation, h *opHandle, err error, fin time.Time) api.Operation {
 	switch {
+	case h.cancelled:
+		op.FinishedAt = &fin
+		op.Status = api.OpCancelled
 	case err != nil:
 		op.FinishedAt = &fin
 		op.Status = api.OpFailed
@@ -596,6 +643,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
+	if err := s.ensureOriginalSaved(h, sc); err != nil {
+		return err
+	}
 	if err := s.ensureImage(ctx, h, runtimeImage(sc.MinecraftVersion)); err != nil {
 		return err
 	}
@@ -619,6 +669,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		if err := s.ensureTelemetryOff(); err != nil {
 			return err
 		}
+	}
+	if err := s.writeMapConfig(); err != nil {
+		return err
 	}
 	pastFiles = true
 	name := s.containerName()
@@ -654,6 +707,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return s.dockerErr(err)
 		}
 	}
+	s.leaveSleep()
 	h.phase(string(api.PhaseStartingContainer))
 	s.resetRun(api.PhaseStartingContainer)
 	s.resetRCON()
@@ -667,7 +721,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	return s.waitReady(ctx, h, id)
+	if err := s.waitReady(ctx, h, id); err != nil {
+		return err
+	}
+	s.mapStarted()
+	return nil
 }
 
 func classifyStartError(err error, port int) error {
@@ -759,6 +817,13 @@ func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) erro
 		return s.dockerErr(err)
 	}
 	s.resetRCON()
+	// Said here rather than when the reconcile loop sees the exit: a restart
+	// or an update starts the server again before it looks. A server falling
+	// asleep isn't news: it does so whenever it's empty, and wakes when
+	// someone joins.
+	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}
 	return nil
 }
 
@@ -825,6 +890,12 @@ const (
 	followerGrace = 20 * time.Second
 )
 
+// stoppedCleanly reports whether the run that ended logged a clean shutdown.
+// A crashing server logs "Stopping server" too, after the error, so that
+// alone isn't one. The reconcile loop and Discord's live status both go by
+// this. The caller holds s.mu.
+func (s *server) stoppedCleanly() bool { return s.sawStopping && !s.sawCrash }
+
 func (s *server) reconcile(ctx context.Context) {
 	if s.busy() {
 		return
@@ -858,8 +929,7 @@ func (s *server) reconcile(ctx context.Context) {
 	handled := ok && last.Equal(fin)
 	ended := s.followEnded[c.ID]
 	intentional := s.intentional[c.ID]
-	// A crashing server logs "Stopping server" too, after the error.
-	graceful := s.sawStopping && !s.sawCrash
+	graceful := s.stoppedCleanly()
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()
@@ -912,13 +982,21 @@ func (s *server) reconcile(ctx context.Context) {
 		s.closeOpenSessions(fin, "server_stopped", false)
 	case graceful:
 		s.closeOpenSessions(fin, "server_stopped", false)
+		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 		s.recordEvent(fin, "server_stopped_externally", "", "docker", fmt.Sprintf("exit code %d", c.State.ExitCode))
 		if desired == api.DesiredRunning {
 			s.autoStart("recover")
 		}
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
-		s.recordCrash(fin, c.State)
+		cause := s.recordCrash(fin, c.State)
+		// A server that wasn't meant to be running is left off, which is
+		// not Playkeeper giving up on it.
+		wanted := desired == api.DesiredRunning
+		s.mu.Lock()
+		restarting := wanted && len(s.crashes) < maxCrashes
+		s.mu.Unlock()
+		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, GaveUp: wanted && !restarting, At: fin})
 		s.explainCrash(c.ID, c.State, false, nil)
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
@@ -941,7 +1019,9 @@ func (s *server) markExitHandled(id string, fin time.Time) {
 	s.mu.Unlock()
 }
 
-func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
+// recordCrash counts a crash and returns its cause in one sentence, without
+// what Playkeeper does about it, which the crash alert says in its own words.
+func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	s.mu.Lock()
 	var recent []time.Time
 	for _, t := range s.crashes {
@@ -951,7 +1031,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
 	}
 	s.crashes = append(recent, fin)
 	n := len(s.crashes)
-	s.crashed = true
+	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
 	if st.OOMKilled {
 		s.lastError = "The server ran out of memory and was killed."
@@ -960,6 +1040,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
 		s.lastError = fmt.Sprintf("The server stopped unexpectedly (exit code %d) without shutting down cleanly.", st.ExitCode)
 		s.lastErrorHint = "Check the Console for the last lines before the crash."
 	}
+	cause := s.lastError
 	if n >= maxCrashes {
 		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it after %d crashes in %d minutes.", n, int(crashWindow.Minutes()))
 		s.lastErrorHint += " Fix the cause, then press Start."
@@ -975,6 +1056,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) {
 	}
 	s.recordEvent(fin, "server_crashed", "", "docker", detail)
 	s.log.Warn("server crashed", "server", s.id, "exit", st.ExitCode, "cause", kind, "crashes", n)
+	return cause
 }
 
 func (s *server) autoStart(kind string) {
@@ -999,7 +1081,16 @@ func (s *server) autoStart(kind string) {
 // given up after maxCrashes attempts instead of being retried every tick.
 func (s *server) autoStartFailed(err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	gaveUp := s.countFailedStart(err)
+	s.mu.Unlock()
+	if gaveUp {
+		s.alert(discord.StartFailed(err.Error()))
+	}
+}
+
+// countFailedStart counts a failed automatic start; the caller holds s.mu.
+// It reports whether Playkeeper gave up.
+func (s *server) countFailedStart(err error) bool {
 	now := s.now()
 	var recent []time.Time
 	for _, t := range s.crashes {
@@ -1015,9 +1106,10 @@ func (s *server) autoStartFailed(err error) {
 	if n >= maxCrashes {
 		s.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())
 		s.lastErrorHint = "Fix the cause, then press Start."
-		return
+		return true
 	}
 	s.nextAutoRestart = now.Add(s.opts.CrashBackoff[min(n-1, len(s.opts.CrashBackoff)-1)])
+	return false
 }
 
 // startFailed is called when a start the user asked for did not bring the

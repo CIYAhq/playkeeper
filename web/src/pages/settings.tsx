@@ -18,15 +18,35 @@ import { linkProps, navigate, type Route } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { AiAgentsSection } from './ai-agents'
+import { DiscordSettingsSection } from './discord'
 import { MachineDetailsSection, MachinesSection } from './machines'
+import { TeamSection } from './team'
 
 export type SettingsPage = Extract<Route, { name: 'settings' | SettingsSectionName | 'machine-details' }>
 
-/** Settings: Playkeeper itself, add-on sources and the audit log, or a section. */
+/** Settings: Playkeeper itself, the audit log and about, or a section. */
 export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
   switch (page.name) {
     case 'settings':
       return <GeneralSettings />
+    case 'team':
+      return (
+        <SettingsSection current="team">
+          <TeamSection />
+        </SettingsSection>
+      )
+    case 'addon-sources':
+      return (
+        <SettingsSection current="addon-sources">
+          <AddonSourcesCard />
+        </SettingsSection>
+      )
+    case 'discord':
+      return (
+        <SettingsSection current="discord">
+          <DiscordSettingsSection />
+        </SettingsSection>
+      )
     case 'ai-agents':
       return (
         <SettingsSection current="ai-agents">
@@ -52,35 +72,12 @@ export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
   }
 }
 
-/** The sections of Settings the account can use, beside each Settings page on desktop. */
-function SectionsNav({ current }: { current?: SettingsSectionName }) {
-  const ws = useWorkspace()
-  return (
-    <nav aria-label={t('global.nav.label')} className="flex flex-col gap-0.5">
-      {settingsSections
-        .filter((s) => can(ws.me, s.act))
-        .map((s) => (
-          <a
-            key={s.route.name}
-            {...linkProps(s.route)}
-            aria-current={s.route.name === current ? 'page' : undefined}
-            className={cn(
-              'flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
-              s.route.name === current && 'bg-muted text-foreground',
-            )}
-          >
-            {t(s.label)}
-          </a>
-        ))}
-    </nav>
-  )
-}
-
-/** A Settings section: the sections list beside it on desktop, a back link on phones (to More, where the sections are listed). */
+/** A Settings section: the sections list beside it on desktop, a back link on phones (to More, where the sections are listed, unless phoneBack says where). */
 function SettingsSection({ current, phoneBack, children }: { current: SettingsSectionName; phoneBack?: { to: Route; label: string }; children: ReactNode }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const here = settingsSections.find((s) => s.route.name === current && can(ws.me, s.act))
+  const sections = settingsSections.filter((s) => can(ws.me, s.act))
+  const here = sections.find((s) => s.route.name === current)
   useEffect(() => {
     if (!here) navigate(settingsHome(ws.me), true)
   }, [here, ws.me])
@@ -88,7 +85,7 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
   if (phone) {
     return (
       <>
-        <PhoneBackHeader to={phoneBack?.to ?? { name: 'more' }} label={phoneBack?.label ?? t('global.title')} title={phoneBack ? undefined : t(here.label)} />
+        <PhoneBackHeader to={phoneBack?.to ?? { name: 'more' }} label={phoneBack?.label ?? t('nav.more')} title={phoneBack ? undefined : t(here.label)} />
         <div className="flex flex-col gap-4 pt-2 pb-6">{children}</div>
       </>
     )
@@ -97,52 +94,54 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
     <>
       <PageHeader title={t('global.title')} />
       <PageBody className="grid max-w-[1240px] grid-cols-[200px_minmax(0,1fr)] items-start gap-7">
-        <SectionsNav current={current} />
-        <div className="flex min-w-0 flex-col gap-5">{children}</div>
+        <nav aria-label={t('global.nav.label')} className="flex flex-col gap-0.5">
+          {sections.map((s) => (
+            <a
+              key={s.route.name}
+              {...linkProps(s.route)}
+              aria-current={s === here ? 'page' : undefined}
+              className={cn(
+                'flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+                s === here && 'bg-muted text-foreground',
+              )}
+            >
+              {t(s.label)}
+            </a>
+          ))}
+        </nav>
+        <div key={current} className="flex min-w-0 animate-page flex-col gap-5">
+          {children}
+        </div>
       </PageBody>
     </>
   )
 }
 
-/** Playkeeper itself, add-on sources and the audit log, with the sections list beside them on desktop. */
+/** Playkeeper itself, the audit log and about; the account has its own page. */
 function GeneralSettings() {
+  const ws = useWorkspace()
   const phone = useIsPhone()
   const hash = window.location.hash
   useEffect(() => {
     if (!hash) return
     document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
   }, [hash])
-  const cards = (
-    <>
-      <PlaykeeperCard />
-      <AddonSourcesCard />
-      <AuditCard />
-      <Card as="section" aria-labelledby="about-title">
-        <CardTitle id="about-title">{t('global.about')}</CardTitle>
-        <p className="mt-1 text-[13px] text-muted-foreground">{t('global.aboutBody')}</p>
-        <p className="mt-3 text-xs text-muted-foreground">{t('footer.notOfficial')}</p>
-        <a href={t('global.noticesUrl')} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
-          {t('global.notices')}
-          <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-        </a>
-      </Card>
-    </>
-  )
-  if (phone) {
-    return (
-      <>
-        <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} />
-        <PageHeader title={t('global.title')} subtitle={t('global.lead')} />
-        <PageBody className="flex max-w-[860px] flex-col gap-4">{cards}</PageBody>
-      </>
-    )
-  }
   return (
     <>
+      {phone && <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} />}
       <PageHeader title={t('global.title')} subtitle={t('global.lead')} />
-      <PageBody className="grid max-w-[1240px] grid-cols-[200px_minmax(0,1fr)] items-start gap-7">
-        <SectionsNav />
-        <div className="flex max-w-[860px] min-w-0 flex-col gap-4">{cards}</div>
+      <PageBody className="flex max-w-[860px] flex-col gap-4">
+        <PlaykeeperCard />
+        {can(ws.me, 'audit.view') && <AuditCard />}
+        <Card as="section" aria-labelledby="about-title">
+          <CardTitle id="about-title">{t('global.about')}</CardTitle>
+          <p className="mt-1 text-[13px] text-muted-foreground">{t('global.aboutBody')}</p>
+          <p className="mt-3 text-xs text-muted-foreground">{t('footer.notOfficial')}</p>
+          <a href={t('global.noticesUrl')} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline">
+            {t('global.notices')}
+            <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+          </a>
+        </Card>
       </PageBody>
     </>
   )
@@ -195,7 +194,7 @@ function PlaykeeperCard() {
             </span>
           )}
         </p>
-        {info?.supported && (
+        {info?.supported && can(ws.me, 'machine.manage') && (
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={check} loading={checking} disabledReason={ws.updating ? t('reason.busy', { what: t('op.update') }) : undefined}>
               <RefreshCwIcon />

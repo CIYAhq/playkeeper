@@ -74,10 +74,10 @@ control "restore undoes the swap when settings cannot be saved" internal/agent/b
   'if rerr := renameDir(live, failedAt); rerr != nil {' \
   'if rerr := error(nil); rerr != nil {' \
   ./internal/agent '^TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved$'
-control "one admin from concurrent setups" internal/panel/auth.go \
-  'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
-  'SELECT ?, ?, ?, ?' \
-  ./internal/panel '^TestConcurrentSetupsCreateOneAdmin$' 3
+control "the first admin only on an empty install" internal/panel/auth.go \
+  'SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
+  'SELECT ?, ?, ?, ?, ?' \
+  ./internal/panel '^(TestConcurrentSetupsCreateOneAdmin|TestFirstAdminOnlyOnAnEmptyInstall)$' 3
 control "archive per-file checksums" internal/backup/archive.go \
   'if got.Size != f.Size || got.SHA256 != f.SHA256 {' \
   'if false && (got.Size != f.Size || got.SHA256 != f.SHA256) {' \
@@ -187,8 +187,8 @@ control "nether and end folders missing beside the world don't void a chunk coun
   'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
-  'graceful := s.sawStopping && !s.sawCrash' \
-  'graceful := s.sawStopping' \
+  'return s.sawStopping && !s.sawCrash' \
+  'return s.sawStopping' \
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
 control "a log line Docker sends again changes nothing" internal/agent/collector.go \
   'if mark.next(c.ID, runStart, l) {' \
@@ -1849,6 +1849,523 @@ control "own domain: a certificate attempt that finds the name wrong brings the 
   'if !saved || ready {' \
   'if true || !saved || ready {' \
   ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+# Wave 5: roles and server scopes, the team, invite links and Discord.
+control "an account uses only its own servers" internal/panel/workspace.go \
+  'case serverID != "" && !a.covers(serverID):' \
+  'case false && serverID != "" && !a.covers(serverID):' \
+  ./internal/panel '^TestEveryServerRouteChecksTheServer$'
+control "machine-wide actions need every server" internal/panel/workspace.go \
+  'case machineWide[act] && !a.Servers.All:' \
+  'case false && machineWide[act] && !a.Servers.All:' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "the server list shows only the account's servers" internal/panel/workspace.go \
+  'if !sess.Access.covers(id) {' \
+  'if false && !sess.Access.covers(id) {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "the single-server view shows only the account's servers" internal/panel/workspace.go \
+  'if id, _ := sv["id"].(string); sess.Access.covers(id) {' \
+  'if id, _ := sv["id"].(string); id != "" || sess.Access.covers(id) {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "restore uploads check the server" internal/panel/team.go \
+  'if err := permit(sess.Access, act, p.ServerID); err != nil {' \
+  'if err := permit(sess.Access, act, p.ServerID); false && err != nil {' \
+  ./internal/panel '^TestListsShowOnlyTheAccountsServers$'
+control "only owners are added to the workspace at start" internal/panel/workspace.go \
+  "'*', ? FROM users WHERE role = ?\`" \
+  "'*', ? FROM users WHERE role = ? OR 1\`" \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "a membership without servers has none" internal/panel/auth.go \
+  "ALTER TABLE project_members ADD COLUMN servers TEXT NOT NULL DEFAULT '';" \
+  "ALTER TABLE project_members ADD COLUMN servers TEXT NOT NULL DEFAULT '*';" \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "removing a member deletes their account" internal/panel/team.go \
+  'DELETE FROM users WHERE id = ? AND role = ?' \
+  'DELETE FROM project_members WHERE user_id = ? AND role != ?' \
+  ./internal/panel '^TestRemovedMembersStayRemovedAfterARestart$'
+control "admin rights wait for a confirmation" internal/panel/workspace.go \
+  'a.TwoFactor = a.FactorOn && (!invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) || factor == adminFactor)' \
+  'a.TwoFactor = a.FactorOn' \
+  ./internal/panel '^TestAdminRightsWaitForConfirmation$'
+control "only an admin of the member's servers confirms" internal/panel/team.go \
+  'case !t.Servers.Within(a.Servers):' \
+  'case false:' \
+  ./internal/panel '^TestAdminRightsWaitForConfirmation$'
+control "sign-in lockouts are per account and address" internal/panel/server.go \
+  'key := account + "@" + s.addressKey(r)' \
+  'key := account' \
+  ./internal/panel '^TestFailedSignInsLockOnlyTheirOwnAddress$'
+control "guesses from many addresses are slowed per account" internal/panel/server.go \
+  'locked = !ready' \
+  'locked = false && !ready' \
+  ./internal/panel '^TestGuessesFromManyAddressesAreSlowedPerAccount$'
+control "one owner per install" internal/panel/auth.go \
+  'CREATE UNIQUE INDEX users_one_owner' \
+  'CREATE INDEX users_one_owner' \
+  ./internal/panel '^TestThereIsOnlyEverOneOwner$'
+control "team changes follow the rules" internal/panel/team.go \
+  'if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); err != nil {' \
+  'if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); false && err != nil {' \
+  ./internal/panel '^TestTeamChangesFollowTheRules$'
+control "team removals follow the rules" internal/panel/team.go \
+  'if err := invites.CanRemove(sess.Access.Account, t.Account); err != nil {' \
+  'if err := invites.CanRemove(sess.Access.Account, t.Account); false && err != nil {' \
+  ./internal/panel '^TestTeamChangesFollowTheRules$'
+control "public pages never show a username" internal/panel/join.go \
+  'a.Name = ""' \
+  '_ = a.Name' \
+  ./internal/panel '^(TestFriendInviteLetsFriendsIn|TestTeamInvitesMakeMembers)$'
+control "invite codes are kept out of the log" internal/panel/server.go \
+  '"path", s.public.logPath(invites.RedactPath(r.URL.Path))' \
+  '"path", r.URL.Path' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the join page is never stored" internal/panel/public.go \
+  '{prefix: invites.JoinPath + "/", limits: joinPageLimits, ownRefusals: true, handler: join},' \
+  '{prefix: invites.JoinPath + "/", limits: joinPageLimits, cache: "private, max-age=60", ownRefusals: true, handler: join},' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the invite pages answer their own refusals" internal/panel/public.go \
+  '{prefix: joinCallPrefix, limits: joinCallLimits, ownRefusals: true, handler: join},' \
+  '{prefix: joinCallPrefix, limits: joinCallLimits, handler: join},' \
+  ./internal/panel '^(TestFriendInviteLetsFriendsIn|TestInvitePagesArePublicAndNothingElse)$'
+control "the join page is limited per address by the public group" internal/panel/join.go \
+  'joinPageLimits = publicLimits{perMinute: 60,' \
+  'joinPageLimits = publicLimits{perMinute: 6000,' \
+  ./internal/panel '^TestInvitePagesArePublicAndNothingElse$'
+control "the join calls need the same-origin marker" internal/panel/join.go \
+  '{"POST", joinCallPrefix + "preview", publicMutation, "", s.hJoinPreview},' \
+  '{"POST", joinCallPrefix + "preview", public, "", s.hJoinPreview},' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "nothing under the join path is stored" internal/panel/server.go \
+  'cache = "no-store"' \
+  'cache = "no-cache"' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "public invite calls are limited per address" internal/panel/join.go \
+  'if err := s.joinGuard.Address(ip); err != nil {' \
+  'if err := s.joinGuard.Address(ip); false && err != nil {' \
+  ./internal/panel '^TestPublicInvitePagesKeepCodesSafe$'
+control "the last use of a link goes to one friend" internal/panel/friends.go \
+  'AND (max_uses = 0 OR uses < max_uses)' \
+  'AND (max_uses = 0 OR 1)' \
+  ./internal/panel '^TestTheLastUseGoesToOneFriend$' 3
+control "one join request per player" internal/panel/join.go \
+  'if waiting > 0 {' \
+  'if false && waiting > 0 {' \
+  ./internal/panel '^TestJoinRequestsWaitForAYes$'
+control "a role change checks the member's links against their new rights" internal/panel/team.go \
+  'after, err := s.access(user{ID: t.UserID, Username: t.Name, Role: t.InstallRole})' \
+  'after, err := t, error(nil)' \
+  ./internal/panel '^TestRoleChangesTurnOffOnlyTheLinksTheNewRightsForbid$'
+control "two-factor changes reach Discord whatever the switches say" internal/discord/alerts.go \
+  'return a.Has(k) || k.always()' \
+  'return a.Has(k)' \
+  ./internal/discord '^TestTwoFactorChangesArePostedWhateverTheSwitches$'
+control "the agent checks the member name it posts to Discord" internal/agent/discord.go \
+  'if invites.ValidUsername(req.Member) != nil {' \
+  'if false && invites.ValidUsername(req.Member) != nil {' \
+  ./internal/agent '^TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff$'
+control "a server's state change reaches the live status message within seconds" internal/discord/notifier.go \
+  'case states != n.shownStates:' \
+  'case false && states != n.shownStates:' \
+  ./internal/discord '^TestStateChangesReachTheStatusMessageWithinSeconds$'
+control "the burst guard on live status updates" internal/discord/notifier.go \
+  'due = later(due, later(n.statusAt.Add(statusGap), n.burstEnds()))' \
+  'due = later(due, n.statusAt.Add(statusGap))' \
+  ./internal/discord '^TestStateChangesStayInsideDiscordsRateLimits$'
+control "the agent looks at its servers for Discord as often as it reconciles" internal/agent/discord.go \
+  't := time.NewTicker(a.opts.ReconcileInterval)' \
+  't := time.NewTicker(a.opts.SampleInterval)' \
+  ./internal/agent '^TestDiscordLiveStatusShowsCrashesWithinSeconds$'
+control "Discord shows a crash the reconcile loop has yet to count" internal/agent/discord.go \
+  'crashed := s.crashed || err == nil && !busy && s.pendingCrash(c)' \
+  'crashed := s.crashed || false && err == nil && !busy && s.pendingCrash(c)' \
+  ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "a clean shutdown the reconcile loop has yet to handle is not a crash" internal/agent/discord.go \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
+  '&& !s.intentional[c.ID]' \
+  ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "the live status tells a clean stop from a crash as the reconcile loop does" internal/agent/discord.go \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
+  '&& !s.intentional[c.ID] && !s.sawStopping' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash_that_logged_a_shutdown,_before_the_reconcile_loop_sees_it$'
+control "Discord hears a server come online" internal/agent/collector.go \
+  '} else if fresh {' \
+  '} else if false && fresh {' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
+control "Discord hears Playkeeper stop a server, restarts too" internal/agent/lifecycle.go \
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}
+	return nil' \
+  '	return nil' \
+  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart|a_scheduled_restart)$/^every_alert$'
+control "Discord doesn't hear of a server falling asleep" internal/agent/lifecycle.go \
+  '	if h.op.Kind != "sleep" {
+		s.alert(discord.Stopped())
+	}' \
+  '	s.alert(discord.Stopped())' \
+  ./internal/agent '^TestDiscordAlertSequences$/^falling_asleep$/^every_alert$'
+control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle.go \
+  '		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
+		s.recordEvent(fin, "server_stopped_externally"' \
+  '		s.recordEvent(fin, "server_stopped_externally"' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_clean_stop_outside_Playkeeper$/^every_alert$'
+control "a start after failed starts is not a recovery" internal/agent/collector.go \
+  'recovered := take && s.runCrashed' \
+  'recovered := take && s.crashed' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "a Done line delivered again changes nothing" internal/agent/collector.go \
+  'take := fresh || !s.runReady' \
+  'take := true' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash,_its_Done_line_delivered_again,_then_a_restart$'
+control "a profile shows a player online only from a fresh sample" internal/agent/profile.go \
+  'if s.players != nil && s.fresh(s.players.At) {' \
+  'if s.players != nil {' \
+  ./internal/agent '^TestProfileShowsOnlineOnlyFromAFreshSample$'
+control "Discord hears a manual backup finish" internal/agent/backups.go \
+  '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
+	s.afterBackup(b)' \
+  '	s.afterBackup(b)' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/backup$'
+control "Discord hears an automatic backup finish" internal/agent/backups.go \
+  '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
+	return vb, nil' \
+  '	return vb, nil' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^automatic_backup_before_an_update$'
+control "a start that never came up is not a crash loop" internal/agent/lifecycle.go \
+  's.alert(discord.StartFailed(err.Error()))' \
+  's.alert(discord.Crashed("Playkeeper could not start it: "+err.Error(), false))' \
+  ./internal/agent '^TestDiscordStartFailuresAreNotCrashLoops$'
+control "a crash of a server meant to be off is not a give-up" internal/agent/lifecycle.go \
+  'GaveUp: wanted && !restarting' \
+  'GaveUp: !restarting' \
+  ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
+control "Discord counts a server's slots before its first sample" internal/agent/discord.go \
+  'if st.MaxPlayers == 0 && sc != nil {' \
+  'if false && st.MaxPlayers == 0 && sc != nil {' \
+  ./internal/agent '^TestDiscordLiveStatusCountsSlotsBeforeTheFirstSample$'
+control "a Minecraft update alert goes out once per version for each server" internal/agent/discord.go \
+  'WHERE id = ? AND minecraft_update_alerted != ?' \
+  'WHERE id = ? AND ? IS NOT NULL' \
+  ./internal/agent '^TestMinecraftUpdateAlertGoesOutOncePerVersion$'
+control "Minecraft update alerts are about stable versions only" internal/agent/versions.go \
+  '|| e.Experimental || !e.Supported ||' \
+  '|| !e.Supported ||' \
+  ./internal/agent '^TestNewerStableMatchesTheDashboard$'
+control "a Minecraft update is one of the server's own type" internal/agent/versions.go \
+  'if entryType(e) != typ || e.Experimental' \
+  'if false && entryType(e) != typ || e.Experimental' \
+  ./internal/agent '^TestNewerStableMatchesTheDashboard$'
+control "Minecraft update alerts read each server type's own versions" internal/agent/discord.go \
+  'versions, _, _ = a.typeCatalog(ctx, typ)' \
+  'versions, _, _ = a.versionCatalog(ctx)' \
+  ./internal/agent '^TestMinecraftUpdateAlertsReadEachTypesOwnVersions$'
+
+# Wave 6: the shared map's link token and its players switch, and the game
+# files a world import and the shared map read.
+control "shared map link tokens carry at least 128 bits" internal/webmap/share.go \
+  'const ShareTokenLen = 22' \
+  'const ShareTokenLen = 12' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "every link token character is equally likely" internal/webmap/share.go \
+  'if b < 248 && len(token) < ShareTokenLen {' \
+  'if len(token) < ShareTokenLen {' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "a shared map needs its sharing switch" internal/agent/maps.go \
+  'if err != nil || rec == nil || !rec.public {' \
+  'if err != nil || rec == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "a new link token each time sharing is switched on" internal/agent/maps.go \
+  "WHEN ?1 = 1 AND (public = 0 OR share_token = '') THEN ?2" \
+  "WHEN ?1 = 1 AND share_token = '' THEN ?2" \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the shared map's link token is compared" internal/agent/maps.go \
+  'if rows.Scan(&sid, &stored) == nil && webmap.ShareTokenMatches(stored, token) {' \
+  'if rows.Scan(&sid, &stored) == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "shared players hidden while their switch is off" internal/agent/maps.go \
+  'case rest == "players" && !rec.publicPlayers:' \
+  'case rest == "players" && !rec.publicPlayers && false:' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the panel checks a link token before asking the agent" internal/panel/maps.go \
+  'if !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  'if false && !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "a shared map shows faces only of players it lists" internal/panel/maps.go \
+  'if !strings.EqualFold(p.Name, name) {' \
+  'if false && !strings.EqualFold(p.Name, name) {' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "the shared map is served by the public route group" internal/panel/public.go \
+  '		{prefix: mapPagePrefix, limits: mapPageLimits, handler: s.mapPage()},
+		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},' \
+  '' \
+  ./internal/panel '^(TestOnlyThePublicGroupAnswersWithoutSignIn|TestSharedMapAnswersTheSameWhenItIsNotAvailable)$'
+control "per-address shared map rate limit" internal/panel/public.go \
+  '{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()}' \
+  '{prefix: mapDataPrefix, limits: publicLimits{perMinute: 1 << 30, open: 1 << 30, read: time.Minute, write: time.Minute}, handler: s.mapData()}' \
+  ./internal/panel '^TestSharedMapIsRateLimitedPerAddress$'
+control "link tokens stay out of the request log" internal/panel/public.go \
+  'return rt.prefix + "…"' \
+  'return p' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "a public path is cleaned before it is logged" internal/panel/public.go \
+  'c := path.Clean("/" + p)' \
+  'c := p + path.Ext("")' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "a world import reads server.properties without following a link" internal/agent/worldimports.go \
+  'b, err := d.ReadProperties()' \
+  'b, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))' \
+  ./internal/agent '^TestAWorldImportNeverFollowsAPlantedServerProperties$'
+control "the shared map reads the server's icon without following a link" internal/agent/maps.go \
+  'b, err := s.readIcon()' \
+  'b, err := os.ReadFile(s.dataDir() + "/" + iconFile)' \
+  ./internal/agent '^TestTheSharedMapsIconIsReadWithoutFollowingLinks$'
+control "the Plugins tab lists the map's squaremap as the Map's" internal/agent/addons.go \
+  'if e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  'if false && e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab never offers to manage the map's squaremap" internal/agent/addons.go \
+  'withMap := append(slices.Clone(installed), s.mapAddons(installed)...)
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  'withMap := installed
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab refuses to change what the map installed" internal/agent/maps.go \
+  'if slices.Contains(keys, a.Key()) {' \
+  'if false && slices.Contains(keys, a.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "a map whose squaremap is gone counts as off and turns on again" internal/agent/maps.go \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); err != nil || !fi.Mode().IsRegular() {' \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); false && (err != nil || !fi.Mode().IsRegular()) {' \
+  ./internal/agent '^TestTurningOnTheMapInstallsAMissingSquaremapAgain$'
+control "a start saves the world as uploaded before upgrading it" internal/agent/lifecycle.go \
+  'if err := s.ensureOriginalSaved(h, sc); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded$'
+control "announces take turns with the upload allowance" internal/agent/worldimports.go \
+  'a.imports.announce.Lock()
+	defer a.imports.announce.Unlock()' \
+  '' \
+  ./internal/agent '^TestAnnouncesTakeTurnsWithTheUploadAllowance$'
+control "the shared map's link waits for the own domain to point here" internal/agent/maps.go \
+  'if st.Check == nil || !st.Check.Ready {' \
+  'if st.Check == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for the free name to be published" internal/agent/maps.go \
+  'st.Free.Name.State != names.StateActive || st.Free.Name.DNS != names.DNSOK {' \
+  'st.Free.Name.State != names.StateActive {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for a certificate that hasn't expired" internal/agent/maps.go \
+  'if row == nil || row.status.Certificate == nil || !row.status.Certificate.NotAfter.After(a.now()) {' \
+  'if row == nil || row.status.Certificate == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "an upload for a new server needs rights over every server" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),' \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "making a server from an upload needs rights over every server" internal/panel/server.go \
+  'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
+  's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  's.lib().Install(ctx, srv, installed[:0], addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off leaves the Mods tab's own files" internal/agent/maps.go \
+  'if slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  'if false && slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off keeps what another add-on needs" internal/agent/maps.go \
+  'if parent := neededBy(others, rec); parent != "" {' \
+  'if parent := neededBy(others, rec); false && parent != "" {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "a Nether or End downloaded in the 26.1 layout joins its world" internal/worldimport/detect.go \
+  'case d.id == dimNether && (d.folder == "DIM-1" || d.folder == modernFolder(dimNether)):' \
+  'case d.id == dimNether && d.folder == "DIM-1":' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a Nether or End in the 26.1 layout without level.dat joins its world" internal/worldimport/detect.go \
+  '		{id: dimNether, folder: modernFolder(dimNether), suffix: "_nether"},
+' \
+  '' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a separate dimension joins a 26.1 world instead of blocking it" internal/worldimport/plan.go \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			}
+		}
+	} else {' \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			} else {
+				pl.spigotLayout()
+			}
+		}
+	} else {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world takes an older Nether or End into dimensions/minecraft" internal/worldimport/plan.go \
+  'if pl.modern && legacyFolder(c.folder) {' \
+  'if false && pl.modern && legacyFolder(c.folder) {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world merges its Nether and End on Paper too" internal/worldimport/plan.go \
+  'case pl.fam == familyBukkit && !pl.modern:' \
+  'case pl.fam == familyBukkit:' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "an older world refuses a Nether or End saved by 26.1" internal/worldimport/plan.go \
+  'if vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  'if false && vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a world no version can load yet is offered none" internal/agent/worldimports.go \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return nil, rec, nil' \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return []api.WorldImportVersion{recommended}, rec, nil' \
+  ./internal/agent '^TestWorldImportRefusals$'
+control "a link named like a custom dimension's folder is refused" internal/worldimport/folders.go \
+  'case custom && link && dimensionName(dim):' \
+  'case false && custom && link && dimensionName(dim):' \
+  ./internal/worldimport '^TestWorldFoldersRefusesLinks$'
+control "an import refused over a linked world folder starts the previous world again" internal/agent/worldimports.go \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)' \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {' \
+  ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
+
+# Wave 7: who may change where backup copies go and hold the recovery key.
+control "an admin needs two-factor on to hold backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin)' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "an admin with two-factor on holds backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner()' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestWaveSevenRoutesFollowTheTeamTable)$'
+control "bringing servers back from copies needs every server" internal/panel/workspace.go \
+  'if act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  'if false && act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestMachineWideActionsNeedEveryServer)$'
+control "changing where copies go is a backup key action" internal/panel/server.go \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies,' \
+  '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "the recovery key is a backup key action" internal/panel/server.go \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actRecoveryKey,' \
+  '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actManageServers,' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "restoring from a recovery key is a backup key action" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),' \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actManageMachine),' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "refused recovery key requests are audited" internal/panel/server.go \
+  's.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "refused recoveries from copies are audited" internal/panel/server.go \
+  's.audit(sess.User.Username, "offsite.recover", r.PathValue("mid"), "refused", "not allowed to bring servers back from copies")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "the Disk space page needs every server to look at" internal/panel/server.go \
+  'actView, everyServer(s.machineProxy("GET", "/v1/disk"))},' \
+  'actView, s.machineProxy("GET", "/v1/disk")},' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "the panel never caches the recovery key" internal/panel/automation.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/panel '^TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt$'
+control "the agent never caches the recovery key" internal/agent/offsite.go \
+  'w.Header().Set("Cache-Control", "no-store")' \
+  '_ = 0' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads name who took them" internal/agent/offsite.go \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if err != nil {' \
+  'actor, err := validActor(r.Header.Get("X-Playkeeper-Actor"))
+	if false && err != nil {' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+control "recovery key downloads are audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.recovery_key.downloaded", "server", "succeeded", f.Name)' \
+  '_, _ = actor, f.Name' \
+  ./internal/agent '^TestCopiesSomewhereElseUploadRetryAndFollowTheRules$'
+
+# Wave 7 in #15's restore: a restore that isn't over keeps what it may need.
+control "a restore from a copy the agent stops in is left to the next start" internal/agent/offsite.go \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return downloadStopped(s.stopping(), h, err)' \
+  'got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if err != nil {
+			return err' \
+  ./internal/agent '^TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart$'
+control "the rules keep the rollback archive of a restore that isn't over" internal/agent/backuprules.go \
+  'needed[id] = "restore"' \
+  '_ = id' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "the Disk space page leaves a restore that isn't over alone" internal/agent/disk.go \
+  'l.ActiveStages = append(l.ActiveStages, stage)
+		journals = append(journals, j)' \
+  '_, _ = stage, j' \
+  ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "a swap journal that can't be read may be any server's" internal/agent/backuprules.go \
+  'return j == nil || j.ServerID == serverID' \
+  'return j != nil && j.ServerID == serverID' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the Disk space page counts every server busy for an unreadable swap journal" internal/agent/disk.go \
+  'return j.concerns(s.id)' \
+  'return j != nil && j.concerns(s.id)' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the World tab keeps the world copies of a restore that isn't over" internal/agent/backups.go \
+  'if s.restoreUnsettled() {' \
+  'if false && s.restoreUnsettled() {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
+control "the World tab keeps every server's world copies for an unreadable swap journal" internal/agent/backuprules.go \
+  'if j.concerns(s.id) {' \
+  'if j != nil && j.concerns(s.id) {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
+control "a swap journal whose restore is gone keeps every rollback archive" internal/agent/backuprules.go \
+  'if op != nil {
+			add(op)
+			continue
+		}' \
+  'if j != nil {
+			if op != nil {
+				add(op)
+			}
+			continue
+		}' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+
+# Wave 7: sleeping and waking leave the desired state, the stand-in and the
+# sleep setting agreeing.
+control "a failed wake sleeps again when the server didn't start" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr != nil || false && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_whose_start_fails$'
+control "a failed wake sleeps again when Docker can't say whether the server runs" internal/agent/sleeping.go \
+  'rerr != nil || !running {' \
+  'rerr == nil && !running {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_fails_while_Docker_can.t_say_whether_the_server_runs$'
+control "a wake waits for a backup to end" internal/agent/sleeping.go \
+  'ae.Code != api.CodeBusy || time.Now().After(deadline)' \
+  'ae.Code == api.CodeBusy || time.Now().After(deadline)' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
+control "turning sleep off changes nothing while the server is busy" internal/agent/sleeping.go \
+  '		if err != nil {
+			writeError(w, err)
+			return
+		}
+		resp["operation"] = op' \
+  '		if err == nil {
+			resp["operation"] = op
+		}' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off_during_a_backup$'
+control "turning sleep off lets go of the game port when the server can't start" internal/agent/sleeping.go \
+  '				s.leaveSleep()
+				s.startFailed(ctx)' \
+  '				s.startFailed(ctx)' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -114,7 +114,7 @@ func TestFriendsPackPageGivesTheServersNamedAddress(t *testing.T) {
 // IP the machine last called in from, not the host the page was opened at nor
 // a name the machine reports, since names stay with the dashboard's machine.
 func TestAJoinedMachinesPackPageGivesItsIPAndPort(t *testing.T) {
-	e := newEnvConfig(t, nil, withDomain)
+	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
 	e.replyStatus("GET", "/v1/packs/"+friendsToken, http.StatusNotFound, `{"error":"Pack not found.","code":"not_found"}`)
 	f := newFriendsAgent(t)

@@ -58,6 +58,7 @@ type server struct {
 	opLock chan struct{}
 	opMu   sync.Mutex
 	op     *api.Operation
+	opH    *opHandle
 	// recovery is a restore a previous agent process left running, found
 	// when the agent is made and finished when it starts.
 	recovery *pendingRestore
@@ -78,6 +79,8 @@ type server struct {
 	prevCPU         *docker.Stats
 	crashes         []time.Time
 	crashed         bool
+	runCrashed      bool // a run crashed and the server hasn't been online since; a failed automatic start sets only crashed
+	runReady        bool // this agent has taken the current run's "Done" line
 	crash           *api.Crash
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
@@ -89,6 +92,9 @@ type server struct {
 	nextAutoRestart time.Time
 	worldBytes      int64
 	worldAt         time.Time
+	// sampled is the state the latest sample recorded (online, starting,
+	// stopped, crashed…), for the Discord live status.
+	sampled string
 	// nextResume is when the reconciler may try save-on again after it
 	// failed to turn saving back on.
 	nextResume time.Time
@@ -109,6 +115,9 @@ type server struct {
 	// than Paper), also under mu.
 	softwareChanged *api.SoftwareChange
 	manifest        *software.Manifest
+
+	// Wave 7 (0.4.0): schedules, sleep and copies somewhere else.
+	auto automation
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -231,6 +240,7 @@ func (s *server) startLoops() {
 			fn(s.ctx)
 		}()
 	}
+	s.startAutomation()
 }
 
 func newServerID() string {
@@ -565,6 +575,12 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 		if _, err := tx.Exec(q, s.id); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.Exec(`DELETE FROM maps WHERE server_id = ?`, s.id); err != nil {
+		return err
+	}
+	if err := s.forgetAutomation(tx); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err

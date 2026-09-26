@@ -22,7 +22,9 @@ const ActorHeader = "X-Playkeeper-Actor"
 type Route struct {
 	Method string
 	// Pattern is an http.ServeMux path pattern, such as
-	// /v1/servers/{id}/start.
+	// /v1/servers/{id}/start. It may end in a wildcard for the rest of the
+	// path, such as /v1/servers/{id}/map/{rest...}; a request still matches
+	// only as a clean path.
 	Pattern string
 	// Stream marks requests whose bodies are large or open-ended (log
 	// streams, backup downloads, uploads). They have no time or size
@@ -53,7 +55,7 @@ func newAllowlist(routes []Route) (a *allowlist, err error) {
 		}
 		p := r.Pattern
 		if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "/_link/") || strings.HasSuffix(p, "/") ||
-			strings.Contains(p, "...}") || strings.ContainsAny(p, " \t?#%") || path.Clean(p) != p {
+			strings.ContainsAny(p, " \t?#%") || path.Clean(p) != p {
 			return nil, fmt.Errorf("machinelink: route %s %s: pattern not allowed", r.Method, p)
 		}
 		key := r.Method + " " + p

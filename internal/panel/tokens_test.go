@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
 	"github.com/CIYAhq/playkeeper/internal/mcptools"
 )
@@ -119,18 +120,11 @@ func (e *env) newToken(t *testing.T, cookie, csrf, body string) (id, secret stri
 	return r.body["token"].(map[string]any)["id"].(string), r.body["secret"].(string)
 }
 
-// member adds an account that isn't an owner and signs it in.
+// member adds a viewer of every server to the team and signs it in.
 func (e *env) member(t *testing.T, name string) (cookie, csrf string) {
 	t.Helper()
-	h, _ := hashPassword("member password 1")
-	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES(?, ?, 0, 0, 'member')`, name, h); err != nil {
-		t.Fatal(err)
-	}
-	r := e.do(t, "POST", "/api/auth/login", `{"username":"`+name+`","password":"member password 1"}`, map[string]string{"X-Requested-With": "playkeeper"})
-	if r.status != http.StatusOK {
-		t.Fatalf("member login: %d %v", r.status, r.body)
-	}
-	return r.cookie, r.body["csrfToken"].(string)
+	m := addMember(t, e, name, invites.RoleViewer, "*")
+	return m.cookie, m.csrf
 }
 
 func (e *env) tokenList(t *testing.T, cookie string) []map[string]any {
@@ -237,7 +231,7 @@ func TestATokenDoesWhatItsRoleAllowsAsItself(t *testing.T) {
 		t.Fatalf("a moderator backs up: %+v", a)
 	}
 	e.agent.mu.Lock()
-	body := e.agent.bodies["POST /v1/servers/"+survivalID+"/backups"]
+	body := e.agent.lastBody["POST /v1/servers/"+survivalID+"/backups"]
 	e.agent.mu.Unlock()
 	if !strings.Contains(body, `"actor":"token:`+modID+`"`) {
 		t.Fatalf("the agent heard of the backup as %s", body)

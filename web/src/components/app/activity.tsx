@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
-import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
-import type { Activity, ActivityKind, ServerStatus } from '@/api/types'
+import { ArchiveIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MoonIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
+import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
+import { projectRoles, roleName } from '@/lib/access'
 import { relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -44,11 +45,27 @@ function icon(kind: ActivityKind): ReactNode {
       return <RotateCwIcon />
     case 'settings':
       return <SlidersHorizontalIcon />
+    case 'team_joined':
+      return <UserPlusIcon />
+    case 'fell_asleep':
+      return <MoonIcon />
+    case 'woke_up':
+      return <SunIcon />
     default: {
       const unreachable: never = kind
       return unreachable
     }
   }
+}
+
+/** Who did something: you, a person, or Playkeeper on its own (a schedule, a join that woke the server). */
+function actorText(actor: string | undefined, me: string): string {
+  if (!actor || actor === me) return t('activity.you')
+  if (actor.startsWith('schedule:')) return t('activity.aSchedule')
+  if (actor.startsWith('wake:')) return actor.slice('wake:'.length)
+  if (actor === 'sleep' || actor === 'playkeeper') return t('brand.name')
+  if (actor === 'backup rules') return t('activity.backupRules')
+  return actor
 }
 
 /**
@@ -58,7 +75,7 @@ function icon(kind: ActivityKind): ReactNode {
  */
 export function activityText(a: Activity, server: string, me: string, here = false): string {
   const named = !!a.actorKind && !!a.actorName
-  const actor = named ? (a.actorName ?? '') : !a.actor || a.actor === me ? t('activity.you') : a.actor
+  const actor = named ? (a.actorName ?? '') : actorText(a.actor, me)
   const player = a.player ?? ''
   switch (a.kind) {
     case 'joined':
@@ -74,7 +91,7 @@ export function activityText(a: Activity, server: string, me: string, here = fal
     case 'stopped_outside':
       return t('activity.stopped_outside', { server })
     case 'allowlisted':
-      return t('activity.allowlisted', { actor, player })
+      return a.actor?.startsWith('invite:') ? t('activity.allowlistedByLink', { player }) : t('activity.allowlisted', { actor, player })
     case 'unlisted':
       return t('activity.unlisted', { actor, player })
     case 'operator':
@@ -95,6 +112,14 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return named ? t('activity.restartedBy', { actor, server }) : t('activity.restarted', { server })
     case 'settings':
       return t('activity.settings', { actor, server })
+    case 'team_joined': {
+      const role = projectRoles.find((r): r is ProjectRole => r === a.detail)
+      return t('activity.teamJoined', { name: a.actor ?? '', role: role ? roleName(role) : (a.detail ?? '') })
+    }
+    case 'fell_asleep':
+      return a.detail ? t('activity.fellAsleep', { server, minutes: Number(a.detail) }) : t('activity.fellAsleepPlain', { server })
+    case 'woke_up':
+      return player ? t('activity.wokeUp', { server, player }) : t('activity.wokeUpPlain', { server })
     default: {
       const unreachable: never = a.kind
       return unreachable

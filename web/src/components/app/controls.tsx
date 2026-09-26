@@ -14,15 +14,23 @@ export interface Choice<T extends string> {
   hint?: string
   marker?: ReactNode
   disabled?: boolean
+  /** Why a disabled option can't be chosen. */
+  reason?: string
 }
 
 export function useIsPhone(): boolean {
   return useMediaQuery('max-sm')
 }
 
+/** An option's second line: why it can't be chosen, else its hint. Disabled options take no pointer, so a title alone would go unseen. */
+function secondLine<T extends string>(o: Choice<T>): string | undefined {
+  return (o.disabled && o.reason) || o.hint
+}
+
 /**
  * A select: a popup list on desktop, a bottom sheet with large rows on
- * phones. Each option can carry a second line.
+ * phones. Each option can carry a second line. Like Button, a
+ * `disabledReason` disables it and says why.
  */
 export function ChoiceSelect<T extends string>({
   value,
@@ -30,7 +38,8 @@ export function ChoiceSelect<T extends string>({
   options,
   label,
   className,
-  disabled,
+  disabled: disabledProp,
+  disabledReason,
   id,
 }: {
   value: T
@@ -39,6 +48,7 @@ export function ChoiceSelect<T extends string>({
   label: string
   className?: string
   disabled?: boolean
+  disabledReason?: string
   id?: string
 }) {
   const phone = useIsPhone()
@@ -46,7 +56,8 @@ export function ChoiceSelect<T extends string>({
   const hintId = useId()
   const current = options.find((o) => o.value === value)
   // A disabled option's hint is why it can't be picked.
-  const why = (o: Choice<T>, i: number) => (o.disabled && o.hint ? `${hintId}-${i}` : undefined)
+  const why = (o: Choice<T>, i: number) => (o.disabled && secondLine(o) ? `${hintId}-${i}` : undefined)
+  const disabled = !!disabledProp || !!disabledReason
   if (phone) {
     return (
       <>
@@ -54,10 +65,11 @@ export function ChoiceSelect<T extends string>({
           type="button"
           id={id}
           disabled={disabled}
+          title={disabledReason}
           aria-label={label}
           aria-haspopup="dialog"
           onClick={() => setOpen(true)}
-          className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-[15px] text-foreground disabled:opacity-60', className)}
+          className={cn('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-[15px] text-foreground disabled:opacity-60', disabledReason && 'disabled:cursor-not-allowed', className)}
         >
           <span className="truncate">{current?.label}</span>
           <ChevronsUpDownIcon className="size-4 opacity-70" aria-hidden="true" />
@@ -75,6 +87,7 @@ export function ChoiceSelect<T extends string>({
                   aria-selected={o.value === value}
                   key={o.value}
                   disabled={o.disabled}
+                  title={o.disabled ? o.reason : undefined}
                   aria-describedby={why(o, i)}
                   onClick={() => {
                     onChange(o.value)
@@ -84,9 +97,9 @@ export function ChoiceSelect<T extends string>({
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-base">{o.label}</span>
-                    {o.hint && (
+                    {secondLine(o) && (
                       <span id={why(o, i)} className="block text-[13px] text-muted-foreground">
-                        {o.hint}
+                        {secondLine(o)}
                       </span>
                     )}
                   </span>
@@ -101,20 +114,20 @@ export function ChoiceSelect<T extends string>({
   }
   return (
     <Select value={value} onValueChange={(v) => v !== null && onChange(v as T)} items={options.map((o) => ({ value: o.value, label: o.label }))} disabled={disabled}>
-      <SelectTrigger id={id} aria-label={label} className={cn('w-auto min-w-48', className)}>
+      <SelectTrigger id={id} aria-label={label} title={disabledReason} className={cn('w-auto min-w-48', disabledReason && 'data-disabled:pointer-events-auto data-disabled:cursor-not-allowed', className)}>
         <SelectValue />
       </SelectTrigger>
       <SelectPopup alignItemWithTrigger={false}>
         {options.map((o, i) => (
-          <SelectItem key={o.value} value={o.value} disabled={o.disabled} aria-describedby={why(o, i)} className="py-1.5">
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled} title={o.disabled ? o.reason : undefined} aria-describedby={why(o, i)} className="py-1.5">
             <span className="flex flex-col">
               <span className="flex items-center gap-2">
                 {o.label}
                 {o.marker}
               </span>
-              {o.hint && (
+              {secondLine(o) && (
                 <span id={why(o, i)} className="text-xs text-muted-foreground">
-                  {o.hint}
+                  {secondLine(o)}
                 </span>
               )}
             </span>
@@ -157,20 +170,26 @@ export function ChoiceCard<T extends string>({ value, disabled, reason, classNam
   )
 }
 
-/** A small segmented control on a muted track. */
-export function Segmented<T extends string>({ value, onChange, options, label, className, itemClassName }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string; itemClassName?: string }) {
+/** A small segmented control on a muted track; a `disabledReason` disables it and says why. */
+export function Segmented<T extends string>({ value, onChange, options, label, className, itemClassName, disabledReason }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string; className?: string; itemClassName?: string; disabledReason?: string }) {
   return (
     <ToggleGroup
       value={[value]}
       onValueChange={(v) => v[0] && onChange(v[0] as T)}
       aria-label={label}
+      disabled={!!disabledReason}
       className={cn('gap-0.5 rounded-[9px] bg-muted p-0.5', className)}
     >
       {options.map((o) => (
         <ToggleGroupItem
           key={o.value}
           value={o.value}
-          className={cn('h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline', itemClassName)}
+          title={disabledReason}
+          className={cn(
+            'h-7 rounded-[7px] border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground data-pressed:bg-white data-pressed:text-foreground data-pressed:shadow-outline',
+            disabledReason && 'disabled:pointer-events-auto disabled:cursor-not-allowed',
+            itemClassName,
+          )}
         >
           {o.label}
         </ToggleGroupItem>
@@ -196,11 +215,11 @@ export function SettingRow({ label, hint, changed, control, htmlFor, wide, class
 }
 
 /** Numbered steps joined by lines: done steps are green, the current one is ringed. */
-export function Stepper({ steps, current, label, className }: { steps: string[]; current: number; label: string; className?: string }) {
+export function Stepper({ steps, current, label, className, skip }: { steps: string[]; current: number; label: string; className?: string; skip?: number }) {
   return (
     <ol className={cn('flex items-center gap-2', className)} aria-label={label}>
       {steps.map((s, i) => {
-        const state = i < current ? 'done' : i === current ? 'current' : 'todo'
+        const state = i === skip ? 'todo' : i < current ? 'done' : i === current ? 'current' : 'todo'
         return (
           <li key={s} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none" aria-current={state === 'current' ? 'step' : undefined}>
             <span

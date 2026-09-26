@@ -152,6 +152,14 @@ export function joinAddress(hostname: string, gamePort: number): string {
   return gamePort === 25565 ? host : `${host}:${gamePort}`
 }
 
+/** How long until a moment: "in 6 days", "in 5 h" or "in 12 min". */
+export function timeUntil(iso: string, now: number = Date.now()): string {
+  const s = Math.max(0, Math.floor((new Date(iso).getTime() - now) / 1000))
+  if (s >= 86400) return t('time.inDays', { count: Math.floor(s / 86400) })
+  if (s >= 3600) return t('time.inHours', { count: Math.floor(s / 3600) })
+  return t('time.inMinutes', { count: Math.max(1, Math.floor(s / 60)) })
+}
+
 /** A server's join address: its friendly name once that works, else the panel's host with the port. */
 export function serverJoinAddress(s: { joinAddress?: string; gamePort: number }, hostname: string = window.location.hostname): string {
   return s.joinAddress || joinAddress(hostname, s.gamePort)

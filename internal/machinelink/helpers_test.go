@@ -90,6 +90,7 @@ func testRoutes() []Route {
 		{Method: "GET", Pattern: "/v1/test/headers"},
 		{Method: "GET", Pattern: "/v1/test/redirect"},
 		{Method: "GET", Pattern: "/v1/test/abort"},
+		{Method: "GET", Pattern: "/v1/servers/{id}/map/{rest...}"},
 	}
 }
 

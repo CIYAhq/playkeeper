@@ -146,6 +146,19 @@ describe('mergeRows', () => {
     expect(byName.Vault?.addon?.projectId).toBe('vault')
   })
 
+  it('shows what the Map installed as the Map’s, never to update, manage or restart for', () => {
+    const squaremap = addon('squaremap', { projectId: 'PFb7ZqK6', usedBy: 'map' })
+    const upd = { versionId: 'x', versionNumber: '2.0', channel: 'release', published: '' }
+    const rows = mergeRows(folder({ files: [{ fileName: squaremap.fileName, size: 1, status: 'managed', addon: squaremap, pending: true }] }), {
+      updates: [{ source: 'modrinth', projectId: 'PFb7ZqK6', available: true, latest: upd }],
+      identified: [{ fileName: squaremap.fileName, size: 1, status: 'identified', addon: addon('squaremap', { projectId: 'PFb7ZqK6' }) }],
+      checkedAt: '',
+    })
+    expect(rows).toEqual([{ id: 'modrinth:PFb7ZqK6', state: 'map', name: 'squaremap', version: '1.0.0', addon: squaremap, fileName: squaremap.fileName, pending: false }])
+    expect(updatableRows(rows)).toEqual([])
+    expect(pendingCount(rows)).toBe(0)
+  })
+
   it('updates all unchanged add-ons with updates, sending only their keys', () => {
     const upd = { versionId: 'x', versionNumber: '2.0', channel: 'release', published: '' }
     const rows = mergeRows(
@@ -179,6 +192,10 @@ describe('footerFor', () => {
     expect(footerFor(details({ installed: addon('Chunky'), latest: upd }))).toEqual({ kind: 'installed', update: undefined, changed: false, missing: false })
     expect(footerFor(details({ installed: addon('Chunky'), changed: true, missing: false }))).toMatchObject({ changed: true })
     expect(footerFor(details({ installed: addon('Chunky'), missing: true }))).toMatchObject({ missing: true })
+  })
+
+  it('leaves what the Map installed to the Map', () => {
+    expect(footerFor(details({ installed: addon('squaremap', { usedBy: 'map' }), updateAvailable: true, latest: upd }))).toEqual({ kind: 'map' })
   })
 
   it('sends people to the author for add-ons only on their site', () => {

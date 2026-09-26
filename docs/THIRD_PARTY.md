@@ -1,6 +1,6 @@
 # Third-party components and upstream terms
 
-Checked 2026-09-25 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
+Checked 2026-09-26 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
 
 The full licence texts of everything below that is compiled into the binary, and the terms of the logos the web UI shows, are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes and the dashboard links to from Settings. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date, and `make package` refuses to package a binary that links a module missing from it.
 
@@ -11,7 +11,9 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | Module | Version | Licence |
 | --- | --- | --- |
 | Go standard library | 1.27.1 | BSD-3-Clause |
-| golang.org/x/crypto (argon2) | v0.57.0 | BSD-3-Clause |
+| golang.org/x/crypto (argon2, acme, ssh, and age's primitives) | v0.57.0 | BSD-3-Clause |
+| filippo.io/age | v1.3.2 | BSD-3-Clause |
+| filippo.io/hpke (used by age) | v0.4.0 | BSD-3-Clause |
 | golang.org/x/sys | v0.48.0 | BSD-3-Clause |
 | modernc.org/sqlite | v1.59.0 | BSD-3-Clause |
 | modernc.org/libc | v1.75.7 | BSD-3-Clause |
@@ -20,6 +22,8 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | github.com/google/uuid | v1.6.0 | BSD-3-Clause |
 | github.com/remyoudompheng/bigfft | 24d4a6f8daec | BSD-3-Clause |
 | github.com/dustin/go-humanize | v1.0.1 | MIT |
+| github.com/pkg/sftp | v1.13.11 | BSD-2-Clause |
+| github.com/kr/fs (used by sftp) | v0.1.0 | BSD-3-Clause |
 
 ## Bundled in the web UI
 

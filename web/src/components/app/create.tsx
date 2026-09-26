@@ -458,7 +458,7 @@ export function MemorySlider({ options, value, onChange }: { options: number[]; 
   )
 }
 
-export function MemoryReadout({ memoryMB, advice, recommended, style }: { memoryMB: number; advice: MemoryBudget | undefined; recommended: boolean; style: PlayStyle }) {
+export function MemoryReadout({ memoryMB, advice, recommended, style }: { memoryMB: number; advice: MemoryBudget | undefined; recommended: boolean; style?: PlayStyle }) {
   return (
     <div>
       <div className="flex items-baseline gap-2">
@@ -471,7 +471,7 @@ export function MemoryReadout({ memoryMB, advice, recommended, style }: { memory
           <p className="mt-0.5 text-xs text-muted-foreground">{t('new.javaGets', { heap: formatMB(advice.heapMB) })}</p>
         </>
       )}
-      <span className="sr-only">{t(preset(style)?.title ?? 'style.friends.title')}</span>
+      {style && <span className="sr-only">{t(preset(style)?.title ?? 'style.friends.title')}</span>}
     </div>
   )
 }

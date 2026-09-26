@@ -79,7 +79,8 @@ func TestAllowlistRefusesBadRoutes(t *testing.T) {
 		{Method: "GET", Pattern: "v1/x"},
 		{Method: "GET", Pattern: "/_link/ping"},
 		{Method: "GET", Pattern: "/v1/x/"},
-		{Method: "GET", Pattern: "/v1/{rest...}"},
+		{Method: "GET", Pattern: "/v1/{rest...}/x"},
+		{Method: "GET", Pattern: "/v1/{a...}{b...}"},
 		{Method: "GET", Pattern: "/v1/./x"},
 		{Method: "GET", Pattern: "/v1//x"},
 		{Method: "GET", Pattern: "/v1/x?y"},
@@ -119,6 +120,10 @@ func TestAllowlistMatch(t *testing.T) {
 		{"POST", "/v1/servers/a%2Fb/start", "", false},
 		{"GET", "/_link/ping", "", false},
 		{"GET", "/v1/secret", "", false},
+		{"GET", "/v1/servers/abc/map/tiles/world/1/0_0.png", "/v1/servers/{id}/map/{rest...}", false},
+		{"GET", "/v1/servers/abc/map/../start", "", false},
+		{"GET", "/v1/servers/abc/map/tiles%2F..%2F..%2Fstart", "", false},
+		{"POST", "/v1/servers/abc/map/tiles", "", false},
 	} {
 		u, err := url.Parse("http://machine" + tc.target)
 		if err != nil {

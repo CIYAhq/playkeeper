@@ -23,6 +23,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
+	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -417,19 +418,22 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, 
 	}
 	s.audit(actor, "backup.created", b.ID, "succeeded", fmt.Sprintf("%s sha256 %s method %s saving paused %s took %s downtime %dms",
 		b.FileName, b.SHA256, res.Method, res.Paused.Round(time.Millisecond), res.Took.Round(time.Millisecond), downtime))
+	s.alert(discord.BackupSucceeded(vb.SizeBytes))
+	s.afterBackup(b)
 	return nil
 }
 
-// recordBackup stores a manual backup backup.Take finished: the checksum file
-// beside the archive, and its row. An archive without a row would never be
-// listed or deleted, so it goes if the row can't be written.
+// recordBackup stores a backup backup.Take finished, manual or made by a
+// schedule as its actor says: the checksum file beside the archive, and its
+// row. An archive without a row would never be listed or deleted, so it goes
+// if the row can't be written.
 func (s *server) recordBackup(id, fileName, actor, note string, created time.Time, res *backup.Result) (*api.Backup, error) {
 	final := s.backupPath(fileName)
 	_ = os.WriteFile(final+".sha256", []byte(res.SHA256+"  "+fileName+"\n"), 0o600)
 	mj, _ := json.Marshal(res.Manifest)
 	_, err := s.db.Exec(`INSERT INTO backups(id, server_id, kind, created_at, file_name, size_bytes, sha256, manifest, created_by, note, downtime_ms, saving_paused_ms, duration_ms)
-		VALUES(?,?,'manual',?,?,?,?,?,?,?,0,?,?)`,
-		id, s.id, created.UnixMilli(), fileName, res.Size, res.SHA256, string(mj), actor, note, res.Paused.Milliseconds(), res.Took.Milliseconds())
+		VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?)`,
+		id, s.id, backupKind(actor), created.UnixMilli(), fileName, res.Size, res.SHA256, string(mj), actor, note, res.Paused.Milliseconds(), res.Took.Milliseconds())
 	if err != nil {
 		os.Remove(final)
 		os.Remove(final + ".sha256")
@@ -837,7 +841,9 @@ func (s *server) hWorldCopies(w http.ResponseWriter, r *http.Request) {
 }
 
 // hWorldCopyDelete discards one world copy. Nothing is discarded while the
-// live world folder is missing, because a copy may then be the only world.
+// live world folder is missing, because a copy may then be the only world,
+// nor while a restore of the server isn't over, because it may still put a
+// copy back.
 func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.URL.Query().Get("actor"))
 	if err != nil {
@@ -858,6 +864,11 @@ func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 	path := filepath.Join(s.dir(), name)
 	if st, err := os.Lstat(path); err != nil || !st.IsDir() {
 		writeError(w, errNotFound("World copy"))
+		return
+	}
+	if s.restoreUnsettled() {
+		writeError(w, errConflict("A restore isn't finished, so this server's world copies are kept until it is.",
+			"Restart the Playkeeper agent (sudo systemctl restart playkeeper-agent) so it can finish the restore, then try again. If the copies are still kept, sudo journalctl -u playkeeper-agent says why."))
 		return
 	}
 	if !dirExists(s.dataDir()) {
@@ -1470,6 +1481,7 @@ func (s *server) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (
 	if vb.Verified == nil || !*vb.Verified {
 		return nil, fmt.Errorf("archive %s failed verification: %s", vb.ID, vb.VerifyError)
 	}
+	s.alert(discord.BackupSucceeded(vb.SizeBytes))
 	return vb, nil
 }
 

@@ -5,6 +5,8 @@ package api
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
 
 // Phase is the user-visible lifecycle phase of a Minecraft server.
@@ -88,6 +90,8 @@ type ServerStatus struct {
 	// SoftwareChanged is set when the server's software no longer matches
 	// what Playkeeper installed, so it was not started.
 	SoftwareChanged *SoftwareChange `json:"softwareChanged,omitempty"`
+	// Wave 7 (0.4.0): sleep when nobody's playing.
+	Sleep *SleepStatus `json:"sleep,omitempty"`
 }
 
 // FileRefusal is a file in the server's folder that Playkeeper would not
@@ -189,6 +193,9 @@ type Machine struct {
 	UpdateAvailable  string `json:"updateAvailable,omitempty"`
 	UpdateInstalling string `json:"updateInstalling,omitempty"`
 	Servers          int    `json:"servers"`
+	// Wave 7 (0.4.0): SleepingMemoryMB is the part of ServersMemoryMB that
+	// sleeping servers gave back for now.
+	SleepingMemoryMB int `json:"sleepingMemoryMB"`
 }
 
 // UpdateInfo is what Playkeeper knows about its own updates.
@@ -412,6 +419,8 @@ const (
 	OpRunning   = "running"
 	OpSucceeded = "succeeded"
 	OpFailed    = "failed"
+	// OpCancelled is an operation stopped on request before it changed anything.
+	OpCancelled = "cancelled"
 )
 
 type CatalogEntry struct {
@@ -549,11 +558,16 @@ type CommandResponse struct {
 type WhitelistEntry struct {
 	Name string `json:"name"`
 	UUID string `json:"uuid,omitempty"`
+	// Joined says how the player got in, when an invite link let them in;
+	// the panel fills it in.
+	Joined *Phrase `json:"joined,omitempty"`
 }
 
 type WhitelistRequest struct {
 	Name  string `json:"name"`
 	Actor string `json:"actor"`
+	// UUID lets a stopped server's list be written directly (invite links).
+	UUID string `json:"uuid,omitempty"`
 }
 
 type MetricsBucket struct {
@@ -735,7 +749,7 @@ type Event struct {
 type Backup struct {
 	ID          string     `json:"id"`
 	ServerID    string     `json:"serverId"`
-	Kind        string     `json:"kind"` // manual | rollback
+	Kind        string     `json:"kind"` // manual | scheduled | rollback
 	CreatedAt   time.Time  `json:"createdAt"`
 	FileName    string     `json:"fileName"`
 	SizeBytes   int64      `json:"sizeBytes"`
@@ -904,7 +918,14 @@ type Addon struct {
 	// was installed for.
 	DependencyOf string    `json:"dependencyOf,omitempty"`
 	InstalledAt  time.Time `json:"installedAt"`
+	// UsedBy is the part of Playkeeper that installed the add-on and alone
+	// removes it: UsedByMap for the Map's squaremap and what it needs.
+	// Empty for add-ons installed from the Plugins or Mods tab.
+	UsedBy string `json:"usedBy,omitempty"`
 }
+
+// UsedByMap marks the add-ons the Map installed.
+const UsedByMap = "map"
 
 // AddonKey names an installed add-on.
 type AddonKey struct {
@@ -1304,6 +1325,11 @@ type Error struct {
 	// Params carries the values a translated message needs, such as
 	// retryAfterSeconds.
 	Params map[string]any `json:"params,omitempty"`
+	// Wave 7 (0.4.0): Field is the form field at fault and Reason a stable
+	// code for the problem, with its values in Params, so the dashboard can
+	// show its own translation next to the field.
+	Field  string `json:"field,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 const (
@@ -1907,4 +1933,295 @@ type PackLink struct {
 	JoinAddress string          `json:"joinAddress,omitempty"`
 	HasIcon     bool            `json:"hasIcon"`
 	Share       json.RawMessage `json:"share"`
+}
+
+// Wave 5: invite links, the team, Discord and player profiles.
+
+// ActivityTeamJoined is someone joining the team with a team invite: Actor
+// is their username and Detail their role. The panel adds these to a
+// machine's activity.
+const ActivityTeamJoined = "team_joined"
+
+// Phrase is a sentence the UI translates by Key with Params; Text is the
+// English version.
+type Phrase struct {
+	Key    string            `json:"key"`
+	Params map[string]string `json:"params,omitempty"`
+	Text   string            `json:"text"`
+	// At is when it happened, for a phrase about an event such as joining.
+	At *time.Time `json:"at,omitempty"`
+}
+
+// WhitelistChange answers adding a player to or removing one from the
+// allowlist.
+type WhitelistChange struct {
+	Message   string           `json:"message"`
+	Whitelist []WhitelistEntry `json:"whitelist"`
+	// Added is false when the player was on the list already (and always
+	// for a removal).
+	Added bool `json:"added"`
+}
+
+// PlayerMessageRequest sends one player a private message in the game.
+type PlayerMessageRequest struct {
+	Name    string `json:"name"`
+	Message string `json:"message"`
+	Actor   string `json:"actor"`
+}
+
+// PlayerProfile is one player's page under Players.
+type PlayerProfile struct {
+	Name        string     `json:"name"`
+	UUID        string     `json:"uuid,omitempty"`
+	Online      bool       `json:"online"`
+	OnlineSince *time.Time `json:"onlineSince,omitempty"`
+	Allowlisted bool       `json:"allowlisted"`
+	Operator    bool       `json:"operator"`
+	// Banned is true while they are on the server's ban list.
+	Banned bool `json:"banned,omitempty"`
+	// FirstSeen is their first session Playkeeper still remembers.
+	FirstSeen         *time.Time `json:"firstSeen,omitempty"`
+	Sessions          int        `json:"sessions"`
+	PlaytimeSeconds   int64      `json:"playtimeSeconds"`
+	LongestSeconds    int64      `json:"longestSeconds"`
+	PlaytimeUncertain bool       `json:"playtimeUncertain,omitempty"`
+	TZ                string     `json:"tz"`
+	// Days are the last 14 days in TZ, oldest first.
+	Days []PlayerDay `json:"days"`
+	// Mostly is when in the day they play most in those days: morning,
+	// afternoon, evening or night; empty when they didn't play.
+	Mostly string `json:"mostly,omitempty"`
+	// Recent are their latest sessions, newest first.
+	Recent []Session `json:"recent"`
+	// Joined says how they got in (invite links; the panel fills it in).
+	Joined *Phrase `json:"joined,omitempty"`
+}
+
+type PlayerDay struct {
+	Date            string `json:"date"`
+	PlaytimeSeconds int64  `json:"playtimeSeconds"`
+}
+
+// DiscordSettings is the dashboard's Discord connection. The webhook URL is
+// a secret: it stays in the agent and is never sent to the panel or the
+// browser.
+type DiscordSettings struct {
+	Connected   bool            `json:"connected"`
+	WebhookName string          `json:"webhookName,omitempty"`
+	ConnectedAt *time.Time      `json:"connectedAt,omitempty"`
+	Alerts      []string        `json:"alerts"`
+	LiveStatus  bool            `json:"liveStatus"`
+	Delivery    DiscordDelivery `json:"delivery"`
+	// Kinds are the kinds of alert this Playkeeper knows, in order.
+	Kinds []string `json:"kinds"`
+}
+
+// DiscordDelivery is how sending to Discord is going.
+type DiscordDelivery struct {
+	Sent              *time.Time `json:"sent,omitempty"`
+	Failed            *time.Time `json:"failed,omitempty"`
+	Code              string     `json:"code,omitempty"`
+	Msg               string     `json:"msg,omitempty"`
+	Hint              string     `json:"hint,omitempty"`
+	RetryAfterSeconds int        `json:"retryAfterSeconds,omitempty"`
+	Stopped           bool       `json:"stopped,omitempty"`
+}
+
+type DiscordConnectRequest struct {
+	WebhookURL string `json:"webhookUrl"`
+	// Host is the dashboard's host name, for join addresses and links.
+	Host  string `json:"host,omitempty"`
+	Actor string `json:"actor"`
+}
+
+type DiscordSettingsRequest struct {
+	Alerts     []string `json:"alerts"`
+	LiveStatus bool     `json:"liveStatus"`
+	Host       string   `json:"host,omitempty"`
+	Actor      string   `json:"actor"`
+}
+
+// DiscordNotifyRequest is an alert the panel reports: a join request
+// (ServerID and Player), a team member turning two-factor sign-in on or
+// off (Member, On, and Admin for an admin), or an admin other than the
+// owner (Actor) confirming Member's Admin rights.
+type DiscordNotifyRequest struct {
+	Kind     string `json:"kind"`
+	ServerID string `json:"serverId,omitempty"`
+	Player   string `json:"player,omitempty"`
+	Member   string `json:"member,omitempty"`
+	On       bool   `json:"on,omitempty"`
+	Admin    bool   `json:"admin,omitempty"`
+	Actor    string `json:"actor"`
+}
+
+// Kinds of DiscordNotifyRequest.
+const (
+	DiscordJoinRequested    = "join_requested"
+	DiscordTwoFactorChanged = "two_factor_changed"
+	DiscordAdminConfirmed   = "admin_confirmed"
+)
+
+// CodeAdminUnconfirmed refuses an admin action to an admin who turned on
+// two-factor sign-in but whose Admin rights the owner or an admin hasn't
+// confirmed yet.
+const CodeAdminUnconfirmed = "admin_unconfirmed"
+
+// Wave 6: each server's live map, and starting a server from a world.
+
+// MapInfo is a server's live map: whether Playkeeper set it up, how it is
+// doing (internal/webmap's states) and its two sharing switches.
+type MapInfo struct {
+	// Supported is false for server types that cannot run a map plugin.
+	Supported bool `json:"supported"`
+	// Enabled: Playkeeper installed the map plugin on the server, and its
+	// files are still there.
+	Enabled bool `json:"enabled"`
+	// Missing: the map was turned on, but the files it installed are gone,
+	// for example deleted by hand. The map counts as off, and turning it on
+	// installs them again.
+	Missing bool `json:"missing,omitempty"`
+	// State is unsupported, not_installed, server_stopped, needs_restart,
+	// not_answering, drawing or ready.
+	State     string            `json:"state"`
+	Params    map[string]string `json:"params,omitempty"`
+	Message   string            `json:"message"`
+	Hint      string            `json:"hint,omitempty"`
+	Areas     int               `json:"areas"`
+	Bytes     int64             `json:"bytes"`
+	LastDrawn *time.Time        `json:"lastDrawn,omitempty"`
+	Progress  *MapProgress      `json:"progress,omitempty"`
+	// Plugin and PluginVersion name the map plugin Playkeeper installs.
+	Plugin        string `json:"plugin"`
+	PluginVersion string `json:"pluginVersion,omitempty"`
+	// What drawing the land explored so far costs, for the setup card.
+	EstimatedMinutes   int `json:"estimatedMinutes"`
+	EstimatedMegabytes int `json:"estimatedMegabytes"`
+	// Public lets anyone with the link open the map; PublicPlayers shows
+	// players on it.
+	Public        bool `json:"public"`
+	PublicPlayers bool `json:"publicPlayers"`
+	// Path is the shared map's path on any of the panel's addresses,
+	// /map/<link token>, and Link the same under the machine's name. Both
+	// are empty while the map isn't shared, and Link until the name points
+	// at the machine and has a certificate.
+	Link string `json:"link,omitempty"`
+	Path string `json:"path"`
+	// RestartWhenEmpty: the server restarts to load the map once nobody is
+	// playing.
+	RestartWhenEmpty bool      `json:"restartWhenEmpty"`
+	CheckedAt        time.Time `json:"checkedAt"`
+}
+
+// MapProgress is a full render's progress in 512×512-block areas, with an
+// estimate of the time left once it has been measured.
+type MapProgress struct {
+	Done        int  `json:"done"`
+	Total       int  `json:"total"`
+	Percent     int  `json:"percent"`
+	SecondsLeft *int `json:"secondsLeft,omitempty"`
+}
+
+// MapShareRequest changes the sharing switches that are set.
+type MapShareRequest struct {
+	Public  *bool  `json:"public,omitempty"`
+	Players *bool  `json:"players,omitempty"`
+	Actor   string `json:"actor"`
+}
+
+// MapDisableRequest turns the map off; DeleteMap also deletes what was
+// drawn.
+type MapDisableRequest struct {
+	DeleteMap bool   `json:"deleteMap"`
+	Actor     string `json:"actor"`
+}
+
+// PublicMap is what the shared map page may know about a server.
+type PublicMap struct {
+	Name    string `json:"name"`
+	Players bool   `json:"players"`
+}
+
+// WorldImport is an upload of world archives: for a new server when
+// ServerID is empty, otherwise to replace that server's world.
+type WorldImport struct {
+	ID        string            `json:"id"`
+	ServerID  string            `json:"serverId,omitempty"`
+	CreatedAt time.Time         `json:"createdAt"`
+	Files     []WorldImportFile `json:"files"`
+	// LimitBytes bounds all files together.
+	LimitBytes int64 `json:"limitBytes"`
+	// Inspection is what the files hold, once they were checked.
+	Inspection *worldimport.Inspection `json:"inspection,omitempty"`
+}
+
+// WorldImportFile is one uploaded archive. Received counts the bytes that
+// arrived; an interrupted upload carries on from there.
+type WorldImportFile struct {
+	Index    int    `json:"index"`
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	Received int64  `json:"received"`
+	SHA256   string `json:"sha256,omitempty"`
+}
+
+// WorldImportFileRequest announces an archive before its bytes arrive.
+type WorldImportFileRequest struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	Actor string `json:"actor"`
+}
+
+// WorldImportPreviewRequest asks what an import would do.
+type WorldImportPreviewRequest struct {
+	Options worldimport.Options `json:"options"`
+	// VersionID is the version a new server runs, one of the preview's
+	// Versions; empty picks the first.
+	VersionID string `json:"versionId,omitempty"`
+	Actor     string `json:"actor"`
+}
+
+// WorldImportVersion is a version a new server from the world can run.
+type WorldImportVersion struct {
+	CatalogEntry
+	// Keep: the world's own version, so the world isn't upgraded.
+	Keep bool `json:"keep"`
+}
+
+// WorldImportPreview is what an import will do, for the owner to confirm.
+type WorldImportPreview struct {
+	ID       string               `json:"id"`
+	ServerID string               `json:"serverId,omitempty"`
+	Preview  *worldimport.Preview `json:"preview"`
+	// Versions are a new server's choices, recommended first; VersionID is
+	// the one previewed.
+	Versions  []WorldImportVersion `json:"versions,omitempty"`
+	VersionID string               `json:"versionId"`
+	// KeepsOriginal: the world gets upgraded, so it is saved as a backup as
+	// it was before its first start.
+	KeepsOriginal bool `json:"keepsOriginal"`
+	// CurrentWorld is the world an import into a server replaces.
+	CurrentWorld       *CurrentWorld `json:"currentWorld,omitempty"`
+	WillCreateRollback bool          `json:"willCreateRollback"`
+	ConfirmPhrase      string        `json:"confirmPhrase,omitempty"`
+	Steps              []string      `json:"steps,omitempty"`
+	// MemoryMB is the suggested memory for a new server.
+	MemoryMB int `json:"memoryMB,omitempty"`
+}
+
+// WorldImportApplyRequest replaces a server's world with the import.
+type WorldImportApplyRequest struct {
+	Options worldimport.Options `json:"options"`
+	Confirm string              `json:"confirm"`
+	Actor   string              `json:"actor"`
+}
+
+// WorldImportCreateRequest creates a server from the imported world.
+type WorldImportCreateRequest struct {
+	Options    worldimport.Options `json:"options"`
+	VersionID  string              `json:"versionId"`
+	Name       string              `json:"name,omitempty"`
+	MemoryMB   int                 `json:"memoryMB"`
+	AcceptEULA bool                `json:"acceptEula"`
+	Actor      string              `json:"actor"`
 }

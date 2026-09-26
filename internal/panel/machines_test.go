@@ -24,6 +24,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
+	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -246,7 +247,7 @@ func (e *env) auditHas(t *testing.T, actor, action, target, result, detail strin
 }
 
 func TestAMachineJoinsAndItsServersAreReachable(t *testing.T) {
-	e := newEnvConfig(t, nil, withDomain)
+	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
 	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
 	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
@@ -671,7 +672,7 @@ func TestTheDashboardsServersStayListedWhileItsAgentIsDown(t *testing.T) {
 }
 
 func TestJoinCodesAreForThoseWhoManageMachines(t *testing.T) {
-	e := newEnvConfig(t, nil, withDomain)
+	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
 	first := e.joinCode(t, cookie, csrf, `{}`)
 	second := e.joinCode(t, cookie, csrf, `{"name":"  box   two ","dial":"name"}`)
@@ -709,15 +710,8 @@ func TestJoinCodesAreForThoseWhoManageMachines(t *testing.T) {
 		t.Fatalf("codes that ran out over an hour ago aren't listed: %v", codes)
 	}
 
-	h, _ := hashPassword("member password 1")
-	if _, err := e.srv.db.Exec(`INSERT INTO users(username, password_hash, created_at, password_changed_at, role) VALUES('friend', ?, 0, 0, 'member')`, h); err != nil {
-		t.Fatal(err)
-	}
-	r := e.do(t, "POST", "/api/auth/login", `{"username":"friend","password":"member password 1"}`, map[string]string{"X-Requested-With": "playkeeper"})
-	if r.status != http.StatusOK {
-		t.Fatalf("member login: %d %v", r.status, r.body)
-	}
-	mc, mcsrf := r.cookie, r.body["csrfToken"].(string)
+	friend := addMember(t, e, "friend", invites.RoleViewer, "*")
+	mc, mcsrf := friend.cookie, friend.csrf
 	if info := e.linkInfo(t, mc); info["codes"] != nil || info["fingerprint"] == nil {
 		t.Fatalf("a member sees the fingerprint but not the codes: %v", info)
 	}
@@ -739,7 +733,7 @@ func TestTooManyWrongCodesPauseJoining(t *testing.T) {
 	} else {
 		ln.Close()
 	}
-	e := newEnvConfig(t, nil, withDomain)
+	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
 	addr := e.sharePort(t)
 	fp := e.linkInfo(t, cookie)["fingerprint"].(string)
@@ -902,7 +896,7 @@ func TestDialAddresses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newEnvConfig(t, nil, tc.mod)
+			e := newEnvConfig(t, tc.mod, nil)
 			r := httptest.NewRequest("GET", "/api/machines/link", nil)
 			r.Host = tc.host
 			var got []string
@@ -936,7 +930,7 @@ func TestNoAddressToDial(t *testing.T) {
 }
 
 func TestANameBehindCloudflareIsFlagged(t *testing.T) {
-	e := newEnvConfig(t, nil, withDomain)
+	e := newEnvConfig(t, withDomain, nil)
 	e.names.set("panel.example.com", "104.16.132.229")
 	r := httptest.NewRequest("GET", "/api/machines/link", nil)
 	r.Host = "203.0.113.7:8443"
@@ -1177,7 +1171,7 @@ func (e *env) fetch(t *testing.T, method, path, contentType, body string, hdr ma
 }
 
 func TestAJoinedMachineCantChooseHowTheDashboardServesItsAnswers(t *testing.T) {
-	e := newEnvConfig(t, nil, withDomain)
+	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
 	ra := newRemoteAgent()
 	e.joined(t, cookie, csrf, ra)
@@ -1267,7 +1261,7 @@ func TestAJoinedMachineCantChooseHowTheDashboardServesItsAnswers(t *testing.T) {
 // A joined machine takes data and resource packs as big as its agent does,
 // not only as big as the link's other request bodies.
 func TestAJoinedMachineTakesBigPacks(t *testing.T) {
-	e := newEnvConfig(t, nil, withDomain)
+	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
 	ra := newRemoteAgent()
 	e.joined(t, cookie, csrf, ra)

@@ -11,7 +11,14 @@ vi.mock('@/api/client', async (importOriginal) => ({
   post: vi.fn(),
 }))
 
-const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
+const me: Me = {
+  user: { username: 'siya', role: 'owner' },
+  access: { projectId: 'p2345abcde', role: 'admin', servers: { all: true }, twoFactor: false, can: ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover'] },
+  csrfToken: 't',
+  expiresAt: '2026-09-26T00:00:00Z',
+  idleTimeoutSeconds: 43200,
+  version: '0.3.0',
+}
 
 function asked(over: Partial<Challenge> = {}): SecondFactorNeeded {
   return { secondFactor: { methods: ['app_code', 'recovery_code'], appCodesBlocked: false, ...over }, user: { username: 'siya' }, expiresAt: '2026-09-25T12:05:00Z' }

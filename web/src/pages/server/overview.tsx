@@ -30,6 +30,7 @@ import { addonKind } from '@/lib/software'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { serverAction } from '.'
+import { AsleepCard, LastOneOut, ListeningLine, SleepToday } from './sleep'
 
 export function Overview({ server }: { server: ServerStatus }) {
   const { reach, stale } = useServerMachine(server)
@@ -45,17 +46,20 @@ function Running({ server: s }: { server: ServerStatus }) {
   const phone = useIsPhone()
   const activity = usePoll(() => get<Activity[]>(serverApi(s.id, '/activity?limit=5')), 15_000, s.id)
   const { servers } = useWorkspace()
+  const { stale } = useServerMachine(s)
+  const asleep = !stale && s.phase === 'asleep'
   return (
     <>
       {phone && <SignInNotice />}
       <ServerNotices server={s} />
+      {asleep && <AsleepCard server={s} />}
       <FirstStepsCard server={s} phone={phone} onBackup={() => void serverAction(s, 'backups')} />
       <div className="grid gap-4 lg:grid-cols-3">
         <JoinCard server={s} />
         <PlayingCard server={s} />
-        <RunningCard server={s} />
+        {!(asleep && phone) && <RunningCard server={s} />}
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1.45fr_1fr]">
+      <div className={cn('grid gap-4 lg:grid-cols-[1.45fr_1fr]', asleep && phone && 'hidden')}>
         <PlayersChart server={s} />
         <Card>
           <CardTitle>{t('overview.activity')}</CardTitle>
@@ -152,6 +156,7 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
   const { stale, join } = useServerMachine(s)
   const phone = useIsPhone()
   const online = !stale && s.phase === 'online'
+  const asleep = !stale && s.phase === 'asleep'
   const address = join.address
   const long = address.length > 20
   return (
@@ -165,9 +170,12 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
       ) : (
         <p className="mt-2 text-sm text-muted-foreground max-sm:text-[15px]">{join.reason}</p>
       )}
-      {!phone && <p className="mt-1 text-[13px] text-muted-foreground">{t('overview.joinHelp')}</p>}
-      <p className="mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground max-sm:pt-3 max-sm:text-[13px]">
-        {online && s.reachable ? (
+      {!phone && <p className="mt-1 text-[13px] text-muted-foreground">{asleep ? t('sleep.joinWakes') : t('overview.joinHelp')}</p>}
+      {phone && asleep && <p className="mt-1 text-[13px] text-muted-foreground">{t('sleep.joinWakesShort')}</p>}
+      <p className={cn('mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground max-sm:pt-3 max-sm:text-[13px]', phone && asleep && 'hidden')}>
+        {asleep ? (
+          <ListeningLine server={s} />
+        ) : online && s.reachable ? (
           <>
             <span className="size-2 rounded-full bg-success" aria-hidden="true" />
             {phone || s.joinAddress ? t('overview.answeringPhone', { time: relativeTime(s.reachableAt) }) : t('overview.answering', { port: s.gamePort, time: relativeTime(s.reachableAt) })}
@@ -189,6 +197,7 @@ function PlayingCard({ server: s }: { server: ServerStatus }) {
   const { stale } = useServerMachine(s)
   const phone = useIsPhone()
   const online = !stale && s.phase === 'online'
+  const asleep = !stale && s.phase === 'asleep'
   const names = online ? (s.players?.names ?? []) : []
   const sessions = usePoll(() => (names.length ? get<SessionsResponse>(serverApi(s.id, '/players/sessions?range=24h')) : Promise.resolve(undefined)), 30_000, `${s.id}:${names.join(',')}`)
   const open = new Map((sessions.data?.sessions ?? []).filter((x) => !x.end).map((x) => [x.player.toLowerCase(), x.durationSeconds]))
@@ -199,7 +208,7 @@ function PlayingCard({ server: s }: { server: ServerStatus }) {
       <div className="flex items-center justify-between gap-3">
         <CardTitle className="max-sm:text-[17px]">{t('overview.playing')}</CardTitle>
         {phone ? (
-          online && <span className="text-[15px] text-muted-foreground tabular-nums">{t('overview.countOfMax', { count, max })}</span>
+          (online || asleep) && <span className="text-[15px] text-muted-foreground tabular-nums">{t('overview.countOfMax', { count, max })}</span>
         ) : (
           <a {...linkProps({ name: 'server', slug: s.slug, tab: 'players' })} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
             {t('overview.allPlayers')}
@@ -207,7 +216,17 @@ function PlayingCard({ server: s }: { server: ServerStatus }) {
           </a>
         )}
       </div>
-      {!online ? (
+      {asleep ? (
+        <>
+          {!phone && (
+            <p className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-[26px] leading-8 font-extrabold tabular-nums">{count}</span>
+              <span className="text-[13px] text-muted-foreground">{t('overview.ofMax', { max })}</span>
+            </p>
+          )}
+          <LastOneOut server={s} />
+        </>
+      ) : !online ? (
         <p className="mt-3 text-[13px] text-muted-foreground">{t('overview.notRunning')}</p>
       ) : phone ? (
         names.length ? (
@@ -273,6 +292,7 @@ function RunningCard({ server: s }: { server: ServerStatus }) {
   const place = useServerMachine(s)
   const phone = useIsPhone()
   const r = !place.stale && s.phase === 'online' ? s.resources : undefined
+  const asleep = !place.stale && s.phase === 'asleep'
   const uptime = (
     <div>
       <dt className="text-muted-foreground">{t('overview.uptime')}</dt>
@@ -297,7 +317,19 @@ function RunningCard({ server: s }: { server: ServerStatus }) {
           </a>
         )}
       </div>
-      {!r ? (
+      {asleep ? (
+        <>
+          <div className="mt-3 flex flex-col gap-3.5">
+            <MeterRow label={t('overview.memory')} value={t('sleep.givenBack', { total: formatMB(s.config?.memoryMB ?? 0) })} percent={0} />
+            <MeterRow label={t('overview.cpu')} value={formatPercent(0)} percent={0} />
+          </div>
+          <div className="mt-auto pt-4">
+            <div className="border-t border-border pt-3 text-xs text-muted-foreground">
+              <SleepToday server={s} />
+            </div>
+          </div>
+        </>
+      ) : !r ? (
         <p className="mt-3 text-[13px] text-muted-foreground">{t('overview.notRunning')}</p>
       ) : (
         <>

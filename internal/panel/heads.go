@@ -23,6 +23,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/mojang"
 )
 
 // Player faces. The panel looks a player up at Mojang, downloads their skin,
@@ -73,9 +74,9 @@ var defaultSkins = map[string]bool{
 
 var reUUID = regexp.MustCompile(`^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$`)
 
-// HeadSources are where faces come from; tests point them at local servers.
+// HeadSources are where skins come from; tests point them at local servers.
+// Names are looked up with the panel's Mojang client (Options.Mojang).
 type HeadSources struct {
-	ProfilesURL string // name → UUID
 	SessionURL  string // UUID → textures
 	TexturesURL string // skin files; only this host is fetched
 	Client      *http.Client
@@ -83,13 +84,14 @@ type HeadSources struct {
 
 func defaultHeadSources() HeadSources {
 	return HeadSources{
-		ProfilesURL: "https://api.mojang.com", SessionURL: "https://sessionserver.mojang.com", TexturesURL: "https://textures.minecraft.net",
+		SessionURL: "https://sessionserver.mojang.com", TexturesURL: "https://textures.minecraft.net",
 		Client: &http.Client{Timeout: 8 * time.Second},
 	}
 }
 
 type headFetcher struct {
 	src      HeadSources
+	mojang   *mojang.Client
 	sem      chan struct{}
 	mu       sync.Mutex
 	inflight map[string]*headCall
@@ -101,8 +103,8 @@ type headCall struct {
 	png    []byte
 }
 
-func newHeadFetcher(src HeadSources) *headFetcher {
-	return &headFetcher{src: src, sem: make(chan struct{}, 2), inflight: map[string]*headCall{}}
+func newHeadFetcher(src HeadSources, mc *mojang.Client) *headFetcher {
+	return &headFetcher{src: src, mojang: mc, sem: make(chan struct{}, 2), inflight: map[string]*headCall{}}
 }
 
 func (s *Server) hHead(w http.ResponseWriter, r *http.Request, _ *session) {
@@ -176,16 +178,14 @@ func (f *headFetcher) fetch(name, uuid string) (string, []byte) {
 	defer cancel()
 	given := uuid != ""
 	if !given {
-		var p struct {
-			ID string `json:"id"`
-		}
-		switch status, err := f.getJSON(ctx, f.src.ProfilesURL+"/users/profiles/minecraft/"+url.PathEscape(name), &p); {
+		p, err := f.mojang.Lookup(ctx, name)
+		switch {
+		case errors.Is(err, mojang.ErrNotFound) || errors.Is(err, mojang.ErrInvalidName) || p.Demo:
+			return headUnknown, nil
 		case err != nil:
 			return headFailed, nil
-		case status == http.StatusNotFound || status == http.StatusNoContent || p.ID == "":
-			return headUnknown, nil
 		}
-		uuid = strings.ToLower(p.ID)
+		uuid = strings.ReplaceAll(strings.ToLower(p.ID), "-", "")
 	}
 	if !reUUID.MatchString(uuid) {
 		return headUnknown, nil

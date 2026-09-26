@@ -16,7 +16,14 @@ vi.mock('@/api/client', async (importOriginal) => ({
   del: vi.fn(),
 }))
 
-const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
+const me: Me = {
+  user: { username: 'siya', role: 'owner' },
+  access: { projectId: 'p2345abcde', role: 'admin', servers: { all: true }, twoFactor: false, can: ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover'] },
+  csrfToken: 't',
+  expiresAt: '2026-09-26T00:00:00Z',
+  idleTimeoutSeconds: 43200,
+  version: '0.3.0',
+}
 const machine = { id: 'm1', projectId: 'p1', name: 'my-vps', kind: 'local' } as MachineView
 const servers = [
   { id: 's1', name: 'Survival', slug: 'survival' },
