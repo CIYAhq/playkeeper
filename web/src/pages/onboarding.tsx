@@ -263,14 +263,17 @@ function CheckStage({ onNext }: { onNext: () => void }) {
   const live = ws.machine?.live
   const id = ws.machine?.id
 
+  /** Runs the checks; false when they could not be run, which `error` then says. */
   const run = useCallback(async () => {
-    if (!id) return
+    if (!id) return false
     setBusy(true)
     try {
       setPre(await get<Preflight>(machineApi(id, '/preflight')))
       setError(undefined)
+      return true
     } catch (e) {
       setError(errorText(e))
+      return false
     } finally {
       setBusy(false)
     }
@@ -280,7 +283,7 @@ function CheckStage({ onNext }: { onNext: () => void }) {
   }, [run])
   // The checks usually come back the same, so the button says they ran.
   async function recheck() {
-    await run()
+    if (!(await run())) return
     setChecked(true)
     window.setTimeout(() => setChecked(false), 1800)
   }
