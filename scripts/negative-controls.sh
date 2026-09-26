@@ -229,6 +229,22 @@ webcontrol "a long activity line shortens instead of widening the page" web/src/
   '<span className="w-0 flex-1 truncate">' \
   '<span className="min-w-0 flex-1 truncate">' \
   web/src/pages/pages.test.tsx 'long activity line'
+webcontrol "pre-generating's Start goes by the server's own machine" web/src/pages/server/world-pregen.tsx \
+  "'pregen', place.offline)" \
+  "'pregen', undefined)" \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
+webcontrol "pre-generating's Pause and Cancel go by the server's own machine" web/src/pages/server/world-pregen.tsx \
+  'const blocked = offline ?? (acting' \
+  'const blocked = undefined ?? (acting' \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
+webcontrol "a new schedule's Save goes by the server's own machine" web/src/pages/server/schedules.tsx \
+  'const cantSave = offline ?? (' \
+  'const cantSave = undefined ?? (' \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
+webcontrol "New schedule goes by the server's own machine" web/src/pages/server/schedules.tsx \
+  'if (offline) return offline' \
+  'if (!offline && offline) return offline' \
+  web/src/pages/server/joined-machine.test.tsx 'pre-generating and Save schedule say why they wait'
 webcontrol "a pack's plan names the voice chat port the agent works out now" web/src/api/modpacks.ts \
   'if (hit && !fresh && Date.now() - hit.at < maxAge && tick === 0) {' \
   'if (hit && Date.now() - hit.at < maxAge && tick === 0) {' \
