@@ -3136,9 +3136,9 @@ control "a failed start closes the stand-in" internal/agent/lifecycle.go \
 	}' \
   ./internal/agent '^TestAFailedStartLeavesNothingAnsweringForTheServer$'
 control "a wake whose start stopped the server leaves it stopped" internal/agent/sleeping.go \
-  'if s.desired() != api.DesiredRunning {
+  'if d := s.desired(); d != api.DesiredRunning && d != api.DesiredSleeping {
 				s.leaveSleep()' \
-  'if false {
+  'if d := s.desired(); false && d != api.DesiredRunning && d != api.DesiredSleeping {
 				s.leaveSleep()' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_finds_the_server_software_changed$'
 control "a banned player doesn't wake a server whose allowlist is on" internal/agent/sleeping.go \
