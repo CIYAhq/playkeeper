@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
@@ -7,14 +7,18 @@ import { EmptyArt, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
+import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
+import { whyNot } from '@/lib/phase'
+import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkPath } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -23,13 +27,26 @@ function downloadURL(s: ServerStatus, b: Backup): string {
   return serverApi(s.id, `/backups/${b.id}/download`)
 }
 
+/** Backups, restores (their rollback archive) and version updates add a backup when they finish, not when they're asked for. */
+function useReloadAfterJobs(s: ServerStatus, reload: () => Promise<void>) {
+  const job = s.operation?.id
+  const last = useRef(job)
+  useEffect(() => {
+    if (last.current && last.current !== job) void reload()
+    last.current = job
+  }, [job, reload])
+}
+
 export function WorldPage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const backups = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 10_000, s.id)
+  useReloadAfterJobs(s, backups.refresh)
   const [preview, setPreview] = useState<RestorePreview>()
   const [restoreSheet, setRestoreSheet] = useState(false)
   const list = backups.data ?? []
+  const rows = useListPresence(backups.data, (b) => b.id)
+  const newest = list[0]?.id
   const refresh = () => void backups.refresh()
 
   async function restoreFrom(b: Backup) {
@@ -52,39 +69,37 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   }
 
   if (phone) {
-    const verified = list.length > 0 && list.every((b) => b.verified)
     return (
       <div className="flex flex-col gap-4">
         <MakeBackup server={s} phone onDone={refresh} />
         <section aria-labelledby="backups">
           <SectionLabel className="px-4">
             <span id="backups">{t('world.listPhone')}</span>
-            {verified && `${t('common.dot')}${t('world.allVerified')}`}
           </SectionLabel>
-          <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-            {list.map((b, i) => (
-              <li key={b.id} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base">{formatDay(b.createdAt)}</span>
-                  <span className="block text-[13px] text-muted-foreground">{[b.note, formatBytes(b.sizeBytes), b.downloadedAt ? t('world.phoneDownloaded') : t('world.phoneNotDownloaded')].filter(Boolean).join(t('common.dot'))}</span>
-                </span>
-                <Button size="lg" variant={i === 0 && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
-                  <DownloadIcon />
-                  {t('common.download')}
-                </Button>
-              </li>
-            ))}
-          </ul>
+          {backups.data ? (
+            <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
+              {rows.map(({ key, item: b, state }) => (
+                <li key={key} {...presenceProps(state)} className="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-base">{formatDay(b.createdAt)}</span>
+                    <span className="block text-[13px] text-muted-foreground">{[b.note, formatBytes(b.sizeBytes), b.downloadedAt ? t('world.phoneDownloaded') : t('world.phoneNotDownloaded')].filter(Boolean).join(t('common.dot'))}</span>
+                  </span>
+                  <Button size="lg" variant={b.id === newest && !b.downloadedAt ? 'default' : 'outline'} render={<a href={downloadURL(s, b)} download={b.fileName} onClick={() => window.setTimeout(refresh, 3000)} />}>
+                    <DownloadIcon />
+                    {t('common.download')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ListSkeleton rowClassName="flex min-h-[70px] items-center gap-3 border-b border-border py-2 pr-3 pl-4 last:border-b-0" className="mt-2 overflow-hidden rounded-3xl border border-border bg-white" trailing={<Skeleton className="h-10 w-28 shrink-0 rounded-lg" />} />
+          )}
         </section>
         <button type="button" onClick={() => setRestoreSheet(true)} className="flex min-h-16 items-center gap-3 rounded-3xl border border-border bg-white px-4 text-left">
           <RotateCcwIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            <span className="block text-base font-medium">{t('world.restorePhone')}</span>
-            <span className="block text-[13px] text-muted-foreground">{t('world.restorePhoneHint')}</span>
-          </span>
+          <span className="min-w-0 flex-1 text-base font-medium">{t('world.restorePhone')}</span>
           <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />
         </button>
-        <p className="px-1 pt-2 text-[13px] text-muted-foreground">{t('world.footnote')}</p>
         <Sheet open={restoreSheet} onOpenChange={setRestoreSheet}>
           <SheetPopup side="bottom">
             <div className="px-5 pt-3">
@@ -131,7 +146,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
     <>
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
         <MakeBackup server={s} onDone={refresh} />
-        <WorldInfo server={s} backups={list} />
+        <WorldInfo server={s} backups={backups.data} />
       </div>
       <section aria-labelledby="backups" className="mt-2">
         <h2 id="backups" className="text-[15px] font-semibold">
@@ -150,8 +165,9 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
               </tr>
             </thead>
             <tbody>
-              {list.map((b, i) => (
-                <BackupRow key={b.id} server={s} backup={b} newest={i === 0} onRestore={() => void restoreFrom(b)} onChanged={refresh} />
+              {!backups.data && <TableSkeleton cols={['start', 'end', 'start', 'start', 'end']} rowClassName="h-12 border-t border-border" />}
+              {rows.map(({ key, item: b, state }) => (
+                <BackupRow key={key} server={s} backup={b} state={state} newest={b.id === newest} onRestore={() => void restoreFrom(b)} onChanged={refresh} />
               ))}
             </tbody>
           </table>
@@ -159,14 +175,9 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
       </section>
       <Card className="mt-2">
         <CardTitle>{t('world.restore')}</CardTitle>
-        <CardHint>{t('world.restoreHint')}</CardHint>
         <div className="mt-4 grid items-center gap-5 md:grid-cols-[1.6fr_1fr]">
           <RestoreDropZone server={s} onPreview={setPreview} />
-          <ul className="flex flex-col gap-3 text-[13px] text-muted-foreground">
-            <li>{t('world.restoreNote1')}</li>
-            <li>{t('world.restoreNote2')}</li>
-            <li>{t('world.restoreNote3', { server: s.name })}</li>
-          </ul>
+          <p className="text-[13px] text-muted-foreground">{t('world.restoreNote')}</p>
         </div>
       </Card>
       {ws.stale ? null : dialog}
@@ -180,7 +191,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
-  const disabled = ws.stale || !s.exists || (!!s.operation && !running) || s.phase === 'docker_unavailable'
+  const blocked = whyNot(s, 'change', ws.stale)
 
   async function backup() {
     setBusy(true)
@@ -196,7 +207,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   }
 
   const button = (size: 'default' | 'touch') => (
-    <Button size={size} onClick={backup} loading={busy || running} disabled={disabled || running} className={size === 'touch' ? 'w-full' : undefined}>
+    <Button size={size} onClick={backup} loading={busy || running} disabledReason={blocked} className={size === 'touch' ? 'w-full' : undefined}>
       <ArchiveIcon />
       {running ? t('world.backingUp') : t('world.backUpNow')}
     </Button>
@@ -219,20 +230,16 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   return (
     <Card>
       <CardTitle>{t('world.make')}</CardTitle>
-      <CardHint>{t('world.makeHint')}</CardHint>
       <div className="mt-4 flex items-start gap-4">
         <Pip pose="letter" size={52} />
-        <div className="min-w-0 text-[13px] leading-[18px]">
-          <p>{online ? t('world.makeBody') : t('world.makeBodyStopped', { server: s.name })}</p>
-          {online && <p className="mt-2 text-muted-foreground">{t('world.makeWarn')}</p>}
-        </div>
+        <p className="min-w-0 text-[13px] leading-[18px]">{online ? t('world.makeBody', { server: s.name }) : t('world.makeBodyStopped', { server: s.name })}</p>
       </div>
       <div className="mt-auto flex gap-2 pt-5">
         <InputGroup className="flex-1">
           <InputGroupAddon>
             <PencilIcon aria-hidden="true" />
           </InputGroupAddon>
-          <InputGroupInput value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('world.notePlaceholder')} aria-label={t('world.noteLabel')} maxLength={120} disabled={disabled || running} />
+          <InputGroupInput value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('world.notePlaceholder')} aria-label={t('world.noteLabel')} maxLength={120} disabled={!!blocked} />
         </InputGroup>
         {button('default')}
       </div>
@@ -240,7 +247,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   )
 }
 
-function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] }) {
+function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] | undefined }) {
   const later: { icon: ReactNode; title: string; hint: string; to?: string }[] = [
     { icon: <MapIcon />, title: t('world.pregen'), hint: t('world.pregenHint') },
     { icon: <PackageIcon />, title: t('world.packs'), hint: t('world.packsHint') },
@@ -261,7 +268,7 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">{t('world.backups')}</dt>
-          <dd className="mt-0.5 text-lg font-bold tabular-nums">{backups.length}</dd>
+          <dd className="mt-0.5 text-lg font-bold tabular-nums">{backups ? backups.length : <InlineSkeleton className="h-5 w-6" />}</dd>
         </div>
       </dl>
       <ul className="mt-1 flex flex-col">
@@ -294,7 +301,7 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
   )
 }
 
-function BackupRow({ server: s, backup: b, newest, onRestore, onChanged }: { server: ServerStatus; backup: Backup; newest: boolean; onRestore: () => void; onChanged: () => void }) {
+function BackupRow({ server: s, backup: b, state, newest, onRestore, onChanged }: { server: ServerStatus; backup: Backup; state: Presence; newest: boolean; onRestore: () => void; onChanged: () => void }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -325,7 +332,7 @@ function BackupRow({ server: s, backup: b, newest, onRestore, onChanged }: { ser
   const detail = [kind, b.downtimeMs > 0 ? t('world.offline', { time: formatMs(b.downtimeMs) }) : undefined, t('unit.files', { count: b.fileCount })].filter(Boolean).join(t('common.dot'))
   const when = formatDay(b.createdAt)
   return (
-    <tr className="h-12 border-t border-border">
+    <tr {...presenceProps(state)} className="h-12 border-t border-border">
       <td className="px-3 py-2">
         <span className="block">
           <span className="font-semibold">{when}</span>
@@ -422,7 +429,6 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
   const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
-  const players = s.phase === 'online' ? (s.players?.online ?? 0) : 0
   const steps = [
     { title: t('world.emptyStep1'), hint: t('world.emptyStep1Hint') },
     { title: t('world.emptyStep2'), hint: t('world.emptyStep2Hint') },
@@ -437,7 +443,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         size={phone ? 'touch' : 'lg'}
         className="mt-5 max-sm:w-full"
         loading={busy || running}
-        disabled={ws.stale || !s.exists || (!!s.operation && !running) || running}
+        disabledReason={whyNot(s, 'change', ws.stale)}
         onClick={async () => {
           setBusy(true)
           try {
@@ -452,7 +458,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         <ArchiveIcon />
         {running ? t('world.backingUp') : t('world.emptyButton')}
       </Button>
-      <p className="mt-3 text-xs text-muted-foreground">{t('world.emptyNote', { count: players })}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{t('world.emptyNote')}</p>
       <ol className="mt-8 grid w-full max-w-[720px] gap-4 border-t border-border pt-5 text-left sm:grid-cols-3">
         {steps.map((st, i) => (
           <li key={st.title}>

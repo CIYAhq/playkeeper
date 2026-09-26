@@ -438,7 +438,7 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 	}
 	same("no icon of its own", pub+"/icon")
 	icon := []byte("\x89PNG\r\n\x1a\nserver icon")
-	if err := os.WriteFile(e.srv().iconPath(), icon, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(e.dataDir(), iconFile), icon, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if code, h, body := e.get(pub + "/icon"); code != 200 || h.Get("Content-Type") != "image/png" || h.Get("Cache-Control") != "no-store" || !bytes.Equal(body, icon) {

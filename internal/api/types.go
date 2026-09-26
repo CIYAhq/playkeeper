@@ -72,6 +72,21 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// Refusal is the file that stopped the server's last start, while the
+	// server stays stopped.
+	Refusal *FileRefusal `json:"refusal,omitempty"`
+}
+
+// FileRefusal is a file in the server's folder that Playkeeper would not
+// follow or change. Code is stable ("link", "special_file", "not_a_file",
+// …) for the dashboard to translate with Params, which always has "path"
+// and, for some codes, "type" or "limit". Message and Hint say the same in
+// English.
+type FileRefusal struct {
+	Code    string            `json:"code"`
+	Params  map[string]string `json:"params"`
+	Message string            `json:"message"`
+	Hint    string            `json:"hint,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -627,6 +642,7 @@ const (
 	CodeInternal          = "internal"
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
+	CodeIconInvalid       = "icon_invalid"
 )
 
 // Wave 6: each server's live map, and starting a server from a world.

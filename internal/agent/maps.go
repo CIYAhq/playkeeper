@@ -803,7 +803,7 @@ func (a *Agent) hPublicMapProxy(w http.ResponseWriter, r *http.Request) {
 	case rest == "players" && !rec.publicPlayers:
 		writeJSON(w, http.StatusOK, webmap.Players{Players: []webmap.Player{}, UpdatedAt: s.now().UTC()})
 	case rest == "icon":
-		b, err := os.ReadFile(s.iconPath())
+		b, err := s.readIcon()
 		if err != nil {
 			writeMapUnavailable(w)
 			return

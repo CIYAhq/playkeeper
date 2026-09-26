@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { CheckIcon, ChevronsUpDownIcon } from 'lucide-react'
 import { RadioGroupPrimitive, Radio } from '@/components/ui/radio-group'
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -125,14 +125,22 @@ export function CardGroup<T extends string>({ value, onChange, label, className,
 export const choiceCardClass =
   'group/card relative flex cursor-pointer rounded-2xl border border-border bg-card text-left transition-[box-shadow,border-color,background-color] hover:border-input has-[[data-checked]]:border-primary/55 has-[[data-checked]]:bg-selected has-[[data-checked]]:shadow-selected has-[[data-disabled]]:cursor-default has-[[data-disabled]]:bg-muted/50 has-[[data-disabled]]:hover:border-border has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring'
 
-/** One card in a CardGroup. The radio sits where `radio` puts it (default: top right). */
-export function ChoiceCard<T extends string>({ value, disabled, className, children, radio = 'end' }: { value: T; disabled?: boolean; className?: string; children: ReactNode; radio?: 'end' | 'start' | 'none' }) {
+/** One card in a CardGroup. The radio sits where `radio` puts it (default: top right); a disabled card says why with `reason`. */
+export function ChoiceCard<T extends string>({ value, disabled, reason, className, children, radio = 'end' }: { value: T; disabled?: boolean; reason?: string; className?: string; children: ReactNode; radio?: 'end' | 'start' | 'none' }) {
+  const reasonId = useId()
+  const why = disabled ? reason : undefined
+  const button = (cls: string) => <Radio value={value} disabled={disabled} aria-describedby={why ? reasonId : undefined} className={cls} />
   return (
-    <label className={cn(choiceCardClass, className)}>
-      {radio === 'start' && <Radio value={value} disabled={disabled} className="mt-0.5 shrink-0" />}
+    <label className={cn(choiceCardClass, className)} title={why}>
+      {radio === 'start' && button('mt-0.5 shrink-0')}
       <span className="min-w-0 flex-1">{children}</span>
-      {radio === 'end' && <Radio value={value} disabled={disabled} className="shrink-0" />}
-      {radio === 'none' && <Radio value={value} disabled={disabled} className="sr-only" />}
+      {radio === 'end' && button('shrink-0')}
+      {radio === 'none' && button('sr-only')}
+      {why && (
+        <span id={reasonId} className="sr-only">
+          {why}
+        </span>
+      )}
     </label>
   )
 }

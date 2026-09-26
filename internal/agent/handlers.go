@@ -2,12 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -136,6 +134,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	s.mu.Lock()
 	runPhase, detail := s.runPhase, s.runPhaseDetail
 	st.LastError, st.LastErrorHint = s.lastError, s.lastErrorHint
+	refusal := s.refusal
 	crashed := s.crashed
 	st.CrashCount = len(s.crashes)
 	players, res := s.players, s.resources
@@ -152,10 +151,12 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Phase = api.PhaseDockerUnavailable
 		st.LastError = "Docker is not responding, so Playkeeper cannot see or control the server."
 		st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"
+		st.Refusal = refusal
 	case sc == nil:
 		st.Phase = api.PhaseNotCreated
 	case docker.IsNotFound(err):
 		st.Phase = api.PhaseStopped
+		st.Refusal = refusal
 	case c.State.Running:
 		running = true
 		st.Phase = runPhase
@@ -173,6 +174,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		if crashed {
 			st.Phase = api.PhaseCrashed
 		}
+		st.Refusal = refusal
 		code := c.State.ExitCode
 		st.ExitCode = &code
 		if t, ok := c.State.Finished(); ok {
@@ -1124,16 +1126,9 @@ func (a *Agent) hAudit(w http.ResponseWriter, r *http.Request) {
 
 // whitelist reads the server's allowlist file.
 func (s *server) whitelist() ([]api.WhitelistEntry, error) {
-	b, err := os.ReadFile(filepath.Join(s.dataDir(), "whitelist.json"))
-	if os.IsNotExist(err) {
-		return []api.WhitelistEntry{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	var entries []api.WhitelistEntry
-	if err := json.Unmarshal(b, &entries); err != nil {
-		return nil, err
+	if err := s.readPlayerList("whitelist.json", &entries); err != nil {
+		return nil, gameFileError(err, "The allowlist could not be read.")
 	}
 	if entries == nil {
 		entries = []api.WhitelistEntry{}

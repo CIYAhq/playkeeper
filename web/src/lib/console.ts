@@ -35,3 +35,47 @@ export function behindSeconds(text: string): number | undefined {
   const m = /Running (\d+)ms or \d+ ticks behind/.exec(text)
   return m ? Number(m[1]) / 1000 : undefined
 }
+
+/** How close to the end of the log still counts as the bottom, in CSS pixels (subpixel scrolling never lands exactly). */
+export const bottomSlack = 8
+
+/** Is a scroll area scrolled to its end? */
+export function isAtBottom(el: { scrollTop: number; scrollHeight: number; clientHeight: number }, slack = bottomSlack): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= slack
+}
+
+/**
+ * Whether the log follows new lines after it scrolls: yes at the bottom, no
+ * once the reader scrolls up, unchanged while a jump to the latest line is
+ * still on its way down.
+ */
+export function followAfterScroll(following: boolean, atBottom: boolean, jumping: boolean): boolean {
+  if (atBottom) return true
+  return jumping ? following : false
+}
+
+/**
+ * The lines kept after a poll: the new ones appended, or instead of the old
+ * ones when the log restarted, at most `keep`. Nothing new keeps the same
+ * array, so the page doesn't render again.
+ */
+export function keepTail<T>(kept: T[], incoming: T[], restarted: boolean, keep: number): T[] {
+  if (!restarted && incoming.length === 0) return kept
+  const all = restarted ? incoming : kept.concat(incoming)
+  return all.length > keep ? all.slice(all.length - keep) : all
+}
+
+/** Merges two lists that are each in time order, `a` first when times are equal. */
+export function mergeByTime<T extends { ts: string }>(a: T[], b: T[]): T[] {
+  if (b.length === 0) return a
+  if (a.length === 0) return b
+  const out: T[] = []
+  let j = 0
+  for (const x of a) {
+    const at = Date.parse(x.ts)
+    while (j < b.length && Date.parse((b[j] as T).ts) < at) out.push(b[j++] as T)
+    out.push(x)
+  }
+  while (j < b.length) out.push(b[j++] as T)
+  return out
+}
