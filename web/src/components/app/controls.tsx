@@ -193,16 +193,16 @@ export function Stepper({ steps, current, label, className }: { steps: string[];
           <li key={s} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none" aria-current={state === 'current' ? 'step' : undefined}>
             <span
               className={cn(
-                'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
-                state === 'done' && 'bg-primary text-primary-foreground',
-                state === 'current' && 'border-[1.5px] border-primary text-primary',
-                state === 'todo' && 'bg-muted text-muted-foreground',
+                'inline-flex size-[22px] shrink-0 items-center justify-center rounded-full border-[1.5px] text-[11px] font-semibold transition-colors duration-(--motion-standard) ease-standard',
+                state === 'done' && 'border-primary bg-primary text-primary-foreground',
+                state === 'current' && 'border-primary text-primary',
+                state === 'todo' && 'border-transparent bg-muted text-muted-foreground',
               )}
             >
-              {state === 'done' ? <CheckIcon className="size-3.5" aria-hidden="true" /> : i + 1}
+              {state === 'done' ? <CheckIcon className="size-3.5 animate-fade" aria-hidden="true" /> : i + 1}
             </span>
-            <span className={cn('truncate text-[13px] font-medium', state === 'todo' ? 'text-muted-foreground' : 'text-foreground')}>{s}</span>
-            {i < steps.length - 1 && <span className={cn('h-0.5 min-w-4 flex-1 rounded-full', i < current ? 'bg-primary' : 'bg-border')} aria-hidden="true" />}
+            <span className={cn('truncate text-[13px] font-medium transition-colors duration-(--motion-standard) ease-standard', state === 'todo' ? 'text-muted-foreground' : 'text-foreground')}>{s}</span>
+            {i < steps.length - 1 && <span className={cn('h-0.5 min-w-4 flex-1 rounded-full transition-colors duration-(--motion-slow) ease-standard', i < current ? 'bg-primary' : 'bg-border')} aria-hidden="true" />}
           </li>
         )
       })}
