@@ -25,12 +25,14 @@ interface Reply {
   expected?: boolean
 }
 
-type Handler = (req: { method: string; path: string; body: unknown; params: string[] }, state: FakeState) => Reply
+type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply
 
 interface FakeState {
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
+  /** The real panel's last answer to each read of a server's add-ons, packs and pre-generation, by path. */
+  reads: Map<string, Record<string, unknown>>
   opSeq: number
 }
 
@@ -40,6 +42,10 @@ const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
+}
+
+function refuse(status: number, code: string, error: string, hint?: string): Reply {
+  return { status, body: { error, code, hint } }
 }
 
 function op(state: FakeState, kind: string, serverId?: string): Reply {
@@ -142,7 +148,176 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
+  // Wave 1: the World tab's pre-generation and packs, and the Plugins and Mods tabs.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/pregen\/start$/,
+    (r, state) => {
+      const preset = (r.body as { preset?: unknown } | null)?.preset
+      if (typeof preset !== 'string' || !['small', 'medium', 'large', 'huge'].includes(preset)) return invalid('Choose one of the sizes: small, medium, large or huge.')
+      if (pregenUnfinished(lastRead(state, r.params[0], 'pregen'))) return refuse(409, 'already_running', 'The map is already being pre-generated.', 'Wait for it to finish, or cancel it first.')
+      return op(state, 'pregen-start', r.params[0])
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/pregen\/(pause|continue|cancel)$/,
+    (r, state) => {
+      const pg = lastRead(state, r.params[0], 'pregen')
+      if (!pregenUnfinished(pg)) return refuse(409, 'not_running', 'The map is not being pre-generated.', 'Start pre-generating it first.')
+      const next = { pause: 'paused', continue: 'running', cancel: 'idle' }[r.params[1] as 'pause' | 'continue' | 'cancel']
+      return { status: 200, body: { ...pg, state: next, pausedBy: next === 'paused' ? 'user' : undefined } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/resourcepack$/,
+    (r, state) => {
+      if (!isZip(r.body)) return invalid('The file isn’t a zip file.')
+      const rp = lastRead(state, r.params[0], 'resourcepack')
+      const prev = rp.offer as { required?: boolean; prompt?: string } | undefined
+      const sha1 = '0'.repeat(40)
+      const fileName = (r.url.searchParams.get('name') ?? '').replace(/^.*[\\/]/s, '').trim().slice(0, 100) || 'resource-pack.zip'
+      const offer = { sha1, fileName, size: r.body.length, addedAt: new Date().toISOString(), url: `http://${r.url.host}/resource-packs/${sha1}.zip`, required: prev?.required ?? false, prompt: prev?.prompt }
+      return { status: 200, body: { pending: false, ...rp, offer } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/resourcepack\/settings$/,
+    (r, state) => {
+      const { required = false, prompt = '' } = (r.body ?? {}) as { required?: unknown; prompt?: unknown }
+      if (typeof required !== 'boolean' || typeof prompt !== 'string') return invalid('Invalid request body.')
+      const rp = lastRead(state, r.params[0], 'resourcepack')
+      const offer = rp.offer as Record<string, unknown> | undefined
+      if (!offer) return refuse(409, 'no_resource_pack', 'The server doesn’t offer a resource pack.', 'Upload one first.')
+      if (!/^[^%\\\p{Cc}\u2028\u2029]{0,200}$/u.test(prompt.trim())) return invalid('The message shown to players must be one line of at most 200 characters, without percent signs or backslashes.')
+      return { status: 200, body: { ...rp, offer: { ...offer, required, prompt: prompt.trim() || undefined } } }
+    },
+  ],
+  ['DELETE', /^\/api\/servers\/(\w+)\/resourcepack$/, (r, state) => ({ status: 200, body: { pending: false, ...lastRead(state, r.params[0], 'resourcepack'), offer: undefined } })],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/datapacks$/,
+    (r, state) => {
+      if (!isZip(r.body)) return invalid('The file isn’t a zip file.')
+      const dp = lastRead(state, r.params[0], 'datapacks')
+      const added = dataPackName(r.url.searchParams.get('name') ?? '')
+      const packs = ((dp.packs ?? []) as Record<string, unknown>[]).filter((p) => p.name !== added)
+      packs.push({ name: added, size: r.body.length, enabled: dp.live ? true : undefined, addedAt: new Date().toISOString() })
+      return { status: 200, body: { live: false, ...dp, packs, added } }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/datapacks\/([^/]+)\/(enable|disable)$/, (r, state) => changeDataPack(state, r.params, (p) => [{ ...p, enabled: r.params[2] === 'enable' }])],
+  ['DELETE', /^\/api\/servers\/(\w+)\/datapacks\/([^/]+)$/, (r, state) => changeDataPack(state, r.params, () => [])],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/remove$/,
+    (r, state) => {
+      const orphans: unknown = (r.body as { orphans?: unknown } | null)?.orphans ?? []
+      if (!Array.isArray(orphans)) return invalid('Invalid request body.')
+      const problem = addonKeyProblem(r.body) ?? (orphans.length > 200 ? 'Too many add-ons to remove at once.' : orphans.map(addonKeyProblem).find(Boolean))
+      if (problem) return invalid(problem)
+      const managed = managedAddons(state, r.params[0])
+      const name = (k: unknown) => managed.find((a) => sameAddon(a, k))?.name
+      const target = name(r.body)
+      if (!target) return notManaged
+      if (!orphans.every(name)) return invalid(`Only add-ons that nothing else needs can be removed along with ${target}.`)
+      return { status: 200, body: { removed: [r.body, ...orphans].map(name), warnings: [] } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/adopt$/,
+    (r, state) => {
+      const file = (r.body as { fileName?: unknown } | null)?.fileName
+      if (typeof file !== 'string' || !/^[^/\\]*\.jar$/.test(file) || new TextEncoder().encode(file).length > 255) return invalid('That is not a file in the add-on folder.')
+      const identified = (lastRead(state, r.params[0], 'addons/checks').identified ?? []) as { fileName: string; addon?: AddonRecord }[]
+      const rec = identified.find((f) => f.fileName === file)?.addon
+      if (!rec) return refuse(409, 'conflict', `Modrinth does not recognize ${file}, so Playkeeper cannot manage it.`, 'It stays in the folder as it is.')
+      if (managedAddons(state, r.params[0]).some((a) => sameAddon(a, rec))) return refuse(409, 'conflict', `${rec.name} is already managed by Playkeeper as another file.`, 'Remove one of the two copies first.')
+      return { status: 200, body: rec }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/forget$/,
+    (r, state) => {
+      const problem = addonKeyProblem(r.body)
+      if (problem) return invalid(problem)
+      const rec = managedAddons(state, r.params[0]).find((a) => sameAddon(a, r.body))
+      if (!rec) return notManaged
+      if (!rec.gone) return refuse(409, 'conflict', `${rec.fileName} is still in the folder.`, 'Remove the add-on instead.')
+      return { status: 200, body: { removed: [rec.name], warnings: [] } }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => (confirmed(r.body) && Array.isArray((r.body as { addons?: unknown }).addons) ? op(state, 'addon-update', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => (confirmed(r.body) && typeof (r.body as { projectId?: unknown }).projectId === 'string' ? op(state, 'addon-install', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
 ]
+
+interface AddonRecord {
+  source: string
+  projectId: string
+  name: string
+  fileName: string
+  gone?: boolean
+}
+
+const notManaged = refuse(404, 'not_managed', 'Playkeeper did not install this add-on, so it cannot manage it.', 'Scan the folder to let Playkeeper identify files added by hand.')
+
+/** What the real panel last answered to a read of the server's add-ons, packs or pre-generation. */
+function lastRead(state: FakeState, serverId: string | undefined, what: string): Record<string, unknown> {
+  return state.reads.get(`/api/servers/${serverId}/${what}`) ?? {}
+}
+
+function pregenUnfinished(pg: Record<string, unknown>): boolean {
+  return pg.state === 'starting' || pg.state === 'running' || pg.state === 'paused'
+}
+
+/** Zip files, even empty ones, start with "PK". */
+function isZip(body: unknown): body is Uint8Array {
+  return body instanceof Uint8Array && body[0] === 0x50 && body[1] === 0x4b
+}
+
+/** The name the agent gives an uploaded data pack (packs.SafeName). */
+function dataPackName(upload: string): string {
+  const base = upload.replace(/^.*[\\/]/s, '').replace(/\.zip$/i, '')
+  const name = base.replace(/^[^A-Za-z0-9_+]+/, '').replace(/[^A-Za-z0-9_.+-]+$/, '').replace(/[^A-Za-z0-9_.+-]+/g, '_').slice(0, 96).replace(/\.+$/, '')
+  return `${name || 'datapack'}.zip`
+}
+
+/** Switches a data pack on or off, or removes it, in the last list of the server's packs: change says what the pack becomes. */
+function changeDataPack(state: FakeState, [serverId, encoded]: string[], change: (p: Record<string, unknown>) => Record<string, unknown>[]): Reply {
+  const dp = lastRead(state, serverId, 'datapacks')
+  const name = decodeURIComponent(encoded ?? '')
+  const packs = (dp.packs ?? []) as Record<string, unknown>[]
+  if (!packs.some((p) => p.name === name)) return refuse(404, 'not_found', `No data pack named "${name}" is installed.`)
+  return { status: 200, body: { ...dp, packs: packs.flatMap((p) => (p.name === name ? change(p) : [p])) } }
+}
+
+/** The agent's check of the add-on a request names. */
+function addonKeyProblem(k: unknown): string | undefined {
+  const { source, projectId } = (k ?? {}) as { source?: unknown; projectId?: unknown }
+  if (source !== 'modrinth' && source !== 'hangar') return 'Add-ons come from Modrinth or Hangar.'
+  if (typeof projectId !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(projectId) || projectId === '.' || projectId === '..') return 'That is not a valid project id.'
+  return undefined
+}
+
+/** The add-ons Playkeeper manages on the server, from the last list of its folder; gone ones have lost their file. */
+function managedAddons(state: FakeState, serverId: string | undefined): AddonRecord[] {
+  const { files = [], missing = [] } = lastRead(state, serverId, 'addons') as { files?: { status: string; addon?: AddonRecord }[]; missing?: AddonRecord[] }
+  return [...files.flatMap((f) => (f.addon && (f.status === 'managed' || f.status === 'modified') ? [f.addon] : [])), ...missing.map((a) => ({ ...a, gone: true }))]
+}
+
+function sameAddon(a: AddonRecord, k: unknown): boolean {
+  const { source, projectId } = (k ?? {}) as { source?: unknown; projectId?: unknown }
+  return a.source === source && a.projectId === projectId
+}
+
+/** An add-on install or update carries the fingerprint of the plan the user confirmed. */
+function confirmed(body: unknown): boolean {
+  return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
+}
 
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
 const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
@@ -190,6 +365,12 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
   }
 }
 
+/** Writes that only work out what another write would do and change nothing, so the real panel answers them. */
+const plans = [
+  // Wave 1: what updating plugins or mods would do.
+  /^\/api\/servers\/\w+\/addons\/update\/plan$/,
+]
+
 /**
  * Serves the fakes on a page. The returned list collects every API call with
  * its status; unknown writes answer 501 and are listed as unfaked so a new
@@ -198,7 +379,7 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0 }
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0 }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -212,7 +393,9 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    if (method === 'GET' || method === 'HEAD') {
+    // Planning changes nothing, so the real panel answers.
+    const planning = method === 'POST' && plans.some((re) => re.test(path))
+    if (method === 'GET' || method === 'HEAD' || planning) {
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
@@ -222,6 +405,14 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       if (/^\/api\/servers\/\w+\/backups\/[\w-]+\/download$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
+        return
+      }
+      // A faked job finishes at once, for the dialogs that follow it.
+      const fakeOp = /^\/api\/machines\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
+      if (fakeOp?.[1]) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        const done = new Date().toISOString()
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: fakeOp[1], kind: 'addon-install', status: 'succeeded', phase: '', actor: 'admin', startedAt: done, finishedAt: done, detail: { files: [] } }) })
         return
       }
       if (/^\/api\/servers\/\w+\/world-copies$/.test(path)) {
@@ -239,6 +430,7 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
+        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
       }
       // The page may have moved on and cancelled the request meanwhile.
@@ -250,18 +442,21 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     if (headers['x-requested-with'] !== 'playkeeper' || (path !== '/api/auth/login' && path !== '/api/setup' && !headers['x-csrf-token'])) {
       reply = { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
     } else {
-      let body: unknown = null
+      let body: unknown
       if ((headers['content-type'] ?? '').includes('json')) {
         try {
           body = request.postDataJSON()
         } catch {
           body = undefined
         }
+      } else {
+        // An upload's body is the file itself.
+        body = request.postDataBuffer()
       }
       for (const [m, re, handle] of routes) {
         const hit = m === method ? re.exec(path) : null
         if (hit) {
-          reply = handle({ method, path, body, params: hit.slice(1) }, state)
+          reply = handle({ method, path, url, body, params: hit.slice(1) }, state)
           break
         }
       }
