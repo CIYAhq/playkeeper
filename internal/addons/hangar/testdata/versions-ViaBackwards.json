@@ -1,0 +1,500 @@
+{
+ "pagination": {
+  "count": 4,
+  "limit": 25,
+  "offset": 0
+ },
+ "result": [
+  {
+   "createdAt": "2026-09-25T13:03:10.227632Z",
+   "id": 30818,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+635",
+   "visibility": "public",
+   "description": "[7bb4a5d](https://github.com/ViaVersion/ViaBackwards/commit/7bb4a5d) Move Dyeable to correct version",
+   "stats": {
+    "totalDownloads": 15,
+    "platformDownloads": {
+     "PAPER": 15
+    }
+   },
+   "author": "kennytv",
+   "reviewState": "unreviewed",
+   "channel": {
+    "createdAt": "2023-08-10T12:49:29.210401Z",
+    "name": "Snapshot",
+    "description": "Development builds",
+    "color": "#84cc16",
+    "flags": []
+   },
+   "pinnedStatus": "NONE",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433039,
+      "sha256Hash": "5aa7e357a2325216e3449688895ff808bd3a98fcf36924a7dd196d18806a029b"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B635/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433039,
+      "sha256Hash": "5aa7e357a2325216e3449688895ff808bd3a98fcf36924a7dd196d18806a029b"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B635/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.10-26.3"
+    ],
+    "VELOCITY": [
+     "3.4-4.2.0"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-09-22T20:00:04.60614Z",
+   "id": 30690,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+634",
+   "visibility": "public",
+   "description": "[4bb1b68](https://github.com/ViaVersion/ViaBackwards/commit/4bb1b68) Add potion color mappings for new 1.19.4 colors (#1329)",
+   "stats": {
+    "totalDownloads": 544,
+    "platformDownloads": {
+     "PAPER": 492,
+     "VELOCITY": 52
+    }
+   },
+   "author": "kennytv",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-08-10T12:49:29.210401Z",
+    "name": "Snapshot",
+    "description": "Development builds",
+    "color": "#84cc16",
+    "flags": []
+   },
+   "pinnedStatus": "NONE",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433041,
+      "sha256Hash": "7007a59d012be9a238db1745cec4732f2f989fb42564f96a3ac51201fc5bc3e8"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B634/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433041,
+      "sha256Hash": "7007a59d012be9a238db1745cec4732f2f989fb42564f96a3ac51201fc5bc3e8"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B634/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.10-26.3"
+    ],
+    "VELOCITY": [
+     "3.4-4.2.0"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-09-18T15:04:43.033289Z",
+   "id": 30417,
+   "projectId": 12,
+   "name": "5.12.0",
+   "visibility": "public",
+   "description": "Added 26.3 server support!\n- Fixed entity_properties enchantment condition handling if the predicate is null in 26.2->26.1 (by icicle1133)\n- Fixed some client-side block place predictions from renamed",
+   "stats": {
+    "totalDownloads": 4114,
+    "platformDownloads": {
+     "PAPER": 3742,
+     "VELOCITY": 372
+    }
+   },
+   "author": "kennytv",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2022-12-23T20:47:00.590915Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "FROZEN",
+     "PINNED",
+     "SENDS_NOTIFICATIONS"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.0.jar",
+      "sizeBytes": 1430897,
+      "sha256Hash": "f902f7da7eb99e8bfaf461f80283c4e2750b7d9727e6b508ea4bb9163f55b1db"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.0/PAPER/ViaBackwards-5.12.0.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.0.jar",
+      "sizeBytes": 1430897,
+      "sha256Hash": "f902f7da7eb99e8bfaf461f80283c4e2750b7d9727e6b508ea4bb9163f55b1db"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.0/PAPER/ViaBackwards-5.12.0.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "VELOCITY": [
+     "4.1.0",
+     "4.1.1",
+     "4.2.0"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.10-26.3"
+    ],
+    "VELOCITY": [
+     "3.4-3.5",
+     "4.0.0-4.2.0"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-07-12T16:46:27.754527Z",
+   "id": 27686,
+   "projectId": 12,
+   "name": "5.11.0",
+   "visibility": "public",
+   "description": "- New items and entities now show their names as translatable components instead of string text and can be changed via resource packs\n  - Entities use `vb.entity.<type>`, e.g. `vb.entity.sulfur_cube`,",
+   "stats": {
+    "totalDownloads": 32905,
+    "platformDownloads": {
+     "PAPER": 30521,
+     "VELOCITY": 2384
+    }
+   },
+   "author": "kennytv",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2022-12-23T20:47:00.590915Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "FROZEN",
+     "PINNED",
+     "SENDS_NOTIFICATIONS"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.11.0.jar",
+      "sizeBytes": 1378644,
+      "sha256Hash": "41085a59d784c9a0d14917fe7487ef5e201a9da7825fd047f08d328ff33eecdc"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.11.0/PAPER/ViaBackwards-5.11.0.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.11.0.jar",
+      "sizeBytes": 1378644,
+      "sha256Hash": "41085a59d784c9a0d14917fe7487ef5e201a9da7825fd047f08d328ff33eecdc"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.11.0/PAPER/ViaBackwards-5.11.0.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ],
+    "VELOCITY": [
+     "3.4",
+     "3.4.0",
+     "3.5"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.10-26.2"
+    ],
+    "VELOCITY": [
+     "3.4-3.5"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  }
+ ]
+}

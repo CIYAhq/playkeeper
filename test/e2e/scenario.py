@@ -24,7 +24,7 @@ import tarfile
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pkclient import Client  # noqa: E402
@@ -361,13 +361,16 @@ def host_a_play(a, c, anon):
     json.dump(summary, open(os.path.join(out, "summary-a.json"), "w"), indent=2)
     today = summary["days"][-1]
     day_sessions = c.ok("GET", c.sp("/players/sessions?range=24h"))["sessions"]
-    total = sum(s["durationSeconds"] for s in day_sessions)
-    midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    if any(ts(s["start"]) < midnight for s in day_sessions):
-        print("  skip: daily summary recomputes from sessions: some began before midnight UTC, so today has only part of them", flush=True)
-    else:
-        check(today["uniquePlayers"] == len({s["player"] for s in day_sessions}) and abs(today["playtimeSeconds"] - total) <= len(day_sessions),
-              f"daily summary recomputes from sessions: {today['uniquePlayers']} players, {today['sessions']} sessions, {today['playtimeSeconds']} s observed, {today['coverage']:.0%} collected")
+    # The summary counts only the part of each session inside its UTC day, so
+    # a run that crosses midnight leaves the earlier part out.
+    day_start = ts(today["date"] + "T00:00:00Z")
+    in_day = [(s, s["durationSeconds"] - max(0.0, (day_start - ts(s["start"])).total_seconds())) for s in day_sessions]
+    in_day = [(s, secs) for s, secs in in_day if secs > 0]
+    players = {s["player"] for s, _ in in_day}
+    total = sum(secs for _, secs in in_day)
+    check(today["uniquePlayers"] == len(players) and abs(today["playtimeSeconds"] - total) <= len(in_day) + 1,
+          f"daily summary recomputes from sessions: {today['uniquePlayers']} players, {today['sessions']} sessions, {today['playtimeSeconds']} s observed "
+          f"(expected {len(players)} players, {total:.0f} s), {today['coverage']:.0%} collected")
 
 
 def host_b(a):

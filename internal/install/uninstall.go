@@ -60,7 +60,9 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	if joined.Address != "" {
 		fmt.Fprintln(out, "  • this machine from the dashboard at "+joined.Address+", where it is "+joined.Name+" (it leaves first)")
 	}
-	fmt.Fprintln(out, "  • services: "+strings.Join(m.Units, ", "))
+	if len(m.Units) > 0 {
+		fmt.Fprintln(out, "  • services: "+strings.Join(m.Units, ", "))
+	}
 	fmt.Fprintln(out, "  • Playkeeper's Minecraft containers, the 'playkeeper' Docker network and the pinned server image")
 	for _, f := range m.FilesCreated {
 		fmt.Fprintln(out, "  • "+f)
@@ -75,6 +77,9 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	if removeDocker {
 		fmt.Fprintln(out, "  • packages Playkeeper installed: "+strings.Join(m.PackagesInstalled, " ")+" (only if no other containers use Docker)")
 		fmt.Fprintln(out, "    and with them Docker's firewall rules and bridges; IP forwarding and the FORWARD policy go back to how they were")
+		if len(m.DockerDirsCreated) > 0 {
+			fmt.Fprintln(out, "    and the folders installing Docker created, with everything in them: "+strings.Join(m.DockerDirsCreated, ", "))
+		}
 	}
 	if o.Purge {
 		fmt.Fprintln(out, "  • EVERYTHING in /var/lib/playkeeper, including your worlds and backups (--purge)")

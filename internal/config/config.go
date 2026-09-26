@@ -117,3 +117,7 @@ func (c Config) ManifestPath() string   { return filepath.Join(c.DataDir, "insta
 func (c Config) LinkDir() string           { return filepath.Join(c.DataDir, "link") }
 func (c Config) LinkKeyPath() string       { return filepath.Join(c.LinkDir(), "machine.key") }
 func (c Config) LinkDashboardPath() string { return filepath.Join(c.LinkDir(), "dashboard.json") }
+
+// ResourcePacksDir holds the resource packs servers offer players. The agent
+// writes it; the panel serves the packs from it, so it is readable by all.
+func (c Config) ResourcePacksDir() string { return filepath.Join(c.DataDir, "resourcepacks") }

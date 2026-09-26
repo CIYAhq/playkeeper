@@ -622,3 +622,251 @@ export interface Me {
   idleTimeoutSeconds: number
   version: string
 }
+
+// Follow-ups after 0.3.0.
+
+/** A world folder a restore left next to the live one. */
+export interface WorldCopy {
+  name: string
+  kind: 'previous' | 'failed_restore'
+  createdAt: string
+  sizeBytes: number
+}
+
+// Wave 1: plugins and mods, map pre-generation, resource and data packs.
+
+export type AddonSource = 'modrinth' | 'hangar'
+
+export interface AddonTarget {
+  kind: 'plugin' | 'mod'
+  folder: string
+  sources: AddonSource[]
+  categories: string[]
+  minecraftVersion: string
+}
+
+/** A message from the add-on library: kind and params pick the wording, message is the English text. */
+export interface AddonNotice {
+  kind: string
+  params?: Record<string, string>
+  message: string
+  hint?: string
+  url?: string
+}
+
+export interface AddonVersion {
+  versionId: string
+  versionNumber: string
+  channel: string
+  published: string
+  fileName?: string
+  size?: number
+  externalUrl?: string
+}
+
+export interface Addon {
+  source: AddonSource
+  projectId: string
+  slug: string
+  name: string
+  summary?: string
+  iconUrl?: string
+  versionId: string
+  versionNumber: string
+  channel: string
+  published: string
+  fileName: string
+  size: number
+  dependencyOf?: string
+  installedAt: string
+}
+
+export interface AddonKey {
+  source: AddonSource
+  projectId: string
+}
+
+export interface AddonFile {
+  fileName: string
+  size: number
+  status: 'managed' | 'modified' | 'identified' | 'unknown'
+  addon?: Addon
+  name?: string
+  version?: string
+  pending?: boolean
+}
+
+export interface Addons {
+  target: AddonTarget
+  files: AddonFile[]
+  missing: Addon[]
+  warnings: AddonNotice[]
+  restartNeeded: boolean
+}
+
+export interface AddonUpdate {
+  source: AddonSource
+  projectId: string
+  latest?: AddonVersion
+  available: boolean
+  notice?: AddonNotice
+}
+
+export interface AddonChecks {
+  updates: AddonUpdate[]
+  identified: AddonFile[]
+  checkedAt: string
+}
+
+export interface AddonCard {
+  source: AddonSource
+  projectId: string
+  slug: string
+  name: string
+  author?: string
+  summary: string
+  categories: string[]
+  license?: string
+  downloads: number
+  iconUrl?: string
+  updated: string
+  pageUrl: string
+  installed: boolean
+}
+
+export interface AddonBrowse {
+  cards: AddonCard[]
+  more: boolean
+  unanswered: AddonNotice[]
+}
+
+export interface AddonStep {
+  action: 'install' | 'update'
+  source: AddonSource
+  projectId: string
+  name: string
+  versionNumber: string
+  channel: string
+  fileName: string
+  size: number
+  neededBy?: string
+  was?: string
+}
+
+export interface AddonPlan {
+  steps: AddonStep[]
+  manual: AddonNotice[]
+  blockers: AddonNotice[]
+  warnings: AddonNotice[]
+  ready: boolean
+  fingerprint: string
+}
+
+export interface AddonDetails {
+  card: AddonCard
+  latest?: AddonVersion
+  notes?: string
+  notice?: AddonNotice
+  installed?: Addon
+  changed?: boolean
+  missing?: boolean
+  updateAvailable?: boolean
+  plan?: AddonPlan
+  planError?: AddonNotice
+}
+
+/** One file of an add-on install or update, from the operation's detail. */
+export interface AddonProgress {
+  name: string
+  versionNumber: string
+  was?: string
+  neededBy?: string
+  size: number
+  received: number
+  state: 'waiting' | 'downloading' | 'verified' | 'failed'
+}
+
+export interface AddonRemovePreview {
+  addon: Addon
+  neededBy: string[]
+  orphans: Addon[]
+  configFolder?: string
+  changed: boolean
+  missing: boolean
+}
+
+export interface AddonRemoval {
+  removed: string[]
+  warnings: AddonNotice[]
+}
+
+export type PregenPresetId = 'small' | 'medium' | 'large' | 'huge'
+
+export interface PregenPreset {
+  id: PregenPresetId
+  radius: number
+  chunks: number
+  seconds: number
+  diskBytes: number
+  fits: boolean
+}
+
+export interface Pregen {
+  state: 'idle' | 'starting' | 'running' | 'paused' | 'finished'
+  step?: 'installing' | 'restarting' | 'starting_server' | 'starting_task'
+  world: string
+  preset?: PregenPresetId
+  radius?: number
+  chunks: number
+  total: number
+  percent: number
+  rate?: number
+  etaSeconds: number
+  elapsedSeconds?: number
+  pausedBy?: 'user' | 'players' | 'server'
+  pausedFor?: string
+  pauseForPlayers: boolean
+  startedAt?: string
+  finishedAt?: string
+  diskBytes?: number
+  installed: boolean
+  presets: PregenPreset[]
+  diskFreeBytes?: number
+  error?: string
+}
+
+export interface ResourcePackOffer {
+  sha1: string
+  fileName: string
+  size: number
+  description?: string
+  icon?: boolean
+  addedAt: string
+  url: string
+  required: boolean
+  prompt?: string
+}
+
+export interface ResourcePack {
+  offer?: ResourcePackOffer
+  pending: boolean
+  problem?: string
+}
+
+export interface DataPack {
+  name: string
+  description?: string
+  icon?: boolean
+  size: number
+  enabled?: boolean
+  folder?: boolean
+  addedAt: string
+}
+
+export interface DataPacks {
+  packs: DataPack[]
+  live: boolean
+  added?: string
+  notEnabled?: boolean
+  problem?: string
+}

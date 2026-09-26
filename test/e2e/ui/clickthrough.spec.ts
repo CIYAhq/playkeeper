@@ -27,11 +27,17 @@ const sizes = {
   phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
 } as const
 
+// The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
+const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
+
 async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string; kind: string }[]
   const out = ['/']
-  for (const s of servers) for (const tab of ['', '/console', '/players', '/world', '/settings']) out.push(`/servers/${s.slug}${tab}`)
+  for (const s of servers) {
+    const addons = addonTabs[s.type ?? '']
+    for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
+  }
   out.push('/servers/new')
   // A joined machine's page is in Settings › Machines; the dashboard's own has its own page.
   for (const m of machines) out.push(m.kind === 'remote' ? `/settings/machines/${m.id}` : `/machines/${m.id}`)

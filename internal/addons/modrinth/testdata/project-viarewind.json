@@ -1,0 +1,88 @@
+{
+ "client_side": "optional",
+ "server_side": "optional",
+ "game_versions": [
+  "1.21",
+  "1.21.1",
+  "1.21.2",
+  "1.21.3",
+  "1.21.4",
+  "1.21.5",
+  "1.21.6",
+  "1.21.7",
+  "1.21.8",
+  "1.21.9",
+  "1.21.10",
+  "1.21.11",
+  "26.1",
+  "26.1.1",
+  "26.1.2",
+  "26.2",
+  "26.3"
+ ],
+ "environment": [
+  "client_or_server"
+ ],
+ "id": "TbHIxhx5",
+ "slug": "viarewind",
+ "project_type": "mod",
+ "team": "QL77VpKr",
+ "organization": "DaPoZTlV",
+ "title": "ViaRewind",
+ "description": "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
+ "body": "# ViaRewind\n**ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.** <br>\nRuns on 1.9-latest servers or 1.8 clients and lower.\n\n**You can override the included version in [ViaFabric](https://modrinth.com/mod/viafabric",
+ "body_url": null,
+ "published": "2023-08-11T02:37:04.644788Z",
+ "updated": "2026-09-18T15:08:24.612555Z",
+ "approved": "2023-08-21T06:35:33.129711Z",
+ "queued": "2023-08-15T05:20:45.643580Z",
+ "status": "approved",
+ "requested_status": "approved",
+ "moderator_message": null,
+ "license": {
+  "id": "GPL-3.0-or-later",
+  "name": "GNU General Public License v3.0 or later",
+  "url": null
+ },
+ "downloads": 648677,
+ "followers": 184,
+ "categories": [
+  "utility"
+ ],
+ "additional_categories": [],
+ "loaders": [
+  "bungeecord",
+  "fabric",
+  "folia",
+  "paper",
+  "sponge",
+  "velocity"
+ ],
+ "versions": [
+  "cOg14EE7",
+  "NWTPe8Ah",
+  "EPLCoxMK"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/TbHIxhx5/f59ffe031387b06a9b1efa736dbbb4db44284574_96.webp",
+ "raw_icon_url": "https://cdn.modrinth.com/data/TbHIxhx5/8945efb67ff91d48c5a0a71e0ee9952f8d0a48d3.png",
+ "issues_url": null,
+ "source_url": "https://github.com/ViaVersion/ViaRewind",
+ "wiki_url": null,
+ "discord_url": null,
+ "donation_urls": [
+  {
+   "id": "github",
+   "platform": "Github",
+   "url": "https://github.com/sponsors/florianreuth"
+  },
+  {
+   "id": "ko-fi",
+   "platform": "Ko-fi",
+   "url": "https://ko-fi.com/florianreuth"
+  }
+ ],
+ "gallery": [],
+ "color": 263172,
+ "thread_id": "KYthYsSt",
+ "monetization_status": "monetized"
+}

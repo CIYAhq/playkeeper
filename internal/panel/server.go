@@ -35,6 +35,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
+	"github.com/CIYAhq/playkeeper/internal/packs"
+	"github.com/CIYAhq/playkeeper/internal/portshare"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -87,6 +89,9 @@ type Server struct {
 	audits      atomic.Int64
 	auditMaxAge time.Duration
 	maxAudit    int
+
+	public      *publicGroup
+	activePacks *activePacks
 }
 
 func New(opts Options) (*Server, error) {
@@ -133,6 +138,8 @@ func New(opts Options) (*Server, error) {
 		auditMaxAge: 365 * 24 * time.Hour,
 		maxAudit:    100_000,
 	}
+	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
+	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	if err := s.ensureWorkspace(); err != nil {
 		db.Close()
 		return nil, err
@@ -275,6 +282,38 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
 		view("/api/server", s.hLegacyStatus),
+		// Follow-ups after 0.3.0.
+		sg("/api/servers/{id}/world-copies", "/v1/servers/{id}/world-copies"),
+		sm("DELETE", "/api/servers/{id}/world-copies/{name}", "/v1/servers/{id}/world-copies/{name}"),
+		// Wave 1: plugins and mods, map pre-generation, data and resource packs.
+		sg("/api/servers/{id}/addons", "/v1/servers/{id}/addons"),
+		sg("/api/servers/{id}/addons/checks", "/v1/servers/{id}/addons/checks"),
+		sg("/api/servers/{id}/addons/search", "/v1/servers/{id}/addons/search"),
+		sg("/api/servers/{id}/addons/project/{source}/{project}", "/v1/servers/{id}/addons/project/{source}/{project}"),
+		sg("/api/servers/{id}/addons/project/{source}/{project}/removal", "/v1/servers/{id}/addons/project/{source}/{project}/removal"),
+		view("/api/servers/{id}/addons/icon", s.hAddonIcon),
+		sm("POST", "/api/servers/{id}/addons/install", "/v1/servers/{id}/addons/install"),
+		sm("POST", "/api/servers/{id}/addons/update/plan", "/v1/servers/{id}/addons/update/plan"),
+		sm("POST", "/api/servers/{id}/addons/update", "/v1/servers/{id}/addons/update"),
+		sm("POST", "/api/servers/{id}/addons/remove", "/v1/servers/{id}/addons/remove"),
+		sm("POST", "/api/servers/{id}/addons/adopt", "/v1/servers/{id}/addons/adopt"),
+		sm("POST", "/api/servers/{id}/addons/forget", "/v1/servers/{id}/addons/forget"),
+		sg("/api/servers/{id}/pregen", "/v1/servers/{id}/pregen"),
+		sm("POST", "/api/servers/{id}/pregen/start", "/v1/servers/{id}/pregen/start"),
+		sm("POST", "/api/servers/{id}/pregen/pause", "/v1/servers/{id}/pregen/pause"),
+		sm("POST", "/api/servers/{id}/pregen/continue", "/v1/servers/{id}/pregen/continue"),
+		sm("POST", "/api/servers/{id}/pregen/cancel", "/v1/servers/{id}/pregen/cancel"),
+		sg("/api/servers/{id}/datapacks", "/v1/servers/{id}/datapacks"),
+		{"POST", "/api/servers/{id}/datapacks", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/datapacks", "application/zip", "name")},
+		view("/api/servers/{id}/datapacks/{name}/icon", s.rawGet("/v1/servers/{id}/datapacks/{name}/icon", "image/png")),
+		sm("POST", "/api/servers/{id}/datapacks/{name}/enable", "/v1/servers/{id}/datapacks/{name}/enable"),
+		sm("POST", "/api/servers/{id}/datapacks/{name}/disable", "/v1/servers/{id}/datapacks/{name}/disable"),
+		sm("DELETE", "/api/servers/{id}/datapacks/{name}", "/v1/servers/{id}/datapacks/{name}"),
+		sg("/api/servers/{id}/resourcepack", "/v1/servers/{id}/resourcepack"),
+		{"POST", "/api/servers/{id}/resourcepack", needSessionCSRF, actManageServers, s.hResourcePackUpload},
+		sm("POST", "/api/servers/{id}/resourcepack/settings", "/v1/servers/{id}/resourcepack/settings"),
+		sm("DELETE", "/api/servers/{id}/resourcepack", "/v1/servers/{id}/resourcepack"),
+		view("/api/servers/{id}/resourcepack/icon", s.rawGet("/v1/servers/{id}/resourcepack/icon", "image/png")),
 	}
 }
 
@@ -283,6 +322,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	for _, rt := range s.Routes() {
 		mux.HandleFunc(rt.Method+" "+rt.Pattern, s.guard(rt))
+	}
+	for _, rt := range s.public.routes {
+		mux.Handle(rt.prefix, rt.handler)
 	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Unknown API route.", "")
@@ -395,15 +437,18 @@ func (w *statusWriter) Flush() {
 	}
 }
 
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 // logRequests records method, path, status and duration. It never logs query
-// strings, headers or bodies (which may carry codes, cookies or passwords).
+// strings, headers or bodies (which may carry codes, cookies or passwords),
+// nor more of a public path than its route's prefix.
 func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
 		if strings.HasPrefix(r.URL.Path, "/api/") || sw.status >= 400 {
-			s.log.Info("request", "method", r.Method, "path", r.URL.Path, "status", sw.status, "ms", time.Since(start).Milliseconds())
+			s.log.Info("request", "method", r.Method, "path", s.public.logPath(r.URL.Path), "status", sw.status, "ms", time.Since(start).Milliseconds())
 		}
 	})
 }
@@ -721,7 +766,7 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 
 // --- agent proxy ---
 
-var pathKeys = []string{"id", "name", "bid", "rid", "op"}
+var pathKeys = []string{"id", "name", "bid", "rid", "op", "source", "project"}
 
 func agentPath(pattern string, r *http.Request) string {
 	out := pattern
@@ -967,36 +1012,46 @@ func (s *Server) rawGet(pattern, contentType string) func(http.ResponseWriter, *
 	}
 }
 
-// rawUpload streams an uploaded file (a backup archive, a server icon) to
-// the agent, which checks it.
-func (s *Server) rawUpload(pattern, contentType string) func(http.ResponseWriter, *http.Request, *session) {
+// rawUpload streams an uploaded file (a backup archive, a server icon, a
+// data pack) to the agent, which checks it, with the query keys named.
+func (s *Server) rawUpload(pattern, contentType string, keys ...string) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {
 			return
 		}
-		resp, err := m.agent.Raw(r.Context(), "POST", agentPath(pattern, r), nil, r.Body,
-			map[string]string{"X-Playkeeper-Actor": sess.User.Username, "Content-Type": contentType}, true)
-		if err != nil {
-			s.agentFailure(w, err)
-			return
+		q := url.Values{}
+		for _, k := range keys {
+			if v := r.URL.Query().Get(k); v != "" {
+				q.Set(k, v)
+			}
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			s.agentFailure(w, agentclient.DecodeError(resp))
-			return
-		}
-		b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		switch {
-		case err != nil || resp.StatusCode < 200 || resp.StatusCode > 299:
-			s.agentFailure(w, agentclient.ErrBadAnswer)
-		case len(bytes.TrimSpace(b)) == 0:
-			w.WriteHeader(resp.StatusCode)
-		case !json.Valid(b):
-			s.agentFailure(w, agentclient.ErrBadAnswer)
-		default:
-			writeJSON(w, resp.StatusCode, json.RawMessage(b))
-		}
+		s.relayUpload(w, r, m, agentPath(pattern, r), q, contentType, sess)
+	}
+}
+
+func (s *Server) relayUpload(w http.ResponseWriter, r *http.Request, m machine, path string, q url.Values, contentType string, sess *session) {
+	resp, err := m.agent.Raw(r.Context(), "POST", path, q, r.Body,
+		map[string]string{"X-Playkeeper-Actor": sess.User.Username, "Content-Type": contentType}, true)
+	if err != nil {
+		s.agentFailure(w, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		s.agentFailure(w, agentclient.DecodeError(resp))
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	switch {
+	case err != nil || resp.StatusCode < 200 || resp.StatusCode > 299:
+		s.agentFailure(w, agentclient.ErrBadAnswer)
+	case len(bytes.TrimSpace(b)) == 0:
+		w.WriteHeader(resp.StatusCode)
+	case !json.Valid(b):
+		s.agentFailure(w, agentclient.ErrBadAnswer)
+	default:
+		writeJSON(w, resp.StatusCode, json.RawMessage(b))
 	}
 }
 
@@ -1039,7 +1094,8 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-// ListenAndServeTLS serves the panel over HTTPS until ctx ends.
+// ListenAndServeTLS serves the panel over HTTPS until ctx ends, and on the
+// same port the plain-HTTP resource pack downloads of players' games.
 func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	certFile, keyFile := filepath.Join(s.cfg.TLSDir(), "cert.pem"), filepath.Join(s.cfg.TLSDir(), "key.pem")
 	if _, err := EnsureSelfSignedCert(s.cfg.TLSDir(), s.now()); err != nil {
@@ -1050,15 +1106,39 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 		return err
 	}
 	addr := net.JoinHostPort(s.cfg.PanelBind, strconv.Itoa(s.cfg.PanelPort))
-	srv := s.httpServer(addr, cert)
-	go func() {
-		<-ctx.Done()
-		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		srv.Shutdown(c)
-	}()
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
 	s.log.Info("panel listening", "addr", "https://"+addr)
-	err = srv.ListenAndServeTLS("", "")
+	return s.serve(ctx, ln, cert)
+}
+
+// serve answers on ln until ctx ends: HTTPS for the panel and joined
+// machines' links, and plain HTTP for players' games, which refuse the
+// panel's self-signed certificate.
+func (s *Server) serve(ctx context.Context, ln net.Listener, cert tls.Certificate) error {
+	split := portshare.Split(ln, portshare.Options{})
+	defer split.Close()
+	secure := s.httpServer(ln.Addr().String(), cert)
+	plain := &http.Server{
+		Handler:           s.plainHandler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
+	}
+	errc := make(chan error, 2)
+	go func() { errc <- secure.ServeTLS(split.TLS(), "", "") }()
+	go func() { errc <- plain.Serve(split.Plain()) }()
+	var err error
+	select {
+	case <-ctx.Done():
+	case err = <-errc:
+	}
+	c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	secure.Shutdown(c)
+	plain.Shutdown(c)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -1087,4 +1167,10 @@ func (s *Server) httpServer(addr string, cert tls.Certificate) *http.Server {
 		srv.RegisterOnShutdown(func() { s.hub.Close() })
 	}
 	return srv
+}
+
+// plainHandler answers plain HTTP on the panel's port: resource pack
+// downloads, and a redirect to HTTPS for everything else.
+func (s *Server) plainHandler() http.Handler {
+	return s.logRequests(packs.NewPlainHandler(s.public.handler(packs.PathPrefix)))
 }

@@ -110,6 +110,11 @@ host_facts() { # IP FILE
 enable_offline_harness() {
   lab_ssh "$1" "sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d && printf '%s\n' '$OFFLINE_DROPIN' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf >/dev/null && sudo systemctl daemon-reload && sudo systemctl restart playkeeper-agent"
 }
+# Uninstalling, even with --purge, keeps files Playkeeper did not create, so
+# without this the next install on the host would start in offline mode.
+disable_offline_harness() {
+  lab_ssh "$1" 'sudo rm -f /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf && { sudo rmdir /etc/systemd/system/playkeeper-agent.service.d 2>/dev/null || true; } && sudo systemctl daemon-reload'
+}
 
 fetch_cert() { # IP DEST
   lab_ssh "$1" 'sudo cat /var/lib/playkeeper/panel/tls/cert.pem' >"$2"
@@ -355,10 +360,19 @@ world_sums "$A" >"$OUT/host-a-data-before-uninstall.txt"
 start=$(date +%s)
 lab_ssh "$A" 'sudo playkeeper uninstall --yes' | tee "$OUT/host-a-uninstall.txt"
 echo "uninstall wall time: $(($(date +%s) - start)) s" | tee -a "$OUT/host-a-uninstall.txt"
+disable_offline_harness "$A"
 world_sums "$A" >"$OUT/host-a-data-after-uninstall.txt"
 diff "$OUT/host-a-data-before-uninstall.txt" "$OUT/host-a-data-after-uninstall.txt" && echo "world and backup checksums unchanged ($(wc -l <"$OUT/host-a-data-after-uninstall.txt") files)" | tee -a "$OUT/host-a-uninstall.txt"
-lab_ssh "$A" 'set +e; echo "## after uninstall"; systemctl list-unit-files | grep -c playkeeper; id playkeeper; ls /usr/local/bin/playkeeper /etc/playkeeper; command -v docker; sudo ss -ltnH' 2>&1 | tee -a "$OUT/host-a-uninstall.txt"
+lab_ssh "$A" 'set +e; echo "## after uninstall"; systemctl list-unit-files | grep -c playkeeper; id playkeeper; ls /usr/local/bin/playkeeper /etc/playkeeper /etc/systemd/system/playkeeper-agent.service.d; command -v docker; sudo ss -ltnH' 2>&1 | tee -a "$OUT/host-a-uninstall.txt"
 lab_ssh "$A" "cd $name && sudo ./install.sh --yes" | tee "$OUT/host-a-reinstall.txt"
+agent_env=$(lab_ssh "$A" 'systemctl show -p Environment playkeeper-agent')
+printf '%s\n' "$agent_env" | tee -a "$OUT/host-a-reinstall.txt"
+case $agent_env in
+  *PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE*)
+    echo "the reinstall started with the test harness's offline mode" | tee -a "$OUT/host-a-reinstall.txt"
+    exit 1
+    ;;
+esac
 fetch_cert "$A" "$OUT/cert-$A.pem"
 enable_offline_harness "$A"
 wait_online "$A"

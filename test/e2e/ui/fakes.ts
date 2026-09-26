@@ -46,6 +46,7 @@ interface FakeState {
 const name = /^[A-Za-z0-9_]{3,16}$/
 const prefKey = /^[a-z][a-z0-9.:_-]{0,63}$/
 const id = /^[a-z2-9]{10}$/
+const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
@@ -232,7 +233,11 @@ const routes: [string, RegExp, Handler][] = [
     /^\/api\/machines\/([a-z2-9]{10})$/,
     (r, state) => (state.machines.find((m) => m.id === r.params[0])?.kind === 'local' ? invalid('This is the dashboard’s own machine, so it can’t be removed.') : { status: 204 }),
   ],
+  ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
 ]
+
+/** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
+const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
 
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
 export function standInFace(player: string): string {
@@ -309,6 +314,11 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       if (/^\/api\/servers\/\w+\/backups\/[\w-]+\/download$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
+        return
+      }
+      if (/^\/api\/servers\/\w+\/world-copies$/.test(path)) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([leftoverWorld]) })
         return
       }
       const res = await route.fetch().catch(() => null)

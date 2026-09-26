@@ -116,23 +116,6 @@ func (f *fakeResolver) lookup(_ context.Context, host string) ([]netip.Addr, err
 	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 }
 
-type syncBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
-
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	return newEnvWith(t, nil)
@@ -230,7 +213,7 @@ const sampleServer = "abcdefghjk"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc").Replace(p)
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI").Replace(p)
 }
 
 func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {

@@ -138,7 +138,8 @@ PrivateTmp=yes
 }
 
 // agentUnit runs the root agent with a read-only view of the host except its
-// own state directory and runtime socket directory.
+// own state directory and runtime socket directory, and with at most half the
+// memory minecraft.HostReserveMB keeps free for the host.
 func agentUnit() string {
 	return `[Unit]
 Description=Playkeeper agent (local control of the Minecraft container)
@@ -173,6 +174,14 @@ LockPersonality=yes
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+# Playkeeper keeps 768 MB free for the system, Docker and itself. The agent
+# may use half of it, so if a file crafted by a plugin or mod makes it use
+# more, the agent is stopped and restarted instead of starving the game
+# servers. Its Go runtime collects garbage harder as it nears GOMEMLIMIT,
+# before the kernel slows it down at MemoryHigh.
+MemoryHigh=256M
+MemoryMax=384M
+Environment=GOMEMLIMIT=192MiB
 
 [Install]
 WantedBy=multi-user.target
