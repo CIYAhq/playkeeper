@@ -39,7 +39,7 @@ export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
     case 'addon-sources':
       return (
         <SettingsSection current="addon-sources">
-          <AddonSourcesCard />
+          <AddonSourcesCard key={page.machine ?? ''} machine={page.machine} />
         </SettingsSection>
       )
     case 'discord':

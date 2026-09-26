@@ -56,6 +56,7 @@ import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
 import { formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { parse } from '@/lib/router'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
@@ -1590,6 +1591,41 @@ describe('Add-on sources', () => {
       expect(button(label)?.title).toBe('Only the owner can change this.')
     }
   })
+
+  // Each machine keeps its own key, so the card names the one it shows and saves the key there.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  it.each([
+    { name: 'the dashboard’s machine when none is chosen', machine: undefined, want: machine.id, label: 'my-vps' },
+    { name: 'the joined machine New server linked to', machine: home.id, want: home.id, label: 'home-server' },
+  ])('shows and saves the key of $name', async ({ machine: chosen, want, label }) => {
+    answer({ '/addon-sources': none })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home] }))
+    expect(vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/addon-sources'))).toEqual([`/api/machines/${want}/addon-sources`])
+    expect(text).toContain(`The key stays on ${label}.`)
+    vi.mocked(client.post).mockResolvedValueOnce({ curseforge: { key: 'file', ending: 'c3f9' } })
+    await paste('pasted-key-0123456789abc3f9a')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith(`/api/machines/${want}/addon-sources/curseforge`, { key: 'pasted-key-0123456789abc3f9a' })
+    expect(document.body.textContent).toContain('Key ending c3f9')
+    await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home], me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(button('Save key')?.disabled).toBe(true)
+    expect(button('Save key')?.title).toBe('Only the owner can change this.')
+  })
+
+  it('says so when the chosen machine isn’t connected to this dashboard, and asks no other', async () => {
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: 'z2345abcde' }} />, workspace({ machines: [machine, home] }))
+    expect(text).toContain('That machine isn’t connected to this dashboard')
+    expect(keyField()).toBeNull()
+    expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('/addon-sources'))).toEqual([])
+  })
 })
 
 describe('Sidebar', () => {
@@ -1656,6 +1692,18 @@ describe('Modpacks', () => {
     expect(use?.disabled).toBe(true)
     expect(use?.title).toBe(blocker.message)
     expect(document.body.textContent).toContain('Playkeeper can’t set up this pack')
+  })
+
+  // The key goes on the machine the server is made on, so the link to it chooses that machine.
+  it.each([
+    { name: 'the dashboard’s machine', machineId: 'm2345abcde' },
+    { name: 'a joined machine', machineId: 'h2345abcde' },
+  ])('sends whoever needs a CurseForge key to the key of $name', async ({ machineId }) => {
+    answer({ '/modpacks?': results })
+    await render(<ModpackPicker machineId={machineId} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const link = [...document.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/settings/addon-sources'))
+    expect(link?.getAttribute('href')).toBe(`/settings/addon-sources?machine=${machineId}`)
+    expect(parse('/settings/addon-sources', `?machine=${machineId}`)).toEqual({ name: 'addon-sources', machine: machineId })
   })
 
   it('says what a pack’s server downloads, not Paper', () => {

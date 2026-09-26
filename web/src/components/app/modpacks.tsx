@@ -155,7 +155,7 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
         <p className="text-xs text-muted-foreground">
           {rich('modpacks.curseforge', {
             link: (chunk) => (
-              <a {...linkProps({ name: 'addon-sources' })} className="ml-1 font-medium text-success-strong hover:underline">
+              <a {...linkProps({ name: 'addon-sources', machine: machineId })} className="ml-1 font-medium text-success-strong hover:underline">
                 {chunk}
               </a>
             ),

@@ -4,6 +4,7 @@ import { ApiError, del, get, post } from '@/api/client'
 import type { AddonSources } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, Marker } from '@/components/app/bits'
+import { ChoiceSelect } from '@/components/app/controls'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -11,6 +12,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { sourceNames } from '@/lib/addons'
+import { isAway, machineLabel } from '@/lib/machines'
+import { navigate } from '@/lib/router'
 
 const curseForgeConsole = 'https://console.curseforge.com/'
 // Source names are shown as they are, never translated.
@@ -18,12 +21,17 @@ const curseForge = 'CurseForge'
 
 /**
  * Settings › Add-on sources: Modrinth and Hangar are built in; CurseForge
- * needs a key, the owner's own unless the release carries one. Only the
- * owner can change it.
+ * needs a key, the owner's own unless the release carries one. Each machine
+ * keeps its own key: the card shows machine's, else the dashboard's own, and
+ * with more than one machine names it and lets the owner choose another.
+ * Only the owner can change it.
  */
-export function AddonSourcesCard() {
+export function AddonSourcesCard({ machine }: { machine?: string }) {
   const ws = useWorkspace()
-  const machineId = ws.machine?.id
+  const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine
+  const machineId = target?.id
+  const many = ws.machines.length > 1
+  const choices = ws.machines.filter((m) => m.id === machineId || !isAway(m))
   const [sources, setSources] = useState<AddonSources>()
   const [error, setError] = useState<string>()
   useEffect(() => {
@@ -39,7 +47,21 @@ export function AddonSourcesCard() {
 
   return (
     <Card as="section" aria-labelledby="sources-title" id="addon-sources" className="scroll-mt-4">
-      <CardTitle id="sources-title">{t('sources.title')}</CardTitle>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <CardTitle id="sources-title">{t('sources.title')}</CardTitle>
+        {many && target && (
+          <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            {t('sources.machine')}
+            <ChoiceSelect
+              value={target.id}
+              onChange={(id) => navigate({ name: 'addon-sources', machine: id }, true)}
+              label={t('sources.machine')}
+              options={choices.map((m) => ({ value: m.id, label: m.kind === 'remote' ? machineLabel(m) : ws.machineName }))}
+              className="min-w-36 text-foreground"
+            />
+          </label>
+        )}
+      </div>
       <div className="mt-1 divide-y divide-border">
         <SourceRow name={sourceNames.modrinth} state={<Marker tone="green">{t('sources.on')}</Marker>}>
           {t('sources.builtIn')}
@@ -47,8 +69,12 @@ export function AddonSourcesCard() {
         <SourceRow name={sourceNames.hangar} state={<Marker tone="green">{t('sources.on')}</Marker>}>
           {t('sources.builtIn')}
         </SourceRow>
-        {sources ? (
-          <CurseForgeRow key={sources.curseforge.key + (sources.curseforge.ending ?? '')} sources={sources} onChange={setSources} />
+        {machine && !target ? (
+          <SourceRow name={curseForge}>
+            <span className="text-destructive-foreground">{t('new.machineGone')}</span>
+          </SourceRow>
+        ) : sources && machineId ? (
+          <CurseForgeRow key={sources.curseforge.key + (sources.curseforge.ending ?? '')} machineId={machineId} machineName={many && target ? (target.kind === 'remote' ? machineLabel(target) : ws.machineName) : undefined} sources={sources} onChange={setSources} />
         ) : error ? (
           <SourceRow name={curseForge}>
             <span className="text-destructive-foreground">{error}</span>
@@ -80,7 +106,8 @@ function SourceRow({ name, state, action, children }: { name: string; state?: Re
   )
 }
 
-function CurseForgeRow({ sources, onChange }: { sources: AddonSources; onChange: (s: AddonSources) => void }) {
+/** The CurseForge row of one machine; machineName is set when there is more than one to tell apart. */
+function CurseForgeRow({ machineId, machineName, sources, onChange }: { machineId: string; machineName?: string; sources: AddonSources; onChange: (s: AddonSources) => void }) {
   const ws = useWorkspace()
   const cf = sources.curseforge
   const [replacing, setReplacing] = useState(false)
@@ -88,10 +115,9 @@ function CurseForgeRow({ sources, onChange }: { sources: AddonSources; onChange:
   const locked = ws.me.user.role === 'owner' ? undefined : t('reason.ownerOnly')
 
   async function remove() {
-    if (!ws.machine) return
     setRemoving(true)
     try {
-      onChange(await del<AddonSources>(machineApi(ws.machine.id, '/addon-sources/curseforge')))
+      onChange(await del<AddonSources>(machineApi(machineId, '/addon-sources/curseforge')))
       toastManager.add({ title: t('sources.removed'), type: 'success' })
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
@@ -158,13 +184,12 @@ function CurseForgeRow({ sources, onChange }: { sources: AddonSources; onChange:
           {t('sources.step3')}
         </li>
       </ol>
-      <KeyForm locked={locked} onSaved={onChange} onCancel={replacing ? () => setReplacing(false) : undefined} />
+      <KeyForm machineId={machineId} machineName={machineName} locked={locked} onSaved={onChange} onCancel={replacing ? () => setReplacing(false) : undefined} />
     </div>
   )
 }
 
-function KeyForm({ locked, onSaved, onCancel }: { locked?: string; onSaved: (s: AddonSources) => void; onCancel?: () => void }) {
-  const ws = useWorkspace()
+function KeyForm({ machineId, machineName, locked, onSaved, onCancel }: { machineId: string; machineName?: string; locked?: string; onSaved: (s: AddonSources) => void; onCancel?: () => void }) {
   const id = useId()
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
@@ -172,11 +197,11 @@ function KeyForm({ locked, onSaved, onCancel }: { locked?: string; onSaved: (s: 
 
   async function save(e: FormEvent) {
     e.preventDefault()
-    if (!ws.machine || !key.trim()) return
+    if (!key.trim()) return
     setBusy(true)
     setRefused(undefined)
     try {
-      const s = await post<AddonSources>(machineApi(ws.machine.id, '/addon-sources/curseforge'), { key: key.trim() })
+      const s = await post<AddonSources>(machineApi(machineId, '/addon-sources/curseforge'), { key: key.trim() })
       toastManager.add({ title: t('sources.saved'), type: 'success' })
       onSaved(s)
     } catch (err) {
@@ -224,7 +249,7 @@ function KeyForm({ locked, onSaved, onCancel }: { locked?: string; onSaved: (s: 
         </p>
       ) : (
         <p id={`${id}-stays`} className="mt-2 text-xs text-muted-foreground">
-          {t('sources.stays')}
+          {machineName ? t('sources.staysOn', { machine: machineName }) : t('sources.stays')}
         </p>
       )}
     </form>
