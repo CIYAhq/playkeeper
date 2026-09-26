@@ -7,11 +7,16 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$PATH" CGO_ENABLED=0
+export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
 wt="$(mktemp -d)/playkeeper"
 git -C "$root" worktree add --detach -q "$wt" HEAD
 trap 'git -C "$root" worktree remove --force "$wt"' EXIT
 cd "$wt"
+# The web controls run vitest with the checkout's own dependencies, which
+# scripts/setup.sh installs.
+if [ -d "$root/web/node_modules" ]; then
+  ln -s "$root/web/node_modules" web/node_modules
+fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
@@ -26,6 +31,26 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
     bad=1
   else
     echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
+  fi
+  git checkout -q -- "$file"
+}
+
+webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
+  local name=$1 file=$2 test=${5#web/} pattern=$6
+  if [ ! -d web/node_modules ]; then
+    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    bad=1
+    return
+  fi
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+    bad=1
+  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
+    echo "INVALID  $name: the mutated code does not run"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
   git checkout -q -- "$file"
 }
@@ -74,6 +99,90 @@ control "restore undoes the swap when settings cannot be saved" internal/agent/b
   'if rerr := renameDir(live, failedAt); rerr != nil {' \
   'if rerr := error(nil); rerr != nil {' \
   ./internal/agent '^TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved$'
+# Restore path, found checking it on a real server.
+control "why a restore was undone reads as one sentence" internal/agent/backups.go \
+  'j.Why = "The restored world did not start (" + clause(err) + ")."' \
+  'j.Why = "The restored world did not start (" + err.Error() + ")."' \
+  ./internal/agent '^TestAnUndoneRestoreSaysWhyInOneSentence$'
+control "a world that isn't there yet is looked for at the next sample" internal/agent/collector.go \
+  'if !dirExists(filepath.Join(s.dataDir(), level)) {' \
+  'if false && !dirExists(filepath.Join(s.dataDir(), level)) {' \
+  ./internal/agent '^TestWorldSizeIsMeasuredOnceTheWorldExists$'
+control "a restore has the world measured again at the next sample" internal/agent/backups.go \
+  '	s.worldChanged()
+	restoreStep(ctx, "moved")' \
+  '	restoreStep(ctx, "moved")' \
+  ./internal/agent '^TestWorldSizeIsMeasuredAgainAfterARestore$'
+control "a backup of a server folder without its world says so" internal/backup/online.go \
+  'case errors.As(err, &noWorld):' \
+  'case false && errors.As(err, &noWorld):' \
+  ./internal/backup '^TestABackupWithoutAWorldSaysSo$'
+control "the status says where the previous world is while its folder is missing" internal/agent/handlers.go \
+  'st.WorldMissing = s.worldMissing()' \
+  'st.WorldMissing = nil' \
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
+control "a backup refused for a missing world folder says where the previous world is" internal/agent/backups.go \
+  'if m := s.worldMissing(); m != nil {
+		err := errWorldMissing(m, "back it up")' \
+  'if m := s.worldMissing(); false && m != nil {
+		err := errWorldMissing(m, "back it up")' \
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
+control "a start refused for a missing world folder is marked so" internal/agent/lifecycle.go \
+  '		refusedForMissingWorld(h, err)
+		return err
+	}
+	if err := s.ensureImage' \
+  '		return err
+	}
+	if err := s.ensureImage' \
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
+control "a restore the next start put back says so" internal/agent/backups.go \
+  's.restoreSettled(j, movedBack)' \
+  '_ = movedBack' \
+  ./internal/agent '^TestARestoreSettledAtStartSaysSo$'
+control "a restore finished after a restart has its own activity line" internal/agent/backups.go \
+  'kind = "world_restored_after_restart"' \
+  'kind = "world_restored"' \
+  ./internal/agent '^TestARestoreFinishedAfterARestartSaysSo$'
+webcontrol "the Overview says where the previous world is while its folder is missing" web/src/pages/server/overview.tsx \
+  'if (s.worldMissing) return <WorldMissingNotice server={s} />' \
+  'if (s.worldMissing && false) return <WorldMissingNotice server={s} />' \
+  web/src/pages/pages.test.tsx 'long after the restore failed'
+webcontrol "the World tab says where the previous world is while its folder is missing" web/src/pages/server/world.tsx \
+  'if (s.worldMissing) return <WorldMissingNotice server={s} className={className} />' \
+  'if (s.worldMissing && false) return <WorldMissingNotice server={s} className={className} />' \
+  web/src/pages/pages.test.tsx 'long after the restore failed'
+webcontrol "a start or backup refused for a missing world folder goes once the world is back" web/src/lib/phase.ts \
+  "if (op.detail?.errorKind === 'world_missing') return !s.worldMissing" \
+  "if (op.detail?.errorKind === 'never') return !s.worldMissing" \
+  web/src/pages/pages.test.tsx 'once the world is back'
+webcontrol "a backup that just failed never hides a world copy's Discard" web/src/pages/server/world.tsx \
+  "  return (
+    <>
+      {failed?.kind === 'backup' && dismissed !== failed.id && <FailedJobNotice" \
+  "  if (failed?.kind === 'backup' && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />
+  return (
+    <>
+      {failed?.kind === 'backup' && dismissed !== failed.id && <FailedJobNotice" \
+  web/src/pages/pages.test.tsx 'Discard under a backup'
+webcontrol "Start says it waits for the missing world folder" web/src/lib/phase.ts \
+  "if (st.worldMissing) return t('reason.worldMissing')" \
+  "if (st.worldMissing && false) return t('reason.worldMissing')" \
+  web/src/lib/lib.test.ts 'start a server whose world folder'
+webcontrol "Home says a server's world folder is missing instead of napping" web/src/pages/home.tsx \
+  'if (s.worldMissing)
+        return (' \
+  'if (s.worldMissing && false)
+        return (' \
+  web/src/pages/pages.test.tsx 'lets only a stopped server nap'
+webcontrol "the activity says a restore was finished after Playkeeper restarted" web/src/components/app/activity.tsx \
+  "return t('activity.restoredAfterRestart', { server })" \
+  "return t('activity.restored', { server })" \
+  web/src/lib/lib.test.ts 'what Playkeeper did after it restarted'
+webcontrol "the activity says a previous world was put back after Playkeeper restarted" web/src/components/app/activity.tsx \
+  "return t('activity.putBack', { server })" \
+  "return t('activity.restored', { server })" \
+  web/src/lib/lib.test.ts 'what Playkeeper did after it restarted'
 control "one admin from concurrent setups" internal/panel/auth.go \
   'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
   'SELECT ?, ?, ?, ?' \
