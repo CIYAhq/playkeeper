@@ -186,6 +186,10 @@ control "nether and end folders missing beside the world don't void a chunk coun
   'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
   'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
+control "running out of memory, then Stopping server, is still a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = s.sawCrash, "Java ran out of memory."' \
+  ./internal/agent '^TestAnOutOfMemoryErrorThenStoppingServerIsACrash$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'graceful := s.sawStopping && !s.sawCrash' \
   'graceful := s.sawStopping' \
