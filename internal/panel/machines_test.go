@@ -1630,8 +1630,9 @@ func TestAJoinedMachineCantChooseHowTheDashboardServesItsAnswers(t *testing.T) {
 	}
 }
 
-// A joined machine takes data and resource packs as big as its agent does,
-// not only as big as the link's other request bodies.
+// A joined machine takes data packs as big as its agent does, not only as
+// big as the link's other request bodies. Resource packs stay with the
+// dashboard's machine (see TestResourcePacksAreForTheDashboardsMachine).
 func TestAJoinedMachineTakesBigPacks(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
@@ -1639,38 +1640,19 @@ func TestAJoinedMachineTakesBigPacks(t *testing.T) {
 	e.joined(t, cookie, csrf, ra)
 	e.get(t, "/api/servers", cookie, nil)
 	pack := strings.Repeat("z", 3<<20)
-	for _, key := range []string{"POST /v1/servers/rstuvwxyzq/datapacks", "POST /v1/servers/rstuvwxyzq/resourcepack"} {
-		ra.handle(key, func(w http.ResponseWriter, r *http.Request) {
-			n, err := io.Copy(io.Discard, r.Body)
-			w.Header().Set("Content-Type", "application/json")
-			if err != nil {
-				w.WriteHeader(http.StatusRequestEntityTooLarge)
-				io.WriteString(w, `{"error":"The pack is too big.","code":"invalid"}`)
-				return
-			}
-			fmt.Fprintf(w, `{"bytes":%d}`, n)
-		})
-	}
+	ra.handle("POST /v1/servers/rstuvwxyzq/datapacks", func(w http.ResponseWriter, r *http.Request) {
+		n, err := io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			io.WriteString(w, `{"error":"The pack is too big.","code":"invalid"}`)
+			return
+		}
+		fmt.Fprintf(w, `{"bytes":%d}`, n)
+	})
 	want := fmt.Sprintf(`{"bytes":%d}`, len(pack))
 	if r, body := e.fetch(t, "POST", "/api/servers/rstuvwxyzq/datapacks?name=big", "application/zip", pack, auth(cookie, csrf)); r.StatusCode != http.StatusOK || strings.TrimSpace(body) != want {
 		t.Fatalf("a big data pack: %d %s", r.StatusCode, body)
-	}
-	// Players download a resource pack from the address the dashboard is
-	// opened at, which must be a name or an address they can reach.
-	req, _ := http.NewRequest("POST", e.ts.URL+"/api/servers/rstuvwxyzq/resourcepack?name=big", strings.NewReader(pack))
-	req.Host = "panel.example.com"
-	req.Header.Set("Origin", "https://panel.example.com")
-	req.Header.Set("Content-Type", "application/zip")
-	for k, v := range auth(cookie, csrf) {
-		req.Header.Set(k, v)
-	}
-	r, err := e.ts.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Body.Close()
-	if body, _ := io.ReadAll(r.Body); r.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != want {
-		t.Fatalf("a big resource pack: %d %s", r.StatusCode, body)
 	}
 }
 
