@@ -2043,10 +2043,18 @@ control "an import refused over a linked world folder starts the previous world 
   ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
 
 # Wave 7: who may change where backup copies go and hold the recovery key.
-control "only the owner holds backup keys" internal/panel/workspace.go \
-  'return sess != nil && sess.User.Role == roleOwner' \
-  'return sess != nil' \
-  ./internal/panel '^(TestMembersCannotTouchBackupCopiesOrTheRecoveryKey|TestOneCheckDecidesWhoHoldsBackupKeys)$'
+control "an admin needs two-factor on to hold backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin)' \
+  ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
+control "an admin with two-factor on holds backup keys" internal/panel/workspace.go \
+  'return a.owner() || (a.InstallRole == roleMember && a.ProjectRole == invites.RoleAdmin && a.FactorOn && a.TwoFactor)' \
+  'return a.owner()' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestWaveSevenRoutesFollowTheTeamTable)$'
+control "bringing servers back from copies needs every server" internal/panel/workspace.go \
+  'if act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  'if false && act == actRecoverBackups && !a.owner() && !a.Servers.All {' \
+  ./internal/panel '^(TestOneCheckDecidesWhoHoldsBackupKeys|TestMachineWideActionsNeedEveryServer)$'
 control "changing where copies go is a backup key action" internal/panel/server.go \
   '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageBackupCopies,' \
   '{"POST", "/api/servers/{id}/offsite", needSessionCSRF, actManageServers,' \
@@ -2056,13 +2064,21 @@ control "the recovery key is a backup key action" internal/panel/server.go \
   '{"GET", "/api/servers/{id}/offsite/recovery-key", needSession, actManageServers,' \
   ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
 control "restoring from a recovery key is a backup key action" internal/panel/server.go \
-  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoveryKey),' \
+  'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoverBackups),' \
   'mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actManageMachine),' \
   ./internal/panel '^TestOneCheckDecidesWhoHoldsBackupKeys$'
 control "refused recovery key requests are audited" internal/panel/server.go \
-  'if rt.Act == actRecoveryKey {' \
-  'if false && rt.Act == actRecoveryKey {' \
-  ./internal/panel '^TestMembersCannotTouchBackupCopiesOrTheRecoveryKey$'
+  's.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "refused recoveries from copies are audited" internal/panel/server.go \
+  's.audit(sess.User.Username, "offsite.recover", r.PathValue("mid"), "refused", "not allowed to bring servers back from copies")' \
+  '_ = 0' \
+  ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
+control "the Disk space page needs every server to look at" internal/panel/server.go \
+  'actView, everyServer(s.machineProxy("GET", "/v1/disk"))},' \
+  'actView, s.machineProxy("GET", "/v1/disk")},' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "the panel never caches the recovery key" internal/panel/automation.go \
   'w.Header().Set("Cache-Control", "no-store")' \
   '_ = 0' \
