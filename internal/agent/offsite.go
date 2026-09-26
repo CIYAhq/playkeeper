@@ -203,8 +203,10 @@ func keyFolder(c storedOffsite) string {
 // sameFolder says whether two folders a recovery key file names are one.
 func sameFolder(a, b string) bool { return strings.TrimRight(a, "/") == strings.TrimRight(b, "/") }
 
-// saveOffsite writes the settings and secrets; the keys and when the
-// recovery key was saved are written by their own routes.
+// saveOffsite writes the settings and secrets. It never writes the keys: r
+// may hold keys read before Make a new key replaced them. The keys and when
+// the recovery key was saved are written by their own routes, and the first
+// keys by storeFirstKeys.
 func (s *server) saveOffsite(r offsiteRow) error {
 	cfg := r.cfg
 	cfg.S3.SecretKey, cfg.SFTP.Password, cfg.SFTP.PrivateKey = offsite.Secret{}, offsite.Secret{}, offsite.Secret{}
@@ -212,15 +214,24 @@ func (s *server) saveOffsite(r offsiteRow) error {
 	if err != nil {
 		return err
 	}
-	keys := ""
-	if r.hasKeys {
-		keys = encodeKeys(r.keys)
-	}
-	_, err = s.db.Exec(`INSERT INTO offsite(server_id, enabled, config, secret, password, private_key, ssh_public, keys, updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+	_, err = s.db.Exec(`INSERT INTO offsite(server_id, enabled, config, secret, password, private_key, ssh_public, updated_at) VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(server_id) DO UPDATE SET enabled = excluded.enabled, config = excluded.config, secret = excluded.secret, password = excluded.password,
-			private_key = excluded.private_key, ssh_public = excluded.ssh_public, keys = excluded.keys, updated_at = excluded.updated_at`,
-		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, keys, s.now().UnixMilli())
+			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli())
 	return err
+}
+
+// storeFirstKeys stores k as the server's encryption keys while it has none,
+// and returns the keys it has: keys another request stored first stay.
+func (s *server) storeFirstKeys(k offsite.Keys) (offsite.Keys, error) {
+	if _, err := s.db.Exec(`UPDATE offsite SET keys = ? WHERE server_id = ? AND keys = ''`, encodeKeys(k), s.id); err != nil {
+		return offsite.Keys{}, err
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT keys FROM offsite WHERE server_id = ?`, s.id).Scan(&raw); err != nil {
+		return offsite.Keys{}, err
+	}
+	return decodeKeys(raw)
 }
 
 // spoolDir is where the server's copies are encrypted before they are sent.
@@ -836,13 +847,14 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	madeKeys := false
 	if next.enabled && !next.hasKeys {
 		k, err := offsite.NewKeys(s.now())
 		if err != nil {
 			writeError(w, automationError(err))
 			return
 		}
-		next.keys, next.hasKeys = k, true
+		next.keys, next.hasKeys, madeKeys = k, true, true
 	}
 	moved := row.configured() && offsiteIdentity(row.cfg.Config) != offsiteIdentity(next.cfg.Config)
 	var forgotten []offsiteCopy
@@ -859,6 +871,12 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 	if err := s.saveOffsite(next); err != nil {
 		writeError(w, err)
 		return
+	}
+	if madeKeys {
+		if next.keys, err = s.storeFirstKeys(next.keys); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	if moved {
 		// The recorded copies stay where they were; the rules no longer

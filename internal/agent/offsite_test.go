@@ -360,6 +360,97 @@ func TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged(t *testing.T) {
 	}
 }
 
+// Saving the settings for copies never writes the encryption keys: a save
+// that read them before Make a new key doesn't put the old key back, and
+// the first keys are stored only while there are none.
+func TestSavingCopySettingsNeverPutsAnOldKeyBack(t *testing.T) {
+	withCopies := func(t *testing.T) *agentEnv {
+		prev := openOffsite
+		dest := &fakeDest{stored: map[string]offsite.Copy{}}
+		openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+		t.Cleanup(func() { openOffsite = prev })
+		e := newAgentEnv(t)
+		e.addIdleServer()
+		return e
+	}
+	s3 := map[string]any{"type": "s3", "s3": map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}}
+	// Each save read the settings before the new key was made, and writes
+	// them after it.
+	saves := []struct {
+		name   string
+		change func(r *offsiteRow)
+	}{
+		{"the settings", func(r *offsiteRow) { r.enabled = false }},
+		{"the key Playkeeper signs in with over SFTP", func(r *offsiteRow) {
+			r.privateKey, r.sshPublic = "a private key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample playkeeper"
+		}},
+	}
+	for _, c := range saves {
+		t.Run("a save of "+c.name+" racing a new key", func(t *testing.T) {
+			e := withCopies(t)
+			code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "owner", "enabled": true, "config": s3, "secretKey": "wJalrXUtnFEMI-example-secret"})
+			key, _ := out["key"].(map[string]any)
+			if code != http.StatusOK || key == nil {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+			old := key["recipient"].(string)
+			read, err := e.srv().loadOffsite()
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, out = e.call("POST", e.sp("/offsite/new-key"), map[string]any{"actor": "owner"})
+			rot, _ := out["rotation"].(map[string]any)
+			if code != http.StatusOK || rot == nil {
+				t.Fatalf("new key: %d %v", code, out)
+			}
+			c.change(&read)
+			if err := e.srv().saveOffsite(read); err != nil {
+				t.Fatal(err)
+			}
+			row, err := e.srv().loadOffsite()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if row.keys.Current.Recipient != rot["recipient"] || len(row.keys.Old) != 1 || row.keys.Old[0].Recipient != old {
+				t.Fatalf("after the save the key is %s with %d old ones; the new key is %s, the old %s", row.keys.Current.Recipient, len(row.keys.Old), rot["recipient"], old)
+			}
+		})
+	}
+
+	t.Run("first keys stored while another request stored its own", func(t *testing.T) {
+		e := withCopies(t)
+		if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "owner", "enabled": false, "config": s3, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+			t.Fatalf("settings: %d %v", code, out)
+		}
+		theirs, err := offsite.NewKeys(e.a.now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		ours, err := offsite.NewKeys(e.a.now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := e.srv().storeFirstKeys(theirs); err != nil || got.Current.Recipient != theirs.Current.Recipient {
+			t.Fatalf("the first keys: %s, %v", got.Current.Recipient, err)
+		}
+		got, err := e.srv().storeFirstKeys(ours)
+		row, lerr := e.srv().loadOffsite()
+		if err != nil || lerr != nil || got.Current.Recipient != theirs.Current.Recipient || row.keys.Current.Recipient != theirs.Current.Recipient {
+			t.Fatalf("keys stored second replaced the first: got %s, stored %s (%v, %v)", got.Current.Recipient, row.keys.Current.Recipient, err, lerr)
+		}
+	})
+
+	t.Run("turning copies on stores the first keys", func(t *testing.T) {
+		e := withCopies(t)
+		code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "owner", "enabled": true, "config": s3, "secretKey": "wJalrXUtnFEMI-example-secret"})
+		key, _ := out["key"].(map[string]any)
+		row, err := e.srv().loadOffsite()
+		if code != http.StatusOK || key == nil || err != nil || !row.hasKeys || row.keys.Current.Recipient != key["recipient"] {
+			t.Fatalf("turn on: %d %v; stored %+v (%v)", code, out, row.keys.Current, err)
+		}
+	})
+}
+
 // Deleting a server deletes its recovery key with it. While copies only that
 // key opens are kept somewhere else, or still made, and the key was never
 // downloaded, the delete is refused with the reason, unless it is confirmed.

@@ -3200,6 +3200,19 @@ control "a copy recorded without its settings is logged" internal/agent/offsite.
   '_ = lerr' \
   ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_keys_can't_be_read_once_it_is_made$"
 
+# Wave 7 after Bugbot's finding on d0492a3a: saving the settings for copies
+# never puts an old encryption key back.
+control "saving the settings for copies never writes the keys" internal/agent/offsite.go \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli())' \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at, keys = ?`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli(), encodeKeys(r.keys))' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^a_save_of_the_settings_racing_a_new_key$'
+control "the first keys are stored only while there are none" internal/agent/offsite.go \
+  "UPDATE offsite SET keys = ? WHERE server_id = ? AND keys = ''" \
+  'UPDATE offsite SET keys = ? WHERE server_id = ?' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^first_keys_stored_while_another_request_stored_its_own$'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
