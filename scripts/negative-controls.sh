@@ -3301,6 +3301,14 @@ control "a failed start closes the stand-in" internal/agent/lifecycle.go \
   '		_ = s.setDesired(api.DesiredStopped)
 	}' \
   ./internal/agent '^TestAFailedStartLeavesNothingAnsweringForTheServer$'
+control "a sleeping server started outside Playkeeper lets go of the stand-in" internal/agent/sleeping.go \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.leaveSleep()
+		return' \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.endSleepPeriod(s.now().UTC(), "")
+		return' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^started_outside_Playkeeper$'
 control "a wake whose start stopped the server leaves it stopped" internal/agent/sleeping.go \
   'if d := s.desired(); d != api.DesiredRunning && d != api.DesiredSleeping {
 				s.leaveSleep()' \
