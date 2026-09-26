@@ -13,6 +13,7 @@ import { addonTab } from '@/lib/addons'
 import { checklist, complete, progress } from '@/lib/checklist'
 import { demo } from '@/lib/demo'
 import { formatMB } from '@/lib/format'
+import { machineLabel, machineRoute, machineState } from '@/lib/machines'
 import { hasMap } from '@/lib/map'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -28,7 +29,7 @@ function Row({ icon, title, hint, to, href, onClick, danger }: { icon: ReactNode
       {!danger && <ChevronRightIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
     </>
   )
-  const cls = 'flex min-h-14 w-full items-center gap-3.5 px-4 py-2 text-left'
+  const cls = 'flex min-h-14 w-full items-center gap-3.5 px-4 py-1.5 text-left'
   if (to) {
     return (
       <a {...linkProps(to)} className={cls}>
@@ -76,9 +77,8 @@ export function MorePage() {
   const steps = server ? checklist(server) : checklist(undefined)
   const p = progress(steps)
   const addons = addonTab(server?.type)
-  const healthy = !ws.agentDown && !!live?.docker
   return (
-    <div className="flex flex-col gap-5 pb-6">
+    <div className="flex flex-col gap-4 pb-6">
       <PageHeader title={t('more.title')} />
       {(available || ws.updating) && can(ws.me, 'machine.manage') && (
         <Group>
@@ -123,11 +123,14 @@ export function MorePage() {
         <li>
           <Row icon={<HouseIcon />} title={t('nav.allServers')} hint={(ws.servers ?? []).map((s) => s.name).join(', ') || t('nav.noServers')} to={{ name: 'home' }} />
         </li>
-        {ws.machine && (
-          <li>
-            <Row icon={<ServerIcon />} title={ws.machineName} hint={t('more.machineHint', { status: healthy ? t('nav.healthy') : t('nav.notAnswering'), memory: live ? formatMB(live.memoryTotalMB) : '' })} to={{ name: 'machine', id: ws.machine.id }} />
-          </li>
-        )}
+        {ws.machines.map((m) => {
+          const status = machineState(m, ws).label
+          return (
+            <li key={m.id}>
+              <Row icon={<ServerIcon />} title={m.kind === 'local' ? ws.machineName : machineLabel(m)} hint={m.live ? t('more.machineHint', { status, memory: formatMB(m.live.memoryTotalMB) }) : status} to={machineRoute(m)} />
+            </li>
+          )
+        })}
         {can(ws.me, 'servers.create') && (
           <li>
             <Row icon={<PlusIcon />} title={t('nav.newServer')} to={{ name: 'new-server' }} />
@@ -177,11 +180,6 @@ export function MorePage() {
           <Row icon={<LogOutIcon />} title={t('nav.signOut')} onClick={() => void ws.signOut()} danger />
         </li>
       </Group>
-      <p className="px-4 text-xs text-muted-foreground">
-        {t('footer.notOfficial')}
-        {t('common.dot')}
-        {t('footer.version', { version: ws.me.version })}
-      </p>
       <UpdateDialog open={updateOpen} onOpenChange={setUpdateOpen} />
       {server && <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />}
     </div>

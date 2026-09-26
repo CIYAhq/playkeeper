@@ -1836,7 +1836,7 @@ export const en = {
   'more.updateRow': 'Playkeeper {version} · takes about a minute',
   'more.settingsHint': 'Difficulty, PvP, server list',
   'more.you': 'You',
-  'more.accountHint': '{role} · password and two-factor',
+  'more.accountHint': '{role} · change password',
   'more.globalHint': 'Updates and the audit log',
   'more.machineHint': '{status} · {memory}',
   'more.servers': 'Servers',
