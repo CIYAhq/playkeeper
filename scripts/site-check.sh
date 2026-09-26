@@ -98,7 +98,13 @@ fi
 check_files /demo/ "$page"
 script=$(grep -oE '/demo/assets/index-[^"]+\.js' "$page" | head -1)
 curl -fsS -o "$work/demo.js" "$base$script" || fail "$script does not download"
-grep -qF 'playkeeper-live-demo' "$work/demo.js" || fail "$script is not the demo build (vite build --mode demo)"
+# The pages load in chunks, so the demo's code is in the entry or in a chunk it names.
+demo=
+for chunk in "$script" $(grep -oE '(\./|assets/)[A-Za-z0-9_-]+\.js' "$work/demo.js" | sed -E 's#^(\./|assets/)#/demo/assets/#' | sort -u); do
+  curl -fsS -o "$work/chunk.js" "$base$chunk" || fail "$chunk does not download"
+  if grep -qF 'playkeeper-live-demo' "$work/chunk.js"; then demo=$chunk; break; fi
+done
+[ -n "$demo" ] || fail "$script is not the demo build (vite build --mode demo)"
 for deep in /demo/servers/survival/console /demo/settings/audit; do
   code=$(curl -sS -o "$work/deep.html" -w '%{http_code}' "$base$deep")
   [ "$code" = 200 ] || fail "$deep answered $code, not 200"
