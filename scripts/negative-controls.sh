@@ -3779,6 +3779,12 @@ webcontrol "free addresses: a certificate problem is the notice that shows" web/
   'certProblemText(a, now) && !a.names.unreachable ? (' \
   web/src/pages/machine-settings/address.test.tsx 'as the one notice'
 
+# Wave 9: fixes from the screen review of Waves 5-8.
+webcontrol "the players chart keeps its labels clear of now" web/src/components/app/players-chart.tsx \
+  'if (count - index - 0.5 < count * nowReserve) return undefined' \
+  'if (false) return undefined' \
+  web/src/lib/lib.test.ts 'clear of now'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

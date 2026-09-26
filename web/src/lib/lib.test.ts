@@ -4,6 +4,7 @@ import type { Address, Catalog, CatalogEntry, Me, ProjectRole, Crash, DNSRecord,
 import { budgetAdvice, createRequest, freeName, heapMB, styleMemory, versionCards, versionLine } from '@/components/app/create'
 import { activityText } from '@/components/app/activity'
 import { lineRuns } from '@/components/app/line-chart'
+import { axisLabel } from '@/components/app/players-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/components/app/password-field'
 import { tokenRoles } from './access'
@@ -896,6 +897,17 @@ describe('how it’s running', () => {
     expect(tickTimeAxis(50, [240]).max).toBe(250)
     expect(memoryAxis(4096)).toEqual({ max: 4, labels: ['4 GB', '2', '0'] })
     expect(cpuAxis([22, 61])).toEqual({ max: 100, labels: ['100%', '50', '0'] })
+  })
+
+  it('keeps the players chart’s labels clear of now', () => {
+    const hourly = (from: string, n: number, hours: number) => Array.from({ length: n }, (_, i) => ({ start: new Date(Date.parse(from) + i * hours * 3_600_000).toISOString(), players: 1, state: 'online' as const, coverage: 1 }))
+    const labels = (bars: ReturnType<typeof hourly>, range: '24h' | '7d' | '30d') => bars.map((b, i) => axisLabel(b, range, i, bars.length)).filter(Boolean)
+    // 12:00 is the bar before now, then 06:00 three before it: both hidden. Five before it, 06:00 has room.
+    expect(labels(hourly('2026-09-25T14:00:00', 24, 1), '24h')).toEqual(['18:00', '00:00', '06:00', 'now'])
+    expect(labels(hourly('2026-09-25T09:00:00', 24, 1), '24h')).toEqual(['12:00', '18:00', '00:00', 'now'])
+    expect(labels(hourly('2026-09-25T11:00:00', 24, 1), '24h')).toEqual(['12:00', '18:00', '00:00', '06:00', 'now'])
+    // Saturday's first bar is three before now: hidden.
+    expect(labels(hourly('2026-09-19T09:00:00', 56, 3), '7d')).toEqual(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'now'])
   })
 
   it('labels the hour at quarters, ending with now', () => {

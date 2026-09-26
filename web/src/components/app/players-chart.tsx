@@ -19,9 +19,15 @@ const factors: Record<ChartRange, number> = { '24h': 6, '7d': 3, '30d': 2 }
 
 const skeletonBars = ['h-[20%]', 'h-[35%]', 'h-[25%]', 'h-[50%]', 'h-[40%]', 'h-[65%]', 'h-[55%]', 'h-[30%]', 'h-[45%]', 'h-[70%]', 'h-[60%]', 'h-[35%]', 'h-[25%]', 'h-[40%]', 'h-[55%]', 'h-[75%]', 'h-[50%]', 'h-[30%]', 'h-[45%]', 'h-[35%]', 'h-[20%]', 'h-[30%]', 'h-[50%]', 'h-[40%]']
 
-function label(bar: Bar, range: ChartRange, index: number, count: number): string | undefined {
+// "now" is pinned to the axis's right edge: a label whose middle falls in
+// this last part of the axis would run into it on a phone.
+const nowReserve = 0.18
+
+/** The label under a bar, if it has one: "now" under the last bar, and times, weekdays or dates under a few clear of it. */
+export function axisLabel(bar: Bar, range: ChartRange, index: number, count: number): string | undefined {
   const d = new Date(bar.start)
   if (index === count - 1) return t('overview.chartNow')
+  if (count - index - 0.5 < count * nowReserve) return undefined
   switch (range) {
     case '24h':
       return d.getHours() % 6 === 0 ? formatClock(bar.start) : undefined
@@ -128,7 +134,7 @@ export function PlayersChart({ server, className }: { server: ServerStatus; clas
             </div>
             <div className="relative mt-1.5 h-4 text-[11px] text-muted-foreground" aria-hidden="true">
               {bars.map((b, i) => {
-                const text = label(b, range, i, bars.length)
+                const text = axisLabel(b, range, i, bars.length)
                 if (!text) return null
                 const left = ((i + 0.5) / bars.length) * 100
                 return (
