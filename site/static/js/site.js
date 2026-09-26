@@ -125,6 +125,8 @@
         if (n) { e.preventDefault(); select(tabs[(i + n + tabs.length) % tabs.length], true); }
       });
     });
+    var shown = tabs.filter(function (t) { return t.getAttribute('aria-selected') === 'true'; })[0] || tabs[0];
+    if (shown) select(shown);
   });
 
   // The FAQ opens over 240 ms. Browsers that can animate <details> do it in

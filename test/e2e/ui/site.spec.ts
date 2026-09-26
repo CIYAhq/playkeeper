@@ -52,3 +52,16 @@ for (const size of sizes) {
     })
   }
 }
+
+test("the modded guide's Copy copies the whole script of the tab that's showing", async ({ browser }) => {
+  const ctx = await browser.newContext()
+  const page = await ctx.newPage()
+  await page.goto('/guides/modded-minecraft-server', { waitUntil: 'networkidle' })
+  const copy = page.locator('.codeblock .code-copy')
+  const script = (id: string) => page.locator(`#${id}`).evaluate((el) => (el.textContent ?? '').trim())
+  expect(await script('code-neoforge')).toContain('./run.sh nogui')
+  await expect(copy).toHaveAttribute('data-copy', await script('code-neoforge'))
+  await page.getByRole('tab', { name: 'Fabric' }).click()
+  await expect(copy).toHaveAttribute('data-copy', await script('code-fabric'))
+  await ctx.close()
+})
