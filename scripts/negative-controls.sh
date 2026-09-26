@@ -2270,6 +2270,30 @@ control "forgetting the copies at the old place is audited" internal/agent/offsi
   's.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))' \
   '_ = forgotten' \
   ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "a recovery key file naming another folder asks to be downloaded again" internal/agent/offsite.go \
+  'if r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  'if false && r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "downloading the recovery key records the folder the file names" internal/agent/offsite.go \
+  's.now().UnixMilli(), f.Folder, s.id)' \
+  's.now().UnixMilli(), "", s.id)' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "looking for copies says the key file's folder isn't there" internal/agent/recover.go \
+  'writeError(w, automationError(keyFileFolder(err, req)))' \
+  'writeError(w, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a restore says the key file's folder isn't there" internal/agent/recover.go \
+  'h, automationError(keyFileFolder(err, req)))' \
+  'h, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a folder the user typed isn't blamed on the key file" internal/agent/recover.go \
+  'strings.TrimSpace(req.Config.SFTP.Folder) != "" || ' \
+  '' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "looking for copies in a missing folder doesn't say to create it" internal/offsite/sftp.go \
+  'if op == opList {' \
+  'if false && op == opList {' \
+  ./internal/offsite '^TestSFTPList$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

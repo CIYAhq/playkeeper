@@ -103,6 +103,20 @@ func (a *Agent) recoverDest(req recoverRequest, spool string) (offsiteDest, offs
 	return dest, rec, c, err
 }
 
+// keyFileFolder says, when the folder the recovery key file names isn't
+// on the other machine, that copies may have gone to another folder after
+// the file was downloaded.
+func keyFileFolder(err error, req recoverRequest) error {
+	var oe *offsite.Error
+	if req.Config.Type != offsite.TypeSFTP || strings.TrimSpace(req.Config.SFTP.Folder) != "" || !errors.As(err, &oe) || oe.Kind != offsite.KindNoSuchFolder {
+		return err
+	}
+	e := *oe
+	e.Msg = fmt.Sprintf("There is no folder %s on the other machine, the folder the recovery key file names.", oe.Folder)
+	e.Hint = "Copies may have gone to another folder after the file was downloaded. Type that folder under Folder."
+	return &e
+}
+
 func (a *Agent) recoverSpool() (string, error) {
 	dir := filepath.Join(a.cfg.StagingDir(), "recover-"+randomSecret(8))
 	return dir, os.MkdirAll(dir, 0o700)
@@ -150,7 +164,7 @@ func (a *Agent) hRecoverList(w http.ResponseWriter, r *http.Request) {
 			detail = string(oe.Kind)
 		}
 		a.auditFor("", actor, "offsite.recover.listed", offsitePlace(c), "failed", detail)
-		writeError(w, automationError(err))
+		writeError(w, automationError(keyFileFolder(err, req)))
 		return
 	}
 	view := recoverView{Server: rec.Server, Keys: 1 + len(rec.Keys.Old), Place: offsitePlace(c), Copies: []recoverCopy{}}
@@ -199,7 +213,7 @@ func (a *Agent) hRecoverRestore(w http.ResponseWriter, r *http.Request) {
 		h.phase("listing")
 		objs, err := dest.List(ctx)
 		if err != nil {
-			return downloadStopped(a.ctx.Err() != nil, h, automationError(err))
+			return downloadStopped(a.ctx.Err() != nil, h, automationError(keyFileFolder(err, req)))
 		}
 		dl := offsite.Download{Name: name, Dir: spool}
 		for _, o := range objs {

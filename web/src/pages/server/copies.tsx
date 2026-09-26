@@ -63,6 +63,9 @@ interface Forget {
   answer: (ok: boolean) => void
 }
 type Busy = 'test' | 'save' | 'on' | 'off' | 'retry' | 'key' | 'newKey'
+/** Why the recovery key is offered: copies were just turned on, the key was replaced, or copies moved to a folder the file doesn't name. */
+type KeyOffer = 'first' | 'new' | 'moved'
+type RecoveryKey = NonNullable<OffsiteView['key']>
 
 function draftOf(v: OffsiteView): Draft {
   return {
@@ -231,7 +234,7 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
   const [busy, setBusy] = useState<Busy>()
   const [ask, setAsk] = useState<HostKey>()
   const [changed, setChanged] = useState<Changed>()
-  const [offer, setOffer] = useState<'first' | 'new'>()
+  const [offer, setOffer] = useState<KeyOffer>()
   const [forget, setForget] = useState<Forget>()
   const [madeKey, setMadeKey] = useState<OffsiteView['sshKey']>()
   const draft = edits ?? draftOf(v)
@@ -367,9 +370,11 @@ function useCopies(s: ServerStatus, v: OffsiteView, refresh: () => Promise<void>
     const next = await postSettings(enabled ? 'on' : 'save', body)
     if (!next) return false
     discard()
-    if (enabled && next.key && !next.key.savedAt) setOffer('first')
+    const first = enabled && next.key && !next.key.savedAt
+    if (first) setOffer('first')
     else toastManager.add({ title: t(enabled ? 'offsite.onToast' : 'offsite.savedToast'), type: 'success' })
     await refresh()
+    if (!first && next.key?.stale) setOffer('moved')
     return true
   }
 
@@ -777,6 +782,10 @@ function CopyStatus({ state, v, c, machine, onChangeRules, phone }: { state: Cop
   }
 }
 
+function staleHint(k: RecoveryKey): string {
+  return k.savedFolder && k.folder ? t('offsite.key.staleHint', { old: k.savedFolder, folder: k.folder }) : t('offsite.key.staleHintAny')
+}
+
 function KeyRow({ v, c, machine }: { v: OffsiteView; c: Copies; machine: string }) {
   const k = v.key
   if (!k) return null
@@ -797,11 +806,11 @@ function KeyRow({ v, c, machine }: { v: OffsiteView; c: Copies; machine: string 
     )
   }
   return (
-    <div className="flex items-center gap-3">
-      <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    <div role={k.stale ? 'status' : undefined} className="flex items-center gap-3">
+      <KeyRoundIcon className={cn('size-4 shrink-0', k.stale ? 'text-warning-foreground' : 'text-muted-foreground')} aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold">{t('offsite.key.row')}</p>
-        <p className="text-xs text-muted-foreground">{t('offsite.key.downloadedAt', { date: formatDate(k.savedAt) })}</p>
+        <p className={cn('text-[13px] font-semibold', k.stale && 'text-warning-foreground')}>{t(k.stale ? 'offsite.key.stale' : 'offsite.key.row')}</p>
+        <p className="text-xs text-muted-foreground">{k.stale ? staleHint(k) : t('offsite.key.downloadedAt', { date: formatDate(k.savedAt) })}</p>
       </div>
       <Button size="sm" variant="outline" loading={c.busy === 'key'} disabledReason={c.keyReadOnly} onClick={() => void c.downloadKey()}>
         <DownloadIcon />
@@ -898,35 +907,47 @@ function HostKeyChangedDialog({ host, changed, phone, busy, onCheck, onClose }: 
   )
 }
 
-function RecoveryKeyDialog({ kind, server, machine, fileName, phone, busy, onDownload, onClose }: { kind: 'first' | 'new'; server: string; machine: string; fileName: string; phone: boolean; busy: boolean; onDownload: () => void; onClose: () => void }) {
-  const first = kind === 'first'
+function offerText(kind: KeyOffer, k: RecoveryKey, server: string, machine: string, phone: boolean): { title: string; body: string; fileHint: string; notes: string[]; download: string } {
+  switch (kind) {
+    case 'first':
+      return { title: t('offsite.key.offerTitle', { server }), body: t('offsite.key.offerBody', { machine }), fileHint: t('offsite.key.fileHint', { server }), notes: [t('offsite.key.where', { machine })], download: t('common.download') }
+    case 'new':
+      return { title: t('offsite.key.newTitle'), body: t('offsite.key.newBody'), fileHint: t('offsite.key.newFileHint'), notes: phone ? [t('offsite.key.newWhy')] : [t('offsite.key.newWhy'), t('offsite.key.newLeaked')], download: t('offsite.key.downloadNew') }
+    case 'moved':
+      return { title: t('offsite.key.movedTitle'), body: staleHint(k), fileHint: t('offsite.key.movedFileHint'), notes: [t('offsite.key.movedWhy')], download: t('common.download') }
+    default: {
+      const never: never = kind
+      return never
+    }
+  }
+}
+
+function RecoveryKeyDialog({ kind, k, server, machine, phone, busy, onDownload, onClose }: { kind: KeyOffer; k: RecoveryKey; server: string; machine: string; phone: boolean; busy: boolean; onDownload: () => void; onClose: () => void }) {
+  const text = offerText(kind, k, server, machine, phone)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogPopup className="sm:max-w-[500px]" showCloseButton={false}>
         <DialogHeader className={cn('gap-1', !phone && 'ps-14')}>
           <KeyRoundIcon className={cn('size-5 text-warning-foreground', phone ? 'mb-3' : 'absolute top-7 left-6')} aria-hidden="true" />
-          <DialogTitle>{first ? t('offsite.key.offerTitle', { server }) : t('offsite.key.newTitle')}</DialogTitle>
-          <DialogDescription>{first ? t('offsite.key.offerBody', { machine }) : t('offsite.key.newBody')}</DialogDescription>
+          <DialogTitle>{text.title}</DialogTitle>
+          <DialogDescription>{text.body}</DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-3">
           <div className="flex items-center gap-3 rounded-xl border border-border px-3.5 py-2.5">
             <FileDownIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold">{fileName}</p>
-              <p className="text-xs text-muted-foreground">{first ? t('offsite.key.fileHint', { server }) : t('offsite.key.newFileHint')}</p>
+              <p className="truncate text-[13px] font-semibold">{k.fileName}</p>
+              <p className="text-xs text-muted-foreground">{text.fileHint}</p>
             </div>
           </div>
-          {first ? (
-            <p className="text-[13px] text-muted-foreground">{t('offsite.key.where', { machine })}</p>
-          ) : (
-            <div className="flex flex-col gap-1.5 text-[13px] text-muted-foreground">
-              <p>{t('offsite.key.newWhy')}</p>
-              {!phone && <p>{t('offsite.key.newLeaked')}</p>}
-            </div>
-          )}
+          <div className="flex flex-col gap-1.5 text-[13px] text-muted-foreground">
+            {text.notes.map((n) => (
+              <p key={n}>{n}</p>
+            ))}
+          </div>
         </DialogPanel>
         <DialogFooter variant="bare" className="mx-6 border-t border-border px-0 pt-4 sm:items-center max-sm:border-t-0">
-          {first && !phone && (
+          {kind === 'first' && !phone && (
             <a href={t('offsite.key.restoringUrl')} target="_blank" rel="noreferrer" className="me-auto inline-flex items-center gap-1 rounded text-[13px] font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
               {t('offsite.key.learnMore')}
               <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
@@ -937,7 +958,7 @@ function RecoveryKeyDialog({ kind, server, machine, fileName, phone, busy, onDow
           </Button>
           <Button size={phone ? 'touch' : 'default'} loading={busy} onClick={onDownload}>
             <DownloadIcon />
-            {first ? t('common.download') : t('offsite.key.downloadNew')}
+            {text.download}
           </Button>
         </DialogFooter>
       </DialogPopup>
@@ -996,7 +1017,7 @@ function CopiesDialogs({ c, v, server, machine, phone }: { c: Copies; v: Offsite
       {c.forget && <ForgetCopiesDialog forget={c.forget} phone={phone} busy={c.busy === 'save' || c.busy === 'on'} />}
       {c.ask && <HostKeyDialog host={host} hostKey={c.ask} phone={phone} busy={c.busy === 'save' || c.busy === 'test'} onConfirm={() => c.ask && void c.confirmHostKey(c.ask)} onClose={() => c.setAsk(undefined)} />}
       {c.changed && <HostKeyChangedDialog host={host} changed={c.changed} phone={phone} busy={c.busy === 'test'} onCheck={() => void c.checkNewKey()} onClose={() => c.setChanged(undefined)} />}
-      {c.offer && v.key && <RecoveryKeyDialog kind={c.offer} server={server.name} machine={machine} fileName={v.key.fileName} phone={phone} busy={c.busy === 'key'} onDownload={() => void c.downloadKey()} onClose={() => c.setOffer(undefined)} />}
+      {c.offer && v.key && <RecoveryKeyDialog kind={c.offer} k={v.key} server={server.name} machine={machine} phone={phone} busy={c.busy === 'key'} onDownload={() => void c.downloadKey()} onClose={() => c.setOffer(undefined)} />}
     </>
   )
 }
@@ -1304,7 +1325,15 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
           <SectionLabel className="mt-2 px-4">{t('offsite.key.row')}</SectionLabel>
           <div className="rounded-3xl border border-border bg-white px-4">
             <div className="flex flex-col gap-3 border-b border-border py-4">
-              {k.savedAt ? (
+              {k.savedAt && k.stale ? (
+                <div role="status" className="flex items-start gap-3">
+                  <KeyRoundIcon className="mt-0.5 size-5 shrink-0 text-warning-foreground" aria-hidden="true" />
+                  <span className="min-w-0">
+                    <span className="block text-base font-semibold text-warning-foreground">{t('offsite.key.stale')}</span>
+                    <span className="block text-[13px] text-muted-foreground">{staleHint(k)}</span>
+                  </span>
+                </div>
+              ) : k.savedAt ? (
                 <div className="flex items-center gap-3">
                   <KeyRoundIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
                   <span className="min-w-0 flex-1">

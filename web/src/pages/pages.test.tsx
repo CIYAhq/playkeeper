@@ -2294,6 +2294,49 @@ describe('Copies somewhere else', () => {
       expect(page()).toContain('Save changes')
     })
   })
+
+  describe('the recovery key file after copies go to another folder', () => {
+    const key = { recipient: 'age1x', createdAt: '2026-09-24T10:00:00Z', oldKeys: 0, savedAt: '2026-09-24T10:05:00Z', fileName: 'playkeeper-recovery-key-survival.txt', folder: 'backups/survival' }
+    const on: OffsiteView = { ...sftp, enabled: true, key }
+    const moved: OffsiteView = { ...on, sftp: { host: 'vault.example.net', port: 22, user: 'playkeeper', folder: 'copies', auth: 'key' }, key: { ...key, folder: 'copies', stale: true, savedFolder: 'backups/survival' } }
+    const passed: OffsiteTestResult = { ok: true, skew: 0, checks: ['connect', 'folder', 'write', 'rename', 'read', 'list', 'delete'].map((step) => ({ step, ok: true, msg: '' })) }
+    const dialog = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+    const hint = 'The file you have says copies are in backups/survival. They go to copies now.'
+
+    async function saveChange(field: string, value: string, saved: OffsiteView) {
+      answer({ '/offsite': on })
+      answerPosts({
+        '/offsite/test': passed,
+        '/offsite': () => {
+          answer({ '/offsite': saved })
+          return saved
+        },
+      })
+      await render(<CopiesCard server={server()} onChangeRules={() => {}} />)
+      await typeInto(field, value)
+      await click('Test connection')
+      await click('Save changes')
+    }
+
+    it('asks for the file again once saved, naming both folders, and keeps saying so until it’s downloaded', async () => {
+      await saveChange('#offsite-folder', 'copies', moved)
+      expect(dialog()).toContain('Download the recovery key again')
+      expect(dialog()).toContain(hint)
+      expect(dialog()).toContain('Same key, new folder · keep it private')
+      await click('Later')
+      expect(dialog()).toBe('')
+      expect(page()).toContain('Recovery key file out of date')
+      expect(page()).toContain(hint)
+      expect(page()).not.toContain('Downloaded')
+    })
+
+    it('doesn’t ask when the file still names the folder copies go to', async () => {
+      await saveChange('#offsite-user', 'backup', on)
+      expect(dialog()).toBe('')
+      expect(page()).not.toContain('Recovery key file out of date')
+      expect(page()).toContain('Downloaded')
+    })
+  })
 })
 
 describe('World backups with copies', () => {

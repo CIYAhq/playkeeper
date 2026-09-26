@@ -339,14 +339,17 @@ func TestRecoveryFileSaysWhoseKeysAndWhereTheCopiesAre(t *testing.T) {
 	if rec.Server != "Survival" || rec.Folder != "playkeeper/survival/" || !rec.Made.Equal(made) || len(rec.Keys.Old) != 1 || rec.Keys.Current.Recipient != keys.Current.Recipient {
 		t.Fatalf("read back %q %q %v, %d old keys", rec.Server, rec.Folder, rec.Made, len(rec.Keys.Old))
 	}
+	if rf.Folder != "playkeeper/survival/" {
+		t.Fatalf("the file says it names %q", rf.Folder)
+	}
 
 	for _, folder := range []string{"", "backups/\nsurvival", strings.Repeat("a", 257)} {
 		rf, err := keys.RecoveryFileFor("Survival", folder, made)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(rf.Content.Reveal(), "# folder:") {
-			t.Errorf("folder %q was written", folder)
+		if strings.Contains(rf.Content.Reveal(), "# folder:") || rf.Folder != "" {
+			t.Errorf("folder %q was written: %q", folder, rf.Folder)
 		}
 	}
 

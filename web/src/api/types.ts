@@ -2118,7 +2118,19 @@ export interface OffsiteView {
   s3?: OffsiteS3
   sftp?: OffsiteSFTP
   sshKey?: { publicKey: string; authorizedKey: string; fingerprint: string }
-  key?: { recipient: string; createdAt: string; oldKeys: number; savedAt?: string; fileName: string }
+  key?: {
+    recipient: string
+    createdAt: string
+    oldKeys: number
+    savedAt?: string
+    fileName: string
+    /** The folder a file downloaded now names, if any. */
+    folder?: string
+    /** Copies went to another folder since the file was downloaded. */
+    stale?: boolean
+    /** The folder the downloaded file names, when stale. */
+    savedFolder?: string
+  }
   lastCopy?: OffsiteCopy
   copies: number
   copiesBytes: number

@@ -154,9 +154,14 @@ func (c *sftpClient) permissionError(op, name string) *Error {
 }
 
 func (c *sftpClient) noFolder(op, name string) *Error {
+	hint := "Create it there first."
+	if op == opList {
+		// Copies are only listed to be read back: a new folder holds none.
+		hint = "Check the folder's name."
+	}
 	return &Error{Kind: KindNoSuchFolder, Op: op, Name: name, Field: "folder", User: c.cfg.User, Folder: c.cfg.Folder,
 		Msg:  fmt.Sprintf("There is no folder %s on the other machine.", c.cfg.Folder),
-		Hint: "Create it there first. A folder without a leading slash is inside the home folder of the user Playkeeper signs in as."}
+		Hint: hint + " A folder without a leading slash is inside the home folder of the user Playkeeper signs in as."}
 }
 
 // free is how many bytes the other machine can still write in the

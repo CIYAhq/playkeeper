@@ -134,6 +134,69 @@ func TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies(t *testing.T) {
 	}
 }
 
+// recoveryKey downloads the recovery key file as the owner.
+func (e *agentEnv) recoveryKey() string {
+	e.t.Helper()
+	req, _ := http.NewRequest("GET", e.ts.URL+e.sp("/offsite/recovery-key"), nil)
+	req.Header.Set("X-Playkeeper-Actor", "owner")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		e.t.Fatalf("recovery key: %d %s", resp.StatusCode, body)
+	}
+	return string(body)
+}
+
+// The recovery key file names the folder copies go to. Once they go to
+// another folder, the downloaded file is out of date until it's downloaded
+// again; a new place with the same folder leaves it as it is.
+func TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder(t *testing.T) {
+	e, _, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	key := func(out map[string]any) map[string]any {
+		t.Helper()
+		k, _ := out["key"].(map[string]any)
+		if k == nil {
+			t.Fatalf("no key: %v", out)
+		}
+		return k
+	}
+	_, out := e.call("GET", e.sp("/offsite"), nil)
+	prefix, _ := key(out)["folder"].(string)
+	if !strings.HasPrefix(prefix, "playkeeper/") {
+		t.Fatalf("the key names %q", prefix)
+	}
+	if file := e.recoveryKey(); !strings.Contains(file, "# folder: "+prefix+"\n") {
+		t.Fatalf("the file doesn't name %s:\n%s", prefix, file)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if k := key(out); k["savedAt"] == nil || k["stale"] != nil || k["savedFolder"] != nil {
+		t.Fatalf("just downloaded: %v", k)
+	}
+
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds-2", "accessKeyId": "PKEXAMPLE"}
+	code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "another-example-secret", "forgetCopies": true})
+	if k := key(out); code != http.StatusOK || k["stale"] != nil || k["folder"] != prefix {
+		t.Fatalf("another bucket, the same folder: %d %v", code, k)
+	}
+
+	sftp := map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "/copies"}
+	code, out = e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "sftp", "sftp": sftp}, "sftpAuth": "password", "password": "an example password", "forgetCopies": true})
+	if k := key(out); code != http.StatusOK || k["stale"] != true || k["savedFolder"] != prefix || k["folder"] != "/copies" || k["savedAt"] == nil {
+		t.Fatalf("another folder: %d %v", code, k)
+	}
+	if file := e.recoveryKey(); !strings.Contains(file, "# folder: /copies\n") {
+		t.Fatalf("the new file doesn't name /copies:\n%s", file)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if k := key(out); k["stale"] != nil || k["savedFolder"] != nil {
+		t.Fatalf("downloaded again: %v", k)
+	}
+}
+
 func (e *agentEnv) staged() []string {
 	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
 	var names []string

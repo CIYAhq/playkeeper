@@ -388,4 +388,9 @@ CREATE TABLE offsite_uploads (
   PRIMARY KEY (server_id, backup_id)
 );
 `,
+	// Wave 7 (0.4.0): the folder the last recovery key file downloaded names,
+	// so a change of folder asks for the key again. NULL when not known.
+	`
+ALTER TABLE offsite ADD COLUMN key_saved_folder TEXT;
+`,
 }

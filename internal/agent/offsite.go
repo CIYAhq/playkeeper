@@ -128,6 +128,9 @@ type offsiteRow struct {
 	keys       offsite.Keys
 	hasKeys    bool
 	keySavedAt *time.Time
+	// keySavedFolder is the folder the downloaded recovery key file names,
+	// nil when not known.
+	keySavedFolder *string
 }
 
 func (r offsiteRow) configured() bool { return r.cfg.Type != "" }
@@ -153,8 +156,9 @@ func (s *server) loadOffsite() (offsiteRow, error) {
 	var enabled int
 	var config, keys string
 	var saved sql.NullInt64
-	err := s.db.QueryRow(`SELECT enabled, config, secret, password, private_key, ssh_public, keys, key_saved_at FROM offsite WHERE server_id = ?`, s.id).
-		Scan(&enabled, &config, &r.secret, &r.password, &r.privateKey, &r.sshPublic, &keys, &saved)
+	var savedFolder sql.NullString
+	err := s.db.QueryRow(`SELECT enabled, config, secret, password, private_key, ssh_public, keys, key_saved_at, key_saved_folder FROM offsite WHERE server_id = ?`, s.id).
+		Scan(&enabled, &config, &r.secret, &r.password, &r.privateKey, &r.sshPublic, &keys, &saved, &savedFolder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, nil
 	}
@@ -176,8 +180,23 @@ func (s *server) loadOffsite() (offsiteRow, error) {
 		t := time.UnixMilli(saved.Int64).UTC()
 		r.keySavedAt = &t
 	}
+	if savedFolder.Valid {
+		r.keySavedFolder = &savedFolder.String
+	}
 	return r, nil
 }
+
+// keyFolder is the folder a recovery key file made now names: where the
+// server's copies go.
+func keyFolder(c storedOffsite) string {
+	if c.Type == offsite.TypeSFTP {
+		return c.SFTP.Folder
+	}
+	return c.S3.Prefix
+}
+
+// sameFolder says whether two folders a recovery key file names are one.
+func sameFolder(a, b string) bool { return strings.TrimRight(a, "/") == strings.TrimRight(b, "/") }
 
 // saveOffsite writes the settings and secrets; the keys and when the
 // recovery key was saved are written by their own routes.
@@ -380,6 +399,12 @@ type keyView struct {
 	OldKeys   int        `json:"oldKeys"`
 	SavedAt   *time.Time `json:"savedAt,omitempty"`
 	FileName  string     `json:"fileName"`
+	// Folder is where the recovery key file says the copies are.
+	Folder string `json:"folder,omitempty"`
+	// Stale says the downloaded file names SavedFolder, where copies no
+	// longer go, so a new machine would look for them in the wrong place.
+	Stale       bool   `json:"stale,omitempty"`
+	SavedFolder string `json:"savedFolder,omitempty"`
 }
 
 // offsiteCopy is a recorded copy at the destination.
@@ -475,8 +500,11 @@ func (s *server) offsiteView(r offsiteRow) offsiteView {
 	}
 	if r.hasKeys {
 		kv := &keyView{Recipient: r.keys.Current.Recipient, CreatedAt: r.keys.Current.CreatedAt, OldKeys: len(r.keys.Old), SavedAt: r.keySavedAt}
-		if f, err := r.keys.RecoveryFile(s.name(), s.now()); err == nil {
-			kv.FileName = f.Name
+		if f, err := r.keys.RecoveryFileFor(s.name(), keyFolder(r.cfg), s.now()); err == nil {
+			kv.FileName, kv.Folder = f.Name, f.Folder
+		}
+		if r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {
+			kv.Stale, kv.SavedFolder = true, *r.keySavedFolder
 		}
 		v.Key = kv
 	}
@@ -947,11 +975,7 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("There is no recovery key yet.", "Turn on copies somewhere else first; the key is made then."))
 		return
 	}
-	folder := row.cfg.S3.Prefix
-	if row.cfg.Type == offsite.TypeSFTP {
-		folder = row.cfg.SFTP.Folder
-	}
-	f, err := row.keys.RecoveryFileFor(s.name(), folder, s.now())
+	f, err := row.keys.RecoveryFileFor(s.name(), keyFolder(row.cfg), s.now())
 	if err != nil {
 		writeError(w, automationError(err))
 		return
@@ -967,7 +991,7 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte(body)); err != nil {
 		return
 	}
-	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ? WHERE server_id = ?`, s.now().UnixMilli(), s.id)
+	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ?, key_saved_folder = ? WHERE server_id = ?`, s.now().UnixMilli(), f.Folder, s.id)
 }
 
 // hOffsiteNewKey makes a new encryption key for new copies and keeps the
@@ -999,11 +1023,11 @@ func (s *server) hOffsiteNewKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, automationError(err))
 		return
 	}
-	if _, err := s.db.Exec(`UPDATE offsite SET keys = ?, key_saved_at = NULL, updated_at = ? WHERE server_id = ?`, encodeKeys(keys), s.now().UnixMilli(), s.id); err != nil {
+	if _, err := s.db.Exec(`UPDATE offsite SET keys = ?, key_saved_at = NULL, key_saved_folder = NULL, updated_at = ? WHERE server_id = ?`, encodeKeys(keys), s.now().UnixMilli(), s.id); err != nil {
 		writeError(w, err)
 		return
 	}
-	row.keys, row.keySavedAt = keys, nil
+	row.keys, row.keySavedAt, row.keySavedFolder = keys, nil, nil
 	s.audit(actor, "offsite.key_rotated", "server", "succeeded", "new key "+rot.Recipient)
 	writeJSON(w, http.StatusOK, offsiteNewKey{Rotation: rot, Offsite: s.offsiteView(row)})
 }
