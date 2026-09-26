@@ -2829,8 +2829,8 @@ control "the Disk space page counts every server busy for an unreadable swap jou
   'return j != nil && j.concerns(s.id)' \
   ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
 control "the World tab keeps the world copies of a restore that isn't over" internal/agent/backups.go \
-  'if s.restoreUnsettled() {' \
-  'if false && s.restoreUnsettled() {' \
+  '} else if unsettled {' \
+  '} else if false && unsettled {' \
   ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
 control "the World tab keeps every server's world copies for an unreadable swap journal" internal/agent/backuprules.go \
   'if j.concerns(s.id) {' \
@@ -2865,13 +2865,13 @@ control "a wake waits for a backup to end" internal/agent/sleeping.go \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
 control "turning sleep off changes nothing while the server is busy" internal/agent/sleeping.go \
   '		if err != nil {
-			writeError(w, err)
-			return
+			return nil, err
 		}
-		resp["operation"] = op' \
-  '		if err == nil {
-			resp["operation"] = op
-		}' \
+	}
+	sleepStep("save")' \
+  '		_ = err
+	}
+	sleepStep("save")' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off_during_a_backup$'
 control "turning sleep off lets go of the game port when the server can't start" internal/agent/sleeping.go \
   '				s.leaveSleep()
@@ -3079,6 +3079,61 @@ control "a server.properties that can't be read keeps the allowlist rule" intern
   'return props != nil && !strings.EqualFold' \
   'return !strings.EqualFold' \
   ./internal/agent '^TestWhoMayWakeASleepingServer$/^no_server.properties$'
+
+# Wave 7: the sleep operation looks again right before it stops the server,
+# and saving the sleep setting takes the lock its commit takes.
+control "a sleep decided with another setting is called off" internal/agent/sleeping.go \
+  's.desired() != api.DesiredRunning || s.sleepSettings() != set' \
+  's.desired() != api.DesiredRunning' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$'
+control "a sleep is called off when someone joined since it decided" internal/agent/sleeping.go \
+  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
+  'if false {' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined$'
+control "saving the sleep setting holds the lock a sleep commits under" internal/agent/sleeping.go \
+  '	s.auto.sleepMu.Lock()
+	defer s.auto.sleepMu.Unlock()
+	var op *api.Operation' \
+  '	var op *api.Operation' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^sleep_turned_off_while_the_operation_looks_again$'
+control "a sleep commits under the lock saving the setting holds" internal/agent/sleeping.go \
+  '	s.auto.sleepMu.Lock()
+	defer s.auto.sleepMu.Unlock()
+	if s.desired()' \
+  '	if s.desired()' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^sleep_turned_off_while_the_operation_looks_again$'
+
+# Wave 7: a staging folder that can't be read may hold any server's swap
+# journal, so each caller keeps what a restore may need and says why.
+control "a staging folder that can't be read may hold any server's swap journal" internal/agent/backuprules.go \
+  'if err != nil && !errors.Is(err, fs.ErrNotExist) {' \
+  'if err != nil && !errors.Is(err, fs.ErrNotExist) && false {' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$'
+control "the rules keep every rollback archive while the staging folder can't be read" internal/agent/backuprules.go \
+  'swaps = map[string]*swapJournal{"": nil}' \
+  'swaps = nil' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^backup_rules$'
+control "the Disk space page counts every server busy while the staging folder can't be read" internal/agent/disk.go \
+  '		journals = append(journals, nil)
+' \
+  '' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
+control "the Disk space page says the staging folder can't be read" internal/agent/disk.go \
+  'diskusage.Problem{Code: diskRestoresUnknown' \
+  'diskusage.Problem{Code: "other"' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
+control "the World tab keeps every world copy while the staging folder can't be read" internal/agent/backuprules.go \
+  'if err != nil {
+		return true, err
+	}' \
+  'if err != nil {
+		return false, nil
+	}' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^World_tab$'
+control "the World tab says the staging folder can't be read" internal/agent/backups.go \
+  'if unsettled, err := s.restoreUnsettled(); err != nil {' \
+  'if unsettled, err := s.restoreUnsettled(); err != nil && false {' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^World_tab$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
