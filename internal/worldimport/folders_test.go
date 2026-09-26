@@ -81,8 +81,11 @@ func TestWorldFoldersWithoutWorld(t *testing.T) {
 	}
 }
 
+// A link at any folder an import would replace is refused by its name,
+// whatever it leads to; a link with any other name is neither refused nor
+// listed.
 func TestWorldFoldersRefusesLinks(t *testing.T) {
-	for _, name := range []string{"world", "world_nether", "world_the_end"} {
+	for _, name := range []string{"world", "world_nether", "world_the_end", "world_mymod_mining", "world_my_mod_deep_dark"} {
 		t.Run(name, func(t *testing.T) {
 			names := []string{"world_backup/level.dat"}
 			if name != "world" {
@@ -101,6 +104,15 @@ func TestWorldFoldersRefusesLinks(t *testing.T) {
 				t.Errorf("params %v, hint %q", e.Params, e.Hint)
 			}
 		})
+	}
+	dir := dataDir(t, "world/level.dat", "world_backup/dimensions/mymod/mining/region/")
+	for _, name := range []string{"world_saves", "world_", "world__mining", "world_mymod_", "world_MyMod_Mining", "worldmymod_mining", "survival_mymod_mining"} {
+		if err := os.Symlink(filepath.Join(dir, "world_backup"), filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := WorldFolders(dir, "world"); err != nil || !reflect.DeepEqual(got, []string{"world"}) {
+		t.Errorf("links with other names: got %q, %v", got, err)
 	}
 }
 

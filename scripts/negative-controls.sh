@@ -2030,6 +2030,17 @@ control "a world no version can load yet is offered none" internal/agent/worldim
 		}
 		return []api.WorldImportVersion{recommended}, rec, nil' \
   ./internal/agent '^TestWorldImportRefusals$'
+control "a link named like a custom dimension's folder is refused" internal/worldimport/folders.go \
+  'case custom && link && dimensionName(dim):' \
+  'case false && custom && link && dimensionName(dim):' \
+  ./internal/worldimport '^TestWorldFoldersRefusesLinks$'
+control "an import refused over a linked world folder starts the previous world again" internal/agent/worldimports.go \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)' \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {' \
+  ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

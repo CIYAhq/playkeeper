@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -695,6 +697,93 @@ func TestImportedWorldThatFailsToStartIsSwappedBack(t *testing.T) {
 	}
 	if code, _ := e.call("GET", importPath(imp, ""), nil); code != 200 {
 		t.Fatal("the upload must stay for another try")
+	}
+}
+
+// A world folder that is a link, the Nether's or a custom dimension's
+// alike, is never replaced, even when the link appears only once the server
+// has stopped: the import stops before moving anything, the previous world
+// runs again, and the link and what it leads to stay as they were. The
+// preview names the link too, and once it is gone the import goes through.
+func TestAWorldImportRefusesLinkedWorldFolders(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	live := e.dataDir()
+	if err := os.WriteFile(filepath.Join(live, "world", "marker.txt"), []byte("nonce-before"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := filepath.Join(t.TempDir(), "mining")
+	region := filepath.Join(elsewhere, "dimensions", "mymod", "mining", "region")
+	if err := os.MkdirAll(region, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(region, "r.0.0.mca"), []byte("mining"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	archive, level := paperServerUpload(t)
+	imp := e.uploadWorld(e.sp("/world-imports"), "paper-server.zip", archive)
+	phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
+	apply := func() *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+		if code != 202 {
+			t.Fatalf("apply: %d %v", code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	onStop := func(f func(*fakeContainer)) {
+		e.fd.mu.Lock()
+		e.fd.stopped = f
+		e.fd.mu.Unlock()
+	}
+
+	for _, name := range []string{"world_nether", "world_mymod_mining"} {
+		link := filepath.Join(live, name)
+		if err := os.RemoveAll(link); err != nil {
+			t.Fatal(err)
+		}
+		before, outside := worldHash(t, live), tree(t, elsewhere)
+		onStop(func(*fakeContainer) {
+			if err := os.Symlink(elsewhere, link); err != nil {
+				t.Error(err)
+			}
+		})
+		op := apply()
+		onStop(nil)
+		says := "“" + name + "” in the server's folder is a link to another place."
+		if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, says) || !strings.Contains(op.Hint, "Replace the link") {
+			t.Fatalf("an import that finds a link at %s: %+v", name, op)
+		}
+		e.waitFor("the previous world online", e.onlineIdle)
+		if worldHash(t, live) != before || !exists(filepath.Join(live, "world", "marker.txt")) {
+			t.Fatalf("the import replaced the world past a link at %s", name)
+		}
+		if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+			t.Fatalf("the link at %s was replaced: %v %v", name, fi, err)
+		}
+		if after := tree(t, elsewhere); !maps.Equal(after, outside) {
+			t.Fatalf("what the link at %s leads to changed:\n%v\nwas\n%v", name, after, outside)
+		}
+		if left, _ := filepath.Glob(live + ".*-import-*"); len(left) != 0 {
+			t.Fatalf("the refused import left copies behind: %v", left)
+		}
+		if code, out := e.call("POST", importPath(imp, "/preview"), map[string]any{"actor": "admin"}); code != 422 || !strings.HasPrefix(fmt.Sprint(out["error"]), says) {
+			t.Fatalf("a preview with a link at %s: %d %v", name, code, out)
+		}
+		if err := os.Remove(link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rollbacks, _ := e.srv().listBackups(`kind = 'rollback'`); len(rollbacks) != 0 {
+		t.Fatalf("a refused import saved a rollback archive: %+v", rollbacks)
+	}
+
+	if op := apply(); op.Status != api.OpSucceeded {
+		t.Fatalf("the import once the links are gone: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if readFile(t, filepath.Join(live, "world", "level.dat")) != level {
+		t.Fatal("the imported world did not replace the previous one")
 	}
 }
 
