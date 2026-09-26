@@ -304,7 +304,7 @@ describe('Disk space page', () => {
     const reason = 'Playkeeper couldn’t read the size of the disk that holds /var/lib/playkeeper (permission denied).'
     answer({ '/disk?': report({ disk: null, problems: [{ code: 'disk_space', path: '/var/lib/playkeeper', text: reason }] }) })
     const t = await render()
-    expect(t).toContain('Couldn’t read my-vps’s disk')
+    expect(t).toContain('Couldn’t read the disk')
     expect(t).toContain(reason)
     expect(t).toContain('Sizes below still come from the folders.')
     expect(t).not.toContain('39 GB used')
@@ -510,7 +510,7 @@ describe('Disk space on a phone', () => {
   it('keeps the unreadable disk short', async () => {
     answer({ '/disk?': report({ disk: null, problems: [{ code: 'disk_space', path: '/var/lib/playkeeper', text: 'Playkeeper couldn’t read the size of the disk.' }] }) })
     const t = await render()
-    expect(t).toContain('Couldn’t read my-vps’s disk')
+    expect(t).toContain('Couldn’t read the disk')
     expect(t).not.toContain('Sizes below still come from the folders.')
     expect(button('Check again')).toBeTruthy()
   })

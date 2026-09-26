@@ -422,7 +422,7 @@ function UsageCard({ report, machine, phone, scanning, onScan }: { report: DiskR
       <Card className={cn(phone && 'p-4')} role="alert">
         <p className={cn('flex items-center gap-2 font-semibold', phone ? 'text-[17px]' : 'text-base')}>
           <CircleAlertIcon className="size-5 shrink-0 text-destructive-foreground" aria-hidden="true" />
-          {t('disk.unreadable', { machine })}
+          {t('disk.unreadable')}
         </p>
         {reason && <p className={cn('mt-2 text-muted-foreground', phone ? 'text-sm' : 'text-[13px]')}>{reason}</p>}
         {!phone && <p className="mt-2 text-[13px] text-muted-foreground">{t('disk.fromFolders')}</p>}
@@ -604,7 +604,7 @@ function ReviewDialog({ way, report, machine, phone, copiesPlace, onClose, onDel
       return next
     })
   const names = new Map(report.servers.map((s) => [s.id, s.name]))
-  const title = way.id === 'set_aside' ? t('disk.reviewSetAside') : wayTitle(way)
+  const title = way.id === 'set_aside' ? t('disk.reviewSetAside') : phone && way.id === 'old_backups' ? t('disk.oldBackupsShort') : wayTitle(way)
   const lead =
     way.id === 'old_backups'
       ? t('disk.reviewBackupsLead', { count: way.candidateIds.length, size: sizeText(way.bytes) })
@@ -614,7 +614,7 @@ function ReviewDialog({ way, report, machine, phone, copiesPlace, onClose, onDel
   const note = copiesPlace ? t('disk.copiesStay', { place: copiesPlace }) : ''
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[560px]" showCloseButton={phone}>
+      <DialogPopup className="sm:max-w-[560px]" showCloseButton={phone} closeProps={besideTitle}>
         <DialogHeader className={cn('gap-1.5', phone && 'px-5 pt-4 pr-14')}>
           <DialogTitle className="text-lg leading-6 font-bold">{title}</DialogTitle>
           <DialogDescription className={cn(phone ? 'text-[15px]' : 'text-[13px]')}>{lead}</DialogDescription>
@@ -653,11 +653,14 @@ function ReviewDialog({ way, report, machine, phone, copiesPlace, onClose, onDel
   )
 }
 
+/** A phone sheet's × on its title's line (under the grab handle and the header's 16 px), not above it. */
+const besideTitle = { className: 'absolute end-3 top-[23px]' }
+
 function ConfirmDialog({ way, names, phone, onClose, onDelete }: { way: DiskWay; names: Map<string, string>; phone: boolean; onClose: () => void; onDelete: () => void }) {
   const size = sizeText(way.bytes)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[440px]" showCloseButton={phone}>
+      <DialogPopup className="sm:max-w-[440px]" showCloseButton={phone} closeProps={besideTitle}>
         <DialogHeader className={cn('gap-1.5', phone && 'px-5 pt-4 pr-14')}>
           <DialogTitle className="text-lg leading-6 font-bold">{wayTitle(way)}</DialogTitle>
           <DialogDescription className={cn(phone ? 'text-[15px]' : 'text-[13px]')}>{wayText(way, names)}</DialogDescription>
