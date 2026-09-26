@@ -7,7 +7,7 @@ import (
 )
 
 func TestPlatformFor(t *testing.T) {
-	for typ, want := range map[string]Platform{"paper": Bukkit, "purpur": Bukkit, "fabric": Fabric, "quilt": Fabric, "neoforge": NeoForge} {
+	for typ, want := range map[string]Platform{"paper": Bukkit, "purpur": Bukkit, "fabric": Fabric, "quilt": Fabric, "neoforge": NeoForge, "forge": Forge} {
 		got, err := PlatformFor(typ)
 		if err != nil || got != want {
 			t.Errorf("PlatformFor(%q) = %q, %v; want %q", typ, got, err, want)
@@ -26,7 +26,7 @@ func TestPlatformFor(t *testing.T) {
 	if _, err := PlatformFor("vanilla"); !strings.Contains(err.Error(), `that "vanilla" servers can't load.`) {
 		t.Errorf("vanilla message = %q", err)
 	}
-	for p, want := range map[Platform]string{Bukkit: "paper", Fabric: "fabric", NeoForge: "neoforge", "forge": ""} {
+	for p, want := range map[Platform]string{Bukkit: "paper", Fabric: "fabric", NeoForge: "neoforge", Forge: "forge", "folia": ""} {
 		if got := p.ModrinthLoader(); got != want {
 			t.Errorf("%q.ModrinthLoader() = %q, want %q", p, got, want)
 		}
@@ -39,7 +39,7 @@ func TestWorlds(t *testing.T) {
 	if len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Errorf("Worlds(Bukkit) = %v, want %v", got, want)
 	}
-	for _, p := range []Platform{Fabric, NeoForge} {
+	for _, p := range []Platform{Fabric, NeoForge, Forge} {
 		got := Worlds(p, "survival")
 		if got[0].Name != "minecraft:overworld" || got[1].Name != "minecraft:the_nether" || got[2].Name != "minecraft:the_end" {
 			t.Errorf("Worlds(%s) = %v", p, got)

@@ -92,8 +92,16 @@ func TestDetect(t *testing.T) {
 	if err != nil || got != (Installed{File: "mods/Chunky-NeoForge-1.5.4.jar", Version: "1.5.4"}) {
 		t.Errorf("Detect(NeoForge) = %+v, %v", got, err)
 	}
+	if _, err := Detect(dir, Forge); !errors.Is(err, ErrNotInstalled) {
+		t.Errorf("Forge found Chunky in a NeoForge jar: %v", err)
+	}
+	makeJar(t, filepath.Join(mods, "Chunky-Forge-1.5.4.jar"), map[string]string{"META-INF/mods.toml": fixture(t, "forge.mods.toml")})
+	got, err = Detect(dir, Forge)
+	if err != nil || got != (Installed{File: "mods/Chunky-Forge-1.5.4.jar", Version: "1.5.4"}) {
+		t.Errorf("Detect(Forge) = %+v, %v", got, err)
+	}
 
-	if _, err := Detect(dir, "forge"); err == nil || errors.Is(err, ErrNotInstalled) {
+	if _, err := Detect(dir, "folia"); err == nil || errors.Is(err, ErrNotInstalled) {
 		t.Errorf("Detect(unknown platform) = %v", err)
 	}
 }

@@ -22,7 +22,7 @@ type Commander interface {
 	Command(ctx context.Context, cmd string) (string, error)
 }
 
-// Paper and vanilla-based servers (Fabric, Quilt, NeoForge) share these
+// Paper and vanilla-based servers (Fabric, Quilt, NeoForge, Forge) share these
 // commands and English replies. Over RCON a command runs to completion on the
 // server thread before its reply is sent, so the reply to "save-all flush"
 // means every world file has been written and flushed.
