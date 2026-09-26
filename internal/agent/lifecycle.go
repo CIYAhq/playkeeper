@@ -914,8 +914,10 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 	case intentional:
 		s.closeOpenSessions(fin, "server_stopped", false)
+		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 	case graceful:
 		s.closeOpenSessions(fin, "server_stopped", false)
+		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 		s.recordEvent(fin, "server_stopped_externally", "", "docker", fmt.Sprintf("exit code %d", c.State.ExitCode))
 		if desired == api.DesiredRunning {
 			s.autoStart("recover")

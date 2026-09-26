@@ -249,6 +249,8 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 			s.mu.Unlock()
 			if recovered && fresh {
 				s.alert(discord.Event{Kind: discord.KindRecovered, At: ts})
+			} else if fresh {
+				s.alert(discord.Event{Kind: discord.KindStarted, At: ts})
 			}
 		}
 	case minecraft.EventStopping:

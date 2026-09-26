@@ -348,6 +348,64 @@ func TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp(t *testing.T) {
 	}
 }
 
+// The alerts Settings offers switched off go out once switched on: a server
+// coming online and stopping, and every kind of backup finishing. Each backup
+// has an agent of its own, since a second "Backup finished" within the quiet
+// period is held back.
+func TestDiscordOptionalAlertsGoOut(t *testing.T) {
+	online := func(t *testing.T) (*agentEnv, *fakeHook) {
+		e, f := newDiscordEnv(t)
+		e.connectDiscord()
+		e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{"started", "stopped", "backup_succeeded"}, "actor": "admin"})
+		e.create()
+		f.waitMessage(e, "Server started", "**My server** is online.")
+		return e, f
+	}
+	stop := func(e *agentEnv) {
+		code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+		if code != 202 {
+			e.t.Fatalf("stop: %d %v", code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+			e.t.Fatalf("stop: %+v", op)
+		}
+	}
+	t.Run("stopped", func(t *testing.T) {
+		e, f := online(t)
+		stop(e)
+		f.waitMessage(e, "Server stopped", "**My server** has stopped.")
+	})
+	for _, c := range []struct {
+		name   string
+		backup func(e *agentEnv) *api.Operation
+	}{
+		{"online backup", func(e *agentEnv) *api.Operation {
+			op := e.backupNow(nil)
+			if op.Detail["method"] == "stopped" {
+				e.t.Fatalf("the backup stopped the server: %+v", op.Detail)
+			}
+			return op
+		}},
+		{"stopped backup", func(e *agentEnv) *api.Operation { return e.backupNow(map[string]any{"stopped": true}) }},
+		{"backup of a stopped server", func(e *agentEnv) *api.Operation { stop(e); return e.backupNow(nil) }},
+		{"automatic backup before an update", func(e *agentEnv) *api.Operation {
+			code, out := e.changeVersion(map[string]any{"versionId": "paper-26.2"})
+			if code != 202 {
+				e.t.Fatalf("change: %d %v", code, out)
+			}
+			return e.waitOp(out["id"].(string))
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, f := online(t)
+			if op := c.backup(e); op.Status != api.OpSucceeded {
+				t.Fatalf("%s: %+v", c.name, op)
+			}
+			f.waitMessage(e, "Backup finished", "**My server** was backed up (")
+		})
+	}
+}
+
 // The live status message shows the server as it is, not as the last sample
 // saw it: no sample runs here once the agent has started. Crashes, coming
 // back online and Playkeeper giving up restarting each show within seconds,

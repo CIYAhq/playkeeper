@@ -1696,6 +1696,27 @@ control "a clean shutdown the reconcile loop has yet to handle is not a crash" i
   '&& !s.intentional[c.ID] && !s.sawStopping' \
   '&& !s.intentional[c.ID]' \
   ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "Discord hears a server come online" internal/agent/collector.go \
+  '} else if fresh {' \
+  '} else if false && fresh {' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
+control "Discord hears a server stop" internal/agent/lifecycle.go \
+  's.closeOpenSessions(fin, "server_stopped", false)
+		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
+	case graceful:' \
+  's.closeOpenSessions(fin, "server_stopped", false)
+	case graceful:' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^stopped$'
+control "Discord hears a manual backup finish" internal/agent/backups.go \
+  '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
+	return nil' \
+  '	return nil' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/backup$'
+control "Discord hears an automatic backup finish" internal/agent/backups.go \
+  '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
+	return vb, nil' \
+  '	return vb, nil' \
+  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^automatic_backup_before_an_update$'
 control "a crash of a server meant to be off is not a give-up" internal/agent/lifecycle.go \
   'GaveUp: wanted && !restarting' \
   'GaveUp: !restarting' \
