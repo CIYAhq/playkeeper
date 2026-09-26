@@ -754,3 +754,28 @@ func TestHostingNotesMatchTheDockerfile(t *testing.T) {
 		}
 	}
 }
+
+// The docs name only make targets the Makefile has: CONTRIBUTING.md and the
+// rest become docs pages, and a command that's gone reads as a broken step.
+func TestDocsNameRealMakeTargets(t *testing.T) {
+	makefile, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^([a-z0-9-]+):`).FindAllStringSubmatch(string(makefile), -1) {
+		targets[m[1]] = true
+	}
+	reMake := regexp.MustCompile("`make ([a-z0-9-]+)[^`]*`")
+	for _, name := range []string{"README.md", "CONTRIBUTING.md", "SECURITY.md", "docs/RECOVERY.md", "docs/TROUBLESHOOTING.md", "site/README.md"} {
+		b, err := os.ReadFile("../../" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range reMake.FindAllStringSubmatch(string(b), -1) {
+			if !targets[m[1]] {
+				t.Errorf("%s names make %s, which the Makefile doesn't have", name, m[1])
+			}
+		}
+	}
+}
