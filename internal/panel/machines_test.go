@@ -689,6 +689,50 @@ func TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp(t *testing.T) {
 	}
 }
 
+// When the record of a joined machine's servers can't be written, the list
+// shows the servers the machine just answered with, and the failure is
+// logged.
+func TestAJoinedMachinesServersShowWhenTheirRecordCantBeWritten(t *testing.T) {
+	fail := func(on string) string {
+		return `CREATE TRIGGER record_fails BEFORE ` + on + ` ON server_machines BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`
+	}
+	for _, tc := range []struct {
+		name           string
+		before, listed []string
+		breaks         string // SQL that makes the record fail, or "close" to close the database
+	}{
+		{"a new server can't be recorded", nil, []string{"xxxxxxxxxx", "yyyyyyyyyy"}, fail("INSERT")},
+		{"a server's status can't be kept", []string{"xxxxxxxxxx"}, []string{"xxxxxxxxxx"}, fail("UPDATE")},
+		{"a server it no longer lists can't be forgotten", []string{"xxxxxxxxxx", "yyyyyyyyyy"}, []string{"xxxxxxxxxx"}, fail("DELETE")},
+		{"the record's transaction can't be opened", nil, []string{"xxxxxxxxxx"}, "close"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			alpha := e.addRemote(t, "alphaalpha", "alpha")
+			if tc.before != nil {
+				e.srv.claimServers(alpha, serverList(tc.before...))
+			}
+			e.clock.add(lastKnownAfter + time.Second)
+			if tc.breaks == "close" {
+				e.srv.db.Close()
+			} else if _, err := e.srv.db.Exec(tc.breaks); err != nil {
+				t.Fatal(err)
+			}
+			var listed []map[string]any
+			for _, id := range append(tc.listed, "../etc") {
+				listed = append(listed, map[string]any{"id": id, "name": id, "phase": "stopped"})
+			}
+			got := e.srv.claimServers(alpha, listed)
+			if ids(got) != strings.Join(tc.listed, " ") || got[0]["phase"] != "stopped" || got[0]["lastKnownAt"] != nil {
+				t.Fatalf("alpha shows %v, want %v as it listed them", got, tc.listed)
+			}
+			if !strings.Contains(e.logs.String(), "record server machines") {
+				t.Fatal("the failed record isn't logged")
+			}
+		})
+	}
+}
+
 func TestAnOfflineMachineShowsItsLastKnownServers(t *testing.T) {
 	e := newEnv(t)
 	cookie, csrf := e.setup(t)

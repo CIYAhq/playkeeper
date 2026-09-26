@@ -3083,6 +3083,10 @@ control "a failed lookup of a server's machine sends its requests to no machine,
   'err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
 	if false && err != nil && !isNoRows(err) {' \
   ./internal/panel '^TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp$'
+control "a joined machine's servers still show when their record can't be written" internal/panel/machines.go \
+  'return listedServers(servers)' \
+  'return nil' \
+  ./internal/panel '^TestAJoinedMachinesServersShowWhenTheirRecordCantBeWritten$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
