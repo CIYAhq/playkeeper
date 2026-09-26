@@ -77,10 +77,13 @@ type freeState struct {
 	NextRefresh time.Time `json:"nextRefresh,omitzero"`
 	// ServersWait is the names service's reason for giving the servers no
 	// address yet (names.CodeServerNotYet or names.CodeNotAnswering), with
-	// ServersFrom from the first; the loop asks again at ServersRetry.
-	ServersWait  string    `json:"serversWait,omitempty"`
-	ServersFrom  time.Time `json:"serversFrom,omitzero"`
-	ServersRetry time.Time `json:"serversRetry,omitzero"`
+	// ServersFrom from the first. ServersFailed counts the updates of the
+	// servers' records that failed otherwise, in a row. The loop tries
+	// again at ServersRetry.
+	ServersWait   string    `json:"serversWait,omitempty"`
+	ServersFrom   time.Time `json:"serversFrom,omitzero"`
+	ServersFailed int       `json:"serversFailed,omitempty"`
+	ServersRetry  time.Time `json:"serversRetry,omitzero"`
 }
 
 // addressRuntime is the address's in-memory side. lock allows one change
@@ -602,11 +605,12 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 		}
 	}
 	if len(remove) == 0 && len(set) == 0 {
-		a.saveServersWait("", time.Time{})
+		a.saveServersSync("", time.Time{}, false)
 		return nil
 	}
 	c, err := a.namesClient(true)
 	if err != nil {
+		a.saveServersSync("", time.Time{}, true)
 		return err
 	}
 	var errs []error
@@ -632,7 +636,7 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	a.saveServersWait(wait, from)
+	a.saveServersSync(wait, from, len(errs) > 0)
 	a.pollFree(ctx, c)
 	if len(errs) > 0 {
 		return a.namesError(errs[0])
@@ -640,24 +644,50 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 	return nil
 }
 
-// saveServersWait records why the names service gives the servers no
-// address yet, or that it does ("").
-func (a *Agent) saveServersWait(wait string, from time.Time) {
+// saveServersSync records how an update of the servers' records went: why
+// the names service gives the servers no address yet (wait, with from),
+// whether it failed otherwise, or that it all worked. The loop tries again
+// when the service allows after a wait, and soon after a failure, less
+// often while failures go on; a failure says nothing new about a wait
+// recorded before, whose time it doesn't bring forward.
+func (a *Agent) saveServersSync(wait string, from time.Time, failed bool) {
 	now := a.now().UTC()
 	_ = a.updateAddress(func(st *addressState) {
-		if st.Kind != api.AddressPlaykeeper || st.Free == nil || (st.Free.ServersWait == "" && wait == "") {
+		if st.Kind != api.AddressPlaykeeper || st.Free == nil || (wait == "" && !failed && st.Free.ServersWait == "" && st.Free.ServersFailed == 0) {
 			return
 		}
 		f := *st.Free
-		f.ServersWait, f.ServersFrom, f.ServersRetry = wait, from, time.Time{}
 		switch {
 		case wait == names.CodeServerNotYet && from.After(now):
-			f.ServersRetry = from
+			f.ServersWait, f.ServersFrom, f.ServersRetry = wait, from, from
 		case wait != "":
-			f.ServersRetry = now.Add(freeRetryEvery)
+			f.ServersWait, f.ServersFrom, f.ServersRetry = wait, from, now.Add(freeRetryEvery)
+		case !failed:
+			f.ServersWait, f.ServersFrom, f.ServersRetry = "", time.Time{}, time.Time{}
+		}
+		f.ServersFailed = 0
+		if failed {
+			f.ServersFailed = st.Free.ServersFailed + 1
+			if retry := now.Add(serversRetryAfter(f.ServersFailed)); retry.After(f.ServersRetry) {
+				f.ServersRetry = retry
+			}
 		}
 		st.Free = &f
 	})
+}
+
+// serversRetryAfter is how long the loop waits to update the servers'
+// records again after failed updates in a row: freePollEvery at first,
+// twice as long after each further one, and at most freeRetryEvery.
+func serversRetryAfter(failed int) time.Duration {
+	d := freePollEvery
+	for range failed - 1 {
+		d *= 2
+		if d >= freeRetryEvery {
+			return freeRetryEvery
+		}
+	}
+	return d
 }
 
 // pollFree asks the names service how the machine's name is doing.
@@ -679,13 +709,15 @@ func (a *Agent) pollFree(ctx context.Context, c *names.Client) {
 }
 
 // freePublished reports whether the free name's records and those of the
-// servers that should have one are all published.
+// servers that should have one are all published. Records the names
+// service refused, or that couldn't be given, are not waited for: the loop
+// asks for them again later.
 func freePublished(st addressState, servers []joinServer) bool {
 	if st.Free == nil || st.Free.Name.State != names.StateActive || st.Free.Name.DNS != names.DNSOK {
 		return false
 	}
 	for _, s := range freeServers(servers) {
-		if !st.Free.serverPublished(s) && st.Free.ServersWait == "" {
+		if !st.Free.serverPublished(s) && st.Free.ServersWait == "" && st.Free.ServersFailed == 0 {
 			return false
 		}
 	}
@@ -1428,7 +1460,7 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 			return
 		}
 		changed := a.takeServersChanged()
-		if st.Free.ServersWait != "" && !now.Before(st.Free.ServersRetry) {
+		if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {
 			changed = true
 		}
 		switch {

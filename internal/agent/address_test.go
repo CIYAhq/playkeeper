@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -564,6 +565,32 @@ func (f *fakeNames) labels(name string) map[string]int {
 	return out
 }
 
+// edit changes name as requests the test doesn't make would have.
+func (f *fakeNames) edit(name string, fn func(n *names.Name)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn(f.names[name])
+}
+
+// inTurn refuses the requests for each route (method and path) with the
+// route's refusals in turn: a nil one, or the end of the list, lets a
+// request through.
+func inTurn(fail map[string][]*fakeRefusal) func(r *http.Request) *fakeRefusal {
+	var mu sync.Mutex
+	left := maps.Clone(fail)
+	return func(r *http.Request) *fakeRefusal {
+		mu.Lock()
+		defer mu.Unlock()
+		route := r.Method + " " + r.URL.Path
+		if len(left[route]) == 0 {
+			return nil
+		}
+		rf := left[route][0]
+		left[route] = left[route][1:]
+		return rf
+	}
+}
+
 // addressEnv is an agent with the fake names service, DNS and certificate
 // authority.
 type addressEnv struct {
@@ -702,6 +729,12 @@ func (e *addressEnv) loopRefreshes(name string) {
 	release()
 	e.a.serversChanged()
 	e.waitFor("the loop to refresh "+name, func() bool { return e.names.count(route) > before })
+}
+
+// about reports whether d, the time until something the machine saved a
+// moment ago as due after want, is that.
+func about(d, want time.Duration) bool {
+	return d > want-time.Minute && d <= want
 }
 
 func TestFreeAddressClaimPublishesServersAndCertificate(t *testing.T) {
@@ -1658,6 +1691,212 @@ func TestServerAddressesCoveredByThePublishAreNotAskedAgain(t *testing.T) {
 	look()
 	if got := puts(); got != n {
 		t.Fatalf("the loop asked for server addresses again (%d times, was %d) before the service allows them", got, n)
+	}
+}
+
+// A server's record the names service couldn't give during the claim's
+// publish is asked for again a few minutes later, less often while that
+// keeps failing, and published once it works.
+func TestServerAddressesThatFailedAreAskedForAgain(t *testing.T) {
+	e := newAddressEnv(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.addServerNamed("Survival")
+	var mu sync.Mutex
+	failing := 1
+	setFailing := func(n int) {
+		mu.Lock()
+		failing = n
+		mu.Unlock()
+	}
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		if r.Method != "PUT" || !strings.Contains(r.URL.Path, "/servers/") {
+			return nil
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if failing == 0 {
+			return nil
+		}
+		failing--
+		return &fakeRefusal{status: http.StatusServiceUnavailable, code: names.CodeUnavailable, msg: "Down."}
+	})
+	retryNow := func() {
+		_ = e.a.updateAddress(func(st *addressState) {
+			f := *st.Free
+			f.ServersRetry = time.Time{}
+			st.Free = &f
+		})
+	}
+	askedAgain := func() bool {
+		puts := func() int { return e.names.count("PUT /v1/names/alex/servers/") }
+		n := puts()
+		time.Sleep(200 * time.Millisecond)
+		return puts() != n
+	}
+
+	// Publishing doesn't wait for a record that couldn't be given.
+	start := time.Now()
+	v := e.claim("alex")
+	if time.Since(start) > time.Minute {
+		t.Fatalf("the claim waited %v for a server record that couldn't be given", time.Since(start))
+	}
+	if len(v.Servers) != 1 || v.Servers[0].Published {
+		t.Fatalf("servers after the claim: %+v", v.Servers)
+	}
+	if f := e.a.address().Free; f.ServersFailed != 1 || !about(time.Until(f.ServersRetry), 5*time.Minute) {
+		t.Fatalf("after the claim: %d failed, retry in %v", f.ServersFailed, time.Until(f.ServersRetry))
+	}
+	if askedAgain() {
+		t.Fatal("the loop asked again at once")
+	}
+
+	// While it keeps failing, the loop asks less and less often.
+	setFailing(1 << 20)
+	for i, want := range []time.Duration{10 * time.Minute, 20 * time.Minute, 40 * time.Minute, time.Hour, time.Hour} {
+		retryNow()
+		e.waitFor(fmt.Sprintf("failure %d", i+2), func() bool { return e.a.address().Free.ServersFailed == i+2 })
+		if d := time.Until(e.a.address().Free.ServersRetry); !about(d, want) {
+			t.Fatalf("after %d failures the loop tries again in %v, want %v", i+2, d, want)
+		}
+	}
+	if askedAgain() {
+		t.Fatal("the loop asked again before it was due")
+	}
+
+	// Once the service gives the record, the retries are over.
+	setFailing(0)
+	retryNow()
+	e.waitFor("the server's record", func() bool {
+		v := e.address()
+		return len(v.Servers) == 1 && v.Servers[0].Published
+	})
+	if f := e.a.address().Free; f.ServersFailed != 0 || !f.ServersRetry.IsZero() || e.names.labels("alex")["survival"] != 25565 {
+		t.Fatalf("after the record was given: %+v", f)
+	}
+}
+
+// Every answer of the names service to an update of the servers' records
+// leaves the loop a time to try again if it has to: when the service
+// allows after a wait, soon after a failure and less often while failures
+// go on, never before a wait the service asked for is over.
+func TestServerAddressesFollowEveryAnswerOfTheNamesService(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	later, earlier, soon := now.Add(72*time.Hour), now.Add(-time.Minute), now.Add(time.Hour)
+	notYet := func(from time.Time) *fakeRefusal {
+		return &fakeRefusal{status: http.StatusConflict, code: names.CodeServerNotYet, msg: "Not yet.", params: map[string]any{"name": "alex", "from": from.Unix()}}
+	}
+	notAnswering := &fakeRefusal{status: http.StatusConflict, code: names.CodeNotAnswering, msg: "No answer.", params: map[string]any{"name": "alex", "port": names.AlivePort}}
+	down := &fakeRefusal{status: http.StatusServiceUnavailable, code: names.CodeUnavailable, msg: "Down."}
+	tooMany := &fakeRefusal{status: http.StatusConflict, code: names.CodeTooManyServers, msg: "Too many servers."}
+	notClaimed := &fakeRefusal{status: http.StatusNotFound, code: names.CodeNotClaimed, msg: "Not claimed."}
+	const set, remove = "PUT /v1/names/alex/servers/survival", "DELETE /v1/names/alex/servers/old"
+	type refusals = map[string][]*fakeRefusal
+	for _, c := range []struct {
+		name string
+		// before is how the last update went.
+		before freeState
+		// gone is the record of a server the machine no longer has, which
+		// the update removes; missing is Survival's, which it gives.
+		gone, missing bool
+		// noKey makes the machine's names key unreadable.
+		noKey bool
+		fail  refusals
+		// code is the update's error, "" for none.
+		code string
+		// after is how the update went; the loop tries again in about
+		// retryIn, or else at after.ServersRetry.
+		after   freeState
+		retryIn time.Duration
+	}{
+		{name: "the record is given", missing: true},
+		{name: "the service gives none yet", missing: true, fail: refusals{set: {notYet(later)}},
+			after: freeState{ServersWait: names.CodeServerNotYet, ServersFrom: later, ServersRetry: later}},
+		{name: "the service gives none yet, from a time that has passed", missing: true, fail: refusals{set: {notYet(earlier)}},
+			after: freeState{ServersWait: names.CodeServerNotYet, ServersFrom: earlier}, retryIn: time.Hour},
+		{name: "the service can't reach the dashboard", missing: true, fail: refusals{set: {notAnswering}},
+			after: freeState{ServersWait: names.CodeNotAnswering}, retryIn: time.Hour},
+		{name: "the record can't be given", missing: true, fail: refusals{set: {down}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersFailed: 1}, retryIn: 5 * time.Minute},
+		{name: "the service refuses the record", missing: true, fail: refusals{set: {tooMany}}, code: names.CodeTooManyServers,
+			after: freeState{ServersFailed: 1}, retryIn: 5 * time.Minute},
+		{name: "the record can't be given a second time", before: freeState{ServersFailed: 1, ServersRetry: earlier}, missing: true, fail: refusals{set: {down}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersFailed: 2}, retryIn: 10 * time.Minute},
+		{name: "the record can't be given a fifth time", before: freeState{ServersFailed: 4, ServersRetry: earlier}, missing: true, fail: refusals{set: {down}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersFailed: 5}, retryIn: time.Hour},
+		{name: "the record can't be given a tenth time", before: freeState{ServersFailed: 9, ServersRetry: earlier}, missing: true, fail: refusals{set: {down}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersFailed: 10}, retryIn: time.Hour},
+		{name: "a removed server's record can't be removed", gone: true, fail: refusals{remove: {down}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersFailed: 1}, retryIn: 5 * time.Minute},
+		{name: "a removed server's record went with the name", gone: true, fail: refusals{remove: {notClaimed}}},
+		{name: "a removal fails and the service gives no record yet", gone: true, missing: true, fail: refusals{remove: {down}, set: {notYet(later)}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersWait: names.CodeServerNotYet, ServersFrom: later, ServersFailed: 1, ServersRetry: later}},
+		{name: "the record can't be given during the service's wait", before: freeState{ServersWait: names.CodeServerNotYet, ServersFrom: later, ServersRetry: later}, missing: true, fail: refusals{set: {down}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersWait: names.CodeServerNotYet, ServersFrom: later, ServersFailed: 1, ServersRetry: later}},
+		{name: "the record can't be given after the service couldn't reach the dashboard", before: freeState{ServersWait: names.CodeNotAnswering, ServersRetry: soon}, missing: true, fail: refusals{set: {down}}, code: api.CodeNamesUnreachable,
+			after: freeState{ServersWait: names.CodeNotAnswering, ServersFailed: 1, ServersRetry: soon}},
+		{name: "the record is given after failures", before: freeState{ServersFailed: 3, ServersRetry: earlier}, missing: true},
+		{name: "the record is given after the service's wait", before: freeState{ServersWait: names.CodeServerNotYet, ServersFrom: earlier, ServersRetry: earlier}, missing: true},
+		{name: "nothing to update after failures", before: freeState{ServersFailed: 2, ServersRetry: earlier}},
+		{name: "the machine's key can't be read", missing: true, noKey: true, code: api.CodeInternal,
+			after: freeState{ServersFailed: 1}, retryIn: 5 * time.Minute},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAddressEnv(t, nil)
+			e.addServerNamed("Survival")
+			e.claim("alex")
+			release, err := e.a.holdAddress(t.Context(), 15*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			edit := func(servers []names.Server) []names.Server {
+				servers = slices.DeleteFunc(slices.Clone(servers), func(s names.Server) bool { return c.missing && s.Label == "survival" })
+				if c.gone {
+					servers = append(servers, names.Server{Label: "old", Address: names.ServerAddress("old", "alex", names.DefaultBase), Port: 25570, DNS: names.DNSOK})
+				}
+				return servers
+			}
+			e.names.edit("alex", func(n *names.Name) { n.Servers = edit(n.Servers) })
+			_ = e.a.updateAddress(func(st *addressState) {
+				f := *st.Free
+				f.Name.Servers = edit(f.Name.Servers)
+				f.ServersWait, f.ServersFrom, f.ServersFailed, f.ServersRetry = c.before.ServersWait, c.before.ServersFrom, c.before.ServersFailed, c.before.ServersRetry
+				st.Free = &f
+			})
+			if c.noKey {
+				key := filepath.Join(e.cfg.AgentDir(), "names.key")
+				if err := os.Rename(key, key+".saved"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(key, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.fail != nil {
+				e.names.setFail(inTurn(c.fail))
+			}
+			err = e.a.syncFreeServers(t.Context())
+			var ae *apiError
+			code := ""
+			switch {
+			case errors.As(err, &ae):
+				code = ae.Code
+			case err != nil:
+				code = err.Error()
+			}
+			if code != c.code {
+				t.Fatalf("the update: %v, want %q", err, c.code)
+			}
+			f := e.a.address().Free
+			if f.ServersWait != c.after.ServersWait || !f.ServersFrom.Equal(c.after.ServersFrom) || f.ServersFailed != c.after.ServersFailed {
+				t.Fatalf("after the update: wait %q from %v, %d failed; want %q from %v, %d failed", f.ServersWait, f.ServersFrom, f.ServersFailed, c.after.ServersWait, c.after.ServersFrom, c.after.ServersFailed)
+			}
+			if c.retryIn != 0 && !about(time.Until(f.ServersRetry), c.retryIn) || c.retryIn == 0 && !f.ServersRetry.Equal(c.after.ServersRetry) {
+				t.Fatalf("the loop tries again at %v, in %v", f.ServersRetry, time.Until(f.ServersRetry))
+			}
+			if got := e.names.labels("alex"); c.fail == nil && !c.noKey && (len(got) != 1 || got["survival"] != 25565) {
+				t.Fatalf("the service's records: %v", got)
+			}
+		})
 	}
 }
 
