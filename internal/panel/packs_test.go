@@ -130,6 +130,43 @@ func TestResourcePackUploadUsesTheDashboardAddress(t *testing.T) {
 	}
 }
 
+// Players download resource packs from the dashboard, which serves only its
+// own machine's, so a joined machine's server refuses one plainly instead of
+// offering players a pack they can't download.
+func TestResourcePacksAreForTheDashboardsMachine(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	e.reply("POST", "/v1/servers/abcdefghjk/resourcepack", `{"offer":{"sha1":"`+strings.Repeat("a", 40)+`"},"pending":true}`)
+	ra := newRemoteAgent()
+	e.joined(t, cookie, csrf, ra)
+	e.get(t, "/api/servers", cookie, nil)
+	const pack = "PK\x03\x04 a resource pack"
+	for _, tc := range []struct {
+		name, server string
+		code         int
+		error, hint  string
+	}{
+		{name: "the dashboard's server", server: "abcdefghjk", code: http.StatusOK},
+		{name: "a joined machine's server", server: "rstuvwxyzq", code: http.StatusConflict, error: "Resource packs work only on the dashboard's machine for now.",
+			hint: "Players download them from the dashboard, which can't pass on home-server's packs yet."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, b := e.send(t, "POST", "/api/servers/"+tc.server+"/resourcepack?name=Faithful.zip", "panel.example.com", pack, auth(cookie, csrf))
+			body := jsonBody(b)
+			if r.StatusCode != tc.code || (tc.error != "" && (body["error"] != tc.error || body["hint"] != tc.hint)) {
+				t.Fatalf("upload: %d %v", r.StatusCode, body)
+			}
+			if _, ok := ra.saw("POST /v1/servers/rstuvwxyzq/resourcepack"); ok {
+				t.Fatal("the joined machine got the pack")
+			}
+			if tc.code == http.StatusOK && !e.sawLocally("POST /v1/servers/abcdefghjk/resourcepack") {
+				t.Fatal("the dashboard's agent didn't get the pack")
+			}
+		})
+	}
+}
+
 func TestAddonAndPackRoutesReachTheAgent(t *testing.T) {
 	agent := &recordingAgent{}
 	e := newEnvAgent(t, agent.handler, io.Discard)
@@ -195,7 +232,7 @@ func TestAddonIconsAreOnlyImages(t *testing.T) {
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, `{"error":"Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from evil.example.","code":"host_not_allowed"}`)
+			io.WriteString(w, `{"error":"Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from evil.example.","code":"host_not_allowed"}`)
 		}
 	})
 	icon := "/api/servers/" + sampleServer + "/addons/icon?url="

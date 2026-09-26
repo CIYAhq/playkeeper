@@ -180,6 +180,9 @@ function report(over: Partial<DiskReport> = {}): DiskReport {
 
 const offsite = { enabled: true, configured: true, type: 's3', place: 'Backblaze B2', copies: 12, copiesBytes: 7 * GB } as OffsiteView
 
+const heldBack =
+  'Playkeeper can’t read its restore staging folder (open /var/lib/playkeeper/restore-staging: permission denied), so it can’t tell whether a restore still needs a server’s world copies or backups. Nothing of any server is offered until it can.'
+
 function finished(detail: Record<string, unknown>, over: Partial<Operation> = {}): Operation {
   return { id: 'op-disk', kind: 'disk-cleanup', status: 'succeeded', phase: '', actor: 'siya', startedAt: '2026-09-25T20:01:00Z', finishedAt: '2026-09-25T20:01:02Z', detail, ...over }
 }
@@ -297,7 +300,15 @@ describe('Disk space page', () => {
     answer({ '/disk?': report({ ways: [], freeable: 0 }) })
     const t = await render()
     expect(t).toContain('Nothing to free up right now.')
+    expect(t).not.toContain('Nothing of any server is offered')
     expect(document.querySelectorAll('ul button')).toHaveLength(0)
+  })
+
+  it('says why nothing of any server is offered while the agent can’t tell which restores are over', async () => {
+    answer({ '/disk?': report({ ways: [], freeable: 0, problems: [{ code: 'restores_unknown', path: '/var/lib/playkeeper/restore-staging', text: heldBack }] }) })
+    const t = await render()
+    expect(t).toContain('Nothing to free up right now.')
+    expect(t).toContain(heldBack)
   })
 
   it('shows the reason a disk couldn’t be read and still works from folder sizes', async () => {
@@ -460,6 +471,13 @@ describe('Review before removal', () => {
 describe('Disk space on a phone', () => {
   beforeEach(() => {
     view.phone = true
+  })
+
+  it('says why nothing of any server is offered while the agent can’t tell which restores are over', async () => {
+    answer({ '/disk?': report({ ways: [], freeable: 0, problems: [{ code: 'restores_unknown', path: '/var/lib/playkeeper/restore-staging', text: heldBack }] }) })
+    const t = await render()
+    expect(t).toContain('Nothing to free up right now.')
+    expect(t).toContain(heldBack)
   })
 
   it('shows rows with a title and size, and no table', async () => {

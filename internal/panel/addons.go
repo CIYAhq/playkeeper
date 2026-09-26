@@ -14,7 +14,8 @@ var addonIconTypes = []string{"image/png", "image/jpeg", "image/gif", "image/web
 
 // hAddonIcon serves a plugin's or mod's icon from the panel's own origin,
 // as its Content-Security-Policy loads no images from elsewhere. The
-// server's machine fetches it, from Modrinth's and Hangar's file hosts only.
+// server's machine fetches it, from Modrinth's, Hangar's and CurseForge's
+// file hosts only.
 func (s *Server) hAddonIcon(w http.ResponseWriter, r *http.Request, _ *session) {
 	m, ok := s.target(w, r)
 	if !ok {

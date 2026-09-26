@@ -97,6 +97,13 @@ func failureOf(err error) (int, api.Error) {
 		return http.StatusServiceUnavailable, api.Error{Error: "The dashboard couldn't look up which machine runs this server, so it sent the request to none.",
 			Code: api.CodeInternal, Hint: "Try again in a moment."}
 	}
+	if errors.Is(err, errDisputed) {
+		return http.StatusConflict, api.Error{Error: "Two machines say they run this server, so the dashboard sends its requests to neither.",
+			Code: codeServerDisputed, Hint: "Remove the machine that shouldn't list it in Settings › Machines."}
+	}
+	if errors.Is(err, errUnknownServer) {
+		return http.StatusNotFound, api.Error{Error: "Server not found.", Code: api.CodeNotFound}
+	}
 	return http.StatusServiceUnavailable, api.Error{Error: "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.",
 		Code: api.CodeAgentUnavailable, Hint: "On the server, check: sudo systemctl status playkeeper-agent"}
 }

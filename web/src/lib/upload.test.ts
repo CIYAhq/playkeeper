@@ -41,6 +41,7 @@ let machine: Machine
 
 beforeEach(() => {
   machine = new Machine()
+  vi.mocked(client.post).mockClear()
   vi.mocked(client.post).mockImplementation((async (path: string, body?: unknown) => {
     if (path !== base) {
       const b = body as { name: string; size: number }
@@ -81,12 +82,56 @@ describe('uploadWorld', () => {
 
   it('asks where the upload stands after a 409 without waiting', async () => {
     machine.files = [{ name: 'world.zip', size: 25, received: 10 }]
-    const resume = { ...machine.view(), files: [{ index: 0, name: 'world.zip', size: 25, received: 0 }] }
+    // The request before was still finishing when the machine was asked.
+    vi.mocked(client.get).mockResolvedValueOnce({ ...machine.view(), files: [{ index: 0, name: 'world.zip', size: 25, received: 0 }] })
     const wait = vi.fn(noWait)
-    await uploadWorld({ base, files: [file('world.zip', 25)], signal: new AbortController().signal, resume, put: machine.put, wait, piece: 10 })
+    await uploadWorld({ base, files: [file('world.zip', 25)], signal: new AbortController().signal, resume: machine.view(), put: machine.put, wait, piece: 10 })
     expect(machine.puts).toEqual([at(0), at(10), at(20)])
     expect(wait).not.toHaveBeenCalled()
-    expect(client.post).not.toHaveBeenCalledWith(base, {})
+    expect(client.post).not.toHaveBeenCalled()
+  })
+
+  // "Try again" passes the upload as the page last saw it, which may be from
+  // before any file was announced.
+  it.each([
+    { name: 'announces nothing the machine has', has: [{ name: 'world.zip', size: 25, received: 10 }, { name: 'world_nether.zip', size: 5, received: 0 }], posts: 0, first: at(10) },
+    { name: 'announces only the files the machine lacks', has: [{ name: 'world.zip', size: 25, received: 25 }], posts: 1, first: at(0, 1) },
+    { name: 'announces every file when the machine has none', has: [], posts: 2, first: at(0) },
+  ])('carrying on with an upload $name', async ({ has, posts, first }) => {
+    machine.files = has.map((f) => ({ ...f }))
+    const resume = { ...machine.view(), files: [] }
+    const seen: number[] = []
+    const imp = await uploadWorld({
+      base,
+      files: [file('world.zip', 25), file('world_nether.zip', 5)],
+      signal: new AbortController().signal,
+      resume,
+      put: machine.put,
+      wait: noWait,
+      piece: 10,
+      onImport: (i) => seen.push(i.files.length),
+    })
+    expect(vi.mocked(client.post).mock.calls.map(([path]) => path)).toEqual(Array<string>(posts).fill(`${base}/imp2345abc/files`))
+    expect(machine.puts[0]).toBe(first)
+    expect(imp.files.map((f) => [f.name, f.received])).toEqual([
+      ['world.zip', 25],
+      ['world_nether.zip', 5],
+    ])
+    expect(seen.at(-1)).toBe(2)
+  })
+
+  it.each([
+    { name: 'more files', has: [{ name: 'world.zip', size: 25, received: 25 }, { name: 'world.zip', size: 25, received: 0 }] },
+    { name: 'a file of another name', has: [{ name: 'Survival-2024.zip', size: 25, received: 3 }] },
+    { name: 'a file of another size', has: [{ name: 'world.zip', size: 30, received: 3 }] },
+  ])('refuses to carry on when the machine has $name', async ({ has }) => {
+    machine.files = has.map((f) => ({ ...f }))
+    await expect(uploadWorld({ base, files: [file('world.zip', 25)], signal: new AbortController().signal, resume: machine.view(), put: machine.put, wait: noWait })).rejects.toMatchObject({
+      status: 409,
+      message: 'The machine has other files for this upload. Choose the world again to start over.',
+    })
+    expect(machine.puts).toEqual([])
+    expect(client.post).not.toHaveBeenCalled()
   })
 
   it('stops at a refusal that waiting can’t fix', async () => {

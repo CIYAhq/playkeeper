@@ -6,22 +6,23 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { PlayerFace } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
+import { serverAction } from '@/components/app/server-action'
 import { InlineSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
-import { formatClock, formatDuration, formatMB } from '@/lib/format'
+import { formatClock, formatDuration } from '@/lib/format'
 import { whyNot } from '@/lib/phase'
 import { linkPath } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { viewerTimeZone } from '@/lib/when'
-import { serverAction } from '.'
 
 // Wave 7: sleep when nobody's playing. The Memory group's rows, the asleep
-// Overview card and the bits Home and the Overview cards show while asleep.
+// Overview card and the bits the Overview cards show while asleep; Home's are
+// in components/app/asleep.tsx.
 
 const idleOptions = [5, 10, 15, 30, 60, 120, 240]
 
@@ -203,41 +204,4 @@ export function SleepToday({ server: s }: { server: ServerStatus }) {
   const today = view.data?.today
   if (!today) return view.loading ? <InlineSkeleton className="w-48" /> : null
   return <>{today.count === 0 ? t('sleep.allDay') : t('sleep.today', { count: today.count, time: formatDuration(today.seconds) })}</>
-}
-
-/** Home's card detail for a sleeping server: "Asleep · wakes on join" and Wake up. */
-export function AsleepDetail({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
-  const [busy, setBusy] = useState(false)
-  return (
-    <>
-      <Pip pose="sleep" size={40} />
-      <span className="text-[13px] text-muted-foreground">{s.sleep?.listening === false ? t('sleep.cardDeaf') : t('sleep.card')}</span>
-      {!s.operation && can(ws.me, 'servers.run') && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="relative z-10 ml-auto"
-          loading={busy}
-          disabledReason={whyNot(s, 'start', ws.stale)}
-          onClick={async () => {
-            setBusy(true)
-            await wake(s)
-            setBusy(false)
-          }}
-        >
-          <SunIcon />
-          {t('sleep.wakeShort')}
-        </Button>
-      )}
-    </>
-  )
-}
-
-/** "Survival gave back 4 GB", for the machine's memory line. */
-export function gaveBackText(servers: ServerStatus[] | undefined, sleepingMemoryMB: number | undefined): string | undefined {
-  if (!sleepingMemoryMB) return undefined
-  const asleep = (servers ?? []).filter((s) => s.phase === 'asleep')
-  const memory = formatMB(sleepingMemoryMB)
-  return asleep.length === 1 && asleep[0] ? t('sleep.gaveBack', { server: asleep[0].name, memory }) : t('sleep.gaveBackMany', { memory })
 }

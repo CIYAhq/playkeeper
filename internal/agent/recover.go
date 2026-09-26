@@ -226,7 +226,9 @@ func (a *Agent) hRecoverRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		h.set("size", dl.Size)
 		h.phase("downloading")
+		a.copyReads.RLock()
 		got, err := dest.Download(ctx, dl)
+		a.copyReads.RUnlock()
 		if err != nil {
 			return downloadStopped(a.ctx.Err() != nil, h, automationError(err))
 		}

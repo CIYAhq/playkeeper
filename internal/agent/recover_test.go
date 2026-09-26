@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
 )
 
@@ -175,5 +176,102 @@ func TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey(t *testing.
 	code, out = e.call("POST", "/v1/offsite/recover", body(map[string]any{"config": sftp, "secretKey": "", "password": "hunter2 but longer"}))
 	if code == http.StatusOK || out["error"] != "There is no folder backups/survival on the other machine." || out["hint"] != "Check the folder's name." {
 		t.Fatalf("a typed folder that isn't there: %d %v", code, out)
+	}
+}
+
+// blockedDest is a destination holding one real backup as a copy, whose
+// download waits until the test lets it go.
+type blockedDest struct {
+	archiveDest
+	once             sync.Once
+	started, release chan struct{}
+}
+
+func (d *blockedDest) Download(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+	d.once.Do(func() { close(d.started) })
+	select {
+	case <-d.release:
+	case <-ctx.Done():
+		return offsite.Archive{}, ctx.Err()
+	}
+	return d.archiveDest.Download(ctx, dl)
+}
+
+// Restoring from a recovery key downloads and checks the copy holding no
+// server: while the download goes on, a friend who joins wakes a sleeping
+// server and a backup runs. Another machine-wide operation still waits for
+// it, and says what for.
+func TestARestoreFromARecoveryKeyHoldsNoServer(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	b, err := e.srv().getBackup(e.backup())
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := offsite.CopyName(b.FileName)
+	dest := &blockedDest{archiveDest: archiveDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{name: {Name: name, Archive: b.FileName, Size: 4096}}},
+		path: e.a.backupPath(b.FileName)}, started: make(chan struct{}), release: make(chan struct{})}
+	prev := openOffsite
+	openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+	t.Cleanup(func() { openOffsite = prev })
+	keys, err := offsite.NewKeys(e.a.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf, err := keys.RecoveryFileFor("Survival", "playkeeper/survival/", e.a.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.putToSleep()
+
+	code, out := e.call("POST", "/v1/offsite/recover/restore", map[string]any{"actor": "owner", "recoveryKey": rf.Content.Reveal(), "name": name,
+		"config":    map[string]any{"type": "s3", "s3": map[string]any{"provider": "b2", "endpoint": "s3.eu-central-003.backblazeb2.com", "bucket": "siya-minecraft", "accessKeyId": "003a8f91c2"}},
+		"secretKey": "wJalrXUtnFEMI-example-secret"})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore from the recovery key: %d %v", code, out)
+	}
+	recoverID := out["id"].(string)
+	waitClosed(t, dest.started, "the download to start")
+	downloading := func(what string) {
+		t.Helper()
+		if op, err := e.a.loadOperation(recoverID); err != nil || op.Status != "running" {
+			t.Fatalf("%s: the restore from the recovery key is %+v (%v), not still downloading", what, op, err)
+		}
+	}
+	if st := e.status(); st.Operation != nil {
+		t.Fatalf("the sleeping server shows %+v as its operation", st.Operation)
+	}
+
+	// A friend joins the sleeping server.
+	s := e.srv()
+	wake, err := s.beginOp("wake", "wake:Alex", s.wakeOp("Alex"))
+	if err != nil {
+		t.Fatalf("a join during the download: %v", err)
+	}
+	if op := e.waitOp(wake.ID); op.Status != "succeeded" {
+		t.Fatalf("wake: %+v", op)
+	}
+	e.waitFor("the server awake", func() bool { return e.status().Phase == api.PhaseOnline })
+	downloading("after the wake")
+
+	// A backup comes due.
+	code, out = e.call("POST", e.sp("/backups"), map[string]any{"actor": "schedule:qrstuvwxyz"})
+	if code != http.StatusAccepted {
+		t.Fatalf("a backup during the download: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != "succeeded" {
+		t.Fatalf("backup: %+v", op)
+	}
+	downloading("after the backup")
+
+	// Freeing disk space waits for it.
+	code, out = e.call("POST", "/v1/disk/clean", map[string]any{"actor": "owner", "ways": []string{"old_logs"}})
+	if code != http.StatusConflict || out["code"] != api.CodeBusy || out["error"] != "Playkeeper is busy with restoring a server from a recovery key." {
+		t.Fatalf("freeing disk space during the download: %d %v", code, out)
+	}
+
+	close(dest.release)
+	if op := e.waitOp(recoverID); op.Status != "succeeded" || op.Detail["restoreId"] == nil {
+		t.Fatalf("restore from the recovery key: %+v", op)
 	}
 }

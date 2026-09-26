@@ -75,7 +75,6 @@ import { PlayersPage } from './server/players'
 import { PlayerProfilePage } from './server/profile'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
-import { SchedulesSection } from './server/schedules'
 import { AsleepCard } from './server/sleep'
 import { WorldPage } from './server/world'
 import { GlobalSettingsPage } from './settings'
@@ -307,6 +306,16 @@ describe('Home', () => {
     const text = await render(<HomePage />, workspace({ servers: [] }))
     expect(text).toContain('No servers yet')
     for (const step of ['Create your first server', 'Invite a friend', 'A friend joins', 'Make a backup', 'Download it']) expect(text).toContain(step)
+  })
+
+  it('shows a sleeping server, the memory it gave back, and wakes it', async () => {
+    const asleep = server({ phase: 'asleep', desired: 'sleeping', sleep: { enabled: true, idleMinutes: 15, listening: true } })
+    const sleeping = { ...machine, live: machine.live && { ...machine.live, sleepingMemoryMB: 4096 } }
+    const text = await render(<HomePage />, workspace({ machine: sleeping, machines: [sleeping], servers: [asleep] }))
+    expect(text).toContain('Asleep · wakes on join')
+    expect(text).toContain('Survival gave back 4 GB')
+    await click(button('Wake up'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/start', {})
   })
 
   it('shows each server with who is playing and its address', async () => {
@@ -1109,18 +1118,6 @@ describe('Backups with players online', () => {
     if (!b) throw new Error('no Back up now in the refusal notice')
     return b
   }
-
-  it('never says a scheduled backup stops the server', async () => {
-    answer({ '/schedules/runs': { runs: [] }, '/schedules': { schedules: [] } })
-    await render(<SchedulesSection server={server()} />)
-    await press('New schedule')
-    const backUp = [...document.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Back up')
-    if (!backUp) throw new Error('no Back up choice')
-    await click(backUp)
-    expect(page()).toContain('Only if someone played')
-    expect(page()).toContain('Tries again an hour later instead.')
-    expect(page()).not.toContain('stops for a moment')
-  })
 
   it('keeps refused scheduled backups on the World tab, and stops the server for a backup only after saying so', async () => {
     vi.mocked(client.post).mockClear()

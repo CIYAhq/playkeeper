@@ -937,7 +937,10 @@ func (s *server) restoreRefusal(then string) error {
 	if m := s.worldMissing(); m != nil {
 		return errWorldMissing(m, then)
 	}
-	if !s.busy() && s.restoreUnsettled() {
+	if s.busy() {
+		return nil
+	}
+	if unsettled, _ := s.restoreUnsettled(); unsettled {
 		return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,
 			Msg:  "A restore isn't finished, so another can't start until it is.",
 			Hint: s.unsettledHint(then)}
@@ -968,7 +971,8 @@ func (s *server) startRefusal(h *opHandle) error {
 // isn't counted.
 func (s *server) keptStages(opID string) []string {
 	var out []string
-	for stage, j := range s.unsettledSwaps() {
+	swaps, _ := s.unsettledSwaps()
+	for stage, j := range swaps {
 		if j != nil && j.ServerID == s.id && j.OpID != opID {
 			out = append(out, stage)
 		}
@@ -978,10 +982,13 @@ func (s *server) keptStages(opID string) []string {
 }
 
 // settleProblemNow says why a restore whose journal is kept isn't settled by
-// itself, if it isn't: a journal that can't be read, or why the last try to
-// settle it failed.
+// itself, if it isn't: a staging folder or journal that can't be read, or why
+// the last try to settle it failed.
 func (s *server) settleProblemNow() string {
-	swaps := s.unsettledSwaps()
+	swaps, err := s.unsettledSwaps()
+	if err != nil {
+		return "the restore staging folder " + s.cfg.StagingDir() + " can't be read (" + clause(err) + ")"
+	}
 	for _, stage := range slices.Sorted(maps.Keys(swaps)) {
 		if swaps[stage] != nil {
 			continue
@@ -1133,8 +1140,8 @@ func (s *server) hWorldCopies(w http.ResponseWriter, r *http.Request) {
 
 // hWorldCopyDelete discards one world copy. Nothing is discarded while the
 // live world folder is missing, because a copy may then be the only world,
-// nor while a restore of the server isn't over, because it may still put a
-// copy back.
+// nor while a restore of the server may not be over, because it may still
+// put a copy back.
 func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.URL.Query().Get("actor"))
 	if err != nil {
@@ -1157,7 +1164,12 @@ func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotFound("World copy"))
 		return
 	}
-	if s.restoreUnsettled() {
+	if unsettled, err := s.restoreUnsettled(); err != nil {
+		dir := s.cfg.StagingDir()
+		writeError(w, errConflict("Playkeeper can't read its restore staging folder, so this server's world copies are kept until it can: a restore may still need one.",
+			"Make sure the Playkeeper agent can read "+dir+" (sudo ls -ld "+dir+"), then try again. sudo journalctl -u playkeeper-agent says why it can't."))
+		return
+	} else if unsettled {
 		writeError(w, errConflict("A restore isn't finished, so this server's world copies are kept until it is.", s.unsettledHint("try again")))
 		return
 	}

@@ -6,8 +6,10 @@ import type { Activity, CatalogEntry, MachineView, ProjectRole, ServerStatus, Te
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
+import { AsleepDetail, gaveBackText } from '@/components/app/asleep'
 import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, PlayerFace, Spinner, StatusPill } from '@/components/app/bits'
 import { EmptySteps } from '@/components/app/checklist'
+import { ConfirmAdminNotice } from '@/components/app/confirm-admin'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
 import { SignInNotice } from '@/components/app/sign-in-notice'
@@ -27,8 +29,6 @@ import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { AsleepDetail, gaveBackText } from '@/pages/server/sleep'
-import { ConfirmAdminNotice } from './team'
 
 export function HomePage() {
   const ws = useWorkspace()

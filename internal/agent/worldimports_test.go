@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -905,6 +906,355 @@ func TestWorldImportRefusals(t *testing.T) {
 	}
 	if code, out := e.call("POST", "/v1/world-imports", map[string]any{"actor": "admin"}); code != 409 || !strings.Contains(errOf(out), "Too many world uploads") {
 		t.Errorf("a fifth open upload: %d %v", code, out)
+	}
+}
+
+// An upload still waiting for bytes, such as one a page left when it was
+// reloaded or closed, is forgotten after an hour, so it holds neither the
+// space it announced nor one of the uploads a machine keeps open. One whose
+// files have all arrived is kept for a day. The upload being added to stays
+// however long it waited.
+func TestStaleUploadsMakeWayForNewOnes(t *testing.T) {
+	const gib = 1 << 30
+	for _, c := range []struct {
+		name string
+		open int  // uploads left open, each with one file announced
+		size int  // the file's size
+		done bool // and all of it sent
+		idle time.Duration
+		// act is what comes then: "announce" 40 GiB to an upload opened
+		// with the others, or "open" another upload.
+		act  string
+		want int
+	}{
+		{name: "an unfinished upload an hour old frees its space", open: 1, size: 40 * gib, idle: 2 * time.Hour, act: "announce", want: 201},
+		{name: "an unfinished upload keeps its space for an hour", open: 1, size: 40 * gib, idle: 30 * time.Minute, act: "announce", want: 413},
+		{name: "unfinished uploads an hour old free their places", open: 4, size: 10, idle: 2 * time.Hour, act: "open", want: 201},
+		{name: "finished uploads keep their places for a day", open: 4, size: 10, done: true, idle: 2 * time.Hour, act: "open", want: 409},
+		{name: "finished uploads a day old free their places", open: 4, size: 10, done: true, idle: 25 * time.Hour, act: "open", want: 201},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			// Uploads may announce up to 50 GiB, half of what is free.
+			e.diskFree.Store(100*gib + minFreeAfterBackup)
+			mine := ""
+			if c.act == "announce" {
+				mine = e.openImport("/v1/world-imports")
+			}
+			var left []string
+			for range c.open {
+				imp := e.openImport("/v1/world-imports")
+				if code, out := e.announce(imp, "world.zip", c.size); code != 201 {
+					t.Fatalf("announce: %d %v", code, out)
+				}
+				if c.done {
+					if code, out, err := sendBytes(e.ts.URL, imp, 0, 0, strings.NewReader(strings.Repeat("x", c.size))); err != nil || code != 200 {
+						t.Fatalf("upload: %d %v %v", code, out, err)
+					}
+				}
+				left = append(left, imp)
+			}
+			e.skew.Store(int64(c.idle))
+			var code int
+			var out map[string]any
+			if c.act == "announce" {
+				code, out = e.announce(mine, "world.zip", 40*gib)
+			} else {
+				code, out = e.call("POST", "/v1/world-imports", map[string]any{"actor": "admin"})
+			}
+			if code != c.want {
+				t.Fatalf("%s after %s: %d %v, want %d", c.act, c.idle, code, out, c.want)
+			}
+			for _, imp := range left {
+				if forgotten := c.want == 201; exists(filepath.Join(e.cfg.StagingDir(), "import-"+imp)) == forgotten {
+					t.Fatalf("upload %s idle for %s: forgotten is %v, but its files say otherwise", imp, c.idle, forgotten)
+				}
+			}
+		})
+	}
+}
+
+// Cancelling an upload decides in one step whether an operation has it. An
+// operation claiming it between the cancel's check and the deleting of its
+// files finds it gone, and a cancel after an operation claimed it is
+// refused, so an upload is never deleted from under an operation.
+func TestCancellingAnUploadNeverDeletesItFromUnderAnOperation(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		first string // what claimed the upload before the cancel
+		late  string // what claims it between the cancel's check and the deleting
+		want  int
+	}{
+		{name: "a create claiming it as it's cancelled", late: "creating", want: 204},
+		{name: "an import claiming it as it's cancelled", late: "applying", want: 204},
+		{name: "a create that claimed it first", first: "creating", want: 409},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			id := e.openImport("/v1/world-imports")
+			imp, err := e.a.worldImport(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.first != "" {
+				if err := imp.claim(c.first, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			claims := make(chan error, 1)
+			importCancelled = func(i *worldImport) {
+				if c.late != "" {
+					claims <- i.claim(c.late, time.Now())
+				}
+			}
+			t.Cleanup(func() { importCancelled = func(*worldImport) {} })
+			code, out := e.call("DELETE", importPath(id, "?actor=admin"), nil)
+			if code != c.want {
+				t.Fatalf("the cancel: %d %v, want %d", code, out, c.want)
+			}
+			if c.late != "" {
+				select {
+				case err := <-claims:
+					if err != errImportGone {
+						t.Fatalf("a %s claiming the upload the cancel had checked: %v, want it gone", c.late, err)
+					}
+				default:
+					t.Fatal("the cancel never got as far as deleting the upload")
+				}
+			}
+			if gone := code == 204; exists(filepath.Join(e.cfg.StagingDir(), "import-"+id)) == gone {
+				t.Fatalf("the cancel answered %d, but the upload's files say otherwise", code)
+			}
+		})
+	}
+}
+
+// An imported world that did not start is swapped back out only once the
+// server has stopped: the imported world may still be running, and would
+// write into the previous one. When stopping it fails, or the agent itself
+// is stopping, nothing moves back, and the error says where both worlds are.
+func TestAnImportedWorldMovesBackOnlyOnceTheServerStopped(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		// start makes the imported world's start fail, with ready closed
+		// once its container starts; after runs once the import has begun
+		// and returns the operation as it ended.
+		start func(e *agentEnv, ready chan struct{})
+		after func(e *agentEnv, op string, ready chan struct{}) *api.Operation
+		says  string
+	}{
+		{
+			name: "the start fails and so does the stop",
+			start: func(e *agentEnv, ready chan struct{}) {
+				e.fd.mu.Lock()
+				e.fd.bootExit = 1
+				e.fd.started = func(c *fakeContainer) {
+					// From here on Docker doesn't answer about the server by its name.
+					e.fd.mu.Lock()
+					e.fd.down = "/containers/" + c.name + "/json"
+					e.fd.mu.Unlock()
+				}
+				e.fd.mu.Unlock()
+			},
+			after: func(e *agentEnv, op string, _ chan struct{}) *api.Operation { return e.waitOp(op) },
+			says:  "Stopping it failed",
+		},
+		{
+			name: "the agent stops while the imported world starts",
+			start: func(e *agentEnv, ready chan struct{}) {
+				e.fd.mu.Lock()
+				e.fd.bootDelay = time.Minute
+				var once sync.Once
+				e.fd.started = func(*fakeContainer) { once.Do(func() { close(ready) }) }
+				e.fd.mu.Unlock()
+			},
+			after: func(e *agentEnv, op string, ready chan struct{}) *api.Operation {
+				select {
+				case <-ready:
+				case <-time.After(20 * time.Second):
+					e.t.Fatal("the imported world never started")
+				}
+				time.Sleep(200 * time.Millisecond)
+				e.stop()
+				e.fd.mu.Lock()
+				e.fd.bootDelay = 30 * time.Millisecond
+				e.fd.mu.Unlock()
+				e.start()
+				got, err := e.a.loadOperation(op)
+				if err != nil {
+					e.t.Fatal(err)
+				}
+				return got
+			},
+			says: "The Playkeeper agent stopped while the imported world was starting",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			live := e.dataDir()
+			if err := os.WriteFile(filepath.Join(live, "world", "marker.txt"), []byte("nonce-before"), 0o640); err != nil {
+				t.Fatal(err)
+			}
+			archive, level := paperServerUpload(t)
+			imp := e.uploadWorld(e.sp("/world-imports"), "paper-server.zip", archive)
+			phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
+			ready := make(chan struct{})
+			c.start(e, ready)
+			t.Cleanup(func() {
+				e.fd.mu.Lock()
+				e.fd.bootExit, e.fd.bootDelay, e.fd.started, e.fd.down = 0, 30*time.Millisecond, nil, ""
+				e.fd.mu.Unlock()
+			})
+			code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("apply: %d %v", code, out)
+			}
+			op := c.after(e, out["id"].(string), ready)
+			aside, _ := filepath.Glob(live + ".import-aside-*")
+			if len(aside) != 1 {
+				t.Fatalf("the previous world's copy: %v", aside)
+			}
+			if op.Status != api.OpFailed || !strings.Contains(op.Error, c.says) || !strings.Contains(op.Error, live+" ") || !strings.Contains(op.Error, aside[0]) {
+				t.Fatalf("the import must fail naming where both worlds are: %+v", op)
+			}
+			if readFile(t, filepath.Join(live, "world", "level.dat")) != level {
+				t.Fatal("the imported world was moved out while it may still run")
+			}
+			if readFile(t, filepath.Join(aside[0], "world", "marker.txt")) != "nonce-before" {
+				t.Fatal("the previous world's copy changed")
+			}
+			if failed, _ := filepath.Glob(live + ".failed-import-*"); len(failed) != 0 {
+				t.Fatalf("the import was swapped back out: %v", failed)
+			}
+		})
+	}
+}
+
+// A server made from an upload that can't move the world in drops the
+// upload and what is left of its unpacked copy: the dashboard has moved on
+// to the new server and can't use the upload again.
+func TestACreateThatCantMoveTheWorldInDropsTheUpload(t *testing.T) {
+	for _, k := range []int{0, 1} {
+		t.Run(fmt.Sprintf("moving entry %d fails", k), func(t *testing.T) {
+			e := newAgentEnv(t)
+			archive, _ := singleplayerUpload(t)
+			imp := e.uploadWorld("/v1/world-imports", "Survival-2024.zip", archive)
+			dir := filepath.Join(e.cfg.StagingDir(), "import-"+imp)
+			n := 0
+			renameDir = func(from, to string) error {
+				if strings.HasPrefix(from, filepath.Join(dir, "data")+string(filepath.Separator)) {
+					n++
+					if n == k+1 {
+						return errors.New("injected: the disk is gone")
+					}
+				}
+				return os.Rename(from, to)
+			}
+			t.Cleanup(func() { renameDir = os.Rename })
+			code, out := e.call("POST", importPath(imp, "/create"), map[string]any{"name": "Survival", "memoryMB": 1536, "acceptEula": true, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("create: %d %v", code, out)
+			}
+			e.sid = out["serverId"].(string)
+			if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "Could not move the world into") || !strings.Contains(op.Hint, "upload the world again") {
+				t.Fatalf("a create that can't move the world in: %+v", op)
+			}
+			if exists(dir) {
+				t.Fatal("the upload and its unpacked copy were left in the staging folder")
+			}
+			if code, out := e.call("GET", importPath(imp, ""), nil); code != 404 {
+				t.Fatalf("the upload after the failed create: %d %v", code, out)
+			}
+		})
+	}
+}
+
+// Imports claim the disk space they need in turn, so two at once never
+// count the same free space: while one is under way, another gets only what
+// is left, and all of it again once the first is done.
+func TestImportsClaimDiskSpaceInTurn(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		room func(need int64) int64 // free space beyond the reserve
+		// done: the first import finished before the second is asked for.
+		done bool
+		want int
+	}{
+		{name: "room for one while the other is under way", room: func(n int64) int64 { return n + n/2 }, want: 507},
+		{name: "room for both", room: func(n int64) int64 { return 3 * n }, want: 202},
+		{name: "room for one once the other is done", room: func(n int64) int64 { return n + n/2 }, done: true, want: 202},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) {
+				e.tweak = func(o *Options) { o.HostMemoryMB = func() int { return 16384 } }
+			})
+			e.fill.set("", append(defaultFill(), fillVersionSpec{"1.21.4", "UNSUPPORTED", []fillBuildSpec{{232, "STABLE"}}}))
+			archive, _ := singleplayerUpload(t)
+			first := e.uploadWorld("/v1/world-imports", "Survival-2024.zip", archive)
+			second := e.uploadWorld("/v1/world-imports", "Survival-2024.zip", archive)
+			pv := e.importPreview(first, map[string]any{"versionId": "paper-1.21.4"})
+			if pv.KeepsOriginal {
+				t.Fatalf("the world on its own version needs no copy: %+v", pv)
+			}
+			need := pv.Preview.SizeBytes
+			// The first import holds on as it moves the world in.
+			reached, goOn := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			renameDir = func(from, to string) error {
+				if strings.Contains(from, "import-"+first+string(filepath.Separator)) {
+					once.Do(func() {
+						close(reached)
+						<-goOn
+					})
+				}
+				return os.Rename(from, to)
+			}
+			var goOnce sync.Once
+			release := func() { goOnce.Do(func() { close(goOn) }) }
+			t.Cleanup(func() {
+				release()
+				renameDir = os.Rename
+			})
+			create := func(imp, name string) (int, map[string]any) {
+				return e.call("POST", importPath(imp, "/create"), map[string]any{"versionId": "paper-1.21.4", "name": name, "memoryMB": 1536, "acceptEula": true, "actor": "admin"})
+			}
+			e.diskFree.Store(minFreeAfterBackup + c.room(need))
+			code, out := create(first, "First")
+			if code != 202 {
+				t.Fatalf("the first create: %d %v", code, out)
+			}
+			firstOp := out["id"].(string)
+			select {
+			case <-reached:
+			case <-time.After(20 * time.Second):
+				t.Fatal("the first import never moved its world in")
+			}
+			if c.done {
+				release()
+				e.waitOp(firstOp)
+			}
+			code, out = create(second, "Second")
+			e.diskFree.Store(0)
+			release()
+			if code != c.want {
+				t.Fatalf("the second create: %d %v, want %d", code, out, c.want)
+			}
+			if code == 507 {
+				if !strings.Contains(fmt.Sprint(out["error"]), "imports under way") {
+					t.Fatalf("the refusal must name the import under way: %v", out)
+				}
+				if exists(filepath.Join(e.cfg.StagingDir(), "import-"+second, "data")) {
+					t.Fatal("the refused import was unpacked")
+				}
+				if code, out := e.call("DELETE", importPath(second, "?actor=admin"), nil); code != 204 {
+					t.Fatalf("the refused upload stayed claimed: %d %v", code, out)
+				}
+			} else {
+				e.waitOp(out["id"].(string))
+			}
+			e.waitOp(firstOp)
+		})
 	}
 }
 

@@ -57,6 +57,70 @@ func TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent(t *testing.T) {
 	}
 }
 
+// The catalog sizes memory for what the server runs, as the sizing guide
+// does: an existing server by the plugins or mods in its folder, a new one
+// from a pack by the pack's mods, and any other new one by its type.
+func TestTheCatalogSizesMemoryForWhatTheServerRuns(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		query string // for a new server; "" for the existing one
+		typ   string // the existing server's type
+		jars  int    // plugins or mods in its folder
+		want  sizing.Workload
+	}{
+		{"a new vanilla server", "type=vanilla", "", 0, sizing.Vanilla},
+		{"a new Paper server", "type=paper", "", 0, sizing.Vanilla},
+		{"a Paper server with a few plugins", "", api.TypePaper, 3, sizing.Vanilla},
+		{"a Paper server with many plugins", "", api.TypePaper, 25, sizing.AddOns},
+		{"a new Fabric server", "type=fabric", "", 0, sizing.AddOns},
+		{"a Fabric server with mods", "", "fabric", 8, sizing.AddOns},
+		{"a NeoForge server with mods", "", "neoforge", 12, sizing.AddOns},
+		{"a new server from a pack of 180 mods", "type=neoforge&mods=180", "", 0, sizing.Modpack},
+		{"a server made from a modpack", "", "fabric", 60, sizing.Modpack},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			path := "/v1/catalog?" + tc.query
+			if tc.query == "" {
+				e.addIdleServer()
+				s := e.srv()
+				sc, _ := s.serverConfig()
+				sc.Type = tc.typ
+				if err := s.saveServerConfig(*sc); err != nil {
+					t.Fatal(err)
+				}
+				dir := filepath.Join(s.dataDir(), addonDir(*sc))
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				for i := range tc.jars {
+					if err := os.WriteFile(filepath.Join(dir, "addon-"+strconv.Itoa(i)+".jar"), []byte("jar"), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				path = "/v1/catalog?server=" + e.sid
+			}
+			var cat api.Catalog
+			e.decode("GET", path, &cat)
+			if cat.Sizing.Workload != string(tc.want) || len(cat.Sizing.Budgets) != len(cat.MemoryOptionsMB) || len(cat.MemoryOptionsMB) == 0 {
+				t.Fatalf("the catalog sizes for %q with %v, want %q", cat.Sizing.Workload, cat.Sizing.Budgets, tc.want)
+			}
+			for _, b := range cat.Sizing.Budgets {
+				if players, err := sizing.PlayersFor(tc.want, b.MemoryMB); err != nil || b.Players != players {
+					t.Fatalf("%d MB is for %d players, want the guide's %d for %s", b.MemoryMB, b.Players, players, tc.want)
+				}
+			}
+			if want := memorySizing(tc.want, cat.MemoryOptionsMB).Suggestions; !reflect.DeepEqual(cat.Sizing.Suggestions, want) {
+				t.Fatalf("suggestions %v, want %v", cat.Sizing.Suggestions, want)
+			}
+		})
+	}
+	e := newAgentEnv(t)
+	if code, out := e.call("GET", "/v1/catalog?type=fabric&mods=lots", nil); code != 400 {
+		t.Fatalf("a pack's mods that aren't a number: %d %v", code, out)
+	}
+}
+
 func TestTheCatalogSaysWhatTheSizingGuideSaysAboutEachMemoryOption(t *testing.T) {
 	e := newAgentEnv(t)
 	var cat api.Catalog

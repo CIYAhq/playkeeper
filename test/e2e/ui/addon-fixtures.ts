@@ -355,7 +355,7 @@ function updatePlan(body: unknown, world: World): Answer | undefined {
   return 'notice' in planned ? refusal(planned.notice) : json(200, planned.plan)
 }
 
-const iconHosts = ['cdn.modrinth.com', 'hangarcdn.papermc.io']
+const iconHosts = ['cdn.modrinth.com', 'hangarcdn.papermc.io', 'media.forgecdn.net']
 
 /** The icon proxy of add-ons and modpacks (the panel's hAddonIcon, the agent's, Library.FetchIcon), drawing a stand-in for what the address would fetch. */
 export function iconAnswer(raw: string): Answer {
@@ -366,9 +366,9 @@ export function iconAnswer(raw: string): Answer {
   } catch {
     u = undefined
   }
-  if (!u?.host) return refusal({ kind: 'host_not_allowed', message: "Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from an invalid address." })
+  if (!u?.host) return refusal({ kind: 'host_not_allowed', message: "Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from an invalid address." })
   if (u.protocol !== 'https:') return refusal({ kind: 'not_https', message: 'Playkeeper only loads icons over HTTPS.' })
-  if (u.username || u.password || !iconHosts.includes(u.host)) return refusal({ kind: 'host_not_allowed', message: `Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from ${u.hostname}.` })
+  if (u.username || u.password || !iconHosts.includes(u.host)) return refusal({ kind: 'host_not_allowed', message: `Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from ${u.hostname}.` })
   return { status: 200, body: standInIcon(u.href), headers: { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=86400' } }
 }
 

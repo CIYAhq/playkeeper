@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"sync"
@@ -32,6 +33,8 @@ type automation struct {
 	decision sleep.Decision
 	standIn  *sleep.Manager
 	falling  bool
+	// wakePending is set while a join's wake waits for another operation.
+	wakePending bool
 
 	kick   chan struct{}
 	claim  *uploadClaim
@@ -70,6 +73,27 @@ func (s *server) forgetAutomation(tx *sql.Tx) error {
 		s.log.Warn("could not remove a deleted server's off-site spool", "server", s.id, "err", err)
 	}
 	return nil
+}
+
+// keyNotSaved refuses deleting a server whose copies somewhere else are
+// kept, or still made, while its recovery key was never downloaded:
+// forgetAutomation deletes the key with the server, and nothing would open
+// the copies again.
+func (s *server) keyNotSaved() error {
+	row, err := s.loadOffsite()
+	if err != nil || !row.hasKeys || row.keySavedAt != nil {
+		return nil
+	}
+	var copies int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM offsite_copies WHERE server_id = ?`, s.id).Scan(&copies)
+	if copies == 0 && !row.enabled {
+		return nil
+	}
+	place := offsitePlace(row.cfg.Config)
+	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Reason: "recovery_key_not_saved",
+		Msg:    fmt.Sprintf("Deleting %s deletes its recovery key, which was never downloaded.", s.name()),
+		Hint:   "Nothing else opens its copies on " + place + ". Download the recovery key first, or confirm deleting the server without it.",
+		Params: map[string]any{"place": place, "copies": copies}}
 }
 
 // automationStatus adds the sleep setting and the refused scheduled backups

@@ -588,8 +588,10 @@ func (s *server) updateSchedule(ctx context.Context, sid string, req scheduleReq
 			return scheduleRow{}, err
 		}
 	}
-	// A retry an hour later belongs to the old settings; an edit drops it.
-	if !onlySwitch && sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {
+	// A retry an hour later belongs to the schedule as it was when the run
+	// was skipped. The planner drops it once the schedule changes, even
+	// when it is only switched off and on, so every change clears it.
+	if sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {
 		last := *sc.LastRun
 		last.RetryAt = time.Time{}
 		sc.LastRun = &last

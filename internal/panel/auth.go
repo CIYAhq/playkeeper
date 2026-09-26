@@ -274,6 +274,19 @@ UPDATE api_tokens SET account_role = COALESCE((
     ELSE (SELECT pm.role FROM project_members pm WHERE pm.user_id = u.id ORDER BY pm.created_at LIMIT 1) END
   FROM users u WHERE u.id = api_tokens.user_id), '');
 `,
+	// The friends' pack pages and shared maps the dashboard serves, by a
+	// hash of each link's token: the server it was made for, and the
+	// machine that made it, which alone answers for it.
+	`
+CREATE TABLE public_links (
+  kind       TEXT NOT NULL CHECK (kind IN ('pack', 'map')),
+  token_hash TEXT NOT NULL,
+  server_id  TEXT NOT NULL,
+  machine_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, token_hash)
+);
+`,
 }
 
 const (

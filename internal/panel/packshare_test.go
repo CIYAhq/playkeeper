@@ -3,7 +3,9 @@ package panel
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -131,6 +133,185 @@ func TestAJoinedMachinesPackPageGivesItsIPAndPort(t *testing.T) {
 	var p share.Page
 	if r.StatusCode != http.StatusOK || json.Unmarshal(body, &p) != nil || p.Address != "127.0.0.1:25566" {
 		t.Fatalf("a joined machine's pack page: %d %s", r.StatusCode, body)
+	}
+}
+
+// packMachine is a joined machine's agent in the friends' pack tests. It runs
+// one server and shares its pack at token when the dashboard turns sharing
+// on. A greedy one opens every link with its own pack; one that is down
+// can't answer about any.
+type packMachine struct {
+	mu     sync.Mutex
+	server string
+	token  string
+	link   api.PackLink
+	name   string
+	greedy bool
+	down   bool
+	asked  map[string]int
+}
+
+func newPackMachine(t *testing.T, server, name, token string) *packMachine {
+	t.Helper()
+	sh := cobblemonShare()
+	sh.Server = name
+	raw, err := json.Marshal(sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &packMachine{server: server, token: token, name: name, asked: map[string]int{},
+		link: api.PackLink{Server: server, Slug: strings.ToLower(name), GamePort: 25566, HasIcon: true, Share: raw}}
+}
+
+func (p *packMachine) set(f func(p *packMachine)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	f(p)
+}
+
+func (p *packMachine) askedFor(token string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.asked[token]
+}
+
+func (p *packMachine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	gone := func() {
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":"Pack not found.","code":"not_found"}`)
+	}
+	if token, ok := strings.CutPrefix(r.URL.Path, "/v1/packs/"); ok {
+		p.asked[token]++
+		switch {
+		case p.down:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			io.WriteString(w, `{"error":"Playkeeper can't make this pack right now.","code":"upstream_unavailable"}`)
+		case p.greedy || token == p.token:
+			json.NewEncoder(w).Encode(p.link)
+		default:
+			gone()
+		}
+		return
+	}
+	switch r.Method + " " + r.URL.Path {
+	case "GET /v1/servers":
+		fmt.Fprintf(w, `[{"id":%q,"name":%q,"phase":"online"}]`, p.server, p.name)
+	case "POST /v1/servers/" + p.server + "/mods/share":
+		json.NewEncoder(w).Encode(api.PackShare{Public: true, Token: p.token, File: p.link.Slug + ".mrpack", LoaderName: "Fabric", Share: p.link.Share})
+	case "GET /v1/servers/" + p.server + "/icon":
+		w.Header().Set("Content-Type", "image/png")
+		io.WriteString(w, "\x89PNG "+p.name)
+	default:
+		gone()
+	}
+}
+
+// A friends' pack link opens only on the machine it was made on: the
+// dashboard records each link as it's made and asks nobody else about it,
+// so an earlier-joined machine that opens every link can't answer for a
+// later one's. A link it has no record of opens only where every machine
+// answers and exactly one has it.
+func TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt(t *testing.T) {
+	const (
+		laterToken  = "LaterMachinesPackLink1"
+		legacyToken = "LinkFromBeforeRecords1"
+	)
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/servers", `[]`)
+	survival, err := json.Marshal(newPackMachine(t, sampleServer, "Survival", legacyToken).link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.reply("GET", "/v1/packs/"+legacyToken, string(survival))
+	e.replyStatus("GET", "/v1/packs/"+laterToken, http.StatusNotFound, `{"error":"Pack not found.","code":"not_found"}`)
+	earlier := newPackMachine(t, "evilserver", "Evil", "")
+	earlier.greedy = true
+	e.joined(t, cookie, csrf, earlier)
+	later := newPackMachine(t, "k3v9q2m7xw", "Cobblemon", laterToken)
+	laterID, laterLink := e.joined(t, cookie, csrf, later)
+	e.get(t, "/api/servers", cookie, nil)
+	if r := e.do(t, "POST", "/api/servers/k3v9q2m7xw/mods/share", `{"public":true}`, auth(cookie, csrf)); r.status != http.StatusOK {
+		t.Fatalf("sharing the later machine's pack: %d %v", r.status, r.body)
+	}
+	// The earlier machine names the later one's link when its own pack is
+	// shared: the link stays with the later machine's server.
+	earlier.set(func(p *packMachine) { p.token = laterToken })
+	if r := e.do(t, "POST", "/api/servers/evilserver/mods/share", `{"public":true}`, auth(cookie, csrf)); r.status != http.StatusOK {
+		t.Fatalf("sharing the earlier machine's pack: %d %v", r.status, r.body)
+	}
+	earlier.set(func(p *packMachine) { p.token = "" })
+	if !strings.Contains(e.logs.String(), "a machine named another server's link as its own") {
+		t.Fatalf("the takeover isn't logged:\n%s", e.logs.String())
+	}
+
+	page := func(token string) (int, share.Page) {
+		t.Helper()
+		var p share.Page
+		r, body := get(t, e.ts.Client(), "GET", e.ts.URL+share.PathPrefix+token+"/page", nil)
+		if r.StatusCode == http.StatusOK && json.Unmarshal([]byte(body), &p) != nil {
+			t.Fatalf("page data: %s", body)
+		}
+		return r.StatusCode, p
+	}
+	for _, tc := range []struct {
+		name    string
+		token   string
+		greedy  bool   // the earlier machine opens every link
+		down    bool   // the later machine's agent can't answer
+		server  string // the server the later machine says its link opens, when not its own
+		offline bool   // the later machine's link is down
+		want    string // whose pack opens, or "" for the 404 of a link nobody has
+		log     string
+	}{
+		{name: "the later machine's link opens its own pack", token: laterToken, greedy: true, want: "Cobblemon"},
+		{name: "a link from before records opens where only one machine has it", token: legacyToken, want: "Survival"},
+		{name: "a link from before records that two machines open opens on neither", token: legacyToken, greedy: true, log: "more than one machine opens a friends' pack link"},
+		{name: "a link from before records is gone while a machine can't answer", token: legacyToken, down: true},
+		{name: "the later machine's link is gone when it answers for another server", token: laterToken, greedy: true, server: "evilserver", log: "a machine answered a friends' pack link for another server"},
+		{name: "the later machine's link is gone while the machine is offline", token: laterToken, greedy: true, offline: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			earlier.set(func(p *packMachine) { p.greedy = tc.greedy })
+			later.set(func(p *packMachine) {
+				p.down = tc.down
+				p.link.Server = cmp.Or(tc.server, p.server)
+			})
+			if tc.offline {
+				laterLink.stop()
+				eventually(t, "the later machine is offline", func() bool { return linkState(e.machineView(t, cookie, laterID)) == "offline" })
+			}
+			code, p := page(tc.token)
+			switch {
+			case tc.want == "" && code != http.StatusNotFound:
+				t.Fatalf("got %d, a page for %q, want the 404 of a link nobody has", code, p.Server)
+			case tc.want != "" && (code != http.StatusOK || p.Server != tc.want):
+				t.Fatalf("got %d, a page for %q, want %s's", code, p.Server, tc.want)
+			}
+			if n := earlier.askedFor(laterToken); n != 0 {
+				t.Fatalf("the earlier machine was asked %d times about the later machine's link", n)
+			}
+			if tc.log != "" && !strings.Contains(e.logs.String(), tc.log) {
+				t.Fatalf("the log doesn't say %q:\n%s", tc.log, e.logs.String())
+			}
+			if tc.want != "Cobblemon" {
+				return
+			}
+			if p.Address != "127.0.0.1:25566" {
+				t.Errorf("friends join at %q, want the later machine's IP and the server's port", p.Address)
+			}
+			sh := cobblemonShare()
+			want, _ := sh.File()
+			if r, body := get(t, e.ts.Client(), "GET", e.ts.URL+p.Download.URL, nil); r.StatusCode != http.StatusOK || body != string(want) {
+				t.Errorf("the file: %d, %d bytes", r.StatusCode, len(body))
+			}
+			if r, body := get(t, e.ts.Client(), "GET", e.ts.URL+share.PathPrefix+tc.token+"/icon", nil); r.StatusCode != http.StatusOK || body != "\x89PNG Cobblemon" {
+				t.Errorf("the emblem: %d %q", r.StatusCode, body)
+			}
+		})
 	}
 }
 

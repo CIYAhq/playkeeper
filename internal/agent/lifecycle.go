@@ -59,6 +59,14 @@ func (h *opHandle) commit() bool {
 	return !h.cancelled
 }
 
+// callOff ends the operation as cancelled: before changing anything, it
+// found it had nothing to do.
+func (h *opHandle) callOff() {
+	unlock := h.mu()
+	h.cancelled = true
+	unlock()
+}
+
 func (h *opHandle) phase(p string) {
 	unlock := h.mu()
 	h.op.Phase = p
@@ -122,9 +130,10 @@ var opLabels = map[string]string{
 	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
 	"remove-addon": "removing a plugin or mod",
 	// Wave 4.
-	"reinstall": "reinstalling its server software",
+	"reinstall": "reinstalling its server software", "template-retry": "installing its template's add-ons",
 	// Wave 7 (0.4.0)
 	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy", "offsite-check": "checking a copy",
+	"offsite-recover": "restoring a server from a recovery key",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -185,6 +194,23 @@ func (s *server) startOp(kind, actor string, fn func(ctx context.Context, h *opH
 	return s.launchOp(&api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}, fn)
 }
 
+// opTimeout is how long an operation may run, but for those in noDeadline.
+var opTimeout = 45 * time.Minute
+
+// noDeadline are the operations a fixed deadline would cut short: a copy
+// can take hours to download over a slow link. The download's stall timeout
+// stops them when the copy stops coming, and a restore from a copy can be
+// cancelled.
+var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}
+
+// opContext is the context an operation of kind runs in.
+func opContext(parent context.Context, kind string) (context.Context, context.CancelFunc) {
+	if noDeadline[kind] {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, opTimeout)
+}
+
 // launchOp runs fn as op, a new operation or one a previous agent process
 // left running, like startOp.
 func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
@@ -192,7 +218,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		op.Detail = map[string]any{}
 	}
 	kind := op.Kind
-	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
+	ctx, cancel := opContext(s.ctx, kind)
 	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }, cancel: cancel}
 	s.opMu.Lock()
 	s.op, s.opH = op, h
@@ -1169,9 +1195,11 @@ func (s *server) countFailedStart(err error) bool {
 // startFailed is called when a start the user asked for did not bring the
 // server up. The error's hint tells them to fix the cause and press Start, so
 // nothing retries in the background; a container that is still running (a
-// slow start that timed out) keeps the desired state running.
+// slow start that timed out) keeps the desired state running. Either way the
+// server isn't asleep, so the stand-in stops answering in its place.
 func (s *server) startFailed(ctx context.Context) {
 	if _, running, err := s.containerRunning(ctx); err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 	}
+	s.leaveSleep()
 }

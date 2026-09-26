@@ -1630,8 +1630,9 @@ func TestAJoinedMachineCantChooseHowTheDashboardServesItsAnswers(t *testing.T) {
 	}
 }
 
-// A joined machine takes data and resource packs as big as its agent does,
-// not only as big as the link's other request bodies.
+// A joined machine takes data packs as big as its agent does, not only as
+// big as the link's other request bodies. Resource packs stay with the
+// dashboard's machine (see TestResourcePacksAreForTheDashboardsMachine).
 func TestAJoinedMachineTakesBigPacks(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
@@ -1639,38 +1640,19 @@ func TestAJoinedMachineTakesBigPacks(t *testing.T) {
 	e.joined(t, cookie, csrf, ra)
 	e.get(t, "/api/servers", cookie, nil)
 	pack := strings.Repeat("z", 3<<20)
-	for _, key := range []string{"POST /v1/servers/rstuvwxyzq/datapacks", "POST /v1/servers/rstuvwxyzq/resourcepack"} {
-		ra.handle(key, func(w http.ResponseWriter, r *http.Request) {
-			n, err := io.Copy(io.Discard, r.Body)
-			w.Header().Set("Content-Type", "application/json")
-			if err != nil {
-				w.WriteHeader(http.StatusRequestEntityTooLarge)
-				io.WriteString(w, `{"error":"The pack is too big.","code":"invalid"}`)
-				return
-			}
-			fmt.Fprintf(w, `{"bytes":%d}`, n)
-		})
-	}
+	ra.handle("POST /v1/servers/rstuvwxyzq/datapacks", func(w http.ResponseWriter, r *http.Request) {
+		n, err := io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			io.WriteString(w, `{"error":"The pack is too big.","code":"invalid"}`)
+			return
+		}
+		fmt.Fprintf(w, `{"bytes":%d}`, n)
+	})
 	want := fmt.Sprintf(`{"bytes":%d}`, len(pack))
 	if r, body := e.fetch(t, "POST", "/api/servers/rstuvwxyzq/datapacks?name=big", "application/zip", pack, auth(cookie, csrf)); r.StatusCode != http.StatusOK || strings.TrimSpace(body) != want {
 		t.Fatalf("a big data pack: %d %s", r.StatusCode, body)
-	}
-	// Players download a resource pack from the address the dashboard is
-	// opened at, which must be a name or an address they can reach.
-	req, _ := http.NewRequest("POST", e.ts.URL+"/api/servers/rstuvwxyzq/resourcepack?name=big", strings.NewReader(pack))
-	req.Host = "panel.example.com"
-	req.Header.Set("Origin", "https://panel.example.com")
-	req.Header.Set("Content-Type", "application/zip")
-	for k, v := range auth(cookie, csrf) {
-		req.Header.Set(k, v)
-	}
-	r, err := e.ts.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Body.Close()
-	if body, _ := io.ReadAll(r.Body); r.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != want {
-		t.Fatalf("a big resource pack: %d %s", r.StatusCode, body)
 	}
 }
 
@@ -1945,5 +1927,64 @@ func TestARemovedMachinesServersShowNowhere(t *testing.T) {
 		case step.goesTo == "beta" && (err != nil || m.ID != beta.ID):
 			t.Errorf("after %s, it goes to %v %v, want beta", step.name, m.ID, err)
 		}
+	}
+}
+
+// Approving a join request and making a friend invite answer a server the
+// dashboard can't reach as its other routes do: an unknown server is not
+// found, a disputed one says two machines list it, and only a machine that
+// can't be reached is down. A failed approval is put back.
+func TestJoinPathsSayWhyAServerCantBeReached(t *testing.T) {
+	record := func(t *testing.T, e *env, owner machine, disputedBy string) {
+		t.Helper()
+		if _, err := e.srv.db.Exec(`INSERT INTO server_machines(server_id, machine_id, seen_at, disputed_by) VALUES(?, ?, 0, ?)
+			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, disputed_by = excluded.disputed_by`, sampleServer, owner.ID, disputedBy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		reach  func(t *testing.T, e *env, alpha, beta machine)
+		status int
+		code   string
+	}{
+		{"a server whose machine was removed", func(t *testing.T, e *env, alpha, beta machine) {
+			e.srv.listings.note(e.localMachine(t), nil)
+			record(t, e, alpha, "")
+			e.removeMachine(t, alpha)
+		}, http.StatusNotFound, api.CodeNotFound},
+		{"a server two machines list", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, beta.ID)
+		}, http.StatusConflict, codeServerDisputed},
+		{"a server whose machine can't be reached", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, "")
+		}, http.StatusServiceUnavailable, machinelink.CodeNotConnected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newJoinEnv(t)
+			own := owner(t, e.env)
+			_, code := friendInvite(t, e.env, own, `{"label":"School friends","expiry":"30d","maxUses":3,"approval":"after_yes"}`)
+			if r := e.public(t, "redeem", codeBody(code, "name", "PixelPia")); r.status != http.StatusOK || r.body["waiting"] != true {
+				t.Fatalf("asking to join: %d %v", r.status, r.body)
+			}
+			var reqs []requestView
+			if st := e.get(t, "/api/servers/"+sampleServer+"/join-requests", own.cookie, &reqs); st != http.StatusOK || len(reqs) != 1 {
+				t.Fatalf("join requests: %d %+v", st, reqs)
+			}
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			tc.reach(t, e.env, alpha, beta)
+			for _, c := range []struct{ what, path, body string }{
+				{"approving the join request", "/api/servers/" + sampleServer + "/join-requests/" + reqs[0].Request.ID + "/approve", `{}`},
+				{"making a friend invite", "/api/servers/" + sampleServer + "/invites", `{"label":"More friends","expiry":"30d","maxUses":3,"approval":"after_yes"}`},
+			} {
+				if r := e.do(t, "POST", c.path, c.body, own.auth()); r.status != tc.status || r.body["code"] != tc.code {
+					t.Errorf("%s: %d %v, want %d %s", c.what, r.status, r.body, tc.status, tc.code)
+				}
+			}
+			var state string
+			if err := e.srv.db.QueryRow(`SELECT state FROM join_requests WHERE id = ?`, reqs[0].Request.ID).Scan(&state); err != nil || state != "pending" {
+				t.Errorf("the failed approval left the request %q (%v)", state, err)
+			}
+		})
 	}
 }

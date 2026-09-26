@@ -581,8 +581,17 @@ func TestStartupRefusesARefusedTokenOrAnotherZone(t *testing.T) {
 }
 
 func TestStartupWithoutCloudflareChecksTheZoneBeforeTheFirstChange(t *testing.T) {
-	down := httptest.NewServer(http.NotFoundHandler())
-	down.Close()
+	// A Cloudflare that hangs up without answering. A closed server's port
+	// won't do: another package's test, run in parallel, can take it and answer.
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("Cloudflare could not hang up: %v", err)
+			return
+		}
+		conn.Close()
+	}))
+	defer down.Close()
 	e := newEnv(t, func(e *testEnv) { e.cfg.cloudflareAPI = down.URL + "/client/v4" })
 	if !strings.Contains(e.log.String(), "Could not reach Cloudflare") {
 		t.Error("the unreachable zone check is not logged")

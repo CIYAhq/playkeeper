@@ -35,22 +35,30 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
   git checkout -q -- "$file"
 }
 
-webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
-  local name=$1 file=$2 test=${5#web/} pattern=$6
+# webcontrol is the one web control: TEST-FILE is under web/, written with or
+# without that prefix, and TESTS, when given, picks tests by name. Vitest
+# decides, not the type checker, since a mutation may leave a name unused.
+webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
+  local name=$1 file=$2 testfile=${5#web/} tests=${6:-}
+  local only=()
+  if [ -n "$tests" ]; then only=(-t "$tests"); fi
+  if [ ! -e web/node_modules ] && [ -d "$root/web/node_modules" ]; then
+    ln -s "$root/web/node_modules" web/node_modules
+  fi
   if [ ! -d web/node_modules ]; then
     echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
     bad=1
     return
   fi
   FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
-    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+  if (cd web && npx vitest run "$testfile" "${only[@]}" >/tmp/negative-control.out 2>&1); then
+    echo "MISSED   $name: ${tests:-$testfile} still passes without the guard"
     bad=1
-  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
-    echo "INVALID  $name: the mutated code does not run"
+  elif ! grep -qE 'Tests +[0-9]+ failed' /tmp/negative-control.out; then
+    echo "INVALID  $name: no test ran to fail"
     bad=1
   else
-    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+    echo "caught   $name: $(grep -m1 -E '^(AssertionError|Error): |^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
   git checkout -q -- "$file"
 }
@@ -85,6 +93,10 @@ control "every preview bucket entry is a route" internal/panel/server.go \
   '"POST /api/servers/{id}/backup-rules/estimate": true,' \
   '"POST /api/servers/{id}/backup-rules/estimates": true,' \
   ./internal/panel '^TestEveryPreviewRouteIsACheckedRoute$'
+webcontrol "a schedule preview that was refused leaves Save on" web/src/pages/server/schedules.tsx \
+  'if (!cancelled) setPreview(undefined)' \
+  "if (!cancelled) setPreview({ valid: false, nextRuns: [], error: { error: 'refused', code: 'rate_limited' } })" \
+  web/src/pages/server/schedules.test.tsx 'leaves Save on for a preview over the rate limit'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
   'if false && (err != nil || !a.allowed[uid]) {' \
@@ -298,8 +310,10 @@ webcontrol "a notice wraps a long path" web/src/components/app/bits.tsx \
   '<p className="min-w-0 flex-1 text-[13px] leading-5">' \
   web/src/pages/server/world.test.tsx 'previous world is when a restore'
 control "no restore starts while another is unsettled" internal/agent/backups.go \
-  'if !s.busy() && s.restoreUnsettled() {' \
-  'if false && !s.busy() && s.restoreUnsettled() {' \
+  '	if unsettled, _ := s.restoreUnsettled(); unsettled {
+		return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,' \
+  '	if unsettled, _ := s.restoreUnsettled(); unsettled && false {
+		return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,' \
   ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
 control "a restore from a backup waits for an unsettled one" internal/agent/handlers.go \
   'if err := s.restoreRefusal("restore again"); err != nil {
@@ -318,9 +332,9 @@ control "a restore from an off-site copy waits for an unsettled one" internal/ag
   'if err := s.restoreRefusal("restore again"); false && err != nil {' \
   ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
 control "the status says a restore isn't settled" internal/agent/handlers.go \
-  'if s.restoreUnsettled() {
+  'if unsettled, _ := s.restoreUnsettled(); unsettled {
 			st.RestoreUnsettled' \
-  'if false {
+  'if unsettled, _ := s.restoreUnsettled(); unsettled && false {
 			st.RestoreUnsettled' \
   ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
 control "the audit log says a start put back only the settings of a world moved back by hand" internal/agent/backups.go \
@@ -1212,6 +1226,14 @@ control "a restored world is given to the game without following links" internal
   'if d.Type()&fs.ModeSymlink != 0 {' \
   'if false {' \
   ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
+control "CurseForge's modpack logos load through the icon proxy" internal/addons/addons.go \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost}' \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost}' \
+  ./internal/addons '^TestIconsComeOnlyFromTheSourcesHosts$'
+control "icons come from no CurseForge host but its logos'" internal/addons/addons.go \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost}' \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost, "edge.forgecdn.net"}' \
+  ./internal/addons '^TestIconsComeOnlyFromTheSourcesHosts$'
 control "add-on files: opening a named pipe does not wait" internal/addons/files.go \
   'os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)' \
   'os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
@@ -1916,11 +1938,33 @@ shcontrol "the VM rehearsal keeps evidence without setup codes" scripts/e2e/vm-r
   ' || [ $? = 1 ]; }' \
   '; }' \
   scripts/e2e/vm-rehearsal_test.sh
+# shellcheck disable=SC2016
+shcontrol "the site check looks for the demo's marker in chunks other chunks load" scripts/demo-marker.sh \
+  '    queue+=("$dir/$name")' \
+  '    [ "$chunk" != "$entry" ] || queue+=("$dir/$name")' \
+  scripts/demo-marker_test.sh
+# shellcheck disable=SC2016
+shcontrol "the site check fetches each chunk once looking for the demo's marker" scripts/demo-marker.sh \
+  'case $seen in *" $dir/$name "*) continue ;; esac' \
+  ':' \
+  scripts/demo-marker_test.sh
+shcontrol "the site check looks for the demo's marker in 200 chunks at most" scripts/demo-marker.sh \
+  'limit=200' \
+  'limit=100000' \
+  scripts/demo-marker_test.sh
+shcontrol "the site check goes on past a chunk that loads no other chunk" scripts/demo-marker.sh \
+  ' | sort -u) || true' \
+  ' | sort -u)' \
+  scripts/demo-marker_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || reservedName(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
+control "names service checks a zone it couldn't check at startup before the first change" internal/names/service/dns.go \
+  'if s.zoneOK.Load() {' \
+  'if true || s.zoneOK.Load() {' \
+  ./internal/names/service '^TestStartupWithoutCloudflareChecksTheZoneBeforeTheFirstChange$'
 control "names service never owns records of reserved names" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
@@ -2444,6 +2488,10 @@ control "refused server addresses are asked for again only when due" internal/ag
   'if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {' \
   'if st.Free.ServersFailed > 0 && !now.Before(st.Free.ServersRetry) || st.Free.ServersWait != "" {' \
   ./internal/agent '^TestServerAddressesWaitForTheNamesService$'
+control "the HTTP-01 responder stops listening when its last check is released" internal/certs/http01.go \
+  'if h.pending == 0 && h.srv != nil {' \
+  'if false && h.pending == 0 && h.srv != nil {' \
+  ./internal/certs '^TestHTTP01ListensWhilePending$'
 control "resource pack links: HTTPS only with a certificate players' games trust" internal/certs/store.go \
   'if _, err := e.cert.Leaf.Verify(opts); err != nil {' \
   'if _, err := e.cert.Leaf.Verify(opts); err != nil && at.IsZero() {' \
@@ -3387,6 +3435,16 @@ control "the map counts squaremap the Plugins or Mods tab manages as its own fil
   'if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {' \
   'if i := slices.IndexFunc(installed, isSquaremap); false && i >= 0 {' \
   ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "turning the map on doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  '	if err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  '	if false && err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
+control "turning the map off doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  'if _, running, err = s.containerRunning(ctx); err != nil {' \
+  'if _, running, err = s.containerRunning(ctx); false && err != nil {' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
 control "a sparse member of a tar or tar.gz is refused" internal/worldimport/archive.go \
   '		if sparse(h) {' \
   '		if false && sparse(h) {' \
@@ -3419,6 +3477,151 @@ control "a restart put off is dropped once squaremap is loaded" internal/agent/m
   'if !rec.pendingRestart(l) {' \
   'if false && !rec.pendingRestart(l) {' \
   ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
+control "an unfinished upload is forgotten after an hour" internal/agent/worldimports.go \
+  '		if !imp.complete() {
+			idle = incompleteImportIdle
+		}' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a finished upload is kept for a day" internal/agent/worldimports.go \
+  'idle := worldImportIdle' \
+  'idle := incompleteImportIdle' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "an announce forgets the stale uploads before it counts the space" internal/agent/worldimports.go \
+  '	a.imports.mu.Lock()
+	stale := a.staleImports(a.now(), imp)
+	a.imports.mu.Unlock()
+	removeImports(stale)
+' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "the upload being added to is never forgotten as stale" internal/agent/worldimports.go \
+  'stale := a.staleImports(a.now(), imp)' \
+  'stale := a.staleImports(a.now(), nil)' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a cancel marks the upload gone as it checks it" internal/agent/worldimports.go \
+  '	if !inUse {
+		imp.gone = true
+	}' \
+  '' \
+  ./internal/agent '^TestCancellingAnUploadNeverDeletesItFromUnderAnOperation$'
+control "an imported world moves back only once the server stopped" internal/agent/worldimports.go \
+  '	if err := s.stopServer(ctx, h); err != nil {
+		if s.stopping() {' \
+  '	if err := s.stopServer(ctx, h); false && err != nil {
+		if s.stopping() {' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "an import the agent stopped during says so" internal/agent/worldimports.go \
+  '		if s.stopping() {
+			return false, &apiError{' \
+  '		if false {
+			return false, &apiError{' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "a create that can't move the world in drops the upload" internal/agent/worldimports.go \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		s.dropImport(imp)' \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		imp.release()' \
+  ./internal/agent '^TestACreateThatCantMoveTheWorldInDropsTheUpload$'
+control "imports count the space the others claimed" internal/agent/worldimports.go \
+  'if err == nil && free-claimed < need+minFreeAfterBackup {' \
+  'if err == nil && free < need+minFreeAfterBackup {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "an import records the space it claimed" internal/agent/worldimports.go \
+  '	imp.reserved = need
+' \
+  '' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "a create refused for space doesn't keep the upload" internal/agent/worldimports.go \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {
+		imp.release()' \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "turning the map off stops squaremap before deleting what it drew" internal/agent/maps.go \
+  '		if running {
+			h.phase("stopping")
+			if err := s.stopServer(ctx, h); err != nil {
+				return err
+			}
+		}
+	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")' \
+  '	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")
+		if err := s.stopServer(ctx, h); err != nil {
+			return err
+		}' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "the map's record goes even when some of the drawing can't be deleted" internal/agent/maps.go \
+  'leftover = &apiError{Msg: "The map is off, but' \
+  'return &apiError{Msg: "The map is off, but' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "turning the map off leaves the Plugins tab's squaremap and its folder" internal/agent/maps.go \
+  'owned := len(rec.addons) > 0' \
+  'owned := true' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "a replaced world's drawn map is deleted" internal/agent/worldimports.go \
+  '	s.forgetDrawnMap()
+' \
+  '' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "a replaced world is drawn again once it is online" internal/agent/maps.go \
+  'UPDATE maps SET first_render_at = NULL WHERE server_id = ?' \
+  'UPDATE maps SET first_render_at = first_render_at WHERE server_id = ?' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "an import leaves squaremap's folder alone while the map is off" internal/agent/maps.go \
+  '	if err != nil || rec == nil {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  '	if err != nil || rec == nil && false {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+webcontrol "leaving the page cancels the upload" web/src/components/app/world-import.tsx \
+  "window.addEventListener('pagehide', leave)" \
+  "window.addEventListener('pageshow', leave)" \
+  web/src/pages/new-server.test.tsx
+webcontrol "the request cancelling an upload outlives the page" web/src/components/app/world-import.tsx \
+  'keepalive: true' \
+  'keepalive: false' \
+  web/src/pages/new-server.test.tsx
+webcontrol "leaving the page keeps an upload a server was made from" web/src/components/app/world-import.tsx \
+  'if (!j.upload || !machineId || kept.current) return' \
+  'if (!j.upload || !machineId) return' \
+  web/src/pages/new-server.test.tsx
+# shellcheck disable=SC2016
+webcontrol "carrying on with an upload asks the machine which files it has" web/src/lib/upload.ts \
+  'let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))' \
+  'let imp = seen(o.resume ?? (await post<WorldImport>(o.base, {})))' \
+  web/src/lib/upload.test.ts
+webcontrol "carrying on refuses an upload whose files differ" web/src/lib/upload.ts \
+  ' || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)' \
+  '' \
+  web/src/lib/upload.test.ts
+webcontrol "Try again carries on with the upload as the machine last described it" web/src/components/app/world-import.tsx \
+  '          j.upload = imp
+        },' \
+  '          j.upload ??= imp
+        },' \
+  web/src/pages/new-server.test.tsx
 
 # Wave 7: who may change where backup copies go and hold the recovery key.
 control "an admin needs two-factor on to hold backup keys" internal/panel/workspace.go \
@@ -3503,8 +3706,8 @@ control "the Disk space page counts every server busy for an unreadable swap jou
   'return j != nil && j.concerns(s.id)' \
   ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
 control "the World tab keeps the world copies of a restore that isn't over" internal/agent/backups.go \
-  'if s.restoreUnsettled() {' \
-  'if false && s.restoreUnsettled() {' \
+  '} else if unsettled {' \
+  '} else if false && unsettled {' \
   ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
 control "the World tab keeps every server's world copies for an unreadable swap journal" internal/agent/backuprules.go \
   'if j.concerns(s.id) {' \
@@ -3534,23 +3737,15 @@ control "a failed wake sleeps again when Docker can't say whether the server run
   'rerr == nil && !running {' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_fails_while_Docker_can.t_say_whether_the_server_runs$'
 control "a wake waits for a backup to end" internal/agent/sleeping.go \
-  'ae.Code != api.CodeBusy || time.Now().After(deadline)' \
-  'ae.Code == api.CodeBusy || time.Now().After(deadline)' \
+  'ae.Code != api.CodeBusy {' \
+  'ae.Code == api.CodeBusy {' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
-control "turning sleep off changes nothing while the server is busy" internal/agent/sleeping.go \
-  '		if err != nil {
-			writeError(w, err)
-			return
-		}
-		resp["operation"] = op' \
-  '		if err == nil {
-			resp["operation"] = op
-		}' \
-  ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off_during_a_backup$'
-control "turning sleep off lets go of the game port when the server can't start" internal/agent/sleeping.go \
-  '				s.leaveSleep()
-				s.startFailed(ctx)' \
-  '				s.startFailed(ctx)' \
+control "turning sleep off lets go of the game port when the server can't start" internal/agent/lifecycle.go \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}
+	s.leaveSleep()' \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
 
 # Wave 7 after the real-world restore check: the copies at the old place, the
@@ -3736,6 +3931,154 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 	var c *uploadClaim' \
   ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
 
+# Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
+# players exactly while the runner plans it.
+control "every change to a schedule drops its retry, as the planner does" internal/agent/schedules.go \
+  'if sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  'if !onlySwitch && sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  ./internal/agent '^TestAScheduleListsItsRetryOnlyWhileTheRunnerPlansIt$'
+webcontrol "the schedule list promises a retry only while it is the next run" web/src/pages/server/schedules.tsx \
+  'if (!at || !s.nextRun || new Date(s.nextRun).getTime() !== new Date(at).getTime()) return undefined' \
+  'if (!at) return undefined' \
+  web/src/pages/server/schedules.test.tsx 'list a retry the agent no longer plans'
+
+# Wave 7 before Bugbot: a schedule changed from a dashboard in another time
+# zone keeps its moments.
+control "the automatic backups keep their time zone while they keep their time" internal/agent/backuprules.go \
+  '	} else if tz != "" {' \
+  '	}
+	if tz != "" {' \
+  ./internal/agent '^TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime$'
+webcontrol "the schedule dialog keeps the saved time zone while the time and days stay" web/src/pages/server/schedules.tsx \
+  'const kept = existing && opened && opened.often === form.often && opened.at === form.at ? existing.timing : undefined' \
+  'const kept = undefined' \
+  web/src/pages/server/schedules.test.tsx 'every day, in another zone'
+webcontrol "the schedule dialog shows the time on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const here = shownIn(s.timing, timeZone)' \
+  "const here = { at: s.timing.at ?? '', days: s.timing.days }" \
+  web/src/pages/server/schedules.test.tsx 'saves a new time in the viewer'
+webcontrol "the schedule list names the days on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const days = weekdays.filter((d) => here.days?.includes(d))' \
+  'const days = weekdays.filter((d) => timing.days?.includes(d))' \
+  web/src/pages/server/schedules.test.tsx 'days that fall on others'
+
+# Wave 7 before Bugbot: a new key reaches the copy being made and the copies
+# waiting, and stopping a copy for it isn't a failed try.
+control "a new key stops the copy being made" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy,_with_another_backup_waiting$'
+control "a new key starts the uploader again" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.stopUpload()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+control "a copy picked after a new key isn't encrypted to the old one" internal/agent/offsite.go \
+  'if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  'if row, err := s.loadOffsite(); err != nil || false && row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^while_the_next_copy_is_picked$'
+control "a copy stopped for a new key isn't a failed try" internal/agent/offsite.go \
+  's.uploadFailed(job.ctx, b, job, err)' \
+  's.uploadFailed(ctx, b, job, err)' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+
+# Wave 7 before Bugbot: restoring a copy takes as long as the copy takes to
+# come, and every other operation keeps its deadline.
+control "a restore of a copy has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-recover": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_a_copy$'
+control "a restore from a recovery key has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-restore": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_from_a_recovery_key$'
+control "a server's other operations keep their deadline" internal/agent/lifecycle.go \
+  '	if noDeadline[kind] {' \
+  '	if true || noDeadline[kind] {' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_backup$'
+control "machine operations keep their deadline" internal/agent/agent.go \
+  'ctx, cancel := opContext(a.ctx, kind)' \
+  'ctx, cancel := context.WithCancel(a.ctx)' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_machine_operation$'
+
+# Wave 7 before Bugbot: restoring from a recovery key holds no server.
+control "a restore from a recovery key holds no server" internal/agent/agent.go \
+  '	if stagingOps[kind] {' \
+  '	if false && stagingOps[kind] {' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+control "what waits for a restore from a recovery key says what for" internal/agent/lifecycle.go \
+  '	"offsite-recover": "restoring a server from a recovery key",
+' \
+  '' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+
+# Wave 7 before Bugbot: deleting a server asks before it deletes the only key
+# to its copies somewhere else.
+control "a delete that deletes the only key to the copies is refused" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); false && err != nil && !req.ForgetKey {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded$'
+control "a confirmed delete goes ahead without the key" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); err != nil {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded,_and_the_delete_confirmed$'
+control "copies still being made count for the key" internal/agent/automation.go \
+  '	if copies == 0 && !row.enabled {' \
+  '	if copies == 0 {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^copies_on_but_none_made_yet'
+control "a downloaded key lets the delete go ahead" internal/agent/automation.go \
+  'if err != nil || !row.hasKeys || row.keySavedAt != nil {' \
+  'if err != nil || !row.hasKeys {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_downloaded$'
+webcontrol "the delete dialog warns while the recovery key was never downloaded" web/src/components/app/delete-server.tsx \
+  'return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)' \
+  'return false' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog waits for the box before deleting without the key" web/src/components/app/delete-server.tsx \
+  ": keyRisk && !withoutKey ? t('settings.deleteKeyFirst') : undefined}" \
+  ': undefined}' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog confirms deleting without the key" web/src/components/app/delete-server.tsx \
+  "keyRisk && withoutKey ? { confirm: typed.trim(), forgetKey: true } : { confirm: typed.trim() }" \
+  '{ confirm: typed.trim() }' \
+  web/src/pages/server/settings.test.tsx 'refusal when the page didn'
+
+# Wave 7 after Bugbot's finding on d0492a3a: a copy that was made is recorded
+# when the settings can't be read after it.
+control "a made copy is recorded when the settings can't be read after it" internal/agent/offsite.go \
+  'if lerr == nil && (!row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config)) {' \
+  'if lerr != nil || !row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config) {' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings says where it was made" internal/agent/offsite.go \
+  '		row = at
+	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  '	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings is logged" internal/agent/offsite.go \
+  "s.log.Warn(\"the settings for copies somewhere else can't be read; the copy just made is recorded with those it was made with\", \"server\", s.id, \"backup\", b.ID, \"err\", lerr)" \
+  '_ = lerr' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_keys_can't_be_read_once_it_is_made$"
+
+# Wave 7 after Bugbot's finding on d0492a3a: saving the settings for copies
+# never puts an old encryption key back.
+control "saving the settings for copies never writes the keys" internal/agent/offsite.go \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli())' \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at, keys = ?`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli(), encodeKeys(r.keys))' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^a_save_of_the_settings_racing_a_new_key$'
+control "the first keys are stored only while there are none" internal/agent/offsite.go \
+  "UPDATE offsite SET keys = ? WHERE server_id = ? AND keys = ''" \
+  'UPDATE offsite SET keys = ? WHERE server_id = ?' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^first_keys_stored_while_another_request_stored_its_own$'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
@@ -3813,9 +4156,9 @@ control "a server made while a listing was on its way keeps its record" internal
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "a removed machine's server goes to no machine, not the dashboard's own" internal/panel/workspace.go \
   'case recorded:
-		return machine{}, errNotFound' \
+		return machine{}, errUnknownServer' \
   'case false && recorded:
-		return machine{}, errNotFound' \
+		return machine{}, errUnknownServer' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
   'case owner != m.ID && !ownerActive:' \
@@ -4056,6 +4399,238 @@ webcontrol "the shared map is unavailable, not loading, when its first answer fa
   'map.error?.status === 404 || (!!map.error && !last)' \
   'map.error?.status === 404' \
   web/src/pages/server/map.test.tsx 'first answer fails'
+# Wave 8 after the joined-machine bug hunt on 1062eae9: friends' pack links
+# and shared maps go to the machine that made them, resource packs stay with
+# the dashboard's machine, New server never falls back to it, and each
+# machine's audit rows are its own.
+control "a recorded friends' pack link is asked only of the machine that made it" internal/panel/packshare.go \
+  'm, serverID, err := s.linkMachine(packLink, token)' \
+  'm, serverID, err := machine{}, "", errNoLinkRecord' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$'
+control "sharing a server's pack records its link" internal/panel/packshare.go \
+  's.recordLink(packLink, ps.Token, serverID, m)' \
+  '_ = ps.Token' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$'
+control "a recorded link opens only its own server's pack" internal/panel/packshare.go \
+  'case fp.link.Server != serverID:' \
+  'case false && fp.link.Server != serverID:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/answers_for_another_server$'
+control "a link with no record that two machines open opens on neither" internal/panel/packshare.go \
+  'case len(found) > 1:' \
+  'case false && len(found) > 1:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/two_machines_open'
+control "a link with no record opens on none while a machine can't answer" internal/panel/packshare.go \
+  'case failed != nil:' \
+  'case false && failed != nil:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/a_machine_can.t_answer$'
+control "a shared map is asked of the machine that shared it" internal/panel/maps.go \
+  'agent, ok := s.mapAgent(token)' \
+  'agent, ok := s.agent, true' \
+  ./internal/panel '^TestASharedMapOpensOnTheMachineThatSharedIt$/joined_machine'
+control "sharing a map records its link" internal/panel/maps.go \
+  's.recordLink(mapLink, token, serverID, m)' \
+  '_ = token' \
+  ./internal/panel '^TestASharedMapOpensOnTheMachineThatSharedIt$/joined_machine'
+control "a joined machine's server refuses a resource pack" internal/panel/packs.go \
+  'if m.Kind == remoteKind {' \
+  'if false && m.Kind == remoteKind {' \
+  ./internal/panel '^TestResourcePacksAreForTheDashboardsMachine$'
+control "a machine installed to join a dashboard refuses a resource pack" internal/agent/packs.go \
+  'if s.cfg.NoPanel {' \
+  'if false && s.cfg.NoPanel {' \
+  ./internal/agent '^TestAMachineWithoutADashboardRefusesResourcePacks$'
+webcontrol "the Packs page holds resource packs back on a joined machine's server" web/src/pages/server/world-packs.tsx \
+  'resource: joined ?' \
+  'resource: joined && false ?' \
+  src/pages/server/world.test.tsx 'holds resource pack uploads back'
+webcontrol "New server never swaps a machine that's away for the dashboard's" web/src/pages/new-server.tsx \
+  'const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine' \
+  'const target = ws.machines.filter((m) => !isAway(m)).find((m) => m.id === machine) ?? ws.machine' \
+  src/pages/new-server.test.tsx 'New server on a joined machine'
+webcontrol "New server holds Create back while its machine is away" web/src/pages/new-server.tsx \
+  'if (away) return away' \
+  'if (false) return away' \
+  src/pages/new-server.test.tsx 'New server on a joined machine'
+webcontrol "New server keeps its machine once the flow starts" web/src/pages/new-server.tsx \
+  'const choices = started ?' \
+  'const choices = started && false ?' \
+  src/pages/new-server.test.tsx 'keeps the machine once the flow starts'
+control "the audit log takes at most 200 rows from each machine" internal/panel/server.go \
+  'if len(out) == maxMachineAudit {' \
+  'if false && len(out) == maxMachineAudit {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/500_rows'
+control "the audit log dates no machine's row after now" internal/panel/server.go \
+  'if a.TS.After(now) {' \
+  'if false && a.TS.After(now) {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/500_rows'
+control "the audit log takes each of a machine's rows once" internal/panel/server.go \
+  'if seen[a.ID] {' \
+  'if false && seen[a.ID] {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/again_and_again'
+webcontrol "the audit log keys each row by its machine" web/src/pages/settings.tsx \
+  "e.machineId ?? ''}" \
+  "''}" \
+  src/pages/settings.test.tsx 'numbered alike'
+webcontrol "the audit log names the machine of an agent's row" web/src/pages/settings.tsx \
+  'ws.machines.length > 1 ?' \
+  'ws.machines.length > 99 ?' \
+  src/pages/settings.test.tsx 'numbered alike'
+
+# Wave 7: the sleep operation looks again right before it stops the server,
+# and saving the sleep setting takes the operation lock.
+control "a sleep decided with another setting is called off" internal/agent/sleeping.go \
+  's.desired() != api.DesiredRunning || s.sleepSettings() != set' \
+  's.desired() != api.DesiredRunning' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$'
+control "a sleep is called off when someone joined since it decided" internal/agent/sleeping.go \
+  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
+  'if false {' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined_as_it_looks_again$'
+# The same lock refuses turning sleep off during a backup; that test can't be
+# the control, because the start begun without the lock hangs its cleanup.
+control "saving the sleep setting takes the operation lock" internal/agent/sleeping.go \
+  'release, ok := s.holdOpLock()
+	if !ok {
+		return nil, s.busyError()' \
+  'release, ok := func() {}, true
+	if !ok {
+		return nil, s.busyError()' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^sleep_turned_off_while_it_runs$'
+
+# Wave 7: a staging folder that can't be read may hold any server's swap
+# journal, so each caller keeps what a restore may need and says why.
+control "a staging folder that can't be read may hold any server's swap journal" internal/agent/backuprules.go \
+  'if err != nil && !errors.Is(err, fs.ErrNotExist) {' \
+  'if err != nil && !errors.Is(err, fs.ErrNotExist) && false {' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$'
+control "the rules keep every rollback archive while the staging folder can't be read" internal/agent/backuprules.go \
+  'swaps = map[string]*swapJournal{"": nil}' \
+  'swaps = nil' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^backup_rules$'
+control "the Disk space page counts every server busy while the staging folder can't be read" internal/agent/disk.go \
+  '		journals = append(journals, nil)
+' \
+  '' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
+control "the Disk space page says the staging folder can't be read" internal/agent/disk.go \
+  'diskusage.Problem{Code: diskusage.CodeRestoresUnknown' \
+  'diskusage.Problem{Code: "other"' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
+control "the World tab keeps every world copy while the staging folder can't be read" internal/agent/backuprules.go \
+  'if err != nil {
+		return true, err
+	}' \
+  'if err != nil {
+		return false, nil
+	}' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^World_tab$'
+control "the World tab says the staging folder can't be read" internal/agent/backups.go \
+  'if unsettled, err := s.restoreUnsettled(); err != nil {' \
+  'if unsettled, err := s.restoreUnsettled(); err != nil && false {' \
+  ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^World_tab$'
+
+# Wave 7, from the bug hunt: failed starts and wakes leave nothing answering
+# for a server that isn't asleep, bans hold with the allowlist on, every
+# operation has a busy label, and unreadable backup rules delete nothing.
+control "a failed start closes the stand-in" internal/agent/lifecycle.go \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}
+	s.leaveSleep()' \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}' \
+  ./internal/agent '^TestAFailedStartLeavesNothingAnsweringForTheServer$'
+control "a sleeping server started outside Playkeeper lets go of the stand-in" internal/agent/sleeping.go \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.leaveSleep()
+		return' \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.endSleepPeriod(s.now().UTC(), "")
+		return' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^started_outside_Playkeeper$'
+control "pruning leaves the copies alone while one is being downloaded" internal/agent/offsite.go \
+  '	if !s.copyReads.TryLock() {
+		s.log.Info("a copy is being downloaded, so the backup rules delete copies after the next one", "server", s.id)
+		return
+	}
+	defer s.copyReads.Unlock()
+' \
+  '' \
+  ./internal/agent '^TestPruningLeavesACopyThatIsBeingDownloaded$/^a_restore_is_downloading_it$'
+control "a restore from a copy holds the copy downloads' lock" internal/agent/offsite.go \
+  '	s.copyReads.RLock()
+	got, err := dest.Download(ctx, dl)
+	s.copyReads.RUnlock()' \
+  '	got, err := dest.Download(ctx, dl)' \
+  ./internal/agent '^TestPruningLeavesACopyThatIsBeingDownloaded$/^a_restore_is_downloading_it$'
+control "a join's wake waits for the operation however long it runs" internal/agent/sleeping.go \
+  '	for {
+		if s.ctx.Err() != nil || s.desired() != api.DesiredSleeping {
+			return
+		}
+		_, err := s.beginOp("wake"' \
+  '	giveUp := time.Now().Add(wakeRetry)
+	for {
+		if s.ctx.Err() != nil || s.desired() != api.DesiredSleeping || time.Now().After(giveUp) {
+			return
+		}
+		_, err := s.beginOp("wake"' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup_that_outlasts_its_retries$'
+control "one join's wake waits at a time" internal/agent/sleeping.go \
+  '	if s.auto.wakePending {' \
+  '	if false && s.auto.wakePending {' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup_that_outlasts_its_retries$'
+control "a wake whose start stopped the server leaves it stopped" internal/agent/sleeping.go \
+  'if d := s.desired(); d != api.DesiredRunning && d != api.DesiredSleeping {
+				s.leaveSleep()' \
+  'if d := s.desired(); false && d != api.DesiredRunning && d != api.DesiredSleeping {
+				s.leaveSleep()' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_finds_the_server_software_changed$'
+control "a banned player doesn't wake a server whose allowlist is on" internal/agent/sleeping.go \
+  'if strings.EqualFold(name, player) {' \
+  'if false && strings.EqualFold(name, player) {' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_on,_banned_though_listed_or_an_operator$'
+control "restoring from a recovery key has a busy label" internal/agent/lifecycle.go \
+  '"offsite-recover": "restoring a server from a recovery key",' \
+  '' \
+  ./internal/agent '^TestEveryOperationHasABusyLabel$'
+control "backup rules that can't be read are an error, not the defaults" internal/agent/backuprules.go \
+  'SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw); err != nil {' \
+  'SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw); false && err != nil {' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_rules_can.t_be_read$'
+control "saved backup rules that don't parse are an error" internal/agent/backuprules.go \
+  'return retention.Settings{}, nil, false, fmt.Errorf("the saved backup rules are not valid: %w", err)' \
+  'return retention.DefaultSettings(), time.UTC, false, nil' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^rules_that_don.t_parse$'
+control "a copy queue that can't be read is an error" internal/agent/backuprules.go \
+  'return nil, fmt.Errorf("the copy queue could not be read: %w", err)
+	}
+	defer rows.Close()' \
+  'return map[string]bool{}, nil
+	}
+	defer rows.Close()' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_copy_queue_can.t_be_read$'
+control "the catalog sizes memory for what the server runs, not always vanilla" internal/agent/handlers.go \
+  'Sizing: memorySizing(a.catalogWorkload(forServer, typ, mods), opts),' \
+  'Sizing: memorySizing(sizing.Vanilla, opts),' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a new server from a pack is sized by the pack's mods" internal/agent/handlers.go \
+  'if mods >= 0 {
+		return sizing.WorkloadFor(mods, 0)' \
+  'if false && mods >= 0 {
+		return sizing.WorkloadFor(mods, 0)' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "an existing server's plugins count as plugins and its mods as mods" internal/agent/handlers.go \
+  'if addonDir(*sc) == "plugins" {' \
+  'if addonDir(*sc) != "plugins" {' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a disputed server is answered as disputed, not as an agent that's down" internal/panel/machines.go \
+  'if errors.Is(err, errDisputed) {' \
+  'if false && errors.Is(err, errDisputed) {' \
+  ./internal/panel '^TestJoinPathsSayWhyAServerCantBeReached$'
+control "a server no machine runs is answered as not found, not as an agent that's down" internal/panel/machines.go \
+  'if errors.Is(err, errUnknownServer) {' \
+  'if false && errors.Is(err, errUnknownServer) {' \
+  ./internal/panel '^TestJoinPathsSayWhyAServerCantBeReached$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

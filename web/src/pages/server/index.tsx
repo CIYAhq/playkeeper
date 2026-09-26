@@ -1,11 +1,11 @@
 import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, HouseIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SquareIcon, Trash2Icon } from 'lucide-react'
-import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
-import { errorText, serverApi, useServer, useServerMachine, useWorkspace } from '@/api/workspace'
+import { useServer, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { serverAction } from '@/components/app/server-action'
 import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel, TabSkeleton } from '@/components/app/skeletons'
@@ -45,15 +45,7 @@ const WorldPage = lazy(() => import('./world').then((m) => ({ default: m.WorldPa
 const PacksPage = lazy(() => import('./world-packs').then((m) => ({ default: m.PacksPage })))
 const PregenPage = lazy(() => import('./world-pregen').then((m) => ({ default: m.PregenPage })))
 
-export async function serverAction(server: ServerStatus, action: 'start' | 'stop' | 'restart' | 'backups', body: unknown = {}): Promise<boolean> {
-  try {
-    await post(serverApi(server.id, `/${action}`), body)
-    return true
-  } catch (e) {
-    toastManager.add({ title: errorText(e), type: 'error' })
-    return false
-  }
-}
+export { serverAction }
 
 export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running'; player?: string }) {
   const ws = useWorkspace()

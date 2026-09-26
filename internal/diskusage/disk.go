@@ -111,6 +111,11 @@ func (l Layout) diskDir() string {
 // Disk space page explains instead of drawing the bar.
 const CodeDiskSpace = "disk_space"
 
+// CodeRestoresUnknown is the layout problem of a caller that couldn't tell
+// which restores are over, so it offers nothing of any server; the Disk
+// space page shows it as why.
+const CodeRestoresUnknown = "restores_unknown"
+
 // measureDisk reads how large and how full the disk is, and which device
 // it is, so that only what is on it goes into the bar.
 func (s *scan) measureDisk(l Layout) {

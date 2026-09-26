@@ -165,7 +165,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
           <div className="flex items-center gap-4">
             <PlayerFace name={p.name} uuid={p.uuid} size={56} />
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-[20px] leading-6 font-bold">{p.name}</h1>
+              <h2 className="truncate text-[20px] leading-6 font-bold">{p.name}</h2>
               <p className="mt-0.5 flex items-center gap-1.5 text-[15px]">
                 {p.online && <Dot tone="online" />}
                 <span className={cn(!p.online && 'text-muted-foreground')}>{status}</span>

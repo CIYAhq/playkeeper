@@ -148,7 +148,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/servers/new#world')
   vi.mocked(client.get).mockImplementation(((path: string) => (path.includes('/catalog') ? Promise.resolve(catalog) : new Promise(() => {}))) as typeof client.get)
   vi.mocked(upload.uploadWorld).mockImplementation((o) => {
-    o.onStart?.(uploaded)
+    o.onImport?.(uploaded)
     o.onProgress?.({ sent: 62, total: 100, retrying: false })
     return new Promise((resolve) => {
       finish = resolve
@@ -263,9 +263,13 @@ describe('New server from a world', () => {
       acceptEula: true,
     })
 
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+    await act(async () => void window.dispatchEvent(new Event('pagehide')))
     await act(async () => root?.unmount())
     root = undefined
     expect(client.del).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    fetch.mockRestore()
   })
 
   it('deletes the upload when it’s cancelled', async () => {
@@ -275,4 +279,151 @@ describe('New server from a world', () => {
     expect(client.del).toHaveBeenCalledWith(`${base}/${uploaded.id}`)
     expect(text()).toContain('Drop the world .zip here')
   })
+
+  // A reload or a closed tab doesn't unmount the page, and a request the page
+  // makes as it goes must outlive it.
+  it.each([
+    { name: 'while it uploads', finished: false },
+    { name: 'once it’s uploaded', finished: true },
+  ])('deletes the upload when the page goes away $name', async ({ finished }) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+    await render()
+    await chooseFile('Survival-2024.zip')
+    if (finished) await act(async () => finish?.(uploaded))
+    await act(async () => void window.dispatchEvent(new Event('pagehide')))
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(`${base}/${uploaded.id}`, expect.objectContaining({ method: 'DELETE', keepalive: true }))
+    expect(text()).toContain('Drop the world .zip here')
+    await act(async () => root?.unmount())
+    root = undefined
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(client.del).not.toHaveBeenCalled()
+    fetch.mockRestore()
+  })
+
+  it('carries on after the disk filled up without announcing the file again', async () => {
+    const actual = await vi.importActual<typeof upload>('@/lib/upload')
+    const files: { name: string; size: number; received: number }[] = []
+    const view = (): WorldImport => ({ ...uploaded, files: files.map((f, index) => ({ index, ...f })) })
+    let full = true
+    const put: upload.Put = async (url, body) => {
+      if (full) return { status: 507, text: JSON.stringify({ error: 'The disk filled up during the upload.', code: 'insufficient_space' }) }
+      const f = files[Number(/\/files\/(\d+)\?/.exec(url)?.[1])]
+      if (f) f.received += body.size
+      return { status: 200, text: JSON.stringify(view()) }
+    }
+    vi.mocked(upload.uploadWorld).mockImplementation((o) => actual.uploadWorld({ ...o, put, wait: async () => {} }))
+    const get = vi.mocked(client.get).getMockImplementation()
+    vi.mocked(client.get).mockImplementation(((path: string) => (path === `${base}/${uploaded.id}` ? Promise.resolve(view()) : get?.(path))) as typeof client.get)
+    const post = vi.mocked(client.post).getMockImplementation()
+    vi.mocked(client.post).mockImplementation(((path: string, body?: { name: string; size: number }) => {
+      if (path === base) return Promise.resolve(view())
+      if (path === `${base}/${uploaded.id}/files` && body) {
+        files.push({ name: body.name, size: body.size, received: 0 })
+        return Promise.resolve(view())
+      }
+      return post?.(path, body)
+    }) as typeof client.post)
+
+    await render()
+    await chooseFile('Survival-2024.zip')
+    expect(text()).toContain('The disk filled up during the upload.')
+    full = false
+    await click(button('Try again'))
+    expect(vi.mocked(upload.uploadWorld).mock.calls[1]?.[0].resume?.files).toEqual([{ index: 0, name: 'Survival-2024.zip', size: 1, received: 0 }])
+    expect(files).toEqual([{ name: 'Survival-2024.zip', size: 1, received: 1 }])
+    expect(text()).toContain('1 B · uploaded')
+  })
+})
+
+describe('New server on a joined machine', () => {
+  const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote' } as MachineView
+  const on = (state: 'connected' | 'offline'): Workspace => ({ ...workspace, machines: [machine, { ...remote, link: { machineId: remote.id, name: remote.name, fingerprint: '', state, problems: [] } }] })
+  const unreachable = new client.ApiError(503, { error: 'home-server is not connected.', code: 'machine_not_connected' })
+
+  /** Renders the page for home-server, or renders it again with the workspace changed. */
+  async function renderOn(ws: Workspace) {
+    const r = root ?? createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{<NewServerPage key={remote.id} machine={remote.id} />}</WorkspaceContext.Provider>))
+    await act(settle)
+  }
+
+  function continueButton(): HTMLButtonElement {
+    const b = [...document.querySelectorAll('button')].find((x) => /^(Continue to|Create and start)/.test(x.textContent?.trim() ?? ''))
+    if (!b) throw new Error(`no Continue button in: ${text()}`)
+    return b
+  }
+
+  async function next(times = 1) {
+    for (let i = 0; i < times; i++) await click(continueButton())
+  }
+
+  async function acceptEula() {
+    const eula = document.querySelector('input[type="checkbox"]')
+    if (!eula) throw new Error('no EULA checkbox')
+    await click(eula)
+  }
+
+  const posted = () => vi.mocked(client.post).mock.calls.map(([path]) => path)
+  const asked = () => vi.mocked(client.get).mock.calls.map(([path]) => path)
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', `/servers/new?machine=${remote.id}`)
+    vi.mocked(client.get).mockClear()
+    vi.mocked(client.post).mockImplementation((() => Promise.resolve({ id: 'op1', kind: 'create', status: 'running', serverId: 's2345abcde' } as Operation)) as typeof client.post)
+  })
+
+  for (const tc of [
+    {
+      name: 'makes the server there while it’s connected, and keeps the machine once the flow starts',
+      steps: async () => {
+        await renderOn(on('connected'))
+        expect(text()).toContain('New server on')
+        await next()
+        expect(text()).not.toContain('New server on')
+        await next(3)
+        await acceptEula()
+        await next()
+      },
+      posts: ['/api/machines/r2345abcde/servers'],
+    },
+    {
+      name: 'says it’s away and holds Create back when it’s away as the page opens',
+      steps: async () => {
+        vi.mocked(client.get).mockImplementation(((path: string) => (path.includes('/catalog') ? (path.includes(remote.id) ? Promise.reject(unreachable) : Promise.resolve(catalog)) : new Promise(() => {}))) as typeof client.get)
+        await renderOn(on('offline'))
+        expect(text()).toContain('Can’t reach home-server Create waits until it’s back.')
+        expect(text()).not.toContain('Couldn’t load the versions')
+        expect(continueButton().disabled).toBe(true)
+        expect(continueButton().title).toBe('Can’t reach home-server')
+        await click(continueButton())
+      },
+      posts: [],
+    },
+    {
+      name: 'keeps the machine when it goes away after step 2, and goes on once it’s back',
+      steps: async () => {
+        await renderOn(on('connected'))
+        await next(2)
+        await renderOn(on('offline'))
+        expect(text()).toContain('Can’t reach home-server')
+        expect(continueButton().title).toBe('Can’t reach home-server')
+        await click(continueButton())
+        expect(continueButton().textContent).toContain('Continue to memory')
+        await renderOn(on('connected'))
+        expect(text()).not.toContain('Can’t reach home-server')
+        await next(2)
+        await acceptEula()
+        await next()
+      },
+      posts: ['/api/machines/r2345abcde/servers'],
+    },
+  ]) {
+    it(tc.name, async () => {
+      await tc.steps()
+      expect(posted()).toEqual(tc.posts)
+      expect(asked().filter((p) => p.includes(machine.id))).toEqual([])
+    })
+  }
 })

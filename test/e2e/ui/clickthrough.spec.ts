@@ -726,10 +726,11 @@ test('the modpack fixtures answer every pack the library lists, from Modrinth an
   expect(read('/hangar/abc')).toMatchObject({ status: 400, body: { error: 'Modpacks come from Modrinth or CurseForge.' } })
   expect(read('/modrinth/bad!id')).toMatchObject({ status: 400, body: { error: 'That is not a valid modpack id.' } })
 
-  // Icons are drawn, and a CurseForge pack's is refused as the proxy refuses it.
-  const icon = read(`/icon?url=${encodeURIComponent('https://cdn.modrinth.com/data/1ocGzRHv/icon.png')}`)
-  expect(icon?.headers['Content-Type']).toBe('image/png')
-  expect(read(`/icon?url=${encodeURIComponent('https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png')}`)).toMatchObject({ status: 400, body: { code: 'host_not_allowed' } })
+  // Both sources' pack icons are drawn; CurseForge's file host serves no icons.
+  for (const url of ['https://cdn.modrinth.com/data/1ocGzRHv/icon.png', 'https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png']) {
+    expect(read(`/icon?url=${encodeURIComponent(url)}`)?.headers['Content-Type'], url).toBe('image/png')
+  }
+  expect(read(`/icon?url=${encodeURIComponent('https://edge.forgecdn.net/files/9200/2/logo.png')}`)).toMatchObject({ status: 400, body: { code: 'host_not_allowed' } })
 
   // Nothing recorded, no answer.
   expect(read('/modrinth/AAAAAAAA')).toBeUndefined()

@@ -584,7 +584,7 @@ function CreatedToken({ made, address, onDone }: { made: NewToken; address: stri
         <div>
           <p className="text-[13px] font-semibold">{t('ai.snippetTitle')}</p>
           <div className="relative mt-1.5 rounded-2xl bg-console px-4 py-3.5">
-            <pre className="overflow-x-auto font-mono text-xs leading-5 text-[#e8e8e0]">{mcpSnippet(address, elideSecret(made.secret))}</pre>
+            <pre tabIndex={0} className="overflow-x-auto rounded-sm font-mono text-xs leading-5 text-[#e8e8e0] outline-none focus-visible:ring-2 focus-visible:ring-ring">{mcpSnippet(address, elideSecret(made.secret))}</pre>
             <CopyButton text={mcpSnippet(address, made.secret)} aria-label={t('ai.copySnippet')} className="absolute top-3 right-3 bg-white" />
           </div>
         </div>
