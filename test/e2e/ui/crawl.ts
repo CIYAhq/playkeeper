@@ -115,6 +115,8 @@ export class Crawler {
   private readonly signatures = new Set<string>()
   /** Set while a negative control presses a control it broke, whose failure isn't the crawl's. */
   private quiet = false
+  /** Set while exploring presses a control again in a state it led to; only its first press counts. */
+  private again = false
   private calls: ApiCall[] = []
   private unfaked: string[] = []
   private unrecorded: string[] = []
@@ -421,7 +423,9 @@ export class Crawler {
   private record(route: string, via: string[], c: ControlInfo, status: Status, effects: string[] = [], problems: string[] = [], reason?: string): Result {
     const r: Result = { viewport: this.viewport, route, view: this.view === 'live' ? undefined : this.view, via, key: c.key, status, effects, problems, reason }
     this.results.push(r)
-    if (!this.quiet) this.log(`${failing.includes(status) ? '✗' : '✓'} [${this.viewport}] ${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}`)
+    const mark = this.again ? '·' : failing.includes(status) ? '✗' : '✓'
+    const note = this.again ? ' (pressed again in a state it led to; only its first press counts)' : ''
+    if (!this.quiet) this.log(`${mark} [${this.viewport}] ${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}${note}`)
     return r
   }
 
@@ -612,7 +616,8 @@ export class Crawler {
           if (!done) this.notes.push(`[${this.viewport}] ${where(route, this.view)}${path.length ? ` › ${path.join(' › ')}` : ''}: ${c.key} went away before it was pressed`)
           continue
         }
-        const t = await this.test(route, path, fresh, state)
+        this.again = !!done
+        const t = await this.test(route, path, fresh, state).finally(() => (this.again = false))
         if (done) this.results.pop()
         else this.tested.set(c.key, t)
         if (t.opened) {
