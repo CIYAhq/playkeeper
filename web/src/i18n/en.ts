@@ -1089,6 +1089,7 @@ export const en = {
   'machines.connect.waitingFor': 'Waiting for {name}…',
   'machines.connect.waitingAny': 'Waiting for the machine…',
   'machines.connect.makeCode': 'Make a new code',
+  'machines.connect.noAddress': 'Open this dashboard at its IP address or domain name, not localhost, to get the command.',
   'machines.connected.title': '{name} connected',
   'machines.connected.body': 'It reconnects by itself.',
   'machines.connected.newServer': 'New server on {name}',

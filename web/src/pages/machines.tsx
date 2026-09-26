@@ -165,11 +165,12 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
     [refresh],
   )
 
+  const dialable = link.addresses.length > 0
   useEffect(() => {
-    if (tried.current || cmd || paused) return
+    if (tried.current || cmd || paused || !dialable) return
     tried.current = true
     void make(name, dial)
-  }, [cmd, paused, make, name, dial])
+  }, [cmd, paused, dialable, make, name, dial])
 
   useEffect(() => {
     if (!cmd || name === made?.name || joined) return
@@ -277,7 +278,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
                 { value: 'join', label: t('machines.connect.formExisting') },
               ]}
             />
-            {link.addresses.length > 0 && (
+            {dialable && (
               <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                 {t('machines.connect.dials')}
                 <ChoiceSelect
@@ -299,7 +300,9 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
               <p className="text-xs text-muted-foreground">{t('machines.proxy.body')}</p>
             </div>
           )}
-          {error ? (
+          {!dialable ? (
+            <p className="mt-3 text-[13px] text-muted-foreground">{t('machines.connect.noAddress')}</p>
+          ) : error ? (
             <p className="mt-3 text-[13px] text-destructive-foreground" role="alert">
               {error}
             </p>

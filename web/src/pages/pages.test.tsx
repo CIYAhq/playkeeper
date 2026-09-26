@@ -10,6 +10,7 @@ import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { AiAgentsSection } from './ai-agents'
 import { HomePage } from './home'
+import { forgetJoinCode, MachinesSection } from './machines'
 import { Onboarding } from './onboarding'
 import { ServerPage } from './server'
 import { Overview } from './server/overview'
@@ -507,6 +508,15 @@ describe('Machines and AI agents', () => {
     await render(<Overview server={{ ...cobblemon, phase: 'crashed', stoppedAt: new Date().toISOString() }} />, ws)
     expect(asked().length).toBeGreaterThan(1)
     expect(asked().every((p) => p.startsWith(`/api/machines/${home.id}/catalog`))).toBe(true)
+  })
+
+  it('says how to get a command when the dashboard has no address another machine can dial', async () => {
+    forgetJoinCode()
+    vi.mocked(client.post).mockClear()
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
+    const text = await render(<MachinesSection />)
+    expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
+    expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
   })
 
   it('says why a token can’t be made yet', async () => {

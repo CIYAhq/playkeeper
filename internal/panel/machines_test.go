@@ -860,6 +860,22 @@ func TestDialAddresses(t *testing.T) {
 	}
 }
 
+// Opened at its loopback address without a domain, on an install whose
+// panel can't list its interfaces, the dashboard has nothing to offer a
+// joining machine: it says so, and the list is empty rather than null.
+func TestNoAddressToDial(t *testing.T) {
+	e := newEnv(t)
+	e.srv.opts.HostIPs = func() []net.IP { return nil }
+	cookie, csrf := e.setup(t)
+	if addrs, ok := e.linkInfo(t, cookie)["addresses"].([]any); !ok || len(addrs) != 0 {
+		t.Fatalf("addresses: %v", e.linkInfo(t, cookie)["addresses"])
+	}
+	r := e.do(t, "POST", "/api/machines/join-codes", `{}`, auth(cookie, csrf))
+	if r.status != http.StatusBadRequest || r.body["error"] != "This dashboard has no address another machine can reach." || r.body["hint"] == "" {
+		t.Fatalf("join code: %d %v", r.status, r.body)
+	}
+}
+
 func TestANameBehindCloudflareIsFlagged(t *testing.T) {
 	e := newEnvConfig(t, nil, withDomain)
 	e.names.set("panel.example.com", "104.16.132.229")

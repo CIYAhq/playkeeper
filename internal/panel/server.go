@@ -58,6 +58,10 @@ type Options struct {
 	// LookupIP resolves names for the proxy check (default: the system
 	// resolver).
 	LookupIP func(ctx context.Context, host string) ([]netip.Addr, error)
+	// HostIPs are this host's addresses, offered for joining when the
+	// dashboard was opened at a loopback address (default: HostIPs). The
+	// installed panel's unit leaves out AF_NETLINK, so there it finds none.
+	HostIPs func() []net.IP
 }
 
 type Server struct {
@@ -105,6 +109,9 @@ func New(opts Options) (*Server, error) {
 		opts.LookupIP = func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		}
+	}
+	if opts.HostIPs == nil {
+		opts.HostIPs = HostIPs
 	}
 	if err := os.MkdirAll(opts.Config.PanelDir(), 0o700); err != nil {
 		return nil, err

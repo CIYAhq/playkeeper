@@ -258,7 +258,7 @@ func (s *Server) dialAddresses(ctx context.Context, r *http.Request) []dialAddre
 	if ip == "" {
 		if s.cfg.Dev && name == "localhost" {
 			ip = "127.0.0.1"
-		} else if ips := HostIPs(); len(ips) > 0 {
+		} else if ips := s.opts.HostIPs(); len(ips) > 0 {
 			ip = ips[0].String()
 			for _, x := range ips {
 				if x.To4() != nil {
@@ -268,7 +268,7 @@ func (s *Server) dialAddresses(ctx context.Context, r *http.Request) []dialAddre
 			}
 		}
 	}
-	var out []dialAddress
+	out := []dialAddress{}
 	port := strconv.Itoa(s.cfg.PanelPort)
 	for _, c := range []struct{ kind, host string }{{dialName, name}, {dialIP, ip}} {
 		if c.host == "" {
@@ -455,6 +455,11 @@ func (s *Server) hJoinCodeCreate(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	addrs := s.dialAddresses(r.Context(), r)
+	if len(addrs) == 0 {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "This dashboard has no address another machine can reach.",
+			"Open it at its IP address or domain name instead of localhost, then make the code again.")
+		return
+	}
 	var dial dialAddress
 	for _, a := range addrs {
 		if a.Kind == req.Dial || (req.Dial == "" && dial.Address == "") {
