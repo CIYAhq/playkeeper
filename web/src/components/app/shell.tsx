@@ -220,7 +220,7 @@ function MachineRow({ machine: m, route }: { machine: MachineView; route: Route 
       {...linkProps(machineRoute(m))}
       aria-current={active ? (route.name === 'machine-settings' ? 'true' : 'page') : undefined}
       className={cn(
-        'mt-3 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+        'mt-1.5 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
         active && 'border-border bg-white text-foreground shadow-outline',
       )}
     >
@@ -289,9 +289,11 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           </div>
         )}
         {can(ws.me, 'servers.create') && (
-          <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
-            {t('nav.newServer')}
-          </SideItem>
+          <div className={cn('flex flex-col', shared && 'mt-3')}>
+            <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
+              {t('nav.newServer')}
+            </SideItem>
+          </div>
         )}
         {shared && can(ws.me, 'machine.manage') && (
           <SideItem to={{ name: 'machines' }} icon={<PlugIcon />} muted>
