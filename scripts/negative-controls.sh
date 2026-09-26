@@ -2482,6 +2482,41 @@ control "a refused scheduled backup sends the backup-failed alert" internal/agen
   'if false && kind == "backup" && done.Status == api.OpFailed {' \
   ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
 
+# Wave 7 after Bugbot's findings on d825c69: a running map pre-generation keeps
+# an empty server awake, and a backup dropped from a full copy queue discards
+# what it left at the destination.
+control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
+  'Busy: s.busy() || s.pregenRunning(),' \
+  'Busy: s.busy(),' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
+control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
+  'return st == pregen.StateRunning' \
+  '_ = st' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused_from_the_console$'
+control "until Chunky reports, a running task keeps the server awake" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return false' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running,_before_Chunky_reports$'
+control "until Chunky reports, a paused task lets the server sleep" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return true' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused,_before_Chunky_reports$'
+control "a finished map pre-generation lets the server sleep" internal/agent/pregen.go \
+  '	if !task.unfinished() {
+		return false
+	}
+	if st, ok := s.pg.lastState(); ok {' \
+  '	if st, ok := s.pg.lastState(); ok {' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^finished$'
+control "a backup dropped from a full copy queue discards what it left at the destination" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  '_ = dropped' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$'
+control "only the dropped backups' unfinished copies are discarded" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  's.discardUploads(append(s.queuedStates(), dropped...))' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$/^S3$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
