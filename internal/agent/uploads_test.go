@@ -221,7 +221,9 @@ func TestUnfinishedUploadsAreCleanedUpOnlyFromAQueueThatWasRead(t *testing.T) {
 				`CREATE VIEW offsite_uploads AS SELECT server_id, backup_id,
 					CASE WHEN backup_id = '`+later+`' THEN json('{') ELSE state END AS state,
 					attempts, next_attempt, last_error, error_hint, error_kind, error_params, created_at FROM offsite_uploads_real`)
-			return func() { exec(e, `DROP VIEW offsite_uploads`, `ALTER TABLE offsite_uploads_real RENAME TO offsite_uploads`) }
+			return func() {
+				exec(e, `DROP VIEW offsite_uploads`, `ALTER TABLE offsite_uploads_real RENAME TO offsite_uploads`)
+			}
 		}},
 	}
 	for _, c := range cases {
@@ -434,9 +436,9 @@ func TestAFailedTryCountsFromTheQueue(t *testing.T) {
 		name     string
 		attempts int
 		// claimed is when the try was claimed, from the settings' save.
-		claimed  time.Duration
-		want     int
-		wait     time.Duration
+		claimed time.Duration
+		want    int
+		wait    time.Duration
 	}{
 		{name: "the first try", attempts: 0, claimed: time.Second, want: 1, wait: 5 * time.Minute},
 		{name: "the third try", attempts: 2, claimed: time.Second, want: 3, wait: 20 * time.Minute},

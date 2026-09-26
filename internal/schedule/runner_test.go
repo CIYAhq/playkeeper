@@ -561,7 +561,7 @@ func TestRunnerWaitsForABusyServer(t *testing.T) {
 			attempts: 1, result: ResultSucceeded},
 		{name: "a restart, busy for 40 minutes", kind: KindRestart, payload: restart, busyUntil: "04:40", until: "05:00",
 			timeline: []string{"03:59:50 The server restarts in 10 seconds. Back in a minute!", "04:15:00 The planned restart was called off."},
-			result: ResultFailed, reason: ReasonBusy},
+			attempts: 0, result: ResultFailed, reason: ReasonBusy},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
