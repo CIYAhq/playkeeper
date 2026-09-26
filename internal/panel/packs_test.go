@@ -195,7 +195,7 @@ func TestAddonIconsAreOnlyImages(t *testing.T) {
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, `{"error":"Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from evil.example.","code":"host_not_allowed"}`)
+			io.WriteString(w, `{"error":"Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from evil.example.","code":"host_not_allowed"}`)
 		}
 	})
 	icon := "/api/servers/" + sampleServer + "/addons/icon?url="

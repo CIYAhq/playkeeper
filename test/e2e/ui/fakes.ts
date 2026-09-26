@@ -851,7 +851,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         const body = image || answer.status !== 200 ? answer.body : (lay(view(), path, answer.body) ?? answer.body)
         if (answer.status === 200 && /^\/api\/servers\/\w+\/addons(\/checks)?$/.test(path)) state.reads.set(path, body as Record<string, unknown>)
         const error = answer.status >= 400 ? String((body as { error?: string }).error ?? '') : undefined
-        // An icon the proxy refuses, such as a CurseForge pack's, shows a stand-in, so its error is expected.
+        // An icon the proxy refuses shows a stand-in, so its error is expected.
         const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
         calls.push({ method, path, status: answer.status, faked: true, error, expected: (icon && answer.status >= 400) || undefined, at })
         await route.fulfill({ status: answer.status, headers: answer.headers, body: image ? (body as Buffer) : JSON.stringify(body) }).catch(() => {})
