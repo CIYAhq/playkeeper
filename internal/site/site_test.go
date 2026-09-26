@@ -616,3 +616,61 @@ func TestSizingDataHasEveryAnswer(t *testing.T) {
 		}
 	}
 }
+
+// Structured data is JSON: html/template takes application/ld+json for a
+// JavaScript type and JSON-encodes what the layouts put there. Every block on
+// every page parses, none is Go's map text, and the pages that need them have
+// theirs: software on the landing page, an article, a post, an FAQ and
+// breadcrumbs, with their nested parts as JSON arrays and objects.
+func TestStructuredDataIsJSON(t *testing.T) {
+	built := pages(build(t, Default))
+	blocks := func(p string) map[string]map[string]any {
+		out := map[string]map[string]any{}
+		for _, m := range reLD.FindAllStringSubmatch(built[p], -1) {
+			var v map[string]any
+			if err := json.Unmarshal([]byte(m[1]), &v); err != nil {
+				t.Errorf("%s has structured data that isn't JSON: %v: %.120s", p, err, m[1])
+				continue
+			}
+			if strings.Contains(m[1], "map[") {
+				t.Errorf("%s has structured data with Go's map text in it: %.120s", p, m[1])
+			}
+			typ, _ := v["@type"].(string)
+			out[typ] = v
+		}
+		return out
+	}
+	for p := range built {
+		blocks(p)
+	}
+	for p, types := range map[string][]string{
+		"/":                               {"SoftwareApplication", "FAQPage"},
+		"/guides/modded-minecraft-server": {"Article", "FAQPage"},
+		"/blog/playkeeper-0-4-0":          {"BlogPosting", "BreadcrumbList"},
+		"/features/mods-and-modpacks":     {"BreadcrumbList", "FAQPage"},
+	} {
+		got := blocks(p)
+		for _, typ := range types {
+			if got[typ] == nil {
+				t.Errorf("%s has no %s structured data", p, typ)
+			}
+		}
+	}
+	faq := blocks("/")["FAQPage"]
+	questions, _ := faq["mainEntity"].([]any)
+	if len(questions) == 0 {
+		t.Fatal("the landing page's FAQ data has no questions")
+	}
+	first, _ := questions[0].(map[string]any)
+	answer, _ := first["acceptedAnswer"].(map[string]any)
+	if first["@type"] != "Question" || first["name"] == "" || answer["@type"] != "Answer" || answer["text"] == "" {
+		t.Errorf("the landing page's first FAQ entry isn't a question with an answer: %v", first)
+	}
+	crumbs, _ := blocks("/features/mods-and-modpacks")["BreadcrumbList"]["itemListElement"].([]any)
+	if len(crumbs) != 2 {
+		t.Fatalf("the feature page's breadcrumbs have %d items, want 2", len(crumbs))
+	}
+	if top, _ := crumbs[0].(map[string]any); top["position"] != 1.0 || top["name"] != "Features" || top["item"] != "https://playkeeper.io/#features" {
+		t.Errorf("the feature page's first breadcrumb is %v", top)
+	}
+}
