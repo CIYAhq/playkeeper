@@ -26,13 +26,18 @@ const sizes = {
 } as const
 
 async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
-  for (const s of servers) for (const tab of ['', '/console', '/players', '/world', '/settings']) out.push(`/servers/${s.slug}${tab}`)
+  for (const s of servers) {
+    for (const tab of ['', '/console', '/players', '/world', '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    const listed: unknown = await (await page.request.get(`/api/servers/${s.id}/whitelist`)).json().catch(() => [])
+    const player = Array.isArray(listed) ? (listed[0] as { name?: string } | undefined)?.name : undefined
+    if (player) out.push(`/servers/${s.slug}/players/${encodeURIComponent(player)}`)
+  }
   out.push('/servers/new')
   for (const m of machines) out.push(`/machines/${m.id}`)
-  out.push('/settings')
+  out.push('/settings', '/settings/team', '/settings/discord')
   if (phone) out.push('/more')
   return out
 }

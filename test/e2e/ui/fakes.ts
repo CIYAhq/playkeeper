@@ -28,18 +28,37 @@ interface Reply {
 type Handler = (req: { method: string; path: string; body: unknown; params: string[] }, state: FakeState) => Reply
 
 interface FakeState {
+  origin: string
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
+  discord: Record<string, unknown>
   opSeq: number
+  inviteSeq: number
 }
 
 const name = /^[A-Za-z0-9_]{3,16}$/
 const prefKey = /^[a-z][a-z0-9.:_-]{0,63}$/
+const inviteId = /^[a-kmnp-z2-9]{10}$/
+const day = 86_400_000
+const expiryDays = new Map([
+  ['1d', 1],
+  ['7d', 7],
+  ['30d', 30],
+  ['until_turned_off', 0],
+])
+const webhookHosts = new Set(['discord.com', 'canary.discord.com', 'ptb.discord.com', 'discordapp.com'])
+const badName = 'Minecraft usernames are 3–16 letters, numbers or underscores.'
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
 }
+
+function notFound(error: string): Reply {
+  return { status: 404, body: { error, code: 'not_found' } }
+}
+
+const noContent: Reply = { status: 204, raw: '' }
 
 function op(state: FakeState, kind: string, serverId?: string): Reply {
   state.opSeq++
@@ -53,6 +72,84 @@ function playerName(body: unknown): string | undefined {
 
 function backupFor(state: FakeState, serverId: string, backupId: string): Record<string, unknown> | undefined {
   return state.backups.get(serverId)?.find((b) => b.id === backupId)
+}
+
+/** A new invite's id and link path, shaped like the panel's. */
+function newInvite(state: FakeState): { id: string; path: string; createdAt: string } {
+  const n = ++state.inviteSeq
+  const a = 'abcdefghijkmnpqrstuvwxyz23456789'
+  return { id: `fakeinv${a[(n >> 10) & 31]}${a[(n >> 5) & 31]}${a[n & 31]}`, path: `/join/FakeInviteCode${String(n).padStart(8, '0')}`, createdAt: new Date().toISOString() }
+}
+
+function badLabel(label: unknown): boolean {
+  return label !== undefined && (typeof label !== 'string' || [...label].length > 64 || /\p{C}/u.test(label))
+}
+
+/** Why the panel would refuse a role and servers chosen on the Team page; only a new invite takes a label. */
+function grantProblem(body: unknown, labelled: boolean): string | undefined {
+  const b = body as { role?: unknown; servers?: { all?: unknown; servers?: unknown } | null; label?: unknown } | null
+  if (!b || !['viewer', 'moderator', 'admin'].includes(String(b.role)) || (labelled ? badLabel(b.label) : b.label !== undefined)) return 'Invalid request.'
+  const list = b.servers?.servers
+  const some = Array.isArray(list) ? list : []
+  if (b.servers?.all === true && some.length) return 'Choose all servers or some of them, not both.'
+  if (b.servers?.all !== true && !some.length) return 'Choose all servers, or at least one server.'
+  return undefined
+}
+
+function playerInvite(serverId: string, body: unknown, state: FakeState): Reply {
+  const b = (body ?? {}) as { label?: unknown; expiry?: unknown; maxUses?: unknown; unlimited?: unknown; approval?: unknown }
+  const days = expiryDays.get(String(b.expiry || '7d'))
+  if (days === undefined) return invalid('An invite link works for 1 day, 7 days, 30 days, or until you turn it off.')
+  const max = b.maxUses ?? 0
+  if (typeof max !== 'number' || !Number.isInteger(max)) return invalid('Invalid request.')
+  if (b.unlimited === true && max !== 0) return invalid('Choose a number of friends or no limit, not both.')
+  const uses = b.unlimited === true ? 0 : max || 5
+  if (b.unlimited !== true && (uses < 1 || uses > 100)) return invalid('An invite link can be for 1 to 100 friends, or have no limit.')
+  const approval = b.approval || 'right_away'
+  if (approval !== 'right_away' && approval !== 'after_yes') return invalid('An invite link lets people in right away or after you say yes.')
+  if (badLabel(b.label)) return invalid('A label is at most 64 characters, on one line.')
+  const inv = newInvite(state)
+  const expiresAt = days ? new Date(Date.parse(inv.createdAt) + days * day).toISOString() : undefined
+  return { status: 201, body: { ...inv, kind: 'player', projectId: 'fakeprojct', serverId, approval, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: uses, uses: 0, status: 'active', usesLeft: uses || undefined } }
+}
+
+function teamInvite(body: unknown, state: FakeState): Reply {
+  const why = grantProblem(body, true)
+  if (why) return invalid(why)
+  const b = body as { role: string; servers: unknown; label?: string }
+  const { path, ...inv } = newInvite(state)
+  const expiresAt = new Date(Date.parse(inv.createdAt) + 7 * day).toISOString()
+  return {
+    status: 201,
+    body: { invite: { ...inv, kind: 'member', projectId: 'fakeprojct', role: b.role, servers: b.servers, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: 1, uses: 0, status: 'active', usesLeft: 1 }, path, link: { base: state.origin, friendly: false } },
+  }
+}
+
+/** Why the agent would refuse a pasted Discord webhook URL. */
+function webhookProblem(raw: unknown): string | undefined {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (!text) return 'No webhook URL was given.'
+  let u: URL
+  try {
+    u = new URL(text)
+  } catch {
+    return text.includes('://') ? 'That is not a web address.' : 'A Discord webhook URL starts with https://.'
+  }
+  if (u.protocol !== 'https:') return 'A Discord webhook URL starts with https://.'
+  if (u.username || u.password || !webhookHosts.has(u.hostname.toLowerCase()) || u.port) return 'That address is not on discord.com, so it is not a Discord webhook URL.'
+  const m = /^\/api(?:\/v[0-9]{1,2})?\/webhooks\/([^/]+)\/([^/]+)\/?$/.exec(u.pathname)
+  if (!m) return 'That address is on Discord but is not a webhook URL.'
+  if (!/^[0-9]{17,20}$/.test(m[1] ?? '')) return 'The webhook URL is damaged: the number after /webhooks/ is not a Discord id.'
+  if (!/^[A-Za-z0-9_-]{60,100}$/.test(m[2] ?? '')) return 'The webhook URL looks cut off or changed: its secret last part is not valid.'
+  return undefined
+}
+
+function discordAlerts(body: unknown, state: FakeState): Reply {
+  const b = body as { alerts?: unknown; liveStatus?: unknown } | null
+  const alerts = b?.alerts
+  const kinds = Array.isArray(state.discord.kinds) ? (state.discord.kinds as unknown[]) : []
+  if (!Array.isArray(alerts) || !alerts.every((k) => kinds.includes(k)) || typeof b?.liveStatus !== 'boolean') return invalid('Choose alerts from the list.')
+  return { status: 200, body: { ...state.discord, alerts, liveStatus: b.liveStatus } }
 }
 
 const routes: [string, RegExp, Handler][] = [
@@ -114,8 +211,8 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { output: 'There are 0 of a max of 10 players online: ' } }
     },
   ],
-  ['POST', /^\/api\/servers\/(\w+)\/(whitelist|operators|kick)$/, ({ body }) => (playerName(body) ? { status: 200, body: {} } : invalid('Minecraft usernames are 3–16 letters, numbers or underscores.'))],
-  ['DELETE', /^\/api\/servers\/(\w+)\/(whitelist|operators)\/([^/]+)$/, (r) => (name.test(decodeURIComponent(r.params[2] ?? '')) ? { status: 200, body: {} } : invalid('Minecraft usernames are 3–16 letters, numbers or underscores.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/(whitelist|operators|kick)$/, ({ body }) => (playerName(body) ? { status: 200, body: {} } : invalid(badName))],
+  ['DELETE', /^\/api\/servers\/(\w+)\/(whitelist|operators)\/([^/]+)$/, (r) => (name.test(decodeURIComponent(r.params[2] ?? '')) ? { status: 200, body: {} } : invalid(badName))],
   [
     'POST',
     /^\/api\/servers\/(\w+)\/backups\/([\w-]+)\/verify$/,
@@ -140,6 +237,67 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
+  ['POST', /^\/api\/servers\/(\w+)\/invites$/, (r, state) => playerInvite(r.params[0] ?? '', r.body, state)],
+  ['DELETE', /^\/api\/servers\/(\w+)\/invites\/([^/]+)$/, (r) => (inviteId.test(r.params[1] ?? '') ? noContent : notFound('No such invite link.'))],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/join-requests\/([^/]+)\/(approve|decline)$/,
+    (r) =>
+      inviteId.test(r.params[1] ?? '')
+        ? { status: 200, body: { request: { id: r.params[1], serverId: r.params[0], state: r.params[2] === 'approve' ? 'approved' : 'declined', decidedAt: new Date().toISOString(), decidedBy: 1 } } }
+        : notFound('No such join request.'),
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/players\/message$/,
+    ({ body }) => {
+      if (!playerName(body)) return invalid(badName)
+      const m = (body as { message?: unknown }).message
+      const text = typeof m === 'string' ? m.trim() : ''
+      if (!text || [...text].length > 200 || /\p{C}|[^\S ]/u.test(text)) return invalid('Write a message of up to 200 characters on one line.')
+      return { status: 200, body: { message: 'Message sent.' } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/ban$/,
+    ({ body }) => {
+      const n = playerName(body)
+      return n ? { status: 200, body: { message: `Banned ${n}: Banned from the Playkeeper dashboard` } } : invalid(badName)
+    },
+  ],
+  ['POST', /^\/api\/team\/invites$/, (r, state) => teamInvite(r.body, state)],
+  [
+    'PUT',
+    /^\/api\/team\/invites\/([^/]+)$/,
+    (r) => {
+      if (!inviteId.test(r.params[0] ?? '')) return notFound('No such invite link.')
+      const why = grantProblem(r.body, false)
+      return why ? invalid(why) : { status: 200, body: { id: r.params[0], kind: 'member', ...(r.body as object), maxUses: 1, uses: 0, status: 'active', usesLeft: 1, canEdit: true } }
+    },
+  ],
+  ['DELETE', /^\/api\/team\/invites\/([^/]+)$/, (r) => (inviteId.test(r.params[0] ?? '') ? noContent : notFound('No such invite link.'))],
+  [
+    'PUT',
+    /^\/api\/team\/members\/(\d+)$/,
+    (r) => {
+      const why = grantProblem(r.body, false)
+      return why ? invalid(why) : { status: 200, body: { id: Number(r.params[0]), ...(r.body as object), owner: false, you: false, canEdit: true } }
+    },
+  ],
+  ['DELETE', /^\/api\/team\/members\/(\d+)$/, () => noContent],
+  ['POST', /^\/api\/team\/members\/(\d+)\/confirm-admin$/, (r) => ({ status: 200, body: { id: Number(r.params[0]), role: 'admin', owner: false, you: false, twoFactor: true, canEdit: true, waiting: false } })],
+  [
+    'POST',
+    /^\/api\/discord\/connect$/,
+    ({ body }, state) => {
+      const why = webhookProblem((body as { webhookUrl?: unknown } | null)?.webhookUrl)
+      return why ? invalid(why) : { status: 200, body: { ...state.discord, connected: true, webhookName: 'Server alerts', connectedAt: new Date().toISOString(), delivery: {} } }
+    },
+  ],
+  ['PUT', /^\/api\/discord$/, (r, state) => discordAlerts(r.body, state)],
+  ['DELETE', /^\/api\/discord$/, () => noContent],
+  ['POST', /^\/api\/discord\/test$/, (_r, state) => ({ status: 200, body: { ...state.discord, delivery: { sent: new Date().toISOString() } } })],
 ]
 
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
@@ -193,8 +351,8 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0 }
   const origin = new URL(baseURL).origin
+  const state: FakeState = { origin, prefs: {}, backups: new Map(), update: {}, discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] }, opSeq: 0, inviteSeq: 0 }
 
   // Links out of the dashboard open a stand-in page instead of the internet.
   await page.context().route(
@@ -230,6 +388,7 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
+        if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
       }
       // The page may have moved on and cancelled the request meanwhile.
       await route.fulfill({ response: res }).catch(() => {})
