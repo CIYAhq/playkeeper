@@ -11,6 +11,9 @@ import { login, outDir } from './helpers'
 // person could notice happened: the page changed, a dialog, menu or sheet
 // opened or closed, the control's own state changed, focus moved, the page
 // scrolled, something was copied, a toast appeared or a request went out.
+// The sign-in page and the shared map pages (a shared map, and a link no map
+// has) are opened signed out. A world file picker gets a small archive, so
+// the world upload's later steps are pressed too.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. There is no list of exceptions: a control that should do nothing
@@ -25,16 +28,28 @@ const sizes = {
   phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
 } as const
 
-async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string }[]
+// A well-formed share link that no map has, for the "isn't available" page.
+const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'
+
+/** The pages to open signed in, and the ones anyone can open without signing in. */
+async function routes(page: Page, phone: boolean): Promise<{ signedIn: string[]; signedOut: string[] }> {
+  const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
-  for (const s of servers) for (const tab of ['', '/console', '/players', '/world', '/settings']) out.push(`/servers/${s.slug}${tab}`)
-  out.push('/servers/new')
+  const shared: string[] = []
+  for (const s of servers) {
+    const tabs = ['', '/console', '/players', '/world', '/settings']
+    const res = await page.request.get(`/api/servers/${s.id}/map`)
+    const map = (res.ok() ? await res.json() : {}) as { supported?: boolean; public?: boolean; path?: string }
+    if (map.supported) tabs.push('/map')
+    if (map.public && map.path) shared.push(map.path)
+    for (const tab of tabs) out.push(`/servers/${s.slug}${tab}`)
+  }
+  out.push('/servers/new', '/servers/new#world')
   for (const m of machines) out.push(`/machines/${m.id}`)
   out.push('/settings')
   if (phone) out.push('/more')
-  return out
+  return { signedIn: out, signedOut: ['/login', unknownMapLink, ...shared] }
 }
 
 function summary(report: CrawlReport): string {
@@ -50,24 +65,25 @@ for (const [name, size] of Object.entries(sizes)) {
     const report: CrawlReport = { results: [], notes: [] }
     const log = (line: string) => console.log(line)
 
-    const signedOut = await browser.newContext(options)
-    const outPage = await signedOut.newPage()
-    const outCrawler = new Crawler(outPage, name, base, log)
-    await outCrawler.init()
-    await outCrawler.crawl('/login')
-    report.results.push(...outCrawler.results)
-    report.notes.push(...outCrawler.notes)
-    await signedOut.close()
-
     const context = await browser.newContext(options)
     const page = await context.newPage()
     await login(page)
+    const { signedIn, signedOut } = await routes(page, name === 'phone')
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
-    for (const route of await routes(page, name === 'phone')) await crawler.crawl(route)
+    for (const route of signedIn) await crawler.crawl(route)
     report.results.push(...crawler.results)
     report.notes.push(...crawler.notes)
     await context.close()
+
+    const outContext = await browser.newContext(options)
+    const outPage = await outContext.newPage()
+    const outCrawler = new Crawler(outPage, name, base, log)
+    await outCrawler.init()
+    for (const route of signedOut) await outCrawler.crawl(route)
+    report.results.push(...outCrawler.results)
+    report.notes.push(...outCrawler.notes)
+    await outContext.close()
 
     fs.mkdirSync(outDir, { recursive: true })
     fs.writeFileSync(path.join(outDir, `clickthrough-${name}.json`), JSON.stringify(report, null, 2))
