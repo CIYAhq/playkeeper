@@ -266,6 +266,100 @@ func TestANewKeyReachesTheCopyBeingMade(t *testing.T) {
 	})
 }
 
+// A copy that was made is recorded even when the settings can't be read once
+// it is, so the next round doesn't make it again. Only settings read after
+// it that turn copies off, or send them elsewhere, leave it unrecorded, for
+// the next round to sort out.
+func TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged(t *testing.T) {
+	s3 := func(bucket string) map[string]any {
+		return map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": bucket, "accessKeyId": "PKEXAMPLE"}
+	}
+	cases := []struct {
+		name string
+		// meanwhile changes agent.db while the copy is being made, without
+		// the routes that would stop it.
+		meanwhile func(e *agentEnv)
+		recorded  bool
+		warns     bool
+	}{
+		{name: "nothing changed", meanwhile: func(*agentEnv) {}, recorded: true},
+		{name: "the settings can't be read once it is made", meanwhile: func(e *agentEnv) {
+			if _, err := e.a.db.Exec(`UPDATE offsite SET config = '{' WHERE server_id = ?`, e.sid); err != nil {
+				e.t.Fatal(err)
+			}
+		}, recorded: true, warns: true},
+		{name: "the keys can't be read once it is made", meanwhile: func(e *agentEnv) {
+			if _, err := e.a.db.Exec(`UPDATE offsite SET keys = '{' WHERE server_id = ?`, e.sid); err != nil {
+				e.t.Fatal(err)
+			}
+		}, recorded: true, warns: true},
+		{name: "copies were turned off meanwhile", meanwhile: func(e *agentEnv) {
+			if _, err := e.a.db.Exec(`UPDATE offsite SET enabled = 0 WHERE server_id = ?`, e.sid); err != nil {
+				e.t.Fatal(err)
+			}
+		}},
+		{name: "copies go elsewhere since", meanwhile: func(e *agentEnv) {
+			row, err := e.srv().loadOffsite()
+			if err != nil {
+				e.t.Fatal(err)
+			}
+			row.cfg.S3.Bucket = "worlds-elsewhere"
+			if err := e.srv().saveOffsite(row); err != nil {
+				e.t.Fatal(err)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store := newKeyedStore()
+			prev := openOffsite
+			openOffsite = func(_ offsite.Config, k offsite.Keys, _ offsite.Options) (offsiteDest, error) {
+				return keyedDest{keyedStore: store, recipient: k.Current.Recipient}, nil
+			}
+			t.Cleanup(func() { openOffsite = prev })
+			e := newAgentEnv(t)
+			e.create()
+			b, err := e.srv().getBackup(e.backup())
+			if err != nil {
+				t.Fatal(err)
+			}
+			release := store.holdUpload(b.FileName, offsite.UploadState{})
+			if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": s3("worlds")}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+				t.Fatalf("turn on: %d %v", code, out)
+			}
+			select {
+			case <-store.waiting:
+			case <-time.After(15 * time.Second):
+				t.Fatal("the copy was never started")
+			}
+			// Only what the uploader does next may start another round.
+			select {
+			case <-e.srv().offsiteKick():
+			default:
+			}
+			c.meanwhile(e)
+			release()
+			e.waitFor("the uploader to be done with the copy", func() bool {
+				s := e.srv()
+				s.auto.mu.Lock()
+				defer s.auto.mu.Unlock()
+				return s.auto.claim == nil
+			})
+			recorded := e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, b.ID) == 1
+			queued := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ?`, b.ID) == 1
+			if recorded != c.recorded || queued == c.recorded || len(store.uploads()) != 1 {
+				t.Fatalf("the copy is recorded: %v, still queued: %v, after %d uploads; want recorded %v", recorded, queued, len(store.uploads()), c.recorded)
+			}
+			if warned := strings.Contains(e.warnings.String(), "the settings for copies somewhere else can't be read"); warned != c.warns {
+				t.Fatalf("warned: %v, want %v: %s", warned, c.warns, e.warnings.String())
+			}
+			if c.recorded && e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copied' AND target = ? AND detail LIKE ?`, b.ID, "% · MinIO") != 1 {
+				t.Fatal("the copy's audit line doesn't say where it was made")
+			}
+		})
+	}
+}
+
 // Deleting a server deletes its recovery key with it. While copies only that
 // key opens are kept somewhere else, or still made, and the key was never
 // downloaded, the delete is refused with the reason, unless it is confirmed.

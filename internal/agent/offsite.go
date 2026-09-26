@@ -1591,7 +1591,7 @@ func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent s
 	}
 	for ctx.Err() == nil {
 		job, ok := s.claimUpload(ctx)
-		if !ok || !s.uploadOne(ctx, dest, ident, row.keys.Current.Recipient, job) {
+		if !ok || !s.uploadOne(ctx, dest, row, job) {
 			break
 		}
 	}
@@ -1653,15 +1653,16 @@ func (s *server) dropUpload(backupID string) {
 }
 
 // uploadOne copies the backup of an upload the uploader claimed to dest,
-// which encrypts to recipient, and lets go of the claim once it is done with
-// the upload's row. It reports whether the next one can go.
+// which the round opened with the settings and keys in at, and lets go of
+// the claim once it is done with the upload's row. It reports whether the
+// next one can go.
 //
 // A new key saved before the claim is seen here; one saved after it stops
 // the claim. Either way nothing more is encrypted to the old key.
-func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident, recipient string, job uploadJob) bool {
+func (s *server) uploadOne(ctx context.Context, dest offsiteDest, at offsiteRow, job uploadJob) bool {
 	defer s.releaseUpload()
 	uploadClaimed(job)
-	if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != recipient {
+	if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {
 		return false
 	}
 	b, err := s.getBackup(job.backupID)
@@ -1702,13 +1703,19 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident, recipie
 	s.auto.upload = nil
 	s.auto.mu.Unlock()
 	row, lerr := s.loadOffsite()
-	if lerr != nil || !row.enabled || offsiteIdentity(row.cfg.Config) != ident {
+	if lerr == nil && (!row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config)) {
 		// The settings changed meanwhile; the next round sorts it out.
 		return false
 	}
 	if err != nil {
 		s.uploadFailed(job.ctx, b, job, err)
 		return false
+	}
+	if lerr != nil {
+		// The copy is made: left unrecorded, the next round would make it
+		// again.
+		s.log.Warn("the settings for copies somewhere else can't be read; the copy just made is recorded with those it was made with", "server", s.id, "backup", b.ID, "err", lerr)
+		row = at
 	}
 	s.copyDone(ctx, dest, row, b, cp)
 	return true

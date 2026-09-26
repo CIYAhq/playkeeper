@@ -3113,8 +3113,8 @@ control "a new key starts the uploader again" internal/agent/offsite.go \
 	s.audit(actor, "offsite.key_rotated"' \
   ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
 control "a copy picked after a new key isn't encrypted to the old one" internal/agent/offsite.go \
-  'if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != recipient {' \
-  'if row, err := s.loadOffsite(); err != nil || false && row.keys.Current.Recipient != recipient {' \
+  'if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  'if row, err := s.loadOffsite(); err != nil || false && row.keys.Current.Recipient != at.keys.Current.Recipient {' \
   ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^while_the_next_copy_is_picked$'
 control "a copy stopped for a new key isn't a failed try" internal/agent/offsite.go \
   's.uploadFailed(job.ctx, b, job, err)' \
@@ -3181,6 +3181,24 @@ webcontrol "the delete dialog confirms deleting without the key" web/src/pages/s
   "keyRisk && withoutKey ? { confirm: typed.trim(), forgetKey: true } : { confirm: typed.trim() }" \
   '{ confirm: typed.trim() }' \
   web/src/pages/server/settings.test.tsx 'refusal when the page didn'
+
+# Wave 7 after Bugbot's finding on d0492a3a: a copy that was made is recorded
+# when the settings can't be read after it.
+control "a made copy is recorded when the settings can't be read after it" internal/agent/offsite.go \
+  'if lerr == nil && (!row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config)) {' \
+  'if lerr != nil || !row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config) {' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings says where it was made" internal/agent/offsite.go \
+  '		row = at
+	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  '	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings is logged" internal/agent/offsite.go \
+  "s.log.Warn(\"the settings for copies somewhere else can't be read; the copy just made is recorded with those it was made with\", \"server\", s.id, \"backup\", b.ID, \"err\", lerr)" \
+  '_ = lerr' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_keys_can't_be_read_once_it_is_made$"
 
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
