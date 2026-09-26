@@ -82,7 +82,7 @@ func (s *server) followLoop(ctx context.Context) {
 	for ctx.Err() == nil {
 		c, err := s.docker.ContainerInspect(ctx, s.containerName())
 		if err != nil {
-			sleepCtx(ctx, 2*time.Second)
+			sleepCtx(ctx, s.opts.FollowRetry)
 			continue
 		}
 		if !prefilled {
@@ -115,7 +115,7 @@ func (s *server) followLoop(ctx context.Context) {
 		// meanwhile, the next attach reads the new run as its own.
 		scanner, err := s.docker.ContainerLogs(ctx, c.ID, docker.LogsOptions{Follow: c.State.Running, Since: since})
 		if err != nil {
-			sleepCtx(ctx, 2*time.Second)
+			sleepCtx(ctx, s.opts.FollowRetry)
 			continue
 		}
 		last := cur
@@ -143,7 +143,7 @@ func (s *server) followLoop(ctx context.Context) {
 			s.mu.Lock()
 			s.followEnded[c.ID] = s.now()
 			s.mu.Unlock()
-			sleepCtx(ctx, 2*time.Second)
+			sleepCtx(ctx, s.opts.FollowRetry)
 		} else {
 			sleepCtx(ctx, 300*time.Millisecond)
 		}

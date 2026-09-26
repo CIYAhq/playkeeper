@@ -702,7 +702,7 @@ func classifyStartError(err error, port int) error {
 
 func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 	deadline := s.now().Add(s.opts.ReadyTimeout)
-	t := time.NewTicker(500 * time.Millisecond)
+	t := time.NewTicker(s.opts.ReadyPoll)
 	defer t.Stop()
 	reported := ""
 	for {

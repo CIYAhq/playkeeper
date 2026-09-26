@@ -46,6 +46,21 @@ func (f *fakeHook) mark() int {
 	return len(f.got)
 }
 
+// quiet waits until the fake Discord has had no request for d: an alert the
+// agent was about to send by then would have come.
+func (f *fakeHook) quiet(t *testing.T, d time.Duration) {
+	t.Helper()
+	n, last := f.mark(), time.Now()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if m := f.mark(); m != n {
+			n, last = m, time.Now()
+		} else if time.Since(last) >= d {
+			return
+		}
+	}
+	t.Fatal("Discord kept getting requests for 10 s")
+}
+
 // alertsSince lists the alerts posted after the first from requests, in
 // order. The live status message and the connection check have titles no
 // alert has, so they are left out.
@@ -76,7 +91,7 @@ func (f *fakeHook) alertsSince(t *testing.T, from int) []sentAlert {
 // alerts the sequence calls for that are switched on, in order, and show
 // the server in the live status as the sequence leaves it. The quiet period
 // holds back a second alert about the same thing within five minutes, as it
-// does for real.
+// does for real. Each run has an agent of its own, so they run in parallel.
 func TestDiscordAlertSequences(t *testing.T) {
 	var (
 		started      = sentAlert{discord.KindStarted, "Server started"}
@@ -191,7 +206,8 @@ func TestDiscordAlertSequences(t *testing.T) {
 	cases := []struct {
 		name string
 		// backoff is how long Playkeeper waits before an automatic start;
-		// the tests' default is none.
+		// the tests' default is none. The steps release one that waits an
+		// hour.
 		backoff time.Duration
 		// stopFirst stops the server before Discord is connected.
 		stopFirst bool
@@ -212,11 +228,12 @@ func TestDiscordAlertSequences(t *testing.T) {
 			gone(e)
 			lastError(e, "stopped trying to start")
 		}, want: []sentAlert{didntStart}, status: discord.StateOffline},
-		{name: "a start fails, then one works", backoff: 2 * time.Second, steps: func(e *agentEnv) {
+		{name: "a start fails, then one works", backoff: time.Hour, steps: func(e *agentEnv) {
 			portTaken(e, true)
 			gone(e)
 			e.waitFor("a failed start", func() bool { return failedStarts(e) == 1 })
 			portTaken(e, false)
+			e.releaseRestart()
 			e.waitFor("online again", e.onlineIdle)
 		}, want: []sentAlert{started}, status: discord.StateOnline},
 		{name: "a crash, then a restart that works", steps: func(e *agentEnv) {
@@ -235,7 +252,7 @@ func TestDiscordAlertSequences(t *testing.T) {
 			crash(e)
 			lastError(e, "stopped trying to start")
 		}, want: []sentAlert{crashed, didntStart}, status: discord.StateOffline},
-		{name: "a crash, its Done line delivered again, then a restart", backoff: 2 * time.Second, steps: func(e *agentEnv) {
+		{name: "a crash, its Done line delivered again, then a restart", backoff: time.Hour, steps: func(e *agentEnv) {
 			crash(e)
 			ready := func() int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_ready'`) }
 			n := ready()
@@ -246,13 +263,16 @@ func TestDiscordAlertSequences(t *testing.T) {
 			if st := e.srv().discordStatus(context.Background()).State; st != discord.StateCrashed {
 				e.t.Fatalf("after its Done line came again, the live status shows the server %s, want crashed", st)
 			}
+			e.releaseRestart()
 			e.waitFor("online again", e.onlineIdle)
 		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
-		{name: "a crash, a restart that fails, then one that works", backoff: 2 * time.Second, steps: func(e *agentEnv) {
+		{name: "a crash, a restart that fails, then one that works", backoff: time.Hour, steps: func(e *agentEnv) {
 			portTaken(e, true)
 			crash(e)
+			e.releaseRestart()
 			e.waitFor("a failed restart", func() bool { return failedStarts(e) == 1 })
 			portTaken(e, false)
+			e.releaseRestart()
 			e.waitFor("online again", e.onlineIdle)
 		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
 		{name: "a crash of a server meant to be off", steps: func(e *agentEnv) {
@@ -301,13 +321,14 @@ func TestDiscordAlertSequences(t *testing.T) {
 			e.waitFor("the crash counted", func() bool { return e.crashEvents() == n+1 })
 			e.waitFor("online again", e.onlineIdle)
 		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
-		{name: "out of memory, then Stopping server", backoff: 2 * time.Second, steps: func(e *agentEnv) {
+		{name: "out of memory, then Stopping server", backoff: time.Hour, steps: func(e *agentEnv) {
 			n := e.crashEvents()
 			outOfMemory(e)
 			e.waitFor("the crash counted", func() bool { return e.crashEvents() == n+1 })
 			if st := e.srv().discordStatus(context.Background()).State; st != discord.StateCrashed {
 				e.t.Fatalf("after running out of memory, the live status shows the server %s, want crashed", st)
 			}
+			e.releaseRestart()
 			e.waitFor("online again", e.onlineIdle)
 		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
 		{name: "out of memory, then Stopping server, before the reconcile loop sees it", reconcile: time.Hour, steps: func(e *agentEnv) {
@@ -338,17 +359,15 @@ func TestDiscordAlertSequences(t *testing.T) {
 	for _, c := range cases {
 		for _, p := range passes {
 			t.Run(c.name+"/"+p.name, func(t *testing.T) {
-				f := startFakeHook(t)
-				e := newAgentEnv(t)
-				e.stop()
-				e.discordClient = f.client()
-				if c.backoff > 0 {
-					e.crashBackoff = []time.Duration{c.backoff}
-				}
-				if c.reconcile > 0 {
-					e.reconcileInterval = c.reconcile
-				}
-				e.start()
+				t.Parallel()
+				e, f := newDiscordEnvWith(t, func(e *agentEnv) {
+					if c.backoff > 0 {
+						e.crashBackoff = []time.Duration{c.backoff}
+					}
+					if c.reconcile > 0 {
+						e.reconcileInterval = c.reconcile
+					}
+				})
 				e.create()
 				if c.stopFirst {
 					op(e, "stop", nil)
@@ -370,7 +389,7 @@ func TestDiscordAlertSequences(t *testing.T) {
 					}
 				}
 				e.waitFor(fmt.Sprintf("%d alerts", len(want)), func() bool { return len(f.alertsSince(t, from)) >= len(want) })
-				time.Sleep(700 * time.Millisecond)
+				f.quiet(t, 300*time.Millisecond)
 				if got := f.alertsSince(t, from); !slices.Equal(got, want) {
 					t.Fatalf("Discord got\n%v\nwant\n%v", got, want)
 				}

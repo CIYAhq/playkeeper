@@ -54,6 +54,9 @@ type Options struct {
 	// status message that only change who is playing; 0 means
 	// DefaultStatusInterval.
 	StatusInterval time.Duration
+	// StatusGap is the least time between any two updates of the live
+	// status message; 0 means two seconds.
+	StatusGap time.Duration
 	// OnStatusMessage is called with the id of every live status message
 	// the Notifier posts, for the caller to store as
 	// Settings.StatusMessageID. It runs on Run's goroutine.
@@ -94,6 +97,7 @@ type Notifier struct {
 	now             func() time.Time
 	log             *slog.Logger
 	interval        time.Duration
+	gap             time.Duration
 	onStatusMessage func(string)
 	onDelivery      func(Delivery)
 	wake            chan struct{}
@@ -137,6 +141,7 @@ func New(o Options) *Notifier {
 		now:             o.Now,
 		log:             o.Logger,
 		interval:        o.StatusInterval,
+		gap:             o.StatusGap,
 		onStatusMessage: o.OnStatusMessage,
 		onDelivery:      o.OnDelivery,
 		wake:            make(chan struct{}, 1),
@@ -152,6 +157,9 @@ func New(o Options) *Notifier {
 	}
 	if n.interval <= 0 {
 		n.interval = DefaultStatusInterval
+	}
+	if n.gap <= 0 {
+		n.gap = statusGap
 	}
 	return n
 }
@@ -432,7 +440,7 @@ func (n *Notifier) statusJob(w Webhook, now time.Time) (*job, time.Time) {
 	switch {
 	case n.statusAt.IsZero():
 	case states != n.shownStates:
-		due = later(due, later(n.statusAt.Add(statusGap), n.burstEnds()))
+		due = later(due, later(n.statusAt.Add(n.gap), n.burstEnds()))
 	default:
 		due = later(due, n.statusAt.Add(n.interval))
 	}
