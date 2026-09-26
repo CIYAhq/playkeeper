@@ -703,18 +703,21 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	}
 
 	// A change this machine can't save is undone at the names service too.
-	for _, op := range []string{"INSERT", "UPDATE"} {
-		if _, err := e.a.db.Exec(`CREATE TRIGGER no_address_` + op + ` BEFORE ` + op + ` ON kv WHEN NEW.key = 'address' BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
-			t.Fatal(err)
+	failSaves := func(fail bool) {
+		t.Helper()
+		for _, op := range []string{"INSERT", "UPDATE"} {
+			stmt := `DROP TRIGGER no_address_` + op
+			if fail {
+				stmt = `CREATE TRIGGER no_address_` + op + ` BEFORE ` + op + ` ON kv WHEN NEW.key = 'address' BEGIN SELECT RAISE(ABORT, 'disk full'); END`
+			}
+			if _, err := e.a.db.Exec(stmt); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
+	failSaves(true)
 	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 500 {
 		t.Fatalf("a change that can't be saved: %d %v", code, out)
-	}
-	for _, op := range []string{"INSERT", "UPDATE"} {
-		if _, err := e.a.db.Exec(`DROP TRIGGER no_address_` + op); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if n, _ := e.names.name("bob"); n.State != names.StateReleased {
 		t.Fatalf("bob was kept after the change couldn't be saved: %+v", n)
@@ -724,6 +727,25 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	}
 	if v := e.address(); v.Host != "alex.playkeeper.io" || v.Free.State != names.StateActive {
 		t.Fatalf("address after the change couldn't be saved: %+v", v)
+	}
+	// When bob can't be released either, alex can't be claimed back, as a
+	// key holds one name: the machine keeps alex and its certificate.
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		if r.Method == http.MethodDelete && r.URL.Path == "/v1/names/bob" {
+			return &fakeRefusal{status: 503, code: names.CodeUnavailable, msg: "Down."}
+		}
+		return nil
+	})
+	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 500 {
+		t.Fatalf("a change that can't be saved or undone: %d %v", code, out)
+	}
+	e.names.setFail(nil)
+	failSaves(false)
+	if n, _ := e.names.name("bob"); n.State != names.StateActive {
+		t.Fatalf("bob after a release that failed: %+v", n)
+	}
+	if v := e.address(); v.Host != "alex.playkeeper.io" || e.a.loadCertificate("alex.playkeeper.io") == nil {
+		t.Fatalf("address after a change that couldn't be saved or undone: %+v", v)
 	}
 
 	v := e.claim("bob")

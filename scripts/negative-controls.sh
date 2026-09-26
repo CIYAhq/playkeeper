@@ -1204,8 +1204,12 @@ control "free address refresh: a refused connection keeps the other IP version's
   'errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.ECONNREFUSED)' \
   ./internal/names '^TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute$'
 control "free address change: undone at the names service when it can't be saved" internal/agent/address.go \
-  'if _, rerr := c.Release(ctx); rerr != nil {' \
+  'if _, rerr := c.Release(ctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {' \
   'if rerr := error(nil); rerr != nil {' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "free address change: the old name is claimed back only once the new one is released" internal/agent/address.go \
+  'if _, rerr := c.Release(ctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {' \
+  'if _, rerr := c.Release(ctx); false && rerr != nil {' \
   ./internal/agent '^TestFreeAddressChangeAndRelease$'
 control "own domain: setting one keeps the released free name claimable" internal/agent/address.go \
   'Since: a.now().UTC(), IP: st.IP, Released: st.Released}' \

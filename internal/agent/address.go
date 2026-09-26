@@ -427,10 +427,9 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 	}
 	if err := a.setAddress(addressState{Kind: api.AddressPlaykeeper, Host: host, Since: now, IP: st.IP, Free: &freeState{Name: n, CheckedAt: now}, Released: released}); err != nil {
 		c.Name = name
-		if _, rerr := c.Release(ctx); rerr != nil {
+		if _, rerr := c.Release(ctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {
 			a.log.Warn("could not release a free address this machine couldn't save", "name", name, "err", rerr)
-		}
-		if old != "" {
+		} else if old != "" {
 			a.reclaim(ctx, c, st, old)
 		}
 		return err
