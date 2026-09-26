@@ -600,6 +600,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
+	if err := s.ensureOriginalSaved(h, sc); err != nil {
+		return err
+	}
 	if err := s.ensureImage(ctx, h, runtimeImage(sc.MinecraftVersion)); err != nil {
 		return err
 	}
@@ -625,6 +628,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		}
 	}
 	if err := s.sizeHeap(&sc); err != nil {
+		return err
+	}
+	if err := s.writeMapConfig(); err != nil {
 		return err
 	}
 	pastFiles = true
@@ -674,7 +680,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	s.mu.Lock()
 	delete(s.intentional, id)
 	s.mu.Unlock()
-	return s.waitReady(ctx, h, id)
+	if err := s.waitReady(ctx, h, id); err != nil {
+		return err
+	}
+	s.mapStarted()
+	return nil
 }
 
 func classifyStartError(err error, port int) error {

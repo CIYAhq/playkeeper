@@ -28,6 +28,7 @@ import { PluginsPhoneHeader } from './plugins/header'
 // The Overview comes with the server page; each other tab's code loads the
 // first time it shows.
 const ConsolePage = lazy(() => import('./console').then((m) => ({ default: m.ConsolePage })))
+const MapPage = lazy(() => import('./map').then((m) => ({ default: m.MapPage })))
 const PlayersPage = lazy(() => import('./players').then((m) => ({ default: m.PlayersPage })))
 const PlayerProfilePage = lazy(() => import('./profile').then((m) => ({ default: m.PlayerProfilePage })))
 const PluginsPage = lazy(() => import('./plugins').then((m) => ({ default: m.PluginsPage })))
@@ -80,6 +81,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
     case 'mods':
       body = <PluginsPage server={server} tab={tab} sub={sub} />
       break
+    case 'map':
+      body = <MapPage server={server} />
+      break
     case 'settings':
       body = <ServerSettingsPage server={server} />
       break
@@ -88,7 +92,8 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
       body = unreachable
     }
   }
-  if (settingUp && (page || (tab !== 'overview' && tab !== 'console'))) body = <Overview server={server} />
+  const locked = settingUp && (!!page || (tab !== 'overview' && tab !== 'console'))
+  if (locked) body = <Overview server={server} />
   // The Plugins tab keeps its running job and highlighted file across its
   // views, and animates switching between them itself.
   const pageKey = tab === 'plugins' || tab === 'mods' ? tab : player ? `${tab}:${player}` : `${tab}:${sub ?? page ?? ''}`
@@ -101,9 +106,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'players' }} label={t('tab.players')} title={player} />
         ) : page === 'running' && !settingUp ? (
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} />
-        ) : (tab === 'plugins' || tab === 'mods') && !settingUp ? (
+        ) : (tab === 'plugins' || tab === 'mods') && !locked ? (
           <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
-        ) : tab === 'world' && sub && !settingUp ? null : (
+        ) : (tab === 'world' && sub && !locked) || (tab === 'map' && !locked) ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (

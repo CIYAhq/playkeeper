@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleHelpIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MapIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -12,6 +12,7 @@ import { can } from '@/lib/access'
 import { addonTab } from '@/lib/addons'
 import { checklist, complete, progress } from '@/lib/checklist'
 import { formatMB } from '@/lib/format'
+import { hasMap } from '@/lib/map'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -92,6 +93,11 @@ export function MorePage() {
       )}
       {server && can(ws.me, 'servers.manage') && (
         <Group label={server.name}>
+          {hasMap(server) && (
+            <li>
+              <Row icon={<MapIcon />} title={t('tab.map')} hint={t('more.mapHint')} to={{ name: 'server', slug: server.slug, tab: 'map' }} />
+            </li>
+          )}
           {addons && (
             <li>
               <Row icon={<PuzzleIcon />} title={addons === 'mods' ? t('tab.mods') : t('tab.plugins')} to={{ name: 'server', slug: server.slug, tab: addons }} />

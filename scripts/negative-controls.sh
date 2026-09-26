@@ -2020,6 +2020,181 @@ webcontrol "the activity says a server ran out of memory" web/src/components/app
   "return t('activity.crashed', { server })" \
   web/src/lib/lib.test.ts 'when a server ran out of memory'
 
+# Wave 6: the shared map's link token and its players switch, and the game
+# files a world import and the shared map read.
+control "shared map link tokens carry at least 128 bits" internal/webmap/share.go \
+  'const ShareTokenLen = 22' \
+  'const ShareTokenLen = 12' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "every link token character is equally likely" internal/webmap/share.go \
+  'if b < 248 && len(token) < ShareTokenLen {' \
+  'if len(token) < ShareTokenLen {' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "a shared map needs its sharing switch" internal/agent/maps.go \
+  'if err != nil || rec == nil || !rec.public {' \
+  'if err != nil || rec == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "a new link token each time sharing is switched on" internal/agent/maps.go \
+  "WHEN ?1 = 1 AND (public = 0 OR share_token = '') THEN ?2" \
+  "WHEN ?1 = 1 AND share_token = '' THEN ?2" \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the shared map's link token is compared" internal/agent/maps.go \
+  'if rows.Scan(&sid, &stored) == nil && webmap.ShareTokenMatches(stored, token) {' \
+  'if rows.Scan(&sid, &stored) == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "shared players hidden while their switch is off" internal/agent/maps.go \
+  'case rest == "players" && !rec.publicPlayers:' \
+  'case rest == "players" && !rec.publicPlayers && false:' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the panel checks a link token before asking the agent" internal/panel/maps.go \
+  'if !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  'if false && !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "a shared map shows faces only of players it lists" internal/panel/maps.go \
+  'if !strings.EqualFold(p.Name, name) {' \
+  'if false && !strings.EqualFold(p.Name, name) {' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "the shared map is served by the public route group" internal/panel/public.go \
+  '		{prefix: mapPagePrefix, limits: mapPageLimits, handler: s.mapPage()},
+		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},' \
+  '' \
+  ./internal/panel '^(TestOnlyThePublicGroupAnswersWithoutSignIn|TestSharedMapAnswersTheSameWhenItIsNotAvailable)$'
+control "per-address shared map rate limit" internal/panel/public.go \
+  '{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()}' \
+  '{prefix: mapDataPrefix, limits: publicLimits{perMinute: 1 << 30, open: 1 << 30, read: time.Minute, write: time.Minute}, handler: s.mapData()}' \
+  ./internal/panel '^TestSharedMapIsRateLimitedPerAddress$'
+control "link tokens stay out of the request log" internal/panel/public.go \
+  'return rt.prefix + "…"' \
+  'return p' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "a public path is cleaned before it is logged" internal/panel/public.go \
+  'c := path.Clean("/" + p)' \
+  'c := p + path.Ext("")' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "a world import reads server.properties without following a link" internal/agent/worldimports.go \
+  'b, err := d.ReadProperties()' \
+  'b, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))' \
+  ./internal/agent '^TestAWorldImportNeverFollowsAPlantedServerProperties$'
+control "the shared map reads the server's icon without following a link" internal/agent/maps.go \
+  'b, err := s.readIcon()' \
+  'b, err := os.ReadFile(s.dataDir() + "/" + iconFile)' \
+  ./internal/agent '^TestTheSharedMapsIconIsReadWithoutFollowingLinks$'
+control "the Plugins tab lists the map's squaremap as the Map's" internal/agent/addons.go \
+  'if e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  'if false && e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab never offers to manage the map's squaremap" internal/agent/addons.go \
+  'withMap := append(slices.Clone(installed), s.mapAddons(installed)...)
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  'withMap := installed
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab refuses to change what the map installed" internal/agent/maps.go \
+  'if slices.Contains(keys, a.Key()) {' \
+  'if false && slices.Contains(keys, a.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "a map whose squaremap is gone counts as off and turns on again" internal/agent/maps.go \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); err != nil || !fi.Mode().IsRegular() {' \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); false && (err != nil || !fi.Mode().IsRegular()) {' \
+  ./internal/agent '^TestTurningOnTheMapInstallsAMissingSquaremapAgain$'
+control "a start saves the world as uploaded before upgrading it" internal/agent/lifecycle.go \
+  'if err := s.ensureOriginalSaved(h, sc); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded$'
+control "announces take turns with the upload allowance" internal/agent/worldimports.go \
+  'a.imports.announce.Lock()
+	defer a.imports.announce.Unlock()' \
+  '' \
+  ./internal/agent '^TestAnnouncesTakeTurnsWithTheUploadAllowance$'
+control "the shared map's link waits for the own domain to point here" internal/agent/maps.go \
+  'if st.Check == nil || !st.Check.Ready {' \
+  'if st.Check == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for the free name to be published" internal/agent/maps.go \
+  'st.Free.Name.State != names.StateActive || st.Free.Name.DNS != names.DNSOK {' \
+  'st.Free.Name.State != names.StateActive {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for a certificate that hasn't expired" internal/agent/maps.go \
+  'if row == nil || row.status.Certificate == nil || !row.status.Certificate.NotAfter.After(a.now()) {' \
+  'if row == nil || row.status.Certificate == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "an upload for a new server needs rights over every server" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),' \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "making a server from an upload needs rights over every server" internal/panel/server.go \
+  'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
+  's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  's.lib().Install(ctx, srv, installed[:0], addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off leaves the Mods tab's own files" internal/agent/maps.go \
+  'if slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  'if false && slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off keeps what another add-on needs" internal/agent/maps.go \
+  'if parent := neededBy(others, rec); parent != "" {' \
+  'if parent := neededBy(others, rec); false && parent != "" {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "a Nether or End downloaded in the 26.1 layout joins its world" internal/worldimport/detect.go \
+  'case d.id == dimNether && (d.folder == "DIM-1" || d.folder == modernFolder(dimNether)):' \
+  'case d.id == dimNether && d.folder == "DIM-1":' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a Nether or End in the 26.1 layout without level.dat joins its world" internal/worldimport/detect.go \
+  '		{id: dimNether, folder: modernFolder(dimNether), suffix: "_nether"},
+' \
+  '' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a separate dimension joins a 26.1 world instead of blocking it" internal/worldimport/plan.go \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			}
+		}
+	} else {' \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			} else {
+				pl.spigotLayout()
+			}
+		}
+	} else {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world takes an older Nether or End into dimensions/minecraft" internal/worldimport/plan.go \
+  'if pl.modern && legacyFolder(c.folder) {' \
+  'if false && pl.modern && legacyFolder(c.folder) {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world merges its Nether and End on Paper too" internal/worldimport/plan.go \
+  'case pl.fam == familyBukkit && !pl.modern:' \
+  'case pl.fam == familyBukkit:' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "an older world refuses a Nether or End saved by 26.1" internal/worldimport/plan.go \
+  'if vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  'if false && vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a world no version can load yet is offered none" internal/agent/worldimports.go \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return nil, rec, nil' \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return []api.WorldImportVersion{recommended}, rec, nil' \
+  ./internal/agent '^TestWorldImportRefusals$'
+control "a link named like a custom dimension's folder is refused" internal/worldimport/folders.go \
+  'case custom && link && dimensionName(dim):' \
+  'case false && custom && link && dimensionName(dim):' \
+  ./internal/worldimport '^TestWorldFoldersRefusesLinks$'
+control "an import refused over a linked world folder starts the previous world again" internal/agent/worldimports.go \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)' \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {' \
+  ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

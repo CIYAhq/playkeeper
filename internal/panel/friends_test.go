@@ -525,7 +525,7 @@ func TestInvitePagesArePublicAndNothingElse(t *testing.T) {
 	for _, rt := range e.srv.public.routes {
 		prefixes = append(prefixes, rt.prefix)
 	}
-	if want := []string{packs.PathPrefix, names.AlivePath, share.PathPrefix, "/join/", "/api/public/join/"}; !slices.Equal(prefixes, want) {
+	if want := []string{packs.PathPrefix, names.AlivePath, share.PathPrefix, "/join/", "/api/public/join/", mapPagePrefix, mapDataPrefix}; !slices.Equal(prefixes, want) {
 		t.Errorf("the public group serves %v, want %v", prefixes, want)
 	}
 	var open []string

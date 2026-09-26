@@ -603,6 +603,7 @@ func (s *server) sample(ctx context.Context) {
 	}
 	s.mu.Unlock()
 	s.setCollectingSince(now)
+	s.restartMapWhenEmpty(row.state == "online", snap)
 }
 
 func cpuPercent(prev, cur *docker.Stats) *float64 {

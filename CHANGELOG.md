@@ -26,6 +26,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Share the dashboard: invite someone as an Admin, Moderator or Viewer, for every server or only some, with their own sign-in. Admins must use two-factor sign-in and turn it on right after choosing their password, or later under **Account**; until then, and until you confirm it with one click, they have Moderator rights.
 - Discord: paste a channel's webhook link for alerts (a crash, back online, low disk space, a failed backup, a new Playkeeper or Minecraft version, and more if you want them) and one live status message with each server and who's playing.
 - A page for each player: when and how long they play, whether they're on the allowlist or an operator, and message, kick or ban them from there.
+- Start a new server from a world you already have: your singleplayer world, or one from Aternos, Minehut, Realms or another host, with steps for getting it. The upload carries on where it stopped if the connection drops, and Playkeeper shows what's inside and which Minecraft version it will run before anything changes. An upgraded world keeps the file you uploaded as a backup.
+- A Map tab on every server type but Vanilla: see the world from above, drawn by squaremap on your own server, with who's playing and where. Share it with a link that works without signing in; each link is random, stops working when you switch sharing off, and shows no player positions unless you turn that on.
 
 ## 0.3.1
 

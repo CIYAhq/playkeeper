@@ -339,6 +339,8 @@ export function installPageHelpers() {
     for (const d of scope.querySelectorAll('details')) out.push(`details:${(d as HTMLDetailsElement).open}`)
     for (const p of scope.querySelectorAll('[role=tabpanel]')) if (visible(p)) out.push(`panel:${norm(p.getAttribute('aria-labelledby') ?? p.id, 30)}`)
     for (const img of scope.querySelectorAll('canvas, svg[role=img], img')) if (visible(img)) out.push(`img:${norm(img.getAttribute('aria-label') ?? img.getAttribute('alt'), 30)}`)
+    // A drawn map is an application region whose label says what it shows, numbers such as its zoom included.
+    for (const app of scope.querySelectorAll('[role=application]')) if (visible(app)) out.push(`app:${(app.getAttribute('aria-label') ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)}`)
     return out
   }
 

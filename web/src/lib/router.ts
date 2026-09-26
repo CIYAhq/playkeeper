@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'plugins' | 'mods' | 'settings'
-export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'plugins', 'mods', 'settings']
+export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'map' | 'plugins' | 'mods' | 'settings'
+export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'map', 'plugins', 'mods', 'settings']
 
 /** Pages under a tab, such as /servers/survival/world/pregen. */
 export type ServerSub = 'pregen' | 'packs' | 'browse'
@@ -39,6 +39,12 @@ const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reCode = /^[A-Za-z0-9]{1,64}$/
 export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 const rePackToken = /^[A-Za-z0-9]{22}$/
+
+/** The link token of the shared map at /map/<token>, or undefined on any other page. */
+export function publicMapToken(pathname: string): string | undefined {
+  const m = /^\/map\/([^/]*)\/?$/.exec(pathname)
+  return m ? (m[1] ?? '') : undefined
+}
 
 export function parse(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
