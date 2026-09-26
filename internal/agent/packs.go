@@ -474,8 +474,17 @@ func packEnv(env []string) map[string]string {
 }
 
 // rePanelPack matches the URL of a pack the panel serves, as a
-// server.properties file holds it.
-var rePanelPack = regexp.MustCompile(regexp.QuoteMeta(packs.PathPrefix) + `[0-9a-f]{40}\.zip$`)
+// server.properties file holds it, and captures the pack's SHA-1 hash.
+var rePanelPack = regexp.MustCompile(regexp.QuoteMeta(packs.PathPrefix) + `([0-9a-f]{40})\.zip$`)
+
+// propertiesPack is the SHA-1 hash of the panel's pack that the
+// server.properties file in dataDir offers, if any.
+func propertiesPack(dataDir string) string {
+	if m := rePanelPack.FindStringSubmatch(readProperties(dataDir)["resource-pack"]); m != nil {
+		return m[1]
+	}
+	return ""
+}
 
 // restoredPackOffer is the resource pack offer of a server whose world was
 // just restored into dataDir, given the offer it had. Backups don't hold
@@ -716,8 +725,11 @@ func (a *Agent) hActiveResourcePacks(w http.ResponseWriter, r *http.Request) {
 }
 
 // offeredPacks are the SHA-1 hashes of the resource packs servers offer,
-// and of those their containers still offer until they are recreated. It
-// fails when it can't tell what a container offers.
+// and of those their containers still offer until they are recreated. A
+// server whose container has no pack settings, or whose next one will have
+// none, as when its offer can't be built, offers the pack its
+// server.properties names. It fails when it can't tell what a container
+// offers.
 func (a *Agent) offeredPacks(ctx context.Context) ([]string, error) {
 	set := map[string]bool{}
 	for _, s := range a.serverList() {
@@ -725,16 +737,29 @@ func (a *Agent) offeredPacks(ctx context.Context) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if sc != nil && sc.ResourcePack != nil && sc.ResourcePack.SHA1 != "" {
-			set[sc.ResourcePack.SHA1] = true
+		var offer *api.ResourcePackOffer
+		if sc != nil {
+			offer = sc.ResourcePack
+		}
+		if offer != nil && offer.SHA1 != "" {
+			set[offer.SHA1] = true
 		}
 		c, err := s.docker.ContainerInspect(ctx, s.containerName())
+		var env []string
 		switch {
 		case docker.IsNotFound(err):
+			env, _ = resourcePackEnv(offer)
 		case err != nil:
 			return nil, s.dockerErr(err)
 		default:
-			if sum := packEnv(c.Config.Env)["RESOURCE_PACK_SHA1"]; sum != "" {
+			env = c.Config.Env
+		}
+		settings := packEnv(env)
+		if sum := settings["RESOURCE_PACK_SHA1"]; sum != "" {
+			set[sum] = true
+		}
+		if len(settings) == 0 {
+			if sum := propertiesPack(s.dataDir()); sum != "" {
 				set[sum] = true
 			}
 		}
