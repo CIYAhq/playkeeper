@@ -3,6 +3,7 @@ import { CircleArrowUpIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-react
 import { get, post } from '@/api/client'
 import type { AuditEntry, UpdateInfo } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
+import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
@@ -28,6 +29,7 @@ export function GlobalSettingsPage() {
       <PageHeader title={t('global.title')} subtitle={t('global.lead')} />
       <PageBody className="flex max-w-[860px] flex-col gap-4">
         <PlaykeeperCard />
+        <AddonSourcesCard />
         <AuditCard />
         <Card as="section" aria-labelledby="about-title">
           <CardTitle id="about-title">{t('global.about')}</CardTitle>

@@ -1,0 +1,228 @@
+{
+ "spec": 1,
+ "profile": "NeoForge",
+ "version": "neoforge-21.1.251",
+ "minecraft": "1.21.1",
+ "json": "/version.json",
+ "mirrorList": "https://mirrors.neoforged.net",
+ "data": {
+  "MAPPINGS": {
+   "client": "[net.neoforged:neoform:1.21.1-20240808.144430:mappings@txt]",
+   "server": "[net.neoforged:neoform:1.21.1-20240808.144430:mappings@txt]"
+  },
+  "MOJMAPS": {
+   "client": "[net.minecraft:client:1.21.1-20240808.144430:mappings@txt]",
+   "server": "[net.minecraft:server:1.21.1-20240808.144430:mappings@txt]"
+  },
+  "MERGED_MAPPINGS": {
+   "client": "[net.neoforged:neoform:1.21.1-20240808.144430:mappings-merged@txt]",
+   "server": "[net.neoforged:neoform:1.21.1-20240808.144430:mappings-merged@txt]"
+  },
+  "BINPATCH": {
+   "client": "/data/client.lzma",
+   "server": "/data/server.lzma"
+  },
+  "MC_UNPACKED": {
+   "client": "[net.minecraft:client:1.21.1-20240808.144430:unpacked]",
+   "server": "[net.minecraft:server:1.21.1-20240808.144430:unpacked]"
+  },
+  "MC_SLIM": {
+   "client": "[net.minecraft:client:1.21.1-20240808.144430:slim]",
+   "server": "[net.minecraft:server:1.21.1-20240808.144430:slim]"
+  },
+  "MC_EXTRA": {
+   "client": "[net.minecraft:client:1.21.1-20240808.144430:extra]",
+   "server": "[net.minecraft:server:1.21.1-20240808.144430:extra]"
+  },
+  "MC_SRG": {
+   "client": "[net.minecraft:client:1.21.1-20240808.144430:srg]",
+   "server": "[net.minecraft:server:1.21.1-20240808.144430:srg]"
+  },
+  "PATCHED": {
+   "client": "[net.neoforged:neoforge:21.1.251:client]",
+   "server": "[net.neoforged:neoforge:21.1.251:server]"
+  },
+  "MCP_VERSION": {
+   "client": "'1.21.1-20240808.144430'",
+   "server": "'1.21.1-20240808.144430'"
+  }
+ },
+ "serverJarPath": "{LIBRARY_DIR}/net/minecraft/server/{MINECRAFT_VERSION}/server-{MINECRAFT_VERSION}.jar",
+ "processors": [
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.neoforged.installertools:installertools:2.1.2",
+   "classpath": [
+    "net.neoforged.installertools:installertools:2.1.2",
+    "net.neoforged:srgutils:1.0.0",
+    "net.md-5:SpecialSource:1.11.0",
+    "net.sf.jopt-simple:jopt-simple:5.0.4",
+    "com.google.code.gson:gson:2.8.9",
+    "de.siegmar:fastcsv:2.0.0",
+    "org.ow2.asm:asm-commons:9.3",
+    "net.neoforged.installertools:cli-utils:2.1.2",
+    "com.google.guava:guava:20.0",
+    "com.opencsv:opencsv:4.4",
+    "org.ow2.asm:asm-analysis:9.3",
+    "org.ow2.asm:asm-tree:9.3",
+    "org.ow2.asm:asm:9.3",
+    "org.apache.commons:commons-text:1.3",
+    "org.apache.commons:commons-lang3:3.8.1",
+    "commons-beanutils:commons-beanutils:1.9.3",
+    "org.apache.commons:commons-collections4:4.2",
+    "commons-logging:commons-logging:1.2",
+    "commons-collections:commons-collections:3.2.2"
+   ],
+   "args": [
+    "--task",
+    "EXTRACT_FILES",
+    "--archive",
+    "{INSTALLER}",
+    "--from",
+    "data/run.sh",
+    "--to",
+    "{ROOT}/run.sh",
+    "--exec",
+    "{ROOT}/run.sh",
+    "--from",
+    "data/run.bat",
+    "--to",
+    "{ROOT}/run.bat",
+    "--from",
+    "data/user_jvm_args.txt",
+    "--to",
+    "{ROOT}/user_jvm_args.txt",
+    "--optional",
+    "{ROOT}/user_jvm_args.txt",
+    "--from",
+    "data/win_args.txt",
+    "--to",
+    "{ROOT}/libraries/net/neoforged/neoforge/21.1.251/win_args.txt",
+    "--from",
+    "data/unix_args.txt",
+    "--to",
+    "{ROOT}/libraries/net/neoforged/neoforge/21.1.251/unix_args.txt"
+   ]
+  },
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.neoforged.installertools:installertools:2.1.2",
+   "classpath": [
+    "net.neoforged.installertools:installertools:2.1.2",
+    "net.neoforged:srgutils:1.0.0",
+    "net.md-5:SpecialSource:1.11.0",
+    "net.sf.jopt-simple:jopt-simple:5.0.4",
+    "com.google.code.gson:gson:2.8.9",
+    "de.siegmar:fastcsv:2.0.0",
+    "org.ow2.asm:asm-commons:9.3",
+    "net.neoforged.installertools:cli-utils:2.1.2",
+    "com.google.guava:guava:20.0",
+    "com.opencsv:opencsv:4.4",
+    "org.ow2.asm:asm-analysis:9.3",
+    "org.ow2.asm:asm-tree:9.3",
+    "org.ow2.asm:asm:9.3",
+    "org.apache.commons:commons-text:1.3",
+    "org.apache.commons:commons-lang3:3.8.1",
+    "commons-beanutils:commons-beanutils:1.9.3",
+    "org.apache.commons:commons-collections4:4.2",
+    "commons-logging:commons-logging:1.2",
+    "commons-collections:commons-collections:3.2.2"
+   ],
+   "args": [
+    "--task",
+    "BUNDLER_EXTRACT",
+    "--input",
+    "{MINECRAFT_JAR}",
+    "--output",
+    "{ROOT}/libraries/",
+    "--libraries"
+   ]
+  },
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.neoforged.installertools:installertools:2.1.2",
+   "classpath": [
+    "net.neoforged.installertools:installertools:2.1.2",
+    "net.neoforged:srgutils:1.0.0",
+    "net.md-5:SpecialSource:1.11.0",
+    "net.sf.jopt-simple:jopt-simple:5.0.4",
+    "com.google.code.gson:gson:2.8.9",
+    "de.siegmar:fastcsv:2.0.0",
+    "org.ow2.asm:asm-commons:9.3",
+    "net.neoforged.installertools:cli-utils:2.1.2",
+    "com.google.guava:guava:20.0",
+    "com.opencsv:opencsv:4.4",
+    "org.ow2.asm:asm-analysis:9.3",
+    "org.ow2.asm:asm-tree:9.3",
+    "org.ow2.asm:asm:9.3",
+    "org.apache.commons:commons-text:1.3",
+    "org.apache.commons:commons-lang3:3.8.1",
+    "commons-beanutils:commons-beanutils:1.9.3",
+    "org.apache.commons:commons-collections4:4.2",
+    "commons-logging:commons-logging:1.2",
+    "commons-collections:commons-collections:3.2.2"
+   ],
+   "args": [
+    "--task",
+    "BUNDLER_EXTRACT",
+    "--input",
+    "{MINECRAFT_JAR}",
+    "--output",
+    "{MC_UNPACKED}",
+    "--jar-only"
+   ]
+  }
+ ],
+ "libraries": [
+  {
+   "name": "net.neoforged.fancymodloader:earlydisplay:4.0.44",
+   "downloads": {
+    "artifact": {
+     "sha1": "cb2afcf15672180eca1c49b1c9b1208951ef322e",
+     "size": 261718,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/earlydisplay/4.0.44/earlydisplay-4.0.44.jar",
+     "path": "net/neoforged/fancymodloader/earlydisplay/4.0.44/earlydisplay-4.0.44.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged.fancymodloader:loader:4.0.44",
+   "downloads": {
+    "artifact": {
+     "sha1": "63433608b68302a442e3dba87880e54f42ea0583",
+     "size": 505708,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/loader/4.0.44/loader-4.0.44.jar",
+     "path": "net/neoforged/fancymodloader/loader/4.0.44/loader-4.0.44.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged.accesstransformers:at-modlauncher:10.0.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "5aba50202aceead086bc09fbc2751c9f05cb4890",
+     "size": 2347,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/accesstransformers/at-modlauncher/10.0.1/at-modlauncher-10.0.1.jar",
+     "path": "net/neoforged/accesstransformers/at-modlauncher/10.0.1/at-modlauncher-10.0.1.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:accesstransformers:10.0.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "fd83b5725f76eae9115e9355fa1c456a6a441400",
+     "size": 67234,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/accesstransformers/10.0.1/accesstransformers-10.0.1.jar",
+     "path": "net/neoforged/accesstransformers/10.0.1/accesstransformers-10.0.1.jar"
+    }
+   }
+  }
+ ]
+}

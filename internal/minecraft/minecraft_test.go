@@ -28,6 +28,11 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{"[13:40:00 INFO]: Stopping server", EventStopping, ""},
 		{"[13:34:20 INFO]: Starting minecraft server version 26.1.2", EventStarting, ""},
 		{`[13:34:28 INFO]: Preparing level "world"`, EventPreparing, ""},
+		{"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: PkBotBuilder joined the game", EventJoin, "PkBotBuilder"},
+		{"[20:38:41] [Server thread/INFO] [minecraft/MinecraftServer]: PkBotBuilder left the game", EventLeave, "PkBotBuilder"},
+		{`[20:38:10] [Server thread/INFO] [minecraft/DedicatedServer]: Done (3.007s)! For help, type "help"`, EventReady, ""},
+		{"[20:38:07] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 26.2", EventStarting, ""},
+		{`[20:38:07] [Server thread/INFO] [minecraft/DedicatedServer]: Preparing level "world"`, EventPreparing, ""},
 		{"[init] [ERROR] Failed to download paper", EventInitError, ""},
 		{"java.lang.OutOfMemoryError: Java heap space", EventOOM, ""},
 		{"[03:11:30 ERROR]: Encountered an unexpected exception", EventCrashed, ""},
@@ -59,6 +64,10 @@ func TestParseIgnoresSpoofedChat(t *testing.T) {
 		"Foo joined the game",
 		"[13:35:18 INFO]: PkBotFriend issued server command: /say Foo joined the game",
 		"[13:35:18 INFO]: ThisNameIsWayTooLongForMinecraft joined the game",
+		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: <PkBotFriend> Foo joined the game",
+		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: [PkBotFriend] [minecraft/MinecraftServer]: Foo joined the game",
+		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: <PkBotFriend> [a/b]: Foo left the game",
+		"[20:38:30] [minecraft/MinecraftServer]: Foo joined the game",
 	}
 	for _, s := range spoofs {
 		if p := Parse(s); p.Kind == EventJoin || p.Kind == EventLeave {
@@ -77,6 +86,46 @@ func TestRedactIPs(t *testing.T) {
 	}
 	if !strings.Contains(out, "26.1.2 build 74") {
 		t.Fatalf("version numbers must survive redaction: %s", out)
+	}
+}
+
+// Addresses go wherever they appear; four-part version numbers, like
+// NeoForge's (real lines from a NeoForge 26.2.0.88 server), stay readable.
+func TestRedactIPsKeepsVersionNumbers(t *testing.T) {
+	for in, want := range map[string]string{
+		"[mc-image-helper] 00:32:24.817 INFO  : Running NeoForge 26.2.0.88 installer for Minecraft 26.2. This might take a while...": "",
+		"\t\tNeoForge 26.2.0.88 (neoforge)":  "",
+		"\t\tWaystones 21.1.0.4 (waystones)": "",
+		"[00:32:33] [main/INFO] [ne.ne.fm.lo.FMLLoader/]:  - ~libraries/net/neoforged/neoforge/26.2.0.88/neoforge-26.2.0.88-universal.jar > net.neoforged.neoforge-coremods-26.2.0.88.jar": "",
+		" - minecraft (jar(~libraries/net/neoforged/minecraft-server-patched/26.2-20260902.101010/minecraft-server-patched-26.2-20260902.101010.jar))":                                     "",
+		"[00:32:37] [modloading-worker-0/INFO] [ne.ne.ne.co.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 26.2.0.88, for MC 26.2":                                               "",
+		"Loading Minecraft 1.21.4 with Fabric Loader 0.16.10":                                                     "",
+		"[12:00:00 INFO]: PkSpikeBot[/203.0.113.7:50284] logged in with entity id 10 at ([world]1.5, 64.0, -3.5)": "[12:00:00 INFO]: PkSpikeBot[/[ip redacted]] logged in with entity id 10 at ([world]1.5, 64.0, -3.5)",
+		"[12:00:00 INFO]: Thread RCON Client /10.0.0.5 started":                                                   "[12:00:00 INFO]: Thread RCON Client /[ip redacted] started",
+		"[12:00:00 INFO]: Disconnecting PkSpikeBot (/192.0.2.44:61000): Timed out":                                "[12:00:00 INFO]: Disconnecting PkSpikeBot (/[ip redacted]): Timed out",
+		"[12:00:00 INFO]: [AuthMe] PkSpikeBot logged in from 198.51.100.23":                                       "[12:00:00 INFO]: [AuthMe] PkSpikeBot logged in from [ip redacted]",
+		"[12:00:00 INFO]: Connection from 203.0.113.9:1234, 198.51.100.8 and 192.0.2.1.":                          "[12:00:00 INFO]: Connection from [ip redacted], [ip redacted] and [ip redacted].",
+		"[12:00:00 INFO]: PkSpikeBot (/[2001:db8::1]:25565) lost connection":                                      "[12:00:00 INFO]: PkSpikeBot (/[ip redacted]) lost connection",
+	} {
+		if want == "" {
+			want = in
+		}
+		if got := RedactIPs(in); got != want {
+			t.Errorf("RedactIPs(%q)\n got %q\nwant %q", in, got, want)
+		}
+	}
+}
+
+// Plugins colour their command replies and log lines with § codes, hex
+// colours included (a real Paper 26.2 `plugins` reply).
+func TestCleanLineStripsColourCodes(t *testing.T) {
+	in := "§x§3§4§9§f§d§aℹ §fServer Plugins (4): | §x§e§d§8§1§0§6Bukkit Plugins: | §8- §aChunky§r, §aViaBackwards§r, §AViaRewind§R, §aViaVersion"
+	want := "ℹ Server Plugins (4): | Bukkit Plugins: | - Chunky, ViaBackwards, ViaRewind, ViaVersion"
+	if got := CleanLine(in); got != want {
+		t.Fatalf("got %q", got)
+	}
+	if got := CleanLine("§f§oChecking version, please wait..."); got != "Checking version, please wait..." {
+		t.Fatalf("got %q", got)
 	}
 }
 

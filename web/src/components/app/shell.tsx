@@ -10,7 +10,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
-import { isSettingUp, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
+import { isCreating, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -88,6 +88,8 @@ function pageKey(route: Route): string {
       return `machine-settings/${route.id}`
     case 'account':
       return route.section ? `account/${route.section}` : route.name
+    case 'pack':
+      return `pack/${route.token}`
     case 'home':
     case 'login':
     case 'setup':
@@ -169,7 +171,7 @@ function SideItem({ to, active, icon, children, trailing, muted }: { to: Route; 
 /** What the sidebar says next to a server: players, or its state when it isn't online. */
 function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
   if (stale) return <span className="text-xs text-muted-foreground">{t('status.unknown')}</span>
-  if (isSettingUp(s)) return <span className="text-xs font-medium text-info-foreground">{t('status.creating')}</span>
+  if (isCreating(s)) return <span className="text-xs font-medium text-info-foreground">{t('status.creating')}</span>
   const tone = statusTone(s)
   switch (tone) {
     case 'online':
@@ -235,7 +237,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
             key={s.id}
             to={{ name: 'server', slug: s.slug, tab }}
             active={route.name === 'server' && route.slug === s.slug}
-            icon={!ws.stale && isSettingUp(s) ? <Spinner /> : <Dot tone={ws.stale ? 'unknown' : statusTone(s)} />}
+            icon={!ws.stale && isCreating(s) ? <Spinner /> : <Dot tone={ws.stale ? 'unknown' : statusTone(s)} />}
             trailing={serverMeta(s, ws.stale)}
           >
             {s.name}

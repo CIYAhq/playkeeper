@@ -193,7 +193,7 @@ func TestAddonIconsAreOnlyImages(t *testing.T) {
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, `{"error":"Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from evil.example.","code":"host_not_allowed"}`)
+			io.WriteString(w, `{"error":"Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from evil.example.","code":"host_not_allowed"}`)
 		}
 	})
 	icon := "/api/servers/" + sampleServer + "/addons/icon?url="
@@ -243,8 +243,8 @@ func TestMembersCannotChangeAddonsOrPacks(t *testing.T) {
 			t.Errorf("a member may look at %s: %d", rt.Pattern, r.status)
 		}
 	}
-	if n != 29 {
-		t.Errorf("checked %d add-on, pre-generation and pack routes, want 29", n)
+	if n != 30 {
+		t.Errorf("checked %d add-on, pre-generation and pack routes, want 30", n)
 	}
 	e.agent.mu.Lock()
 	defer e.agent.mu.Unlock()

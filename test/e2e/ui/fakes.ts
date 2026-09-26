@@ -1,13 +1,15 @@
 import type { Page, Request, Route } from '@playwright/test'
-import { addonKeyProblem, answerRead, installJob, isAddonRead, recordedFolder, updateJob, type JobStart, type World } from './addon-fixtures'
+import { addonKeyProblem, answerRead, installJob, isAddonRead, recordedFolder, updateJob, type Answer, type JobStart, type World } from './addon-fixtures'
+import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixtures'
 
 // Realistic stand-ins for every API call that changes something, so the
 // click-through can press every button without restarting, deleting or
 // downloading anything. Reads go to the real panel, except a server's
-// add-ons: those are answered from recorded fixtures (addon-fixtures.ts) and
-// never reach it. Each fake checks the request the way the panel does (CSRF
-// and origin headers, body shape, the preference key rule) and answers with
-// the shape the real handler returns.
+// add-ons and a machine's modpacks: those are answered from recorded fixtures
+// (addon-fixtures.ts, modpack-fixtures.ts) and never reach it. Each fake
+// checks the request the way the panel does (CSRF and origin headers, body
+// shape, the preference key rule) and answers with the shape the real
+// handler returns.
 
 export interface ApiCall {
   method: string
@@ -15,7 +17,7 @@ export interface ApiCall {
   status: number
   faked: boolean
   error?: string
-  /** A fake that answers with an error on purpose, like a wrong password. */
+  /** An error the dashboard expects: a fake's on purpose, like a wrong password, or an icon it shows a stand-in for. */
   expected?: boolean
   at: number
 }
@@ -35,7 +37,7 @@ interface FakeState {
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
-  /** The last answer the page got to each read of a server's add-ons, packs and pre-generation, by path. */
+  /** The last answer the page got to each read of a server's add-ons, packs and pre-generation, and of a machine's add-on sources, by path. */
   reads: Map<string, Record<string, unknown>>
   opSeq: number
   /** Each machine's address as the real panel last showed it; address changes answer with it. */
@@ -313,6 +315,29 @@ const routes: [string, RegExp, Handler][] = [
   // Wave 3: the crash screen's fixes that act on a plugin or mod, then start
   // the server. Its update and install with `start` are Wave 1's entries.
   ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
+  // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
+  ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
+  // Wave 4: the CurseForge key. A key typed here isn't one CurseForge knows, so it's refused as the real check would.
+  ['POST', /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/, () => ({ status: 400, body: { error: "That key didn't work. Copy it again from console.curseforge.com.", code: 'curseforge_key_refused' }, expected: true })],
+  [
+    'DELETE',
+    /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/,
+    (r, state) => {
+      const sources = { curseforge: { key: 'none' } }
+      state.reads.set(`/api/machines/${r.params[0]}/addon-sources`, sources)
+      return { status: 200, body: sources }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/template\/retry$/, (r, state) => op(state, 'template-retry', r.params[0])],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/mods\/share$/,
+    ({ body }) => {
+      const on = (body as { public?: unknown } | null)?.public
+      if (typeof on !== 'boolean') return invalid('Say whether to share the pack.')
+      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
+    },
+  ],
 ]
 
 interface AddonRecord {
@@ -377,6 +402,23 @@ function addonWorld(state: FakeState, serverId: string | undefined): World {
   const folder = recordedFolder()
   const addons = state.reads.get(path) ?? ((lay(state.view(), path, folder) as Record<string, unknown> | undefined) ?? folder)
   return { addons, running: running.includes(state.phases.get(serverId ?? '') ?? '') }
+}
+
+/**
+ * The machine as the modpack fixtures see it: it offers CurseForge when
+ * Settings › Add-on sources last showed a key. Dev and CI builds carry none
+ * (curseforge.BuildKey), so until the page reads the sources it has none.
+ */
+function packWorld(state: FakeState, machineId: string | undefined): PackWorld {
+  const key = (state.reads.get(`/api/machines/${machineId}/addon-sources`)?.curseforge as { key?: unknown } | undefined)?.key
+  return { curseforge: key === 'build' || key === 'file' }
+}
+
+/** Which recorded fixtures answer a read, if any: a server's add-ons or a machine's modpacks. */
+export function fixtureRead(method: string, path: string): 'add-on' | 'modpack' | undefined {
+  if (isAddonRead(method, path)) return 'add-on'
+  if (isModpackRead(method, path)) return 'modpack'
+  return undefined
 }
 
 /** Starts a faked add-on job that ends the way the fixtures say, or refuses it; undefined when they have no answer. */
@@ -535,6 +577,8 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 const plans = [
   // Wave 1: what updating plugins or mods would do, from the recorded fixtures.
   /^\/api\/servers\/\w+\/addons\/update\/plan$/,
+  // Wave 4: what a template would create.
+  /^\/api\/machines\/\w+\/templates\/plan$/,
 ]
 
 /** The panel's refusal of a write without its CSRF headers; signing in and setting up come before there's a token. */
@@ -562,9 +606,9 @@ function notePhases(state: FakeState, servers: unknown) {
 /**
  * Serves the fakes on a page. The returned list collects every API call with
  * its status; unknown writes answer 501 and are listed as unfaked so a new
- * endpoint can't slip through unchecked, and add-on reads the fixtures have
- * no answer for do the same and are listed as unrecorded. Reads show
- * `view()` (see View).
+ * endpoint can't slip through unchecked, and add-on and modpack reads the
+ * fixtures have no answer for do the same and are listed as unrecorded.
+ * Reads show `view()` (see View).
  */
 export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[]; unrecorded: string[] }> {
   const calls: ApiCall[] = []
@@ -620,8 +664,11 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
         return
       }
-      if (isAddonRead(method, path)) {
-        const answer = answerRead(method, url, planning ? posted(request) : undefined, addonWorld(state, /^\/api\/servers\/(\w+)\//.exec(path)?.[1]))
+      const kind = fixtureRead(method, path)
+      if (kind) {
+        let answer: Answer | undefined
+        if (kind === 'add-on') answer = answerRead(method, url, planning ? posted(request) : undefined, addonWorld(state, /^\/api\/servers\/(\w+)\//.exec(path)?.[1]))
+        else answer = answerModpackRead(url, packWorld(state, /^\/api\/machines\/(\w+)\//.exec(path)?.[1]))
         if (!answer) {
           const error = `No recorded answer for ${method} ${path}.`
           unrecorded.push(`${method} ${path}`)
@@ -633,7 +680,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         const body = image || answer.status !== 200 ? answer.body : (lay(view(), path, answer.body) ?? answer.body)
         if (answer.status === 200 && /^\/api\/servers\/\w+\/addons(\/checks)?$/.test(path)) state.reads.set(path, body as Record<string, unknown>)
         const error = answer.status >= 400 ? String((body as { error?: string }).error ?? '') : undefined
-        calls.push({ method, path, status: answer.status, faked: true, error, at })
+        // An icon the proxy refuses shows a stand-in, so its error is expected.
+        const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
+        calls.push({ method, path, status: answer.status, faked: true, error, expected: (icon && answer.status >= 400) || undefined, at })
         await route.fulfill({ status: answer.status, headers: answer.headers, body: image ? (body as Buffer) : JSON.stringify(body) }).catch(() => {})
         return
       }
@@ -647,6 +696,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
+        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
         if (path === '/api/servers') notePhases(state, laid)
         await route.fulfill({ response: res, json: laid }).catch(() => {})
@@ -659,7 +709,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
-        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen)$|^\/api\/machines\/\w+\/addon-sources$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
         if (address?.[1]) state.addresses.set(address[1], await res.json().catch(() => ({})))

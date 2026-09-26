@@ -35,7 +35,7 @@ func (l *Library) FetchIcon(ctx context.Context, rawURL string) (*Icon, error) {
 			return nil, &Error{Notice: notice(KindNotHTTPS, kv("host", host), "Playkeeper only loads icons over HTTPS.", ""), Err: err}
 		}
 		return nil, &Error{Notice: notice(KindHostNotAllowed, kv("host", host),
-			"Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from "+host+".", ""), Err: err}
+			"Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from "+host+".", ""), Err: err}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -47,7 +47,7 @@ func (l *Library) FetchIcon(ctx context.Context, rawURL string) (*Icon, error) {
 		var re *fetch.RedirectError
 		if errors.As(err, &re) {
 			return nil, &Error{Notice: notice(KindRedirectRefused, kv("host", re.To),
-				"The icon was redirected to "+re.To+", which is not one of Modrinth's or Hangar's file hosts.", ""), Err: err}
+				"The icon was redirected to "+re.To+", which is not one of Modrinth's, Hangar's or CurseForge's file hosts.", ""), Err: err}
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

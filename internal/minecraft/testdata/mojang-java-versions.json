@@ -1,0 +1,218 @@
+[
+ {
+  "id": "1.12.2",
+  "type": "release",
+  "releaseTime": "2017-09-18T08:39:46+00:00",
+  "javaVersion": {
+   "component": "jre-legacy",
+   "majorVersion": 8
+  }
+ },
+ {
+  "id": "1.16.5",
+  "type": "release",
+  "releaseTime": "2021-01-14T16:05:32+00:00",
+  "javaVersion": {
+   "component": "jre-legacy",
+   "majorVersion": 8
+  }
+ },
+ {
+  "id": "1.17",
+  "type": "release",
+  "releaseTime": "2021-06-08T11:00:40+00:00",
+  "javaVersion": {
+   "component": "java-runtime-alpha",
+   "majorVersion": 16
+  }
+ },
+ {
+  "id": "1.17.1",
+  "type": "release",
+  "releaseTime": "2021-07-06T12:01:34+00:00",
+  "javaVersion": {
+   "component": "java-runtime-alpha",
+   "majorVersion": 16
+  }
+ },
+ {
+  "id": "1.18",
+  "type": "release",
+  "releaseTime": "2021-11-30T09:16:29+00:00",
+  "javaVersion": {
+   "component": "java-runtime-beta",
+   "majorVersion": 17
+  }
+ },
+ {
+  "id": "1.18.2",
+  "type": "release",
+  "releaseTime": "2022-02-28T10:42:45+00:00",
+  "javaVersion": {
+   "component": "java-runtime-beta",
+   "majorVersion": 17
+  }
+ },
+ {
+  "id": "1.19.4",
+  "type": "release",
+  "releaseTime": "2023-03-14T12:56:18+00:00",
+  "javaVersion": {
+   "component": "java-runtime-gamma",
+   "majorVersion": 17
+  }
+ },
+ {
+  "id": "1.20",
+  "type": "release",
+  "releaseTime": "2023-06-02T08:36:17+00:00",
+  "javaVersion": {
+   "component": "java-runtime-gamma",
+   "majorVersion": 17
+  }
+ },
+ {
+  "id": "1.20.1",
+  "type": "release",
+  "releaseTime": "2023-06-12T13:25:51+00:00",
+  "javaVersion": {
+   "component": "java-runtime-gamma",
+   "majorVersion": 17
+  }
+ },
+ {
+  "id": "1.20.4",
+  "type": "release",
+  "releaseTime": "2023-12-07T12:56:20+00:00",
+  "javaVersion": {
+   "component": "java-runtime-gamma",
+   "majorVersion": 17
+  }
+ },
+ {
+  "id": "1.20.5-pre1",
+  "type": "snapshot",
+  "releaseTime": "2024-04-10T12:44:25+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "1.20.5",
+  "type": "release",
+  "releaseTime": "2024-04-23T11:54:12+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "1.20.6",
+  "type": "release",
+  "releaseTime": "2024-04-29T12:40:45+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "1.21",
+  "type": "release",
+  "releaseTime": "2024-06-13T08:24:03+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "1.21.1",
+  "type": "release",
+  "releaseTime": "2024-08-08T12:24:45+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "1.21.4",
+  "type": "release",
+  "releaseTime": "2024-12-03T10:12:57+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "1.21.5-rc1",
+  "type": "snapshot",
+  "releaseTime": "2025-03-20T13:45:48+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "1.21.11",
+  "type": "release",
+  "releaseTime": "2025-12-09T12:23:30+00:00",
+  "javaVersion": {
+   "component": "java-runtime-delta",
+   "majorVersion": 21
+  }
+ },
+ {
+  "id": "26.1-pre-1",
+  "type": "snapshot",
+  "releaseTime": "2026-03-10T13:00:38+00:00",
+  "javaVersion": {
+   "component": "java-runtime-epsilon",
+   "majorVersion": 25
+  }
+ },
+ {
+  "id": "26.1",
+  "type": "release",
+  "releaseTime": "2026-03-24T12:11:04+00:00",
+  "javaVersion": {
+   "component": "java-runtime-epsilon",
+   "majorVersion": 25
+  }
+ },
+ {
+  "id": "26.1.2",
+  "type": "release",
+  "releaseTime": "2026-04-09T10:12:23+00:00",
+  "javaVersion": {
+   "component": "java-runtime-epsilon",
+   "majorVersion": 25
+  }
+ },
+ {
+  "id": "26.2",
+  "type": "release",
+  "releaseTime": "2026-06-16T12:03:33+00:00",
+  "javaVersion": {
+   "component": "java-runtime-epsilon",
+   "majorVersion": 25
+  }
+ },
+ {
+  "id": "26.3",
+  "type": "release",
+  "releaseTime": "2026-09-15T11:23:02+00:00",
+  "javaVersion": {
+   "component": "java-runtime-epsilon",
+   "majorVersion": 25
+  }
+ },
+ {
+  "id": "26.4-snapshot-1",
+  "type": "snapshot",
+  "releaseTime": "2026-09-22T13:38:53+00:00",
+  "javaVersion": {
+   "component": "java-runtime-epsilon",
+   "majorVersion": 25
+  }
+ }
+]

@@ -16,6 +16,32 @@ func serveAs(contentType, data string) http.HandlerFunc {
 	}
 }
 
+func TestIconsComeOnlyFromTheSourcesHosts(t *testing.T) {
+	var l Library
+	for _, tc := range []struct {
+		url     string
+		allowed bool
+	}{
+		{"https://cdn.modrinth.com/data/P1OZGk5p/icon.png", true},
+		{"https://hangarcdn.papermc.io/avatars/project/12.webp?v=1", true},
+		{"https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png", true},
+		// CurseForge's file hosts serve downloads, not logos.
+		{"https://edge.forgecdn.net/files/9200/2/pack.png", false},
+		{"https://mediafilez.forgecdn.net/files/9200/2/pack.png", false},
+		{"https://forgecdn.net/avatars/logo.png", false},
+		{"https://media.forgecdn.net.example.com/avatars/logo.png", false},
+		{"https://modrinth.com/icon.png", false},
+		{"https://example.com/icon.png", false},
+		{"http://media.forgecdn.net/avatars/logo.png", false},
+		{"https://someone@media.forgecdn.net/avatars/logo.png", false},
+	} {
+		_, err := l.iconHosts().Check(tc.url)
+		if (err == nil) != tc.allowed {
+			t.Errorf("%s: allowed %v (%v), want %v", tc.url, err == nil, err, tc.allowed)
+		}
+	}
+}
+
 func TestFetchIconSniffsTheImage(t *testing.T) {
 	f := newFakes(t)
 	l := f.library()
@@ -86,14 +112,14 @@ func TestFetchIconRefusals(t *testing.T) {
 		kind Kind
 		msg  string
 	}{
-		{"https://example.com/icon.png", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from example.com."},
-		{f.evil.URL + "/icon.png", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from 127.0.0.1."},
-		{"https://playkeeper:secret@" + cdnHost + "/icon.png", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from 127.0.0.1."},
-		{"::not a url", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's and Hangar's file hosts, not from an invalid address."},
+		{"https://example.com/icon.png", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from example.com."},
+		{f.evil.URL + "/icon.png", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from 127.0.0.1."},
+		{"https://playkeeper:secret@" + cdnHost + "/icon.png", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from 127.0.0.1."},
+		{"::not a url", KindHostNotAllowed, "Playkeeper only loads icons from Modrinth's, Hangar's and CurseForge's file hosts, not from an invalid address."},
 		{"http://" + cdnHost + "/icon.png", KindNotHTTPS, "Playkeeper only loads icons over HTTPS."},
 		{f.cdn.URL + "/big.png", KindTooLarge, "The icon is larger than the 1 KiB Playkeeper accepts."},
 		{f.cdn.URL + "/endless.png", KindTooLarge, "The icon is larger than the 1 KiB Playkeeper accepts."},
-		{f.cdn.URL + "/moved.png", KindRedirectRefused, "The icon was redirected to 127.0.0.1, which is not one of Modrinth's or Hangar's file hosts."},
+		{f.cdn.URL + "/moved.png", KindRedirectRefused, "The icon was redirected to 127.0.0.1, which is not one of Modrinth's, Hangar's or CurseForge's file hosts."},
 		{f.cdn.URL + "/missing.png", KindNotFound, "127.0.0.1 answered the icon request with HTTP 404."},
 		{f.cdn.URL + "/broken.png", KindUpstream, "127.0.0.1 answered the icon request with HTTP 500."},
 	} {

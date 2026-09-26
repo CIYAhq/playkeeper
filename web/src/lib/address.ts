@@ -105,3 +105,10 @@ export function recordFor(r: DNSRecord, servers: JoinAddress[], short = false): 
   const bare = servers.find((x) => x.port === 25565)
   return bare ? t('address.forDashboardAnd', { server: bare.name }) : t('address.dashboard')
 }
+
+/** The dashboard's address under the machine's name once others can open it there: the name points at the machine and has a certificate. */
+export function namedDashboard(a: Address | undefined, now: number): string | undefined {
+  if (!a?.host || !certValid(a.certificate, now)) return undefined
+  const works = a.kind === 'own' ? ownDone(a, now) : a.kind === 'playkeeper' && a.free?.state === 'active' && a.free.dns === 'ok'
+  return works ? dashboardURL(a.host, a.panelPort) : undefined
+}

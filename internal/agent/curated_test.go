@@ -1,0 +1,675 @@
+package agent
+
+import (
+	"context"
+	"maps"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/curated"
+	"github.com/CIYAhq/playkeeper/internal/templates"
+)
+
+const voiceChatProject = "9eGKb6K1"
+
+// withCuratedProjects adds some of the curated projects to the fake Modrinth:
+// voice chat, CoreProtect and LuckPerms with a version for the server, and
+// ViaVersion without one. EssentialsX isn't there at all.
+func withCuratedProjects(f *fakeSources) {
+	at := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	f.addProject(&fakeProject{id: voiceChatProject, slug: "simple-voice-chat", title: "Simple Voice Chat", summary: "Proximity voice chat.", downloads: 90000000})
+	f.addProject(&fakeProject{id: "Lu3KuzdV", slug: "coreprotect", title: "CoreProtect", summary: "Block logging and rollback.", downloads: 3000000})
+	f.addProject(&fakeProject{id: "Vebnzrzj", slug: "luckperms", title: "LuckPerms", summary: "A permissions plugin.", downloads: 2900000})
+	f.addProject(&fakeProject{id: "P1OZGk5p", slug: "viaversion", title: "ViaVersion", summary: "Newer clients on older servers.", downloads: 5000000})
+	f.publish(voiceChatProject, "svc-v1", "2.6.4", at)
+	f.publish("Lu3KuzdV", "cp-v1", "23.1", at)
+	f.publish("Vebnzrzj", "lp-v1", "5.5.10", at)
+}
+
+func TestCuratedPicksAreTheOnesThatFitTheServer(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	withCuratedProjects(f)
+	e.create()
+
+	var got api.CuratedAddons
+	e.decode("GET", e.sp("/addons/curated"), &got)
+	var ids []string
+	for _, p := range got.Picks {
+		ids = append(ids, p.ID+" "+p.Card.Name)
+	}
+	if want := []string{"voice-chat Simple Voice Chat", "rollback CoreProtect", "pregenerate Chunky", "permissions LuckPerms"}; !slices.Equal(ids, want) {
+		t.Fatalf("picks %q, want %q: only the ones with a version for Paper 26.1.2, in the list's order", ids, want)
+	}
+	voice := got.Picks[0]
+	if len(voice.Ports) != 1 || voice.Ports[0] != (api.AddonPort{Protocol: "udp", Port: curated.VoiceChatPort}) || !strings.HasPrefix(voice.Permission, "https://") {
+		t.Fatalf("voice chat says the port it needs and where its author allows this: %+v", voice)
+	}
+	if len(got.Picks[1].Ports) != 0 || got.Picks[1].Card.Installed {
+		t.Fatalf("CoreProtect needs no port and isn't installed: %+v", got.Picks[1])
+	}
+
+	asked := f.hitCount("GET", "/v2/project/Lu3KuzdV")
+	e.decode("GET", e.sp("/addons/curated"), &got)
+	if f.hitCount("GET", "/v2/project/Lu3KuzdV") != asked {
+		t.Error("which picks fit a type and version is asked again within the hour")
+	}
+}
+
+func TestVoiceChatOpensItsPortAndClosesItWhenRemoved(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	withCuratedProjects(f)
+	e.create()
+	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+
+	var d api.AddonDetails
+	e.decode("GET", e.sp("/addons/project/modrinth/"+voiceChatProject), &d)
+	if d.Plan == nil || !d.Plan.Ready || len(d.Ports) != 1 || d.Ports[0].Port != curated.VoiceChatPort {
+		t.Fatalf("voice chat's details: %+v", d)
+	}
+	install := map[string]any{"source": "modrinth", "projectId": voiceChatProject, "fingerprint": d.Plan.Fingerprint, "actor": "admin"}
+	if code, out := e.call("POST", e.sp("/addons/install"), install); code != 400 || !strings.Contains(out["error"].(string), "UDP port") {
+		t.Fatalf("voice chat must not install without leave to open its port: %d %v", code, out)
+	}
+	if jars, _ := filepath.Glob(filepath.Join(e.dataDir(), "plugins", "*.jar")); len(jars) != 0 {
+		t.Fatalf("a refused install left %v", jars)
+	}
+
+	e.a.opts.UDPPortInUse = func(p int) bool { return p == curated.VoiceChatPort }
+	install["openPorts"] = true
+	op := e.addonOp("/addons/install", install)
+	if op.Status != api.OpSucceeded || opDetail[int](t, op, "voiceChatPort") != curated.VoiceChatPort+1 || opDetail[bool](t, op, "restartNeeded") {
+		t.Fatalf("install and open the port: %+v", op)
+	}
+	port := curated.VoiceChatPort + 1
+	sc, _ := e.srv().serverConfig()
+	if sc.VoiceChatPort != port {
+		t.Fatalf("the server keeps voice chat's port, one nothing else uses: %d", sc.VoiceChatPort)
+	}
+	b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "voicechat", "voicechat-server.properties"))
+	if err != nil || !strings.Contains(string(b), "port=24455\n") || !strings.Contains(string(b), "bind_address=*\n") {
+		t.Fatalf("voice chat's settings: %q %v", b, err)
+	}
+	if got := e.published(); !slices.Equal(got, []string{"24455/udp→24455", "25565/tcp→" + strconv.Itoa(e.srv().gamePort)}) {
+		t.Fatalf("the running server was restarted to publish the port: %v", got)
+	}
+	e.waitFor("online again", func() bool { return e.status().Phase == api.PhaseOnline })
+
+	if code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
+		t.Fatalf("remove: %d %v", code, out)
+	}
+	if sc, _ := e.srv().serverConfig(); sc.VoiceChatPort != 0 {
+		t.Fatalf("removing voice chat forgets its port: %d", sc.VoiceChatPort)
+	}
+	restart := e.addonOp("/restart", map[string]any{"actor": "admin"})
+	if restart.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", restart)
+	}
+	if got := e.published(); !slices.Equal(got, []string{"25565/tcp→" + strconv.Itoa(e.srv().gamePort)}) {
+		t.Fatalf("after the restart the container publishes only the game port: %v", got)
+	}
+}
+
+// Voice chat's record and its port never disagree, however a removal ends:
+// the port closes in the transaction that drops the record. A removal that
+// fails leaves both, and removing again finishes it; one that keeps voice
+// chat keeps its port.
+func TestVoiceChatRecordAndPortNeverDisagree(t *testing.T) {
+	removal := func(project string, extra map[string]any) map[string]any {
+		body := map[string]any{"source": "modrinth", "projectId": project, "keepConfig": true, "actor": "admin"}
+		maps.Copy(body, extra)
+		return body
+	}
+	changeJar := func(t *testing.T, e *agentEnv) {
+		recs, _ := e.srv().installedAddons()
+		i := slices.IndexFunc(recs, func(r addons.Installed) bool { return r.ProjectID == voiceChatProject })
+		if i < 0 {
+			t.Fatal("voice chat isn't installed")
+		}
+		if err := os.WriteFile(filepath.Join(e.dataDir(), "plugins", recs[i].FileName), []byte("changed by hand"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	trigger := func(t *testing.T, e *agentEnv, create string) func() {
+		if _, err := e.a.db.Exec(create); err != nil {
+			t.Fatal(err)
+		}
+		return func() {
+			if _, err := e.a.db.Exec(`DROP TRIGGER stuck`); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	confirmed := map[string]any{"changed": true}
+	for _, tc := range []struct {
+		name string
+		// setup makes the removal go wrong, and returns what puts it right
+		// before removing again.
+		setup   func(t *testing.T, e *agentEnv) func()
+		remove  map[string]any
+		removed bool // the removal succeeds
+		kept    bool // voice chat is still installed after it
+		again   map[string]any
+	}{
+		{"voice chat's file can't be removed", func(t *testing.T, e *agentEnv) func() {
+			changeJar(t, e)
+			return func() {}
+		}, removal(voiceChatProject, nil), false, true, removal(voiceChatProject, confirmed)},
+		{"voice chat is left out of what's removed", func(t *testing.T, e *agentEnv) func() {
+			e.installAddon("Lu3KuzdV")
+			if _, err := e.a.db.Exec(`UPDATE addons SET dependency_of = 'Lu3KuzdV' WHERE server_id = ? AND project_id = ?`, e.sid, voiceChatProject); err != nil {
+				t.Fatal(err)
+			}
+			changeJar(t, e)
+			return func() {}
+		}, removal("Lu3KuzdV", map[string]any{"orphans": []map[string]any{{"source": "modrinth", "projectId": voiceChatProject}}}), true, true, removal(voiceChatProject, confirmed)},
+		{"saving the records fails", func(t *testing.T, e *agentEnv) func() {
+			return trigger(t, e, `CREATE TRIGGER stuck BEFORE DELETE ON addons BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
+		}, removal(voiceChatProject, nil), false, true, removal(voiceChatProject, nil)},
+		{"closing the port fails", func(t *testing.T, e *agentEnv) func() {
+			return trigger(t, e, `CREATE TRIGGER stuck BEFORE UPDATE OF config ON servers
+				WHEN json_extract(OLD.config, '$.voiceChatPort') > 0 AND json_extract(NEW.config, '$.voiceChatPort') IS NULL
+				BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
+		}, removal(voiceChatProject, nil), false, true, removal(voiceChatProject, nil)},
+		{"the removal succeeds", nil, removal(voiceChatProject, nil), true, false, removal(voiceChatProject, nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			withCuratedProjects(e.withSources())
+			e.create()
+			e.waitFor("online", e.onlineIdle)
+			e.installVoiceChat(e.sid)
+			agree := func(when string) bool {
+				t.Helper()
+				recs, _ := e.srv().installedAddons()
+				sc, _ := e.srv().serverConfig()
+				installed := slices.ContainsFunc(recs, func(r addons.Installed) bool { return r.ProjectID == voiceChatProject })
+				if installed != (sc.VoiceChatPort > 0) {
+					t.Fatalf("%s: voice chat's record says installed %v, but its port is %d", when, installed, sc.VoiceChatPort)
+				}
+				return installed
+			}
+			putRight := func() {}
+			if tc.setup != nil {
+				putRight = tc.setup(t, e)
+			}
+			if code, out := e.call("POST", e.sp("/addons/remove"), tc.remove); (code == 200) != tc.removed {
+				t.Fatalf("the removal: %d %v", code, out)
+			}
+			if agree("after the removal") != tc.kept {
+				t.Fatalf("voice chat must be installed after the removal: %v", tc.kept)
+			}
+			putRight()
+			code, out := e.call("POST", e.sp("/addons/remove"), tc.again)
+			if (code == 200) != tc.kept {
+				t.Fatalf("removing voice chat again: %d %v", code, out)
+			}
+			if agree("after removing it again") {
+				t.Fatal("removing voice chat again removes it")
+			}
+		})
+	}
+}
+
+// Voice chat's port opens before voice chat is installed: an install that
+// can't open it installs nothing, and one that fails closes the port it
+// opened. Installed with start on a stopped server, voice chat's port is
+// published from the first start.
+func TestVoiceChatInstallOpensItsPortFirst(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	withCuratedProjects(f)
+	free := false
+	e.a.opts.UDPPortInUse = func(int) bool { return !free }
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	plan := func() string {
+		t.Helper()
+		var d api.AddonDetails
+		e.decode("GET", e.sp("/addons/project/modrinth/"+voiceChatProject), &d)
+		if d.Plan == nil || !d.Plan.Ready {
+			t.Fatalf("voice chat's details: %+v", d)
+		}
+		return d.Plan.Fingerprint
+	}
+	install := func(fingerprint string, start bool) *api.Operation {
+		t.Helper()
+		return e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": voiceChatProject, "fingerprint": fingerprint,
+			"openPorts": true, "start": start, "actor": "admin"})
+	}
+	left := func() (int, int, int) {
+		recs, _ := e.srv().installedAddons()
+		jars, _ := filepath.Glob(filepath.Join(e.dataDir(), "plugins", "*.jar"))
+		sc, _ := e.srv().serverConfig()
+		return len(recs), len(jars), sc.VoiceChatPort
+	}
+
+	if op := install(plan(), false); op.Status != api.OpFailed || !strings.Contains(op.Error, "already in use") {
+		t.Fatalf("an install with no free port: %+v", op)
+	}
+	if recs, jars, port := left(); recs != 0 || jars != 0 || port != 0 {
+		t.Fatalf("an install that couldn't open its port left %d records, %d jars and port %d", recs, jars, port)
+	}
+
+	free = true
+	fingerprint := plan()
+	putBack := f.withdraw("svc-v1")
+	op := install(fingerprint, false)
+	putBack()
+	if op.Status != api.OpFailed {
+		t.Fatalf("an install of a version the source no longer offers: %+v", op)
+	}
+	if recs, jars, port := left(); recs != 0 || jars != 0 || port != 0 || e.audits("addon.port_opened") != 1 || e.audits("addon.port_closed") != 1 {
+		t.Fatalf("an install that failed left %d records, %d jars and port %d; the port was opened %d and closed %d times",
+			recs, jars, port, e.audits("addon.port_opened"), e.audits("addon.port_closed"))
+	}
+
+	if op := install(plan(), false); op.Status != api.OpSucceeded || opDetail[int](t, op, "voiceChatPort") != curated.VoiceChatPort || opDetail[bool](t, op, "restartNeeded") {
+		t.Fatalf("install voice chat: %+v", op)
+	}
+	withPort := []string{"24454/udp→24454", "25565/tcp→" + strconv.Itoa(e.srv().gamePort)}
+	if recs, jars, port := left(); recs != 1 || jars != 1 || port != curated.VoiceChatPort || !slices.Equal(e.published(), withPort) {
+		t.Fatalf("voice chat installed: %d records, %d jars, port %d, published %v", recs, jars, port, e.published())
+	}
+
+	e.waitFor("online with voice chat", e.onlineIdle)
+	if code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
+		t.Fatalf("remove: %d %v", code, out)
+	}
+	code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("stop: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("stop: %+v", op)
+	}
+	if op := install(plan(), true); op.Status != api.OpSucceeded || op.Detail["restartNeeded"] != nil {
+		t.Fatalf("install voice chat and start: %+v", op)
+	}
+	e.waitFor("online with voice chat again", e.onlineIdle)
+	if recs, jars, port := left(); recs != 1 || jars != 1 || port != curated.VoiceChatPort || !slices.Equal(e.published(), withPort) {
+		t.Fatalf("voice chat installed with start: %d records, %d jars, port %d, published %v", recs, jars, port, e.published())
+	}
+}
+
+// published are the ports the server's container publishes.
+func (e *agentEnv) published() []string {
+	e.fd.mu.Lock()
+	defer e.fd.mu.Unlock()
+	c := e.fd.byName[e.cname()]
+	if c == nil {
+		return nil
+	}
+	var out []string
+	for p, b := range c.cfg.HostConfig.PortBindings {
+		out = append(out, p+"→"+b[0].HostPort)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// A restore gives voice chat back its UDP port: the server's own, or one
+// nothing else uses. A backup from before voice chat leaves the port closed.
+func TestRestoreKeepsVoiceChatsPort(t *testing.T) {
+	e := newAgentEnv(t)
+	withCuratedProjects(e.withSources())
+	inUse := map[int]bool{}
+	e.a.opts.UDPPortInUse = func(p int) bool { return inUse[p] }
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	backup := func() string {
+		t.Helper()
+		code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("backup: %d %v", code, out)
+		}
+		op := e.waitOp(out["id"].(string))
+		if op.Status != api.OpSucceeded {
+			t.Fatalf("backup: %+v", op)
+		}
+		e.waitFor("online after the backup", e.onlineIdle)
+		return op.Detail["backupId"].(string)
+	}
+	restore := func(id string) {
+		t.Helper()
+		code, preview := e.call("POST", e.sp("/backups/"+id+"/restore"), map[string]any{"actor": "admin"})
+		if code != 200 {
+			t.Fatalf("stage: %d %v", code, preview)
+		}
+		if op := e.applyRestore(preview["id"].(string), preview["confirmPhrase"].(string)); op.Status != api.OpSucceeded {
+			t.Fatalf("restore: %+v", op)
+		}
+		e.waitFor("online after the restore", e.onlineIdle)
+	}
+	has := func(when string, port int) {
+		t.Helper()
+		want := []string{"25565/tcp→" + strconv.Itoa(e.srv().gamePort)}
+		if port > 0 {
+			want = append([]string{strconv.Itoa(port) + "/udp→" + strconv.Itoa(port)}, want...)
+			b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "voicechat", "voicechat-server.properties"))
+			if err != nil || !strings.Contains(string(b), "port="+strconv.Itoa(port)+"\n") {
+				t.Fatalf("%s: voice chat's settings: %q %v", when, b, err)
+			}
+		}
+		if sc, _ := e.srv().serverConfig(); sc.VoiceChatPort != port || !slices.Equal(e.published(), want) {
+			t.Fatalf("%s: port %d, published %v, want %d", when, sc.VoiceChatPort, e.published(), port)
+		}
+	}
+
+	without := backup()
+	var d api.AddonDetails
+	e.decode("GET", e.sp("/addons/project/modrinth/"+voiceChatProject), &d)
+	if op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": voiceChatProject, "fingerprint": d.Plan.Fingerprint,
+		"openPorts": true, "actor": "admin"}); op.Status != api.OpSucceeded {
+		t.Fatalf("install voice chat: %+v", op)
+	}
+	e.waitFor("online with voice chat", e.onlineIdle)
+	with := backup()
+
+	restore(with)
+	has("restored with voice chat", curated.VoiceChatPort)
+	restore(without)
+	has("restored from before voice chat", 0)
+	inUse[curated.VoiceChatPort] = true
+	restore(with)
+	has("voice chat restored again, its port now used", curated.VoiceChatPort+1)
+
+	list, _ := e.srv().listBackups(`id = ?`, with)
+	archive, err := os.ReadFile(filepath.Join(e.cfg.BackupsDir(), list[0].FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.sid = ""
+	code, preview := e.uploadTo("/v1/restore/upload", archive)
+	if code != 200 {
+		t.Fatalf("upload: %d %v", code, preview)
+	}
+	code, out := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
+	if code != 202 {
+		t.Fatalf("apply: %d %v", code, out)
+	}
+	e.sid = out["serverId"].(string)
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("restore as a new server: %+v", op)
+	}
+	e.waitFor("the new server online", e.onlineIdle)
+	has("a new server from the backup", curated.VoiceChatPort+2)
+}
+
+// installVoiceChat installs voice chat on the server with id, opening its
+// port.
+func (e *agentEnv) installVoiceChat(id string) {
+	e.t.Helper()
+	e.sid = id
+	var d api.AddonDetails
+	e.decode("GET", e.sp("/addons/project/modrinth/"+voiceChatProject), &d)
+	if d.Plan == nil || !d.Plan.Ready {
+		e.t.Fatalf("voice chat's details: %+v", d)
+	}
+	if op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": voiceChatProject, "fingerprint": d.Plan.Fingerprint,
+		"openPorts": true, "actor": "admin"}); op.Status != api.OpSucceeded {
+		e.t.Fatalf("install voice chat: %+v", op)
+	}
+}
+
+// removeVoiceChat removes voice chat from the server with id.
+func (e *agentEnv) removeVoiceChat(id string) {
+	e.t.Helper()
+	e.sid = id
+	if code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
+		e.t.Fatalf("remove voice chat: %d %v", code, out)
+	}
+}
+
+// voiceChatPorts are the voice chat ports of the servers with ids.
+func (e *agentEnv) voiceChatPorts(ids ...string) []int {
+	e.t.Helper()
+	var out []int
+	for _, id := range ids {
+		sc, err := e.a.serverByID(id).serverConfig()
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		out = append(out, sc.VoiceChatPort)
+	}
+	return out
+}
+
+// voiceChatServers makes Survival, with voice chat on its port and a backup
+// of it, and Creative without voice chat.
+func voiceChatServers(t *testing.T) (e *agentEnv, survival, creative, backupID string) {
+	t.Helper()
+	e = newAgentEnv(t)
+	withCuratedProjects(e.withSources())
+	e.createWith(map[string]any{"name": "Survival"})
+	survival = e.sid
+	e.waitFor("Survival online", e.onlineIdle)
+	e.installVoiceChat(survival)
+	e.waitFor("Survival online with voice chat", e.onlineIdle)
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("backup: %+v", op)
+	}
+	e.waitFor("Survival online after the backup", e.onlineIdle)
+	e.createWith(map[string]any{"name": "Creative"})
+	e.waitFor("Creative online", e.onlineIdle)
+	return e, survival, e.sid, op.Detail["backupId"].(string)
+}
+
+// stageRestore stages the restore of the backup on the server with id and
+// returns what applying it takes.
+func (e *agentEnv) stageRestore(id, backupID string) (string, string) {
+	e.t.Helper()
+	e.sid = id
+	code, preview := e.call("POST", e.sp("/backups/"+backupID+"/restore"), map[string]any{"actor": "admin"})
+	if code != 200 {
+		e.t.Fatalf("stage: %d %v", code, preview)
+	}
+	return preview["id"].(string), preview["confirmPhrase"].(string)
+}
+
+// Voice chat on two servers never gets the same port: a port stays held for
+// the server it's given to until the server's settings record it. A restore
+// holds the one it gives voice chat back until the restored settings are
+// saved, so voice chat installed elsewhere meanwhile gets the next one, and
+// the port of voice chat that was removed is free again.
+func TestVoiceChatPortsAreHeldUntilSaved(t *testing.T) {
+	e, survival, creative, backupID := voiceChatServers(t)
+	ports := func() (int, int) {
+		t.Helper()
+		ps := e.voiceChatPorts(survival, creative)
+		return ps[0], ps[1]
+	}
+
+	e.removeVoiceChat(survival)
+	e.installVoiceChat(creative)
+	if s, c := ports(); s != 0 || c != curated.VoiceChatPort {
+		t.Fatalf("the port of voice chat that was removed is free again: Survival %d, Creative %d", s, c)
+	}
+	e.removeVoiceChat(creative)
+
+	// Survival's restore gives voice chat back its port, and stops before the
+	// restored settings are saved while Creative installs voice chat.
+	reached, proceed := make(chan struct{}), make(chan struct{})
+	setRestoreStep(t, func(ctx context.Context, step string) {
+		if step != "moved" {
+			return
+		}
+		close(reached)
+		select {
+		case <-proceed:
+		case <-ctx.Done():
+		}
+	})
+	e.sid = survival
+	e.waitFor("Survival online and idle", e.onlineIdle)
+	restore := e.startRestore(e.stageRestore(survival, backupID))
+	waitClosed(t, reached, "Survival's restore to move its world into place")
+	e.installVoiceChat(creative)
+	close(proceed)
+	if op := e.waitOp(restore); op.Status != api.OpSucceeded {
+		t.Fatalf("restore: %+v", op)
+	}
+	if s, c := ports(); s != curated.VoiceChatPort || c != curated.VoiceChatPort+1 {
+		t.Fatalf("Survival's restore holds its port while Creative installs voice chat: Survival %d, Creative %d", s, c)
+	}
+}
+
+// A restore the agent stopped in before it saved the restored settings keeps
+// voice chat's port held while the next agent process finishes it.
+func TestResumedRestoreHoldsVoiceChatsPort(t *testing.T) {
+	e, survival, creative, backupID := voiceChatServers(t)
+	e.removeVoiceChat(survival)
+	live := e.dataDir()
+	intoPlace := func(from, to string) bool { return to == live && !strings.HasPrefix(from, live+".") }
+	stopped := make(chan struct{})
+	renameDir = func(from, to string) error {
+		if intoPlace(from, to) {
+			close(stopped)
+			runtime.Goexit()
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { renameDir = os.Rename })
+	restore := e.startRestore(e.stageRestore(survival, backupID))
+	waitClosed(t, stopped, "the restore to move the restored world into place")
+	e.stop()
+
+	reached, proceed := make(chan struct{}), make(chan struct{})
+	renameDir = func(from, to string) error {
+		if intoPlace(from, to) {
+			close(reached)
+			select {
+			case <-proceed:
+			case <-time.After(20 * time.Second):
+			}
+		}
+		return os.Rename(from, to)
+	}
+	e.start()
+	waitClosed(t, reached, "the next agent process to move the restored world into place")
+	e.installVoiceChat(creative)
+	close(proceed)
+	if op := e.waitOp(restore); op.Status != api.OpSucceeded {
+		t.Fatalf("the resumed restore: %+v", op)
+	}
+	if ps := e.voiceChatPorts(survival, creative); ps[0] != curated.VoiceChatPort || ps[1] != curated.VoiceChatPort+1 {
+		t.Fatalf("the resumed restore holds Survival's port while Creative installs voice chat: Survival %d, Creative %d", ps[0], ps[1])
+	}
+
+	// Once the restore is done it holds nothing: the port Survival's settings
+	// no longer name goes to Creative.
+	s := e.a.serverByID(survival)
+	sc, err := s.serverConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.VoiceChatPort = 0
+	if err := s.saveServerConfig(*sc); err != nil {
+		t.Fatal(err)
+	}
+	e.removeVoiceChat(creative)
+	e.installVoiceChat(creative)
+	if c := e.voiceChatPorts(creative)[0]; c != curated.VoiceChatPort {
+		t.Fatalf("the resumed restore still holds the port: Creative got %d", c)
+	}
+}
+
+// voiceChatTemplate is a Paper template with Simple Voice Chat.
+func voiceChatTemplate(t *testing.T) string {
+	t.Helper()
+	file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Talk", Game: templates.Game,
+		Server: templates.Server{Type: "paper", MinecraftVersion: "26.1.2"},
+		Addons: []templates.Addon{{Source: addons.Modrinth, Project: voiceChatProject, Slug: "simple-voice-chat", Name: "Simple Voice Chat", Latest: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(file)
+}
+
+func TestTemplateVoiceChatGetsItsPort(t *testing.T) {
+	e := newAgentEnv(t)
+	withCuratedProjects(e.withSources())
+	e.a.opts.UDPPortInUse = func(p int) bool { return p == curated.VoiceChatPort }
+	code, plan, raw := e.planTemplate(voiceChatTemplate(t))
+	i := slices.IndexFunc(plan.Warnings, func(n api.AddonNotice) bool { return n.Kind == string(kindTemplateVoiceChat) })
+	if code != 200 || !plan.Ready || i < 0 || !strings.Contains(plan.Warnings[i].Message, "UDP 24455") {
+		t.Fatalf("the plan says voice chat opens a port, and which: %d %+v %v", code, plan, raw)
+	}
+
+	code, out := e.createFromTemplate(plan.Fingerprint, nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || opDetail[int](t, op, "voiceChatPort") != 24455 {
+		t.Fatalf("create from the template: %+v", op)
+	}
+	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+	if sc, _ := e.srv().serverConfig(); sc.VoiceChatPort != 24455 {
+		t.Fatalf("the new server keeps voice chat's port: %d", sc.VoiceChatPort)
+	}
+	b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "voicechat", "voicechat-server.properties"))
+	if err != nil || !strings.Contains(string(b), "port=24455\n") {
+		t.Fatalf("voice chat's settings: %q %v", b, err)
+	}
+	if got := e.published(); !slices.Equal(got, []string{"24455/udp→24455", "25565/tcp→" + strconv.Itoa(e.srv().gamePort)}) {
+		t.Fatalf("the first start publishes voice chat's port: %v", got)
+	}
+	if e.audits("addon.port_opened") != 1 {
+		t.Fatal("opening the port is audited")
+	}
+}
+
+// Voice chat that a template's first start skipped gets its port when Try
+// again installs it; the running server restarts to publish it.
+func TestTemplateVoiceChatTriedAgainGetsItsPort(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	withCuratedProjects(f)
+	e.a.opts.UDPPortInUse = func(int) bool { return false }
+	_, plan, _ := e.planTemplate(voiceChatTemplate(t))
+	putBack := f.withdraw("svc-v1")
+	code, out := e.createFromTemplate(plan.Fingerprint, nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("create from the template: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if sc, _ := e.srv().serverConfig(); sc.VoiceChatPort != 0 {
+		t.Fatalf("voice chat was skipped, so no port opens: %d", sc.VoiceChatPort)
+	}
+
+	putBack()
+	code, out = e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("try again: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || op.Detail["restartNeeded"] != true || opDetail[int](t, op, "voiceChatPort") != curated.VoiceChatPort {
+		t.Fatalf("try again: %+v", op)
+	}
+	b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "voicechat", "voicechat-server.properties"))
+	if err != nil || !strings.Contains(string(b), "port=24454\n") {
+		t.Fatalf("voice chat's settings: %q %v", b, err)
+	}
+	if restart := e.addonOp("/restart", map[string]any{"actor": "admin"}); restart.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", restart)
+	}
+	if got := e.published(); !slices.Equal(got, []string{"24454/udp→24454", "25565/tcp→" + strconv.Itoa(e.srv().gamePort)}) {
+		t.Fatalf("the restart publishes voice chat's port: %v", got)
+	}
+}
