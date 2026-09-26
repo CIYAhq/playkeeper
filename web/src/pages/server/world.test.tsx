@@ -303,7 +303,7 @@ describe('Pre-generate page', () => {
   it('explains which servers can pre-generate', async () => {
     vi.mocked(client.get).mockRejectedValue(new client.ApiError(400, { error: 'Chunky needs Paper, Fabric or NeoForge.', code: 'unsupported_server' }))
     const text = await render(<PregenPage server={server({ type: 'vanilla' })} />)
-    expect(text).toContain('Pre-generating needs a Paper, Fabric or NeoForge server.')
+    expect(text).toContain('Pre-generating needs a Paper, Fabric, NeoForge or Forge server.')
     expect(text).not.toContain('Try again')
   })
 

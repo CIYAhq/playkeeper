@@ -138,6 +138,8 @@ describe('memory', () => {
     expect(heapMB(3072, 'neoforge', 1)).toBe(3072 - 1030)
     expect(heapMB(4096, 'fabric', 12)).toBe(3072)
     expect(heapMB(6144, 'neoforge', 150)).toBe(6144 - 1924)
+    expect(heapMB(3072, 'forge')).toBe(2048)
+    expect(heapMB(6144, 'forge', 150)).toBe(6144 - 1924)
   })
 
   it('counts fewer players on a mod loader, whose mods take memory first', () => {
@@ -145,6 +147,7 @@ describe('memory', () => {
     expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, 'vanilla'))).toEqual([2, 4, 6, 10, 20, 30])
     expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, 'quilt'))).toEqual([1, 2, 4, 6, 10, 20])
     expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, 'neoforge'))).toEqual([1, 1, 2, 4, 10, 20])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, 'forge'))).toEqual([1, 1, 2, 4, 10, 20])
   })
 })
 
@@ -307,7 +310,7 @@ describe('console', () => {
     expect(parseLine('plain output').kind).toBe('info')
   })
 
-  // Real lines from Vanilla 26.1.2, Fabric 26.3, Quilt 26.1.2 and NeoForge 26.2 and 26.1.2 servers, as the log API gives them.
+  // Real lines from Vanilla 26.1.2, Fabric 26.3, Quilt 26.1.2, NeoForge 26.2 and 26.1.2, and Forge 65.1.0 for 26.2 servers, as the log API gives them.
   it.each([
     ['[08:36:29] [Server thread/INFO]: pkbotfriend joined the game', '08:36:29', 'INFO', 'players', 'pkbotfriend joined the game'],
     ['[08:36:30] [Server thread/INFO]: [Not Secure] <pkbotfriend> hello from the Playkeeper check bot', '08:36:30', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello from the Playkeeper check bot'],
@@ -325,6 +328,11 @@ describe('console', () => {
     ['[09:43:12] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <pkbotfriend> hello NeoForge 1', '09:43:12', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello NeoForge 1'],
     ['[09:43:42] [Server thread/INFO] [minecraft/ServerGamePacketListenerImpl]: pkbotfriend lost connection: Disconnected', '09:43:42', 'INFO', 'players', 'pkbotfriend lost connection: Disconnected'],
     ['[09:42:59] [Server thread/WARN] [mojang/YggdrasilGameProfileRepository]: Couldn\'t find profile with name: pkbotfriend', '09:42:59', 'WARN', 'problem', "Couldn't find profile with name: pkbotfriend"],
+    ['[12:50:06] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 65.1.0, for MC 26.2 with MCP 20260616.103818', '12:50:06', 'INFO', 'info', 'Forge mod loading, version 65.1.0, for MC 26.2 with MCP 20260616.103818'],
+    ['[12:50:08] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Configuration file ./world/serverconfig/forge-server.toml is not correct. Correcting', '12:50:08', 'WARN', 'problem', 'Configuration file ./world/serverconfig/forge-server.toml is not correct. Correcting'],
+    ['[12:50:11] [Server thread/INFO] [minecraft/DedicatedServer]: Done (2.885s)! For help, type "help"', '12:50:11', 'INFO', 'info', 'Done (2.885s)! For help, type "help"'],
+    ['[13:10:21] [main/ERROR] [ne.mi.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:', '13:10:21', 'ERROR', 'problem', 'Missing or unsupported mandatory dependencies:'],
+    ['[13:10:24] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt', '13:10:24', 'FATAL', 'problem', 'Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt'],
   ])('reads a line from a server that is not Paper: %s', (raw, time, level, kind, text) => {
     expect(parseLine(raw)).toEqual({ time, level, kind, text })
   })
@@ -552,6 +560,8 @@ describe('creating a server', () => {
     expect(softwareName('paper', 41)).toBe('Paper build 41')
     expect(softwareName('fabric', '0.17.2')).toBe('Fabric loader 0.17.2')
     expect(softwareName('neoforge', '26.2.1.7')).toBe('NeoForge version 26.2.1.7')
+    expect(softwareName('forge', '65.1.3')).toBe('Forge version 65.1.3')
+    expect(addonKind('forge')).toBe('mods')
     expect(softwareName('vanilla', 0)).toBe('Vanilla')
     expect(addonKind('purpur')).toBe('plugins')
     expect(addonKind('quilt')).toBe('mods')

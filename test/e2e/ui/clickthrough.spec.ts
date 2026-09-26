@@ -49,7 +49,7 @@ const sizes = {
 } as const
 
 // The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
-const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
+const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods', forge: '/mods' }
 
 // A well-formed share link that no map has, for the "isn't available" page.
 const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'

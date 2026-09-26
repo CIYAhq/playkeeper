@@ -1138,6 +1138,7 @@ export interface SoftwarePin {
   fabricLoader?: string
   quiltLoader?: string
   neoforgeVersion?: string
+  forgeVersion?: string
 }
 
 export interface SoftwareBuild {

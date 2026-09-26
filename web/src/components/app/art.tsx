@@ -1,5 +1,6 @@
 import mark from '@/assets/brand/playkeeper-mark.svg'
 import fabric from '@/assets/logos/fabric-icon.png'
+import forge from '@/assets/logos/forge-apple-touch-icon.png'
 import neoforge from '@/assets/logos/neoforged-logo.svg'
 import paper from '@/assets/logos/papermc_logo.min.svg'
 import purpur from '@/assets/logos/purpur.svg'
@@ -94,6 +95,7 @@ const logos: Record<string, { src: string; pixel?: boolean }> = {
   fabric: { src: fabric, pixel: true },
   quilt: { src: quilt },
   neoforge: { src: neoforge },
+  forge: { src: forge },
 }
 
 /** A server software logo in the shared white tile. Logo files are never altered. */

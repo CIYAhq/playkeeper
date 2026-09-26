@@ -514,7 +514,7 @@ export function NewServerPage() {
               </div>
             )}
             {mods ? (
-              <p className="text-xs text-muted-foreground max-sm:text-[13px]">{t(c.type === 'neoforge' ? 'new.friendsNeoForge' : 'new.friendsLoader')}</p>
+              <p className="text-xs text-muted-foreground max-sm:text-[13px]">{t(c.type === 'neoforge' ? 'new.friendsNeoForge' : c.type === 'forge' ? 'new.friendsForge' : 'new.friendsLoader')}</p>
             ) : phone ? (
               <p className="mt-2 text-[13px] text-muted-foreground">{t('new.forwardBody')}</p>
             ) : (

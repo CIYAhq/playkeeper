@@ -22,5 +22,10 @@ to; no endorsement by these projects is implied. Checked 25 Sep 2026.
 - `fabric-icon.png`: from FabricMC/fabric
   `src/main/resources/assets/fabric/icon.png` (ba0d6c0), Apache-2.0; see
   `licences/fabric-LICENSE.txt`. Fabric ships no NOTICE file.
+- `forge-apple-touch-icon.png`: Forge's anvil, from Forge's own website,
+  https://files.minecraftforge.net/static/images/apple-touch-icon.png
+  (fetched 26 Sep 2026). Forge logo, Forge Development LLC, used to
+  identify the server software; removed on request. See
+  `licences/forge-TERMS.txt`.
 
 The Vanilla type's pixel art is original to Playkeeper and uses no Mojang art.

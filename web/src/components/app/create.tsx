@@ -100,6 +100,7 @@ const typeKeys: Record<string, { long: MessageKey; short: MessageKey }> = {
   fabric: { long: 'new.type.fabric', short: 'new.type.mods.short' },
   quilt: { long: 'new.type.quilt', short: 'new.type.mods.short' },
   neoforge: { long: 'new.type.neoforge', short: 'new.type.mods.short' },
+  forge: { long: 'new.type.forge', short: 'new.type.mods.short' },
 }
 
 export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalog | undefined; value: string; onChange: (v: string) => void; phone?: boolean }) {
@@ -450,7 +451,7 @@ export function MemorySlider({ options, value, onChange }: { options: number[]; 
 }
 
 /** What a mod loader keeps outside the heap before its mods, and what each mod adds; match the agent's minecraft package. */
-const loaderOverheadMB: Record<string, number> = { fabric: 768, quilt: 768, neoforge: 1024 }
+const loaderOverheadMB: Record<string, number> = { fabric: 768, quilt: 768, neoforge: 1024, forge: 1024 }
 const modOverheadMB = 6
 
 /** Java's share of a memory budget on a server of the type with that many mods; matches minecraft.HeapFor in the agent. */

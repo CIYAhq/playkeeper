@@ -39,7 +39,7 @@ export function memoryForStyle(options: number[], wantMB: number): number {
  * mods fill. A Quilt server with two mods at 2 GB was killed when one player
  * joined.
  */
-const moddedMB: Record<string, number> = { fabric: 1024, quilt: 1024, neoforge: 2048 }
+const moddedMB: Record<string, number> = { fabric: 1024, quilt: 1024, neoforge: 2048, forge: 2048 }
 
 /** About how many players a memory budget suits on a server of the type, for the memory step. */
 export function playersFor(memoryMB: number, type = 'paper'): number {
