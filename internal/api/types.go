@@ -1993,10 +1993,12 @@ type DiscordConnectRequest struct {
 }
 
 type DiscordSettingsRequest struct {
-	Alerts     []string `json:"alerts"`
-	LiveStatus bool     `json:"liveStatus"`
-	Host       string   `json:"host,omitempty"`
-	Actor      string   `json:"actor"`
+	Alerts []string `json:"alerts"`
+	// LiveStatus turns the live status message on or off; left out, it
+	// stays as it is.
+	LiveStatus *bool  `json:"liveStatus,omitempty"`
+	Host       string `json:"host,omitempty"`
+	Actor      string `json:"actor"`
 }
 
 // DiscordNotifyRequest is an alert the panel reports: a join request

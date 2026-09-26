@@ -1957,6 +1957,16 @@ control "a start after failed starts is not a recovery" internal/agent/collector
   'recovered := take && s.runCrashed' \
   'recovered := take && s.crashed' \
   ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "a Discord settings save that leaves out live status keeps it" internal/agent/discord.go \
+  'if req.LiveStatus != nil {
+		s.LiveStatus = *req.LiveStatus
+	}' \
+  's.LiveStatus = req.LiveStatus != nil && *req.LiveStatus' \
+  ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
+control "Discord's live status is on until the owner turns it off" internal/discord/settings.go \
+  'Settings{Alerts: DefaultAlerts(), LiveStatus: true}' \
+  'Settings{Alerts: DefaultAlerts()}' \
+  ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
 control "Discord takes running out of memory, then Stopping server, for a crash" internal/agent/collector.go \
   's.sawCrash, s.lastError = true, "Java ran out of memory."' \
   's.sawCrash, s.lastError = false, "Java ran out of memory."' \

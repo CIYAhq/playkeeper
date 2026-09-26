@@ -327,6 +327,41 @@ func TestDiscordGaveUpAlertSaysItOnceWithTheCause(t *testing.T) {
 	}
 }
 
+// Connecting Discord turns the live status message on unless the owner
+// turned it off: settings saved before the first connect, with or without a
+// live status of their own, don't count as off. What connect settles is
+// what the agent keeps after a restart.
+func TestDiscordLiveStatusIsOnUnlessTurnedOff(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		before map[string]any
+		want   bool
+	}{
+		{name: "connect first", want: true},
+		{name: "settings, then connect", before: map[string]any{"alerts": []string{"crash"}, "liveStatus": true}, want: true},
+		{name: "settings without live status, then connect", before: map[string]any{"alerts": []string{"crash"}}, want: true},
+		{name: "live status turned off, then connect", before: map[string]any{"alerts": []string{"crash"}, "liveStatus": false}, want: false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, _ := newDiscordEnv(t)
+			if c.before != nil {
+				c.before["actor"] = "admin"
+				if code, out := e.call("PUT", "/v1/discord", c.before); code != 200 {
+					t.Fatalf("settings: %d %v", code, out)
+				}
+			}
+			if got := e.connectDiscord()["liveStatus"] == true; got != c.want {
+				t.Fatalf("after connecting, live status is %v, want %v", got, c.want)
+			}
+			e.stop()
+			e.start()
+			if _, out := e.call("GET", "/v1/discord", nil); (out["liveStatus"] == true) != c.want {
+				t.Fatalf("after an agent restart, live status is %v, want %v", out["liveStatus"], c.want)
+			}
+		})
+	}
+}
+
 // When Playkeeper gives up on automatic starts of a server that never came
 // up, the alert says the start failed and why, not that the server kept
 // crashing.
