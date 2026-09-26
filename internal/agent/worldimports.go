@@ -38,8 +38,13 @@ const (
 	maxWorldImports = 4
 	// maxImportFiles matches the archives worldimport combines in one import.
 	maxImportFiles = 16
-	// worldImportIdle is how long an upload nobody touches is kept.
+	// worldImportIdle is how long an upload nobody touches is kept once all
+	// its files have arrived.
 	worldImportIdle = 24 * time.Hour
+	// incompleteImportIdle is how long one still waiting for bytes is kept.
+	// A page that closed mid-upload may not have cancelled it, and it holds
+	// one of the uploads a machine keeps open and the space it announced.
+	incompleteImportIdle = time.Hour
 	// uploadIdle is how long an upload waits for its next bytes before it
 	// gives up, so a dropped connection frees the file for the next try.
 	uploadIdle = time.Minute
@@ -132,6 +137,17 @@ func (imp *worldImport) release() {
 	imp.mu.Unlock()
 }
 
+// complete reports whether every file announced has arrived. The caller
+// holds imp.mu.
+func (imp *worldImport) complete() bool {
+	for _, f := range imp.files {
+		if f.received < f.size {
+			return false
+		}
+	}
+	return len(imp.files) > 0
+}
+
 func importBusy(busy string) error {
 	msg := "The world is being imported."
 	switch busy {
@@ -143,24 +159,45 @@ func importBusy(busy string) error {
 	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: msg, Hint: "Wait for it to finish, then try again."}
 }
 
-// newWorldImport opens an upload, first forgetting uploads nobody touched for
-// a day.
-func (a *Agent) newWorldImport(serverID string) (*worldImport, error) {
-	now := a.now()
+// staleImports forgets the uploads nobody touched for a while, other than
+// keep, and returns them for their files to be deleted: an hour for one
+// still waiting for bytes, a day for one that has them all. The caller
+// holds the registry's lock.
+func (a *Agent) staleImports(now time.Time, keep *worldImport) []*worldImport {
 	var stale []*worldImport
-	a.imports.mu.Lock()
-	if a.imports.byID == nil {
-		a.imports.byID = map[string]*worldImport{}
-	}
 	for id, imp := range a.imports.byID {
+		if imp == keep {
+			continue
+		}
 		imp.mu.Lock()
-		if imp.busy == "" && now.Sub(imp.touched) > worldImportIdle {
+		idle := worldImportIdle
+		if !imp.complete() {
+			idle = incompleteImportIdle
+		}
+		if imp.busy == "" && now.Sub(imp.touched) > idle {
 			imp.gone = true
 			delete(a.imports.byID, id)
 			stale = append(stale, imp)
 		}
 		imp.mu.Unlock()
 	}
+	return stale
+}
+
+func removeImports(list []*worldImport) {
+	for _, imp := range list {
+		os.RemoveAll(imp.dir)
+	}
+}
+
+// newWorldImport opens an upload, first forgetting the stale ones.
+func (a *Agent) newWorldImport(serverID string) (*worldImport, error) {
+	now := a.now()
+	a.imports.mu.Lock()
+	if a.imports.byID == nil {
+		a.imports.byID = map[string]*worldImport{}
+	}
+	stale := a.staleImports(now, nil)
 	full := len(a.imports.byID) >= maxWorldImports
 	var imp *worldImport
 	if !full {
@@ -169,9 +206,7 @@ func (a *Agent) newWorldImport(serverID string) (*worldImport, error) {
 		a.imports.byID[id] = imp
 	}
 	a.imports.mu.Unlock()
-	for _, s := range stale {
-		os.RemoveAll(s.dir)
-	}
+	removeImports(stale)
 	if full {
 		return nil, errConflict("Too many world uploads are open on this machine.", "Finish or cancel one, then try again.")
 	}
@@ -330,10 +365,14 @@ func (a *Agent) hWorldImportFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // announceFile adds a file to an upload if the upload allowance has room
-// for it.
+// for it once the stale uploads are forgotten.
 func (a *Agent) announceFile(imp *worldImport, name string, size int64) error {
 	a.imports.announce.Lock()
 	defer a.imports.announce.Unlock()
+	a.imports.mu.Lock()
+	stale := a.staleImports(a.now(), imp)
+	a.imports.mu.Unlock()
+	removeImports(stale)
 	if size > a.uploadAllowance() {
 		return &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: "The world is larger than the free disk space allows.", Hint: "Free disk space and try again."}
 	}

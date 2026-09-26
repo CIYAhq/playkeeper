@@ -2737,6 +2737,56 @@ control "a restart put off is dropped once squaremap is loaded" internal/agent/m
   'if !rec.pendingRestart(l) {' \
   'if false && !rec.pendingRestart(l) {' \
   ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
+control "an unfinished upload is forgotten after an hour" internal/agent/worldimports.go \
+  '		if !imp.complete() {
+			idle = incompleteImportIdle
+		}' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a finished upload is kept for a day" internal/agent/worldimports.go \
+  'idle := worldImportIdle' \
+  'idle := incompleteImportIdle' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "an announce forgets the stale uploads before it counts the space" internal/agent/worldimports.go \
+  '	a.imports.mu.Lock()
+	stale := a.staleImports(a.now(), imp)
+	a.imports.mu.Unlock()
+	removeImports(stale)
+' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "the upload being added to is never forgotten as stale" internal/agent/worldimports.go \
+  'stale := a.staleImports(a.now(), imp)' \
+  'stale := a.staleImports(a.now(), nil)' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+webcontrol() { # NAME FILE FROM TO TEST-FILE
+  local name=$1 file=$2 test=$5
+  ln -sfn "$root/web/node_modules" web/node_modules
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if ! (cd web && npx tsc --noEmit -p . >/dev/null 2>&1); then
+    echo "INVALID  $name: the mutated code does not type-check"
+    bad=1
+  elif (cd web && npx vitest run "${test#web/}" >/tmp/negative-control.out 2>&1); then
+    echo "MISSED   $name: $test still passes without the guard"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+  rm web/node_modules
+}
+webcontrol "leaving the page cancels the upload" web/src/components/app/world-import.tsx \
+  "window.addEventListener('pagehide', leave)" \
+  "window.addEventListener('pageshow', leave)" \
+  web/src/pages/new-server.test.tsx
+webcontrol "the request cancelling an upload outlives the page" web/src/components/app/world-import.tsx \
+  'keepalive: true' \
+  'keepalive: false' \
+  web/src/pages/new-server.test.tsx
+webcontrol "leaving the page keeps an upload a server was made from" web/src/components/app/world-import.tsx \
+  'if (!j.upload || !machineId || kept.current) return' \
+  'if (!j.upload || !machineId) return' \
+  web/src/pages/new-server.test.tsx
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

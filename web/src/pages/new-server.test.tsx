@@ -263,9 +263,13 @@ describe('New server from a world', () => {
       acceptEula: true,
     })
 
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+    await act(async () => void window.dispatchEvent(new Event('pagehide')))
     await act(async () => root?.unmount())
     root = undefined
     expect(client.del).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    fetch.mockRestore()
   })
 
   it('deletes the upload when it’s cancelled', async () => {
@@ -274,5 +278,26 @@ describe('New server from a world', () => {
     await click(button('Cancel'))
     expect(client.del).toHaveBeenCalledWith(`${base}/${uploaded.id}`)
     expect(text()).toContain('Drop the world .zip here')
+  })
+
+  // A reload or a closed tab doesn't unmount the page, and a request the page
+  // makes as it goes must outlive it.
+  it.each([
+    { name: 'while it uploads', finished: false },
+    { name: 'once it’s uploaded', finished: true },
+  ])('deletes the upload when the page goes away $name', async ({ finished }) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+    await render()
+    await chooseFile('Survival-2024.zip')
+    if (finished) await act(async () => finish?.(uploaded))
+    await act(async () => void window.dispatchEvent(new Event('pagehide')))
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(`${base}/${uploaded.id}`, expect.objectContaining({ method: 'DELETE', keepalive: true }))
+    expect(text()).toContain('Drop the world .zip here')
+    await act(async () => root?.unmount())
+    root = undefined
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(client.del).not.toHaveBeenCalled()
+    fetch.mockRestore()
   })
 })

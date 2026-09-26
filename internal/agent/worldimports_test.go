@@ -908,6 +908,71 @@ func TestWorldImportRefusals(t *testing.T) {
 	}
 }
 
+// An upload still waiting for bytes, such as one a page left when it was
+// reloaded or closed, is forgotten after an hour, so it holds neither the
+// space it announced nor one of the uploads a machine keeps open. One whose
+// files have all arrived is kept for a day. The upload being added to stays
+// however long it waited.
+func TestStaleUploadsMakeWayForNewOnes(t *testing.T) {
+	const gib = 1 << 30
+	for _, c := range []struct {
+		name string
+		open int  // uploads left open, each with one file announced
+		size int  // the file's size
+		done bool // and all of it sent
+		idle time.Duration
+		// act is what comes then: "announce" 40 GiB to an upload opened
+		// with the others, or "open" another upload.
+		act  string
+		want int
+	}{
+		{name: "an unfinished upload an hour old frees its space", open: 1, size: 40 * gib, idle: 2 * time.Hour, act: "announce", want: 201},
+		{name: "an unfinished upload keeps its space for an hour", open: 1, size: 40 * gib, idle: 30 * time.Minute, act: "announce", want: 413},
+		{name: "unfinished uploads an hour old free their places", open: 4, size: 10, idle: 2 * time.Hour, act: "open", want: 201},
+		{name: "finished uploads keep their places for a day", open: 4, size: 10, done: true, idle: 2 * time.Hour, act: "open", want: 409},
+		{name: "finished uploads a day old free their places", open: 4, size: 10, done: true, idle: 25 * time.Hour, act: "open", want: 201},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			// Uploads may announce up to 50 GiB, half of what is free.
+			e.diskFree.Store(100*gib + minFreeAfterBackup)
+			mine := ""
+			if c.act == "announce" {
+				mine = e.openImport("/v1/world-imports")
+			}
+			var left []string
+			for range c.open {
+				imp := e.openImport("/v1/world-imports")
+				if code, out := e.announce(imp, "world.zip", c.size); code != 201 {
+					t.Fatalf("announce: %d %v", code, out)
+				}
+				if c.done {
+					if code, out, err := sendBytes(e.ts.URL, imp, 0, 0, strings.NewReader(strings.Repeat("x", c.size))); err != nil || code != 200 {
+						t.Fatalf("upload: %d %v %v", code, out, err)
+					}
+				}
+				left = append(left, imp)
+			}
+			e.skew.Store(int64(c.idle))
+			var code int
+			var out map[string]any
+			if c.act == "announce" {
+				code, out = e.announce(mine, "world.zip", 40*gib)
+			} else {
+				code, out = e.call("POST", "/v1/world-imports", map[string]any{"actor": "admin"})
+			}
+			if code != c.want {
+				t.Fatalf("%s after %s: %d %v, want %d", c.act, c.idle, code, out, c.want)
+			}
+			for _, imp := range left {
+				if forgotten := c.want == 201; exists(filepath.Join(e.cfg.StagingDir(), "import-"+imp)) == forgotten {
+					t.Fatalf("upload %s idle for %s: forgotten is %v, but its files say otherwise", imp, c.idle, forgotten)
+				}
+			}
+		})
+	}
+}
+
 // Uploads live in the staging folder, which the agent clears when it starts.
 func TestAgentRestartForgetsWorldUploads(t *testing.T) {
 	e := newAgentEnv(t)
