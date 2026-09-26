@@ -416,11 +416,18 @@ func (a *Agent) hDiscordConnect(w http.ResponseWriter, r *http.Request) {
 	host := cleanHost(req.Host)
 	a.disc.mu.Lock()
 	s := a.disc.settings
-	s.Webhook, s.StatusMessageID = wh, ""
+	if !s.Webhook.Equal(wh) {
+		s.StatusMessageID = ""
+	}
+	s.Webhook = wh
+	// The webhook already in use keeps its live status message, as the
+	// notifier does, so an agent that restarts edits that message instead
+	// of posting a second one.
 	_, err = a.db.Exec(`INSERT INTO discord(id, webhook_url, webhook_name, alerts, live_status, status_message_id, public_host, connected_at)
 		VALUES(1, ?, ?, ?, ?, '', ?, ?)
 		ON CONFLICT(id) DO UPDATE SET webhook_url = excluded.webhook_url, webhook_name = excluded.webhook_name,
-		live_status = excluded.live_status, status_message_id = '', connected_at = excluded.connected_at,
+		live_status = excluded.live_status, connected_at = excluded.connected_at,
+		status_message_id = CASE WHEN webhook_url = excluded.webhook_url THEN status_message_id ELSE '' END,
 		public_host = CASE WHEN excluded.public_host = '' THEN public_host ELSE excluded.public_host END`,
 		wh.SecretURL(), name, s.Alerts.String(), boolInt(s.LiveStatus), host, now.UnixMilli())
 	if err == nil {

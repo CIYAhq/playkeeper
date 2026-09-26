@@ -1967,6 +1967,10 @@ control "Discord's live status is on until the owner turns it off" internal/disc
   'Settings{Alerts: DefaultAlerts(), LiveStatus: true}' \
   'Settings{Alerts: DefaultAlerts()}' \
   ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
+control "connecting the same Discord webhook again keeps its live status message" internal/agent/discord.go \
+  "status_message_id = CASE WHEN webhook_url = excluded.webhook_url THEN status_message_id ELSE '' END," \
+  "status_message_id = ''," \
+  ./internal/agent '^TestDiscordReconnectKeepsTheLiveStatusMessageOfTheSameWebhook$'
 control "the low disk alert without a server's name is about your servers" internal/discord/alerts.go \
   'runs = "your servers"' \
   'runs = name' \

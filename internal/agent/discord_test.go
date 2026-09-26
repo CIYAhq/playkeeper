@@ -20,14 +20,18 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/discord"
 )
 
-// The webhook the tests connect; the token is made up.
+// The webhooks the tests connect, the second for moving alerts to another
+// channel; the tokens are made up.
 const (
-	hookID    = "1289345123456789012"
-	hookToken = "pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_"
-	hookURL   = "https://discord.com/api/webhooks/" + hookID + "/" + hookToken
+	hookID         = "1289345123456789012"
+	hookToken      = "pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_pkTestToken_"
+	hookURL        = "https://discord.com/api/webhooks/" + hookID + "/" + hookToken
+	otherHookID    = "1289345123456789013"
+	otherHookToken = "pkOtherTok__pkOtherTok__pkOtherTok__pkOtherTok__pkOtherTok__pkOtherTok__"
+	otherHookURL   = "https://discord.com/api/webhooks/" + otherHookID + "/" + otherHookToken
 )
 
-// fakeHook stands in for Discord's webhook API for one webhook: Get
+// fakeHook stands in for Discord's webhook API for the tests' webhooks: Get
 // Webhook, Execute Webhook with wait=true and Edit Webhook Message. The
 // discord package's own tests check the requests in detail.
 type fakeHook struct {
@@ -36,6 +40,7 @@ type fakeHook struct {
 	mu     sync.Mutex
 	got    []hookRequest
 	posted int
+	name   string // the webhook's name in Discord; "Playkeeper" when empty
 }
 
 type hookRequest struct {
@@ -61,18 +66,26 @@ func (f *fakeHook) serve(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 	f.mu.Lock()
 	f.got = append(f.got, hookRequest{r.Method, r.URL.Path, string(raw)})
+	name := f.name
 	f.mu.Unlock()
+	if name == "" {
+		name = "Playkeeper"
+	}
 	w.Header().Set("Content-Type", "application/json")
-	base := "/api/v10/webhooks/" + hookID + "/" + hookToken
+	id, token := hookID, hookToken
+	if strings.HasPrefix(r.URL.Path, "/api/v10/webhooks/"+otherHookID+"/") {
+		id, token = otherHookID, otherHookToken
+	}
+	base := "/api/v10/webhooks/" + id + "/" + token
 	switch {
-	case r.Host != "discord.com" || !strings.HasPrefix(r.URL.Path, "/api/v10/webhooks/"+hookID+"/"):
+	case r.Host != "discord.com" || !strings.HasPrefix(r.URL.Path, "/api/v10/webhooks/"+id+"/"):
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"message": "Unknown Webhook", "code": 10015}`)
 	case r.URL.Path != base && !strings.HasPrefix(r.URL.Path, base+"/"):
 		w.WriteHeader(http.StatusUnauthorized)
 		io.WriteString(w, `{"message": "Invalid Webhook Token", "code": 50027}`)
 	case r.Method == http.MethodGet && r.URL.Path == base:
-		fmt.Fprintf(w, `{"id": %q, "name": "Playkeeper", "type": 1}`, hookID)
+		fmt.Fprintf(w, `{"id": %q, "name": %q, "type": 1}`, id, name)
 	case r.Method == http.MethodPost && r.URL.Path == base && r.URL.Query().Get("wait") == "true":
 		f.mu.Lock()
 		f.posted++
@@ -159,7 +172,14 @@ func newDiscordEnv(t *testing.T) (*agentEnv, *fakeHook) {
 
 func (e *agentEnv) connectDiscord() map[string]any {
 	e.t.Helper()
-	code, out := e.call("POST", "/v1/discord/connect", map[string]any{"webhookUrl": hookURL, "host": "play.example.com", "actor": "admin"})
+	return e.connectDiscordWith(hookURL, "play.example.com")
+}
+
+// connectDiscordWith connects the webhook at webhookURL, with host as the
+// address alerts give.
+func (e *agentEnv) connectDiscordWith(webhookURL, host string) map[string]any {
+	e.t.Helper()
+	code, out := e.call("POST", "/v1/discord/connect", map[string]any{"webhookUrl": webhookURL, "host": host, "actor": "admin"})
 	if code != 200 {
 		e.t.Fatalf("connect Discord: %d %v", code, out)
 	}
@@ -357,6 +377,77 @@ func TestDiscordLiveStatusIsOnUnlessTurnedOff(t *testing.T) {
 			e.start()
 			if _, out := e.call("GET", "/v1/discord", nil); (out["liveStatus"] == true) != c.want {
 				t.Fatalf("after an agent restart, live status is %v, want %v", out["liveStatus"], c.want)
+			}
+		})
+	}
+}
+
+// Connecting Discord again keeps the live status message when the webhook
+// is the one already in use, as when the dashboard sends it again to
+// refresh the address or the webhook's name: after an agent restart, the
+// agent edits that message rather than posting a second one. Another
+// webhook starts a message of its own.
+func TestDiscordReconnectKeepsTheLiveStatusMessageOfTheSameWebhook(t *testing.T) {
+	saved := func(e *agentEnv) string {
+		var id string
+		e.a.db.QueryRow(`SELECT status_message_id FROM discord WHERE id = 1`).Scan(&id)
+		return id
+	}
+	for _, c := range []struct {
+		name  string
+		again func(e *agentEnv, f *fakeHook)
+		same  bool
+	}{
+		{name: "the same webhook again", same: true, again: func(e *agentEnv, f *fakeHook) { e.connectDiscord() }},
+		{name: "the same webhook, to refresh the address and name", same: true, again: func(e *agentEnv, f *fakeHook) {
+			f.mu.Lock()
+			f.name = "Server alerts"
+			f.mu.Unlock()
+			e.connectDiscordWith(hookURL, "mc.example.com")
+			var name, host string
+			e.a.db.QueryRow(`SELECT webhook_name, public_host FROM discord WHERE id = 1`).Scan(&name, &host)
+			if name != "Server alerts" || host != "mc.example.com" {
+				e.t.Fatalf("the refresh saved name %q and address %q", name, host)
+			}
+		}},
+		{name: "another webhook", again: func(e *agentEnv, f *fakeHook) { e.connectDiscordWith(otherHookURL, "play.example.com") }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, f := newDiscordEnv(t)
+			e.create()
+			e.connectDiscord()
+			f.waitStatus(e, 4*time.Second, "** · Online")
+			e.waitFor("the status message saved", func() bool { return saved(e) != "" })
+			first := saved(e)
+			c.again(e, f)
+			posts := 1
+			if c.same {
+				if got := saved(e); got != first {
+					t.Fatalf("connecting the same webhook again forgot its status message: %q, was %q", got, first)
+				}
+			} else {
+				posts = 2
+				e.waitFor("the new webhook's status message saved", func() bool { id := saved(e); return id != "" && id != first })
+			}
+			want := saved(e)
+			e.stop()
+			from := f.mark()
+			e.start()
+			e.waitFor("the status message edited after the restart", func() bool {
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				for _, r := range f.got[from:] {
+					if r.Method == http.MethodPatch && strings.HasSuffix(r.Path, "/messages/"+want) {
+						return true
+					}
+				}
+				return false
+			})
+			f.mu.Lock()
+			posted := f.posted
+			f.mu.Unlock()
+			if posted != posts {
+				t.Fatalf("%d live status messages were posted, want %d", posted, posts)
 			}
 		})
 	}
