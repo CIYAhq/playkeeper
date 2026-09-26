@@ -613,7 +613,13 @@ func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webma
 			return err
 		}
 	}
-	res, err := s.lib().Install(ctx, srv, nil, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
+	// What the Plugins or Mods tab manages already counts as there, so the
+	// map owns only what it adds.
+	installed, err := s.installedAddons()
+	if err != nil {
+		return err
+	}
+	res, err := s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
 	if err != nil {
 		return addonError(err)
 	}
@@ -731,9 +737,15 @@ func (s *server) disableMap(ctx context.Context, h *opHandle, deleteMap bool) er
 	return nil
 }
 
-// removeMapAddons uninstalls squaremap first, then what was installed for
-// it. removeConfig also deletes squaremap's plugin folder.
+// removeMapAddons uninstalls what the map installed, squaremap first, then
+// what was installed for it. removeConfig also deletes squaremap's plugin
+// folder. What the Plugins or Mods tab manages itself stays, and so does
+// what one of its add-ons still needs, which that tab takes over.
 func (s *server) removeMapAddons(ctx context.Context, srv addons.Server, recs []addons.Installed, removeConfig bool) error {
+	others, err := s.installedAddons()
+	if err != nil {
+		return err
+	}
 	left := slices.Clone(recs)
 	slices.SortStableFunc(left, func(a, b addons.Installed) int {
 		switch {
@@ -744,14 +756,35 @@ func (s *server) removeMapAddons(ctx context.Context, srv addons.Server, recs []
 		}
 		return 0
 	})
-	for len(left) > 0 {
+	var handed []addons.Installed
+	for ; len(left) > 0; left = left[1:] {
 		rec := left[0]
+		if slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {
+			continue
+		}
+		if parent := neededBy(others, rec); parent != "" {
+			rec.DependencyOf = parent
+			handed = append(handed, rec)
+			continue
+		}
 		if _, err := s.lib().Uninstall(ctx, srv, left, rec.Key(), addons.UninstallOptions{RemoveConfig: removeConfig && rec.DependencyOf == "", Force: true}); err != nil {
 			return addonError(err)
 		}
-		left = left[1:]
 	}
-	return nil
+	if len(handed) == 0 {
+		return nil
+	}
+	return s.saveAddons(handed, nil, false)
+}
+
+// neededBy is the project of an add-on in installed that needs rec, or "".
+func neededBy(installed []addons.Installed, rec addons.Installed) string {
+	for _, o := range installed {
+		if o.Source == rec.Source && o.Key() != rec.Key() && slices.Contains(o.Requires, rec.ProjectID) {
+			return o.ProjectID
+		}
+	}
+	return ""
 }
 
 // removeInData deletes rel inside the server's data directory without

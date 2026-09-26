@@ -13,11 +13,13 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"io/fs"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,69 +36,139 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
-const squaremapFile = "squaremap-paper-mc26.1.2-1.3.9.jar"
+const (
+	squaremapFile       = "squaremap-paper-mc26.1.2-1.3.9.jar"
+	squaremapFabricFile = "squaremap-fabric-mc26.1.2-1.3.9.jar"
+	fabricAPIID         = "P7dR8mSH"
+	fabricAPIFile       = "fabric-api-0.119.2+26.1.2.jar"
+)
 
-// fakeMapSource serves squaremap's Modrinth project and its Paper build for
-// 26.1.2 from local TLS servers.
+// fakeMapSource serves squaremap's Modrinth project with its Paper and
+// Fabric builds for 26.1.2, and Fabric API, which the Fabric build needs,
+// from local TLS servers.
 type fakeMapSource struct {
 	api, cdn  *httptest.Server
 	downloads atomic.Int32
+	// fabricAPI is Fabric API's jar as Modrinth serves it.
+	fabricAPI []byte
+}
+
+func jarOf(name, content string) []byte {
+	var jar bytes.Buffer
+	zw := zip.NewWriter(&jar)
+	w, _ := zw.Create(name)
+	io.WriteString(w, content)
+	zw.Close()
+	return jar.Bytes()
 }
 
 func startFakeMapSource(t *testing.T) *fakeMapSource {
 	t.Helper()
-	var jar bytes.Buffer
-	zw := zip.NewWriter(&jar)
-	w, _ := zw.Create("plugin.yml")
-	io.WriteString(w, "name: squaremap\nversion: 1.3.9\nmain: xyz.jpenilla.squaremap.paper.SquaremapPaper\n")
-	zw.Close()
-	data := jar.Bytes()
-	f := &fakeMapSource{}
+	data := jarOf("plugin.yml", "name: squaremap\nversion: 1.3.9\nmain: xyz.jpenilla.squaremap.paper.SquaremapPaper\n")
+	fabricData := jarOf("fabric.mod.json", `{"schemaVersion":1,"id":"squaremap","version":"1.3.9","depends":{"fabric-api":"*"}}`)
+	// Fabric API's jar says nothing about itself here, and Modrinth's hash
+	// lookup below doesn't know it, so only its record tells the planner a
+	// server has it.
+	f := &fakeMapSource{fabricAPI: jarOf("LICENSE", "Apache-2.0")}
+	files := map[string][]byte{
+		"/data/" + webmap.ModrinthProjectID + "/versions/sqm1/" + squaremapFile:       data,
+		"/data/" + webmap.ModrinthProjectID + "/versions/sqmf/" + squaremapFabricFile: fabricData,
+		"/data/" + fabricAPIID + "/versions/fapi1/" + fabricAPIFile:                   f.fabricAPI,
+	}
 	f.cdn = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/data/"+webmap.ModrinthProjectID+"/versions/sqm1/"+squaremapFile {
+		b, ok := files[r.URL.Path]
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
 		f.downloads.Add(1)
-		w.Write(data)
+		w.Write(b)
 	}))
-	s512, s1 := sha512.Sum512(data), sha1.Sum(data)
+	file := func(project, version, name string, b []byte) map[string]any {
+		s512, s1 := sha512.Sum512(b), sha1.Sum(b)
+		return map[string]any{
+			"hashes":   map[string]string{"sha512": hex.EncodeToString(s512[:]), "sha1": hex.EncodeToString(s1[:])},
+			"url":      f.cdn.URL + "/data/" + project + "/versions/" + version + "/" + name,
+			"filename": name, "primary": true, "size": len(b),
+		}
+	}
 	project := map[string]any{
 		"id": webmap.ModrinthProjectID, "slug": "squaremap", "project_type": "mod", "title": "squaremap",
 		"loaders": []string{"fabric", "neoforge", "paper"}, "game_versions": []string{"26.1.2"},
 		"client_side": "optional", "server_side": "required", "status": "approved", "license": map[string]any{"id": "MIT"},
-		"published": "2021-11-12T00:00:00Z", "updated": "2026-09-01T00:00:00Z", "versions": []string{"sqm1"},
+		"published": "2021-11-12T00:00:00Z", "updated": "2026-09-01T00:00:00Z", "versions": []string{"sqm1", "sqmf"},
 	}
 	version := map[string]any{
 		"id": "sqm1", "project_id": webmap.ModrinthProjectID, "name": "squaremap 1.3.9", "version_number": "1.3.9",
 		"version_type": "release", "status": "listed", "game_versions": []string{"26.1.2"}, "loaders": []string{"paper"},
 		"date_published": "2026-09-01T00:00:00Z", "dependencies": []any{},
-		"files": []any{map[string]any{
-			"hashes":   map[string]string{"sha512": hex.EncodeToString(s512[:]), "sha1": hex.EncodeToString(s1[:])},
-			"url":      f.cdn.URL + "/data/" + webmap.ModrinthProjectID + "/versions/sqm1/" + squaremapFile,
-			"filename": squaremapFile, "primary": true, "size": len(data),
-		}},
+		"files": []any{file(webmap.ModrinthProjectID, "sqm1", squaremapFile, data)},
 	}
-	hashes := map[string]bool{hex.EncodeToString(s512[:]): true, hex.EncodeToString(s1[:]): true}
+	fabricVersion := map[string]any{
+		"id": "sqmf", "project_id": webmap.ModrinthProjectID, "name": "squaremap 1.3.9", "version_number": "1.3.9",
+		"version_type": "release", "status": "listed", "game_versions": []string{"26.1.2"}, "loaders": []string{"fabric"},
+		"date_published": "2026-09-01T00:00:00Z", "dependencies": []any{map[string]any{"project_id": fabricAPIID, "dependency_type": "required"}},
+		"files": []any{file(webmap.ModrinthProjectID, "sqmf", squaremapFabricFile, fabricData)},
+	}
+	apiProject := map[string]any{
+		"id": fabricAPIID, "slug": "fabric-api", "project_type": "mod", "title": "Fabric API",
+		"loaders": []string{"fabric"}, "game_versions": []string{"26.1.2"},
+		"client_side": "required", "server_side": "required", "status": "approved", "license": map[string]any{"id": "Apache-2.0"},
+		"published": "2018-11-27T00:00:00Z", "updated": "2026-09-01T00:00:00Z", "versions": []string{"fapi1"},
+	}
+	apiVersion := map[string]any{
+		"id": "fapi1", "project_id": fabricAPIID, "name": "Fabric API 0.119.2", "version_number": "0.119.2+26.1.2",
+		"version_type": "release", "status": "listed", "game_versions": []string{"26.1.2"}, "loaders": []string{"fabric"},
+		"date_published": "2026-09-01T00:00:00Z", "dependencies": []any{},
+		"files": []any{file(fabricAPIID, "fapi1", fabricAPIFile, f.fabricAPI)},
+	}
+	known := map[string]map[string]any{}
+	for _, v := range []map[string]any{version, fabricVersion} {
+		for _, h := range v["files"].([]any)[0].(map[string]any)["hashes"].(map[string]string) {
+			known[h] = v
+		}
+	}
 	f.api = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v2/project/" + webmap.ModrinthProjectID, "/v2/project/squaremap":
 			json.NewEncoder(w).Encode(project)
 		case "/v2/project/" + webmap.ModrinthProjectID + "/version":
-			json.NewEncoder(w).Encode([]any{version})
+			json.NewEncoder(w).Encode([]any{version, fabricVersion})
+		case "/v2/project/" + fabricAPIID, "/v2/project/fabric-api":
+			json.NewEncoder(w).Encode(apiProject)
+		case "/v2/project/" + fabricAPIID + "/version":
+			json.NewEncoder(w).Encode([]any{apiVersion})
 		case "/v2/projects":
-			json.NewEncoder(w).Encode([]any{project})
+			var ids []string
+			json.Unmarshal([]byte(r.URL.Query().Get("ids")), &ids)
+			out := []any{}
+			for _, p := range []map[string]any{project, apiProject} {
+				if len(ids) == 0 || slices.Contains(ids, p["id"].(string)) {
+					out = append(out, p)
+				}
+			}
+			json.NewEncoder(w).Encode(out)
+		case "/v2/versions":
+			var ids []string
+			json.Unmarshal([]byte(r.URL.Query().Get("ids")), &ids)
+			out := []any{}
+			for _, v := range []map[string]any{version, fabricVersion, apiVersion} {
+				if slices.Contains(ids, v["id"].(string)) {
+					out = append(out, v)
+				}
+			}
+			json.NewEncoder(w).Encode(out)
 		case "/v2/version_files":
-			// Modrinth knows squaremap's jar by its hash, like any file on it.
+			// Modrinth knows squaremap's jars by their hashes, like any file on it.
 			var req struct {
 				Hashes []string `json:"hashes"`
 			}
 			json.NewDecoder(r.Body).Decode(&req)
 			out := map[string]any{}
 			for _, h := range req.Hashes {
-				if hashes[h] {
-					out[h] = version
+				if v, ok := known[h]; ok {
+					out[h] = v
 				}
 			}
 			json.NewEncoder(w).Encode(out)
@@ -400,6 +472,131 @@ func TestPluginsTabLeavesTheMapsSquaremapToTheMap(t *testing.T) {
 	if list := e.addonList(); len(list.Files) != 0 || len(list.Missing) != 0 {
 		t.Fatalf("after turning the map off: %+v", list)
 	}
+}
+
+// fabricMapServer is a stopped Fabric server, whose squaremap needs Fabric
+// API. Stopped, turning the map on or off doesn't restart it.
+func (e *agentEnv) fabricMapServer() {
+	e.t.Helper()
+	e.create()
+	if op := e.runOp("POST", "/stop"); op.Status != api.OpSucceeded {
+		e.t.Fatalf("stop: %+v", op)
+	}
+	e.fabricForShare()
+}
+
+// modsTabAddon puts a jar in the mods folder with the record the Mods tab
+// keeps for it, as if it had installed it.
+func (e *agentEnv) modsTabAddon(rec addons.Installed, jar []byte) {
+	e.t.Helper()
+	dir := filepath.Join(e.dataDir(), "mods")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, rec.FileName), jar, 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+	sum := sha512.Sum512(jar)
+	rec.Source, rec.HashAlgo, rec.Hash, rec.Size, rec.InstalledAt = addons.Modrinth, "sha512", hex.EncodeToString(sum[:]), int64(len(jar)), e.a.now()
+	if err := e.srv().saveAddons([]addons.Installed{rec}, nil, false); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func addonKeys(recs []addons.Installed) []string {
+	var out []string
+	for _, r := range recs {
+		out = append(out, r.ProjectID)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// The map owns only what it installed. A Fabric API the Mods tab installed
+// first stays when the map is turned off, and so does one the map installed
+// that a mod added since needs, which the Mods tab then takes over.
+func TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds(t *testing.T) {
+	fabricAPI := addons.Installed{ProjectID: fabricAPIID, Slug: "fabric-api", Name: "Fabric API", VersionID: "fapi1", VersionNumber: "0.119.2+26.1.2", FileName: fabricAPIFile}
+	mods := func(e *agentEnv) string { return filepath.Join(e.dataDir(), "mods") }
+
+	t.Run("Fabric API installed before the map", func(t *testing.T) {
+		e, src, _ := newMapEnv(t)
+		e.fabricMapServer()
+		e.modsTabAddon(fabricAPI, src.fabricAPI)
+		if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+			t.Fatalf("turning the map on with Fabric API there: %+v", op)
+		}
+		rec, err := e.srv().loadMap()
+		if err != nil || rec == nil || !slices.Equal(addonKeys(rec.addons), []string{webmap.ModrinthProjectID}) {
+			t.Fatalf("the map owns %v (%v), want only squaremap", addonKeys(rec.addons), err)
+		}
+		if op := e.mapOp("/map/disable", map[string]any{"deleteMap": false}); op.Status != api.OpSucceeded {
+			t.Fatalf("turning the map off: %+v", op)
+		}
+		if _, err := os.Stat(filepath.Join(mods(e), squaremapFabricFile)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("squaremap stayed after the map was turned off: %v", err)
+		}
+		if got, err := os.ReadFile(filepath.Join(mods(e), fabricAPIFile)); err != nil || !bytes.Equal(got, src.fabricAPI) {
+			t.Fatalf("turning the map off took the Mods tab's Fabric API: %v", err)
+		}
+		if installed, _ := e.srv().installedAddons(); !slices.Equal(addonKeys(installed), []string{fabricAPIID}) {
+			t.Fatalf("the Mods tab's records after the map was turned off: %v", addonKeys(installed))
+		}
+	})
+
+	t.Run("a map turned on before this fix recorded the Mods tab's Fabric API", func(t *testing.T) {
+		e, src, _ := newMapEnv(t)
+		e.fabricMapServer()
+		e.modsTabAddon(fabricAPI, src.fabricAPI)
+		if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+			t.Fatalf("turning the map on: %+v", op)
+		}
+		s := e.srv()
+		rec, _ := s.loadMap()
+		installed, _ := s.installedAddons()
+		legacy := installed[0]
+		legacy.DependencyOf = webmap.ModrinthProjectID
+		rec.addons = append(rec.addons, legacy)
+		if err := s.saveMap(rec); err != nil {
+			t.Fatal(err)
+		}
+		if op := e.mapOp("/map/disable", map[string]any{"deleteMap": false}); op.Status != api.OpSucceeded {
+			t.Fatalf("turning the map off: %+v", op)
+		}
+		if got, err := os.ReadFile(filepath.Join(mods(e), fabricAPIFile)); err != nil || !bytes.Equal(got, src.fabricAPI) {
+			t.Fatalf("turning the map off took the Mods tab's Fabric API: %v", err)
+		}
+		if installed, _ := s.installedAddons(); !slices.Equal(addonKeys(installed), []string{fabricAPIID}) {
+			t.Fatalf("the Mods tab's records after the map was turned off: %v", addonKeys(installed))
+		}
+	})
+
+	t.Run("a mod added since needs the map's Fabric API", func(t *testing.T) {
+		e, src, _ := newMapEnv(t)
+		e.fabricMapServer()
+		if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+			t.Fatalf("turning the map on: %+v", op)
+		}
+		if rec, err := e.srv().loadMap(); err != nil || rec == nil || !slices.Equal(addonKeys(rec.addons), []string{fabricAPIID, webmap.ModrinthProjectID}) {
+			t.Fatalf("the map installed %v (%v), want squaremap and Fabric API", addonKeys(rec.addons), err)
+		}
+		e.modsTabAddon(addons.Installed{ProjectID: "waystones1", Slug: "waystones", Name: "Waystones", VersionID: "way1", VersionNumber: "21.1.0", FileName: "waystones-fabric-26.1.2.jar", Requires: []string{fabricAPIID}},
+			jarOf("fabric.mod.json", `{"schemaVersion":1,"id":"waystones","depends":{"fabric-api":"*"}}`))
+		if op := e.mapOp("/map/disable", map[string]any{"deleteMap": false}); op.Status != api.OpSucceeded {
+			t.Fatalf("turning the map off: %+v", op)
+		}
+		if _, err := os.Stat(filepath.Join(mods(e), squaremapFabricFile)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("squaremap stayed after the map was turned off: %v", err)
+		}
+		if got, err := os.ReadFile(filepath.Join(mods(e), fabricAPIFile)); err != nil || !bytes.Equal(got, src.fabricAPI) {
+			t.Fatalf("turning the map off took the Fabric API Waystones needs: %v", err)
+		}
+		installed, _ := e.srv().installedAddons()
+		i := slices.IndexFunc(installed, func(a addons.Installed) bool { return a.ProjectID == fabricAPIID })
+		if !slices.Equal(addonKeys(installed), []string{fabricAPIID, "waystones1"}) || i < 0 || installed[i].DependencyOf != "waystones1" {
+			t.Fatalf("the Mods tab takes over Fabric API for Waystones: %+v", installed)
+		}
+	})
 }
 
 // A failed removal keeps the add-on error's own status and kind.

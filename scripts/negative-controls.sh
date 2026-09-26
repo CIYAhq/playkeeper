@@ -1971,6 +1971,18 @@ control "making a server from an upload needs rights over every server" internal
   'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
   'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
+  's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  's.lib().Install(ctx, srv, installed[:0], addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off leaves the Mods tab's own files" internal/agent/maps.go \
+  'if slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  'if false && slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off keeps what another add-on needs" internal/agent/maps.go \
+  'if parent := neededBy(others, rec); parent != "" {' \
+  'if parent := neededBy(others, rec); false && parent != "" {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
