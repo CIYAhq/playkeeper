@@ -433,13 +433,23 @@ func (s *server) hSleep(w http.ResponseWriter, r *http.Request) {
 		}
 		loc = l
 	}
-	st := s.sleepStatus(s.desired())
+	v := sleepView{SleepStatus: *s.sleepStatus(s.desired()), DefaultIdleMinutes: sleep.DefaultIdleMinutes, MinIdleMinutes: sleep.MinIdleMinutes, MaxIdleMinutes: sleep.MaxIdleMinutes}
 	count, slept := s.sleepToday(loc)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": st.Enabled, "idleMinutes": st.IdleMinutes, "asleepSince": st.AsleepSince, "listening": st.Listening, "sleepAt": st.SleepAt,
-		"defaultIdleMinutes": sleep.DefaultIdleMinutes, "minIdleMinutes": sleep.MinIdleMinutes, "maxIdleMinutes": sleep.MaxIdleMinutes,
-		"today": map[string]int{"count": count, "seconds": int(slept.Seconds())},
-	})
+	v.Today.Count, v.Today.Seconds = count, int(slept.Seconds())
+	writeJSON(w, http.StatusOK, v)
+}
+
+// sleepView is the Sleep page: the server's sleep setting and what it is
+// doing, the idle times it can be set to, and how much it slept today.
+type sleepView struct {
+	api.SleepStatus
+	DefaultIdleMinutes int `json:"defaultIdleMinutes"`
+	MinIdleMinutes     int `json:"minIdleMinutes"`
+	MaxIdleMinutes     int `json:"maxIdleMinutes"`
+	Today              struct {
+		Count   int `json:"count"`
+		Seconds int `json:"seconds"`
+	} `json:"today"`
 }
 
 type sleepRequest struct {

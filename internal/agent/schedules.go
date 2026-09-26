@@ -313,24 +313,34 @@ func (s *server) hSchedules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	list := make([]scheduleView, 0, len(rows))
+	resp := schedulesResponse{Schedules: make([]scheduleView, 0, len(rows))}
 	for _, row := range rows {
-		list = append(list, s.viewSchedule(row, now))
+		resp.Schedules = append(resp.Schedules, s.viewSchedule(row, now))
 	}
-	resp := map[string]any{"schedules": list}
 	s.auto.mu.Lock()
 	runner := s.auto.runner
 	s.auto.mu.Unlock()
 	if runner != nil {
 		if act, ok := runner.Current(); ok {
-			cur := map[string]any{"scheduleId": act.Job.Schedule.ID, "kind": act.Job.Schedule.Kind, "due": act.Job.Due}
-			if !act.RestartAt.IsZero() {
-				cur["restartAt"] = act.RestartAt
-			}
-			resp["current"] = cur
+			resp.Current = &scheduleCurrent{ScheduleID: act.Job.Schedule.ID, Kind: act.Job.Schedule.Kind, Due: act.Job.Due, RestartAt: act.RestartAt}
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// schedulesResponse is a server's schedules, and the one running now.
+type schedulesResponse struct {
+	Schedules []scheduleView   `json:"schedules"`
+	Current   *scheduleCurrent `json:"current,omitempty"`
+}
+
+// scheduleCurrent is the schedule running now, and when it restarts the
+// server if it does.
+type scheduleCurrent struct {
+	ScheduleID string        `json:"scheduleId"`
+	Kind       schedule.Kind `json:"kind"`
+	Due        time.Time     `json:"due"`
+	RestartAt  time.Time     `json:"restartAt,omitzero"`
 }
 
 // scheduleRequest creates or changes a schedule. On a change, fields left out
@@ -547,7 +557,7 @@ func (s *server) hSchedulePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.now().UTC()
 	base := schedule.Schedule{ID: "preview", ServerID: s.id, Enabled: true, CreatedAt: now, UpdatedAt: now}
-	resp := map[string]any{"valid": false, "nextRuns": []time.Time{}}
+	resp := schedulePreview{NextRuns: []time.Time{}}
 	if req.Kind == nil || req.Timing == nil {
 		writeError(w, errInvalid("Say what the schedule does and when."))
 		return
@@ -556,16 +566,23 @@ func (s *server) hSchedulePreview(w http.ResponseWriter, r *http.Request) {
 	if err := checkSchedule(sc, now); err != nil {
 		var ae *apiError
 		if errors.As(err, &ae) {
-			resp["error"] = api.Error{Error: ae.Msg, Code: ae.Code, Hint: ae.Hint, Field: ae.Field, Reason: ae.Reason, Params: ae.Params}
+			resp.Error = &api.Error{Error: ae.Msg, Code: ae.Code, Hint: ae.Hint, Field: ae.Field, Reason: ae.Reason, Params: ae.Params}
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 	next, _ := sc.Timing.NextRuns(now, 3)
-	resp["valid"] = true
-	resp["nextRuns"] = next
-	resp["summary"] = sc.Timing.Summary()
+	resp.Valid, resp.NextRuns, resp.Summary = true, next, sc.Timing.Summary()
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// schedulePreview says whether a schedule being edited is valid and, if it
+// is, when it would run next.
+type schedulePreview struct {
+	Valid    bool        `json:"valid"`
+	NextRuns []time.Time `json:"nextRuns"`
+	Summary  string      `json:"summary,omitempty"`
+	Error    *api.Error  `json:"error,omitempty"`
 }
 
 // scheduleRunView is one line of "Recent runs".

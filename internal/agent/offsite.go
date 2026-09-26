@@ -949,7 +949,14 @@ func (s *server) hOffsiteNewKey(w http.ResponseWriter, r *http.Request) {
 	}
 	row.keys, row.keySavedAt = keys, nil
 	s.audit(actor, "offsite.key_rotated", "server", "succeeded", "new key "+rot.Recipient)
-	writeJSON(w, http.StatusOK, map[string]any{"rotation": rot, "offsite": s.offsiteView(row)})
+	writeJSON(w, http.StatusOK, offsiteNewKey{Rotation: rot, Offsite: s.offsiteView(row)})
+}
+
+// offsiteNewKey is what making a new copy key changed, with the copies'
+// settings after it.
+type offsiteNewKey struct {
+	Rotation offsite.Rotation `json:"rotation"`
+	Offsite  offsiteView      `json:"offsite"`
 }
 
 // hOffsiteRetry tries waiting copies now.
