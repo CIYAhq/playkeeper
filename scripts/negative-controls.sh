@@ -682,6 +682,17 @@ control "voice chat that comes with a template gets its UDP port" internal/agent
   '_ = srv
 	return nil' \
   ./internal/agent '^TestTemplateVoiceChatGetsItsPort$'
+control "voice chat a template's Try again installs gets its UDP port" internal/agent/templates.go \
+  'if err := s.templateVoiceChat(h, sc, planned); err != nil {
+		return err
+	}
+	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
+  'packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
+  ./internal/agent '^TestTemplateVoiceChatTriedAgainGetsItsPort$'
+control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
+  'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
+  '_ = n' \
+  ./internal/agent '^TestTemplateModpackRunsOnTheTypeItNames$'
 control "a backup records voice chat's UDP port" internal/agent/backups.go \
   'meta.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
   '_ = sc.VoiceChatPort' \
