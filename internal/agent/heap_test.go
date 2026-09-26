@@ -164,6 +164,61 @@ func TestAStartLeavesARunningModLoaderAndItsHeapAlone(t *testing.T) {
 	}
 }
 
+// A start sizes a mod loader's heap for the mods it has whenever it makes a
+// container: for a stopped server, and for a running one it recreates for
+// another change. Only a running container it keeps as it is keeps the heap
+// it was made with.
+func TestAStartSizesTheHeapOfEveryContainerItMakes(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		before    func(e *agentEnv, sc *api.ServerConfig)
+		recreated bool
+		mods      int
+	}{
+		{"running and kept", func(*agentEnv, *api.ServerConfig) {}, false, 17},
+		{"running but recreated for another change", func(_ *agentEnv, sc *api.ServerConfig) { sc.MOTD = "A new message of the day" }, true, 57},
+		{"stopped", func(e *agentEnv, _ *api.ServerConfig) {
+			if op := e.runOp("POST", "/stop"); op.Status != api.OpSucceeded {
+				t.Fatalf("stop: %+v", op)
+			}
+		}, true, 57},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := sizedFabric(t)
+			s := e.srv()
+			container := func() string {
+				e.fd.mu.Lock()
+				defer e.fd.mu.Unlock()
+				return e.fd.byName[e.cname()].id
+			}
+			id := container()
+			e.addMods(17, 40)
+			sc, err := s.serverConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.before(e, sc)
+			op, err := s.beginOp("start", "admin", func(ctx context.Context, h *opHandle) error { return s.startServer(ctx, h, *sc) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if op := e.waitOp(op.ID); op.Status != api.OpSucceeded {
+				t.Fatalf("start: %+v", op)
+			}
+			if recreated := container() != id; recreated != tc.recreated {
+				t.Fatalf("container recreated: %v, want %v", recreated, tc.recreated)
+			}
+			want := minecraft.HeapFor(2048, "fabric", tc.mods)
+			if got := e.containerEnvVar("MEMORY"); got != fmt.Sprintf("%dM", want) {
+				t.Fatalf("the container's heap: %s, want %dM, for %d mods", got, want, tc.mods)
+			}
+			if sc, _ := s.serverConfig(); sc.HeapMB != want {
+				t.Fatalf("recorded heap %d, want %d", sc.HeapMB, want)
+			}
+		})
+	}
+}
+
 // A settings save that leaves the memory budget as it was leaves the heap as
 // it was too, however many mods were added since the last start, so it
 // doesn't ask for a restart. A new budget is sized for the mods there are now.

@@ -689,16 +689,19 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
-	if err := s.sizeHeap(ctx, &sc); err != nil {
-		return err
-	}
 	if err := s.writeMapConfig(); err != nil {
 		return err
 	}
-	pastFiles = true
 	name := s.containerName()
 	c, err := s.docker.ContainerInspect(ctx, name)
 	spec, hash := s.containerSpec(sc, false, c.Config.Env)
+	if !(err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash) {
+		if err := s.sizeHeap(&sc); err != nil {
+			return err
+		}
+		spec, hash = s.containerSpec(sc, false, c.Config.Env)
+	}
+	pastFiles = true
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
 		return &apiError{Msg: "A container named " + name + " exists but was not created by Playkeeper.", Hint: "Playkeeper will not touch it. Rename or remove that container, then press Start."}

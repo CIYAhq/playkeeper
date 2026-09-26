@@ -3077,17 +3077,21 @@ control "each mod keeps more memory outside the heap" internal/minecraft/catalog
   'overhead = max(overhead, min(base+modOverheadMB*0, budgetMB/2))' \
   ./internal/minecraft '^TestHeapForModLoaders$'
 control "a start sizes a mod loader's heap for the mods it has" internal/agent/lifecycle.go \
-  'if err := s.sizeHeap(ctx, &sc); err != nil {' \
+  'if err := s.sizeHeap(&sc); err != nil {' \
   'if false {' \
   ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
 control "the container runs the heap sized for its mods" internal/agent/lifecycle.go \
   '"MEMORY="+strconv.Itoa(heapMB(sc))+"M",' \
   '"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",' \
   ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
-control "a start leaves a running mod loader and its heap alone" internal/agent/heap.go \
-  'if _, running, err := s.containerRunning(ctx); err == nil && running {' \
-  'if _, running, err := s.containerRunning(ctx); err == nil && running && false {' \
-  ./internal/agent '^TestAStartLeavesARunningModLoaderAndItsHeapAlone$'
+control "a start leaves a running mod loader and its heap alone" internal/agent/lifecycle.go \
+  'if !(err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash) {' \
+  'if true {' \
+  ./internal/agent '^(TestAStartLeavesARunningModLoaderAndItsHeapAlone|TestAStartSizesTheHeapOfEveryContainerItMakes)$'
+control "a start sizes the heap of a running mod loader it recreates" internal/agent/lifecycle.go \
+  'if !(err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash) {' \
+  'if !(err == nil && c.State.Running) {' \
+  ./internal/agent '^TestAStartSizesTheHeapOfEveryContainerItMakes$'
 control "a save with the same memory budget leaves the heap alone" internal/agent/handlers.go \
   'memoryChanged = true
 			sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))
