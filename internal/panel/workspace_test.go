@@ -120,7 +120,7 @@ func TestMembersCanLookButNotManage(t *testing.T) {
 			t.Fatalf("a member may look at %q: %d %v", p, r.status, r.body)
 		}
 	}
-	for _, p := range []string{"/stop", "/command", "/saving/resume", "/addons/remove"} {
+	for _, p := range []string{"/stop", "/command", "/saving/resume", "/addons/remove-file"} {
 		if r := e.do(t, "POST", "/api/servers/"+sampleServer+p, `{}`, auth(cookie, csrf)); r.status != http.StatusForbidden {
 			t.Errorf("a member may not use %s: %d", p, r.status)
 		}

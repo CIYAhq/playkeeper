@@ -203,6 +203,7 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 	if ts.After(s.console.lastTS()) {
 		s.console.append(ts, text)
 	}
+	s.pregenLogLine(ts, text)
 	p := minecraft.Parse(text)
 	if p.Kind == minecraft.EventNone {
 		return
@@ -428,6 +429,17 @@ func (s *server) measureWorld(now time.Time, level string) {
 	if !due || level == "" {
 		return
 	}
+	total := s.worldSize(level)
+	s.mu.Lock()
+	s.worldBytes, s.worldAt = total, now
+	s.mu.Unlock()
+	if n, ok := s.countChunks(level); ok {
+		s.recordChunks(now, n)
+	}
+}
+
+// worldSize adds up the files of the world's three dimensions.
+func (s *server) worldSize(level string) int64 {
 	var total int64
 	for _, dir := range []string{level, level + "_nether", level + "_the_end"} {
 		filepath.WalkDir(filepath.Join(s.dataDir(), dir), func(_ string, d fs.DirEntry, err error) error {
@@ -440,12 +452,7 @@ func (s *server) measureWorld(now time.Time, level string) {
 			return nil
 		})
 	}
-	s.mu.Lock()
-	s.worldBytes, s.worldAt = total, now
-	s.mu.Unlock()
-	if n, ok := s.countChunks(level); ok {
-		s.recordChunks(now, n)
-	}
+	return total
 }
 
 func (s *server) sampleLoop(ctx context.Context) {
@@ -639,7 +646,8 @@ func (s *server) rconExec(ctx context.Context, cmd string) (string, error) {
 	}
 }
 
-// rconConsole is a server's console for backup.Take and the tick probes.
+// rconConsole is the server's console for packages that drive it: online
+// backups, the tick probes, Chunky's pre-generation and data packs.
 type rconConsole struct{ s *server }
 
 func (c rconConsole) Command(ctx context.Context, cmd string) (string, error) {
@@ -688,6 +696,7 @@ func (a *Agent) pruneLoop(ctx context.Context) {
 	defer t.Stop()
 	for {
 		a.prune()
+		a.prunePacks(ctx)
 		select {
 		case <-ctx.Done():
 			return

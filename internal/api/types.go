@@ -286,6 +286,10 @@ type ServerConfig struct {
 	Gameplay Gameplay `json:"gameplay,omitzero"`
 	// IconUpdatedAt is when the server-list icon was last changed.
 	IconUpdatedAt *time.Time `json:"iconUpdatedAt,omitempty"`
+	// ResourcePack is the resource pack offered to players who join. An
+	// offer with an empty SHA1 clears the pack from server.properties at the
+	// next start; nil leaves server.properties alone.
+	ResourcePack *ResourcePackOffer `json:"resourcePack,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -758,6 +762,408 @@ type Health struct {
 	Docker  bool   `json:"docker"`
 }
 
+// Add-ons are a server's plugins (Paper) or mods, installed from Modrinth
+// and Hangar.
+
+// AddonTarget is what a server's add-ons are and where they come from.
+type AddonTarget struct {
+	// Kind is plugin or mod; Folder is the folder they load from.
+	Kind       string   `json:"kind"`
+	Folder     string   `json:"folder"`
+	Sources    []string `json:"sources"`
+	Categories []string `json:"categories"`
+	// MinecraftVersion is the version add-ons must fit.
+	MinecraftVersion string `json:"minecraftVersion"`
+}
+
+// AddonNotice is a message from the add-on library: Kind and Params choose
+// the translation, Message and Hint are the English text.
+type AddonNotice struct {
+	Kind    string            `json:"kind"`
+	Params  map[string]string `json:"params,omitempty"`
+	Message string            `json:"message"`
+	Hint    string            `json:"hint,omitempty"`
+	// URL is the page for a step Playkeeper can't do itself.
+	URL string `json:"url,omitempty"`
+}
+
+// AddonVersion is one version of an add-on.
+type AddonVersion struct {
+	VersionID     string    `json:"versionId"`
+	VersionNumber string    `json:"versionNumber"`
+	Channel       string    `json:"channel"` // release | beta | alpha
+	Published     time.Time `json:"published"`
+	FileName      string    `json:"fileName,omitempty"`
+	Size          int64     `json:"size,omitempty"`
+	// ExternalURL is set when the version is only offered on another site.
+	ExternalURL string `json:"externalUrl,omitempty"`
+}
+
+// Addon is an add-on Playkeeper installed on a server.
+type Addon struct {
+	Source        string    `json:"source"` // modrinth | hangar
+	ProjectID     string    `json:"projectId"`
+	Slug          string    `json:"slug"`
+	Name          string    `json:"name"`
+	Summary       string    `json:"summary,omitempty"`
+	IconURL       string    `json:"iconUrl,omitempty"`
+	VersionID     string    `json:"versionId"`
+	VersionNumber string    `json:"versionNumber"`
+	Channel       string    `json:"channel"`
+	Published     time.Time `json:"published"`
+	FileName      string    `json:"fileName"`
+	Size          int64     `json:"size"`
+	// DependencyOf is the project id (same source) of the add-on this one
+	// was installed for.
+	DependencyOf string    `json:"dependencyOf,omitempty"`
+	InstalledAt  time.Time `json:"installedAt"`
+}
+
+// AddonKey names an installed add-on.
+type AddonKey struct {
+	Source    string `json:"source"`
+	ProjectID string `json:"projectId"`
+}
+
+// AddonFile is one jar in a server's add-on folder.
+type AddonFile struct {
+	FileName string `json:"fileName"`
+	Size     int64  `json:"size"`
+	// Status is managed (Playkeeper installed it, unchanged since),
+	// modified (changed since), identified (added by hand, and Modrinth
+	// knows it) or unknown (added by hand).
+	Status string `json:"status"`
+	// Addon is the record of a managed or modified file, or what Modrinth
+	// knows an identified file as.
+	Addon *Addon `json:"addon,omitempty"`
+	// Name and Version are what the jar says about itself.
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	// Pending is set when the running server started before the file was
+	// put in place, so it loads at the next restart.
+	Pending bool `json:"pending,omitempty"`
+}
+
+// Addons is what is in a server's add-on folder.
+type Addons struct {
+	Target AddonTarget `json:"target"`
+	Files  []AddonFile `json:"files"`
+	// Missing are add-ons Playkeeper installed whose file is gone.
+	Missing  []Addon       `json:"missing"`
+	Warnings []AddonNotice `json:"warnings"`
+	// RestartNeeded is set while the running server hasn't loaded the
+	// latest change to its add-ons.
+	RestartNeeded bool `json:"restartNeeded"`
+}
+
+// AddonUpdate says whether a newer version of an installed add-on fits the
+// server.
+type AddonUpdate struct {
+	Source    string        `json:"source"`
+	ProjectID string        `json:"projectId"`
+	Latest    *AddonVersion `json:"latest,omitempty"`
+	Available bool          `json:"available"`
+	Notice    *AddonNotice  `json:"notice,omitempty"`
+}
+
+// AddonChecks is what the sources say about a server's add-ons: newer
+// versions, and the files added by hand that Modrinth recognizes.
+type AddonChecks struct {
+	Updates    []AddonUpdate `json:"updates"`
+	Identified []AddonFile   `json:"identified"`
+	CheckedAt  time.Time     `json:"checkedAt"`
+}
+
+// AddonCard is an add-on in the library.
+type AddonCard struct {
+	Source     string    `json:"source"`
+	ProjectID  string    `json:"projectId"`
+	Slug       string    `json:"slug"`
+	Name       string    `json:"name"`
+	Author     string    `json:"author,omitempty"`
+	Summary    string    `json:"summary"`
+	Categories []string  `json:"categories"`
+	License    string    `json:"license,omitempty"`
+	Downloads  int64     `json:"downloads"`
+	IconURL    string    `json:"iconUrl,omitempty"`
+	Updated    time.Time `json:"updated"`
+	PageURL    string    `json:"pageUrl"`
+	// Installed is set when the server has it.
+	Installed bool `json:"installed"`
+}
+
+// AddonBrowse is one page of the library for a server.
+type AddonBrowse struct {
+	Cards []AddonCard `json:"cards"`
+	More  bool        `json:"more"`
+	// Unanswered explains sources that failed while others answered.
+	Unanswered []AddonNotice `json:"unanswered"`
+}
+
+// AddonStep is one file an install or update downloads.
+type AddonStep struct {
+	Action        string `json:"action"` // install | update
+	Source        string `json:"source"`
+	ProjectID     string `json:"projectId"`
+	Name          string `json:"name"`
+	VersionNumber string `json:"versionNumber"`
+	Channel       string `json:"channel"`
+	FileName      string `json:"fileName"`
+	Size          int64  `json:"size"`
+	// NeededBy is the add-on a dependency is installed for.
+	NeededBy string `json:"neededBy,omitempty"`
+	// Was is the version an update replaces.
+	Was string `json:"was,omitempty"`
+}
+
+// AddonPlan is what an install or update would do. Ready is set when
+// nothing blocks it; Fingerprint confirms it.
+type AddonPlan struct {
+	Steps []AddonStep `json:"steps"`
+	// Manual are steps Playkeeper can't do, such as a download only on the
+	// author's site.
+	Manual      []AddonNotice `json:"manual"`
+	Blockers    []AddonNotice `json:"blockers"`
+	Warnings    []AddonNotice `json:"warnings"`
+	Ready       bool          `json:"ready"`
+	Fingerprint string        `json:"fingerprint"`
+}
+
+// AddonDetails is one add-on, for its detail sheet.
+type AddonDetails struct {
+	Card AddonCard `json:"card"`
+	// Latest is the newest version that runs on the server, and Notes the
+	// author's notes for it; Notice explains a missing one.
+	Latest *AddonVersion `json:"latest,omitempty"`
+	Notes  string        `json:"notes,omitempty"`
+	Notice *AddonNotice  `json:"notice,omitempty"`
+	// Installed is the add-on's record when Playkeeper installed it;
+	// Changed is set when its file changed since, and UpdateAvailable when
+	// Latest is newer.
+	Installed       *Addon `json:"installed,omitempty"`
+	Changed         bool   `json:"changed,omitempty"`
+	Missing         bool   `json:"missing,omitempty"`
+	UpdateAvailable bool   `json:"updateAvailable,omitempty"`
+	// Plan is what installing it would do, when it isn't installed;
+	// PlanError says why it can't be installed.
+	Plan      *AddonPlan   `json:"plan,omitempty"`
+	PlanError *AddonNotice `json:"planError,omitempty"`
+}
+
+// AddonProgress is one file of an add-on install or update: the "files" of
+// the operation's detail.
+type AddonProgress struct {
+	Name          string `json:"name"`
+	VersionNumber string `json:"versionNumber"`
+	Was           string `json:"was,omitempty"`
+	NeededBy      string `json:"neededBy,omitempty"`
+	Size          int64  `json:"size"`
+	Received      int64  `json:"received"`
+	// State is waiting, downloading, verified or failed.
+	State string `json:"state"`
+}
+
+type AddonInstallRequest struct {
+	Source    string `json:"source"`
+	ProjectID string `json:"projectId"`
+	// Fingerprint is the plan the user confirmed, AddonDetails.Plan; the
+	// install is refused without it, or when the plan has changed since.
+	Fingerprint string `json:"fingerprint"`
+	Actor       string `json:"actor"`
+}
+
+// AddonUpdatePlanRequest asks what an update would do, for the user to
+// confirm before sending the AddonUpdateRequest with the same add-ons and
+// Changed.
+type AddonUpdatePlanRequest struct {
+	// Addons are the add-ons to update; empty means every one with an
+	// update.
+	Addons []AddonKey `json:"addons,omitempty"`
+	// Changed replaces files that changed since they were installed.
+	Changed bool   `json:"changed,omitempty"`
+	Actor   string `json:"actor"`
+}
+
+type AddonUpdateRequest struct {
+	Addons  []AddonKey `json:"addons,omitempty"`
+	Changed bool       `json:"changed,omitempty"`
+	// Fingerprint is the plan the user confirmed; the update is refused
+	// without it, or when the plan has changed since.
+	Fingerprint string `json:"fingerprint"`
+	Actor       string `json:"actor"`
+}
+
+// AddonRemovePreview is what removing an add-on would involve.
+type AddonRemovePreview struct {
+	Addon Addon `json:"addon"`
+	// NeededBy names the installed add-ons that need it.
+	NeededBy []string `json:"neededBy"`
+	// Orphans are dependencies nothing else would need any more.
+	Orphans []Addon `json:"orphans"`
+	// ConfigFolder is the plugin's settings folder, when it has one.
+	ConfigFolder string `json:"configFolder,omitempty"`
+	Changed      bool   `json:"changed"`
+	Missing      bool   `json:"missing"`
+}
+
+type AddonRemoveRequest struct {
+	Source    string `json:"source"`
+	ProjectID string `json:"projectId"`
+	// KeepConfig keeps the plugin's settings folder.
+	KeepConfig bool `json:"keepConfig"`
+	// Force removes it although installed add-ons need it.
+	Force bool `json:"force,omitempty"`
+	// Changed deletes the file although it changed since it was installed.
+	Changed bool `json:"changed,omitempty"`
+	// Orphans are dependencies to remove with it.
+	Orphans []AddonKey `json:"orphans,omitempty"`
+	Actor   string     `json:"actor"`
+}
+
+// AddonRemoval is what a removal did.
+type AddonRemoval struct {
+	Removed  []string      `json:"removed"`
+	Warnings []AddonNotice `json:"warnings"`
+}
+
+// AddonAdoptRequest lets Playkeeper manage a file added by hand that
+// Modrinth recognizes.
+type AddonAdoptRequest struct {
+	FileName string `json:"fileName"`
+	Actor    string `json:"actor"`
+}
+
+// AddonForgetRequest drops the record of an add-on whose file is gone.
+type AddonForgetRequest struct {
+	Source    string `json:"source"`
+	ProjectID string `json:"projectId"`
+	Actor     string `json:"actor"`
+}
+
+// Pre-generating a server's map with Chunky.
+
+// PregenPreset is a ready-made area around spawn and what it's expected to
+// take on this machine.
+type PregenPreset struct {
+	ID        string `json:"id"` // small | medium | large | huge
+	Radius    int    `json:"radius"`
+	Chunks    int64  `json:"chunks"`
+	Seconds   int64  `json:"seconds"`
+	DiskBytes int64  `json:"diskBytes"`
+	// Fits is false when the disk has no room for it.
+	Fits bool `json:"fits"`
+}
+
+// Pregen is where pre-generating a server's map stands.
+type Pregen struct {
+	// State is idle (also after a cancel), starting (Playkeeper is
+	// installing Chunky or restarting the server for it), running, paused
+	// or finished.
+	State string `json:"state"`
+	// Step is where starting stands: installing (Chunky), restarting (the
+	// server, to load it), starting_server or starting_task.
+	Step   string `json:"step,omitempty"`
+	World  string `json:"world"`
+	Preset string `json:"preset,omitempty"`
+	Radius int    `json:"radius,omitempty"`
+	// Chunks of Total are done; ETASeconds is -1 while unknown.
+	Chunks         int64   `json:"chunks"`
+	Total          int64   `json:"total"`
+	Percent        float64 `json:"percent"`
+	Rate           float64 `json:"rate,omitempty"`
+	ETASeconds     int64   `json:"etaSeconds"`
+	ElapsedSeconds int64   `json:"elapsedSeconds,omitempty"`
+	// PausedBy says why a paused task waits: "user" (until someone
+	// resumes it), "players" (until the server has been empty a while;
+	// PausedFor is one of them) or "server" (until the server starts).
+	PausedBy        string     `json:"pausedBy,omitempty"`
+	PausedFor       string     `json:"pausedFor,omitempty"`
+	PauseForPlayers bool       `json:"pauseForPlayers"`
+	StartedAt       *time.Time `json:"startedAt,omitempty"`
+	FinishedAt      *time.Time `json:"finishedAt,omitempty"`
+	// DiskBytes is how much the world grew, once finished.
+	DiskBytes *int64 `json:"diskBytes,omitempty"`
+	// Installed is set when Chunky is in the plugins folder.
+	Installed     bool           `json:"installed"`
+	Presets       []PregenPreset `json:"presets"`
+	DiskFreeBytes *int64         `json:"diskFreeBytes,omitempty"`
+	// Error is why the last start failed.
+	Error string `json:"error,omitempty"`
+}
+
+type PregenStartRequest struct {
+	Preset          string `json:"preset"`
+	PauseForPlayers bool   `json:"pauseForPlayers"`
+	Actor           string `json:"actor"`
+}
+
+// Resource and data packs.
+
+// ResourcePackOffer is the resource pack a server offers players when they
+// join, from the panel's public /resource-packs/ route.
+type ResourcePackOffer struct {
+	SHA1        string `json:"sha1"`
+	FileName    string `json:"fileName"`
+	Size        int64  `json:"size"`
+	Description string `json:"description,omitempty"`
+	// Icon is set when the pack has a pack.png to show.
+	Icon     bool      `json:"icon,omitempty"`
+	AddedAt  time.Time `json:"addedAt"`
+	URL      string    `json:"url"`
+	Required bool      `json:"required"`
+	Prompt   string    `json:"prompt,omitempty"`
+}
+
+// ResourcePack is a server's resource pack.
+type ResourcePack struct {
+	Offer *ResourcePackOffer `json:"offer,omitempty"`
+	// Pending is set while the running server offers something else: a
+	// restart applies the change.
+	Pending bool `json:"pending"`
+	// Problem says why the server can't offer the stored pack, and how to
+	// fix it. Until then the server keeps offering what it did.
+	Problem string `json:"problem,omitempty"`
+}
+
+type ResourcePackSettingsRequest struct {
+	Required bool   `json:"required"`
+	Prompt   string `json:"prompt"`
+	Actor    string `json:"actor"`
+}
+
+// ActiveResourcePacks are the SHA-1 hashes of the packs servers offer,
+// which the panel serves to players without sign-in.
+type ActiveResourcePacks struct {
+	SHA1 []string `json:"sha1"`
+}
+
+// DataPack is a data pack in a server's world.
+type DataPack struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Icon is set when the pack has a pack.png to show.
+	Icon bool  `json:"icon,omitempty"`
+	Size int64 `json:"size"`
+	// Enabled is known only while the server is online.
+	Enabled *bool `json:"enabled,omitempty"`
+	// Folder packs are listed but left alone.
+	Folder  bool      `json:"folder,omitempty"`
+	AddedAt time.Time `json:"addedAt"`
+}
+
+// DataPacks are the data packs of a server's world.
+type DataPacks struct {
+	Packs []DataPack `json:"packs"`
+	// Live is set while the server is online and can switch packs.
+	Live bool `json:"live"`
+	// Added names the pack an upload added or replaced.
+	Added string `json:"added,omitempty"`
+	// NotEnabled is set when that pack could not be switched on, and
+	// Problem says why.
+	NotEnabled bool   `json:"notEnabled,omitempty"`
+	Problem    string `json:"problem,omitempty"`
+}
+
 // Error is the body of every non-2xx response from the agent and panel.
 type Error struct {
 	Error     string     `json:"error"`
@@ -781,4 +1187,18 @@ const (
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
 	CodeIconInvalid       = "icon_invalid"
+)
+
+// WorldCopy is a world folder a restore left next to the live one: the
+// previous world it moved aside, or a restored world that had to make way.
+type WorldCopy struct {
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"` // previous | failed_restore
+	CreatedAt time.Time `json:"createdAt"`
+	SizeBytes int64     `json:"sizeBytes"`
+}
+
+const (
+	WorldCopyPrevious      = "previous"
+	WorldCopyFailedRestore = "failed_restore"
 )

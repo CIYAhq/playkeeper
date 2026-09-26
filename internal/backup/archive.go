@@ -159,11 +159,90 @@ func LevelName(dataDir string) string {
 	return "world"
 }
 
-// selectFiles lists the allowlisted regular files in dataDir, sorted, and the
-// world they belong to. Create and the staging copy share it, so a copy holds
-// exactly what an archive would.
-func selectFiles(dataDir string) (level string, rels []string, err error) {
-	level = LevelName(dataDir)
+// Create archives the allowlisted contents of dataDir to w and returns the
+// manifest written as the final entry. meta supplies descriptive fields. A
+// file or world that lim would make a restore refuse is an error.
+func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, error) {
+	level := LevelName(dataDir)
+	meta.Format = FormatVersion
+	meta.LevelName = level
+	meta.Files = nil
+	meta.TotalBytes = 0
+
+	rels, err := archiveFiles(dataDir, level)
+	if err != nil {
+		return meta, err
+	}
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return meta, err
+	}
+	defer root.Close()
+
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	tally := fileTally{lim: lim}
+	for _, rel := range rels {
+		entry, err := writeFile(tw, root, rel, &tally)
+		var refused *RefusedError
+		if errors.As(err, &refused) {
+			return meta, err
+		}
+		if err != nil {
+			return meta, fmt.Errorf("cannot back up %s: %w", shortQuote(rel), err)
+		}
+		meta.Files = append(meta.Files, entry)
+		meta.TotalBytes += entry.Size
+	}
+	mb, err := marshalManifest(meta, lim)
+	if err != nil {
+		return meta, err
+	}
+	hdr := &tar.Header{Name: manifestName, Mode: 0o644, Size: int64(len(mb)), ModTime: meta.CreatedAt, Typeflag: tar.TypeReg, Format: tar.FormatPAX}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return meta, err
+	}
+	if _, err := tw.Write(mb); err != nil {
+		return meta, err
+	}
+	if err := tw.Close(); err != nil {
+		return meta, err
+	}
+	return meta, gz.Close()
+}
+
+// Check applies Create's refusals to the files in dataDir without reading
+// them, so a world a restore would refuse is refused before the server stops
+// for a backup. Files can change before Create runs, so Create checks again.
+// The manifest is estimated without Create's descriptive fields, so Check
+// never refuses a world Create accepts.
+func Check(dataDir string, lim Limits) error {
+	level := LevelName(dataDir)
+	rels, err := archiveFiles(dataDir, level)
+	if err != nil {
+		return err
+	}
+	m := Manifest{Format: FormatVersion, LevelName: level}
+	tally := fileTally{lim: lim}
+	for _, rel := range rels {
+		size, err := archivedSize(dataDir, rel)
+		if err != nil {
+			return fmt.Errorf("cannot back up %s: %w", shortQuote(rel), err)
+		}
+		if err := tally.add(rel, size); err != nil {
+			return refusal(rel, err)
+		}
+		m.Files = append(m.Files, FileEntry{Path: rel, Size: size, SHA256: strings.Repeat("0", 2*sha256.Size)})
+		m.TotalBytes += size
+	}
+	_, err = marshalManifest(m, lim)
+	return err
+}
+
+// archiveFiles lists the allowlisted files in dataDir, sorted, and requires
+// the level's world among them.
+func archiveFiles(dataDir, level string) ([]string, error) {
+	var rels []string
 	for _, f := range topFiles {
 		if st, err := os.Lstat(filepath.Join(dataDir, f)); err == nil && st.Mode().IsRegular() {
 			rels = append(rels, f)
@@ -193,67 +272,53 @@ func selectFiles(dataDir string) (level string, rels []string, err error) {
 			return nil
 		})
 		if err != nil {
-			return level, nil, err
+			return nil, err
 		}
 	}
 	if len(rels) == 0 || !containsPrefix(rels, level+"/") {
-		return level, nil, fmt.Errorf("no world named %q found in %s", level, dataDir)
+		return nil, fmt.Errorf("no world named %q found in %s", level, dataDir)
 	}
 	sort.Strings(rels)
-	return level, rels, nil
+	return rels, nil
 }
 
-// Create archives the allowlisted contents of dataDir to w and returns the
-// manifest written as the final entry. meta supplies descriptive fields. A
-// file or world that lim would make a restore refuse is an error.
-func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, error) {
-	level, rels, err := selectFiles(dataDir)
-	meta.Format = FormatVersion
-	meta.LevelName = level
-	meta.Files = nil
-	meta.TotalBytes = 0
-	if err != nil {
-		return meta, err
-	}
-	root, err := os.OpenRoot(dataDir)
-	if err != nil {
-		return meta, err
-	}
-	defer root.Close()
-
-	gz := gzip.NewWriter(w)
-	tw := tar.NewWriter(gz)
-	tally := fileTally{lim: lim}
-	for _, rel := range rels {
-		entry, err := writeFile(tw, root, rel, &tally)
-		var refused *RefusedError
-		if errors.As(err, &refused) {
-			return meta, err
-		}
+// archivedSize is rel's size in an archive, where server.properties loses its
+// secret lines. Check runs while the server does, so server.properties is
+// read through gamefiles: the game can swap in a link or a named pipe.
+func archivedSize(dataDir, rel string) (int64, error) {
+	if rel == "server.properties" {
+		b, err := readProperties(dataDir)
 		if err != nil {
-			return meta, fmt.Errorf("cannot back up %s: %w", shortQuote(rel), err)
+			return 0, err
 		}
-		meta.Files = append(meta.Files, entry)
-		meta.TotalBytes += entry.Size
+		return int64(len(SanitizeProperties(b))), nil
 	}
-	mb, err := json.MarshalIndent(meta, "", "  ")
+	st, err := os.Lstat(filepath.Join(dataDir, filepath.FromSlash(rel)))
 	if err != nil {
-		return meta, err
+		return 0, err
+	}
+	return st.Size(), nil
+}
+
+// refusal is the RefusedError for a file the tally refused, naming the file
+// unless the world as a whole is over a limit.
+func refusal(rel string, err error) *RefusedError {
+	var whole archiveLimitError
+	if errors.As(err, &whole) {
+		return &RefusedError{Reason: err}
+	}
+	return &RefusedError{File: rel, Reason: err}
+}
+
+func marshalManifest(m Manifest, lim Limits) ([]byte, error) {
+	mb, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, err
 	}
 	if len(mb) > lim.MaxManifestBytes {
-		return meta, &RefusedError{Reason: fmt.Errorf("its manifest would be %d bytes (limit %d)", len(mb), lim.MaxManifestBytes)}
+		return nil, &RefusedError{Reason: fmt.Errorf("its manifest would be %d bytes (limit %d)", len(mb), lim.MaxManifestBytes)}
 	}
-	hdr := &tar.Header{Name: manifestName, Mode: 0o644, Size: int64(len(mb)), ModTime: meta.CreatedAt, Typeflag: tar.TypeReg, Format: tar.FormatPAX}
-	if err := tw.WriteHeader(hdr); err != nil {
-		return meta, err
-	}
-	if _, err := tw.Write(mb); err != nil {
-		return meta, err
-	}
-	if err := tw.Close(); err != nil {
-		return meta, err
-	}
-	return meta, gz.Close()
+	return mb, nil
 }
 
 func containsPrefix(list []string, p string) bool {
@@ -293,15 +358,6 @@ func openRegular(root *os.Root, rel string) (*os.File, fs.FileInfo, error) {
 		return nil, nil, fmt.Errorf("%s is not a regular file", shortQuote(rel))
 	}
 	return f, st, nil
-}
-
-// refusal is the RefusedError for rel breaking the restore rule err.
-func refusal(rel string, err error) *RefusedError {
-	var whole archiveLimitError
-	if errors.As(err, &whole) {
-		return &RefusedError{Reason: err}
-	}
-	return &RefusedError{File: rel, Reason: err}
 }
 
 func writeFile(tw *tar.Writer, root *os.Root, rel string, tally *fileTally) (FileEntry, error) {

@@ -204,7 +204,7 @@ func TestRemoveAddonMovesOnlyThatJarAside(t *testing.T) {
 		t.Fatal(err)
 	}
 	remove := func(jar string, start bool) (int, map[string]any) {
-		return e.call("POST", e.sp("/addons/remove"), map[string]any{"actor": "admin", "jar": jar, "start": start})
+		return e.call("POST", e.sp("/addons/remove-file"), map[string]any{"actor": "admin", "jar": jar, "start": start})
 	}
 	for _, jar := range []string{"../outside.jar", "plugins/x.jar", `..\outside.jar`, "notes.txt", ".jar", ".hidden.jar", "a\nb.jar", strings.Repeat("a", 201) + ".jar", ""} {
 		if code, out := remove(jar, false); code != 400 {

@@ -40,20 +40,15 @@ func (s Size) ArchiveBytes() int64 {
 // returns a *RefusedError for a world a restore would refuse. Zero Limits
 // mean DefaultLimits.
 func Measure(dataDir string, lim Limits) (Size, error) {
-	_, rels, err := selectFiles(dataDir)
+	rels, err := archiveFiles(dataDir, LevelName(dataDir))
 	if err != nil {
 		return Size{}, err
 	}
-	root, err := os.OpenRoot(dataDir)
-	if err != nil {
-		return Size{}, err
-	}
-	defer root.Close()
 	tally := fileTally{lim: lim.orDefault()}
 	dirs := map[string]bool{}
 	var s Size
 	for _, rel := range rels {
-		size, err := archivedSize(root, rel)
+		size, err := archivedSize(dataDir, rel)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -72,27 +67,6 @@ func Measure(dataDir string, lim Limits) (Size, error) {
 	}
 	s.DiskBytes += int64(len(dirs)) * blockSize
 	return s, nil
-}
-
-// archivedSize is the size rel has in an archive.
-func archivedSize(root *os.Root, rel string) (int64, error) {
-	if rel != "server.properties" {
-		st, err := root.Lstat(filepath.FromSlash(rel))
-		if err != nil {
-			return 0, err
-		}
-		return st.Size(), nil
-	}
-	f, _, err := openRegular(root, rel)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	b, err := io.ReadAll(f)
-	if err != nil {
-		return 0, err
-	}
-	return int64(len(SanitizeProperties(b))), nil
 }
 
 func (l Limits) orDefault() Limits {
@@ -124,7 +98,7 @@ func (s *stager) step(name string) error {
 // copyAll copies the allowlisted files of dataDir into the empty directory
 // dst. server.properties is copied without its secrets.
 func (s *stager) copyAll(ctx context.Context, dataDir, dst string) error {
-	_, rels, err := selectFiles(dataDir)
+	rels, err := archiveFiles(dataDir, LevelName(dataDir))
 	if err != nil {
 		return err
 	}

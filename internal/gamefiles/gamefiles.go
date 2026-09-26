@@ -142,11 +142,20 @@ func (d *Dir) WriteProperties(b []byte) error {
 	return d.WriteFile(propertiesName, b, 0o640)
 }
 
-// WriteFile replaces name with b. Missing folders on the way are made. The
-// file is written to a new hidden file in the same folder first and then
-// renamed over name, so the game never reads half a file, and what was at
-// name is replaced, never written through.
+// WriteFile replaces name with b, as WriteFrom does.
 func (d *Dir) WriteFile(name string, b []byte, perm fs.FileMode) error {
+	return d.WriteFrom(name, perm, func(w io.Writer) error {
+		_, err := w.Write(b)
+		return err
+	})
+}
+
+// WriteFrom replaces name with what write writes. Missing folders on the way
+// are made. The file is written to a new hidden file in the same folder
+// first and then renamed over name, so the game never reads half a file,
+// and what was at name is replaced, never written through. When write
+// fails, name is left as it was.
+func (d *Dir) WriteFrom(name string, perm fs.FileMode, write func(io.Writer) error) error {
 	ps, err := split(name)
 	if err != nil {
 		return err
@@ -167,7 +176,7 @@ func (d *Dir) WriteFile(name string, b []byte, perm fs.FileMode) error {
 	if err != nil {
 		return err
 	}
-	_, err = f.Write(b)
+	err = write(f)
 	if err == nil && d.owner != nil {
 		err = f.Chown(d.owner.UID, d.owner.GID)
 	}
@@ -252,6 +261,43 @@ func (d *Dir) ReadDir(name string, limit int) ([]fs.DirEntry, error) {
 	}
 	slices.SortFunc(es, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return es, nil
+}
+
+// OpenFile opens name, a regular file, for reading, for a caller that needs
+// more than ReadFile, such as a zip's table of contents. It returns what the
+// handle says about the file. The caller closes it.
+func (d *Dir) OpenFile(name string) (*os.File, fs.FileInfo, error) {
+	return d.open(name)
+}
+
+// Lstat describes name without following it, after checking the folders on
+// the way. Unlike the other methods it refuses nothing at name itself, so
+// that a caller can skip a link or a special file as the game does. Use it
+// rather than an entry's Info from ReadDir, which looks the entry up by its
+// path outside the data directory.
+func (d *Dir) Lstat(name string) (fs.FileInfo, error) {
+	ps, err := split(name)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := d.folders(ps[:len(ps)-1], false); err != nil {
+		return nil, err
+	}
+	return d.root.Lstat(name)
+}
+
+// Remove deletes name, a regular file. Anything else there is refused, not
+// removed.
+func (d *Dir) Remove(name string) error {
+	fi, err := d.Lstat(name)
+	if err == nil {
+		err = fileError(name, fi)
+	}
+	if err != nil {
+		return err
+	}
+	d.step("remove", name)
+	return d.root.Remove(name)
 }
 
 // open opens name for reading. The folders on the way and the file are

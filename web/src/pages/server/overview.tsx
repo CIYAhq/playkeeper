@@ -421,7 +421,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
           await post(serverApi(s.id, '/start'))
           break
         case 'remove-addon':
-          await post(serverApi(s.id, '/addons/remove'), { jar: plan.jar, start: true })
+          await post(serverApi(s.id, '/addons/remove-file'), { jar: plan.jar, start: true })
           break
         case 'restore':
           setPreview(await post<RestorePreview>(serverApi(s.id, `/backups/${encodeURIComponent(plan.backupId)}/restore`)))

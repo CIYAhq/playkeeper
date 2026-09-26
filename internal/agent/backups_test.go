@@ -171,7 +171,7 @@ func TestBackupWaitsUntilTheServerIsOnline(t *testing.T) {
 	if code != 409 || !strings.Contains(fmt.Sprint(out["hint"]), "Wait until the server is online") {
 		t.Fatalf("a backup while starting: %d %v", code, out)
 	}
-	if n := e.rcon.sent("save-off"); n != 0 {
+	if n := e.rcon.count("save-off"); n != 0 {
 		t.Fatalf("save-off reached a starting server %d times", n)
 	}
 }
@@ -191,8 +191,8 @@ func TestFailedOnlineBackupTurnsSavingBackOn(t *testing.T) {
 	if op.Status != api.OpFailed || op.Detail["errorKind"] != "save_failed" || op.Detail["savingPaused"] != false {
 		t.Fatalf("a backup whose save failed: %+v", op)
 	}
-	if e.rcon.savingIsOff() || e.rcon.sent("save-on") != 1 {
-		t.Fatalf("saving must be turned back on once (sent %d times)", e.rcon.sent("save-on"))
+	if e.rcon.savingIsOff() || e.rcon.count("save-on") != 1 {
+		t.Fatalf("saving must be turned back on once (sent %d times)", e.rcon.count("save-on"))
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != 0 {
 		t.Fatalf("%d backups recorded for a failed backup", n)
@@ -220,7 +220,7 @@ func TestLostSaveOnReplyKeepsTheBackup(t *testing.T) {
 	if op.Status != api.OpSucceeded {
 		t.Fatalf("a lost reply to save-on must not throw the backup away: %+v", op)
 	}
-	if n := e.rcon.sent("save-on"); n != 2 {
+	if n := e.rcon.count("save-on"); n != 2 {
 		t.Fatalf("save-on reached the server %d times; only the backup's own retry may send it again", n)
 	}
 	if e.rcon.savingIsOff() {
@@ -294,7 +294,7 @@ func TestReconcilerTurnsSavingBackOn(t *testing.T) {
 		t.Fatalf("%d saving_resumed events, want 1", n)
 	}
 
-	sent := e.rcon.sent("save-on")
+	sent := e.rcon.count("save-on")
 	started := e.status().StartedAt
 	e.a.db.Exec(`UPDATE servers SET saving_paused_since = ? WHERE id = ?`, started.Add(-time.Minute).UnixMilli(), e.sid)
 	e.waitFor("a pause from before the server started to be forgotten", func() bool { return e.status().SavingPausedSince == nil })
@@ -304,7 +304,7 @@ func TestReconcilerTurnsSavingBackOn(t *testing.T) {
 	e.waitFor("stopped", func() bool { st := e.status(); return st.Phase == api.PhaseStopped && st.Operation == nil })
 	e.a.db.Exec(`UPDATE servers SET saving_paused_since = ? WHERE id = ?`, time.Now().UnixMilli(), e.sid)
 	e.waitFor("a stopped server's pause to be forgotten", func() bool { return e.status().SavingPausedSince == nil })
-	if n := e.rcon.sent("save-on"); n != sent {
+	if n := e.rcon.count("save-on"); n != sent {
 		t.Fatalf("save-on sent %d more times for pauses the server already ended", n-sent)
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'saving_resumed'`); n != 1 {

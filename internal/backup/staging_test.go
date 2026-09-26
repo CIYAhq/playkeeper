@@ -61,7 +61,7 @@ func TestStagingCopyHoldsTheAllowlistWithoutSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, want, _ := selectFiles(d)
+	want, _ := archiveFiles(d, LevelName(d))
 	var got []string
 	filepath.WalkDir(staged, func(p string, e fs.DirEntry, err error) error {
 		if err == nil && !e.IsDir() {

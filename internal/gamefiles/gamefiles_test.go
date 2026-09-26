@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -217,10 +218,18 @@ var readOps = []fileOp{
 	{"ReadJSON", func(d *Dir, name string) error { var v any; return d.ReadJSON(name, 1<<20, &v) }},
 	{"SHA256", func(d *Dir, name string) error { _, err := d.SHA256(context.Background(), name, 1<<20); return err }},
 	{"EnsureFile", func(d *Dir, name string) error { return d.EnsureFile(name, []byte("enabled: false\n"), 0o640, nil) }},
+	{"OpenFile", func(d *Dir, name string) error {
+		f, _, err := d.OpenFile(name)
+		if err == nil {
+			f.Close()
+		}
+		return err
+	}},
 }
 
 var ops = append(slices.Clone(readOps),
-	fileOp{"WriteFile", func(d *Dir, name string) error { return d.WriteFile(name, []byte("enabled: false\n"), 0o640) }})
+	fileOp{"WriteFile", func(d *Dir, name string) error { return d.WriteFile(name, []byte("enabled: false\n"), 0o640) }},
+	fileOp{"Remove", func(d *Dir, name string) error { return d.Remove(name) }})
 
 // A plugin or mod can put a link anywhere on the way to a file Playkeeper
 // uses. Wherever it is and wherever it points, it is refused, and nothing it
@@ -653,6 +662,61 @@ func TestReadDirListsRealFoldersOnly(t *testing.T) {
 	e.node("crash-reports", syscall.S_IFIFO)
 	err = e.noBlock(e.path("crash-reports"), func() error { _, err := e.d.ReadDir("crash-reports", 10); return err })
 	refused(t, err, KindNotFolder, "crash-reports")
+}
+
+// Lstat describes whatever is at a name, a link too, so that a caller can
+// skip it as the game does; a link on the way to it is refused.
+func TestLstatDescribesTheNameButNotTheWayToIt(t *testing.T) {
+	e := newEnv(t)
+	e.put("world/datapacks/Graves.zip", []byte("PK"))
+	e.plant("world/datapacks/Linked.zip", filepath.Join(e.outside, "panel", "panel.db"))
+	if fi, err := e.d.Lstat("world/datapacks/Graves.zip"); err != nil || !fi.Mode().IsRegular() || fi.Size() != 2 {
+		t.Fatalf("Lstat(Graves.zip) = %v %v", fi, err)
+	}
+	if fi, err := e.d.Lstat("world/datapacks/Linked.zip"); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("Lstat(Linked.zip) = %v %v", fi, err)
+	}
+	if _, err := e.d.Lstat("world/datapacks/Missing.zip"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a missing file: %v", err)
+	}
+	_, err := e.d.Lstat("../playkeeper/panel/panel.db")
+	refused(t, err, KindBadName, "../playkeeper/panel/panel.db")
+
+	e.plant("world/datapacks", "../elsewhere")
+	_, err = e.d.Lstat("world/datapacks/config.yml")
+	refused(t, err, KindLink, "world/datapacks")
+}
+
+// A write that fails part way leaves the file as it was, and nothing behind.
+func TestAFailedWriteLeavesTheFileAsItWas(t *testing.T) {
+	e := newEnv(t)
+	e.put("world/datapacks/Graves.zip", []byte("old"))
+	err := e.d.WriteFrom("world/datapacks/Graves.zip", 0o640, func(w io.Writer) error {
+		if _, err := w.Write([]byte("half")); err != nil {
+			return err
+		}
+		return errors.New("the upload ended early")
+	})
+	if err == nil || err.Error() != "the upload ended early" {
+		t.Fatalf("WriteFrom = %v", err)
+	}
+	if got := e.read("world/datapacks/Graves.zip"); got != "old" {
+		t.Fatalf("Graves.zip = %q", got)
+	}
+	if entries, _ := os.ReadDir(e.path("world/datapacks")); len(entries) != 1 {
+		t.Fatalf("left behind %v", entries)
+	}
+}
+
+func TestRemoveDeletesAFile(t *testing.T) {
+	e := newEnv(t)
+	e.put("world/datapacks/Graves.zip", []byte("PK"))
+	if err := e.d.Remove("world/datapacks/Graves.zip"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(e.path("world/datapacks/Graves.zip")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Graves.zip is still there: %v", err)
+	}
 }
 
 func TestPathsMustStayInsideTheDataDirectory(t *testing.T) {
