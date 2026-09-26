@@ -1467,4 +1467,7 @@ export const en = {
   'packMods.line': { one: '{count} mod · version {version}', other: '{count} mods · version {version}' },
   'packMods.showAll': 'Show all {count}',
   'packMods.showFewer': 'Show fewer',
+  'new.note.namePack': 'After you start it, Playkeeper downloads {type} and the pack’s mods, checks each file, and tells you when friends can join.',
+  'new.note.nameTemplate': 'After you start it, Playkeeper downloads {type} and the template’s add-ons, checks each file, and tells you when friends can join.',
+  'new.note.nameAny': 'After you start it, Playkeeper downloads what it needs, checks it, and tells you when friends can join.',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

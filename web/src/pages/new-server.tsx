@@ -36,7 +36,7 @@ const nextKeys: MessageKey[] = ['new.nextVersion', 'new.nextStyle', 'new.nextMem
 const continueKeys: MessageKey[] = ['new.continueVersion', 'new.continueStyle', 'new.continueMemory', 'new.continueName']
 const noteKeys: MessageKey[] = ['new.note.type', 'new.note.version', 'new.note.version', 'new.note.memory', 'new.note.name']
 
-type StartFrom = 'type' | 'modpack' | 'template'
+export type StartFrom = 'type' | 'modpack' | 'template'
 
 const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
   { value: 'type', long: 'new.from.type', short: 'new.from.typeShort' },
@@ -53,6 +53,17 @@ export function packRequest(c: CreateChoices, pack: ModpackChoice) {
 /** The template decides the type, version and settings: the request names only the plan the user saw. */
 function templateRequest(c: CreateChoices, choice: TemplateChoice) {
   return { name: c.name.trim(), acceptEula: c.eula, memoryMB: c.memoryMB, acceptExperimental: !!choice.plan.experimental && c.acceptExperimental, template: { fingerprint: choice.plan.fingerprint } }
+}
+
+/** The line under the summary. A modpack or template decides the type, so the name step names that type, or none when it isn't known yet. */
+export function createNote(step: number, from: StartFrom, type: string | undefined): string {
+  if (step === 0) return from === 'template' ? '' : from === 'modpack' ? t('new.note.modpack') : t('new.note.type')
+  if (step === 4 && from !== 'type') {
+    if (!type) return t('new.note.nameAny')
+    return t(from === 'modpack' ? 'new.note.namePack' : 'new.note.nameTemplate', { type: typeName(type) })
+  }
+  if (step === 1 && addonKind(type) === 'mods') return t('new.note.versionMods')
+  return t(noteKeys[step] ?? 'new.note.name', { type: typeName(type) })
 }
 
 /** "Cobblemon Modpack" names its server "Cobblemon". */
@@ -472,7 +483,7 @@ export function NewServerPage() {
   const continueLabel =
     step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
   const nextHint = step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
-  const note = step === 0 && from === 'template' ? '' : step === 0 && from === 'modpack' ? t('new.note.modpack') : t(step === 1 && addonKind(c?.type) === 'mods' ? 'new.note.versionMods' : (noteKeys[step] ?? 'new.note.name'), { type: typeName(c?.type) })
+  const note = createNote(step, from, from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type)
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {

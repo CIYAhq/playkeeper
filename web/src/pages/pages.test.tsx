@@ -3,13 +3,14 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Backup, Catalog, MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
+import type { Backup, Catalog, MachineView, Me, ModpackResults, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { ModpackPicker } from '@/components/app/modpacks'
 import { TemplateDialog } from '@/components/app/templates'
 import { HomePage } from './home'
-import { NewServerPage } from './new-server'
+import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
@@ -402,6 +403,53 @@ describe('Templates', () => {
     await toggle('Plugins')
     expect(vi.mocked(client.get)).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/template?addons=off')
     expect(document.body.textContent).not.toContain('Pin exact versions')
+  })
+})
+
+describe('Modpacks', () => {
+  const results: ModpackResults = {
+    cards: [{ source: 'modrinth', projectId: 'SMTH0001', slug: 'smoothserver', name: 'Smooth Server', summary: 'Runs smoothly.', downloads: 1200, updated: '2026-09-01T00:00:00Z', pageUrl: 'https://modrinth.com/modpack/smoothserver', types: ['fabric'], minecraftVersions: ['26.2', '26.1'], mods: 17, memoryMB: 4096 }],
+    total: 1,
+    offset: 0,
+    limit: 12,
+    sources: ['modrinth'],
+  }
+
+  it('searches when Enter is pressed, and only then or after typing stops', async () => {
+    vi.useFakeTimers()
+    try {
+      answer({ '/modpacks?': results })
+      await render(<ModpackPicker machineId="m2345abcde" onChange={() => {}} onUse={() => {}} phone={false} />)
+      const form = document.querySelector('form')
+      const input = form?.querySelector('input')
+      if (!form || !input) throw new Error('no search form')
+      expect(form.querySelectorAll('input')).toHaveLength(1)
+      const searched = () => vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('q=simply+optimized')).length
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'simply optimized')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      expect(searched()).toBe(0)
+      await act(async () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      })
+      expect(searched()).toBe(1)
+      await act(async () => {
+        input.dispatchEvent(new FocusEvent('blur'))
+        vi.advanceTimersByTime(500)
+      })
+      expect(searched()).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says what a pack’s server downloads, not Paper', () => {
+    expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
+    expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')
+    expect(createNote(4, 'modpack', '')).not.toContain('Paper')
+    expect(createNote(4, 'type', 'purpur')).toContain('downloads Purpur, checks it')
+    expect(createNote(0, 'modpack', 'fabric')).toBe('Friends install the same modpack. You get a link to send.')
   })
 })
 

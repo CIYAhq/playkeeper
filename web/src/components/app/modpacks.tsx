@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowUpRightIcon, PackageIcon, RefreshCwIcon, SearchIcon } from 'lucide-react'
 import { modpackIcon, useModpackDetail, useModpackPreview, useModpacks, type ModpackSort } from '@/api/modpacks'
 import type { ModpackCard, ModpackDetail, ModpackSource } from '@/api/types'
@@ -77,35 +77,41 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
   const cards = (list.data?.cards ?? []).slice(0, 4)
   const curseforge = !!list.data && !list.data.sources.includes('curseforge')
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuery(typed.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [typed])
+
   return (
     <div className="flex flex-col gap-3">
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          setQuery(typed)
-        }}
-      >
-        <InputGroup className="flex-1">
-          <InputGroupAddon>
-            <SearchIcon aria-hidden="true" />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={typed}
-            onChange={(e) => {
-              setTyped(e.target.value)
-              if (!e.target.value) setQuery('')
-            }}
-            onBlur={() => setQuery(typed)}
-            placeholder={t('modpacks.search')}
-            aria-label={t('modpacks.search')}
-            type="search"
-            maxLength={100}
-            className={phone ? 'min-h-11' : undefined}
-          />
-        </InputGroup>
+      <div className="flex gap-2">
+        {/* The sort select's hidden input stays outside the form, so Enter in the one field searches. */}
+        <form
+          className="flex-1"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setQuery(typed.trim())
+          }}
+        >
+          <InputGroup>
+            <InputGroupAddon>
+              <SearchIcon aria-hidden="true" />
+            </InputGroupAddon>
+            <InputGroupInput
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={t('modpacks.search')}
+              aria-label={t('modpacks.search')}
+              type="search"
+              enterKeyHint="search"
+              maxLength={100}
+              className={phone ? 'min-h-11' : undefined}
+            />
+          </InputGroup>
+        </form>
         {!phone && <ChoiceSelect value={sort} onChange={setSort} options={sorts.map((s) => ({ value: s.value, label: t(s.label) }))} label={t('modpacks.sort')} className="min-w-40" />}
-      </form>
+      </div>
       {list.error ? (
         <Notice
           tone="error"
