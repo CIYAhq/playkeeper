@@ -165,6 +165,51 @@ func TestEveryCallAsksForTheCallersRightsAgain(t *testing.T) {
 	}
 }
 
+// Each tool asks whether the caller's account may take its action, after
+// the scope and before any agent hears of the call: what an account can't
+// do in the dashboard, its token can't do with any tool.
+func TestEveryToolChecksItsActionWithTheCallersAccount(t *testing.T) {
+	moderator := []string{ActView, ActRunServers, ActConsole, ActManagePlayers, ActMakeBackups}
+	for _, tc := range []struct {
+		name    string
+		allowed []string
+	}{
+		{"an account that may only look", []string{ActView}},
+		{"a moderator's account", moderator},
+		{"an admin's account", append(slices.Clone(moderator), ActManageServers)},
+		{"an account off the team", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newWorld(true)
+			b.setAccess(Access{Scope: mcp.ScopeOwner, AllServers: true, May: func(act string) bool { return slices.Contains(tc.allowed, act) }}, nil)
+			c := connect(t, b, token(mcp.ScopeOwner))
+			var refused []string
+			for _, tool := range Tools(b) {
+				act := Actions()[tool.Name]
+				if act == "" {
+					t.Fatalf("%s has no action", tool.Name)
+				}
+				asked := len(b.allRequests())
+				r := c.call(tool.Name, sampleArgs(t, tool, idA))
+				if slices.Contains(tc.allowed, act) {
+					ok(t, tool.Name, r)
+					continue
+				}
+				if r.Kind != RefusedAction || !strings.Contains(r.Text, tool.Name) {
+					t.Errorf("%s (%s): %s: %s", tool.Name, act, r.Kind, r.Text)
+				}
+				if got := b.allRequests(); len(got) != asked {
+					t.Errorf("%s was refused but reached the agent: %+v", tool.Name, got[asked:])
+				}
+				refused = append(refused, tool.Name+" "+RefusedAction)
+			}
+			if got := b.refusals(); !slices.Equal(got, refused) {
+				t.Errorf("refusals %v, want %v", got, refused)
+			}
+		})
+	}
+}
+
 func TestServersAreFoundByIDSlugOrName(t *testing.T) {
 	b := newWorld(false)
 	b.add("m1", "my-vps", sample("cccccccccc", "skyblock", "Skyblock"), "1111111111111111")

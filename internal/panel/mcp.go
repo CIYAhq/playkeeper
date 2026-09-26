@@ -46,19 +46,23 @@ func (s *Server) mcpRefused(principal, tool, why string) {
 // every machine's servers, and the machine that runs each.
 type mcpBackend struct{ s *Server }
 
+// Access is what a token may do now. A tool's action goes to permit with
+// the token's account as it is now, just as the matching dashboard route's
+// does for that account's session.
 func (b mcpBackend) Access(_ context.Context, p mcp.Principal) (mcptools.Access, error) {
 	id, ok := strings.CutPrefix(p.ID, tokenActorPrefix)
 	if !ok {
 		return mcptools.Access{}, mcptools.ErrRevoked
 	}
-	r, err := b.s.tokenRights(id)
+	account, r, err := b.s.tokenRights(id)
 	switch {
 	case errors.Is(err, errTokenGone):
 		return mcptools.Access{}, mcptools.ErrRevoked
 	case err != nil:
 		return mcptools.Access{}, err
 	}
-	return mcptools.Access{Scope: scopeOf(r.role), AllServers: r.all, Servers: r.servers}, nil
+	return mcptools.Access{Scope: scopeOf(r.role), AllServers: r.all, Servers: r.servers,
+		May: func(act string) bool { return permit(account, action(act), "") == nil }}, nil
 }
 
 func (b mcpBackend) Servers(ctx context.Context) ([]mcptools.Server, error) {

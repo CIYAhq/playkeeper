@@ -538,6 +538,32 @@ control "a friend's invite to a joined machine's server gives its IP and port" i
   'if false {
 		addr = s.joinedAddress(r.Context(), m, port)' \
   ./internal/panel '^TestAnInviteToAJoinedMachinesServerGivesItsIPAndPort$'
+# API tokens under Wave 5's team roles.
+control "a tool asks whether its caller's account may take its action" internal/mcptools/tools.go \
+  'if !access.mayTake(s.act) {' \
+  'if false && !access.mayTake(s.act) {' \
+  ./internal/mcptools '^TestEveryToolChecksItsActionWithTheCallersAccount$'
+control "a token's tools ask permit about its account as it is now" internal/panel/mcp.go \
+  'May: func(act string) bool { return permit(account, action(act), "") == nil }}, nil' \
+  'May: func(act string) bool { return permit(account, action(act), "") == nil || true }}, nil' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "a token stops once its account holds a lower role than when it was made" internal/panel/tokens.go \
+  'if grantRank(accountGrant(a)) < grantRank(t.MadeAs) {' \
+  'if false && grantRank(accountGrant(a)) < grantRank(t.MadeAs) {' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "a lower role on the Team page stops the account's tokens at once" internal/panel/team.go \
+  '	s.checkAccountTokens(t.UserID)
+' \
+  '' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "taking someone off the team revokes their tokens" internal/panel/team.go \
+  'revokeAccountTokens(t.UserID, sess.User.Username, "its account was removed from the team")' \
+  'closeTokenSessions("")' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "each tool takes the action of its dashboard route" internal/mcptools/specs.go \
+  'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActMakeBackups,' \
+  'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActView,' \
+  ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
 control "a joined machine's pack page gives its IP and port" internal/panel/packshare.go \
   'case fp.m.Kind == remoteKind:' \
   'case false:' \

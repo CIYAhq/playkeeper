@@ -322,6 +322,7 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	s.turnOffLinks(r, sess.User, after.Account, "creator's role changed")
+	s.checkAccountTokens(t.UserID)
 	s.answerMember(w, r, sess, t.UserID)
 }
 
@@ -402,6 +403,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.turnOffLinks(r, sess.User, invites.Account{UserID: t.UserID}, "creator removed")
+	s.revokeAccountTokens(t.UserID, sess.User.Username, "its account was removed from the team")
 	if _, err := s.db.Exec(`DELETE FROM users WHERE id = ? AND role = ?`, t.UserID, roleMember); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return

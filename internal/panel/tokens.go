@@ -21,8 +21,11 @@ import (
 // token is made for a role and for every server or some, and runs out after
 // a number of days; the dashboard keeps only its hash. It never does more
 // than its account may do now: its rights are looked up again, with its
-// account's, on every request and every tool call, and a token made for
-// more than its account now has is revoked the first time that shows.
+// account's, on every request and every tool call, and each tool asks
+// permit about its account as the matching dashboard route does. A token
+// stops working once its account is removed or its role is lowered below
+// the one it had when the token was made, and one made for more than its
+// account now has is revoked the first time that shows.
 
 const (
 	tokenPrefix = "pk_mcp_"
@@ -83,16 +86,37 @@ type rights struct {
 	servers []string
 }
 
-// accountRights are the most an account's tokens may do. An owner's may do
-// anything; other accounts' may only look.
-func accountRights(accountRole string) rights {
-	switch accountRole {
-	case roleOwner:
+// accountRights are the most an account's tokens may do: its project role
+// on its servers. An owner's may do anything; an account off the team, nothing.
+func accountRights(a access) rights {
+	switch {
+	case a.owner():
 		return rights{role: tokenAdmin, all: true}
-	case roleMember:
-		return rights{role: tokenViewer, all: true}
+	case a.InstallRole != roleMember || roleRank(a.ProjectRole) == 0:
+		return rights{}
 	}
-	return rights{}
+	return rights{role: a.ProjectRole, all: a.Servers.All, servers: a.Servers.Servers}
+}
+
+// accountGrant is the role an account holds, as a token remembers it: owner,
+// or its project role; "" off the team.
+func accountGrant(a access) string {
+	if a.owner() {
+		return roleOwner
+	}
+	if a.InstallRole != roleMember {
+		return ""
+	}
+	return a.ProjectRole
+}
+
+// grantRank orders what accountGrant returns, so that a lowered role shows:
+// the owner, then admin, moderator and viewer, then nothing.
+func grantRank(grant string) int {
+	if grant == roleOwner {
+		return roleRank(tokenAdmin) + 1
+	}
+	return roleRank(grant)
 }
 
 // within reports whether r is no more than max. A token for every server
@@ -147,10 +171,13 @@ func decodeServers(col string) (all bool, servers []string, ok bool) {
 
 type apiToken struct {
 	rights
-	ID          string
-	UserID      int64
-	Username    string
+	ID       string
+	UserID   int64
+	Username string
+	// AccountRole is the account's install role now, and MadeAs the role it
+	// held when the token was made (see accountGrant).
 	AccountRole string
+	MadeAs      string
 	Name        string
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
@@ -158,13 +185,13 @@ type apiToken struct {
 	RevokedAt   time.Time
 }
 
-const tokenColumns = `t.id, t.user_id, u.username, u.role, t.name, t.role, t.servers, t.created_at, t.expires_at, t.last_used_at, t.revoked_at`
+const tokenColumns = `t.id, t.user_id, u.username, u.role, t.account_role, t.name, t.role, t.servers, t.created_at, t.expires_at, t.last_used_at, t.revoked_at`
 
 func scanToken(sc interface{ Scan(...any) error }) (apiToken, error) {
 	var t apiToken
 	var servers string
 	var created, expires, used, revoked int64
-	if err := sc.Scan(&t.ID, &t.UserID, &t.Username, &t.AccountRole, &t.Name, &t.role, &servers, &created, &expires, &used, &revoked); err != nil {
+	if err := sc.Scan(&t.ID, &t.UserID, &t.Username, &t.AccountRole, &t.MadeAs, &t.Name, &t.role, &servers, &created, &expires, &used, &revoked); err != nil {
 		return apiToken{}, err
 	}
 	all, list, ok := decodeServers(servers)
@@ -199,32 +226,43 @@ func (s *Server) tokensWhere(cond string, args ...any) ([]apiToken, error) {
 
 var errTokenGone = errors.New("the token was revoked or ran out")
 
-// tokenRights is what the token with this id may do now.
-func (s *Server) tokenRights(id string) (rights, error) {
+// tokenRights is what the token with this id may do now, and its account as
+// permit sees it. A removed account's tokens go with it: errTokenGone.
+func (s *Server) tokenRights(id string) (access, rights, error) {
 	t, err := s.tokenWhere(`t.id = ?`, id)
 	if isNoRows(err) {
-		return rights{}, errTokenGone
+		return access{}, rights{}, errTokenGone
 	}
 	if err != nil {
-		return rights{}, errDB
+		return access{}, rights{}, errDB
 	}
 	return s.checkToken(t)
 }
 
-// checkToken is what a token may do now: errTokenGone once it is revoked or
-// has run out, and for a token made for more than its account may now let
-// it do, which it revokes. It leaves the token's MCP sessions to the
-// caller, which may be serving one of them.
-func (s *Server) checkToken(t apiToken) (rights, error) {
+// checkToken is what a token may do now, with its account as permit sees
+// it: errTokenGone once the token is revoked or has run out, and for a
+// token whose account is off the team, holds a lower role than when the
+// token was made, or can no longer do everything the token was made for,
+// which it revokes. It leaves the token's MCP sessions to the caller, which
+// may be serving one of them.
+func (s *Server) checkToken(t apiToken) (access, rights, error) {
 	if !t.RevokedAt.IsZero() || !s.now().Before(t.ExpiresAt) {
-		return rights{}, errTokenGone
+		return access{}, rights{}, errTokenGone
 	}
-	max := accountRights(t.AccountRole)
+	a, err := s.access(user{ID: t.UserID, Username: t.Username, Role: t.AccountRole})
+	if err != nil {
+		return access{}, rights{}, errDB
+	}
+	if grantRank(accountGrant(a)) < grantRank(t.MadeAs) {
+		s.revokeToken(t, "playkeeper", "its account was removed from the team or its role was lowered")
+		return access{}, rights{}, errTokenGone
+	}
+	max := accountRights(a)
 	if !t.within(max) {
 		s.revokeToken(t, "playkeeper", "its account can no longer do everything the token was made for")
-		return rights{}, errTokenGone
+		return access{}, rights{}, errTokenGone
 	}
-	return t.effective(max), nil
+	return a, t.effective(max), nil
 }
 
 // revokeToken stops a token working and reports whether it was working.
@@ -248,16 +286,26 @@ func (s *Server) closeTokenSessions(id string) {
 	}
 }
 
-// sweepTokens revokes every working token made for more than its account
-// may now let it do, so none waits for its next use.
+// sweepTokens revokes every working token that checkToken would stop, so
+// none waits for its next use.
 func (s *Server) sweepTokens() {
-	list, err := s.tokensWhere(`t.revoked_at = 0 AND t.expires_at > ?`, s.now().UnixMilli())
+	s.sweepTokensWhere(`t.revoked_at = 0 AND t.expires_at > ?`, s.now().UnixMilli())
+}
+
+// checkAccountTokens is sweepTokens for one account, as soon as its role or
+// servers change: a token that stops ends its MCP sessions and calls now.
+func (s *Server) checkAccountTokens(userID int64) {
+	s.sweepTokensWhere(`t.user_id = ? AND t.revoked_at = 0 AND t.expires_at > ?`, userID, s.now().UnixMilli())
+}
+
+func (s *Server) sweepTokensWhere(cond string, args ...any) {
+	list, err := s.tokensWhere(cond, args...)
 	if err != nil {
 		s.log.Error("check API tokens", "err", err)
 		return
 	}
 	for _, t := range list {
-		if _, err := s.checkToken(t); errors.Is(err, errTokenGone) {
+		if _, _, err := s.checkToken(t); errors.Is(err, errTokenGone) {
 			s.closeTokenSessions(t.ID)
 		}
 	}
@@ -290,7 +338,7 @@ func (s *Server) authenticateToken(_ *http.Request, token string) (mcp.Principal
 	if err != nil {
 		return mcp.Principal{}, errDB
 	}
-	r, err := s.checkToken(t)
+	_, r, err := s.checkToken(t)
 	if errors.Is(err, errTokenGone) {
 		s.closeTokenSessions(t.ID)
 		return mcp.Principal{}, mcp.ErrInvalidToken
@@ -339,7 +387,7 @@ func viewToken(t apiToken, sess *session) tokenView {
 func (s *Server) hTokens(w http.ResponseWriter, r *http.Request, sess *session) {
 	s.sweepTokens()
 	cond, args := `t.revoked_at = 0`, []any{}
-	if sess.User.Role != roleOwner {
+	if !sess.Access.owner() {
 		cond, args = cond+` AND t.user_id = ?`, append(args, sess.User.ID)
 	}
 	list, err := s.tokensWhere(cond, args...)
@@ -427,19 +475,19 @@ func (s *Server) hTokenCreate(w http.ResponseWriter, r *http.Request, sess *sess
 		}
 		want.servers = servers
 	}
-	if !want.within(accountRights(sess.User.Role)) {
+	if !want.within(accountRights(sess.Access)) {
 		writeErr(w, http.StatusForbidden, api.CodeForbidden, "A token can't do more than your account can.", "")
 		return
 	}
 	now := s.now()
-	t := apiToken{rights: want, ID: randomID(), UserID: sess.User.ID, Username: sess.User.Username, AccountRole: sess.User.Role, Name: name,
-		CreatedAt: now, ExpiresAt: now.Add(time.Duration(req.Days) * 24 * time.Hour)}
+	t := apiToken{rights: want, ID: randomID(), UserID: sess.User.ID, Username: sess.User.Username, AccountRole: sess.User.Role, MadeAs: accountGrant(sess.Access),
+		Name: name, CreatedAt: now, ExpiresAt: now.Add(time.Duration(req.Days) * 24 * time.Hour)}
 	secret := tokenPrefix + randomToken(tokenSecretBytes)
-	res, err := s.db.Exec(`INSERT INTO api_tokens(id, user_id, name, token_hash, role, servers, created_at, expires_at)
-		SELECT ?, ?, ?, ?, ?, ?, ?, ?
+	res, err := s.db.Exec(`INSERT INTO api_tokens(id, user_id, name, token_hash, role, servers, created_at, expires_at, account_role)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
 		WHERE (SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND revoked_at = 0 AND expires_at > ?) < ?
 		AND NOT EXISTS (SELECT 1 FROM api_tokens WHERE user_id = ? AND revoked_at = 0 AND name = ? COLLATE NOCASE)`,
-		t.ID, t.UserID, t.Name, tokenHash(secret), t.role, encodeServers(t.rights), now.UnixMilli(), t.ExpiresAt.UnixMilli(),
+		t.ID, t.UserID, t.Name, tokenHash(secret), t.role, encodeServers(t.rights), now.UnixMilli(), t.ExpiresAt.UnixMilli(), t.MadeAs,
 		t.UserID, now.UnixMilli(), maxTokens, t.UserID, t.Name)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not create the token.", "")
@@ -472,7 +520,7 @@ func (s *Server) hTokenRevoke(w http.ResponseWriter, r *http.Request, sess *sess
 		return
 	}
 	t, err := s.tokenWhere(`t.id = ? AND t.revoked_at = 0`, id)
-	if err == nil && sess.User.Role != roleOwner && t.UserID != sess.User.ID {
+	if err == nil && !sess.Access.owner() && t.UserID != sess.User.ID {
 		err = sql.ErrNoRows
 	}
 	switch {
@@ -505,7 +553,7 @@ type agentActivityView struct {
 // every account's for an owner.
 func (s *Server) hTokenActivity(w http.ResponseWriter, r *http.Request, sess *session) {
 	q, args := `SELECT a.token_id, t.name, a.tool, a.server_id, a.server_name, a.count, a.ts FROM agent_activity a JOIN api_tokens t ON t.id = a.token_id`, []any{}
-	if sess.User.Role != roleOwner {
+	if !sess.Access.owner() {
 		q, args = q+` WHERE t.user_id = ?`, append(args, sess.User.ID)
 	}
 	rows, err := s.db.Query(q+` ORDER BY a.ts DESC, a.id DESC LIMIT 50`, args...)

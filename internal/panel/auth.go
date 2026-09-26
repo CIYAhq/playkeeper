@@ -263,6 +263,16 @@ CREATE TABLE machine_join_failures (
   network TEXT NOT NULL
 );
 `,
+	// The role each API token's account held when the token was made (owner,
+	// or its project role): a token stops working once its account holds a
+	// lower one or leaves the team.
+	`
+ALTER TABLE api_tokens ADD COLUMN account_role TEXT NOT NULL DEFAULT '';
+UPDATE api_tokens SET account_role = COALESCE((
+  SELECT CASE WHEN u.role = 'owner' THEN 'owner'
+    ELSE (SELECT pm.role FROM project_members pm WHERE pm.user_id = u.id ORDER BY pm.created_at LIMIT 1) END
+  FROM users u WHERE u.id = api_tokens.user_id), '');
+`,
 }
 
 const (

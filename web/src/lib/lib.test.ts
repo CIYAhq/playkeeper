@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { templateQuery } from '@/api/templates'
-import type { Address, Catalog, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
+import type { Address, Catalog, CatalogEntry, Me, ProjectRole, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { budgetAdvice, createRequest, freeName, styleMemory, versionCards, versionLine } from '@/components/app/create'
 import { lineRuns } from '@/components/app/line-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/pages/onboarding'
+import { tokenRoles } from './access'
 import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
@@ -981,5 +982,14 @@ describe('address', () => {
     expect(recordFor(a, servers.slice(1))).toBe('Dashboard')
     expect(recordFor(srv, servers)).toBe('Creative, on port 25566')
     expect(recordFor(srv, servers, true)).toBe('Creative')
+  })
+})
+
+describe('token roles', () => {
+  const me = (role: ProjectRole): Me => ({ user: { username: 'mara', role: 'member' }, csrfToken: 't', expiresAt: '', idleTimeoutSeconds: 0, version: '0.4.0', access: { role, servers: { all: true }, twoFactor: false, can: [] } })
+  it('offers a token no more than the account’s own role', () => {
+    expect(tokenRoles(me('viewer'))).toEqual(['viewer'])
+    expect(tokenRoles(me('moderator'))).toEqual(['viewer', 'moderator'])
+    expect(tokenRoles(me('admin'))).toEqual(['viewer', 'moderator', 'admin'])
   })
 })

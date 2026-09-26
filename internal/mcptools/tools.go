@@ -5,9 +5,10 @@
 //
 // Authorization happens in one place, not in each tool. Before a tool runs,
 // the caller's rights are looked up again (Backend.Access), the tool's scope
-// is checked against them, and the server it names is looked for among the
-// servers they cover only, so a server outside them looks exactly like one
-// that doesn't exist. Tools never see the other servers.
+// is checked against them, then the tool's action against the caller's
+// account, and the server it names is looked for among the servers they
+// cover only, so a server outside them looks exactly like one that doesn't
+// exist. Tools never see the other servers.
 package mcptools
 
 import (
@@ -52,6 +53,21 @@ const (
 	// RefusedScope is a call to a tool the caller's current rights no
 	// longer allow.
 	RefusedScope = mcp.KindScopeMissing
+	// RefusedAction is a call to a tool whose action the caller's account
+	// may not take now.
+	RefusedAction = "action_not_allowed"
+)
+
+// Actions are what the dashboard checks an account for before a route runs.
+// Each tool takes the action of the dashboard route that does what it does,
+// so a token never does what its account couldn't do in the dashboard.
+const (
+	ActView          = "view"
+	ActRunServers    = "servers.run"
+	ActConsole       = "servers.console"
+	ActManagePlayers = "players.manage"
+	ActMakeBackups   = "backups.make"
+	ActManageServers = "servers.manage"
 )
 
 // ErrRevoked is what Backend.Access returns for a token that was revoked or
@@ -59,16 +75,22 @@ const (
 var ErrRevoked = errors.New("mcptools: the token no longer works")
 
 // Access is what a caller may do: up to Scope, on every server or only on
-// the servers listed.
+// the servers listed, and only what May allows.
 type Access struct {
 	Scope      mcp.Scope
 	AllServers bool
 	Servers    []string
+	// May reports whether the caller's account may take an action (one of
+	// the Act constants) right now. Nil allows every action, as for root on
+	// the machine.
+	May func(act string) bool
 }
 
 func (a Access) allows(s mcp.Scope) bool {
 	return mcp.Principal{Scopes: []mcp.Scope{a.Scope}}.Allows(s)
 }
+
+func (a Access) mayTake(act string) bool { return a.May == nil || a.May(act) }
 
 func (a Access) covers(id string) bool {
 	return a.AllServers || slices.Contains(a.Servers, id)
@@ -107,13 +129,25 @@ func Tools(b Backend) []mcp.Tool {
 	return out
 }
 
+// Actions maps each tool's name to its action.
+func Actions() map[string]string {
+	out := map[string]string{}
+	for _, s := range toolSpecs() {
+		out[s.name] = s.act
+	}
+	return out
+}
+
 // spec is a tool before authorization is wrapped around it.
 type spec struct {
 	name, title, desc string
 	scope             mcp.Scope
-	effect            mcp.Effect
-	idempotent        bool
-	openWorld         bool
+	// act is the action of the dashboard route that does what the tool
+	// does.
+	act        string
+	effect     mcp.Effect
+	idempotent bool
+	openWorld  bool
 	// perServer tools take a required "server" argument, resolved before
 	// run is called.
 	perServer bool
@@ -162,6 +196,13 @@ func (s spec) tool(b Backend) mcp.Tool {
 				return nil, &mcp.ToolError{Kind: mcp.KindScopeMissing,
 					Msg:    fmt.Sprintf("This token can't use %s any more: it needs the %s scope, and its account's role now allows less.", s.name, s.scope),
 					Params: map[string]string{"required_scope": string(s.scope), "tool": s.name}}
+			}
+			if !access.mayTake(s.act) {
+				b.Refused(ctx, mc.Principal, s.name, RefusedAction)
+				return nil, &mcp.ToolError{Kind: RefusedAction,
+					Msg:    fmt.Sprintf("This token can't use %s: its account isn't allowed to do that now.", s.name),
+					Hint:   "A token can do only what its account's role allows. The owner of this Playkeeper can change the role.",
+					Params: map[string]string{"action": s.act, "tool": s.name}}
 			}
 			c.access = access
 			if s.perServer {
