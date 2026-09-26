@@ -256,6 +256,24 @@ control "a machine installed to join opens only the game port" internal/install/
   'return []int{o.GamePort}' \
   'return []int{o.PanelPort, o.GamePort}' \
   ./internal/install '^TestInstallingToJoinRunsNoDashboardAndOpensOnlyTheGamePort$'
+control "the hub keeps the wrong join codes it counts" internal/machinelink/hub.go \
+  'if err := h.store.SetJoinFailures(ctx, h.guard.fail(now, from)); err != nil {' \
+  'if err := h.store.SetJoinFailures(ctx, nil); h.guard.fail(now, from) == nil && err != nil {' \
+  ./internal/machinelink '^TestJoinPauseOutlastsARestart$'
+control "a restarted hub starts from the wrong join codes kept" internal/machinelink/hub.go \
+  'guard: newGuard(o.Limits, kept, o.Now())' \
+  'guard: newGuard(o.Limits, kept[:0], o.Now())' \
+  ./internal/machinelink '^TestJoinPauseOutlastsARestart$'
+control "a wrong code kept from a wrong clock pauses joining no longer than the window" internal/machinelink/code.go \
+  '			g.fails[i].At = now' \
+  '			_ = now' \
+  ./internal/machinelink '^TestGuardStartsFromTheFailuresKept$'
+control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
+  '	for _, f := range fails {
+		network := ""' \
+  '	for _, f := range fails[:0] {
+		network := ""' \
+  ./internal/panel '^(TestTooManyWrongCodesPauseJoining|TestLinkStoreKeepsJoinFailures)$'
 control "RCON finds a closed connection before writing" internal/minecraft/rcon.go \
   'if err := r.probe(); err != nil {' \
   'if err := r.probe(); false && err != nil {' \
@@ -589,6 +607,10 @@ control "a restore stage is kept while its swap is not settled" internal/agent/b
   'if err := a.settleSwap(dir); err != nil {' \
   'if err := a.settleSwap(dir); false && err != nil {' \
   ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+control "a restore preview read again keeps its staged source" internal/agent/backups.go \
+  'st.preview.Source, st.preview.ReceivedAt = s.Preview.Source, s.Preview.ReceivedAt' \
+  'st.preview.ReceivedAt = s.Preview.ReceivedAt' \
+  ./internal/agent '^TestRestorePreviewSaysOnceTheBackupWasMadeHere$'
 control "no start recreates a world directory a restore moved aside" internal/agent/lifecycle.go \
   'if prev := s.newestPreviousWorld(); prev != "" {' \
   'if prev := s.newestPreviousWorld(); false && prev != "" {' \
