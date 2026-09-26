@@ -763,6 +763,9 @@ func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) erro
 		return s.dockerErr(err)
 	}
 	s.resetRCON()
+	// Said here rather than when the reconcile loop sees the exit: a restart
+	// or an update starts the server again before it looks.
+	s.alert(discord.Stopped())
 	return nil
 }
 
@@ -914,7 +917,6 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 	case intentional:
 		s.closeOpenSessions(fin, "server_stopped", false)
-		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 	case graceful:
 		s.closeOpenSessions(fin, "server_stopped", false)
 		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
@@ -966,7 +968,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	}
 	s.crashes = append(recent, fin)
 	n := len(s.crashes)
-	s.crashed = true
+	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
 	if st.OOMKilled {
 		s.lastError = "The server ran out of memory and was killed."

@@ -1797,13 +1797,20 @@ control "Discord hears a server come online" internal/agent/collector.go \
   '} else if fresh {' \
   '} else if false && fresh {' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
-control "Discord hears a server stop" internal/agent/lifecycle.go \
-  's.closeOpenSessions(fin, "server_stopped", false)
-		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
-	case graceful:' \
-  's.closeOpenSessions(fin, "server_stopped", false)
-	case graceful:' \
-  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^stopped$'
+control "Discord hears Playkeeper stop a server, restarts too" internal/agent/lifecycle.go \
+  '	s.alert(discord.Stopped())
+	return nil' \
+  '	return nil' \
+  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart)$/^every_alert$'
+control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle.go \
+  '		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
+		s.recordEvent(fin, "server_stopped_externally"' \
+  '		s.recordEvent(fin, "server_stopped_externally"' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_clean_stop_outside_Playkeeper$/^every_alert$'
+control "a start after failed starts is not a recovery" internal/agent/collector.go \
+  'recovered := s.runCrashed' \
+  'recovered := s.crashed' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
 control "a profile shows a player online only from a fresh sample" internal/agent/profile.go \
   'if s.players != nil && s.fresh(s.players.At) {' \
   'if s.players != nil {' \

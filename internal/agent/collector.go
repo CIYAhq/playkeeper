@@ -246,8 +246,8 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		if current && ended.IsZero() {
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
-			recovered := s.crashed
-			s.crashed, s.crash = false, nil
+			recovered := s.runCrashed
+			s.crashed, s.runCrashed, s.crash = false, false, nil
 			s.lastError, s.lastErrorHint = "", ""
 			s.mu.Unlock()
 			if recovered && fresh {
