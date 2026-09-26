@@ -92,6 +92,10 @@ func failureOf(err error) (int, api.Error) {
 	if errors.Is(err, errLinksOff) {
 		return http.StatusServiceUnavailable, api.Error{Error: "This machine can't be reached from here.", Code: machinelink.CodeNotConnected}
 	}
+	if errors.Is(err, errServerMachine) {
+		return http.StatusServiceUnavailable, api.Error{Error: "The dashboard couldn't look up which machine runs this server, so it sent the request to none.",
+			Code: api.CodeInternal, Hint: "Try again in a moment."}
+	}
 	return http.StatusServiceUnavailable, api.Error{Error: "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.",
 		Code: api.CodeAgentUnavailable, Hint: "On the server, check: sudo systemctl status playkeeper-agent"}
 }

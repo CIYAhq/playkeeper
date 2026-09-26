@@ -26,6 +26,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
+	"github.com/CIYAhq/playkeeper/internal/mcp"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -625,6 +626,66 @@ func TestAMachineCantFillTheDatabaseWithServers(t *testing.T) {
 	e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, alpha.ID).Scan(&n)
 	if n != maxMachineServers || !strings.Contains(e.logs.String(), "more servers than the dashboard keeps") {
 		t.Fatalf("rows kept: %d", n)
+	}
+}
+
+// Only a server no machine has goes to the dashboard's own machine. When the
+// lookup of a server's machine fails, its requests go to no machine, and the
+// answer says to try again.
+func TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp(t *testing.T) {
+	const rowsGone, machinesGone = `ALTER TABLE server_machines RENAME TO server_machines_gone`, `ALTER TABLE machines RENAME TO machines_gone`
+	for _, tc := range []struct {
+		name, server, breaks string
+		want                 string // a machine's id, "local", "disputed" or "no lookup"
+	}{
+		{"a server no machine has", "nobodyhass", "", "local"},
+		{"a joined machine's server", "xxxxxxxxxx", "", "alphaalpha"},
+		{"a server two joined machines list", "zzzzzzzzzz", "", "disputed"},
+		{"a joined machine's server, when the servers' machines can't be read", "xxxxxxxxxx", rowsGone, "no lookup"},
+		{"a server no machine has, when the servers' machines can't be read", "nobodyhass", rowsGone, "no lookup"},
+		{"a joined machine's server, when the machines can't be read", "xxxxxxxxxx", machinesGone, "no lookup"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, csrf := e.setup(t)
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			e.srv.claimServers(alpha, serverList("xxxxxxxxxx", "zzzzzzzzzz"))
+			e.srv.claimServers(beta, serverList("zzzzzzzzzz"))
+			if tc.breaks != "" {
+				if _, err := e.srv.db.Exec(tc.breaks); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m, err := e.srv.machineForServer(tc.server)
+			got := m.ID
+			switch {
+			case errors.Is(err, errServerMachine):
+				got = "no lookup"
+			case errors.Is(err, errDisputed):
+				got = "disputed"
+			case err != nil:
+				t.Fatal(err)
+			case m.Kind == localKind:
+				got = "local"
+			}
+			if got != tc.want {
+				t.Fatalf("%s goes to %q, want %q", tc.server, got, tc.want)
+			}
+			if tc.want != "no lookup" {
+				return
+			}
+			if r := e.do(t, "POST", "/api/servers/"+tc.server+"/start", `{}`, auth(cookie, csrf)); r.status != http.StatusServiceUnavailable || r.body["code"] != api.CodeInternal ||
+				r.body["hint"] != "Try again in a moment." || e.sawLocally("POST /v1/servers/"+tc.server+"/start") {
+				t.Fatalf("start: %d %v", r.status, r.body)
+			}
+			var te *mcp.ToolError
+			if _, err := (mcpBackend{e.srv}).Agent(context.Background(), tc.server); !errors.As(err, &te) || te.Kind != api.CodeInternal {
+				t.Fatalf("an AI agent's tool: %v", err)
+			}
+			if !strings.Contains(e.logs.String(), "look up the machine that runs a server") {
+				t.Fatal("the failed lookup isn't logged")
+			}
+		})
 	}
 }
 

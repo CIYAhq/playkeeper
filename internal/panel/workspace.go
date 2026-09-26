@@ -407,16 +407,30 @@ func (s *Server) machineByID(id string) (machine, error) {
 
 var errNotFound = errors.New("not found")
 
+// errServerMachine is a lookup of the machine that runs a server that
+// failed. The request goes to no machine: the dashboard's own may not be
+// the one.
+var errServerMachine = errors.New("could not look up the machine that runs the server")
+
 // machineForServer finds the machine that runs a server in server_machines
 // (see claimServers), or the dashboard's own machine for a server no
 // machine has. A disputed server has none. It never asks the machines.
 func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
-	if err != nil || len(list) == 0 {
+	if err != nil {
+		s.log.Error("look up the machine that runs a server", "server", serverID, "err", err)
+		return machine{}, errServerMachine
+	}
+	if len(list) == 0 {
 		return machine{}, errNotFound
 	}
 	var owner, disputedBy string
-	if err := s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy); err == nil {
+	err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
+	if err != nil && !isNoRows(err) {
+		s.log.Error("look up the machine that runs a server", "server", serverID, "err", err)
+		return machine{}, errServerMachine
+	}
+	if err == nil {
 		for _, m := range list {
 			if m.ID != owner {
 				continue

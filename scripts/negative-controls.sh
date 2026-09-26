@@ -3077,6 +3077,13 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 	var c *uploadClaim' \
   ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
 
+control "a failed lookup of a server's machine sends its requests to no machine, not the dashboard's own" internal/panel/workspace.go \
+  'err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
+	if err != nil && !isNoRows(err) {' \
+  'err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
+	if false && err != nil && !isNoRows(err) {' \
+  ./internal/panel '^TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
