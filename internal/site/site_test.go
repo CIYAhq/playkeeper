@@ -469,3 +469,32 @@ func TestBlogShowsReadingTimes(t *testing.T) {
 		t.Errorf("the blog index doesn't say %q", post[0])
 	}
 }
+
+// The docs search shows titles and snippets as text, so its index holds
+// text: "Can't reach the dashboard", not "Can&#39;t reach the dashboard".
+func TestDocsSearchIndexIsText(t *testing.T) {
+	o := build(t, Default)
+	var index []byte
+	for name, b := range o.Files {
+		if strings.HasPrefix(name, "assets/js/docs-index.") {
+			index = b
+		}
+	}
+	js := strings.TrimSuffix(strings.TrimPrefix(string(index), "window.playkeeperDocs = "), ";\n")
+	var entries []SearchEntry
+	if err := json.Unmarshal([]byte(js), &entries); err != nil {
+		t.Fatalf("the docs search index: %v", err)
+	}
+	titles := map[string]bool{}
+	for _, e := range entries {
+		titles[e.Title] = true
+		if reEntity.MatchString(e.Title) || reEntity.MatchString(e.Text) {
+			t.Errorf("the docs search index has HTML in %q: %q", e.Title, e.Text)
+		}
+	}
+	if !titles["Can't reach the dashboard"] {
+		t.Error(`the docs search doesn't find "Can't reach the dashboard"`)
+	}
+}
+
+var reEntity = regexp.MustCompile(`&(#\d+|#x[0-9a-fA-F]+|[a-z]+);`)

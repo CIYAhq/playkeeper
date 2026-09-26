@@ -284,8 +284,8 @@ func searchEntries(p *Page, body string) []SearchEntry {
 				title = lead
 			}
 		}
-		if len(title) > 80 {
-			title = title[:80]
+		if r := []rune(title); len(r) > 80 {
+			title = string(r[:80])
 		}
 		out = append(out, SearchEntry{Title: title, Page: p.docs.Title, URL: p.Path + "#" + m[2], Text: snippet(m[3], 220)})
 	}
@@ -293,7 +293,7 @@ func searchEntries(p *Page, body string) []SearchEntry {
 }
 
 func plainText(h string) string {
-	return strings.TrimSpace(reSpaces.ReplaceAllString(template.HTMLEscapeString(unescape(reTags.ReplaceAllString(h, " "))), " "))
+	return strings.TrimSpace(reSpaces.ReplaceAllString(unescape(reTags.ReplaceAllString(h, " ")), " "))
 }
 
 func snippet(h string, n int) string {
