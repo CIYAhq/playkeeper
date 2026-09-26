@@ -1119,10 +1119,10 @@ control "the liveness check answers for the name being claimed" internal/agent/a
   'a.setClaiming(name)' \
   'a.setClaiming("")' \
   ./internal/agent '^TestLivenessCheckIsAnsweredOnlyForTheMachinesName$'
-control "the liveness check needs no sign-in" internal/panel/server.go \
-  '{"GET", names.AlivePath + "{nonce}", public, "", s.hNamesAlive}' \
-  '{"GET", names.AlivePath + "{nonce}", needSession, actView, s.hNamesAlive}' \
-  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$'
+control "the liveness check is a public route, answered without sign-in" internal/panel/public.go \
+  '{prefix: names.AlivePath, limits: aliveLimits, handler: s.aliveRoute()},' \
+  '{prefix: names.AlivePath + "off/", limits: aliveLimits, handler: s.aliveRoute()},' \
+  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$|^TestTheNamesServiceGetsItsSignedAnswerOnThePanelsPort$'
 control "the liveness check tells the agent the Host it asked" internal/panel/alive.go \
   'url.Values{"host": {r.Host}}' \
   'nil' \
@@ -1132,8 +1132,12 @@ control "the port-8443 listener serves only the liveness check" internal/panel/a
   'mux.Handle("/", s.Handler()); return s.securityHeaders(s.logRequests(mux))' \
   ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$'
 control "per-address liveness check limit" internal/panel/alive.go \
-  'if ok, wait := s.alive.allow(limitKey(clientIP(r))); !ok {' \
-  'if ok, wait := true, time.Duration(0); !ok {' \
+  'var aliveLimits = publicLimits{perMinute: 20,' \
+  'var aliveLimits = publicLimits{perMinute: 1 << 20,' \
+  ./internal/panel '^TestLivenessChecksAreLimitedPerAddress$'
+control "the port-8443 listener goes through the public group" internal/panel/alive.go \
+  'mux.Handle(names.AlivePath, s.public.handler(names.AlivePath))' \
+  'mux.Handle(names.AlivePath, s.aliveRoute())' \
   ./internal/panel '^TestLivenessChecksAreLimitedPerAddress$'
 control "a certificate limit waits for the names service's Retry-After" internal/agent/certificates.go \
   'retry = now.Add(ne.RetryAfter)' \

@@ -12,32 +12,38 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
 // The names service checks every few hours that a free name's address runs
 // a dashboard holding the name's key, by asking port 8443 to sign a fresh
 // nonce (see names.AliveHandler). The key is root's, so the panel passes
-// the check on to the agent.
+// the check on to the agent. The check is a route of the public group.
+
+// aliveLimits fit the names service's checks: one every few hours for each
+// name, one at a time, each a short answer from the agent.
+var aliveLimits = publicLimits{perMinute: 20, open: 2, read: 10 * time.Second, write: 10 * time.Second}
+
+// aliveRoute is the public group's handler for names.AlivePath: the check
+// at names.AlivePattern, and 404 for any other method or path under it.
+func (s *Server) aliveRoute() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(names.AlivePattern, s.hNamesAlive)
+	mux.Handle(names.AlivePath, http.NotFoundHandler())
+	return mux
+}
 
 // hNamesAlive passes a liveness check on to the agent with the Host header
 // it came with, and answers with the agent's answer.
-func (s *Server) hNamesAlive(w http.ResponseWriter, r *http.Request, _ *session) {
-	if ok, wait := s.alive.allow(limitKey(clientIP(r))); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
-		writeErr(w, http.StatusTooManyRequests, api.CodeRateLimited, "Too many liveness checks from this address.", "")
-		return
-	}
+func (s *Server) hNamesAlive(w http.ResponseWriter, r *http.Request) {
 	path := "/v1/address/alive/" + url.PathEscape(r.PathValue("nonce"))
 	resp, err := s.agent.Raw(r.Context(), http.MethodGet, path, url.Values{"host": {r.Host}}, nil, nil, false)
 	if err != nil {
-		writeErr(w, http.StatusServiceUnavailable, api.CodeAgentUnavailable, "The Playkeeper agent is not running.", "")
+		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(resp.Body, 4<<10))
 }
@@ -45,7 +51,7 @@ func (s *Server) hNamesAlive(w http.ResponseWriter, r *http.Request, _ *session)
 // aliveHandler serves the liveness check and nothing else.
 func (s *Server) aliveHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc(names.AlivePattern, func(w http.ResponseWriter, r *http.Request) { s.hNamesAlive(w, r, nil) })
+	mux.Handle(names.AlivePath, s.public.handler(names.AlivePath))
 	return s.securityHeaders(s.logRequests(mux))
 }
 
