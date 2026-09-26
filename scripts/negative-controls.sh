@@ -4113,8 +4113,8 @@ control "a new key starts the uploader again" internal/agent/offsite.go \
 	s.audit(actor, "offsite.key_rotated"' \
   ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
 control "a copy picked after a new key isn't encrypted to the old one" internal/agent/offsite.go \
-  'err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {' \
-  'err != nil || false && row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {' \
+  'err != nil || !row.enabled || row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {' \
+  'err != nil || !row.enabled || false && row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {' \
   ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^while_the_next_copy_is_picked$'
 # A new key is also a save of the settings since the claim, which a failed
 # try doesn't count either; the agent stopping reaches this guard alone.
@@ -5187,6 +5187,10 @@ control "a round whose settings changed before the claim uploads nothing more" i
   'at.keys.Current.Recipient || !sameConnection(row, at) {' \
   'at.keys.Current.Recipient {' \
   ./internal/agent '^TestARoundWhoseSettingsChangedUploadsNothingMore$'
+control "copies turned off between two copies stop the next one" internal/agent/offsite.go \
+  'err != nil || !row.enabled || row.keys' \
+  'err != nil || row.keys' \
+  ./internal/agent '^TestCopiesTurnedOffBetweenTwoCopiesStopTheNext$'
 control "a try that fails once the settings were saved since the claim doesn't count" internal/agent/offsite.go \
   'AND updated_at >= ?)' \
   'AND updated_at >= ? AND 0)' \

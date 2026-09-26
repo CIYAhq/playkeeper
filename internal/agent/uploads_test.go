@@ -520,3 +520,55 @@ func TestARoundWhoseSettingsChangedUploadsNothingMore(t *testing.T) {
 		t.Fatalf("uploads with %q, want only the new secret", got)
 	}
 }
+
+// Copies turned off while no upload runs, between two copies of a round,
+// stop the next copy: nothing more is sent, and nothing is recorded.
+func TestCopiesTurnedOffBetweenTwoCopiesStopTheNext(t *testing.T) {
+	store := &credStore{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}, secret: "the-secret", hold: map[string]chan struct{}{},
+		waiting: make(chan string, 4), stopped: make(chan string, 4)}
+	prev := openOffsite
+	openOffsite = func(cfg offsite.Config, _ offsite.Keys, _ offsite.Options) (offsiteDest, error) {
+		return credDest{credStore: store, secret: cfg.S3.SecretKey.Reveal()}, nil
+	}
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	e.create()
+	e.backup()
+	// Copies are turned off as the copy is claimed, without the route that
+	// would stop an upload, as a save between two copies is.
+	var once sync.Once
+	claimed := make(chan struct{})
+	prevHook := uploadClaimed
+	uploadClaimed = func(job uploadJob) {
+		once.Do(func() {
+			defer close(claimed)
+			s := e.srv()
+			row, err := s.loadOffsite()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			row.enabled = false
+			if err := s.saveOffsite(row); err != nil {
+				t.Error(err)
+			}
+			s.kickOffsite()
+		})
+	}
+	t.Cleanup(func() { uploadClaimed = prevHook })
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "the-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	select {
+	case <-claimed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no copy was claimed")
+	}
+	e.waitFor("the queue emptied", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_uploads`) == 0 })
+	if got := store.secrets(); len(got) != 0 {
+		t.Fatalf("%d uploads after copies were turned off, want none", len(got))
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies`); n != 0 {
+		t.Fatalf("%d copies recorded after copies were turned off, want none", n)
+	}
+}

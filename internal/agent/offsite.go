@@ -1781,14 +1781,15 @@ func backupGone(err error) bool {
 // A new key saved before the claim is seen here; one saved after it stops
 // the claim. Either way nothing more is encrypted to the old key. Other
 // settings or secrets saved before the claim end the round too, since dest
-// was opened with those it read.
+// was opened with those it read, and so do copies turned off: the next
+// round empties the queue.
 //
 // Only a backup that is gone leaves the queue. One that can't be read now
 // is a failed try, tried again later.
 func (s *server) uploadOne(ctx context.Context, dest offsiteDest, at offsiteRow, job uploadJob) bool {
 	defer s.releaseUpload()
 	uploadClaimed(job)
-	if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {
+	if row, err := s.loadOffsite(); err != nil || !row.enabled || row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {
 		return false
 	}
 	gone := func() bool {
