@@ -478,7 +478,7 @@ func (s *Server) Routes() []Route {
 		view("/api/servers/{id}/map/tiles/{world}/{zoom}/{tile}", s.mapProxy("/v1/servers/{id}/map/tiles/{world}/{zoom}/{tile}")),
 		sm("POST", "/api/servers/{id}/map/enable", "/v1/servers/{id}/map/enable"),
 		sm("POST", "/api/servers/{id}/map/disable", "/v1/servers/{id}/map/disable"),
-		sm("POST", "/api/servers/{id}/map/share", "/v1/servers/{id}/map/share"),
+		{"POST", "/api/servers/{id}/map/share", needSessionCSRF, actManageServers, s.sharing("/v1/servers/{id}/map/share", s.recordMapLink)},
 		sm("POST", "/api/servers/{id}/map/restart-later", "/v1/servers/{id}/map/restart-later"),
 		sm("POST", "/api/servers/{id}/world-imports", "/v1/servers/{id}/world-imports"),
 		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),

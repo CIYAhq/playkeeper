@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"mime"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/webmap"
@@ -159,18 +162,53 @@ func (s *Server) mapData() http.Handler {
 	return readOnly(mux)
 }
 
-// sharedMap asks the agent for part of the shared map with the link token
-// token: "" for the page's details, or worlds, players, a tile or the icon.
-// It reports false for anything but a complete answer of the expected type.
+// mapAgent is the agent to ask about the shared map with the link token
+// token: the one on the machine the link was made on, while that machine
+// runs the map's server (see recordLink), or the dashboard's own for a link
+// the dashboard has no record of. It reports false when no agent may answer.
+func (s *Server) mapAgent(token string) (*agentclient.Client, bool) {
+	m, _, err := s.linkMachine(mapLink, token)
+	switch {
+	case errors.Is(err, errNoLinkRecord):
+		return s.agent, true
+	case errors.Is(err, errNotFound), errors.Is(err, errDisputed):
+		return nil, false
+	case err != nil:
+		s.log.Warn("a shared map could not be answered", "err", err)
+		return nil, false
+	}
+	return m.agent, true
+}
+
+// recordMapLink keeps the shared map's link a machine made for a server (see
+// recordLink).
+func (s *Server) recordMapLink(m machine, serverID string, raw json.RawMessage) {
+	var info api.MapInfo
+	if json.Unmarshal(raw, &info) != nil || !info.Public {
+		return
+	}
+	if token, ok := strings.CutPrefix(info.Path, mapPagePrefix); ok && webmap.ValidShareToken(token) {
+		s.recordLink(mapLink, token, serverID, m)
+	}
+}
+
+// sharedMap asks the map's agent (see mapAgent) for part of the shared map
+// with the link token token: "" for the page's details, or worlds, players,
+// a tile or the icon. It reports false for anything but a complete answer of
+// the expected type.
 func (s *Server) sharedMap(r *http.Request, token, part string) (contentType string, body []byte, ok bool) {
 	if !webmap.ValidShareToken(token) {
+		return "", nil, false
+	}
+	agent, ok := s.mapAgent(token)
+	if !ok {
 		return "", nil, false
 	}
 	p := "/v1/public-maps/" + token
 	if part != "" {
 		p += "/" + part
 	}
-	resp, err := s.agent.Raw(r.Context(), "GET", p, nil, nil, nil, false)
+	resp, err := agent.Raw(r.Context(), "GET", p, nil, nil, nil, false)
 	if err != nil {
 		return "", nil, false
 	}
@@ -228,13 +266,18 @@ func (s *Server) hPublicMapFace(w http.ResponseWriter, r *http.Request) {
 		writeMapUnavailable(w)
 		return
 	}
+	agent, ok := s.mapAgent(token)
+	if !ok {
+		writeMapUnavailable(w)
+		return
+	}
 	var listed struct {
 		Players []struct {
 			Name string `json:"name"`
 			UUID string `json:"uuid"`
 		} `json:"players"`
 	}
-	if status, err := s.agent.Do(r.Context(), "GET", "/v1/public-maps/"+token+"/players", nil, nil, &listed); err != nil || status != http.StatusOK {
+	if status, err := agent.Do(r.Context(), "GET", "/v1/public-maps/"+token+"/players", nil, nil, &listed); err != nil || status != http.StatusOK {
 		writeMapUnavailable(w)
 		return
 	}
