@@ -42,6 +42,7 @@ type fakeDocker struct {
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
 	stopDelay    time.Duration // before a container stop takes effect
+	setupHangs   bool          // setup containers end their log streams but keep running
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
 	bootFailsOn string
@@ -402,6 +403,11 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 	if !c.running {
+		return
+	}
+	if setup && fd.setupHangs {
+		fd.log(c, "[mc-image-helper] Downloading /data/paper.jar")
+		close(c.rotated)
 		return
 	}
 	if setup {

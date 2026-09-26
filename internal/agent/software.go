@@ -522,8 +522,14 @@ func (s *server) ownSoftware(p software.Plan) error {
 	return nil
 }
 
+// setupExitWait is how long a setup container may take to stop after its
+// output ends; tests shorten it.
+var setupExitWait = 30 * time.Second
+
 // runSetupContainer runs a setup-only container to its end, copying its
-// output to the console, and returns its last lines and exit code.
+// output to the console, and returns its last lines and exit code. One
+// still running when its output has ended is stopped and fails: its files
+// may be half written.
 func (s *server) runSetupContainer(ctx context.Context, h *opHandle, spec docker.ContainerConfig) ([]string, int, error) {
 	if err := s.ensureImage(ctx, h, spec.Image); err != nil {
 		return nil, 0, err
@@ -556,15 +562,19 @@ func (s *server) runSetupContainer(ctx context.Context, h *opHandle, spec docker
 		logs.Close()
 	}
 	var c docker.ContainerJSON
-	for i := 0; i < 60; i++ {
+	for deadline := time.Now().Add(setupExitWait); ; {
 		c, err = s.docker.ContainerInspect(ctx, id)
-		if err != nil || !c.State.Running {
+		if err != nil || !c.State.Running || !time.Now().Before(deadline) {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
 		return tail, 0, s.dockerErr(err)
+	}
+	if c.State.Running {
+		return tail, 0, &apiError{Msg: "The setup container's output ended while it was still running, so Playkeeper stopped it before it finished.",
+			Hint: "Press Start to try again."}
 	}
 	return tail, c.State.ExitCode, nil
 }

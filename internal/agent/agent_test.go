@@ -1209,6 +1209,31 @@ func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 	}
 }
 
+func TestSetupStillRunningWhenItsOutputEndsFails(t *testing.T) {
+	old := setupExitWait
+	setupExitWait = time.Second
+	t.Cleanup(func() { setupExitWait = old })
+	e := newAgentEnv(t)
+	e.fd.setupHangs = true
+	code, out := e.startCreate(nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "still running") {
+		t.Fatalf("a setup container that hasn't finished must not count as done: %+v", op)
+	}
+	if e.fd.containerCount(e.cname()+"-setup") != 0 {
+		t.Fatal("the setup container must be stopped and removed")
+	}
+	e.fd.mu.Lock()
+	_, created := e.fd.byName[e.cname()]
+	e.fd.mu.Unlock()
+	if created {
+		t.Fatal("the server container must not be created from an unfinished setup")
+	}
+}
+
 func TestPortCollisionHasActionableError(t *testing.T) {
 	e := newAgentEnv(t)
 	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
