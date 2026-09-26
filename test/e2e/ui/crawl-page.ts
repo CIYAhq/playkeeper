@@ -81,6 +81,7 @@ export function installPageHelpers() {
       .trim()
       .replace(/\d+/g, '#')
       .slice(0, max)
+  const plain = (s: string | null | undefined, max = 80) => (s ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 
   function roleOf(el: Element): string {
     const explicit = el.getAttribute('role')
@@ -309,7 +310,9 @@ export function installPageHelpers() {
     if ((el as HTMLButtonElement).disabled) parts.push('disabled')
     if (el instanceof HTMLInputElement) parts.push(`value=${el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value}`)
     if (el.tagName === 'SUMMARY' && el.parentElement instanceof HTMLDetailsElement) parts.push(`open=${el.parentElement.open}`)
-    parts.push(`text=${norm(textOf(el), 80)}`)
+    // A combobox's choices can differ only in their digits ("2 GB", "4 GB"),
+    // so its text keeps them, or picking another would change nothing here.
+    parts.push(`text=${roleOf(el) === 'combobox' ? plain(textOf(el), 80) : norm(textOf(el), 80)}`)
     return parts.join(' ')
   }
 

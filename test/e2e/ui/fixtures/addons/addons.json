@@ -1,0 +1,32 @@
+{
+  "target": {
+    "kind": "plugin",
+    "folder": "plugins",
+    "sources": [
+      "modrinth",
+      "hangar"
+    ],
+    "categories": [
+      "admin",
+      "chat",
+      "economy",
+      "gameplay",
+      "minigames",
+      "world",
+      "protection",
+      "optimization",
+      "utility",
+      "library",
+      "adventure",
+      "technology",
+      "magic",
+      "storage",
+      "mobs"
+    ],
+    "minecraftVersion": "26.1.2"
+  },
+  "files": [],
+  "missing": [],
+  "warnings": [],
+  "restartNeeded": false
+}

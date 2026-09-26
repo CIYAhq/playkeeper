@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 
-export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'settings'
-export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'settings']
+export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'plugins' | 'mods' | 'settings'
+export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'plugins', 'mods', 'settings']
+
+/** Pages under a tab, such as /servers/survival/world/pregen. */
+export type ServerSub = 'pregen' | 'packs' | 'browse'
+const serverSubs: Partial<Record<ServerTab, readonly ServerSub[]>> = {
+  world: ['pregen', 'packs'],
+  plugins: ['browse'],
+  mods: ['browse'],
+}
 
 export type Route =
   | { name: 'home' }
@@ -9,7 +17,7 @@ export type Route =
   | { name: 'setup' }
   | { name: 'welcome' }
   | { name: 'new-server' }
-  | { name: 'server'; slug: string; tab: ServerTab }
+  | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub }
   | { name: 'machine'; id: string }
   | { name: 'settings' }
   | { name: 'more' }
@@ -20,7 +28,7 @@ const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 
 export function parse(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
-  const [first, second, third] = parts
+  const [first, second, third, fourth] = parts
   switch (first) {
     case undefined:
       return { name: 'home' }
@@ -43,6 +51,8 @@ export function parse(pathname: string): Route {
       if (second && reSlug.test(second)) {
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
+        const sub = fourth as ServerSub
+        if (parts.length === 4 && serverSubs[tab]?.includes(sub)) return { name: 'server', slug: second, tab, sub }
       }
       return { name: 'home' }
     case 'machines':
@@ -64,8 +74,10 @@ export function href(route: Route): string {
       return '/welcome'
     case 'new-server':
       return '/servers/new'
-    case 'server':
-      return route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
+    case 'server': {
+      const path = route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
+      return route.sub ? `${path}/${route.sub}` : path
+    }
     case 'machine':
       return `/machines/${route.id}`
     case 'settings':

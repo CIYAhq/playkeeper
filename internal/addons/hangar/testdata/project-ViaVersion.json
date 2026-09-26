@@ -1,0 +1,130 @@
+{
+ "createdAt": "2022-12-31T20:04:25.895662Z",
+ "publishedAt": "2023-01-05T16:21:22.608816Z",
+ "id": 31,
+ "name": "ViaVersion",
+ "namespace": {
+  "owner": "ViaVersion",
+  "slug": "ViaVersion"
+ },
+ "stats": {
+  "views": 1141092,
+  "downloads": 496665,
+  "recentViews": 43143,
+  "recentDownloads": 19697,
+  "stars": 468,
+  "watchers": 271
+ },
+ "category": "misc",
+ "description": "Allow newer Java Edition versions to connect, why lose players after a Minecraft update?",
+ "lastUpdated": "2026-09-20T12:56:41.657559Z",
+ "visibility": "public",
+ "userActions": {
+  "starred": false,
+  "watching": false,
+  "flagged": false
+ },
+ "settings": {
+  "links": [
+   {
+    "id": 0,
+    "type": "top",
+    "title": "top",
+    "links": [
+     {
+      "id": 1,
+      "name": "Issues",
+      "url": "https://github.com/ViaVersion/ViaVersion/issues"
+     },
+     {
+      "id": 2,
+      "name": "Source",
+      "url": "https://github.com/ViaVersion/ViaVersion/"
+     },
+     {
+      "id": 3,
+      "name": "Support",
+      "url": "https://discord.gg/ViaVersion"
+     },
+     {
+      "id": 4,
+      "name": "Wiki",
+      "url": "https://docs.viaversion.com/"
+     },
+     {
+      "id": 5,
+      "name": "Donate",
+      "url": "https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false"
+     }
+    ]
+   },
+   {
+    "id": 1,
+    "type": "sidebar",
+    "title": "Early-Access builds",
+    "links": [
+     {
+      "id": 0,
+      "name": "GitHub Sponsors",
+      "url": "https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false"
+     }
+    ]
+   }
+  ],
+  "tags": [
+   "SUPPORTS_FOLIA"
+  ],
+  "license": {
+   "name": "GPL",
+   "url": "https://github.com/ViaVersion/ViaVersion/blob/master/LICENSE",
+   "type": "GPL"
+  },
+  "keywords": [
+   "viaversion",
+   "via",
+   "connect",
+   "protocol",
+   "compatbility"
+  ],
+  "sponsors": "",
+  "unlisted": false,
+  "donation": {
+   "subject": "",
+   "enable": false
+  }
+ },
+ "supportedPlatforms": {
+  "PAPER": [
+   "1.21",
+   "1.21.1",
+   "1.21.10",
+   "1.21.11",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "WATERFALL": [
+   "1.18",
+   "1.19",
+   "1.20"
+  ],
+  "VELOCITY": [
+   "4.1.0",
+   "4.1.1",
+   "4.2.0"
+  ]
+ },
+ "mainPageContent": null,
+ "memberNames": null,
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/31.webp?v=1"
+}

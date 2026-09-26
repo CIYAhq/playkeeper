@@ -90,6 +90,9 @@ type server struct {
 	rconMu sync.Mutex
 	rcon   *minecraft.RCON
 	rconIP string
+
+	checks addonChecks
+	pg     pregenCache
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -198,9 +201,10 @@ func (a *Agent) loadServers() error {
 	return rows.Err()
 }
 
-// startServerLoops runs the follower, collector and reconciler of a server.
+// startLoops runs the follower, collector, reconciler and map
+// pre-generation watcher of a server.
 func (s *server) startLoops() {
-	for _, fn := range []func(context.Context){s.followLoop, s.sampleLoop, s.reconcileLoop} {
+	for _, fn := range []func(context.Context){s.followLoop, s.sampleLoop, s.reconcileLoop, s.pregenLoop} {
 		fn := fn
 		s.wg.Add(1)
 		s.loops.Add(1)
@@ -536,6 +540,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	for _, q := range []string{
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
+		`DELETE FROM addons WHERE server_id = ?`, `DELETE FROM pregen WHERE server_id = ?`,
 		`DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {
