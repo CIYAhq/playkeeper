@@ -75,7 +75,9 @@ type Hub struct {
 	guard   *guard
 	tlsConf *tls.Config
 	pending *pendingConns
-	joinMu  sync.Mutex
+	// joinMu is held while a join redeems a code and while a code is made,
+	// so making one never drops a code a join is redeeming.
+	joinMu sync.Mutex
 
 	mu        sync.Mutex
 	closed    bool
@@ -663,6 +665,8 @@ func (h *Hub) nameOf(id string) string {
 // keyed hash of it. Making a code drops codes expired over an hour ago
 // and, beyond MaxWaitingCodes waiting ones, the oldest.
 func (h *Hub) NewJoinCode(ctx context.Context, by string) (string, JoinCode, error) {
+	h.joinMu.Lock()
+	defer h.joinMu.Unlock()
 	now := h.now()
 	codes, err := h.store.JoinCodes(ctx)
 	if err != nil {

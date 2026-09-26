@@ -451,6 +451,14 @@ control "a join without a usable answer is told apart from a refusal" internal/m
   'err = errJoinUnanswered(a, err)' \
   '_ = errJoinUnanswered(a, err)' \
   ./internal/machinelink '^TestAJoinWhoseAnswerIsLostFinishesWhenSentAgain$'
+control "making a join code waits for a join redeeming one" internal/machinelink/hub.go \
+  'h.joinMu.Lock()
+	defer h.joinMu.Unlock()
+	now := h.now()
+	codes, err := h.store.JoinCodes(ctx)' \
+  'now := h.now()
+	codes, err := h.store.JoinCodes(ctx)' \
+  ./internal/machinelink '^TestMakingACodeNeverDropsOneBeingRedeemed$'
 control "a join the dashboard may have accepted keeps its key" internal/install/link.go \
   'if kept || machinelink.MayHaveJoined(err) {' \
   'if false && (kept || machinelink.MayHaveJoined(err)) {' \

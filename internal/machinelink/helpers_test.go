@@ -605,3 +605,17 @@ func (s *losingStore) Pair(ctx context.Context, codeID string, m Machine) error 
 	}
 	return err
 }
+
+// gatedStore holds the hub inside a join, after it found the join code,
+// until goOn is closed.
+type gatedStore struct {
+	*MemoryStore
+	inside, goOn chan struct{}
+	once         sync.Once
+}
+
+func (s *gatedStore) MachineByKey(ctx context.Context, key ed25519.PublicKey) (Machine, bool, error) {
+	s.once.Do(func() { close(s.inside) })
+	<-s.goOn
+	return s.MemoryStore.MachineByKey(ctx, key)
+}

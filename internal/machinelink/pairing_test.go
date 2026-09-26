@@ -410,6 +410,53 @@ func TestJoinCodeHousekeeping(t *testing.T) {
 	}
 }
 
+// Making a code beyond MaxWaitingCodes drops the oldest waiting one, but
+// never the code a join is redeeming at that moment.
+func TestMakingACodeNeverDropsOneBeingRedeemed(t *testing.T) {
+	gs := &gatedStore{inside: make(chan struct{}), goOn: make(chan struct{})}
+	th := startHub(t, func(o *HubOptions) { gs.MemoryStore, o.Store = o.Store.(*MemoryStore), gs })
+	var codes []string
+	for range MaxWaitingCodes {
+		codes = append(codes, th.code(t))
+	}
+	id := mustIdentity(t)
+	joined := make(chan error, 1)
+	go func() {
+		_, err := th.try(id, codes[0])
+		joined <- err
+	}()
+	waitFor(t, "the join finds its code", gs.inside)
+	made := make(chan error, 1)
+	go func() {
+		_, _, err := th.NewJoinCode(context.Background(), "alice")
+		made <- err
+	}()
+	// A code made while the join waits drops the oldest waiting one, the
+	// join's, within far less than this.
+	select {
+	case err := <-made:
+		made <- err
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(gs.goOn)
+	if err := <-joined; err != nil {
+		t.Fatalf("the join lost its code to a new one: %v", err)
+	}
+	if err := <-made; err != nil {
+		t.Fatalf("making a code after the join: %v", err)
+	}
+	list, _ := th.JoinCodes(context.Background())
+	waiting := 0
+	for _, c := range list {
+		if c.State(th.clock.Now()) == JoinCodeWaiting {
+			waiting++
+		}
+	}
+	if len(list) != MaxWaitingCodes+1 || waiting != MaxWaitingCodes {
+		t.Fatalf("%d codes, %d of them waiting; want the used one and %d waiting", len(list), waiting, MaxWaitingCodes)
+	}
+}
+
 func TestJoinChecksTheCommandFirst(t *testing.T) {
 	dials := 0
 	dial := func(context.Context, string, string) (net.Conn, error) {
