@@ -181,8 +181,8 @@ function SetupState({ server, info, busy, onEnable }: { server: ServerStatus; in
   return (
     <StateScreen
       pose="search"
-      title={t('map.setupTitle')}
-      lead={t('map.setupLead')}
+      title={info.missing ? t('map.missingTitle', { plugin: info.plugin }) : t('map.setupTitle')}
+      lead={info.missing ? t('map.missingLead') : t('map.setupLead')}
       facts={[t('map.setupTime', { minutes: info.estimatedMinutes, server: server.name }), t('map.setupDisk', { megabytes: info.estimatedMegabytes }), t('map.setupShare')]}
       note={note}
     >

@@ -151,6 +151,26 @@ describe('Map sharing', () => {
   })
 })
 
+describe('A map without its plugin', () => {
+  it('says squaremap was removed and offers to turn the map on, not that it is on', async () => {
+    await renderMap(mapInfo({ enabled: false, missing: true, state: 'not_installed', areas: 0, bytes: 0 }))
+    const text = document.body.textContent ?? ''
+    expect(text).toContain(t('map.missingTitle', { plugin: 'squaremap' }))
+    expect(text).toContain(t('map.missingLead'))
+    expect(text).not.toContain(t('map.setupTitle'))
+    expect(text).not.toContain(t('map.share'))
+    const turnOn = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(t('map.turnOn')))
+    await act(async () => turnOn?.click())
+    expect(client.post).toHaveBeenCalledWith(`/api/servers/${server.id}/map/enable`)
+  })
+
+  it('keeps the first-time words for a map that was never on', async () => {
+    await renderMap(mapInfo({ enabled: false, state: 'not_installed' }))
+    expect(document.body.textContent).toContain(t('map.setupTitle'))
+    expect(document.body.textContent).not.toContain(t('map.missingLead'))
+  })
+})
+
 describe('Who is playing', () => {
   const playingCard = () => [...document.querySelectorAll('section')].find((c) => c.textContent?.startsWith(t('map.playing')))
 

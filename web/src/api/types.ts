@@ -522,6 +522,8 @@ export interface Addon {
   size: number
   dependencyOf?: string
   installedAt: string
+  /** The part of Playkeeper that installed it and alone removes it: the Map, for squaremap. */
+  usedBy?: 'map'
 }
 
 export interface AddonKey {
@@ -729,6 +731,8 @@ export interface MapProgress {
 export interface MapInfo {
   supported: boolean
   enabled: boolean
+  /** The map was on, but the files it installed are gone; turning it on installs them again. */
+  missing?: boolean
   state: MapState
   params?: Record<string, string>
   message: string
