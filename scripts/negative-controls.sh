@@ -178,11 +178,11 @@ control "chunk counts read region folders only" internal/agent/running.go \
   ./internal/agent '^TestNewChunksComeFromRegionFiles$'
 control "a chunk count that can't list a folder is not kept" internal/agent/running.go \
   'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
-  'if false {' \
+  'if false && (!optional || !errors.Is(err, fs.ErrNotExist)) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
 control "nether and end folders missing beside the world don't void a chunk count" internal/agent/running.go \
   'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
-  'if true {' \
+  'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'graceful := s.sawStopping && !s.sawCrash' \
