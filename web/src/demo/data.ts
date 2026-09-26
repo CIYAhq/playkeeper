@@ -889,8 +889,12 @@ const serverTypes = [
   { id: 'fabric', name: 'Fabric' },
   { id: 'quilt', name: 'Quilt' },
   { id: 'neoforge', name: 'NeoForge' },
+  { id: 'forge', name: 'Forge' },
   { id: 'vanilla', name: 'Vanilla' },
 ]
+
+/** Forge's builds for each Minecraft version, newest first, as Forge numbers them. */
+const forgeBuilds: Record<string, string[]> = { '26.2.1': ['65.1.3', '65.1.0'], '26.1.2': ['64.1.3', '64.1.0'], '26.1.1': ['64.0.2', '64.0.0'], '1.21.11': ['61.1.1', '61.0.4'] }
 
 /** The builds a type offers for a Minecraft version, newest and recommended first; Paper and Vanilla have none. */
 export function buildsFor(type: string, minecraftVersion: string): string[] {
@@ -903,6 +907,8 @@ export function buildsFor(type: string, minecraftVersion: string): string[] {
       return ['0.30.1', '0.30.0']
     case 'neoforge':
       return [`${minecraftVersion}.18`, `${minecraftVersion}.11`]
+    case 'forge':
+      return forgeBuilds[minecraftVersion] ?? []
     default:
       return []
   }
@@ -919,6 +925,8 @@ export function pinOf(type: string, minecraftVersion: string, build = buildsFor(
       return { type, minecraftVersion, quiltLoader: build }
     case 'neoforge':
       return { type, minecraftVersion, neoforgeVersion: build }
+    case 'forge':
+      return { type, minecraftVersion, forgeVersion: build }
     default:
       return { type, minecraftVersion }
   }
@@ -1101,7 +1109,7 @@ function card(a: LibraryAddon, now: number, installed: boolean): AddonCard {
   return { source: a.source, projectId: a.projectId, slug: a.slug, name: a.name, author: a.author, summary: a.summary, categories: a.categories, license: a.license, downloads: a.downloads, iconUrl: iconUrlOf(a), updated: iso(now - a.daysOld * day), pageUrl, installed }
 }
 
-/** Whether a server takes mods (Fabric, Quilt, NeoForge) or plugins (Paper, Purpur). */
+/** Whether a server takes mods (Fabric, Quilt, NeoForge, Forge) or plugins (Paper, Purpur). */
 const takesMods = (srv: ServerStatus) => addonKind(srv.type) === 'mods'
 
 /** The library's plugins or mods, whichever the server takes. */
@@ -1302,7 +1310,7 @@ function curated(s: DemoState, r: Request): CuratedAddons {
   return { picks: picks.map((a) => ({ id: a.pick ?? a.slug, card: card(a, r.now, mine.has(a)) })) }
 }
 
-const loaderVersion = (srv: ServerStatus) => srv.config?.software?.fabricLoader ?? srv.config?.software?.quiltLoader ?? srv.config?.software?.neoforgeVersion ?? ''
+const loaderVersion = (srv: ServerStatus) => srv.config?.software?.fabricLoader ?? srv.config?.software?.quiltLoader ?? srv.config?.software?.neoforgeVersion ?? srv.config?.software?.forgeVersion ?? ''
 
 const needText: Record<ShareNeed, string> = { required: 'Friends need it', optional: 'Optional for friends', server_only: 'Server only', unknown: 'Unknown' }
 
