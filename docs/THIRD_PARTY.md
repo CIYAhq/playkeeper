@@ -29,7 +29,8 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | react-dom | 19.3.0 | MIT |
 | scheduler | 0.28.0 | MIT |
 | @base-ui/react, @base-ui/utils | 1.8.0, 0.4.0 | MIT |
-| @floating-ui/core, dom, react-dom, utils | 1.8.0, 1.8.0, 2.1.9, 0.2.12 | MIT |
+| @types/react, csstype (type definitions Base UI names; no code in the bundle) | 19.3.0, 3.2.3 | MIT |
+| @floating-ui/core, @floating-ui/dom, @floating-ui/react-dom, @floating-ui/utils | 1.8.0, 1.8.0, 2.1.9, 0.2.12 | MIT |
 | reselect | 5.3.0 | MIT |
 | use-sync-external-store | 1.7.0 | MIT |
 | @babel/runtime | 7.29.7 | MIT |
