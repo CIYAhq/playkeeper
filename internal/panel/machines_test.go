@@ -428,10 +428,11 @@ func TestAMachineJoinsAndItsServersAreReachable(t *testing.T) {
 	if len(servers) != 1 || servers[0]["id"] != "abcdefghjk" {
 		t.Fatalf("servers after the removal: %v", servers)
 	}
-	var claims int
-	e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, rid).Scan(&claims)
-	if claims != 0 || !e.auditHas(t, "admin", "machine.removed", "home-server", "succeeded", "") {
-		t.Fatalf("the removal is audited and its servers forgotten: %d claims", claims)
+	if !e.auditHas(t, "admin", "machine.removed", "home-server", "succeeded", "") {
+		t.Fatal("the removal isn't audited")
+	}
+	if _, err := e.srv.machineForServer("rstuvwxyzq"); !errors.Is(err, errNotFound) {
+		t.Fatalf("the removed machine's server goes to %v, not to no machine", err)
 	}
 	if r := e.do(t, "DELETE", "/api/machines/"+rid, "", auth(cookie, csrf)); r.status != http.StatusNotFound {
 		t.Fatalf("remove twice: %d", r.status)
