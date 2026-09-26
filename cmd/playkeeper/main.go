@@ -46,6 +46,7 @@ Usage:
   sudo playkeeper setup-code                      new one-time setup code (before the first admin exists)
   sudo playkeeper reset-password <username>       print a new random password for an admin
   sudo playkeeper mcp                             serve the tools to an AI assistant over stdio (for SSH)
+  sudo playkeeper reset-2fa <username>            turn off two-factor sign-in for a lost phone
        playkeeper version
        playkeeper dev         [--dir .dev]        run agent + panel locally for development
 
@@ -93,6 +94,8 @@ func main() {
 		err = runResetPassword(args)
 	case "mcp":
 		err = runMCP(args)
+	case "reset-2fa":
+		err = runResetTwoFactor(args)
 	case "self-update":
 		err = runSelfUpdate(args)
 	case "units":
@@ -183,6 +186,7 @@ func runDev(args []string) error {
 		cfg.InstallID = fmt.Sprintf("dev-%d", time.Now().Unix())
 	}
 	cfg.Dev = true
+	devDefaults(&cfg)
 	cfg.DataDir = filepath.Join(abs, "data")
 	cfg.SocketPath = filepath.Join(abs, "agent.sock")
 	cfg.PanelUser = u.Username
@@ -226,6 +230,24 @@ func runDev(args []string) error {
 		return nil
 	case err := <-errc:
 		return err
+	}
+}
+
+// A dev install talks to a names service on this computer (where
+// scripts/names-check.sh runs one) and Let's Encrypt's staging CA unless
+// .dev/config.json names others, so make dev never claims real names or
+// certificates by accident.
+const (
+	devNamesURL         = "http://127.0.0.1:8081"
+	devACMEDirectoryURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
+)
+
+func devDefaults(cfg *config.Config) {
+	if cfg.NamesURL == "" {
+		cfg.NamesURL = devNamesURL
+	}
+	if cfg.ACMEDirectoryURL == "" {
+		cfg.ACMEDirectoryURL = devACMEDirectoryURL
 	}
 }
 
@@ -494,5 +516,40 @@ func runResetPassword(args []string) error {
 		panelUserOwn(p)
 	}
 	fmt.Printf("New password for %s: %s\nSign in and change it under Settings. All of %s's sessions were signed out.\n", fs.Arg(0), pw, fs.Arg(0))
+	return nil
+}
+
+func runResetTwoFactor(args []string) error {
+	fs := flag.NewFlagSet("reset-2fa", flag.ExitOnError)
+	path := fs.String("config", config.DefaultPath, "config file")
+	fs.Parse(args)
+	if fs.NArg() != 1 {
+		return errors.New("usage: sudo playkeeper reset-2fa <username>")
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("run as root: sudo playkeeper reset-2fa <username>")
+	}
+	cfg, err := config.Load(*path)
+	if err != nil {
+		return err
+	}
+	s, err := panel.New(panel.Options{Config: cfg, Logger: logger()})
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	name := fs.Arg(0)
+	wasOn, err := s.ResetTwoFactor(name)
+	if err != nil {
+		return err
+	}
+	for _, p := range []string{filepath.Join(cfg.PanelDir(), "panel.db"), filepath.Join(cfg.PanelDir(), "panel.db-wal"), filepath.Join(cfg.PanelDir(), "panel.db-shm")} {
+		panelUserOwn(p)
+	}
+	if !wasOn {
+		fmt.Printf("Two-factor sign-in was already off for %s. Nothing changed.\n", name)
+		return nil
+	}
+	fmt.Printf("Two-factor sign-in is off for %s, and every session was signed out. Sign in with the password and turn it on again on the Account page.\n", name)
 	return nil
 }

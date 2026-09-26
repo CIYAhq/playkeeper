@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/diagnose"
 )
 
 // hostMemoryMB reads MemTotal from /proc/meminfo.
@@ -76,48 +78,15 @@ func portInUse(port int) bool {
 	return false
 }
 
-// cpuTimes is the machine's busy and total CPU time from /proc/stat.
-type cpuTimes struct{ busy, total uint64 }
-
-func readCPUTimes() (cpuTimes, bool) {
-	b, err := os.ReadFile("/proc/stat")
-	if err != nil {
-		return cpuTimes{}, false
-	}
-	line, _, _ := strings.Cut(string(b), "\n")
-	f := strings.Fields(line)
-	if len(f) < 5 || f[0] != "cpu" {
-		return cpuTimes{}, false
-	}
-	var t cpuTimes
-	for i, v := range f[1:] {
-		n, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return cpuTimes{}, false
-		}
-		t.total += n
-		// idle and iowait are the fourth and fifth fields.
-		if i != 3 && i != 4 {
-			t.busy += n
-		}
-	}
-	return t, true
-}
-
 // hostLoop samples the machine's CPU use and whether Docker answers, and its version.
 func (a *Agent) hostLoop(ctx context.Context) {
 	t := time.NewTicker(a.opts.SampleInterval)
 	defer t.Stop()
 	for {
-		if cur, ok := readCPUTimes(); ok {
-			a.mu.Lock()
-			prev := a.hostPrev
-			a.hostPrev = cur
-			if prev.total > 0 && cur.total > prev.total && cur.busy >= prev.busy {
-				v := float64(cur.busy-prev.busy) / float64(cur.total-prev.total) * 100
-				a.hostCPU = &v
+		if b, err := a.opts.ProcStat(); err == nil {
+			if cur, err := diagnose.ParseProcStat(b); err == nil {
+				a.recordCPU(a.now(), cur)
 			}
-			a.mu.Unlock()
 		}
 		v, err := a.docker.Negotiate(ctx)
 		a.mu.Lock()

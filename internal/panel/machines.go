@@ -87,13 +87,24 @@ func failureOf(err error) (int, api.Error) {
 		case machinelink.CodeRouteNotAllowed, machinelink.CodeActorRequired:
 			status = http.StatusInternalServerError
 		}
-		return status, api.Error{Error: le.Msg, Code: le.Code, Hint: le.Hint, Params: le.Params}
+		return status, api.Error{Error: le.Msg, Code: le.Code, Hint: le.Hint, Params: anyParams(le.Params)}
 	}
 	if errors.Is(err, errLinksOff) {
 		return http.StatusServiceUnavailable, api.Error{Error: "This machine can't be reached from here.", Code: machinelink.CodeNotConnected}
 	}
 	return http.StatusServiceUnavailable, api.Error{Error: "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.",
 		Code: api.CodeAgentUnavailable, Hint: "On the server, check: sudo systemctl status playkeeper-agent"}
+}
+
+func anyParams(p map[string]string) map[string]any {
+	if len(p) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(p))
+	for k, v := range p {
+		out[k] = v
+	}
+	return out
 }
 
 // onMachineEvent records what happened to a joined machine: every event in
@@ -451,7 +462,7 @@ func (s *Server) hJoinCodeCreate(w http.ResponseWriter, r *http.Request, sess *s
 		secs := int((wait + time.Second - 1) / time.Second)
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
 		writeJSON(w, http.StatusTooManyRequests, api.Error{Error: "Too many wrong codes. Try again in " + minutesText(wait) + ".",
-			Code: machinelink.CodeJoinRateLimited, Params: map[string]string{"seconds": strconv.Itoa(secs)}})
+			Code: machinelink.CodeJoinRateLimited, Params: map[string]any{"seconds": strconv.Itoa(secs)}})
 		return
 	}
 	addrs := s.dialAddresses(r.Context(), r)

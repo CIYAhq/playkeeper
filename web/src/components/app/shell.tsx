@@ -10,10 +10,10 @@ import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
-import { can, inSettings, settingsHome } from '@/lib/access'
+import { can, inSettings } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { byMachine, isStale, machineLabel, machineRoute, machineState, reachOf, type MachineTone } from '@/lib/machines'
-import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
+import { isSettingUp, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -86,10 +86,14 @@ function pageKey(route: Route): string {
       return `server/${route.slug}`
     case 'machine':
       return `machine/${route.id}`
-    case 'machine-settings':
-      return `machine-settings/${route.id}`
+    case 'machine-details':
+      return `machine-details/${route.id}`
     case 'legacy':
       return `legacy/${route.tab}`
+    case 'machine-settings':
+      return `machine-settings/${route.id}`
+    case 'account':
+      return route.section ? `account/${route.section}` : route.name
     case 'home':
     case 'login':
     case 'setup':
@@ -174,12 +178,12 @@ function SideItem({ to, active, icon, children, trailing, muted }: { to: Route; 
 function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
   if (stale) return <span className="text-xs text-muted-foreground">{t('status.unknown')}</span>
   if (isSettingUp(s)) return <span className="text-xs font-medium text-info-foreground">{t('status.creating')}</span>
-  const tone = phaseTone(s.phase)
+  const tone = statusTone(s)
   switch (tone) {
     case 'online':
       return <span className="text-xs text-muted-foreground tabular-nums">{s.players ? `${s.players.online}/${s.players.max}` : ''}</span>
     case 'crashed':
-      return <span className="text-xs font-medium text-destructive-foreground">{t('status.crashed')}</span>
+      return <span className="text-xs font-medium text-destructive-foreground">{statusLabel(s)}</span>
     case 'busy':
       return <span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>
     case 'stopped':
@@ -201,12 +205,15 @@ const toneDot: Record<MachineTone, string> = { good: 'bg-success', warn: 'bg-war
 function MachineRow({ machine: m, route }: { machine: MachineView; route: Route }) {
   const ws = useWorkspace()
   const state = machineState(m, ws)
-  const active = (route.name === 'machine' || route.name === 'machine-settings') && route.id === m.id
+  const active = (route.name === 'machine' || route.name === 'machine-details' || route.name === 'machine-settings') && route.id === m.id
   return (
     <a
       {...linkProps(machineRoute(m))}
-      aria-current={active ? 'page' : undefined}
-      className={cn('mt-3 flex h-7 items-center gap-2 rounded-lg px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', active && 'text-foreground')}
+      aria-current={active ? (route.name === 'machine-settings' ? 'true' : 'page') : undefined}
+      className={cn(
+        'mt-3 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+        active && 'border-border bg-white text-foreground shadow-outline',
+      )}
     >
       <ServerIcon className="size-3.5" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">{m.kind === 'local' ? ws.machineName : machineLabel(m)}</span>
@@ -232,7 +239,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         key={s.id}
         to={{ name: 'server', slug: s.slug, tab }}
         active={route.name === 'server' && route.slug === s.slug}
-        icon={!stale && isSettingUp(s) ? <Spinner /> : <Dot tone={stale || reach.state !== 'live' ? 'unknown' : phaseTone(s.phase)} />}
+        icon={!stale && isSettingUp(s) ? <Spinner /> : <Dot tone={stale || reach.state !== 'live' ? 'unknown' : statusTone(s)} />}
         trailing={reach.state === 'away' ? <span className="text-xs text-muted-foreground">{t('common.none')}</span> : serverMeta(s, stale)}
       >
         {s.name}
@@ -284,10 +291,10 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
       <div className="flex flex-col gap-0.5 pt-2">
         <GetStartedCard route={route} className="mb-2" />
         <UpdateRow />
-        <SideItem to={settingsHome(ws.me)} active={inSettings(route)} icon={<SettingsIcon />}>
+        <SideItem to={{ name: 'settings' }} active={inSettings(route)} icon={<SettingsIcon />}>
           {t('nav.settings')}
         </SideItem>
-        <UserRow />
+        <UserRow active={route.name === 'account'} />
       </div>
     </aside>
   )
@@ -297,12 +304,12 @@ export function roleLabel(role: string): string {
   return role === 'member' ? t('nav.role.member') : t('nav.role.owner')
 }
 
-function UserRow() {
+function UserRow({ active }: { active: boolean }) {
   const { me, signOut } = useWorkspace()
   const name = me.user.username
   return (
-    <div className="mt-1 flex items-center gap-2.5 px-2 py-1.5">
-      <a {...linkProps({ name: 'settings' })} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <div className={cn('mt-1 flex items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5', active && 'border-border bg-white shadow-outline')}>
+      <a {...linkProps({ name: 'account' })} aria-current={active ? 'page' : undefined} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Avatar name={name} />
         <span className="min-w-0 leading-tight">
           <span className="block truncate text-[13px] font-semibold">{name}</span>
@@ -338,7 +345,7 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  const underMore = route.name === 'more' || (inSettings(route) && route.name !== 'settings')
+  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account' || (inSettings(route) && route.name !== 'settings')
   const inServer = route.name === 'server' || (underMore && !!phoneServer)
   const slug = route.name === 'server' ? route.slug : phoneServer?.slug
   const current: ServerTab | 'more' | undefined = route.name === 'server' ? (route.tab === 'settings' || route.tab === 'plugins' || route.tab === 'mods' ? 'more' : route.tab) : underMore ? 'more' : undefined
@@ -420,12 +427,12 @@ export function PhoneMoreButton() {
 /** The phone header of pages opened from another: a back link and a title. */
 export function PhoneBackHeader({ to, label, title }: { to: Route; label: string; title?: ReactNode }) {
   return (
-    <header className="flex items-center gap-1 pt-2 pb-2">
-      <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-success-strong">
-        <ChevronLeftIcon className="size-5" aria-hidden="true" />
-        {label}
+    <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-2">
+      <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 min-w-0 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[15px] font-medium text-success-strong">
+        <ChevronLeftIcon className="size-5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
       </a>
-      {title && <h1 className="ml-auto text-[15px] font-semibold">{title}</h1>}
+      {title && <h1 className="truncate text-[17px] font-semibold">{title}</h1>}
     </header>
   )
 }

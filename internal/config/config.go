@@ -29,13 +29,27 @@ type Config struct {
 	// PanelBind is the listen address for the panel; empty means all interfaces.
 	PanelBind string `json:"panelBind,omitempty"`
 	GamePort  int    `json:"gamePort"`
-	// Domain enables automatic Let's Encrypt certificates (panel must own :443).
-	Domain           string `json:"domain,omitempty"`
-	ACMEEmail        string `json:"acmeEmail,omitempty"`
+	// Domain is not read by anything. The machine's address (a free
+	// playkeeper.io name or the admin's own domain) is chosen in Machine
+	// settings and kept in the agent's database. The panel stays on
+	// PanelPort; the agent listens on port 80 only while Let's Encrypt checks
+	// a name.
+	Domain string `json:"domain,omitempty"`
+	// ACMEEmail is an optional contact address for the Let's Encrypt account.
+	ACMEEmail string `json:"acmeEmail,omitempty"`
+	// ACMEDirectoryURL is the certificate authority's ACME directory; empty
+	// means Let's Encrypt.
 	ACMEDirectoryURL string `json:"acmeDirectoryURL,omitempty"`
-	DataDir          string `json:"dataDir"`
-	SocketPath       string `json:"socketPath"`
-	DockerSocket     string `json:"dockerSocket"`
+	// ACMEAgreedTerms is the URL of the certificate authority's terms of
+	// service, accepted by hand. Admins usually accept them on the Address
+	// page instead, which the agent records itself.
+	ACMEAgreedTerms string `json:"acmeAgreedTerms,omitempty"`
+	// NamesURL is the service that hands out free playkeeper.io addresses;
+	// empty means https://names.playkeeper.io.
+	NamesURL     string `json:"namesURL,omitempty"`
+	DataDir      string `json:"dataDir"`
+	SocketPath   string `json:"socketPath"`
+	DockerSocket string `json:"dockerSocket"`
 	// PanelUser is the only non-root account allowed to call the agent socket.
 	PanelUser string `json:"panelUser"`
 	GameUID   int    `json:"gameUID"`
@@ -109,6 +123,7 @@ func (c Config) BackupsDir() string     { return filepath.Join(c.DataDir, "backu
 func (c Config) StagingDir() string     { return filepath.Join(c.DataDir, "restore-staging") }
 func (c Config) RCONSecretPath() string { return filepath.Join(c.AgentDir(), "rcon.secret") }
 func (c Config) TLSDir() string         { return filepath.Join(c.PanelDir(), "tls") }
+func (c Config) CertsDir() string       { return filepath.Join(c.DataDir, "certs") }
 func (c Config) SetupTokenPath() string { return filepath.Join(c.PanelDir(), "setup-token.sha256") }
 func (c Config) ManifestPath() string   { return filepath.Join(c.DataDir, "install-manifest.json") }
 

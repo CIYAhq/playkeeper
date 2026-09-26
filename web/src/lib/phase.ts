@@ -57,6 +57,23 @@ export function phaseLabel(p: Phase): string {
   }
 }
 
+/** A server that is stopped with a crash or a refused start to explain looks crashed. */
+export function statusTone(st: ServerStatus): Tone {
+  const tone = phaseTone(st.phase)
+  return tone === 'stopped' && (st.crash || st.refusal) ? 'crashed' : tone
+}
+
+/** Did the server's last start fail before it came up? */
+export function couldntStart(st: ServerStatus): boolean {
+  return !!st.refusal || !!st.crash?.start
+}
+
+/** "Crashed", "Couldn't start" when it never came up, or the phase. */
+export function statusLabel(st: ServerStatus): string {
+  if (statusTone(st) !== 'crashed') return phaseLabel(st.phase)
+  return couldntStart(st) ? t('status.couldntStart') : t('status.crashed')
+}
+
 /** Is the server being set up for the first time (its create is running or failed)? */
 export function isSettingUp(st: ServerStatus): boolean {
   const op = st.operation ?? st.lastOperation
@@ -126,11 +143,30 @@ const opKeys: Record<string, MessageKey> = {
   'update-version': 'op.update-version',
   delete: 'op.delete',
   update: 'op.update',
+  'remove-addon': 'op.remove-addon',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */
 export function opLabel(op: Operation, server: string): string {
   return t(opKeys[op.kind] ?? 'op.other', { server })
+}
+
+const recentMs = 15 * 60_000
+
+/** Whether what a failed job wanted has happened since, so its notice can go. */
+function recovered(s: ServerStatus, op: Operation): boolean {
+  if (['create', 'start', 'restart', 'recover', 'auto-restart'].includes(op.kind)) return s.phase === 'online'
+  if (op.kind !== 'backup') return false
+  const needed = op.detail?.neededBytes
+  if (typeof needed === 'number') return (s.resources?.diskFreeBytes ?? 0) >= needed
+  return op.detail?.errorKind === 'saving_paused' && !s.savingPausedSince
+}
+
+/** The last job, if it failed in the last 15 minutes and nothing has put it right since. */
+export function failedJob(s: ServerStatus, now = Date.now()): Operation | undefined {
+  const op = s.lastOperation
+  if (!op || op.status !== 'failed' || !op.finishedAt || now - new Date(op.finishedAt).getTime() >= recentMs) return undefined
+  return recovered(s, op) ? undefined : op
 }
 
 /**

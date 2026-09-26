@@ -36,6 +36,8 @@ Follow the install steps in the [README](../README.md#install-on-your-vps). Open
 4. Press **Restore as a new server**. Playkeeper downloads Paper for the backup's Minecraft version from PaperMC (the newest stable build, never an older build than the backup was made with), checks it against the SHA-256 PaperMC publishes and starts the server, so the new server needs outbound HTTPS to Docker Hub, PaperMC and Mojang while it restores.
 5. When the server shows **Online**, give players the new join address. They are still on the allowlist from the backup.
 
+   **Addresses:** a free `playkeeper.io` name belongs to the install that claimed it and cannot move to another VPS, so pick a new one on the new server under **Machine settings › Address**. If the old VPS still runs, release its name there (**Release it**) before you delete the VPS, so the name stops pointing at an IP address your provider will hand to someone else. With your own domain, set it up again on the new server and change the records it lists (the A record now points to the new VPS); players keep their address.
+
 To restore over an existing world instead (the server's **World** tab → a backup's **…** menu → **Restore this backup…**, or drop a file under **Restore a world**), you must type `replace <world name>`. Playkeeper first saves a **rollback archive** of the current world; if the restored world fails to start, it puts the previous world back automatically. To undo a restore later, restore that rollback archive.
 
 If a restore is interrupted, for example by a power cut or an agent restart, Playkeeper finishes it when it starts again: it keeps the restored world if that is in place and starts, and otherwise puts the previous world and its settings back. That includes a restore Playkeeper 0.3.0 was in the middle of when you upgraded, which is kept only if the server already had the backup's settings. If it cannot, the server stays stopped and its error names the folder the previous world is in (`data.replaced-<time>`, next to the server's `data` folder): move that folder back to `data` and press **Start**.
@@ -44,12 +46,37 @@ A world a restore leaves behind, such as a restored world that did not start, st
 
 ## What is not restored
 
-- Playkeeper admin accounts and sessions (the new server keeps its own).
+- Playkeeper admin accounts, their two-factor sign-in and sessions (the new server keeps its own).
+- The machine's address and its certificate (see **Addresses** above).
 - Player analytics, sessions and the audit log from the old server (history starts again on the new one).
 - Server jar and libraries (downloaded again, checksum-verified).
 - The RCON password (each server generates its own).
 
 Worlds, `server.properties` (without secrets), the allowlist, operators, bans and the `config/` and `plugins/` folders are restored. Paper's bStats usage statistics are switched off again before the restored server starts, whatever the archive says.
+
+## World saving stayed paused after a backup
+
+A backup made while players are online pauses world saving (Minecraft's `save-off`) only while it copies the world. If Playkeeper can't confirm that saving is back on, the server's **World** tab and **Overview** say **World saving is paused** and since when. The game goes on, but the world isn't saved, so progress since then is lost if the server stops unexpectedly. Playkeeper tries again every 30 seconds while the server runs.
+
+- Press **Turn saving back on**, or **Open console** and run `save-on`. The notice goes once the server confirms.
+- A restart turns saving back on too: the server saves the world as it stops and starts with saving on.
+- Without the dashboard, run `save-on` in the container:
+
+  ```bash
+  sudo docker ps --filter label=io.playkeeper.managed=true --format '{{.Names}}'
+  sudo docker exec playkeeper-mc-XXXXXXXXXX rcon-cli save-on   # the name from the list
+  ```
+
+A backup that failed this way saved nothing. If a plugin keeps writing to the world or the console doesn't answer in time, **Stop and back up** next to the error makes the backup with the server stopped instead.
+
+## A server crashed or didn't start
+
+The server's **Overview** explains what happened, from the server's own log (the container's output, not the console view), its newest crash report, its plugin and mod files and the memory the machine has free, and offers the fixes that apply: give it more memory, remove the plugin or mod that failed, restore a backup, or start it again.
+
+Each server's files are in `/var/lib/playkeeper/servers/<id>/` (`/var/lib/playkeeper/server/` for a server that came from 0.2.0).
+
+- **A removed plugin or mod** is moved, not deleted, to the server's `removed-addons/` folder, with the time it was removed in front of its name. To put it back, stop the server, move the file into its `data/plugins/` (or `data/mods/`) folder under its original name, and start it.
+- **To read the log yourself:** `sudo docker logs --tail 200 <container>`, with a name from `sudo docker ps -a --filter label=io.playkeeper.managed=true --format '{{.Names}}'`. Crash reports are in the server's `data/crash-reports/` folder.
 
 ## A Playkeeper update went wrong
 

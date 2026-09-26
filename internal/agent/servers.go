@@ -66,6 +66,7 @@ type server struct {
 	runPhaseDetail  string
 	runStartedAt    time.Time
 	sawStopping     bool
+	sawCrash        bool
 	lastError       string
 	lastErrorHint   string
 	refusal         *api.FileRefusal
@@ -76,6 +77,7 @@ type server struct {
 	prevCPU         *docker.Stats
 	crashes         []time.Time
 	crashed         bool
+	crash           *api.Crash
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
 	intentional     map[string]bool
@@ -86,10 +88,16 @@ type server struct {
 	nextAutoRestart time.Time
 	worldBytes      int64
 	worldAt         time.Time
+	// nextResume is when the reconciler may try save-on again after it
+	// failed to turn saving back on.
+	nextResume time.Time
+	lag        lagState
 
-	rconMu sync.Mutex
-	rcon   *minecraft.RCON
-	rconIP string
+	// rconLock holds the console connection; a channel, so waiting for it
+	// honours a command's deadline.
+	rconLock chan struct{}
+	rcon     *minecraft.RCON
+	rconIP   string
 
 	checks addonChecks
 	pg     pregenCache
@@ -100,6 +108,7 @@ func (a *Agent) newServerHandle(id, layout string, port int) *server {
 		Agent: a, id: id, layout: layout, gamePort: port,
 		console:     newRing(consoleCapacity),
 		opLock:      make(chan struct{}, 1),
+		rconLock:    make(chan struct{}, 1),
 		handledExit: map[string]time.Time{},
 		exitSeen:    map[string]seenExit{},
 		intentional: map[string]bool{},
@@ -418,6 +427,7 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 		<-s.opLock
 	}
 	s.startLoops()
+	a.serversChanged()
 	return s, op, nil
 }
 
@@ -541,7 +551,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
 		`DELETE FROM addons WHERE server_id = ?`, `DELETE FROM pregen WHERE server_id = ?`,
-		`DELETE FROM servers WHERE id = ?`,
+		`DELETE FROM gc_windows WHERE server_id = ?`, `DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {
 			return err
@@ -554,6 +564,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	delete(s.servers, s.id)
 	s.srvMu.Unlock()
 	s.audit(actor, "server.deleted", s.id, "succeeded", fmt.Sprintf("%d backup(s) deleted with it", len(backups)))
+	s.serversChanged()
 	return nil
 }
 

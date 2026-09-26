@@ -119,7 +119,7 @@ func (e *env) sharePort(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := e.srv.httpServer(ln.Addr().String(), cert)
+	srv := e.srv.httpServer(ln.Addr().String(), &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}})
 	go srv.ServeTLS(ln, "", "")
 	t.Cleanup(func() { srv.Close() })
 	return ln.Addr().String()
@@ -151,7 +151,7 @@ func (e *env) linkInfo(t *testing.T, cookie string) map[string]any {
 
 func (e *env) joinCode(t *testing.T, cookie, csrf, body string) map[string]any {
 	t.Helper()
-	r := e.do(t, "POST", "/api/machines/join-codes", body, auth(cookie, csrf))
+	r := e.do(t, "POST", "/api/join-codes", body, auth(cookie, csrf))
 	if r.status != http.StatusCreated {
 		t.Fatalf("join code: %d %v", r.status, r.body)
 	}
@@ -679,18 +679,18 @@ func TestJoinCodesAreForThoseWhoManageMachines(t *testing.T) {
 		t.Fatalf("names: %v / %v", first, second)
 	}
 	for _, bad := range []string{`{"name":"///"}`, `{"dial":"carrier-pigeon"}`, `{"name":1}`} {
-		if r := e.do(t, "POST", "/api/machines/join-codes", bad, auth(cookie, csrf)); r.status != http.StatusBadRequest {
+		if r := e.do(t, "POST", "/api/join-codes", bad, auth(cookie, csrf)); r.status != http.StatusBadRequest {
 			t.Errorf("%s: %d %v", bad, r.status, r.body)
 		}
 	}
 	if codes, _ := e.linkInfo(t, cookie)["codes"].([]any); len(codes) != 2 {
 		t.Fatalf("two codes wait: %v", codes)
 	}
-	path := "/api/machines/join-codes/" + first["id"].(string)
+	path := "/api/join-codes/" + first["id"].(string)
 	if r := e.do(t, "DELETE", path, "", auth(cookie, csrf)); r.status != http.StatusNoContent {
 		t.Fatalf("cancel: %d %v", r.status, r.body)
 	}
-	for _, p := range []string{path, "/api/machines/join-codes/zzzzzzzzzz", "/api/machines/join-codes/NOT-AN-ID"} {
+	for _, p := range []string{path, "/api/join-codes/zzzzzzzzzz", "/api/join-codes/NOT-AN-ID"} {
 		if r := e.do(t, "DELETE", p, "", auth(cookie, csrf)); r.status != http.StatusNotFound {
 			t.Errorf("cancel %s: %d", p, r.status)
 		}
@@ -721,10 +721,10 @@ func TestJoinCodesAreForThoseWhoManageMachines(t *testing.T) {
 	if info := e.linkInfo(t, mc); info["codes"] != nil || info["fingerprint"] == nil {
 		t.Fatalf("a member sees the fingerprint but not the codes: %v", info)
 	}
-	if r := e.do(t, "POST", "/api/machines/join-codes", `{}`, auth(mc, mcsrf)); r.status != http.StatusForbidden {
+	if r := e.do(t, "POST", "/api/join-codes", `{}`, auth(mc, mcsrf)); r.status != http.StatusForbidden {
 		t.Fatalf("a member makes a code: %d", r.status)
 	}
-	if r := e.do(t, "DELETE", "/api/machines/join-codes/"+second["id"].(string), "", auth(mc, mcsrf)); r.status != http.StatusForbidden {
+	if r := e.do(t, "DELETE", "/api/join-codes/"+second["id"].(string), "", auth(mc, mcsrf)); r.status != http.StatusForbidden {
 		t.Fatalf("a member cancels a code: %d", r.status)
 	}
 	local := e.machineViews(t, mc)[0]["id"].(string)
@@ -774,7 +774,7 @@ func TestTooManyWrongCodesPauseJoining(t *testing.T) {
 	if info := e.linkInfo(t, cookie); info["joinPausedSeconds"] != float64(900) {
 		t.Fatalf("paused: %v", info["joinPausedSeconds"])
 	}
-	req, _ := http.NewRequest("POST", e.ts.URL+"/api/machines/join-codes", strings.NewReader(`{}`))
+	req, _ := http.NewRequest("POST", e.ts.URL+"/api/join-codes", strings.NewReader(`{}`))
 	for k, v := range auth(cookie, csrf) {
 		req.Header.Set(k, v)
 	}
@@ -929,7 +929,7 @@ func TestNoAddressToDial(t *testing.T) {
 	if addrs, ok := e.linkInfo(t, cookie)["addresses"].([]any); !ok || len(addrs) != 0 {
 		t.Fatalf("addresses: %v", e.linkInfo(t, cookie)["addresses"])
 	}
-	r := e.do(t, "POST", "/api/machines/join-codes", `{}`, auth(cookie, csrf))
+	r := e.do(t, "POST", "/api/join-codes", `{}`, auth(cookie, csrf))
 	if r.status != http.StatusBadRequest || r.body["error"] != "This dashboard has no address another machine can reach." || r.body["hint"] == "" {
 		t.Fatalf("join code: %d %v", r.status, r.body)
 	}
@@ -980,7 +980,7 @@ func TestWithoutMachineLinks(t *testing.T) {
 	if info := plain.linkInfo(t, cookie); info["available"] != false || info["fingerprint"] != nil {
 		t.Fatalf("link info: %v", info)
 	}
-	if r := plain.do(t, "POST", "/api/machines/join-codes", `{}`, auth(cookie, csrf)); r.status != http.StatusServiceUnavailable {
+	if r := plain.do(t, "POST", "/api/join-codes", `{}`, auth(cookie, csrf)); r.status != http.StatusServiceUnavailable {
 		t.Fatalf("a join code: %d", r.status)
 	}
 	if merr, _ := plain.machineView(t, cookie, alpha.ID)["error"].(map[string]any); merr["code"] != machinelink.CodeNotConnected {

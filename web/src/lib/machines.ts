@@ -10,7 +10,7 @@ export function machineLabel(m: MachineView | undefined): string {
 
 /** A machine's page: the dashboard's own machine has its own page; a joined one lives in Settings › Machines. */
 export function machineRoute(m: MachineView): Route {
-  return m.kind === 'local' ? { name: 'machine', id: m.id } : { name: 'machine-settings', id: m.id }
+  return m.kind === 'local' ? { name: 'machine', id: m.id } : { name: 'machine-details', id: m.id }
 }
 
 /** The machine a server runs on: the one the dashboard has for it, else the dashboard's own. */

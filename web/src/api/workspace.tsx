@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, get, post } from './client'
-import type { MachineView, Me, ServerStatus } from './types'
+import type { MachineView, Me, ServerStatus, SignInNotice } from './types'
 import { t } from '@/i18n'
 import { isStale, joinHost, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
 import { mergePrefs, undoPrefs } from '@/lib/optimistic'
@@ -35,6 +35,11 @@ export interface Workspace {
   lastSlug: string | undefined
   setLastSlug: (slug: string) => void
   signOut: () => Promise<void>
+  /** Loads the signed-in user again, such as after a password change. */
+  reloadMe: () => Promise<void>
+  /** The one thing to tell the user after signing in, until they dismiss it. */
+  signInNotice: SignInNotice | undefined
+  dismissSignInNotice: () => void
 }
 
 const Ctx = createContext<Workspace | null>(null)
@@ -50,6 +55,14 @@ export const WorkspaceContext = Ctx
 
 const lastKey = 'playkeeper.lastServer'
 
+/**
+ * One notice at a time: wrong codes someone else entered come first. The
+ * others all say how many recovery codes are left, so they show as one.
+ */
+export function firstSignInNotice(notices: SignInNotice[]): SignInNotice | undefined {
+  return notices.find((n) => n.kind === 'failed_attempts') ?? notices[0]
+}
+
 function readLast(): string | undefined {
   try {
     return window.localStorage.getItem(lastKey) ?? undefined
@@ -58,7 +71,7 @@ function readLast(): string | undefined {
   }
 }
 
-export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSignedOut: () => void; children: ReactNode }) {
+export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me; onMe: (m: Me) => void; onSignedOut: () => void; children: ReactNode }) {
   const servers = usePoll(() => get<ServerStatus[]>('/api/servers'), 3000)
   const machines = usePoll(() => get<MachineView[]>('/api/machines'), 5000)
   const [prefs, setPrefsState] = useState<Record<string, string>>({})
@@ -106,6 +119,20 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
       onSignedOut()
     }
   }, [onSignedOut])
+  const reloadMe = useCallback(async () => {
+    onMe(await get<Me>('/api/auth/me'))
+  }, [onMe])
+  // Only the sign-in answer carries notices; a reloaded me has none.
+  const [notices, setNotices] = useState(() => me.notices ?? [])
+  const signInNotice = firstSignInNotice(notices)
+  const dismissSignInNotice = useCallback(() => {
+    setNotices((all) => {
+      const shown = firstSignInNotice(all)
+      if (!shown) return all
+      const wrongCodes = shown.kind === 'failed_attempts'
+      return all.filter((n) => (n.kind === 'failed_attempts') !== wrongCodes)
+    })
+  }, [])
 
   const machine = machines.data?.find((m) => m.kind === 'local') ?? machines.data?.[0]
   const live = machine?.live
@@ -156,8 +183,11 @@ export function WorkspaceProvider({ me, onSignedOut, children }: { me: Me; onSig
       lastSlug,
       setLastSlug,
       signOut,
+      reloadMe,
+      signInNotice,
+      dismissSignInNotice,
     }),
-    [me, serverList, servers.error, shownMachine, machineList, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut],
+    [me, serverList, servers.error, shownMachine, machineList, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut, reloadMe, signInNotice, dismissSignInNotice],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

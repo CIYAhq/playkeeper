@@ -69,17 +69,17 @@ func writePacket(c net.Conn, id, typ int32, s string) {
 	c.Write(p)
 }
 
-func TestRCONExecOnClosedConnectionIsUnsent(t *testing.T) {
+func TestRCONCommandOnClosedConnectionIsNotSent(t *testing.T) {
 	r, c := rconPeer(t)
 	c.Close()
 	time.Sleep(50 * time.Millisecond)
-	_, err := r.Exec(context.Background(), "chunky confirm", time.Second)
-	if !errors.Is(err, ErrUnsent) {
+	_, err := r.Command("chunky confirm", time.Second)
+	if !errors.Is(err, ErrNotSent) {
 		t.Fatalf("a connection the server closed must fail before writing: %v", err)
 	}
 }
 
-func TestRCONExecAfterWriteIsNotUnsent(t *testing.T) {
+func TestRCONCommandAfterWriteMayHaveRun(t *testing.T) {
 	r, c := rconPeer(t)
 	got := make(chan string, 1)
 	go func() {
@@ -87,8 +87,8 @@ func TestRCONExecAfterWriteIsNotUnsent(t *testing.T) {
 		got <- body
 		c.Close()
 	}()
-	_, err := r.Exec(context.Background(), "chunky confirm", time.Second)
-	if err == nil || errors.Is(err, ErrUnsent) {
+	_, err := r.Command("chunky confirm", time.Second)
+	if err == nil || errors.Is(err, ErrNotSent) {
 		t.Fatalf("a hang-up after the command went out must not look unsent: %v", err)
 	}
 	if body := <-got; body != "chunky confirm" {
@@ -96,39 +96,39 @@ func TestRCONExecAfterWriteIsNotUnsent(t *testing.T) {
 	}
 }
 
-func TestRCONExecHonoursContextDeadline(t *testing.T) {
+func TestRCONCommandContextHonoursTheDeadline(t *testing.T) {
 	r, c := rconPeer(t)
 	go io.Copy(io.Discard, c)
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := r.Exec(ctx, "chunky start", 10*time.Second)
-	if err == nil || errors.Is(err, ErrUnsent) {
+	_, err := r.CommandContext(ctx, "chunky start")
+	if err == nil || errors.Is(err, ErrNotSent) {
 		t.Fatalf("a silent server must time out after the write: %v", err)
 	}
 	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("Exec waited %v, past the context's deadline", d)
+		t.Fatalf("the command waited %v, past the context's deadline", d)
 	}
 }
 
-func TestRCONExecStopsWhenCancelled(t *testing.T) {
+func TestRCONCommandContextStopsWhenCancelled(t *testing.T) {
 	r, c := rconPeer(t)
 	go io.Copy(io.Discard, c)
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(100*time.Millisecond, cancel)
 	start := time.Now()
-	if _, err := r.Exec(ctx, "chunky start", 10*time.Second); err == nil {
+	if _, err := r.CommandContext(ctx, "chunky start"); err == nil {
 		t.Fatal("a cancelled command must fail")
 	}
 	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("Exec waited %v after cancellation", d)
+		t.Fatalf("the command waited %v after cancellation", d)
 	}
-	if _, err := r.Exec(ctx, "list", time.Second); !errors.Is(err, ErrUnsent) || !errors.Is(err, context.Canceled) {
+	if _, err := r.CommandContext(ctx, "list"); !errors.Is(err, ErrNotSent) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("a command on a cancelled context must not be sent: %v", err)
 	}
 }
 
-func TestRCONExecKeepsWorkingAfterAnAnswer(t *testing.T) {
+func TestRCONCommandContextKeepsWorkingAfterAnAnswer(t *testing.T) {
 	r, c := rconPeer(t)
 	go func() {
 		for {
@@ -142,13 +142,13 @@ func TestRCONExecKeepsWorkingAfterAnAnswer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for i := 0; i < 3; i++ {
-		if out, err := r.Exec(ctx, "list", time.Second); err != nil || out != "ran: list" {
+		if out, err := r.CommandContext(ctx, "list"); err != nil || out != "ran: list" {
 			t.Fatalf("command %d: %q %v", i, out, err)
 		}
 	}
 	cancel()
 	time.Sleep(20 * time.Millisecond)
-	if out, err := r.Exec(context.Background(), "tps", time.Second); err != nil || out != "ran: tps" {
+	if out, err := r.Command("tps", time.Second); err != nil || out != "ran: tps" {
 		t.Fatalf("a finished context must not poison the next command: %q %v", out, err)
 	}
 }

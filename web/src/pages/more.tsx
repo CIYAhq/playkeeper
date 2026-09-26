@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { BotIcon, ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, PuzzleIcon, ServerCogIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { BotIcon, ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, PuzzleIcon, ServerCogIcon, ServerIcon, SettingsIcon, SlidersHorizontalIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -46,7 +46,7 @@ function Row({ icon, title, hint, to, href, onClick, danger }: { icon: ReactNode
   )
 }
 
-function Group({ label, children }: { label?: string; children: ReactNode }) {
+export function Group({ label, children }: { label?: string; children: ReactNode }) {
   return (
     <section>
       {label && <SectionLabel className="px-4 pb-2">{label}</SectionLabel>}
@@ -127,7 +127,10 @@ export function MorePage() {
       </Group>
       <Group label={t('more.you')}>
         <li>
-          <Row icon={<Avatar name={ws.me.user.username} className="size-7" />} title={ws.me.user.username} hint={t('more.accountHint', { role: roleLabel(ws.me.user.role) })} to={{ name: 'settings' }} />
+          <Row icon={<Avatar name={ws.me.user.username} className="size-7" />} title={ws.me.user.username} hint={t('more.accountHint', { role: roleLabel(ws.me.user.role) })} to={{ name: 'account' }} />
+        </li>
+        <li>
+          <Row icon={<SettingsIcon />} title={t('nav.settings')} hint={t('more.globalHint')} to={{ name: 'settings' }} />
         </li>
         <li>
           <Row icon={<CircleHelpIcon />} title={t('nav.help')} href={t('nav.helpUrl')} />

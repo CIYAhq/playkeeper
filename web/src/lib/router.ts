@@ -17,16 +17,19 @@ export type Route =
   | { name: 'setup' }
   | { name: 'welcome' }
   | { name: 'new-server'; machine?: string }
-  | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub }
+  // page is a page under Overview: "How it's running".
+  | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running' }
   | { name: 'machine'; id: string }
+  | { name: 'machine-settings'; id: string }
   | { name: 'settings' }
+  | { name: 'account'; section?: 'two-factor' }
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
   // Wave 8: AI agents, and the machines beyond the dashboard's own.
   | { name: 'ai-agents' }
   | { name: 'machines' }
-  | { name: 'machine-settings'; id: string }
+  | { name: 'machine-details'; id: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reMachineId = /^[a-z2-9]{10}$/
@@ -52,8 +55,10 @@ export function parse(pathname: string, search = ''): Route {
     case 'settings':
       if (second === 'ai-agents' && !third) return { name: 'ai-agents' }
       if (second === 'machines' && !third) return { name: 'machines' }
-      if (second === 'machines' && third && reMachineId.test(third) && parts.length === 3) return { name: 'machine-settings', id: third }
+      if (second === 'machines' && third && reMachineId.test(third) && parts.length === 3) return { name: 'machine-details', id: third }
       return { name: 'settings' }
+    case 'account':
+      return second === 'two-factor' && !third ? { name: 'account', section: 'two-factor' } : { name: 'account' }
     case 'more':
       return { name: 'more' }
     case 'console':
@@ -63,6 +68,7 @@ export function parse(pathname: string, search = ''): Route {
     case 'servers':
       if (second === 'new' && !third) return { name: 'new-server', ...targetMachine(search) }
       if (second && reSlug.test(second)) {
+        if (third === 'running' && parts.length === 3) return { name: 'server', slug: second, tab: 'overview', page: 'running' }
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
         const sub = fourth as ServerSub
@@ -70,7 +76,10 @@ export function parse(pathname: string, search = ''): Route {
       }
       return { name: 'home' }
     case 'machines':
-      if (second && reMachineId.test(second) && !third) return { name: 'machine', id: second }
+      if (second && reMachineId.test(second)) {
+        if (!third) return { name: 'machine', id: second }
+        if (third === 'settings' && parts.length === 3) return { name: 'machine-settings', id: second }
+      }
       return { name: 'home' }
   }
   return { name: 'home' }
@@ -89,13 +98,18 @@ export function href(route: Route): string {
     case 'new-server':
       return route.machine ? `/servers/new?machine=${route.machine}` : '/servers/new'
     case 'server': {
+      if (route.page === 'running') return `/servers/${route.slug}/running`
       const path = route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
       return route.sub ? `${path}/${route.sub}` : path
     }
     case 'machine':
       return `/machines/${route.id}`
+    case 'machine-settings':
+      return `/machines/${route.id}/settings`
     case 'settings':
       return '/settings'
+    case 'account':
+      return route.section ? `/account/${route.section}` : '/account'
     case 'more':
       return '/more'
     case 'legacy':
@@ -104,7 +118,7 @@ export function href(route: Route): string {
       return '/settings/ai-agents'
     case 'machines':
       return '/settings/machines'
-    case 'machine-settings':
+    case 'machine-details':
       return `/settings/machines/${route.id}`
     default: {
       const unreachable: never = route

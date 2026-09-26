@@ -108,7 +108,7 @@ it('has one machine, with no events and no joining, for the machines pages', asy
   const machines = await ask<{ id: string; kind: string }[]>('GET', '/api/machines')
   expect(machines.map((m) => m.kind)).toEqual(['local'])
   await expect(ask('GET', `/api/machines/${machines[0]?.id}/events`)).resolves.toEqual([])
-  await expect(ask('POST', '/api/machines/join-codes', { name: '', dial: 'name' })).rejects.toMatchObject({ status: 400, code: 'demo' })
+  await expect(ask('POST', '/api/join-codes', { name: '', dial: 'name' })).rejects.toMatchObject({ status: 400, code: 'demo' })
 })
 
 it('plays a restart out, back online, and ends it with the demo toast', async () => {

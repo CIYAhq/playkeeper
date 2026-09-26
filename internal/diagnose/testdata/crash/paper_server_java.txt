@@ -1,0 +1,5 @@
+[init] Running as uid=1000 gid=1000 with /data as 'drwxr-xr-x 3 1000 1000 4096 Sep 25 08:59 /data'
+[init] Resolving type given CUSTOM
+[init] Starting the Minecraft server...
+Error: LinkageError occurred while loading main class io.papermc.paperclip.Main
+	java.lang.UnsupportedClassVersionError: io/papermc/paperclip/Main has been compiled by a more recent version of the Java Runtime (class file version 70.0), this version of the Java Runtime only recognizes class file versions up to 69.0

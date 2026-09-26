@@ -278,6 +278,9 @@ function backupOf(s: DemoState, srv: ServerStatus, at: number, kind: Backup['kin
     verified: true,
     verifiedAt: iso(at),
     downtimeMs: 0,
+    method: 'online_copy',
+    savingPausedMs: 1_600,
+    durationMs: 11_000,
     minecraftVersion: srv.config?.minecraftVersion ?? '',
     levelName: srv.config?.levelName ?? 'world',
     fileCount: Math.round(sizeBytes / 150_000),
@@ -651,10 +654,10 @@ const writes: Routes = {
   },
   'POST /api/machines/:machine/servers': create,
   'POST /api/machines/:machine/update/check': (_, r) => update(r.now),
-  'POST /api/machines/join-codes': () => {
+  'POST /api/join-codes': () => {
     throw new ApiError(400, { error: dt('demo.noJoin'), code: 'demo' })
   },
-  'DELETE /api/machines/join-codes/:code': () => ({}),
+  'DELETE /api/join-codes/:code': () => ({}),
   'POST /api/tokens': (s, r): NewToken => {
     const b = (r.body ?? {}) as { name?: string; role?: TokenRole; allServers?: boolean; servers?: string[]; days?: number }
     const token: ApiToken = { id: `tk${s.seq++}`, name: (b.name ?? '').trim(), role: b.role ?? 'viewer', allServers: b.allServers ?? true, servers: b.servers ?? [], createdAt: iso(r.now), expiresAt: iso(r.now + (b.days ?? 60) * day), account: demoUser, mine: true }

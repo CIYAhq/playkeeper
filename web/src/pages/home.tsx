@@ -10,15 +10,16 @@ import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, Playe
 import { EmptySteps } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
+import { SignInNotice } from '@/components/app/sign-in-notice'
 import { InlineSkeleton, LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { demo } from '@/lib/demo'
-import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, joinAddress, sameDay } from '@/lib/format'
+import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, sameDay, serverJoinAddress } from '@/lib/format'
 import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, outOfReach, reachOf } from '@/lib/machines'
-import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
+import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
@@ -71,7 +72,7 @@ export function HomePage() {
     <>
       <PageHeader title={t('home.title')} subtitle={demo ? demo.homeSubtitle() : subtitle} actions={demo ? <demo.HomeAction /> : newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
-        <MachineNotice />
+        <HomeNotice />
         {grouped && servers ? (
           sections.map(({ key, item: m, state }) => (
             <section key={key} {...presenceProps(state)} aria-labelledby={`on-${m.id}`} className="flex flex-col gap-3">
@@ -119,11 +120,12 @@ async function recentActivity(machines: string[]): Promise<Activity[]> {
     .slice(0, 5)
 }
 
-/** One line about the machine when something needs attention: the agent, or disk space. */
-function MachineNotice() {
+/** At most one notice: the agent not answering, what to know after signing in, or disk space. */
+function HomeNotice() {
   const ws = useWorkspace()
   const disk = ws.machine?.live?.diskWarning
   if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.body', { machine: ws.machineName })}</Notice>
+  if (ws.signInNotice) return <SignInNotice />
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   return null
 }
@@ -170,7 +172,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
       </span>
     )
   }
-  const tone = phaseTone(s.phase)
+  const tone = statusTone(s)
   switch (tone) {
     case 'online': {
       const names = s.players?.names ?? []
@@ -191,7 +193,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
         <>
           <span className="flex items-center gap-2 text-[13px] text-destructive-foreground">
             <CircleAlertIcon className="size-4" aria-hidden="true" />
-            {t('card.crashed')}
+            {couldntStart(s) ? t('status.couldntStart') : t('card.crashed')}
           </span>
           {!s.operation && <StartButton server={s} label={t('server.startAgain')} />}
         </>
@@ -223,7 +225,7 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
   const ws = useWorkspace()
   const reach = reachOf(s, ws)
   const stale = isStale(s, ws.stale) || reach.state !== 'live'
-  const address = joinAddress(joinHost(machineOf(s, ws.machines), window.location.hostname), s.gamePort)
+  const address = serverJoinAddress(s, joinHost(machineOf(s, ws.machines), window.location.hostname))
   const stopped = phaseTone(s.phase) !== 'online'
   return (
     <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">

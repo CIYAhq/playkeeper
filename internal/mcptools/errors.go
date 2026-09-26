@@ -3,6 +3,7 @@ package mcptools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -53,7 +54,7 @@ func clip(s string) string {
 	return string([]rune(s)[:maxErrorText]) + "…"
 }
 
-func clipParams(p map[string]string) map[string]string {
+func clipParams[V any](p map[string]V) map[string]string {
 	if len(p) == 0 {
 		return nil
 	}
@@ -62,7 +63,7 @@ func clipParams(p map[string]string) map[string]string {
 		if len(out) == 10 {
 			break
 		}
-		out[clip(k)] = clip(v)
+		out[clip(k)] = clip(fmt.Sprint(v))
 	}
 	return out
 }

@@ -14,9 +14,9 @@ import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
-import { formatMB, joinAddress, relativeTime } from '@/lib/format'
+import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
 import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
-import { controls, isSettingUp, phaseTone, whyNot } from '@/lib/phase'
+import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
 import { addonTab } from '@/lib/addons'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
@@ -25,6 +25,7 @@ import { ConsolePage } from './console'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
 import { PluginsPage, PluginsPhoneHeader } from './plugins'
+import { RunningPage } from './running'
 import { ServerSettingsPage } from './settings'
 import { WorldPage } from './world'
 import { PacksPage } from './world-packs'
@@ -50,7 +51,7 @@ export async function serverAction(server: ServerStatus, action: 'start' | 'stop
   }
 }
 
-export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; sub?: ServerSub }) {
+export function ServerPage({ slug, tab, sub, page }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running' }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -69,7 +70,7 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
   let body: ReactNode
   switch (tab) {
     case 'overview':
-      body = <Overview server={server} />
+      body = page === 'running' ? <RunningPage server={server} /> : <Overview server={server} />
       break
     case 'console':
       body = <ConsolePage server={server} />
@@ -92,19 +93,21 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
       body = unreachable
     }
   }
-  if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
+  if (settingUp && (page || (tab !== 'overview' && tab !== 'console'))) body = <Overview server={server} />
   // Nothing on the other tabs can load from a joined machine that's away or whose agent doesn't answer, so they show what Overview says about it.
   const offline = reach.state !== 'live' && outOfReach(reach.machine)
-  if (offline && tab !== 'overview') body = <Overview server={server} />
+  if (offline && (page || tab !== 'overview')) body = <Overview server={server} />
   const ownView = !settingUp && !offline
   // The Plugins tab keeps its running job and highlighted file across its
   // views, and animates switching between them itself.
-  const pageKey = tab === 'plugins' || tab === 'mods' ? tab : `${tab}:${sub ?? ''}`
+  const pageKey = tab === 'plugins' || tab === 'mods' ? tab : `${tab}:${sub ?? page ?? ''}`
   return (
     <>
       {phone ? (
         tab === 'settings' ? (
           <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t('tab.settings')} />
+        ) : page === 'running' && ownView ? (
+          <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} />
         ) : (tab === 'plugins' || tab === 'mods') && ownView ? (
           <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
         ) : tab === 'world' && sub && ownView ? null : (
@@ -158,7 +161,7 @@ function metaLine(s: ServerStatus, settingUp: boolean, lastSeen: string | undefi
 function useCopyAddress(server: ServerStatus) {
   const { host } = useServerMachine(server)
   return async () => {
-    const ok = await copyText(joinAddress(host, server.gamePort))
+    const ok = await copyText(serverJoinAddress(server, host))
     toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
 }
@@ -171,7 +174,7 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
     await serverAction(server, action)
     setBusy(false)
   }
-  const tone = phaseTone(server.phase)
+  const tone = statusTone(server)
   if (!stale && (tone === 'crashed' || (tone === 'stopped' && server.exists))) {
     return (
       <Button onClick={() => run('start')} loading={busy} disabledReason={whyNot(server, 'start', offline)}>
@@ -259,7 +262,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
                 {(ws.servers ?? []).map((o) => (
                   <MenuRadioItem key={o.id} value={o.id} closeOnClick>
                     <span className="flex items-center gap-2">
-                      <Dot tone={isStale(o, ws.stale) || reachOf(o, ws).state !== 'live' ? 'unknown' : phaseTone(o.phase)} />
+                      <Dot tone={isStale(o, ws.stale) || reachOf(o, ws).state !== 'live' ? 'unknown' : statusTone(o)} />
                       {o.name}
                     </span>
                   </MenuRadioItem>
@@ -370,8 +373,19 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
   const staleOf = (s: ServerStatus) => isStale(s, ws.stale) || reachOf(s, ws).state !== 'live'
   const line = (s: ServerStatus) => {
     const stale = staleOf(s)
-    const tone = stale ? 'unknown' : phaseTone(s.phase)
-    const state = tone === 'online' ? (s.players?.online ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players.online })}` : t('status.online')) : tone === 'stopped' && s.stoppedAt ? t('switcher.stoppedAgo', { time: relativeTime(s.stoppedAt) }) : stale ? t('status.unknown') : undefined
+    const tone = stale ? 'unknown' : statusTone(s)
+    const state =
+      tone === 'online'
+        ? s.players?.online
+          ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players.online })}`
+          : t('status.online')
+        : tone === 'crashed'
+          ? statusLabel(s)
+          : tone === 'stopped' && s.stoppedAt
+            ? t('switcher.stoppedAgo', { time: relativeTime(s.stoppedAt) })
+            : stale
+              ? t('status.unknown')
+              : undefined
     return [state, softwareLabel(s)].filter(Boolean).join(t('common.dot'))
   }
   return (

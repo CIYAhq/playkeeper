@@ -100,7 +100,7 @@ function MachineList({ fingerprint }: { fingerprint?: string }) {
               {local ? (
                 <div className="flex items-center gap-3 py-2.5">{body}</div>
               ) : (
-                <a {...linkProps({ name: 'machine-settings', id: m.id })} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring">
+                <a {...linkProps({ name: 'machine-details', id: m.id })} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring">
                   {body}
                 </a>
               )}
@@ -150,11 +150,11 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
       setError(undefined)
       const old = made?.cmd
       try {
-        const next = await post<JoinCommand>('/api/machines/join-codes', { name: n.trim(), dial: d })
+        const next = await post<JoinCommand>('/api/join-codes', { name: n.trim(), dial: d })
         made = { cmd: next, name: n, dial: d }
         setCmd(next)
         setCancelled(false)
-        if (old && old.id !== next.id) void del(`/api/machines/join-codes/${old.id}`).catch(() => undefined)
+        if (old && old.id !== next.id) void del(`/api/join-codes/${old.id}`).catch(() => undefined)
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 429)) setError(errorText(e))
       } finally {
@@ -200,7 +200,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
   async function cancel() {
     if (!cmd) return
     try {
-      await del(`/api/machines/join-codes/${cmd.id}`)
+      await del(`/api/join-codes/${cmd.id}`)
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
       return
@@ -388,7 +388,7 @@ function ConnectedCard({ id, fallbackName }: { id: string; fallbackName: string 
           <PlusIcon />
           {t('machines.connected.newServer', { name })}
         </Button>
-        <Button variant="outline" size="sm" render={<a {...linkProps({ name: 'machine-settings', id })} />}>
+        <Button variant="outline" size="sm" render={<a {...linkProps({ name: 'machine-details', id })} />}>
           {t('machines.details')}
         </Button>
       </div>

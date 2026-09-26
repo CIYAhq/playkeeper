@@ -17,8 +17,10 @@ import { login, outDir } from './helpers'
 // crawl so Settings › AI agents has a token to open and revoke (revoking goes
 // to the fakes too). There is no list of exceptions: a control that should do nothing
 // right now must be disabled and say why (aria-describedby or a title). The
-// selected tab or option of a group may stay selected. Each page gets a fresh
-// load before a control is pressed unless the page is provably unchanged.
+// selected tab or option of a group may stay selected. A link another app
+// opens (an authenticator's otpauth:, mailto:, tel:) counts as working, since
+// a headless browser has no app to open. Each page gets a fresh load before a
+// control is pressed unless the page is provably unchanged.
 
 test.describe.configure({ mode: 'parallel' })
 
@@ -40,8 +42,8 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
   }
   out.push('/servers/new')
   // A joined machine's page is in Settings › Machines; the dashboard's own has its own page.
-  for (const m of machines) out.push(m.kind === 'remote' ? `/settings/machines/${m.id}` : `/machines/${m.id}`)
-  out.push('/settings', '/settings/ai-agents', '/settings/machines')
+  for (const m of machines) out.push(m.kind === 'remote' ? `/settings/machines/${m.id}` : `/machines/${m.id}`, `/machines/${m.id}/settings`)
+  out.push('/settings', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor')
   if (phone) out.push('/more')
   return out
 }

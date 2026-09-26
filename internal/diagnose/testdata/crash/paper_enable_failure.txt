@@ -1,0 +1,10 @@
+[09:14:04 INFO]: [Shopkeepers] Enabling Shopkeepers v2.23.3
+[09:14:04 ERROR]: Error occurred while enabling Shopkeepers v2.23.3 (Is it up to date?)
+java.lang.NoSuchMethodError: 'org.bukkit.inventory.InventoryView org.bukkit.entity.Player.openMerchant(org.bukkit.inventory.Merchant, boolean)'
+	at Shopkeepers-2.23.3.jar//com.nisovin.shopkeepers.compat.v1_21_R3.CompatProviderImpl.<init>(CompatProviderImpl.java:57) ~[Shopkeepers-2.23.3.jar:?]
+	at Shopkeepers-2.23.3.jar//com.nisovin.shopkeepers.SKShopkeepersPlugin.onEnable(SKShopkeepersPlugin.java:301) ~[Shopkeepers-2.23.3.jar:?]
+	at org.bukkit.plugin.java.JavaPlugin.setEnabled(JavaPlugin.java:280) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]
+	at io.papermc.paper.plugin.manager.PaperPluginInstanceManager.enablePlugin(PaperPluginInstanceManager.java:202) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[09:14:04 INFO]: [Shopkeepers] Disabling Shopkeepers v2.23.3
+[09:14:06 INFO]: Done (4.1s)! For help, type "help"
+[13:55:10 INFO]: Stopping server

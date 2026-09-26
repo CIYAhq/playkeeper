@@ -139,7 +139,9 @@ PrivateTmp=yes
 
 // agentUnit runs the root agent with a read-only view of the host except its
 // own state directory and runtime socket directory, and with at most half the
-// memory minecraft.HostReserveMB keeps free for the host.
+// memory minecraft.HostReserveMB keeps free for the host. CAP_NET_BIND_SERVICE
+// lets it answer Let's Encrypt's checks on port 80 for the seconds a
+// certificate for an own domain is being issued.
 func agentUnit() string {
 	return `[Unit]
 Description=Playkeeper agent (local control of the Minecraft container)
@@ -173,7 +175,7 @@ RestrictNamespaces=yes
 LockPersonality=yes
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_NET_BIND_SERVICE
 # Playkeeper keeps 768 MB free for the system, Docker and itself. The agent
 # may use half of it, so if a file crafted by a plugin or mod makes it use
 # more, the agent is stopped and restarted instead of starving the game

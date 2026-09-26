@@ -1,0 +1,9 @@
+[21:03:12 INFO]: Alex joined the game
+[21:04:40 WARN]: Alex moved too quickly! -12.4,0.0,33.1
+[21:05:02 ERROR]: Encountered an unexpected exception
+net.minecraft.ReportedException: Exception ticking world
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1760) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+Caused by: java.lang.IllegalStateException: Recursive call to getBlockState at 214 63 -1170
+	at net.minecraft.world.level.Level.getBlockState(Level.java:1044) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[21:05:03 ERROR]: This crash report has been saved to: /data/./crash-reports/crash-2026-09-25_21.05.03-server.txt
+[21:05:03 INFO]: Stopping server

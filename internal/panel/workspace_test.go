@@ -10,10 +10,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
 func (e *env) reply(method, path, body string) {
@@ -115,11 +118,13 @@ func TestMembersCanLookButNotManage(t *testing.T) {
 		t.Fatalf("member login: %d %v", r.status, r.body)
 	}
 	cookie, csrf := r.cookie, r.body["csrfToken"].(string)
-	if r := e.do(t, "GET", "/api/servers/"+sampleServer, "", auth(cookie, "")); r.status != 200 {
-		t.Fatalf("a member may look: %d %v", r.status, r.body)
+	for _, p := range []string{"", "/running", "/memory?tz=Europe/Berlin"} {
+		if r := e.do(t, "GET", "/api/servers/"+sampleServer+p, "", auth(cookie, "")); r.status != 200 {
+			t.Fatalf("a member may look at %q: %d %v", p, r.status, r.body)
+		}
 	}
-	for _, p := range []string{"/api/servers/" + sampleServer + "/stop", "/api/servers/" + sampleServer + "/command"} {
-		if r := e.do(t, "POST", p, `{}`, auth(cookie, csrf)); r.status != http.StatusForbidden {
+	for _, p := range []string{"/stop", "/command", "/saving/resume", "/addons/remove-file"} {
+		if r := e.do(t, "POST", "/api/servers/"+sampleServer+p, `{}`, auth(cookie, csrf)); r.status != http.StatusForbidden {
 			t.Errorf("a member may not use %s: %d", p, r.status)
 		}
 	}
@@ -247,6 +252,36 @@ func TestPlayerFacesComeFromTheirOwnSkin(t *testing.T) {
 	}
 	if _, err := cropFace([]byte("not a png")); err == nil {
 		t.Error("a file that is not a skin must be refused")
+	}
+}
+
+func TestTheSignInPageGetsOnlyTheMachinesNameAndTheVersion(t *testing.T) {
+	e := newEnv(t)
+	var st map[string]any
+	if r := e.get(t, "/api/setup/status", "", &st); r != 200 || st["needsSetup"] != true {
+		t.Fatalf("before the first account: %d %v", r, st)
+	}
+	e.setup(t)
+	e.agent.mu.Lock()
+	hits := len(e.agent.hits)
+	e.agent.mu.Unlock()
+	host, _ := os.Hostname()
+	st = nil
+	if r := e.get(t, "/api/setup/status", "", &st); r != 200 || st["needsSetup"] != false || st["machine"] != host || st["version"] != version.Version {
+		t.Fatalf("a machine without a name of its own goes by its hostname, as in its certificate: %d %v", r, st)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE machines SET name = 'my-vps' WHERE kind = ?`, localKind); err != nil {
+		t.Fatal(err)
+	}
+	st = nil
+	e.get(t, "/api/setup/status", "", &st)
+	if st["machine"] != "my-vps" || len(st) != 3 {
+		t.Fatalf("the sign-in page gets the name the dashboard shows, the version and nothing more: %v", st)
+	}
+	e.agent.mu.Lock()
+	defer e.agent.mu.Unlock()
+	if len(e.agent.hits) != hits {
+		t.Errorf("the sign-in page must not ask the agent: %v", e.agent.hits[hits:])
 	}
 }
 

@@ -26,12 +26,12 @@ export const settingsSections: { route: Route & { name: SettingsSectionName }; l
   { route: { name: 'machines' }, label: 'global.nav.machines', act: 'view' },
 ]
 
-/** Where Settings opens: the first section the account can use, else its account page. */
+/** The first section of Settings the account can use, else the Settings page. */
 export function settingsHome(me: Me): Route {
   return settingsSections.find((s) => can(me, s.act))?.route ?? { name: 'settings' }
 }
 
 /** Whether a route is one of the Settings pages, for the sidebar's Settings row. */
 export function inSettings(route: Route): boolean {
-  return route.name === 'settings' || route.name === 'ai-agents' || route.name === 'machines' || route.name === 'machine-settings'
+  return route.name === 'settings' || route.name === 'ai-agents' || route.name === 'machines' || route.name === 'machine-details'
 }

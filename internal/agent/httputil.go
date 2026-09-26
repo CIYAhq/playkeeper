@@ -34,6 +34,7 @@ type apiError struct {
 	Msg    string
 	Hint   string
 	Op     *api.Operation
+	Params map[string]any
 	Err    error
 }
 
@@ -60,7 +61,7 @@ func errNotFound(what string) *apiError {
 func writeError(w http.ResponseWriter, err error) {
 	var ae *apiError
 	if errors.As(err, &ae) {
-		writeJSON(w, ae.Status, api.Error{Error: ae.Msg, Code: ae.Code, Hint: ae.Hint, Operation: ae.Op})
+		writeJSON(w, ae.Status, api.Error{Error: ae.Msg, Code: ae.Code, Hint: ae.Hint, Operation: ae.Op, Params: ae.Params})
 		return
 	}
 	writeErr(w, http.StatusInternalServerError, api.CodeInternal, err.Error(), "")

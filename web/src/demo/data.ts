@@ -254,6 +254,9 @@ function backup(serverId: string, n: number, at: number, sizeBytes: number, over
     verified: true,
     verifiedAt: iso(at + 2 * minute),
     downtimeMs: 0,
+    method: 'online_copy',
+    savingPausedMs: 1_400 + (at % 900),
+    durationMs: 9_000 + (at % 7_000),
     minecraftVersion: serverId === survivalId ? '26.1.2' : '26.2.1',
     levelName: 'world',
     fileCount: Math.round(sizeBytes / 150_000),
@@ -507,16 +510,16 @@ function metrics(s: DemoState, r: Request): MetricsResponse {
   const buckets: MetricsBucket[] = []
   for (let start = from; start < to; start += bucket) {
     if (start < since) {
-      buckets.push({ start: iso(start), playersMax: null, cpuAvg: null, memAvg: null, coverage: 0, state: 'not_collected' })
+      buckets.push({ start: iso(start), playersMax: null, cpuAvg: null, memAvg: null, tpsAvg: null, msptAvg: null, coverage: 0, state: 'not_collected' })
       continue
     }
     if (start >= stopped) {
-      buckets.push({ start: iso(start), playersMax: null, cpuAvg: null, memAvg: null, coverage: 1, state: 'offline' })
+      buckets.push({ start: iso(start), playersMax: null, cpuAvg: null, memAvg: null, tpsAvg: null, msptAvg: null, coverage: 1, state: 'offline' })
       continue
     }
     const base = busy[new Date(start).getHours()] ?? 0
     const players = Math.min(srv.config?.maxPlayers ?? 10, Math.max(0, base + Math.round(noise(start / bucket) * 2 - 0.8)))
-    buckets.push({ start: iso(start), playersMax: players, cpuAvg: 6 + players * 4 + noise(start) * 5, memAvg: (1.9 + players * 0.12) * gb, coverage: 1, state: 'online' })
+    buckets.push({ start: iso(start), playersMax: players, cpuAvg: 6 + players * 4 + noise(start) * 5, memAvg: (1.9 + players * 0.12) * gb, tpsAvg: 20, msptAvg: 14 + players * 2.5 + noise(start + 1) * 6, coverage: 1, state: 'online' })
   }
   return { from: iso(from), to: iso(to), bucketSeconds: bucket / 1000, sampleIntervalSeconds: 60, buckets, gaps: stopped < to ? [{ from: iso(stopped), to: iso(to), kind: 'server_offline' }] : [], collectingSince: srv.collectingSince, source: 'rcon list' }
 }

@@ -70,15 +70,6 @@ func (o Options) ports() []int {
 	return []int{o.PanelPort, o.GamePort}
 }
 
-// firewallRules are ports as ufw rules, such as "8443/tcp".
-func firewallRules(ports []int) []string {
-	var rules []string
-	for _, p := range ports {
-		rules = append(rules, strconv.Itoa(p)+"/tcp")
-	}
-	return rules
-}
-
 type Check struct {
 	ID     string `json:"id"`
 	Label  string `json:"label"`
@@ -237,12 +228,16 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	} else {
 		add("docker", "Docker", "fail", "Docker is not installed and apt-get is unavailable.", "Install Docker Engine, then run the installer again.")
 	}
-	rules := strings.Join(firewallRules(o.ports()), " and ")
-	if out, err := sys.Run("ufw", "status"); err == nil && strings.Contains(out, "Status: active") {
+	ports := joinAnd(firewallRules(o))
+	why := ""
+	if o.Join == "" {
+		why = " " + port80Why
+	}
+	if ufwActive(sys) {
 		f.UFWActive = true
-		add("firewall", "Firewall (ufw)", "info", "ufw is active; the installer will allow "+rules+".", "")
+		add("firewall", "Firewall (ufw)", "info", "ufw is active; the installer will allow "+ports+". If your provider has a cloud firewall, allow them there too."+why, "")
 	} else {
-		add("firewall", "Firewall", "info", "No active ufw firewall. If your provider has a cloud firewall, allow "+rules+" there.", "")
+		add("firewall", "Firewall", "info", "No active ufw firewall. If your provider has a cloud firewall, allow "+ports+" there."+why, "")
 	}
 	f.PanelURLHost = primaryIP()
 	if o.Join != "" {
@@ -359,7 +354,8 @@ func Plan(f Facts, o Options) []string {
 	} else {
 		p = append(p,
 			fmt.Sprintf("           playkeeper-panel (HTTPS on port %d)", o.PanelPort),
-			fmt.Sprintf("Ports:     %d/tcp web panel now; %d/tcp Minecraft once you create a server", o.PanelPort, o.GamePort),
+			fmt.Sprintf("Ports:     %d/tcp web panel now; %d/tcp Minecraft once you create a server;", o.PanelPort, o.GamePort),
+			"           80/tcp only while Let's Encrypt checks your own domain",
 		)
 	}
 	if !f.DockerPresent {
@@ -373,7 +369,7 @@ func Plan(f Facts, o Options) []string {
 		p = append(p, fmt.Sprintf("Network:   the server gets its own Docker network, 'playkeeper' (a bridge), and Docker forwards %d/tcp to it", o.GamePort))
 	}
 	if f.UFWActive {
-		p = append(p, "Firewall:  ufw allow "+strings.Join(firewallRules(o.ports()), " and "))
+		p = append(p, "Firewall:  ufw allow "+joinAnd(firewallRules(o))+" (rules that already exist stay yours)")
 	}
 	p = append(p, "Untouched: your other services, existing Docker containers, SSH, and your own firewall rules")
 	return p
@@ -794,16 +790,19 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	}
 
 	if in.f.UFWActive {
-		name := "allow panel and game ports in ufw"
+		name := "allow the panel, game and Let's Encrypt ports in ufw"
 		if cfg.NoPanel {
 			name = "allow the game port in ufw"
 		}
 		if err := in.exec(step{name: name, do: func() error {
-			for _, rule := range firewallRules(in.o.ports()) {
-				if _, err := sys.Run("ufw", "allow", rule); err != nil {
+			for _, rule := range firewallRules(in.o) {
+				added, err := ufwAllow(sys, rule)
+				if err != nil {
 					return err
 				}
-				in.m.FirewallRules = append(in.m.FirewallRules, rule)
+				if added {
+					in.m.FirewallRules = append(in.m.FirewallRules, rule)
+				}
 			}
 			return nil
 		}, undo: func() error {
@@ -941,6 +940,54 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// acmeRule is the firewall rule for Let's Encrypt's checks of an own
+// domain: only the agent answers on port 80, and only during a check.
+const acmeRule = "80/tcp"
+
+const port80Why = "Port 80 is only for Let's Encrypt's checks of your own domain; nothing answers on it otherwise."
+
+// firewallRules are the ufw rules the installer adds: the panel, the first
+// server and Let's Encrypt's checks. A machine that joins another dashboard
+// runs no dashboard of its own, so it gets only the first server's.
+func firewallRules(o Options) []string {
+	var out []string
+	add := func(r string) {
+		if !contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	for _, p := range o.ports() {
+		add(strconv.Itoa(p) + "/tcp")
+	}
+	if o.Join == "" {
+		add(acmeRule)
+	}
+	return out
+}
+
+// joinAnd lists items as "a, b and c".
+func joinAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
+func ufwActive(sys System) bool {
+	out, err := sys.Run("ufw", "status")
+	return err == nil && strings.Contains(out, "Status: active")
+}
+
+// ufwAllow allows rule in ufw and reports whether that added it. A rule
+// that was already there is the admin's, so uninstall must leave it.
+func ufwAllow(sys System, rule string) (added bool, err error) {
+	out, err := sys.Run("ufw", "allow", rule)
+	if err != nil {
+		return false, err
+	}
+	return !strings.Contains(out, "Skipping adding existing rule"), nil
 }
 
 func waitFor(ctx context.Context, d time.Duration, ok func() bool) error {
