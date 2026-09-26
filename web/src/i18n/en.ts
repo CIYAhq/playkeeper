@@ -507,7 +507,7 @@ export const en = {
   'crash.fix.memoryFits': 'Fits in the {free} free',
   'crash.fix.memoryFree': '{machine} has {free} free',
   'crash.fix.keep': 'Keep {memory} and start again',
-  'crash.fix.keepHint': 'Might crash again.',
+  'crash.fix.keepHint': 'Might crash again',
   'crash.fix.view': 'Lower view distance to {to}',
   'crash.fix.viewHint': 'Fewer chunks stay in memory',
   'crash.fix.again': 'Start {server} again',
@@ -821,7 +821,6 @@ export const en = {
   'settings.iconBad': 'That picture couldn’t be used. Pick a PNG or JPEG image.',
   'settings.iconRefused': 'Icons need to be 64 × 64 and under 64 KB.',
   'settings.memoryRow': 'Memory',
-  'settings.memoryRowHintIdle': 'The server gets a hard limit of this much; part of it is used by Java itself.',
   'settings.memoryPlenty': {
     one: 'It never needed more than {peak} in the last day, so {memory} is plenty.',
     other: 'It never needed more than {peak} in the last {count} days, so {memory} is plenty.',

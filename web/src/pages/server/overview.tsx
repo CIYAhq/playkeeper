@@ -230,7 +230,7 @@ function RunningCard({ server: s }: { server: ServerStatus }) {
   const tps = r?.tps
   const word = lagWord(r?.lag)
   return (
-    <Card className="relative transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
+    <Card className="relative transition-[box-shadow,border-color] duration-(--motion-fast) ease-standard focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
       <div className="flex items-center justify-between gap-3">
         <CardTitle className="max-sm:text-[17px]">
           <a {...linkProps({ name: 'server', slug: s.slug, tab: 'overview', page: 'running' })} className="outline-none after:absolute after:inset-0 after:rounded-3xl focus-visible:after:ring-2 focus-visible:after:ring-ring">
@@ -475,6 +475,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
                 key={o.id}
                 value={o.id}
                 disabled={!o.plan}
+                reason={o.reason}
                 className="min-h-16 items-center gap-3 rounded-none border-0 border-b border-border bg-transparent px-4 py-3 shadow-none last:border-b-0 hover:border-border has-[[data-checked]]:border-border has-[[data-checked]]:bg-transparent has-[[data-checked]]:shadow-none has-[[data-disabled]]:bg-transparent"
               >
                 <span className={cn('block text-base', !o.plan && 'text-muted-foreground')}>{o.title}</span>
@@ -512,7 +513,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
         <CardTitle>{t('crash.fix')}</CardTitle>
         <CardGroup value={choice?.id ?? ''} onChange={setPicked} label={t('crash.fix')} className="mt-3 flex flex-col gap-2.5">
           {options.map((o) => (
-            <ChoiceCard key={o.id} value={o.id} radio="start" disabled={!o.plan} className="gap-3 p-3.5">
+            <ChoiceCard key={o.id} value={o.id} radio="start" disabled={!o.plan} reason={o.reason} className="gap-3 p-3.5">
               <span className={cn('text-sm font-semibold', !o.plan && 'text-muted-foreground')}>{o.title}</span>
               {o.recommended && o.plan && <span className="ml-2 text-xs text-muted-foreground">{t('common.recommended')}</span>}
               {(o.reason ?? o.hint) && <span className="mt-0.5 block text-xs text-muted-foreground">{o.reason ?? o.hint}</span>}

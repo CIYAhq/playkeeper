@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatClock, formatDate, sameDay } from '@/lib/format'
-import { opLabel } from '@/lib/phase'
+import { opLabel, whyNot } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 
 const avoidedWhenStopped = ['unexpected_reply', 'save_timeout', 'file_changing', 'saving_resumed']
@@ -39,7 +39,7 @@ function BackUpStoppedButton({ server: s }: { server: ServerStatus }) {
     }
   }
   return (
-    <Button variant="outline" size="sm" onClick={go} loading={busy} disabled={ws.stale || !!s.operation}>
+    <Button variant="outline" size="sm" onClick={go} loading={busy} disabledReason={whyNot(s, 'restart', ws.stale)}>
       <ArchiveIcon />
       {t('backup.stopAndBackUp')}
     </Button>
@@ -98,7 +98,7 @@ export function SavingPausedNotice({ server: s, className }: { server: ServerSta
             <SquareTerminalIcon />
             {t('backup.openConsole')}
           </Button>
-          <Button size="sm" onClick={resume} loading={busy} disabled={s.phase !== 'online' || !!s.operation}>
+          <Button size="sm" onClick={resume} loading={busy} disabledReason={whyNot(s, 'command', ws.stale)}>
             {t('backup.resumeSaving')}
           </Button>
         </span>

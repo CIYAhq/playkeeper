@@ -331,6 +331,7 @@ describe('How it’s running', () => {
 
     const pregen = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Pre-generate the map'))
     expect(pregen?.disabled).toBe(true)
+    expect(pregen?.title).toBe('Coming later')
     expect(rows[0]).toContain('Coming later')
     expect(link('Give it 6 GB')).toBe('/servers/survival/settings?memory=6144#memory')
     expect(link('Lower view distance to 10')).toBe('/servers/survival/settings?view=10#game')
@@ -393,6 +394,19 @@ describe('Settings › Memory', () => {
     expect(text).not.toContain('How much of my-vps')
     expect(text).toContain('Stops it when empty, wakes it on join.')
     expect(text).not.toContain('unsaved change')
+  })
+
+  it('says why a size that doesn’t fit can’t be picked', async () => {
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    answer({ '/memory': keep })
+    await render(<ServerSettingsPage server={server()} />)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Memory"]')?.click())
+    const big = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((o) => o.textContent?.startsWith('8 GB'))
+    expect(big?.disabled).toBe(true)
+    expect(document.getElementById(big?.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Not enough free on my-vps')
+    const fits = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent?.startsWith('6 GB'))
+    expect(fits?.hasAttribute('aria-describedby')).toBe(false)
+    phone.mockRestore()
   })
 
   it('counts the days until it can suggest a size', async () => {
@@ -519,6 +533,10 @@ describe('Backups with players online', () => {
     expect(link?.getAttribute('href')).toBe('/servers/survival/console')
     await press('Turn saving back on')
     expect(posts()).toEqual([['/saving/resume', undefined]])
+    const restarting: Operation = { id: 'op-2', kind: 'restart', status: 'running', phase: 'stopping', actor: 'siya', startedAt: since.toISOString() }
+    await render(<WorldPage server={server({ savingPausedSince: since.toISOString(), operation: restarting })} />)
+    const resume = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Turn saving back on')
+    expect([resume?.disabled, resume?.title]).toEqual([true, 'Restarting Survival. Try again when it’s done.'])
   })
 
   it('offers a backup with the server stopped when the console couldn’t take one', async () => {
@@ -529,6 +547,11 @@ describe('Backups with players online', () => {
     expect(text).toContain('Backing up Survival failed: The server didn’t confirm the save within 1m0s.')
     await press('Stop and back up')
     expect(posts()).toEqual([['/backups', { stopped: true }]])
+    const updating: Operation = { id: 'op-2', kind: 'update-version', status: 'running', phase: '', actor: 'siya', startedAt: new Date().toISOString() }
+    await render(<WorldPage server={server({ lastOperation: timeout, operation: updating })} />)
+    const stopped = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Stop and back up')
+    expect(stopped?.disabled).toBe(true)
+    expect(stopped?.title).toMatch(/Try again when it’s done\.$/)
   })
 
   it('leaves a backup refused for space to its own advice', async () => {
@@ -613,6 +636,7 @@ describe('Crash helper', () => {
     expect(text).toContain('Update Multiverse-PortalsComing later')
     expect(text).not.toContain('Recommended')
     expect(labelled('Update Multiverse-Portals')?.querySelector('[data-disabled]')).not.toBeNull()
+    expect(labelled('Update Multiverse-Portals')?.title).toBe('Coming later')
     expect(labelled('Remove Multiverse-Portals')?.querySelector('[data-checked]')).not.toBeNull()
     await press('Remove and start Survival')
     expect(posts()).toEqual([['/addons/remove', { jar: 'Multiverse-Portals-5.0.2.jar', start: true }]])

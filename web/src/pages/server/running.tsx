@@ -7,6 +7,7 @@ import { Pip } from '@/components/app/art'
 import { Card, SectionLabel } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
 import { LineChart } from '@/components/app/line-chart'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatLocale, t } from '@/i18n'
@@ -151,7 +152,10 @@ export function RunningPage({ server: s }: { server: ServerStatus }) {
         </p>
       </div>
       {loadingCharts ? (
-        <Skeleton className={cn('mt-3 w-full', phone ? 'h-[82px]' : 'h-[110px]')} />
+        <>
+          <LoadingLabel />
+          <Skeleton className={cn('mt-3 w-full', phone ? 'h-[82px]' : 'h-[110px]')} />
+        </>
       ) : (
         <LineChart
           className="mt-3"
@@ -181,6 +185,7 @@ export function RunningPage({ server: s }: { server: ServerStatus }) {
     </div>
   ) : (
     <div className="flex min-w-0 flex-col gap-2">
+      <LoadingLabel />
       <Skeleton className="h-7 w-80 max-w-full" />
       <Skeleton className="h-4 w-64 max-w-full" />
     </div>
@@ -268,7 +273,7 @@ function ActionButton({ action, primary, size }: { action: CauseAction; primary:
     )
   }
   return (
-    <Button variant={variant} size={size} className={cls} disabled>
+    <Button variant={variant} size={size} className={cls} disabledReason={t('common.comingLater')}>
       {actionIcons[action.kind]}
       {action.label}
     </Button>
@@ -342,7 +347,7 @@ function CauseLine({ cause, ctx }: { cause: LagCause; ctx: CauseContext }) {
   return (
     <li className="border-b border-border last:border-b-0">
       {action?.mode === 'link' ? (
-        <a {...linkPath(action.href)} className="flex min-h-16 items-center gap-3 px-4 py-2.5 transition-colors active:bg-accent">
+        <a {...linkPath(action.href)} className="flex min-h-16 items-center gap-3 px-4 py-2.5 active:bg-accent">
           {body}
         </a>
       ) : (

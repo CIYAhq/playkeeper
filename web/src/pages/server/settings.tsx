@@ -7,12 +7,12 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, Progress, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
+import { InlineSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { NumberField, NumberFieldDecrement, NumberFieldGroup, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -227,10 +227,8 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
       )}
     </>
   ) : memoryPoll.loading ? (
-    <Skeleton className="mt-1 h-3.5 w-72 max-w-full" />
-  ) : (
-    t('settings.memoryRowHintIdle')
-  )
+    <InlineSkeleton className="w-72 max-w-full" />
+  ) : undefined
 
   const game = (
     <>
@@ -355,7 +353,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
             key={x.id}
             href={`#${x.id}`}
             aria-current={active === x.id ? 'location' : undefined}
-            className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-[current=location]:bg-accent aria-[current=location]:font-semibold aria-[current=location]:text-foreground"
+            className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=location]:bg-accent aria-[current=location]:font-semibold aria-[current=location]:text-foreground"
           >
             {t(x.key)}
           </a>
@@ -412,7 +410,7 @@ function MemoryDays({ advice: a }: { advice: MemoryAdvice }) {
             <div
               key={d.date}
               title={d.peakMB > 0 ? t('settings.memoryPeakOn', { date: dayLabel(d.date), peak: formatMB(d.peakMB) }) : t('settings.memoryNotMeasured', { date: dayLabel(d.date) })}
-              className={cn('min-w-0 flex-1 rounded-[3px] transition-[height] duration-500', d.peakMB <= 0 ? 'bg-foreground/8' : i === last ? 'bg-primary/75' : 'bg-primary/40')}
+              className={cn('min-w-0 flex-1 rounded-[3px] transition-[height] duration-(--motion-slow) ease-standard', d.peakMB <= 0 ? 'bg-foreground/8' : i === last ? 'bg-primary/75' : 'bg-primary/40')}
               style={{ height: d.peakMB > 0 ? `${Math.max(8, (d.peakMB / top) * 100)}%` : 2 }}
             />
           ))}
