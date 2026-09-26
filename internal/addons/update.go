@@ -278,7 +278,7 @@ func (l *Library) latest(ctx context.Context, srv Server, t Target, recs []Insta
 
 func (l *Library) latestOne(ctx context.Context, srv Server, t Target, rec Installed, pre bool) (latestResult, error) {
 	mc := srv.MinecraftVersion
-	cands, err := l.candidates(ctx, t, mc, recProject(rec))
+	cands, err := l.candidates(ctx, t, mc, recProject(rec), !pre)
 	if KindOf(err) == KindNotFound {
 		n := notice(KindNotFound, kv("name", rec.Name, "source", rec.Source.Name()),
 			fmt.Sprintf("%s is no longer listed on %s.", rec.Name, rec.Source.Name()),

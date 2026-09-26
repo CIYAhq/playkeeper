@@ -27,6 +27,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - `playkeeper uninstall` names the Docker folders it removes, and no longer shows an empty services line when it's run a second time.
 - Restoring a backup as a new server no longer warns that you must accept the Minecraft EULA once you've ticked its box.
 - The one-line installer also stops if the `.sha256` file names another file or none, or if it is over 1 MB or the tarball over 200 MB, before running anything from the download.
+- Uploading a backup from the dashboard works again. Since 0.3.0, every file was turned down as too big before it was sent.
 
 ## 0.3.0
 

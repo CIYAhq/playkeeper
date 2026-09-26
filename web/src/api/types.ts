@@ -897,6 +897,7 @@ export interface ResourcePackOffer {
 export interface ResourcePack {
   offer?: ResourcePackOffer
   pending: boolean
+  problem?: string
 }
 
 export interface DataPack {

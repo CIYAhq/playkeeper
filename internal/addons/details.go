@@ -47,7 +47,7 @@ func (l *Library) Details(ctx context.Context, srv Server, src Source, ref strin
 		d.Notice = &n
 		return d, nil
 	}
-	cands, err := l.candidates(ctx, t, srv.MinecraftVersion, p)
+	cands, err := l.candidates(ctx, t, srv.MinecraftVersion, p, true)
 	if err != nil {
 		return nil, err
 	}

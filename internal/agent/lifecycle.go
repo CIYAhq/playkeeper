@@ -221,7 +221,11 @@ func (s *server) levelName(sc api.ServerConfig) string {
 // containerSpec is the complete, hardened definition of the server's
 // container. Its hash is stored as a label so any drift forces a recreate. A
 // v1 server's definition is exactly 0.2.0's while its settings are unchanged.
-func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.ContainerConfig, string) {
+// current is the environment of the server's existing container, if any: a
+// stored resource pack offer whose settings can't be built keeps the pack
+// settings it has, so the server goes on offering what it did, the machine
+// keeps serving that pack, and the Packs page says what's wrong.
+func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []string) (docker.ContainerConfig, string) {
 	online := "TRUE"
 	if s.offline() {
 		online = "FALSE"
@@ -257,7 +261,11 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Cont
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
-	env = append(env, resourcePackEnv(sc.ResourcePack)...)
+	pack, err := resourcePackEnv(sc.ResourcePack)
+	if err != nil {
+		pack = keptPackEnv(current)
+	}
+	env = append(env, pack...)
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())
@@ -453,7 +461,7 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 	s.setRunPhase(api.PhaseDownloading, "")
 	setupName := s.containerName() + "-setup"
 	_ = s.docker.ContainerRemove(ctx, setupName, true)
-	spec, _ := s.containerSpec(*sc, true)
+	spec, _ := s.containerSpec(*sc, true, nil)
 	id, err := s.docker.ContainerCreate(ctx, setupName, spec)
 	if err != nil {
 		return s.dockerErr(err)
@@ -548,8 +556,8 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	}
 	pastFiles = true
 	name := s.containerName()
-	spec, hash := s.containerSpec(sc, false)
 	c, err := s.docker.ContainerInspect(ctx, name)
+	spec, hash := s.containerSpec(sc, false, c.Config.Env)
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
 		return &apiError{Msg: "A container named " + name + " exists but was not created by Playkeeper.", Hint: "Playkeeper will not touch it. Rename or remove that container, then press Start."}

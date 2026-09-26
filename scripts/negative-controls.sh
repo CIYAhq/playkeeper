@@ -523,6 +523,22 @@ control "add-on plans: the fingerprint ignores the order of what the server alre
   'slices.SortStableFunc(satisfied, ' \
   'slices.SortStableFunc(satisfied[:0], ' \
   ./internal/addons '^TestFingerprintIgnoresOrderButNotVersions$'
+control "add-on versions: a Hangar release behind pages of snapshots is asked for by channel" internal/addons/resolve.go \
+  'releases.Offset, releases.Channel = 0, "Release"' \
+  'releases.Offset, releases.Channel = 0, ""' \
+  ./internal/addons '^TestHangarReleaseBehindPagesOfSnapshots$/^in_the_Release_channel$'
+control "add-on versions: a Hangar release channel named otherwise is found on a later page" internal/addons/resolve.go \
+  'for page := 1; page < hangarPages' \
+  'for page := hangarPages; page < hangarPages' \
+  ./internal/addons '^TestHangarReleaseBehindPagesOfSnapshots$/^in_a_channel_named_Stable$'
+control "add-on versions: reading Hangar's pages stops at the first release that fits" internal/addons/resolve.go \
+  'page < hangarPages && more && !found' \
+  'page < hangarPages && more' \
+  ./internal/addons '^TestHangarReleaseBehindPagesOfSnapshots$/^in_a_channel_named_Stable$'
+control "add-on versions: reading Hangar's pages stops after hangarPages" internal/addons/resolve.go \
+  'page < hangarPages && more && !found' \
+  'more && !found' \
+  ./internal/addons '^TestHangarOnlySnapshotsStayPreRelease$/^more_than_the_pages_read$'
 control "port sharing: a connection nobody accepts is closed" internal/portshare/portshare.go \
   't := time.NewTimer(l.s.handoff)' \
   't := time.NewTimer(time.Hour)' \

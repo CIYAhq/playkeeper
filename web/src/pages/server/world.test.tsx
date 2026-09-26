@@ -341,6 +341,7 @@ describe('Pack words', () => {
     expect(packsLine({ pending: false }, { packs: [], live: true })).toBe('Sent to players automatically')
     expect(packsLine({ offer, pending: false }, dataPacks())).toBe('Faithful 32x · 3 of 4 data packs on')
     expect(packsLine({ offer, pending: false }, { packs: [], live: true })).toBe('Faithful 32x')
+    expect(packsLine({ offer, pending: false, problem: 'Upload the pack again.' }, { packs: [], live: true })).toBe('Faithful 32x can’t be offered')
     expect(packsLine({ pending: false }, { live: false, packs: dataPacks(false).packs.slice(0, 1) })).toBe('1 data pack')
   })
 })
@@ -397,6 +398,16 @@ describe('Packs page', () => {
     await act(async () => reload({ ...dataPacks(), packs: dataPacks().packs.filter((p) => p.name !== 'Graves.zip') }))
     await act(async () => {})
     expect(Object.keys(switches())).toEqual(['Players must accept it to join', 'Multiplayer sleep', 'coordinates hud', 'More mob heads'])
+  })
+
+  it.each([1024, 390])('says why the pack can’t be offered, and never that it applies, %i px wide', async (width) => {
+    happyDOM.setViewport({ width, height: 844 })
+    const problem = 'The message shown to players must be one line of at most 200 characters, without percent signs or backslashes. Change the message players see, or remove the pack.'
+    answer({ '/resourcepack': { offer, pending: false, problem } satisfies ResourcePack, '/datapacks': dataPacks() })
+    const text = await render(<PacksPage server={server()} />)
+    expect(text).toContain(`Survival can’t offer this pack ${problem}`)
+    expect(text).toContain('Until it’s fixed, players get what Survival offered before.')
+    expect(text).not.toContain('Applies when players next join.')
   })
 
   it('says when changes apply while the server is stopped', async () => {
