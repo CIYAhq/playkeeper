@@ -263,11 +263,12 @@ function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatu
   return (
     <Card>
       <CardTitle>{t('world.make')}</CardTitle>
-      <div className="flex flex-1 items-center gap-4 py-5">
+      {/* Centred in whatever height the World card next to it gives this one. */}
+      <div className="my-auto flex items-center gap-4 py-4">
         <Pip pose="letter" size={52} />
         <p className="min-w-0 text-[13px] leading-[18px]">{online ? onlineBody(backups) : t('world.makeBodyStopped', { server: s.name })}</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 pt-1">
         <InputGroup className="flex-1">
           <InputGroupAddon>
             <PencilIcon aria-hidden="true" />

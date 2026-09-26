@@ -57,6 +57,9 @@ type fakeDocker struct {
 	// others are containers Playkeeper didn't make, as Docker lists them
 	// after the agent's own.
 	others []fakeListed
+	// beforeLogs, when set, runs once with fd.mu held just before a log
+	// read without a tail (the follower's) is answered.
+	beforeLogs func(c *fakeContainer)
 }
 
 // fakeListed is a container in Docker's list that the fake doesn't run.
@@ -535,6 +538,10 @@ func (fd *fakeDocker) logs(w http.ResponseWriter, r *http.Request, c *fakeContai
 	flusher, _ := w.(http.Flusher)
 	sent := 0
 	fd.mu.Lock()
+	if hook := fd.beforeLogs; hook != nil && tail == 0 {
+		fd.beforeLogs = nil
+		hook(c)
+	}
 	if follow && fd.replayAll {
 		since, fd.replayAll = time.Time{}, false
 	}

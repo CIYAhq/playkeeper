@@ -1174,6 +1174,7 @@ export const en = {
   'onboarding.check.firewallLink': 'How to open a port',
   'onboarding.check.firewallUrl': 'https://github.com/CIYAhq/playkeeper#install-on-your-vps',
   'onboarding.checkAgain': 'Check again',
+  'onboarding.checked': 'Checked',
   'onboarding.looksGood': 'Looks good, continue',
   'onboarding.checkBlocked': 'Fix the problems above, then check again.',
   'onboarding.readyTitle': '{machine} is ready for Minecraft',

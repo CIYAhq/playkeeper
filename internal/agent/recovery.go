@@ -272,13 +272,19 @@ func restoredFrom(sc api.ServerConfig, m backup.Manifest) bool {
 		sc.MOTD == validMOTDOr(m.Settings["motd"]) && sc.MaxPlayers == manifestMaxPlayers(m)
 }
 
+// lookupRetries are the waits before asking PaperMC again when the build
+// lookup that checks a 0.3.0 restore's settings fails, so a short outage at
+// the upgrade doesn't undo a restore that saved them. Tests shorten them.
+var lookupRetries = []time.Duration{10 * time.Second, 30 * time.Second}
+
 // restoredSettings030 is true if sc are, in every field Playkeeper 0.3.0's
 // restore saved, what it saved for the backup with manifest m: the backup's
 // settings on the build restoreBuild picks, with the memory the restore
 // preview suggests (0.3.0's dashboard offered no other), keeping only the
 // EULA, creation time and play style. The start after the save may have
 // verified the jar since. Settings that match without having been saved are
-// the backup's all the same. If they cannot be checked, they do not count.
+// the backup's all the same. If they cannot be checked, even after asking
+// PaperMC again (lookupRetries), they do not count.
 func (s *server) restoredSettings030(ctx context.Context, sc api.ServerConfig, m backup.Manifest) (bool, error) {
 	mem, _ := strconv.Atoi(m.Settings["memoryMB"])
 	if s.validMemory(mem, s.id) != nil {
@@ -288,6 +294,18 @@ func (s *server) restoredSettings030(ctx context.Context, sc api.ServerConfig, m
 		return false, nil
 	}
 	entry, err := s.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+	for _, wait := range lookupRetries {
+		if err == nil || s.stopping() {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return false, err
+		case <-time.After(wait):
+		}
+		s.forgetFailedBuild(m.MinecraftVersion, m.PaperBuild)
+		entry, err = s.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+	}
 	if err != nil {
 		return false, err
 	}

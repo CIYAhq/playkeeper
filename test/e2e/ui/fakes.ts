@@ -25,50 +25,43 @@ interface Reply {
   expected?: boolean
 }
 
-type Handler = (req: { method: string; path: string; body: unknown; params: string[] }, state: FakeState) => Reply
+type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply
 
 interface DialAddress {
   kind: string
   address: string
 }
 
-interface AddonKey {
-  source?: unknown
-  projectId?: unknown
-}
-
-interface AddonFileView {
-  fileName: string
-  addon?: { source: string; projectId: string; name: string }
-}
-
 interface FakeState {
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
+  /** The real panel's last answer to each read of a server's add-ons, packs and pre-generation, by path. */
+  reads: Map<string, Record<string, unknown>>
   opSeq: number
+  /** Each machine's address as the real panel last showed it; address changes answer with it. */
+  addresses: Map<string, Record<string, unknown>>
   /** The operations the fakes started, for the dialogs that follow one by its id. */
   ops: Map<string, Record<string, unknown>>
-  /** Each server's add-on files as the panel last listed them, the ones its checks identified too. */
-  addons: Map<string, AddonFileView[]>
   /** What GET /api/machines/link last said: the addresses a joining machine can dial and the dashboard's fingerprint. */
   link: { addresses?: DialAddress[]; fingerprint?: string }
   machines: { id: string; kind: string }[]
   seq: number
-  /** Each machine's address as the real panel last showed it; address changes answer with it. */
-  addresses: Map<string, Record<string, unknown>>
 }
 
 const name = /^[A-Za-z0-9_]{3,16}$/
 const prefKey = /^[a-z][a-z0-9.:_-]{0,63}$/
 const id = /^[a-z2-9]{10}$/
 const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
-const projectRef = /^[A-Za-z0-9._-]{1,64}$/
 const planFingerprint = /^[0-9a-f]{32}$/
 const maxAddonKeys = 200
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
+}
+
+function refuse(status: number, code: string, error: string, hint?: string): Reply {
+  return { status, body: { error, code, hint } }
 }
 
 function op(state: FakeState, kind: string, serverId?: string): Reply {
@@ -78,33 +71,16 @@ function op(state: FakeState, kind: string, serverId?: string): Reply {
   return { status: 202, body }
 }
 
-/** Why the agent would refuse an add-on's source and project id, or undefined. */
-function badAddonKey(k: AddonKey | null | undefined): string | undefined {
-  if (k?.source !== 'modrinth' && k?.source !== 'hangar') return 'Add-ons come from Modrinth or Hangar.'
-  if (typeof k.projectId !== 'string' || !projectRef.test(k.projectId) || k.projectId === '.' || k.projectId === '..') return 'That is not a valid project id.'
-  return undefined
-}
-
 /** Why the agent would refuse a list of add-ons, or undefined. */
 function badAddonKeys(keys: unknown): string | undefined {
   if (keys === undefined) return undefined
   if (!Array.isArray(keys) || keys.length > maxAddonKeys) return `At most ${maxAddonKeys} add-ons can be changed at once.`
-  for (const k of keys) {
-    const bad = badAddonKey(k as AddonKey)
-    if (bad) return bad
-  }
-  return undefined
+  return keys.map(addonKeyProblem).find(Boolean)
 }
 
 function badFingerprint(body: unknown): string | undefined {
   const f = (body as { fingerprint?: unknown } | null)?.fingerprint
   return typeof f === 'string' && planFingerprint.test(f) ? undefined : "This request doesn't include the plan you confirmed."
-}
-
-/** An add-on's name as the panel last listed it on the server. */
-function addonName(state: FakeState, serverId: string, k: AddonKey): string {
-  const file = state.addons.get(serverId)?.find((f) => f.addon?.source === k.source && f.addon?.projectId === k.projectId)
-  return file?.addon?.name ?? String(k.projectId)
 }
 
 function playerName(body: unknown): string | undefined {
@@ -215,6 +191,7 @@ function addressAnswer(state: FakeState, machineId: string): Reply {
 
 const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/auth\/login$/, () => ({ status: 401, body: { error: 'Wrong username or password.', code: 'unauthorized' }, expected: true })],
+  ['POST', /^\/api\/setup$/, () => ({ status: 403, body: { error: 'That setup code is not correct.', code: 'forbidden' }, expected: true })],
   ['POST', /^\/api\/auth\/logout$/, () => ({ status: 200, body: {} })],
   ['POST', /^\/api\/auth\/logout-all$/, () => ({ status: 200, body: {} })],
   [
@@ -298,23 +275,75 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/update\/apply$/, (_r, state) => op(state, 'update')],
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
-  // Wave 8: AI agent tokens, join codes and joined machines.
-  ['POST', /^\/api\/tokens$/, ({ body }, state) => tokenReply(body, state)],
-  ['DELETE', /^\/api\/tokens\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : invalid('Invalid token id.'))],
-  ['POST', /^\/api\/join-codes$/, ({ body }, state) => joinCodeReply(body, state)],
-  ['DELETE', /^\/api\/join-codes\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : { status: 404, body: { error: 'Join code not found.', code: 'not_found' } })],
-  [
-    'DELETE',
-    /^\/api\/machines\/([a-z2-9]{10})$/,
-    (r, state) => (state.machines.find((m) => m.id === r.params[0])?.kind === 'local' ? invalid('This is the dashboard’s own machine, so it can’t be removed.') : { status: 204 }),
-  ],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
-  // Wave 1: plugins and mods. Installs and updates carry the plan they confirm.
+  // Wave 1: the World tab's pre-generation and packs, and the Plugins and Mods tabs.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/pregen\/start$/,
+    (r, state) => {
+      const preset = (r.body as { preset?: unknown } | null)?.preset
+      if (typeof preset !== 'string' || !['small', 'medium', 'large', 'huge'].includes(preset)) return invalid('Choose one of the sizes: small, medium, large or huge.')
+      if (pregenUnfinished(lastRead(state, r.params[0], 'pregen'))) return refuse(409, 'already_running', 'The map is already being pre-generated.', 'Wait for it to finish, or cancel it first.')
+      return op(state, 'pregen-start', r.params[0])
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/pregen\/(pause|continue|cancel)$/,
+    (r, state) => {
+      const pg = lastRead(state, r.params[0], 'pregen')
+      if (!pregenUnfinished(pg)) return refuse(409, 'not_running', 'The map is not being pre-generated.', 'Start pre-generating it first.')
+      const next = { pause: 'paused', continue: 'running', cancel: 'idle' }[r.params[1] as 'pause' | 'continue' | 'cancel']
+      return { status: 200, body: { ...pg, state: next, pausedBy: next === 'paused' ? 'user' : undefined } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/resourcepack$/,
+    (r, state) => {
+      if (!isZip(r.body)) return invalid('The file isn’t a zip file.')
+      const rp = lastRead(state, r.params[0], 'resourcepack')
+      const prev = rp.offer as { required?: boolean; prompt?: string } | undefined
+      const sha1 = '0'.repeat(40)
+      const fileName = (r.url.searchParams.get('name') ?? '').replace(/^.*[\\/]/s, '').trim().slice(0, 100) || 'resource-pack.zip'
+      const offer = { sha1, fileName, size: r.body.length, addedAt: new Date().toISOString(), url: `http://${r.url.host}/resource-packs/${sha1}.zip`, required: prev?.required ?? false, prompt: prev?.prompt }
+      return { status: 200, body: { pending: false, ...rp, offer } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/resourcepack\/settings$/,
+    (r, state) => {
+      const { required = false, prompt = '' } = (r.body ?? {}) as { required?: unknown; prompt?: unknown }
+      if (typeof required !== 'boolean' || typeof prompt !== 'string') return invalid('Invalid request body.')
+      const rp = lastRead(state, r.params[0], 'resourcepack')
+      const offer = rp.offer as Record<string, unknown> | undefined
+      if (!offer) return refuse(409, 'no_resource_pack', 'The server doesn’t offer a resource pack.', 'Upload one first.')
+      if (!/^[^%\\\p{Cc}\u2028\u2029]{0,200}$/u.test(prompt.trim())) return invalid('The message shown to players must be one line of at most 200 characters, without percent signs or backslashes.')
+      return { status: 200, body: { ...rp, offer: { ...offer, required, prompt: prompt.trim() || undefined } } }
+    },
+  ],
+  ['DELETE', /^\/api\/servers\/(\w+)\/resourcepack$/, (r, state) => ({ status: 200, body: { pending: false, ...lastRead(state, r.params[0], 'resourcepack'), offer: undefined } })],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/datapacks$/,
+    (r, state) => {
+      if (!isZip(r.body)) return invalid('The file isn’t a zip file.')
+      const dp = lastRead(state, r.params[0], 'datapacks')
+      const added = dataPackName(r.url.searchParams.get('name') ?? '')
+      const packs = ((dp.packs ?? []) as Record<string, unknown>[]).filter((p) => p.name !== added)
+      packs.push({ name: added, size: r.body.length, enabled: dp.live ? true : undefined, addedAt: new Date().toISOString() })
+      return { status: 200, body: { live: false, ...dp, packs, added } }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/datapacks\/([^/]+)\/(enable|disable)$/, (r, state) => changeDataPack(state, r.params, (p) => [{ ...p, enabled: r.params[2] === 'enable' }])],
+  ['DELETE', /^\/api\/servers\/(\w+)\/datapacks\/([^/]+)$/, (r, state) => changeDataPack(state, r.params, () => [])],
+  // Installs and updates carry the plan they confirm; the crash screen's also send start.
   [
     'POST',
     /^\/api\/servers\/(\w+)\/addons\/install$/,
     (r, state) => {
-      const bad = badAddonKey(r.body as AddonKey) ?? badFingerprint(r.body)
+      const bad = addonKeyProblem(r.body) ?? badFingerprint(r.body)
       return bad ? invalid(bad) : op(state, 'addon-install', r.params[0])
     },
   ],
@@ -330,29 +359,41 @@ const routes: [string, RegExp, Handler][] = [
     'POST',
     /^\/api\/servers\/(\w+)\/addons\/remove$/,
     (r, state) => {
-      const b = r.body as (AddonKey & { orphans?: unknown }) | null
-      const bad = badAddonKey(b) ?? badAddonKeys(b?.orphans)
-      if (bad) return invalid(bad)
-      const keys = [b as AddonKey, ...((b?.orphans as AddonKey[] | undefined) ?? [])]
-      return { status: 200, body: { removed: keys.map((k) => addonName(state, r.params[0] ?? '', k)), warnings: [] } }
-    },
-  ],
-  [
-    'POST',
-    /^\/api\/servers\/(\w+)\/addons\/forget$/,
-    (r, state) => {
-      const bad = badAddonKey(r.body as AddonKey)
-      return bad ? invalid(bad) : { status: 200, body: { removed: [addonName(state, r.params[0] ?? '', r.body as AddonKey)], warnings: [] } }
+      const orphans: unknown = (r.body as { orphans?: unknown } | null)?.orphans ?? []
+      const problem = addonKeyProblem(r.body) ?? badAddonKeys(orphans)
+      if (problem) return invalid(problem)
+      const managed = managedAddons(state, r.params[0])
+      const name = (k: unknown) => managed.find((a) => sameAddon(a, k))?.name
+      const target = name(r.body)
+      if (!target) return notManaged
+      const also = orphans as unknown[]
+      if (!also.every(name)) return invalid(`Only add-ons that nothing else needs can be removed along with ${target}.`)
+      return { status: 200, body: { removed: [r.body, ...also].map(name), warnings: [] } }
     },
   ],
   [
     'POST',
     /^\/api\/servers\/(\w+)\/addons\/adopt$/,
     (r, state) => {
-      const f = (r.body as { fileName?: unknown } | null)?.fileName
-      if (typeof f !== 'string' || !f || f.length > 255 || /[/\\]/.test(f) || !f.endsWith('.jar')) return invalid('That is not a file in the add-on folder.')
-      const addon = state.addons.get(r.params[0] ?? '')?.find((x) => x.fileName === f)?.addon
-      return addon ? { status: 200, body: { ...addon, fileName: f, installedAt: new Date().toISOString() } } : invalid('Playkeeper doesn’t know which add-on this file is.')
+      const file = (r.body as { fileName?: unknown } | null)?.fileName
+      if (typeof file !== 'string' || !/^[^/\\]+\.jar$/.test(file) || new TextEncoder().encode(file).length > 255) return invalid('That is not a file in the add-on folder.')
+      const identified = (lastRead(state, r.params[0], 'addons/checks').identified ?? []) as { fileName: string; addon?: AddonRecord }[]
+      const rec = identified.find((f) => f.fileName === file)?.addon
+      if (!rec) return refuse(409, 'conflict', `Modrinth does not recognize ${file}, so Playkeeper cannot manage it.`, 'It stays in the folder as it is.')
+      if (managedAddons(state, r.params[0]).some((a) => sameAddon(a, rec))) return refuse(409, 'conflict', `${rec.name} is already managed by Playkeeper as another file.`, 'Remove one of the two copies first.')
+      return { status: 200, body: { ...rec, fileName: file, installedAt: new Date().toISOString() } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/forget$/,
+    (r, state) => {
+      const problem = addonKeyProblem(r.body)
+      if (problem) return invalid(problem)
+      const rec = managedAddons(state, r.params[0]).find((a) => sameAddon(a, r.body))
+      if (!rec) return notManaged
+      if (!rec.gone) return refuse(409, 'conflict', `${rec.fileName} is still in the folder.`, 'Remove the add-on instead.')
+      return { status: 200, body: { removed: [rec.name], warnings: [] } }
     },
   ],
   // Wave 2: the second sign-in step, two-factor sign-in and the machine's address.
@@ -374,7 +415,8 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/address\/(refresh|release|certificate)$/, (r, state) => addressAnswer(state, r.params[0] ?? '')],
   ['POST', /^\/api\/machines\/(\w+)\/address\/check$/, (r, state) => ((r.body as { domain?: unknown } | null)?.domain ? addressAnswer(state, r.params[0] ?? '') : invalid('Type your domain.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/address$/, (r, state) => addressAnswer(state, r.params[0] ?? '')],
-  // The crash screen's fixes that act on a plugin or mod, then start the server.
+  // Wave 3: the crash screen's fixes that act on a plugin or mod, then start
+  // the server. Its update and install with `start` are Wave 1's entries.
   ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
   // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
   ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
@@ -391,12 +433,143 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
     },
   ],
+  // Wave 8: AI agent tokens, join codes and joined machines.
+  ['POST', /^\/api\/tokens$/, ({ body }, state) => tokenReply(body, state)],
+  ['DELETE', /^\/api\/tokens\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : invalid('Invalid token id.'))],
+  ['POST', /^\/api\/join-codes$/, ({ body }, state) => joinCodeReply(body, state)],
+  ['DELETE', /^\/api\/join-codes\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : { status: 404, body: { error: 'Join code not found.', code: 'not_found' } })],
+  [
+    'DELETE',
+    /^\/api\/machines\/([a-z2-9]{10})$/,
+    (r, state) => (state.machines.find((m) => m.id === r.params[0])?.kind === 'local' ? invalid('This is the dashboard’s own machine, so it can’t be removed.') : { status: 204 }),
+  ],
 ]
+
+interface AddonRecord {
+  source: string
+  projectId: string
+  name: string
+  fileName: string
+  gone?: boolean
+}
+
+const notManaged = refuse(404, 'not_managed', 'Playkeeper did not install this add-on, so it cannot manage it.', 'Scan the folder to let Playkeeper identify files added by hand.')
+
+/** What the real panel last answered to a read of the server's add-ons, packs or pre-generation. */
+function lastRead(state: FakeState, serverId: string | undefined, what: string): Record<string, unknown> {
+  return state.reads.get(`/api/servers/${serverId}/${what}`) ?? {}
+}
+
+function pregenUnfinished(pg: Record<string, unknown>): boolean {
+  return pg.state === 'starting' || pg.state === 'running' || pg.state === 'paused'
+}
+
+/** Zip files, even empty ones, start with "PK". */
+function isZip(body: unknown): body is Uint8Array {
+  return body instanceof Uint8Array && body[0] === 0x50 && body[1] === 0x4b
+}
+
+/** The name the agent gives an uploaded data pack (packs.SafeName). */
+function dataPackName(upload: string): string {
+  const base = upload.replace(/^.*[\\/]/s, '').replace(/\.zip$/i, '')
+  const name = base.replace(/^[^A-Za-z0-9_+]+/, '').replace(/[^A-Za-z0-9_.+-]+$/, '').replace(/[^A-Za-z0-9_.+-]+/g, '_').slice(0, 96).replace(/\.+$/, '')
+  return `${name || 'datapack'}.zip`
+}
+
+/** Switches a data pack on or off, or removes it, in the last list of the server's packs: change says what the pack becomes. */
+function changeDataPack(state: FakeState, [serverId, encoded]: string[], change: (p: Record<string, unknown>) => Record<string, unknown>[]): Reply {
+  const dp = lastRead(state, serverId, 'datapacks')
+  const name = decodeURIComponent(encoded ?? '')
+  const packs = (dp.packs ?? []) as Record<string, unknown>[]
+  if (!packs.some((p) => p.name === name)) return refuse(404, 'not_found', `No data pack named "${name}" is installed.`)
+  return { status: 200, body: { ...dp, packs: packs.flatMap((p) => (p.name === name ? change(p) : [p])) } }
+}
+
+/** The agent's check of the add-on a request names. */
+function addonKeyProblem(k: unknown): string | undefined {
+  const { source, projectId } = (k ?? {}) as { source?: unknown; projectId?: unknown }
+  if (source !== 'modrinth' && source !== 'hangar') return 'Add-ons come from Modrinth or Hangar.'
+  if (typeof projectId !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(projectId) || projectId === '.' || projectId === '..') return 'That is not a valid project id.'
+  return undefined
+}
+
+/** The add-ons Playkeeper manages on the server, from the last list of its folder; gone ones have lost their file. */
+function managedAddons(state: FakeState, serverId: string | undefined): AddonRecord[] {
+  const { files = [], missing = [] } = lastRead(state, serverId, 'addons') as { files?: { status: string; addon?: AddonRecord }[]; missing?: AddonRecord[] }
+  return [...files.flatMap((f) => (f.addon && (f.status === 'managed' || f.status === 'modified') ? [f.addon] : [])), ...missing.map((a) => ({ ...a, gone: true }))]
+}
+
+function sameAddon(a: AddonRecord, k: unknown): boolean {
+  const { source, projectId } = (k ?? {}) as { source?: unknown; projectId?: unknown }
+  return a.source === source && a.projectId === projectId
+}
 
 const addonJar = /^[^./\\][^/\\]{0,195}\.jar$/
 
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
 const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
+
+/**
+ * States a fresh install isn't in, laid over the panel's real answers so the
+ * click-through reaches the controls only they show: its servers stopped,
+ * crashed (out of memory, as the agent reports it) or busy with a backup;
+ * no players, sessions or backups; no servers at all; a newer Playkeeper to
+ * update to; or a panel that still needs its admin account.
+ */
+export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'first run'
+
+type Json = Record<string, unknown>
+
+const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+
+function stopped(s: Json): Json {
+  return { ...s, desired: 'stopped', phase: 'stopped', phaseDetail: undefined, reachable: false, reachableAt: undefined, startedAt: undefined, stoppedAt: ago(20 * 60), players: undefined, resources: undefined, operation: undefined, pendingRestart: false }
+}
+
+function server(view: View, s: Json): Json {
+  switch (view) {
+    case 'stopped':
+      return stopped(s)
+    case 'crashed':
+      return { ...stopped(s), desired: 'running', phase: 'crashed', stoppedAt: ago(90), exitCode: 137, crashCount: 3, lastError: 'Java ran out of memory.', lastErrorHint: 'Choose a larger memory budget in Settings.' }
+    case 'busy':
+      return { ...s, operation: { id: 'fake-op-busy', serverId: s.id, kind: 'backup', status: 'running', phase: 'copying', actor: 'admin', startedAt: ago(20) } }
+    case 'empty lists':
+      return { ...s, players: s.players ? { ...(s.players as Json), online: 0, names: [] } : undefined }
+    case 'live':
+    case 'no servers':
+    case 'update available':
+    case 'first run':
+      return s
+    default: {
+      const unreachable: never = view
+      return unreachable
+    }
+  }
+}
+
+/** The version the 'update available' view offers. */
+export const newerRelease = '0.3.2'
+
+/** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
+function lay(view: View, path: string, body: unknown): unknown {
+  if (view === 'live' || body === undefined) return undefined
+  if (view === 'first run') return path === '/api/setup/status' ? { needsSetup: true } : undefined
+  if (path === '/api/servers' && Array.isArray(body)) return view === 'no servers' ? [] : body.map((s) => server(view, s as Json))
+  if (view === 'empty lists') {
+    if (/^\/api\/servers\/\w+\/(backups|whitelist|operators|activity)$/.test(path)) return []
+    if (/^\/api\/servers\/\w+\/players\/sessions$/.test(path)) return { ...(body as Json), sessions: [] }
+    if (/^\/api\/servers\/\w+\/players\/summary$/.test(path)) {
+      const b = body as Json & { days?: Json[] }
+      return { ...b, players: [], observedSessions: 0, uncertainSessions: 0, days: (b.days ?? []).map((d) => ({ ...d, uniquePlayers: 0, sessions: 0, playtimeSeconds: 0 })) }
+    }
+  }
+  if (view === 'update available') {
+    if (path === '/api/machines' && Array.isArray(body)) return body.map((m: Json) => (m.live ? { ...m, live: { ...(m.live as Json), updateAvailable: newerRelease } } : m))
+    if (/^\/api\/machines\/\w+\/update$/.test(path)) return { ...(body as Json), supported: true, available: true, latest: newerRelease, notes: '- Backups finish sooner\n- The phone’s Settings tab has a heading again', releaseDate: ago(2 * 86_400) }
+  }
+  return undefined
+}
 
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
 export function standInFace(player: string): string {
@@ -441,15 +614,23 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
   }
 }
 
+/** Writes that only work out what another write would do and change nothing, so the real panel answers them. */
+const plans = [
+  // Wave 1: what updating plugins or mods would do.
+  /^\/api\/servers\/\w+\/addons\/update\/plan$/,
+  // Wave 4: what a template would create.
+  /^\/api\/machines\/\w+\/templates\/plan$/,
+]
+
 /**
  * Serves the fakes on a page. The returned list collects every API call with
  * its status; unknown writes answer 501 and are listed as unfaked so a new
- * endpoint can't slip through unchecked.
+ * endpoint can't slip through unchecked. Reads show `view()` (see View).
  */
-export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
+export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0, ops: new Map(), addons: new Map(), link: {}, machines: [], seq: 0, addresses: new Map() }
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0, addresses: new Map(), ops: new Map(), link: {}, machines: [], seq: 0 }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -463,8 +644,8 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    // Planning a template reads it and changes nothing, so the real panel answers.
-    const planning = method === 'POST' && /^\/api\/machines\/\w+\/templates\/plan$/.test(path)
+    // Planning changes nothing, so the real panel answers.
+    const planning = method === 'POST' && plans.some((re) => re.test(path))
     if (method === 'GET' || method === 'HEAD' || planning) {
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
@@ -505,6 +686,20 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         await route.abort().catch(() => {})
         return
       }
+      const laid = res.ok() ? lay(view(), path, await res.json().catch(() => undefined)) : undefined
+      if (laid !== undefined) {
+        calls.push({ method, path, status: res.status(), faked: true, at })
+        const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
+        if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
+        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
+        if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
+        if (path === '/api/machines/link') state.link = laid as FakeState['link']
+        if (path === '/api/machines') state.machines = laid as FakeState['machines']
+        const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
+        if (address?.[1]) state.addresses.set(address[1], laid as Record<string, unknown>)
+        await route.fulfill({ response: res, json: laid }).catch(() => {})
+        return
+      }
       // Add-on icons come from their sites through the panel, and one that
       // can't be had shows a stand-in, so its error is expected.
       const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
@@ -515,31 +710,14 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
+        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
         if (path === '/api/machines') state.machines = await res.json().catch(() => [])
-        const addons = /^\/api\/servers\/(\w+)\/addons(?:\/checks)?$/.exec(path)
-        if (addons?.[1]) {
-          const got = (await res.json().catch(() => ({}))) as { files?: AddonFileView[]; identified?: AddonFileView[] }
-          const files = new Map((state.addons.get(addons[1]) ?? []).map((f) => [f.fileName, f]))
-          for (const f of [...(got.files ?? []), ...(got.identified ?? [])]) files.set(f.fileName, { ...files.get(f.fileName), ...f })
-          state.addons.set(addons[1], [...files.values()])
-        }
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
         if (address?.[1]) state.addresses.set(address[1], await res.json().catch(() => ({})))
       }
       // The page may have moved on and cancelled the request meanwhile.
-      await route.fulfill({ response: res }).catch(() => {})
-      return
-    }
-    // Planning an update changes nothing, so the real panel makes the plan, with its real fingerprint.
-    if (method === 'POST' && /^\/api\/servers\/\w+\/addons\/update\/plan$/.test(path)) {
-      const res = await route.fetch().catch(() => null)
-      if (!res) {
-        await route.abort().catch(() => {})
-        return
-      }
-      calls.push({ method, path, status: res.status(), faked: false, at })
       await route.fulfill({ response: res }).catch(() => {})
       return
     }
@@ -548,18 +726,21 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     if (headers['x-requested-with'] !== 'playkeeper' || (path !== '/api/auth/login' && path !== '/api/setup' && !headers['x-csrf-token'])) {
       reply = { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
     } else {
-      let body: unknown = null
+      let body: unknown
       if ((headers['content-type'] ?? '').includes('json')) {
         try {
           body = request.postDataJSON()
         } catch {
           body = undefined
         }
+      } else {
+        // An upload's body is the file itself.
+        body = request.postDataBuffer()
       }
       for (const [m, re, handle] of routes) {
         const hit = m === method ? re.exec(path) : null
         if (hit) {
-          reply = handle({ method, path, body, params: hit.slice(1) }, state)
+          reply = handle({ method, path, url, body, params: hit.slice(1) }, state)
           break
         }
       }

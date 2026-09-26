@@ -3,17 +3,23 @@
 package backup
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 // The game can put a link or a named pipe at server.properties. Neither is
-// read, so a backup keeps the default level name instead of one from a file
-// outside the server's files, and does not wait on the pipe.
+// read: the level name falls back to "world" instead of one from a file
+// outside the server's files, and nothing waits on the pipe. A backup, and
+// the check before one, refuse and name the file rather than back up
+// "world", which may be another world, without its settings.
 func TestLevelNameDoesNotFollowALinkOrWaitOnAPipe(t *testing.T) {
 	d := fixtureDataDir(t)
 	props := filepath.Join(d, "server.properties")
@@ -24,9 +30,10 @@ func TestLevelNameDoesNotFollowALinkOrWaitOnAPipe(t *testing.T) {
 	for _, c := range []struct {
 		what  string
 		plant func() error
+		kind  gamefiles.Kind
 	}{
-		{"a link to a file outside", func() error { return os.Symlink(outside, props) }},
-		{"a named pipe", func() error { return syscall.Mkfifo(props, 0o640) }},
+		{"a link to a file outside", func() error { return os.Symlink(outside, props) }, gamefiles.KindLink},
+		{"a named pipe", func() error { return syscall.Mkfifo(props, 0o640) }, gamefiles.KindSpecial},
 	} {
 		if err := os.Remove(props); err != nil {
 			t.Fatal(err)
@@ -35,20 +42,40 @@ func TestLevelNameDoesNotFollowALinkOrWaitOnAPipe(t *testing.T) {
 			t.Fatal(err)
 		}
 		var name string
-		var m Manifest
-		var err error
+		var createErr, checkErr error
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
 			name = LevelName(d)
-			m, err = Create(io.Discard, d, Manifest{}, DefaultLimits())
+			_, createErr = Create(io.Discard, d, Manifest{}, DefaultLimits())
+			checkErr = Check(d, DefaultLimits())
 		}()
 		if waited(t, props, done) {
 			t.Errorf("%s at server.properties: the backup waited on it", c.what)
 		}
-		if name != "world" || err != nil || m.LevelName != "world" {
-			t.Errorf("%s at server.properties: level %q, backup of %q: %v", c.what, name, m.LevelName, err)
+		if name != "world" {
+			t.Errorf("%s at server.properties: level %q, want the default", c.what, name)
 		}
+		for what, err := range map[string]error{"the backup": createErr, "the check before it": checkErr} {
+			if gamefiles.KindOf(err) != c.kind || !strings.Contains(fmt.Sprint(err), "server.properties") {
+				t.Errorf("%s at server.properties: %s must refuse it and name it: %v", c.what, what, err)
+			}
+		}
+	}
+}
+
+// A server that hasn't written server.properties yet still backs up "world".
+func TestABackupWithoutServerPropertiesIsOfWorld(t *testing.T) {
+	d := fixtureDataDir(t)
+	if err := os.Remove(filepath.Join(d, "server.properties")); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Create(io.Discard, d, Manifest{}, DefaultLimits())
+	if err != nil || m.LevelName != "world" {
+		t.Fatalf("backup without server.properties: level %q: %v", m.LevelName, err)
+	}
+	if err := Check(d, DefaultLimits()); err != nil {
+		t.Fatalf("the check before a backup without server.properties: %v", err)
 	}
 }
 
