@@ -1247,6 +1247,37 @@ control "a password change ends pending sign-ins" internal/panel/server.go \
   'DELETE FROM pending_logins WHERE user_id = ?`, sess.User.ID)' \
   'DELETE FROM pending_logins WHERE 0 AND user_id = ?`, sess.User.ID)' \
   ./internal/panel '^TestSecondStepExpiresAndCanBeCancelled$'
+control "second step: a request that finds the sign-in passed checks no code" internal/panel/twofactor.go \
+  'if n, err := res.RowsAffected(); err != nil || n == 1 {' \
+  'if n, err := res.RowsAffected(); err != nil || n >= 0 {' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: the sign-in is claimed in the transaction that checks the code" internal/panel/twofactor.go \
+  '	if s.beforeCodeCheck != nil {
+		s.beforeCodeCheck()
+	}
+	after, err := s.changeFactorWith(p.User.ID, p.IDHash, func(ctx context.Context, q querier) error {
+		return usePendingAttempt(ctx, q, p.IDHash)
+	}, func(' \
+  '	claimed := usePendingAttempt(context.Background(), s.db, p.IDHash)
+	if s.beforeCodeCheck != nil {
+		s.beforeCodeCheck()
+	}
+	after, err := s.changeFactorWith(p.User.ID, p.IDHash, func(context.Context, querier) error {
+		return claimed
+	}, func(' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: the request that passes ends the pending sign-in" internal/panel/twofactor.go \
+  'DELETE FROM pending_logins WHERE id_hash = ?`, p.IDHash)' \
+  'DELETE FROM pending_logins WHERE 0 AND id_hash = ?`, p.IDHash)' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: a session that cannot be stored undoes the code check" internal/panel/twofactor.go \
+  'if err := passed(ctx, conn); err != nil {' \
+  'if err := passed(ctx, conn); false && err != nil {' \
+  ./internal/panel '^TestASessionThatCannotStartSpendsNoCode$'
+control "second step: a wrong code keeps the pending sign-in" internal/panel/twofactor.go \
+  'if stepErr == nil && passed != nil {' \
+  'if passed != nil {' \
+  ./internal/panel '^TestOnePasswordBuysTenCodes$'
 
 # Wave 2: the names service's liveness check.
 control "the liveness check answers only for the machine's name" internal/agent/address.go \
@@ -1401,6 +1432,18 @@ control "a name the machine stops using loses its kept certificate order" intern
   'if err := certs.Forget(a.cfg.CertsDir(), name); err != nil {' \
   'if err := os.Remove(filepath.Join(a.cfg.CertsDir(), name+".pem")); err != nil {' \
   ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "DNS-01: a record the names service stored but has not published is waited for" internal/certs/dns01.go \
+  'err != nil && !pending(err) {' \
+  'err != nil {' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$'
+control "DNS-01: only a record that is pending is waited for after SetTXT fails" internal/certs/dns01.go \
+  'return errors.As(err, &p) && p.Pending()' \
+  'return errors.As(err, &p)' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$/^refused$'
+control "names client: a challenge Cloudflare has not published yet is pending" internal/names/errors.go \
+  'func (e *Error) Pending() bool { return e.Code == CodeDNSPending }' \
+  'func (e *Error) Pending() bool { return false }' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$'
 control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
   'const packCertMargin = 7 * 24 * time.Hour' \
   'const packCertMargin = 0' \
@@ -1671,6 +1714,10 @@ control "operations: an address operation stores its end with its audit entry" i
   'a.saveOperation(&done)
 		a.audit(actor, kind, "machine", done.Status, done.Error)' \
   ./internal/agent '^TestAFinishedAddressOperationIsAlreadyAudited$'
+control "free address: publishing waits only for the servers it synced" internal/agent/address.go \
+  'for !freePublished(a.address(), synced) && time.Since(start) < publishWait {' \
+  'for !freePublished(a.address(), a.joinServers()) && len(synced) >= 0 && time.Since(start) < publishWait {' \
+  ./internal/agent '^TestFreeAddressPublishingSkipsServersAddedMeanwhile$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
