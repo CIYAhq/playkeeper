@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -277,18 +277,11 @@ func (s *server) hBan(w http.ResponseWriter, r *http.Request) {
 
 // bannedNames reads the ban list the server keeps in banned-players.json.
 func (s *server) bannedNames() ([]string, error) {
-	b, err := os.ReadFile(filepath.Join(s.dataDir(), "banned-players.json"))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	var entries []struct {
 		Name string `json:"name"`
 	}
-	if err := json.Unmarshal(b, &entries); err != nil {
-		return nil, err
+	if err := s.readPlayerList("banned-players.json", &entries); err != nil {
+		return nil, gameFileError(err, "The ban list could not be read.")
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -356,10 +349,14 @@ func (s *server) addToStoppedWhitelist(r *http.Request, name, uuid, actor string
 	if err := s.ensureDirs(); err != nil {
 		return api.WhitelistChange{}, err
 	}
-	path := filepath.Join(s.dataDir(), "whitelist.json")
-	file, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
+	d, err := s.gameFiles()
+	if err != nil {
 		return api.WhitelistChange{}, err
+	}
+	defer d.Close()
+	file, err := d.ReadFile("whitelist.json", maxPlayerList)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return api.WhitelistChange{}, gameFileError(err, "The allowlist could not be read.")
 	}
 	out, added, err := invites.AddToWhitelist(file, mojang.Profile{ID: uuid, Name: name})
 	if err != nil {
@@ -368,16 +365,9 @@ func (s *server) addToStoppedWhitelist(r *http.Request, name, uuid, actor string
 	}
 	msg := "Player is already whitelisted"
 	if added {
-		tmp := path + ".new"
-		if err := os.WriteFile(tmp, out, 0o640); err != nil {
-			return api.WhitelistChange{}, err
-		}
-		if os.Geteuid() == 0 {
-			_ = os.Chown(tmp, s.cfg.GameUID, s.cfg.GameGID)
-		}
-		if err := os.Rename(tmp, path); err != nil {
-			os.Remove(tmp)
-			return api.WhitelistChange{}, err
+		if err := d.WriteFile("whitelist.json", out, 0o640); err != nil {
+			s.audit(actor, "whitelist.add", name, "failed", err.Error())
+			return api.WhitelistChange{}, gameFileError(err, "The allowlist could not be changed.")
 		}
 		msg = "Added " + name + " to the whitelist"
 	}

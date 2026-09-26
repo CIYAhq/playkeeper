@@ -11,8 +11,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
-// maxPlayerList caps whitelist.json and ops.json, which list at most a few
-// thousand players.
+// maxPlayerList caps whitelist.json, ops.json and banned-players.json, which
+// list at most a few thousand players.
 const maxPlayerList = 1 << 20
 
 // gameFiles opens the server's data directory, which the game and its
@@ -57,8 +57,8 @@ func (s *server) noteRefusal(err error, pastFiles bool) {
 	s.mu.Unlock()
 }
 
-// readPlayerList reads whitelist.json or ops.json into v. A missing file
-// leaves v as it is.
+// readPlayerList reads whitelist.json, ops.json or banned-players.json into
+// v. A missing file leaves v as it is.
 func (s *server) readPlayerList(name string, v any) error {
 	d, err := s.gameFiles()
 	if err == nil {

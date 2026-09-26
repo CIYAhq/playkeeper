@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -253,5 +254,49 @@ func TestStoppedServerAllowlistIsWrittenDirectly(t *testing.T) {
 	}
 	if e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'whitelist.add' AND actor = 'invite:abcdefghijkmnpqr' AND result = 'succeeded'`) != 1 {
 		t.Fatal("the direct write is audited")
+	}
+}
+
+// The game can plant links in its own files. Adding someone to a stopped
+// server's list, and reading who is banned, never follow them out of the
+// data directory.
+func TestStoppedServerAllowlistDoesNotFollowLinks(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	host := e.hostFiles()
+	before := tree(t, host)
+	if err := os.MkdirAll(e.dataDir(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	plant := func(name, to string) {
+		t.Helper()
+		p := filepath.Join(e.dataDir(), name)
+		if err := os.RemoveAll(p); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(to, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const uuid = "069a79f4-44e9-4726-a5be-fca90e38aaf5"
+
+	plant("whitelist.json.new", filepath.Join(host, "tls", "key.pem"))
+	if code, out := e.call("POST", e.sp("/whitelist"), map[string]any{"name": "mara_k", "uuid": uuid, "actor": "admin"}); code != 200 || out["added"] != true {
+		t.Fatalf("add with a link beside whitelist.json: %d %v", code, out)
+	}
+
+	plant("whitelist.json", filepath.Join(host, "panel.db"))
+	code, out := e.call("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "uuid": "5e1f0a3b-2c4d-4e6f-8a9b-0c1d2e3f4a5b", "actor": "admin"})
+	if msg, _ := out["error"].(string); code != 409 || !strings.Contains(msg, "whitelist.json in the server's files is a link") {
+		t.Errorf("add with a link at whitelist.json: %d %v", code, out)
+	}
+
+	plant("banned-players.json", filepath.Join(host, "panel.db"))
+	if _, err := e.srv().bannedNames(); err == nil || !strings.Contains(err.Error(), "banned-players.json in the server's files is a link") {
+		t.Errorf("the ban list was read through a link: %v", err)
+	}
+
+	if after := tree(t, host); !maps.Equal(after, before) {
+		t.Fatalf("Playkeeper's files changed:\n%v\nwas\n%v", after, before)
 	}
 }
