@@ -477,25 +477,18 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
         return
       }
-      // A faked job finishes at once, for the dialogs that follow it.
-      const fakeOp = /^\/api\/machines\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
-      if (fakeOp?.[1]) {
-        calls.push({ method, path, status: 200, faked: true, at })
-        const done = new Date().toISOString()
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: fakeOp[1], kind: 'addon-install', status: 'succeeded', phase: '', actor: 'admin', startedAt: done, finishedAt: done, detail: { files: [] } }) })
-        return
-      }
       if (/^\/api\/servers\/\w+\/world-copies$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([leftoverWorld]) })
         return
       }
+      // A faked job finishes at once, for the dialogs that follow it.
       const fakeOp = /^\/api\/machines\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
       if (fakeOp?.[1]) {
         const started = state.ops.get(fakeOp[1])
         const status = started ? 200 : 404
         calls.push({ method, path, status, faked: true, at })
-        const body = started ? { ...started, status: 'succeeded', finishedAt: new Date().toISOString() } : { error: 'Operation not found.', code: 'not_found' }
+        const body = started ? { ...started, status: 'succeeded', phase: '', finishedAt: new Date().toISOString(), detail: { files: [] } } : { error: 'Operation not found.', code: 'not_found' }
         await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
         return
       }
