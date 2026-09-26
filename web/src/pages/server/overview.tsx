@@ -48,12 +48,12 @@ function Running({ server: s }: { server: ServerStatus }) {
       {phone && <SignInNotice />}
       <ServerNotices server={s} />
       <FirstStepsCard server={s} phone={phone} onBackup={() => void serverAction(s, 'backups')} />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <JoinCard server={s} />
         <PlayingCard server={s} />
         <RunningCard server={s} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1.45fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
         <PlayersChart server={s} />
         <Card>
           <CardTitle>{t('overview.activity')}</CardTitle>

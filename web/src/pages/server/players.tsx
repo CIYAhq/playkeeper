@@ -299,7 +299,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <Card>
           <div className="flex items-baseline justify-between gap-3">
             <CardTitle>{t('players.whoCanJoin')}</CardTitle>

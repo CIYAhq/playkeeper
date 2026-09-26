@@ -231,7 +231,7 @@ export function SoftwareChangedView({ server: s, change }: { server: ServerStatu
     </>
   )
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
       <Card className="p-6 max-sm:p-4">
         <div className="flex items-start gap-5 max-sm:gap-3">
           <Pip pose="search" size={phone ? 56 : 80} />

@@ -177,7 +177,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   return (
     <>
       <WorldNotice server={s} />
-      <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <MakeBackup server={s} backups={list} onDone={refresh} />
         <WorldInfo server={s} backups={backups.data} />
       </div>

@@ -14,7 +14,7 @@ async function axe(page: Page, where: string) {
   expect(bad.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`), where).toEqual([])
 }
 
-test('every page, desktop and narrow, with no serious accessibility violations', async ({ page }) => {
+test('every page, desktop and narrow, with no serious accessibility violations and nothing wider than the screen', async ({ page }) => {
   await login(page)
   const s = await firstServer(page)
   const machine = ((await (await page.request.get('/api/machines')).json()) as { id: string; name: string }[])[0]
@@ -63,6 +63,8 @@ test('every page, desktop and narrow, with no serious accessibility violations',
       await page.waitForTimeout(2500)
       await shot(page, `${prefix}-${v.name}-${vp.name}`)
       await axe(page, `${v.route} at ${vp.name}`)
+      // A page that scrolls sideways on a phone puts controls under others.
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `${v.route} at ${vp.name} scrolls sideways`).toBeLessThanOrEqual(vp.width)
     }
   }
 
