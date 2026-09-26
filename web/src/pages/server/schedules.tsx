@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, useIsPhone, type Choice } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
+import { InlineSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -16,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, relativeTime } from '@/lib/format'
+import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { usePoll } from '@/lib/usePoll'
@@ -174,7 +176,9 @@ async function setEnabled(server: ServerStatus, s: Schedule, enabled: boolean): 
   }
 }
 
-function ScheduleRow({ server, schedule: s, current, phone, onEdit, onChanged }: { server: ServerStatus; schedule: Schedule; current: SchedulesResponse['current']; phone: boolean; onEdit: () => void; onChanged: () => void }) {
+const rowClass = (phone: boolean) => cn('flex items-center gap-3 border-b border-border last:border-b-0', phone ? 'min-h-16 py-3' : 'py-3')
+
+function ScheduleRow({ server, schedule: s, state, current, phone, onEdit, onChanged }: { server: ServerStatus; schedule: Schedule; state: Presence; current: SchedulesResponse['current']; phone: boolean; onEdit: () => void; onChanged: () => void }) {
   const { me } = useWorkspace()
   const [on, setOn] = useState(s.enabled)
   useEffect(() => setOn(s.enabled), [s.enabled])
@@ -193,14 +197,14 @@ function ScheduleRow({ server, schedule: s, current, phone, onEdit, onChanged }:
       toastManager.add({ title: errorText(e), type: 'error' })
     }
   }
-  const editable = formOf(s) !== undefined
+  const cantChange = formOf(s) === undefined ? t('schedules.cantChange') : undefined
   const view = { ...s, enabled: on }
   return (
-    <li className={cn('flex items-center gap-3 border-b border-border last:border-b-0', phone ? 'min-h-16 py-3' : 'py-3')}>
+    <li {...presenceProps(state)} className={rowClass(phone)}>
       <span className={cn('shrink-0 text-muted-foreground [&_svg]:size-4', phone && '[&_svg]:size-5')} aria-hidden="true">
         {kindIcon(s.kind)}
       </span>
-      <button type="button" onClick={editable ? onEdit : undefined} disabled={!editable} className={cn('min-w-0 flex-1 text-left', !editable && 'cursor-default')}>
+      <button type="button" onClick={cantChange ? undefined : onEdit} disabled={!!cantChange} title={cantChange} className={cn('min-w-0 flex-1 text-left', cantChange && 'cursor-default')}>
         <span className={cn('block font-semibold', phone ? 'text-base font-normal' : 'text-sm', !on && 'text-muted-foreground')}>{title}</span>
         <span className={cn('mt-0.5 block text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')}>{scheduleHint(view, current, me.user.username, phone)}</span>
       </button>
@@ -211,7 +215,7 @@ function ScheduleRow({ server, schedule: s, current, phone, onEdit, onChanged }:
             <EllipsisIcon />
           </MenuTrigger>
           <MenuPopup align="end" className="min-w-44">
-            <MenuItem disabled={!editable} onClick={onEdit}>
+            <MenuItem disabled={!!cantChange} title={cantChange} className={cn(cantChange && 'data-disabled:pointer-events-auto')} onClick={onEdit}>
               <PencilIcon />
               {t('schedules.change')}
             </MenuItem>
@@ -227,30 +231,25 @@ function ScheduleRow({ server, schedule: s, current, phone, onEdit, onChanged }:
   )
 }
 
-function RowsSkeleton({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="flex flex-col" aria-hidden="true">
-      {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex items-center gap-3 border-b border-border py-3 last:border-b-0">
-          <Skeleton className="size-4 rounded" />
-          <div className="flex-1">
-            <Skeleton className="h-4 w-56" />
-            <Skeleton className="mt-1.5 h-3 w-72" />
-          </div>
-          <Skeleton className="h-5 w-9 rounded-full" />
-        </div>
-      ))}
-    </div>
-  )
+function RowsSkeleton({ phone }: { phone: boolean }) {
+  return <ListSkeleton rowClassName={rowClass(phone)} face="size-4 rounded" trailing={<Skeleton className="h-5 w-9 rounded-full" />} />
+}
+
+/** Why New schedule can't be pressed yet. */
+function newReason(stale: boolean, items: Schedule[] | undefined): string | undefined {
+  if (stale) return t('reason.noAgent')
+  return items ? undefined : t('common.loading')
 }
 
 /** Server settings' Schedules section, then Recent runs. */
 export function SchedulesSection({ server }: { server: ServerStatus }) {
+  const ws = useWorkspace()
   const list = useSchedules(server.id)
   const runs = usePoll(() => get<{ runs: ScheduleRun[] }>(serverApi(server.id, '/schedules/runs?limit=6')), 30_000, server.id)
   const [editing, setEditing] = useState<Schedule | 'new'>()
   const changed = () => void Promise.all([list.refresh(), runs.refresh()])
   const items = list.data?.schedules
+  const rows = useListPresence(items, (s) => s.id)
   return (
     <>
       <Card as="section" id="schedules" aria-labelledby="schedules-title" className="scroll-mt-4 pb-2">
@@ -259,7 +258,7 @@ export function SchedulesSection({ server }: { server: ServerStatus }) {
             <CardTitle id="schedules-title">{t('schedules.title')}</CardTitle>
             <CardHint>{t('schedules.zone', { zone: zoneLabel() })}</CardHint>
           </div>
-          <Button onClick={() => setEditing('new')} disabled={!items}>
+          <Button onClick={() => setEditing('new')} disabledReason={newReason(ws.stale, items)}>
             <PlusIcon />
             {t('schedules.new')}
           </Button>
@@ -268,13 +267,13 @@ export function SchedulesSection({ server }: { server: ServerStatus }) {
           {list.error && !items ? (
             <p className="py-3 text-[13px] text-destructive-foreground">{list.error.message}</p>
           ) : !items ? (
-            <RowsSkeleton />
-          ) : items.length === 0 ? (
-            <p className="py-3 text-[13px] text-muted-foreground">{t('schedules.empty', { server: server.name })}</p>
+            <RowsSkeleton phone={false} />
+          ) : rows.length === 0 ? (
+            <p className="animate-fade py-3 text-[13px] text-muted-foreground">{t('schedules.empty', { server: server.name })}</p>
           ) : (
             <ul>
-              {items.map((s) => (
-                <ScheduleRow key={s.id} server={server} schedule={s} current={list.data?.current} phone={false} onEdit={() => setEditing(s)} onChanged={changed} />
+              {rows.map(({ key, item: s, state }) => (
+                <ScheduleRow key={key} server={server} schedule={s} state={state} current={list.data?.current} phone={false} onEdit={() => setEditing(s)} onChanged={changed} />
               ))}
             </ul>
           )}
@@ -338,15 +337,7 @@ export function runText(r: ScheduleRun): string {
 }
 
 function RecentRuns({ runs }: { runs: ScheduleRun[] | undefined }) {
-  if (!runs) {
-    return (
-      <div className="mt-2 flex flex-col gap-3 py-2" aria-hidden="true">
-        {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-4 w-full max-w-[420px]" />
-        ))}
-      </div>
-    )
-  }
+  if (!runs) return <ListSkeleton className="mt-2" rowClassName="flex h-[39px] items-center border-b border-border last:border-b-0" lines={1} />
   if (runs.length === 0) return <p className="mt-2 py-3 text-[13px] text-muted-foreground">{t('schedules.noRuns')}</p>
   return (
     <table className="mt-2 w-full text-[13px]">
@@ -365,9 +356,11 @@ function RecentRuns({ runs }: { runs: ScheduleRun[] | undefined }) {
 
 /** The phone's Schedules page, under Settings. */
 export function SchedulesPhonePage({ server }: { server: ServerStatus }) {
+  const ws = useWorkspace()
   const list = useSchedules(server.id)
   const [editing, setEditing] = useState<Schedule | 'new'>()
   const items = list.data?.schedules
+  const rows = useListPresence(items, (s) => s.id)
   return (
     <>
       <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'settings' }} label={t('tab.settings')} title={t('schedules.title')} />
@@ -377,13 +370,13 @@ export function SchedulesPhonePage({ server }: { server: ServerStatus }) {
           {list.error && !items ? (
             <p className="py-4 text-[15px] text-destructive-foreground">{list.error.message}</p>
           ) : !items ? (
-            <RowsSkeleton />
-          ) : items.length === 0 ? (
-            <p className="py-4 text-[15px] text-muted-foreground">{t('schedules.empty', { server: server.name })}</p>
+            <RowsSkeleton phone />
+          ) : rows.length === 0 ? (
+            <p className="animate-fade py-4 text-[15px] text-muted-foreground">{t('schedules.empty', { server: server.name })}</p>
           ) : (
             <ul>
-              {items.map((s) => (
-                <ScheduleRow key={s.id} server={server} schedule={s} current={list.data?.current} phone onEdit={() => setEditing(s)} onChanged={() => void list.refresh()} />
+              {rows.map(({ key, item: s, state }) => (
+                <ScheduleRow key={key} server={server} schedule={s} state={state} current={list.data?.current} phone onEdit={() => setEditing(s)} onChanged={() => void list.refresh()} />
               ))}
             </ul>
           )}
@@ -391,7 +384,7 @@ export function SchedulesPhonePage({ server }: { server: ServerStatus }) {
         <p className="px-1 text-[13px] text-muted-foreground">{t('schedules.zone', { zone: zoneLabel() })}</p>
       </div>
       <div className="fixed inset-x-4 bottom-[calc(76px+env(safe-area-inset-bottom))] z-20">
-        <Button size="touch" className="w-full" onClick={() => setEditing('new')} disabled={!items}>
+        <Button size="touch" className="w-full" onClick={() => setEditing('new')} disabledReason={newReason(ws.stale, items)}>
           <PlusIcon />
           {t('schedules.new')}
         </Button>
@@ -415,7 +408,9 @@ export function SchedulesPhoneRow({ server }: { server: ServerStatus }) {
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold">{t('schedules.title')}</span>
         {!items ? (
-          <Skeleton className="mt-1 h-3.5 w-40" />
+          <span className="mt-0.5 block leading-[18px]">
+            <InlineSkeleton className="w-40" />
+          </span>
         ) : (
           <span className="mt-0.5 block text-[13px] leading-[18px] text-muted-foreground">
             {items.length === 0 ? t('schedules.rowNone') : next ? t('schedules.rowNext', { count: on.length, when: upcoming(next) }) : t('schedules.rowCount', { count: items.length })}
@@ -526,6 +521,7 @@ function oftenChoices(current: string): Choice<string>[] {
 }
 
 function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerStatus; editing: Schedule | 'new' | undefined; onClose: () => void; onSaved: () => void }) {
+  const ws = useWorkspace()
   const phone = useIsPhone()
   const [form, setForm] = useState<Form>(() => newForm(server))
   const [preview, setPreview] = useState<SchedulePreview>()
@@ -595,6 +591,8 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   const next = preview?.valid ? preview.nextRuns[0] : undefined
   const problem = preview && !preview.valid ? preview.error : undefined
   const toggleWarn = (w: number, on: boolean) => set('warn', on ? [...form.warn, w].sort((a, b) => b - a) : form.warn.filter((x) => x !== w))
+  const noWarnings = form.warn.length + form.otherWarn.length === 0
+  const cantSave = ws.stale ? t('reason.noAgent') : !form.at ? t('schedules.pickTime') : problem?.error
   const label = 'text-[13px] font-medium'
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -637,7 +635,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
                     </label>
                   ))}
                 </div>
-                <Input value={form.message} onChange={(e) => set('message', e.target.value)} maxLength={200} disabled={form.warn.length + form.otherWarn.length === 0} className="mt-2.5" aria-label={t('schedules.message')} />
+                <Input value={form.message} onChange={(e) => set('message', e.target.value)} maxLength={200} disabled={noWarnings} title={noWarnings ? t('schedules.messageOff') : undefined} className="mt-2.5" aria-label={t('schedules.message')} />
                 <p className="mt-1 text-xs text-muted-foreground">{t('schedules.messageHint')}</p>
               </div>
               <SwitchRow checked={form.skipIfPlaying} onChange={(c) => set('skipIfPlaying', c)} title={t('schedules.skip')} hint={t('schedules.skipHint')} />
@@ -682,7 +680,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
             <Button variant="ghost" onClick={onClose}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={save} loading={busy} disabled={!!problem || !form.at}>
+            <Button onClick={save} loading={busy} disabledReason={cantSave}>
               {t('schedules.save')}
             </Button>
           </div>

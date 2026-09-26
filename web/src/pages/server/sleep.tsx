@@ -6,12 +6,13 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { PlayerFace } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
+import { InlineSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatClock, formatDuration, formatMB } from '@/lib/format'
+import { whyNot } from '@/lib/phase'
 import { linkPath } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -52,7 +53,7 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
     .filter((m) => m >= min && m <= max)
     .sort((a, b) => a - b)
     .map((m) => ({ value: String(m), label: t('sleep.afterOption', { time: idleText(m) }) }))
-  const locked = !!pending || ws.stale || !current
+  const locked = ws.stale ? t('reason.noAgent') : !current ? t('common.loading') : pending ? t('reason.saving') : undefined
 
   async function save(next: { enabled: boolean; idleMinutes: number }) {
     setPending(next)
@@ -68,16 +69,16 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
     }
   }
 
-  const toggle = <Switch checked={enabled} onCheckedChange={(c) => void save({ enabled: c, idleMinutes: idle })} disabled={locked} aria-label={t('settings.sleep')} />
-  const after = <ChoiceSelect value={String(idle)} onChange={(v) => void save({ enabled, idleMinutes: Number(v) })} options={choices} label={t('sleep.after')} disabled={locked} className={phone ? undefined : 'mt-1.5 w-[240px]'} />
+  const toggle = <Switch checked={enabled} onCheckedChange={(c) => void save({ enabled: c, idleMinutes: idle })} disabled={!!locked} title={locked} aria-label={t('settings.sleep')} />
+  const after = <ChoiceSelect value={String(idle)} onChange={(v) => void save({ enabled, idleMinutes: Number(v) })} options={choices} label={t('sleep.after')} disabledReason={locked} className={phone ? undefined : 'mt-1.5 w-[240px]'} />
   if (phone) {
     return (
       <>
         <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} />
         {enabled && (
           <>
-            <SettingRow label={t('sleep.after')} control={after} className="animate-in fade-in-0 duration-200 motion-reduce:animate-none" />
-            <SettingRow label={t('sleep.friendsSee')} hint={t('sleep.friendsSeeBody')} control={null} className="animate-in fade-in-0 duration-200 motion-reduce:animate-none" />
+            <SettingRow label={t('sleep.after')} control={after} className="animate-enter" />
+            <SettingRow label={t('sleep.friendsSee')} hint={t('sleep.friendsSeeBody')} control={null} className="animate-enter" />
           </>
         )}
       </>
@@ -87,7 +88,7 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
     <>
       <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} className={enabled ? 'border-b-0' : undefined} />
       {enabled && (
-        <div className="grid grid-cols-2 gap-6 pb-3.5 animate-in fade-in-0 slide-in-from-top-1 duration-200 motion-reduce:animate-none">
+        <div className="grid grid-cols-2 gap-6 pb-3.5 animate-enter">
           <div>
             <div className="text-[13px] font-semibold">{t('sleep.after')}</div>
             {after}
@@ -104,6 +105,7 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
 
 /** Overview's card while the server sleeps: why, and Wake up now. */
 export function AsleepCard({ server: s }: { server: ServerStatus }) {
+  const ws = useWorkspace()
   const phone = useIsPhone()
   const [busy, setBusy] = useState(false)
   const idle = idleText(s.sleep?.idleMinutes || 15)
@@ -113,13 +115,13 @@ export function AsleepCard({ server: s }: { server: ServerStatus }) {
     setBusy(false)
   }
   const button = (
-    <Button size={phone ? 'touch' : 'default'} className={cn(phone && 'mt-4 w-full')} onClick={run} loading={busy} disabled={!!s.operation}>
+    <Button size={phone ? 'touch' : 'default'} className={cn(phone && 'mt-4 w-full')} onClick={run} loading={busy} disabledReason={whyNot(s, 'start', ws.stale)}>
       <SunIcon />
       {t('sleep.wake')}
     </Button>
   )
   return (
-    <section aria-labelledby="asleep-title" className="rounded-3xl border border-border bg-card p-5 shadow-card animate-in fade-in-0 duration-300 motion-reduce:animate-none max-sm:p-4">
+    <section aria-labelledby="asleep-title" className="rounded-3xl border border-border bg-card p-5 shadow-card animate-fade max-sm:p-4">
       <div className="flex items-center gap-5 max-sm:items-start max-sm:gap-3">
         <Pip pose="sleep" size={phone ? 64 : 76} className="shrink-0" />
         <div className="min-w-0 flex-1">
@@ -147,7 +149,7 @@ export function ListeningLine({ server: s }: { server: ServerStatus }) {
   const listening = s.sleep?.listening ?? false
   return (
     <>
-      <span className={cn('size-2 rounded-full border-[1.5px]', listening ? 'border-muted-foreground/60' : 'border-warning-foreground')} aria-hidden="true" />
+      <span className={cn('size-2 rounded-full border-[1.5px] transition-colors duration-(--motion-standard) ease-standard', listening ? 'border-muted-foreground/60' : 'border-warning-foreground')} aria-hidden="true" />
       {listening ? t('sleep.listening') : t('sleep.notListening')}
     </>
   )
@@ -158,7 +160,13 @@ export function LastOneOut({ server: s }: { server: ServerStatus }) {
   const phone = useIsPhone()
   const sessions = usePoll(() => get<SessionsResponse>(serverApi(s.id, '/players/sessions?range=24h')), 60_000, s.id)
   const list = sessions.data?.sessions
-  if (!list) return sessions.loading ? <Skeleton className="mt-3 h-4 w-52" /> : null
+  if (!list) {
+    return sessions.loading ? (
+      <p className="mt-2 text-[13px]">
+        <InlineSkeleton className="w-52" />
+      </p>
+    ) : null
+  }
   const ended = list.filter((x) => x.end).sort((a, b) => new Date(b.end ?? 0).getTime() - new Date(a.end ?? 0).getTime())
   const last = ended[0]
   const midnight = new Date()
@@ -190,12 +198,13 @@ export function LastOneOut({ server: s }: { server: ServerStatus }) {
 export function SleepToday({ server: s }: { server: ServerStatus }) {
   const view = useSleep(s.id)
   const today = view.data?.today
-  if (!today) return view.loading ? <Skeleton className="h-4 w-48" /> : null
+  if (!today) return view.loading ? <InlineSkeleton className="w-48" /> : null
   return <>{today.count === 0 ? t('sleep.allDay') : t('sleep.today', { count: today.count, time: formatDuration(today.seconds) })}</>
 }
 
 /** Home's card detail for a sleeping server: "Asleep · wakes on join" and Wake up. */
 export function AsleepDetail({ server: s }: { server: ServerStatus }) {
+  const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   return (
     <>
@@ -207,6 +216,7 @@ export function AsleepDetail({ server: s }: { server: ServerStatus }) {
           size="sm"
           className="relative z-10 ml-auto"
           loading={busy}
+          disabledReason={whyNot(s, 'start', ws.stale)}
           onClick={async () => {
             setBusy(true)
             await wake(s)
