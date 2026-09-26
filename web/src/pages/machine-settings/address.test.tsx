@@ -459,6 +459,18 @@ describe('a free address', () => {
     expect(link('Open https://alex.playkeeper.io:8443')).toBeTruthy()
   })
 
+  it('answers Release with the same one line while the service doesn’t answer, and keeps the name', async () => {
+    const add = vi.spyOn(toastManager, 'add')
+    vi.mocked(client.post).mockRejectedValueOnce(refusal(503, 'names_unreachable', 'Playkeeper couldn’t reach the free address service.', { detail: 'connect: connection refused' }, 'Addresses that already work keep working. Try again later.'))
+    await show(free())
+    await click(button('Release it'))
+    await click(button('Release it', dialog()))
+    expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/release', {})
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'The free address service isn’t answering right now. Your addresses keep working.', type: 'error' }))
+    expect(add).not.toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('couldn’t reach') }))
+    expect(text()).toContain('alex.playkeeper.io is yours')
+  })
+
   it('shows one notice at a time: the service not answering before the servers’ wait, whose date stays on each row', async () => {
     const serversFrom = '2026-09-28T12:00:00Z'
     await show(free({ ...waiting, names: { url: 'https://names.playkeeper.io', unreachable: true } }, { serversWait: 'server_address_not_yet', serversFrom }))

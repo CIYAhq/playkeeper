@@ -544,6 +544,8 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
     } catch (e) {
       if (e instanceof ApiError && e.code === 'not_answering') {
         toastManager.add({ title: t('address.notReachable', { machine }), description: t('address.notReachableBody', { port: Number(e.params?.port ?? aliveCheckPort) }), type: 'error' })
+      } else if (e instanceof ApiError && e.code === 'names_unreachable') {
+        toastManager.add({ title: t('address.namesDown'), type: 'error' })
       } else {
         toastManager.add({ title: refusal(e), type: 'error' })
       }

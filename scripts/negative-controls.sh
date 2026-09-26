@@ -1902,6 +1902,10 @@ webcontrol "free addresses: one notice at a time while the service isn't answeri
   '            <UnreachableNotice />' \
   '            <><UnreachableNotice /><ServersWaitNotice a={a} machine={machine} /></>' \
   web/src/pages/machine-settings/address.test.tsx 'one notice at a time'
+webcontrol "free addresses: Release while the service isn't answering says so in the same line" web/src/pages/machine-settings/free.tsx \
+  "} else if (e instanceof ApiError && e.code === 'names_unreachable') {" \
+  "} else if (e instanceof ApiError && e.code === 'names_unreachable' && false) {" \
+  web/src/pages/machine-settings/address.test.tsx 'answers Release with the same one line'
 webcontrol "free addresses: a certificate problem is the notice that shows" web/src/pages/machine-settings/free.tsx \
   'certProblemText(a, now) ? (' \
   'certProblemText(a, now) && !a.names.unreachable ? (' \
