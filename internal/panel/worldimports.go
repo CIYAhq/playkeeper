@@ -24,6 +24,33 @@ func init() {
 	pathKeys = append(pathKeys, "imp", "n")
 }
 
+// importGuard runs next only for an account that may take act on the server
+// the world import is for, as restoreProxy does for a restore: the routes
+// name only the import, so the route's own check doesn't see the server. An
+// import that makes a new server needs every server.
+func (s *Server) importGuard(act action, next func(http.ResponseWriter, *http.Request, *session)) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		m, ok := s.machineFromPath(w, r)
+		if !ok {
+			return
+		}
+		var imp api.WorldImport
+		if _, err := m.agent.Do(r.Context(), "GET", agentPath("/v1/world-imports/{imp}", r), nil, nil, &imp); err != nil {
+			s.agentFailure(w, err)
+			return
+		}
+		need := act
+		if imp.ServerID == "" {
+			need = actCreateServers
+		}
+		if err := permit(sess.Access, need, imp.ServerID); err != nil {
+			writeRefusal(w, err)
+			return
+		}
+		next(w, r, sess)
+	}
+}
+
 // hWorldUpload streams part of an announced archive to the agent, from the
 // byte it asked for; after a dropped connection the browser asks where the
 // upload stands and sends the rest.

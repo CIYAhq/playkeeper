@@ -62,7 +62,7 @@ func TestWorldUploadStreamsToTheAgent(t *testing.T) {
 	if !same {
 		t.Fatal("the agent didn't receive the bytes as sent")
 	}
-	hits := agent.seen()
+	hits := uploads(agent.seen())
 	if len(hits) != 1 || hits[0].URL.Path != "/v1/world-imports/0123456789abcdef/files/0" || hits[0].Header.Get("X-Playkeeper-Actor") != "admin" || hits[0].Header.Get("Cookie") != "" {
 		t.Fatalf("agent saw %v", hits)
 	}
@@ -76,7 +76,7 @@ func TestWorldUploadStreamsToTheAgent(t *testing.T) {
 			t.Fatalf("PUT %s: %d %s", p, r.StatusCode, body)
 		}
 	}
-	if hits := agent.seen(); len(hits) != 0 {
+	if hits := uploads(agent.seen()); len(hits) != 0 {
 		t.Fatalf("refused uploads reached the agent: %v", hits)
 	}
 
@@ -86,6 +86,18 @@ func TestWorldUploadStreamsToTheAgent(t *testing.T) {
 	if res := e.do(t, "POST", base+"/inspect", `[1]`, auth(cookie, csrf)); res.status != 400 {
 		t.Fatalf("inspect with a list: %d %v", res.status, res.body)
 	}
+}
+
+// uploads leaves out the look at the import the panel takes before each
+// step, to see which server it is for.
+func uploads(hits []*http.Request) []*http.Request {
+	var out []*http.Request
+	for _, h := range hits {
+		if h.Method != "GET" {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 func jsonNumber(n int) string {
