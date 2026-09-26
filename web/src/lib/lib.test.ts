@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { templateQuery } from '@/api/templates'
-import type { Address, Catalog, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
+import type { Address, Catalog, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { budgetAdvice, createRequest, freeName, styleMemory, versionCards, versionLine } from '@/components/app/create'
 import { lineRuns } from '@/components/app/line-chart'
 import { packRequest } from '@/pages/new-server'
@@ -11,7 +11,7 @@ import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
 import { crashDetail, crashFixes, crashSummary, failureLine, lookupKey, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
 import { formatBytes, formatClock, formatCountdown, formatDate, formatDuration, formatList, formatMB, formatWhen, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
-import { machineEventText } from './machines'
+import { joinOf, machineEventText } from './machines'
 import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
 import { busyReason, controls, createStepOf, isCreating, isSettingUp, packStepOf, phaseTone, statusLabel, statusTone, templateStepOf, whyNot } from './phase'
 import { href, parse, type Route } from './router'
@@ -634,6 +634,34 @@ describe('machine events', () => {
       'The dashboard updated to Playkeeper 0.3.1',
       'Joined with a code siya made · from 203.0.113.24',
     ])
+  })
+})
+
+describe('join addresses', () => {
+  const local = { id: 'm2345abcde', projectId: 'p2345abcde', name: 'my-vps', kind: 'local' } as MachineView
+  const home = {
+    id: 'h2345abcde',
+    projectId: 'p2345abcde',
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', address: '203.0.113.20', problems: [] },
+  } as MachineView
+  const server = (over: Partial<ServerStatus>) => ({ name: 'Survival', gamePort: 25566, joinAddress: 'survival.alex.playkeeper.io', ...over }) as ServerStatus
+
+  it('give a joined machine’s servers only its known IP and their port, and say why when it isn’t known', () => {
+    const onHome = server({ machineId: home.id })
+    expect(joinOf(onHome, home, 'panel.example.com')).toEqual({ address: '203.0.113.20:25566' })
+    expect(joinOf(onHome, { ...home, link: { ...home.link!, address: '2001:db8::7' } }, 'panel.example.com')).toEqual({ address: '[2001:db8::7]:25566' })
+    expect(joinOf(onHome, { ...home, link: { ...home.link!, address: undefined } }, 'panel.example.com')).toEqual({ address: '', reason: 'No address yet: the dashboard hasn’t seen home-server’s IP.' })
+    const unknown = { address: '', reason: 'No address yet: the dashboard doesn’t know which machine runs Survival.' }
+    expect(joinOf(onHome, local, 'panel.example.com')).toEqual(unknown)
+    expect(joinOf(onHome, undefined, 'panel.example.com')).toEqual(unknown)
+  })
+
+  it('give the dashboard’s own servers their name once it works, else the dashboard’s host', () => {
+    expect(joinOf(server({ machineId: local.id }), local, 'panel.example.com')).toEqual({ address: 'survival.alex.playkeeper.io' })
+    expect(joinOf(server({ machineId: local.id, joinAddress: undefined }), local, 'panel.example.com')).toEqual({ address: 'panel.example.com:25566' })
+    expect(joinOf(server({ joinAddress: undefined }), undefined, 'panel.example.com')).toEqual({ address: 'panel.example.com:25566' })
   })
 })
 

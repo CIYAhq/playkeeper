@@ -161,11 +161,12 @@ function metaLine(s: ServerStatus, settingUp: boolean, lastSeen: string | undefi
 }
 
 function useCopyAddress(server: ServerStatus) {
-  const { joinAddress } = useServerMachine(server)
-  return async () => {
-    const ok = await copyText(joinAddress)
+  const { join } = useServerMachine(server)
+  const copy = async () => {
+    const ok = await copyText(join.address)
     toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
+  return { copy, reason: join.address ? undefined : join.reason }
 }
 
 function PrimaryAction({ server }: { server: ServerStatus }) {
@@ -297,7 +298,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
           <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{metaLine(s, settingUp, lastSeen, place.shared ? place.name : undefined)}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={copy}>
+          <Button variant="outline" onClick={copy.copy} disabledReason={copy.reason}>
             <CopyIcon />
             {t('server.copyAddress')}
           </Button>

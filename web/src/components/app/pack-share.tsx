@@ -209,7 +209,7 @@ function OffBody({ server }: { server: ServerStatus }) {
 }
 
 function SharedBody({ ps, server, link, phone }: { ps: PackShare; server: ServerStatus; link: string; phone: boolean }) {
-  const { joinAddress: address } = useServerMachine(server)
+  const address = useServerMachine(server).join.address
   const steps = [t('share.step.open_link'), t('share.step.import'), address ? t('share.step.play_join', { address }) : t('share.step.play')]
   const yourself = ps.share.yourself ?? []
   return (

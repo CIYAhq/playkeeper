@@ -21,7 +21,7 @@ import {
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
-import { joinAddressOf, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
+import { joinOf, machineLabel, machineOf, machineRoute, reachOf, type Join } from '@/lib/machines'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
 
@@ -57,7 +57,7 @@ async function act(server: ServerStatus, path: string, done: string) {
   }
 }
 
-function actionsFor(s: ServerStatus, address: string): PaletteItem[] {
+function actionsFor(s: ServerStatus, join: Join): PaletteItem[] {
   const c = controls(s)
   const items: PaletteItem[] = []
   if (s.exists && !c.busy && s.phase !== 'docker_unavailable') {
@@ -72,14 +72,16 @@ function actionsFor(s: ServerStatus, address: string): PaletteItem[] {
   }
   if (c.canRestart) items.push({ value: `restart:${s.id}`, label: t('cmd.restart', { server: s.name }), hint: t('cmd.restartHint'), icon: <RotateCwIcon />, run: () => void act(s, '/restart', t('op.restart', { server: s.name })) })
   if (c.canStart) items.push({ value: `start:${s.id}`, label: t('cmd.start', { server: s.name }), icon: <PlayIcon />, run: () => void act(s, '/start', t('op.start', { server: s.name })) })
-  items.push({
-    value: `copy:${s.id}`,
-    label: t('cmd.copyAddress', { server: s.name }),
-    hint: address,
-    icon: <CopyIcon />,
-    run: () =>
-      void copyText(address).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
-  })
+  const address = join.address
+  if (address)
+    items.push({
+      value: `copy:${s.id}`,
+      label: t('cmd.copyAddress', { server: s.name }),
+      hint: address,
+      icon: <CopyIcon />,
+      run: () =>
+        void copyText(address).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
+    })
   items.push({ value: `add:${s.id}`, label: t('cmd.addPlayer', { server: s.name }), icon: <UserPlusIcon />, run: () => navigate(`/servers/${s.slug}/players#add`) })
   return items
 }
@@ -129,7 +131,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
       { value: 'help:backups', label: t('cmd.docBackups'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('cmd.docBackupsUrl'), '_blank', 'noreferrer') },
       { value: 'help:readme', label: t('cmd.docReadme'), hint: t('cmd.docReadmeHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('nav.helpUrl'), '_blank', 'noreferrer') },
     ]
-    const actions = ordered.filter((s) => reachOf(s, { machines, agentDown }).state === 'live').flatMap((s) => actionsFor(s, joinAddressOf(s, machineOf(s, machines))))
+    const actions = ordered.filter((s) => reachOf(s, { machines, agentDown }).state === 'live').flatMap((s) => actionsFor(s, joinOf(s, machineOf(s, machines))))
     return [
       { value: 'actions', label: t('cmd.actions'), items: actions },
       { value: 'go', label: t('cmd.goTo'), items: go },

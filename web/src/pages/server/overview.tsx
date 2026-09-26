@@ -21,7 +21,7 @@ import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, sameDay } from '@/lib/format'
-import { awayLong, joinAddressOf, machineLabel, machineRoute } from '@/lib/machines'
+import { awayLong, joinOf, machineLabel, machineRoute } from '@/lib/machines'
 import { busyReason, createStepOf, failedJob, isSettingUp, packStepOf, phaseLabel, statusTone, templateStepOf, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { formatTPS } from '@/lib/running'
@@ -149,17 +149,22 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
 }
 
 function JoinCard({ server: s }: { server: ServerStatus }) {
-  const { stale, joinAddress: address } = useServerMachine(s)
+  const { stale, join } = useServerMachine(s)
   const phone = useIsPhone()
   const online = !stale && s.phase === 'online'
+  const address = join.address
   const long = address.length > 20
   return (
     <Card>
       <div className="flex items-start justify-between gap-3">
         <CardTitle className="max-sm:text-[17px]">{t('overview.join')}</CardTitle>
-        <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />
+        {address && <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />}
       </div>
-      <p className={cn('mt-2 font-extrabold tracking-[-0.01em] break-all tabular-nums', long ? 'text-xl leading-[26px]' : 'text-[26px] leading-8 max-sm:text-[28px]')}>{address}</p>
+      {address ? (
+        <p className={cn('mt-2 font-extrabold tracking-[-0.01em] break-all tabular-nums', long ? 'text-xl leading-[26px]' : 'text-[26px] leading-8 max-sm:text-[28px]')}>{address}</p>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground max-sm:text-[15px]">{join.reason}</p>
+      )}
       {!phone && <p className="mt-1 text-[13px] text-muted-foreground">{t('overview.joinHelp')}</p>}
       <p className="mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground max-sm:pt-3 max-sm:text-[13px]">
         {online && s.reachable ? (
@@ -707,7 +712,7 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
   const phone = useIsPhone()
   const now = useNow(30_000)
   const name = machineLabel(m)
-  const address = joinAddressOf(s, m)
+  const join = joinOf(s, m)
   const joined = m.joinedAt
   let title: string
   if (since) title = t('machines.problem.offline', { name, duration: awayLong(since, now) })
@@ -730,9 +735,13 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
         <Card>
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="max-sm:text-[17px]">{t('overview.join')}</CardTitle>
-            <CopyButton text={address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />
+            {join.address && <CopyButton text={join.address} size={phone ? 'lg' : 'sm'} toast={t('toast.copied')} />}
           </div>
-          <p className="mt-2 text-xl leading-7 font-extrabold tracking-[-0.01em] break-all">{address}</p>
+          {join.address ? (
+            <p className="mt-2 text-xl leading-7 font-extrabold tracking-[-0.01em] break-all">{join.address}</p>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">{join.reason}</p>
+          )}
           <p className="mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground">
             <span className="size-2 rounded-full border-[1.5px] border-muted-foreground/60" aria-hidden="true" />
             {t('machines.away.join', { name })}

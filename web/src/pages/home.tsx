@@ -18,7 +18,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, sameDay } from '@/lib/format'
-import { awayLong, awayOf, byMachine, isAway, isStale, joinAddressOf, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
@@ -225,7 +225,7 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
   const ws = useWorkspace()
   const reach = reachOf(s, ws)
   const stale = isStale(s, ws.stale) || reach.state !== 'live'
-  const address = joinAddressOf(s, machineOf(s, ws.machines))
+  const join = joinOf(s, machineOf(s, ws.machines))
   const stopped = phaseTone(s.phase) !== 'online'
   return (
     <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
@@ -251,10 +251,18 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
       <div className="flex h-11 items-center gap-3">
         <CardDetail server={s} />
       </div>
-      <div className="relative z-10 flex h-10 items-center gap-2 rounded-lg bg-muted pr-1 pl-3 text-sm font-semibold">
+      <div className={cn('relative z-10 flex h-10 items-center gap-2 rounded-lg bg-muted pl-3 text-sm font-semibold', join.address ? 'pr-1' : 'pr-3')}>
         <LinkIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">{address}</span>
-        <CopyButton text={address} size="xs" className="bg-white" />
+        {join.address ? (
+          <>
+            <span className="min-w-0 flex-1 truncate">{join.address}</span>
+            <CopyButton text={join.address} size="xs" className="bg-white" />
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground" title={join.reason}>
+            {join.reason}
+          </span>
+        )}
       </div>
     </article>
   )

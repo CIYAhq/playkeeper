@@ -308,6 +308,8 @@ export const en = {
   // Overview
   'overview.join': 'Join address',
   'overview.joinHelp': 'In Minecraft: Multiplayer → Add Server, then paste it.',
+  'join.noIP': 'No address yet: the dashboard hasn’t seen {machine}’s IP.',
+  'join.noMachine': 'No address yet: the dashboard doesn’t know which machine runs {server}.',
   'overview.answering': 'Answering on port {port} · checked {time}',
   'overview.answeringPhone': 'Answering · checked {time}',
   'overview.notAnswering': 'Not answering yet',

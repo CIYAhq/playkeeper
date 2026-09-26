@@ -13,6 +13,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/compone
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatDay, formatDuration, localTimeZone, relativeTime } from '@/lib/format'
+import type { Join } from '@/lib/machines'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
@@ -227,7 +228,8 @@ function PlayerMenu({ server, name, op, online, onAction, phone }: { server: Ser
 }
 
 export function PlayersPage({ server: s }: { server: ServerStatus }) {
-  const { stale, joinAddress: address } = useServerMachine(s)
+  const { stale, join } = useServerMachine(s)
+  const address = join.address
   const phone = useIsPhone()
   const [days, setDays] = useState<Days>('7')
   const p = usePlayers(s, days)
@@ -247,7 +249,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   const everyoneRows = useListPresence(everyone, nameKey)
   const playing = useListPresence(onlineNames, (n) => n.toLowerCase())
 
-  if (lists.whitelist && p.summary && whitelist.length === 0 && played.length === 0) return <EmptyPlayers server={s} address={address} form={lists.form} phone={phone} />
+  if (lists.whitelist && p.summary && whitelist.length === 0 && played.length === 0) return <EmptyPlayers server={s} join={join} form={lists.form} phone={phone} />
 
   const onList = (n: string) => whitelist.some((w) => w.name.toLowerCase() === n.toLowerCase())
   const access = (n: string) => (ops.has(n.toLowerCase()) ? t('players.access.operator') : onList(n) ? t('players.access.allowed') : t('players.access.none'))
@@ -289,8 +291,8 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
           )}
         </section>
         <div className="flex items-center gap-3 pt-2">
-          <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{t('players.tellPhone', { address })}</p>
-          <CopyButton text={t('players.inviteMessage', { address })} size="lg" toast={t('toast.copied')} />
+          <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{address ? t('players.tellPhone', { address }) : join.reason}</p>
+          {address && <CopyButton text={t('players.inviteMessage', { address })} size="lg" toast={t('toast.copied')} />}
         </div>
       </div>
     )
@@ -352,21 +354,23 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
           </ul>
           <div className="mt-auto border-t border-border pt-4">
             <h3 className="text-[13px] font-semibold">{t('players.tell')}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{t('players.tellBody', { address })}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <CopyButton text={t('players.inviteMessage', { address })} label={t('players.copyInvite')} toast={t('toast.copied')} />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={async () => {
-                  const ok = await copyText(address)
-                  toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
-                }}
-              >
-                <CopyIcon />
-                {t('players.copyAddress')}
-              </Button>
-            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{address ? t('players.tellBody', { address }) : join.reason}</p>
+            {address && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <CopyButton text={t('players.inviteMessage', { address })} label={t('players.copyInvite')} toast={t('toast.copied')} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    const ok = await copyText(address)
+                    toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
+                  }}
+                >
+                  <CopyIcon />
+                  {t('players.copyAddress')}
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -432,7 +436,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   )
 }
 
-function EmptyPlayers({ server: s, address, form, phone }: { server: ServerStatus; address: string; form: AddForm; phone: boolean }) {
+function EmptyPlayers({ server: s, join, form, phone }: { server: ServerStatus; join: Join; form: AddForm; phone: boolean }) {
   const steps = [
     { title: t('players.step1'), hint: t('players.step1Hint') },
     { title: t('players.step2'), hint: t('players.step2Hint') },
@@ -446,11 +450,15 @@ function EmptyPlayers({ server: s, address, form, phone }: { server: ServerStatu
       <div className="mt-5 w-full max-w-[420px] text-left">
         <AddPlayer server={s} form={form} placeholder={t('players.emptyPlaceholder')} big />
       </div>
-      <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-        {t('players.theirAddress')}
-        <span className="font-semibold text-foreground">{address}</span>
-        <CopyButton text={address} size="xs" toast={t('toast.copied')} />
-      </p>
+      {join.address ? (
+        <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          {t('players.theirAddress')}
+          <span className="font-semibold text-foreground">{join.address}</span>
+          <CopyButton text={join.address} size="xs" toast={t('toast.copied')} />
+        </p>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">{join.reason}</p>
+      )}
       <ol className="mt-8 grid w-full max-w-[720px] gap-4 border-t border-border pt-5 text-left sm:grid-cols-3">
         {steps.map((st, i) => (
           <li key={st.title}>

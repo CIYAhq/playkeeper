@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ApiError, get, post } from './client'
 import type { MachineView, Me, ServerStatus, SignInNotice } from './types'
 import { t } from '@/i18n'
-import { isStale, joinAddressOf, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
+import { isStale, joinOf, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
 import { mergePrefs, undoPrefs } from '@/lib/optimistic'
 import { usePoll } from '@/lib/usePoll'
 
@@ -209,7 +209,7 @@ export function usePhoneServer(): ServerStatus | undefined {
  * live: stale when the machine is away, its agent doesn't answer, or the
  * status is the last one heard. offline says why controls are off then.
  * shared is whether there's more than one machine, so pages name the
- * server's. joinAddress is where players join it.
+ * server's. join is where players join it, or why there's no address.
  */
 export function useServerMachine(s: ServerStatus) {
   const ws = useWorkspace()
@@ -224,7 +224,7 @@ export function useServerMachine(s: ServerStatus) {
     shared: ws.machines.length > 1,
     name: machineLabel(machine) || ws.machineName,
     route: machine ? machineRoute(machine) : undefined,
-    joinAddress: joinAddressOf(s, machine),
+    join: joinOf(s, machine),
   }
 }
 

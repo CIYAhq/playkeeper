@@ -1656,6 +1656,30 @@ describe('Machines and AI agents', () => {
     expect(text).not.toContain('cobblemon.home.playkeeper.io')
   })
 
+  it('says why a joined machine’s server has no address yet, and never gives the dashboard’s host or a reported name', async () => {
+    const attic: MachineView = {
+      id: 'a2345abcde',
+      projectId: machine.projectId,
+      name: 'attic',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'attic' },
+      link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const box = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id, gamePort: 25567, joinAddress: 'attic.old.playkeeper.io' })
+    const ws = workspace({ machines: [machine, attic], servers: [server({ machineId: machine.id }), box] })
+    const reason = 'No address yet: the dashboard hasn’t seen attic’s IP.'
+    for (const node of [<HomePage key="home" />, <Overview key="overview" server={box} />]) {
+      const text = await render(node, ws)
+      expect(text).toContain(reason)
+      expect(text).not.toContain(`${window.location.hostname}:25567`)
+      expect(text).not.toContain('attic.old.playkeeper.io')
+    }
+    await render(<ServerPage slug="attic" tab="overview" />, ws)
+    const copy = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy join address'))
+    expect(copy?.disabled).toBe(true)
+    expect(copy?.title).toBe(reason)
+  })
+
   it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {
     const home: MachineView = {
       id: 'h2345abcde',

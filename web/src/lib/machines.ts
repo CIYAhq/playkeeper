@@ -109,26 +109,36 @@ export function groupFingerprint(fp: string): string {
   return (fp.match(/.{1,4}/g) ?? []).join(' ')
 }
 
-/**
- * The host players dial for a server: a joined machine's address as the
- * dashboard last saw it, else the address the dashboard was opened with.
- */
-export function joinHost(m: MachineView | undefined, dashboardHost: string): string {
-  const addr = m?.kind === 'remote' ? m.link?.address : undefined
-  if (!addr) return dashboardHost
+/** A joined machine's IP as the dashboard last saw it, or "" before it has. */
+function joinedIP(m: MachineView): string {
+  const addr = m.link?.address
+  if (!addr) return ''
   const v6 = /^\[([^\]]+)\]/.exec(addr)
   if (v6?.[1]) return v6[1]
   const parts = addr.split(':')
   return parts.length === 2 && parts[0] ? parts[0] : addr
 }
 
+/** Where players join a server, or, when there's no address to give them, why. */
+export interface Join {
+  address: string
+  reason?: string
+}
+
 /**
- * Where players join a server. A joined machine's servers join at its
- * address and their port: free names and own domains stay with the
- * dashboard's machine, whose servers join at their name once it works.
+ * Where players join a server. A joined machine's servers join only at the
+ * IP the dashboard last saw it at, with their port: free names and own
+ * domains stay with the dashboard's machine, and no other host is given for
+ * them. The dashboard's own servers join at their name once it works, else
+ * at the host the dashboard was opened with. m is the server's machine as
+ * machineOf finds it, which is the dashboard's own when it doesn't know the
+ * server's.
  */
-export function joinAddressOf(s: Pick<ServerStatus, 'joinAddress' | 'gamePort'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): string {
-  return m?.kind === 'remote' ? joinAddress(joinHost(m, dashboardHost), s.gamePort) : serverJoinAddress(s, dashboardHost)
+export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort' | 'machineId'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): Join {
+  if (s.machineId && m?.id !== s.machineId) return { address: '', reason: t('join.noMachine', { server: s.name }) }
+  if (m?.kind !== 'remote') return { address: serverJoinAddress(s, dashboardHost) }
+  const ip = joinedIP(m)
+  return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: t('join.noIP', { machine: machineLabel(m) }) }
 }
 
 /** "10 min", "3 h" or "2 days" since a moment, for a status pill. */
