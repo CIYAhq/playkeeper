@@ -548,8 +548,11 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
       try {
         const p = await post<SchedulePreview>(serverApi(server.id, '/schedules/preview'), JSON.parse(key))
         if (!cancelled) setPreview(p)
-      } catch (e) {
-        if (!cancelled) setPreview({ valid: false, nextRuns: [], error: { error: errorText(e), code: e instanceof ApiError ? e.code : 'internal' } })
+      } catch {
+        // Only an answer says a schedule isn't valid. A preview that was
+        // refused or lost, such as one over the rate limit, is no preview,
+        // and the agent still checks the schedule on Save.
+        if (!cancelled) setPreview(undefined)
       }
     }, 300)
     return () => {

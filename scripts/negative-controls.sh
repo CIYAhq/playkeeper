@@ -7,11 +7,16 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$PATH" CGO_ENABLED=0
+export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
 wt="$(mktemp -d)/playkeeper"
 git -C "$root" worktree add --detach -q "$wt" HEAD
 trap 'git -C "$root" worktree remove --force "$wt"' EXIT
 cd "$wt"
+# The web controls run vitest with the checkout's own dependencies, which
+# scripts/setup.sh installs.
+if [ -d "$root/web/node_modules" ]; then
+  ln -s "$root/web/node_modules" web/node_modules
+fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
@@ -26,6 +31,26 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
     bad=1
   else
     echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
+  fi
+  git checkout -q -- "$file"
+}
+
+webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
+  local name=$1 file=$2 test=${5#web/} pattern=$6
+  if [ ! -d web/node_modules ]; then
+    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    bad=1
+    return
+  fi
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+    bad=1
+  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
+    echo "INVALID  $name: the mutated code does not run"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
   git checkout -q -- "$file"
 }
@@ -60,6 +85,10 @@ control "every preview bucket entry is a route" internal/panel/server.go \
   '"POST /api/servers/{id}/backup-rules/estimate": true,' \
   '"POST /api/servers/{id}/backup-rules/estimates": true,' \
   ./internal/panel '^TestEveryPreviewRouteIsACheckedRoute$'
+webcontrol "a schedule preview that was refused leaves Save on" web/src/pages/server/schedules.tsx \
+  'if (!cancelled) setPreview(undefined)' \
+  "if (!cancelled) setPreview({ valid: false, nextRuns: [], error: { error: 'refused', code: 'rate_limited' } })" \
+  web/src/pages/server/schedules.test.tsx 'leaves Save on for a preview over the rate limit'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
   'if false && (err != nil || !a.allowed[uid]) {' \
