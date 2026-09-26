@@ -437,6 +437,55 @@ describe('Plugins tab', () => {
     expect(await click('Show fewer')).not.toContain('Lithium')
   })
 
+  it('says what friends need of each mod added by hand, with the restart line under the heading', async () => {
+    const waystones = addon('Waystones', { versionNumber: '21.1.4' })
+    const chunkyMod = addon('Chunky', { versionNumber: '1.4.40' })
+    const spark = addon('spark', { versionNumber: '1.10.124' })
+    const mods: Addons = {
+      target: { ...target, kind: 'mod', folder: 'mods' },
+      files: [waystones, chunkyMod, spark].map((m) => ({ fileName: m.fileName, size: 1, status: 'managed' as const, addon: m })),
+      missing: [],
+      warnings: [],
+      restartNeeded: false,
+    }
+    const label = (need: 'required' | 'optional' | 'server_only', text: string) => ({ need, label: { key: `share.need.${need}`, text } })
+    const share: PackShare = {
+      ...packShare,
+      share: {
+        ...packShare.share,
+        mods: [
+          { name: 'Waystones', path: 'mods/Waystones.jar', from: 'user', source: 'modrinth', project: waystones.projectId, onServer: true, inFile: true, ...label('required', 'Friends need it') },
+          { name: 'Chunky', path: 'mods/Chunky.jar', from: 'user', source: 'modrinth', project: chunkyMod.projectId, onServer: true, inFile: true, ...label('optional', 'Optional for friends') },
+          { name: 'spark', path: 'mods/spark.jar', from: 'user', source: 'modrinth', project: spark.projectId, onServer: true, inFile: false, ...label('server_only', 'Server only') },
+        ],
+      },
+    }
+    answer([
+      ['/mods/share', share],
+      ['/addons/checks', { ...checks, updates: [], identified: [] }],
+      ['/addons', mods],
+    ])
+    let text = await render(server({ type: 'fabric' }), 'mods')
+    expect(text).toContain('Mods on SurvivalChanges load after a restart.')
+    expect(text).toContain('Waystones21.1.4')
+    expect(text).toContain('Friends need it')
+    expect(text).toContain('Optional for friends')
+    expect(text).toContain('Server only')
+    expect(text).not.toContain('Up to date')
+    const need = [...document.querySelectorAll('li')].find((li) => li.textContent?.includes('Waystones'))
+    expect(need?.querySelector('.text-success-foreground')?.textContent).toBe('Friends need it')
+
+    await act(async () => root?.unmount())
+    const media = vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) => ({ matches: query.includes('max-width: 639px'), media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList,
+    )
+    text = await render(server({ type: 'fabric' }), 'mods')
+    media.mockRestore()
+    expect(text).toContain('1.4.40 · Optional for friends')
+    expect(text).toContain('1.10.124 · Server only')
+    expect(text).not.toContain('· Modrinth')
+  })
+
   it('doesn’t offer Share with friends on a plugin server', async () => {
     answer([
       ['/mods/share', packShare],

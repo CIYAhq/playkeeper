@@ -1190,6 +1190,7 @@ export const en = {
   'addons.whatsNew': 'What’s new in {version}',
   'addons.openSourcePage': 'Open the source page',
   'addons.loadsAfterRestart': 'Loads after a restart.',
+  'addons.changesLoad': 'Changes load after a restart.',
   'addons.onlyAuthorSite': 'Only on the author’s website',
   'addons.onlyAuthorSiteBody': 'Download it there, then put it in the server’s plugins folder.',
   'addons.onlyAuthorSiteBodyMods': 'Download it there, then put it in the server’s mods folder.',

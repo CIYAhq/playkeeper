@@ -13,16 +13,33 @@ export function packFileUrl(serverId: string): string {
   return serverApi(serverId, '/mods/share.mrpack')
 }
 
+type ShareState = { id?: string; share?: PackShare; error?: string; unsupported?: boolean }
+
+// The Mods tab asks for a server's share from several places as it opens;
+// asks made together wait for the same answer, and a later one asks again.
+const asking = new Map<string, Promise<ShareState>>()
+
+function askShare(serverId: string): Promise<ShareState> {
+  let p = asking.get(serverId)
+  if (!p) {
+    const ask = get<PackShare>(serverApi(serverId, '/mods/share'))
+      .then((share): ShareState => ({ id: serverId, share }))
+      .catch((e: unknown): ShareState => ({ id: serverId, error: errorText(e), unsupported: e instanceof ApiError && e.status === 409 }))
+    asking.set(serverId, ask)
+    window.setTimeout(() => asking.get(serverId) === ask && asking.delete(serverId), 0)
+    p = ask
+  }
+  return p
+}
+
 /** A server's friends' pack, and whether its page is shared. */
 export function usePackShare(serverId: string | undefined) {
-  const [data, setData] = useState<{ id?: string; share?: PackShare; error?: string; unsupported?: boolean }>({})
+  const [data, setData] = useState<ShareState>({})
   const [tick, setTick] = useState(0)
   useEffect(() => {
     if (!serverId) return
     let cancelled = false
-    get<PackShare>(serverApi(serverId, '/mods/share'))
-      .then((share) => !cancelled && setData({ id: serverId, share }))
-      .catch((e: unknown) => !cancelled && setData({ id: serverId, error: errorText(e), unsupported: e instanceof ApiError && e.status === 409 }))
+    void askShare(serverId).then((s) => !cancelled && setData(s))
     return () => {
       cancelled = true
     }

@@ -16,7 +16,7 @@ import { busyReason } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
-import { AddonIcon, rowDomId, useAddons } from './state'
+import { AddonIcon, rowDomId, useAddons, type FriendsLabel } from './state'
 
 const rowId = (r: AddonRow) => r.id
 
@@ -76,9 +76,12 @@ function DesktopHeading({ browse, browseLabel, children }: { browse: Route; brow
   const a = useAddons()
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <h2 id="addons-title" className="mr-auto text-lg font-bold tracking-[-0.01em]">
-        {a.kind === 'mod' ? t('addons.titleMods', { server: a.server.name }) : t('addons.title', { server: a.server.name })}
-      </h2>
+      <div className="mr-auto min-w-0">
+        <h2 id="addons-title" className="text-lg font-bold tracking-[-0.01em]">
+          {a.kind === 'mod' ? t('addons.titleMods', { server: a.server.name }) : t('addons.title', { server: a.server.name })}
+        </h2>
+        {a.kind === 'mod' && <p className="text-[13px] text-muted-foreground">{t('addons.changesLoad')}</p>}
+      </div>
       {children}
       <Button render={<a {...linkProps(browse)} />}>
         <SearchIcon />
@@ -193,15 +196,19 @@ function RowStatus({ row: r }: { row: AddonRow }) {
   const waitFor = (what: NonNullable<typeof busy>) => (busy === what ? t('reason.busy', { what: what === 'forget' ? t('addons.forgetting', { name: r.name }) : t('addons.installing', { name: r.name }) }) : undefined)
   let body: ReactNode
   switch (r.state) {
-    case 'managed':
+    case 'managed': {
+      const friends = a.friends(r)
       body = r.update ? (
         <Marker tone="green">{t('addons.updateAvailable', { version: r.update.versionNumber })}</Marker>
       ) : r.pending ? (
         <Marker tone="amber">{t('addons.new')}</Marker>
+      ) : friends ? (
+        <Marker tone={friends.need === 'required' ? 'green' : 'muted'}>{friends.text}</Marker>
       ) : (
         <Marker>{t('addons.upToDate')}</Marker>
       )
       break
+    }
     case 'changed':
       body = <TwoLines first={t('addons.changed')} second={t('addons.asksFirst')} className="text-warning-foreground" />
       break
@@ -351,10 +358,10 @@ function PhoneBrowse({ browse, browseLabel }: { browse: Route; browseLabel: stri
   )
 }
 
-function phoneLine(r: AddonRow): string {
+function phoneLine(r: AddonRow, friends?: FriendsLabel): string {
   switch (r.state) {
     case 'managed':
-      return [r.version, r.addon ? sourceNames[r.addon.source] : ''].filter(Boolean).join(t('common.dot'))
+      return [r.version, friends?.text ?? (r.addon ? sourceNames[r.addon.source] : '')].filter(Boolean).join(t('common.dot'))
     case 'changed':
       return t('addons.changed')
     case 'missing':
@@ -387,7 +394,7 @@ function PhoneRow({ row: r, presence }: { row: AddonRow; presence: Presence }) {
       <AddonIcon url={r.addon?.iconUrl} dim={r.state === 'missing'} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-base leading-5">{r.name}</span>
-        <span className="block truncate text-[13px] text-muted-foreground">{phoneLine(r)}</span>
+        <span className="block truncate text-[13px] text-muted-foreground">{phoneLine(r, a.friends(r))}</span>
       </span>
     </>
   )

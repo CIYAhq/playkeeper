@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PackageIcon } from 'lucide-react'
 import { ApiError, get, post } from '@/api/client'
-import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Operation, ServerStatus } from '@/api/types'
+import { usePackShare } from '@/api/packs'
+import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addons, Operation, ServerStatus, ShareNeed } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { footerFor, isAddonOp, keyFrom, keyOf, mergeRows, sameKey, voiceChatProject, type AddonKind, type AddonRow } from '@/lib/addons'
+import { shareText } from '@/lib/packs'
 import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -73,6 +75,13 @@ interface AddonsState {
   restart: () => Promise<boolean>
   openSource: (key: AddonKey) => void
   goToFile: (file: string, name: string) => void
+  /** On mod servers, what friends need of a mod added by hand, from its Modrinth data. */
+  friends: (r: AddonRow) => FriendsLabel | undefined
+}
+
+export interface FriendsLabel {
+  text: string
+  need: ShareNeed
 }
 
 const Ctx = createContext<AddonsState | null>(null)
@@ -111,6 +120,14 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
   const [removing, setRemoving] = useState<AddonKey>()
   const [asking, setAsking] = useState<Ask>()
   const [voice, setVoice] = useState<VoiceAsk>()
+  const share = usePackShare(kind === 'mod' ? id : undefined).share?.share
+  const friendsLabels = useMemo(() => {
+    const m = new Map<string, FriendsLabel>()
+    for (const mod of share?.mods ?? []) {
+      if (mod.from === 'user' && mod.source && mod.project) m.set(`${mod.source}:${mod.project}`, { text: shareText(mod.label), need: mod.need })
+    }
+    return m
+  }, [share])
   const [highlight, setHighlight] = useState<string>()
 
   const refreshList = list.refresh
@@ -348,6 +365,7 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
     restart,
     openSource,
     goToFile,
+    friends: (r) => (r.addon ? friendsLabels.get(keyOf(r.addon)) : undefined),
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
