@@ -2781,7 +2781,6 @@ export const en = {
   'map.setupShare': 'Friends can open it with a link if you turn that on',
   'map.turnOn': 'Turn on the map',
   'map.turnOnRestart': '{server} restarts for about 20 s.',
-  'map.turnOnAsk': 'You pick when {server} restarts.',
   'map.turnOnStopped': 'It starts drawing when {server} starts.',
   'map.restartTitle': 'One restart, then the map starts drawing',
   'map.restartTitlePhone': 'One restart, then it draws',

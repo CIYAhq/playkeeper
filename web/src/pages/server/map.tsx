@@ -152,13 +152,13 @@ function PhoneMapHeader({ onMenu }: { onMenu?: () => void }) {
 }
 
 /** Pip, a title and a line, and what to do: the map tab's states without a map. */
-function StateScreen({ pose, title, lead, facts, note, children }: { pose: PipPose; title: string; lead: ReactNode; facts?: string[]; note?: ReactNode; children?: ReactNode }) {
+function StateScreen({ pose, title, lead, facts, note, setup, children }: { pose: PipPose; title: string; lead: ReactNode; facts?: string[]; note?: ReactNode; setup?: boolean; children?: ReactNode }) {
   const phone = useIsPhone()
   return (
     <section className="flex flex-1 animate-fade flex-col items-center py-12 text-center max-sm:justify-center max-sm:px-2 max-sm:py-8">
-      <Pip pose={pose} size={phone ? 96 : 112} />
+      <Pip pose={pose} size={phone ? 96 : setup ? 120 : 112} />
       <h2 className="mt-5 text-[22px] leading-7 font-bold tracking-[-0.015em] max-sm:mt-3">{title}</h2>
-      <p className="mt-2 text-[15px] text-muted-foreground max-sm:mt-1">{lead}</p>
+      <p className="mt-2 text-[15px] text-pretty text-muted-foreground max-sm:mt-1">{lead}</p>
       {facts && (
         <ul className="mt-5 flex flex-col gap-1 text-sm">
           {facts.map((f) => (
@@ -167,7 +167,7 @@ function StateScreen({ pose, title, lead, facts, note, children }: { pose: PipPo
         </ul>
       )}
       {children && <div className="mt-5 flex items-center gap-2 max-sm:mt-4 max-sm:w-full max-sm:flex-col-reverse max-sm:gap-3 max-sm:[&>*]:w-full">{children}</div>}
-      {note && <p className="mt-5 max-w-[440px] text-xs leading-[18px] text-muted-foreground max-sm:mt-3.5 max-sm:text-[13px]">{note}</p>}
+      {note && <p className={cn('max-w-[440px] text-xs leading-[18px] text-pretty text-muted-foreground max-sm:mt-3.5 max-sm:text-[13px]', setup ? 'mt-1.5' : 'mt-5')}>{note}</p>}
     </section>
   )
 }
@@ -176,8 +176,7 @@ function SetupState({ server, info, busy, onEnable }: { server: ServerStatus; in
   const phone = useIsPhone()
   const ws = useWorkspace()
   const online = phaseTone(server.phase) === 'online'
-  const playing = server.players?.online ?? 0
-  const note = !online ? t('map.turnOnStopped', { server: server.name }) : playing > 0 ? t('map.turnOnAsk', { server: server.name }) : t('map.turnOnRestart', { server: server.name })
+  const note = online ? t('map.turnOnRestart', { server: server.name }) : t('map.turnOnStopped', { server: server.name })
   return (
     <StateScreen
       pose="search"
@@ -185,8 +184,9 @@ function SetupState({ server, info, busy, onEnable }: { server: ServerStatus; in
       lead={info.missing ? t('map.missingLead') : t('map.setupLead')}
       facts={[t('map.setupTime', { minutes: info.estimatedMinutes, server: server.name }), t('map.setupDisk', { megabytes: info.estimatedMegabytes }), t('map.setupShare')]}
       note={note}
+      setup
     >
-      <Button size={phone ? 'touch' : 'default'} onClick={onEnable} loading={busy} disabledReason={whyNot(server, 'change', ws.stale)}>
+      <Button size={phone ? 'touch' : 'lg'} onClick={onEnable} loading={busy} disabledReason={whyNot(server, 'change', ws.stale)}>
         <MapIcon />
         {t('map.turnOn')}
       </Button>
@@ -707,11 +707,11 @@ function TurnOffDialog({ open, onOpenChange, server, info, onDone }: { open: boo
         </DialogHeader>
         <DialogPanel className="max-sm:px-5">
           <CardGroup value={choice} onChange={setChoice} label={t('map.offTitle')} className="flex flex-col gap-2.5">
-            <ChoiceCard value="keep" radio={phone ? 'end' : 'start'} className="items-center gap-3 px-4 py-3">
+            <ChoiceCard value="keep" radio={phone ? 'end' : 'start'} className={cn('gap-3 px-4 py-3', phone ? 'items-center' : 'items-start')}>
               <span className="block text-sm font-semibold max-sm:text-[15px]">{t('map.offKeep')}</span>
               <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{size ? t('map.offKeepHint', { size }) : null}</span>
             </ChoiceCard>
-            <ChoiceCard value="delete" radio={phone ? 'end' : 'start'} className="items-center gap-3 px-4 py-3">
+            <ChoiceCard value="delete" radio={phone ? 'end' : 'start'} className={cn('gap-3 px-4 py-3', phone ? 'items-center' : 'items-start')}>
               <span className="block text-sm font-semibold max-sm:text-[15px]">{t('map.offDelete')}</span>
               <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{size ? t('map.offDeleteHint', { size }) : null}</span>
             </ChoiceCard>
