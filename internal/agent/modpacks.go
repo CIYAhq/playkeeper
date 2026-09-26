@@ -19,6 +19,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
@@ -245,6 +246,9 @@ func (a *Agent) hModpackPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	out := &api.ModpackPreview{Type: pl.Requirements.Type, MinecraftVersion: pl.Requirements.MinecraftVersion, LoaderVersion: pl.Requirements.LoaderVersion,
 		DownloadSize: pl.DownloadSize, Ready: pl.Ready, Blockers: apiNotices(pl.Blockers), Warnings: apiNotices(pl.Warnings), Manual: []api.AddonNotice{}}
+	if java := minecraft.JavaFor(out.MinecraftVersion); out.MinecraftVersion != "" && java != minecraft.NewestJava {
+		out.Java = java
+	}
 	for _, c := range pl.Changes {
 		if c.Action == modpacks.ActionAdd {
 			out.Files++

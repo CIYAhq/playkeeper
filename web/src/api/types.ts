@@ -815,6 +815,8 @@ export interface ModpackPreview {
   type: string
   minecraftVersion: string
   loaderVersion?: string
+  /** Set when the pack's Minecraft version runs on an older Java than the newest versions. */
+  java?: number
   files: number
   downloadSize: number
   ready: boolean

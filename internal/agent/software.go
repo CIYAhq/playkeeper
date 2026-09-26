@@ -334,7 +334,7 @@ func withPin(sc api.ServerConfig, e api.CatalogEntry, pin software.Pin) api.Serv
 	p := api.SoftwarePin(pin)
 	sc.VersionID, sc.MinecraftVersion, sc.Software = e.ID, pin.MinecraftVersion, &p
 	sc.PaperBuild, sc.JarSHA256, sc.JarVerifiedAt = 0, "", nil
-	sc.Image = minecraft.Image
+	sc.Image = runtimeImage(sc.MinecraftVersion)
 	return sc
 }
 
@@ -451,7 +451,7 @@ func (s *server) installSoftware(ctx context.Context, h *opHandle, sc *api.Serve
 	}
 	if plan.Setup != nil {
 		spec, _ := s.specWith(*sc, plan.Setup.Env, true)
-		tail, code, err := s.runSetupContainer(ctx, spec)
+		tail, code, err := s.runSetupContainer(ctx, h, spec)
 		if err != nil {
 			return err
 		}
@@ -524,7 +524,10 @@ func (s *server) ownSoftware(p software.Plan) error {
 
 // runSetupContainer runs a setup-only container to its end, copying its
 // output to the console, and returns its last lines and exit code.
-func (s *server) runSetupContainer(ctx context.Context, spec docker.ContainerConfig) ([]string, int, error) {
+func (s *server) runSetupContainer(ctx context.Context, h *opHandle, spec docker.ContainerConfig) ([]string, int, error) {
+	if err := s.ensureImage(ctx, h, spec.Image); err != nil {
+		return nil, 0, err
+	}
 	setupName := s.containerName() + "-setup"
 	_ = s.docker.ContainerRemove(ctx, setupName, true)
 	id, err := s.docker.ContainerCreate(ctx, setupName, spec)

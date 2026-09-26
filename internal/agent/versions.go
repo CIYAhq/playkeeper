@@ -110,7 +110,7 @@ func jarChecksum(sc api.ServerConfig) (string, error) {
 func withBuild(sc api.ServerConfig, e api.CatalogEntry) api.ServerConfig {
 	sc.VersionID, sc.MinecraftVersion, sc.PaperBuild, sc.JarSHA256 = e.ID, e.MinecraftVersion, e.PaperBuild, e.JarSHA256
 	sc.JarVerifiedAt, sc.Software = nil, nil
-	sc.Image = minecraft.Image
+	sc.Image = runtimeImage(sc.MinecraftVersion)
 	return sc
 }
 

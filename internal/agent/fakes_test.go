@@ -164,6 +164,17 @@ func (fd *fakeDocker) containerCount(prefix string) int {
 	return n
 }
 
+// containerImage is the image the container called name was made from;
+// "" when there's no such container.
+func (fd *fakeDocker) containerImage(name string) string {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	if c := fd.byName[name]; c != nil {
+		return c.cfg.Image
+	}
+	return ""
+}
+
 func (fd *fakeDocker) called(prefix string) int {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()

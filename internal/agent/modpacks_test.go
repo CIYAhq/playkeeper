@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
 // fakePack is a small Vanilla pack on the fake Modrinth: two mods it
@@ -53,6 +54,12 @@ func (f *fakeUpstream) servePack() *fakePack {
 // their path in it.
 func (f *fakeUpstream) servePackWith(extra map[string][]byte) *fakePack {
 	f.t.Helper()
+	return f.servePackFor("26.2", extra)
+}
+
+// servePackFor is servePackWith for Minecraft version mc.
+func (f *fakeUpstream) servePackFor(mc string, extra map[string][]byte) *fakePack {
+	f.t.Helper()
 	p := &fakePack{mods: map[string][]byte{}}
 	var files []map[string]any
 	for _, m := range []struct{ project, name string }{{"WAYS0001", "waystones"}, {"CHNK0001", "chunky"}} {
@@ -67,7 +74,7 @@ func (f *fakeUpstream) servePackWith(extra map[string][]byte) *fakePack {
 		})
 	}
 	index, err := json.Marshal(map[string]any{"formatVersion": 1, "game": "minecraft", "versionId": "1.0.0", "name": "Test Pack",
-		"files": files, "dependencies": map[string]string{"minecraft": "26.2"}})
+		"files": files, "dependencies": map[string]string{"minecraft": mc}})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -91,14 +98,14 @@ func (f *fakeUpstream) servePackWith(extra map[string][]byte) *fakePack {
 
 	version := map[string]any{
 		"id": fakePackVersion, "project_id": fakePackID, "name": "Test Pack 1.0.0", "version_number": "1.0.0", "version_type": "release",
-		"status": "listed", "game_versions": []string{"26.2"}, "loaders": []string{"minecraft"}, "date_published": "2026-09-20T10:00:00Z",
+		"status": "listed", "game_versions": []string{mc}, "loaders": []string{"minecraft"}, "date_published": "2026-09-20T10:00:00Z",
 		"files": []map[string]any{{"url": p.archiveURL, "filename": "test-pack-1.0.0.mrpack", "primary": true, "size": len(archive),
 			"hashes": map[string]string{"sha1": sha1Hex(archive), "sha512": sha512Hex(archive)}}},
 		"dependencies": []map[string]any{{"project_id": "WAYS0001", "dependency_type": "embedded"}, {"project_id": "CHNK0001", "dependency_type": "embedded"}},
 	}
 	project := map[string]any{
 		"id": fakePackID, "slug": "testpack", "project_type": "modpack", "title": "Waystones Pack", "description": "Teleport with friends.",
-		"categories": []string{"adventure"}, "loaders": []string{"minecraft"}, "game_versions": []string{"26.2"}, "client_side": "required",
+		"categories": []string{"adventure"}, "loaders": []string{"minecraft"}, "game_versions": []string{mc}, "client_side": "required",
 		"server_side": "required", "status": "approved", "downloads": 1234, "icon_url": "https://cdn.modrinth.com/data/" + fakePackID + "/icon.png",
 		"license": map[string]string{"id": "MIT"}, "updated": "2026-09-20T10:00:00Z", "versions": []string{fakePackVersion},
 	}
@@ -113,7 +120,7 @@ func (f *fakeUpstream) servePackWith(extra map[string][]byte) *fakePack {
 	})
 	f.serveJSON("https://api.modrinth.com/v2/search", map[string]any{"total_hits": 1, "offset": 0, "limit": 20, "hits": []any{map[string]any{
 		"project_id": fakePackID, "project_type": "modpack", "slug": "testpack", "author": "pip", "title": "Waystones Pack",
-		"description": "Teleport with friends.", "categories": []string{"adventure", "minecraft"}, "versions": []string{"26.2"},
+		"description": "Teleport with friends.", "categories": []string{"adventure", "minecraft"}, "versions": []string{mc},
 		"downloads": 1234, "date_modified": "2026-09-20T10:00:00Z", "latest_version": fakePackVersion, "license": "MIT",
 		"client_side": "required", "server_side": "required",
 	}}})
@@ -260,6 +267,51 @@ func TestCreateFromModpackTakesItsSuggestedSettings(t *testing.T) {
 		if strings.Contains(got, never) {
 			t.Errorf("server.properties took %q from the pack:\n%s", never, got)
 		}
+	}
+}
+
+// A pack for an older Minecraft version runs on the Java that version was
+// made for (the real-world check's AsguhoServer: Minecraft 1.21.4 with a
+// Fabric Loader that can't read Java 25's classes). The preview says so
+// before the server is created, and a pack for 26.2 stays on the default.
+func TestAPackForAnOlderVersionRunsOnItsJava(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.serveMojangReleases(append([]struct{ id, released string }{}, append(fakeReleases, struct{ id, released string }{"1.21.4", "2024-12-03T10:12:57+00:00"})...))
+	e.up.servePackFor("1.21.4", nil)
+	java21, _, _ := minecraft.ImageFor(21)
+
+	code, out := e.call("GET", "/v1/modpacks/modrinth/"+fakePackID+"/versions/"+fakePackVersion+"/preview", nil)
+	if code != 200 || out["minecraftVersion"] != "1.21.4" || out["java"] != float64(21) {
+		t.Fatalf("the preview says which Java the pack runs on: %d %v", code, out)
+	}
+	code, out = e.startCreate(packCreate)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("create failed: %+v", op)
+	}
+	if img := e.fd.containerImage(e.cname()); img != java21 {
+		t.Fatalf("the server runs in %q, want the Java 21 image %q", img, java21)
+	}
+	if sc, _ := e.srv().serverConfig(); sc.MinecraftVersion != "1.21.4" || sc.Image != java21 {
+		t.Fatalf("the config records the image: %+v", sc)
+	}
+	if st := e.status(); st.PendingRestart {
+		t.Fatal("the running server's definition is the one its version needs")
+	}
+
+	e2 := newAgentEnv(t)
+	e2.up.servePack()
+	_, out = e2.startCreate(packCreate)
+	if op := e2.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("create on 26.2: %+v", op)
+	}
+	if img := e2.fd.containerImage(e2.cname()); img != minecraft.Image {
+		t.Fatalf("a 26.2 server runs in %q, want the default %q", img, minecraft.Image)
+	}
+	if _, out := e2.call("GET", "/v1/modpacks/modrinth/"+fakePackID+"/versions/"+fakePackVersion+"/preview", nil); out["java"] != nil {
+		t.Fatalf("a pack on the newest Java says nothing about it: %v", out)
 	}
 }
 

@@ -62,7 +62,7 @@ Other commands: `sudo playkeeper status`, `sudo playkeeper setup-code` (new setu
 
 Outside contributions are welcome, under the project's licence; [CONTRIBUTING.md](CONTRIBUTING.md) has the details and the PR checklist. Report security problems privately, as [SECURITY.md](SECURITY.md) describes, not in a public issue.
 
-Stack: one Go binary (root agent on a Unix socket, unprivileged HTTPS panel, installer) with an embedded React/TypeScript UI built on [coss ui](https://coss.com/ui) components, SQLite, and a container per server from one pinned `itzg/minecraft-server` image. Why: [docs/decisions/0002-stack.md](docs/decisions/0002-stack.md). How it fits together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Stack: one Go binary (root agent on a Unix socket, unprivileged HTTPS panel, installer) with an embedded React/TypeScript UI built on [coss ui](https://coss.com/ui) components, SQLite, and a container per server from a pinned `itzg/minecraft-server` image (one per Java version, so each Minecraft version runs on the Java it was made for). Why: [docs/decisions/0002-stack.md](docs/decisions/0002-stack.md). How it fits together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 On a stock Ubuntu 24.04 machine:
 

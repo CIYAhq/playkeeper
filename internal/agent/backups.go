@@ -81,7 +81,7 @@ func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*
 	h := sha256.New()
 	meta := backup.Manifest{
 		CreatedAt: now, PlaykeeperVersion: version.Version, SourceInstall: shortID(s.cfg.InstallID),
-		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Build: configBuild(sc), Image: minecraft.Image,
+		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Build: configBuild(sc), Image: runtimeImage(sc.MinecraftVersion),
 		Settings: map[string]string{
 			"motd": sc.MOTD, "maxPlayers": strconv.Itoa(sc.MaxPlayers), "memoryMB": strconv.Itoa(sc.MemoryMB), "whitelist": "true",
 			"name": s.name(),

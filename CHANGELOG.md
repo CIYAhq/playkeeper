@@ -9,6 +9,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Modpacks from Modrinth, and from CurseForge with your own free key: browse them, see what's inside, and create a server from one, with each file checked as it downloads.
 - Share with friends, on a modded server's Mods tab: one link to a page that shows friends what to install and gives them a file for the Modrinth App or Prism Launcher, or download that file and send it yourself. It holds names, versions and Modrinth download links only, server-only mods stay hidden, and the link is random and stops working when you stop sharing.
 - Share a server as a template, a file or a link with its type, version, settings and add-ons (names and versions only, never files or code), and create a server from one someone shared. The template's data packs download only over HTTPS from public websites and must match their checksums.
+- Each server runs on the Java its Minecraft version was made for, so modpacks for older versions start too. A pack's details say when it runs on an older Java.
 
 ## 0.3.1
 

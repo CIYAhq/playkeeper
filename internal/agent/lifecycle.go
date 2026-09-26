@@ -260,7 +260,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool)
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())
 	cfg := docker.ContainerConfig{
-		Image:       minecraft.Image,
+		Image:       runtimeImage(sc.MinecraftVersion),
 		Env:         env,
 		User:        fmt.Sprintf("%d:%d", s.cfg.GameUID, s.cfg.GameGID),
 		StopSignal:  "SIGTERM",
@@ -289,15 +289,24 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool)
 	return cfg, hash
 }
 
-func (a *Agent) ensureImage(ctx context.Context, h *opHandle) error {
-	if _, err := a.docker.ImageInspect(ctx, minecraft.Image); err == nil {
+// runtimeImage is the pinned image a server of Minecraft version mc runs
+// in: the one with the Java that version was made for.
+func runtimeImage(mc string) string {
+	if img, _, ok := minecraft.ImageFor(minecraft.JavaFor(mc)); ok {
+		return img
+	}
+	return minecraft.Image
+}
+
+func (a *Agent) ensureImage(ctx context.Context, h *opHandle, image string) error {
+	if _, err := a.docker.ImageInspect(ctx, image); err == nil {
 		return nil
 	} else if !docker.IsNotFound(err) {
 		return a.dockerErr(err)
 	}
 	h.phase(string(api.PhasePulling))
 	var last time.Time
-	err := a.docker.ImagePull(ctx, minecraft.Image, func(p docker.PullProgress) {
+	err := a.docker.ImagePull(ctx, image, func(p docker.PullProgress) {
 		if time.Since(last) > time.Second {
 			last = time.Now()
 			h.set("pull", p.Status)
@@ -473,7 +482,7 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 		}
 	}
 	spec, _ := s.containerSpec(*sc, true)
-	tail, code, err := s.runSetupContainer(ctx, spec)
+	tail, code, err := s.runSetupContainer(ctx, h, spec)
 	if err != nil {
 		return err
 	}
@@ -522,7 +531,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
-	if err := s.ensureImage(ctx, h); err != nil {
+	if err := s.ensureImage(ctx, h, runtimeImage(sc.MinecraftVersion)); err != nil {
 		return err
 	}
 	if err := s.ensureNetwork(ctx); err != nil {
@@ -570,6 +579,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	}
 	id := c.ID
 	if id == "" || docker.IsNotFound(err) {
+		// A modpack can move the server to another Minecraft version, and so
+		// to another Java, after the image was pulled above.
+		if err := s.ensureImage(ctx, h, spec.Image); err != nil {
+			return err
+		}
 		id, err = s.docker.ContainerCreate(ctx, name, spec)
 		if err != nil {
 			return s.dockerErr(err)

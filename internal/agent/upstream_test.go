@@ -97,9 +97,15 @@ var fakeReleases = []struct{ id, released string }{
 // pins them. A snapshot is listed too, which no catalog offers.
 func (f *fakeUpstream) serveMojang() {
 	f.t.Helper()
+	f.serveMojangReleases(fakeReleases)
+}
+
+// serveMojangReleases is serveMojang with other releases, newest first.
+func (f *fakeUpstream) serveMojangReleases(releases []struct{ id, released string }) {
+	f.t.Helper()
 	versions := []map[string]any{{"id": "26.3-snapshot-2", "type": "snapshot", "url": "https://piston-meta.mojang.com/v1/packages/0/26.3-snapshot-2.json",
 		"sha1": "0000000000000000000000000000000000000000", "releaseTime": "2026-09-20T10:00:00+00:00"}}
-	for _, r := range fakeReleases {
+	for _, r := range releases {
 		jar, ok := f.serverJar[r.id]
 		if !ok {
 			jar = []byte("fake minecraft server " + r.id)

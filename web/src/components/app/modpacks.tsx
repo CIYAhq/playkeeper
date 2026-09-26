@@ -227,10 +227,11 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
   const blocker = p && !p.ready ? p.blockers[0] : undefined
   const unavailable = d?.unavailable ?? (d && !d.newest ? d.versions[0]?.unsupported : undefined)
   const mods = d?.mods ?? card?.mods ?? 0
-  const fact = (label: string, value: string | undefined, loading?: boolean) => (
+  const fact = (label: string, value: string | undefined, loading?: boolean, detail?: string) => (
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm font-semibold">{loading ? <Skeleton className="h-5 w-24" /> : value || '—'}</dd>
+      {detail && !loading && <dd className="text-xs text-muted-foreground">{detail}</dd>}
     </div>
   )
   return (
@@ -254,7 +255,7 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
               ) : (
                 <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-b border-border pb-5">
                   {fact(t('modpacks.fact.minecraft'), p?.minecraftVersion || newest?.minecraftVersion, !d)}
-                  {fact(t('modpacks.fact.runsOn'), p ? loaderLabel(p.type, p.loaderVersion) : preview.error ? loaderLabel(newest?.type ?? '') : undefined, !p && !preview.error)}
+                  {fact(t('modpacks.fact.runsOn'), p ? loaderLabel(p.type, p.loaderVersion) : preview.error ? loaderLabel(newest?.type ?? '') : undefined, !p && !preview.error, p?.java ? t('modpacks.java', { java: p.java, version: p.minecraftVersion }) : undefined)}
                   {fact(t('modpacks.fact.mods'), mods ? String(mods) : undefined, !d)}
                   {fact(t('modpacks.fact.needs'), d?.memoryMB ? t('modpacks.needsMemory', { memory: formatMB(d.memoryMB) }) : undefined, !d)}
                   {fact(t('modpacks.fact.updated'), relativeTime(card.updated))}

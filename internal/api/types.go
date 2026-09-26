@@ -1210,6 +1210,10 @@ type ModpackPreview struct {
 	// LoaderVersion is the Fabric Loader, Quilt Loader or NeoForge version;
 	// empty for vanilla packs.
 	LoaderVersion string `json:"loaderVersion,omitempty"`
+	// Java is set when the pack's Minecraft version runs on an older Java
+	// than the newest versions, as its loader and mods need: the server
+	// gets the runtime image with that Java.
+	Java int `json:"java,omitempty"`
 	// Files counts the files the pack puts on the server; DownloadSize is
 	// what downloading them takes.
 	Files        int           `json:"files"`

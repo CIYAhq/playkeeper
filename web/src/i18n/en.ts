@@ -1461,4 +1461,5 @@ export const en = {
   'reason.templateFirst': 'Choose a template file first.',
   'reason.templateBlocked': 'This template can’t be used here.',
   'reason.modpackFirst': 'Pick a modpack first.',
+  'modpacks.java': 'Java {java}, for Minecraft {version}',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>
