@@ -25,6 +25,9 @@ type activePacks struct {
 	sums    map[string]bool
 	fetched time.Time
 	tried   time.Time
+	// renewing is closed when the agent has answered the request in flight,
+	// and nil while none is.
+	renewing chan struct{}
 }
 
 const (
@@ -36,25 +39,46 @@ const (
 )
 
 // has reports whether a server offers the pack whose SHA-1 hash is sum.
-// While the agent can't answer, the last list it gave is used.
+// Only the request that renews the list, and requests for a pack missing
+// from it, wait for the agent, and never while holding the lock: players
+// downloading a listed pack aren't held up. While the agent can't answer,
+// the last list it gave is used.
 func (a *activePacks) has(sum string) bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	now := a.now()
-	if (!a.sums[sum] || now.Sub(a.fetched) >= activeFresh) && now.Sub(a.tried) >= activeRetry {
-		a.tried = now
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		list, err := a.fetch(ctx)
-		cancel()
-		if err == nil {
-			a.sums = make(map[string]bool, len(list))
-			for _, s := range list {
-				a.sums[s] = true
-			}
-			a.fetched = now
-		}
+	known, started := a.sums[sum], false
+	if (!known || now.Sub(a.fetched) >= activeFresh) && now.Sub(a.tried) >= activeRetry && a.renewing == nil {
+		a.tried, a.renewing, started = now, make(chan struct{}), true
+		go a.renew(now, a.renewing)
 	}
+	wait := a.renewing
+	a.mu.Unlock()
+	if wait == nil || known && !started {
+		return known
+	}
+	<-wait
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.sums[sum]
+}
+
+// renew asks the agent which packs are offered, keeps the list if it
+// answered, and closes done.
+func (a *activePacks) renew(at time.Time, done chan struct{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	list, err := a.fetch(ctx)
+	cancel()
+	a.mu.Lock()
+	if err == nil {
+		a.sums = make(map[string]bool, len(list))
+		for _, s := range list {
+			a.sums[s] = true
+		}
+		a.fetched = at
+	}
+	a.renewing = nil
+	a.mu.Unlock()
+	close(done)
 }
 
 func (s *Server) fetchActivePacks(ctx context.Context) ([]string, error) {
