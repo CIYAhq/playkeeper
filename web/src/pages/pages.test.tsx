@@ -334,6 +334,24 @@ describe('Overview', () => {
     expect(text).not.toContain('Checksum matched')
   })
 
+  // A create that failed before the server ever started shows this card on every
+  // tab, Settings too, so its Delete server… has to open the dialog right here.
+  it('deletes a server whose create never started from the card', async () => {
+    const s = server({ phase: 'stopped', startedAt: undefined, lastOperation: failed('create', 'downloading_server', 'Downloading the Minecraft server software failed (exit code 1).') })
+    vi.mocked(client.post).mockClear()
+    await render(<Overview server={s} />)
+    await press('Delete server')
+    expect(document.body.textContent).toContain('Delete Survival?')
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')
+    if (!input) throw new Error('no name field in the delete dialog')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'Survival')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await press('Delete Survival')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/delete', { confirm: 'Survival' })
+  })
+
   it('keeps a template’s skipped add-on on the Overview after setup, with Try again', async () => {
     const skipped = [{ kind: 'plan_changed', params: { name: 'ViaRewind' }, message: 'What this would do has changed since you confirmed it.' }]
     const s = server({ config: { ...config, template: { name: 'Paper check', skipped } } })

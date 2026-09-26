@@ -1666,6 +1666,10 @@ webcontrol "the console reads Vanilla, Fabric, Quilt and NeoForge lines" web/src
   'const m = reServer.exec(raw) ?? reThread.exec(raw)' \
   'const m = reServer.exec(raw)' \
   web/src/lib/lib.test.ts 'not Paper'
+webcontrol "a create that never started can be deleted from its card" web/src/pages/server/overview.tsx \
+  'onClick={() => setDeleting(true)}' \
+  'onClick={() => setDeleting(false)}' \
+  web/src/pages/pages.test.tsx 'create never started'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -5,6 +5,7 @@ import type { Activity, AddonNotice, Crash, LagStatus, LogsResponse, RestorePrev
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
+import { DeleteServerDialog } from '@/components/app/delete-server'
 import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { FirstStepsCard } from '@/components/app/checklist'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
@@ -357,6 +358,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const op = s.operation ?? s.lastOperation
   const failed = !s.operation && op?.status === 'failed'
   const [busy, setBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const cfg = s.config
   const type = typeName(s.type)
   const version = cfg?.minecraftVersion ?? ''
@@ -447,7 +449,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         {failed ? (
           <>
-            <Button variant="outline" render={<a {...linkPath(`/servers/${s.slug}/settings#danger`)} />}>
+            <Button variant="outline" onClick={() => setDeleting(true)}>
               <Trash2Icon />
               {t('server.deleteMenu')}
             </Button>
@@ -470,6 +472,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
           </Button>
         )}
       </div>
+      {failed && <DeleteServerDialog server={s} open={deleting} onOpenChange={setDeleting} />}
     </Card>
   )
 }
