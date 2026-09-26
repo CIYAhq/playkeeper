@@ -121,6 +121,7 @@ function defaultDial(addresses: DialAddress[]): Dial {
 /** The connect-a-machine card: the four steps, then what became of the code. */
 function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refresh: () => Promise<void>; onWaiting: (waiting: boolean) => void }) {
   const ws = useWorkspace()
+  const phone = useIsPhone()
   const now = useNow(1000)
   const [cmd, setCmd] = useState<JoinCommand | undefined>(made?.cmd)
   const [name, setName] = useState(made?.name ?? '')
@@ -305,15 +306,16 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
           ) : cmd ? (
             <>
               <div className="relative mt-3 rounded-xl bg-console px-4 py-3.5" role="group" aria-label={t('machines.connect.command')}>
-                <pre className="overflow-x-auto pr-20 font-mono text-xs leading-[1.7] text-white/90">
+                <pre className={cn('overflow-x-auto font-mono text-xs leading-[1.7] text-white/90', !phone && 'pr-20')}>
                   {lines.map((l, i) => (
                     <span key={i} className="block">
                       {l}
                     </span>
                   ))}
                 </pre>
-                <CopyButton text={form === 'install' ? cmd.install : cmd.join} toast={t('machines.connect.copied')} className="absolute top-3 right-3 bg-white" />
+                {!phone && <CopyButton text={form === 'install' ? cmd.install : cmd.join} toast={t('machines.connect.copied')} className="absolute top-3 right-3 bg-white" />}
               </div>
+              {phone && <CopyButton text={form === 'install' ? cmd.install : cmd.join} toast={t('machines.connect.copied')} size="touch" className="mt-2 w-full" />}
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <p>
                   <strong className="font-semibold">{t('machines.connect.code', { code: cmd.code })}</strong> <span className="text-muted-foreground tabular-nums">{t('machines.connect.codeLeft', { time: countdown(left) })}</span>
@@ -337,10 +339,12 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
           )}
         </Step>
         <Step n={4} title={t('machines.connect.step4')}>
-          <p className={cn('flex items-center gap-2 text-[13px] text-muted-foreground transition-opacity duration-(--motion-standard) ease-standard', !waiting && 'opacity-60')}>
-            {waiting && <Spinner />}
-            {shownName ? t('machines.connect.waitingFor', { name: shownName }) : t('machines.connect.waitingAny')}
-          </p>
+          {cmd && !error && (
+            <p className={cn('flex items-center gap-2 text-[13px] text-muted-foreground transition-opacity duration-(--motion-standard) ease-standard', !waiting && 'opacity-60')}>
+              {waiting && <Spinner />}
+              {shownName ? t('machines.connect.waitingFor', { name: shownName }) : t('machines.connect.waitingAny')}
+            </p>
+          )}
         </Step>
       </ol>
     </Card>
