@@ -54,7 +54,7 @@ export function PlayerLink({ server, name, className, children }: { server: Serv
 }
 
 /** Why the allowlist and operators can't change right now: they go through the running server. */
-function listLocked(server: ServerStatus, stale: boolean): string | undefined {
+export function listLocked(server: ServerStatus, stale: boolean): string | undefined {
   if (stale) return t('reason.noAgent')
   return server.phase === 'online' ? undefined : t('players.startToChange', { server: server.name })
 }

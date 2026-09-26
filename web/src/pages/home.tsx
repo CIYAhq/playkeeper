@@ -162,7 +162,7 @@ function welcomeLine(role: ProjectRole, servers: string): string {
 
 function TwoLineNotice({ title, body, action, tone = 'default', pip }: { title: string; body: string; action?: ReactNode; tone?: 'default' | 'warning'; pip?: boolean }) {
   return (
-    <div className="flex items-center gap-3 animate-in fade-in-0 duration-300" role="status">
+    <div className="flex animate-enter items-center gap-3" role="status">
       {pip && <Pip pose="wave" size={40} />}
       <div className="min-w-0 flex-1">
         <p className={cn('text-[13px] leading-5 font-semibold', tone === 'warning' && 'text-warning-foreground')}>{title}</p>

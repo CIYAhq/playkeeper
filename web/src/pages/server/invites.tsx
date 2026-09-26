@@ -15,6 +15,7 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { can } from '@/lib/access'
 import { relativeTime, timeUntil } from '@/lib/format'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -111,8 +112,8 @@ function NoAddressHint({ className }: { className?: string }) {
 /** Invite links under the Players tab's cards: a table on desktop, a list on phones. */
 export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server: ServerStatus; data: InvitesResponse | undefined; onNew: () => void; onChanged: () => Promise<void>; fresh?: string }) {
   const phone = useIsPhone()
+  const rows = useListPresence(data?.invites, (inv) => inv.id)
   if (!data) return null
-  const list = data.invites
   if (phone) {
     return (
       <section aria-labelledby="invite-links">
@@ -125,18 +126,18 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
             {t('invites.new')}
           </Button>
         </div>
-        {list.length > 0 && (
+        {rows.length > 0 && (
           <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
-            {list.map((inv) => {
+            {rows.map(({ key, item: inv, state }) => {
               const link = inviteLink(data.link.base, inv)
               const active = inv.status === 'active'
               return (
-                <li key={inv.id} className={cn('flex min-h-14 items-center gap-2 border-b border-border py-1.5 pr-1 pl-4 transition-colors duration-700 last:border-b-0', fresh === inv.id && 'bg-selected')}>
+                <li key={key} {...presenceProps(state)} className={cn('flex min-h-14 items-center gap-2 border-b border-border py-1.5 pr-1 pl-4 transition-colors duration-(--motion-slow) ease-standard last:border-b-0', fresh === inv.id && 'bg-selected')}>
                   <span className="min-w-0 flex-1">
                     <span className={cn('block truncate text-base', !active && 'text-muted-foreground')}>{inv.label || t('invites.unnamed')}</span>
                     <span className="block truncate text-[13px] text-muted-foreground">{`${usedText(inv)}${t('common.dot')}${runsOut(inv)}`}</span>
                   </span>
-                  {link && <CopyButton text={link.url} size="lg" disabled={!active} toast={t('invites.copiedToast')} />}
+                  {link && <CopyButton text={link.url} size="lg" disabledReason={active ? undefined : t('invites.linkOff')} toast={t('invites.copiedToast')} />}
                   <InviteMenu server={server} invite={inv} after={onChanged} phone />
                 </li>
               )
@@ -170,18 +171,18 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
             </tr>
           </thead>
           <tbody>
-            {list.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-3 py-4 text-muted-foreground">
                   {t('invites.none')}
                 </td>
               </tr>
             )}
-            {list.map((inv) => {
+            {rows.map(({ key, item: inv, state }) => {
               const link = inviteLink(data.link.base, inv)
               const active = inv.status === 'active'
               return (
-                <tr key={inv.id} className={cn('h-12 border-t border-border transition-colors duration-700', fresh === inv.id && 'bg-selected', !active && 'text-muted-foreground')}>
+                <tr key={key} {...presenceProps(state)} className={cn('h-12 border-t border-border transition-colors duration-(--motion-slow) ease-standard', fresh === inv.id && 'bg-selected', !active && 'text-muted-foreground')}>
                   <td className="max-w-0 px-3 py-1.5">
                     <span className={cn('block truncate font-semibold', active && 'text-foreground')}>{inv.label || t('invites.unnamed')}</span>
                     <span className="block truncate text-xs text-muted-foreground">
@@ -194,7 +195,7 @@ export function InviteLinks({ server, data, onNew, onChanged, fresh }: { server:
                   <td className="px-3 whitespace-nowrap">{approvalLabel(inv.approval)}</td>
                   <td className="px-3">
                     <span className="flex items-center justify-end gap-1">
-                      {link && <CopyButton text={link.url} disabled={!active} toast={t('invites.copiedToast')} />}
+                      {link && <CopyButton text={link.url} disabledReason={active ? undefined : t('invites.linkOff')} toast={t('invites.copiedToast')} />}
                       <InviteMenu server={server} invite={inv} after={onChanged} />
                     </span>
                   </td>
@@ -337,7 +338,7 @@ export function JoinRequestNotice({ server, onDecided }: { server: ServerStatus;
   }
 
   return (
-    <div className={cn('flex items-center gap-3 animate-in fade-in-0', phone ? 'flex-wrap rounded-3xl border border-border bg-white p-4' : 'pb-1')} role="status">
+    <div className={cn('flex animate-enter items-center gap-3', phone ? 'flex-wrap rounded-3xl border border-border bg-white p-4' : 'pb-1')} role="status">
       <PlayerFace name={r.playerName} uuid={r.playerUuid} size={phone ? 36 : 32} />
       <p className="min-w-0 flex-1">
         <span className={cn('block truncate font-semibold', phone ? 'text-base' : 'text-[13px]')}>{first.notice.title.text}</span>
@@ -348,10 +349,10 @@ export function JoinRequestNotice({ server, onDecided }: { server: ServerStatus;
         </span>
       </p>
       <div className={cn('flex gap-1.5', phone && 'w-full [&>*]:flex-1')}>
-        <Button variant="ghost" size={phone ? 'lg' : 'sm'} onClick={() => void decide('decline')} loading={busy === 'decline'} disabled={!!busy}>
+        <Button variant="ghost" size={phone ? 'lg' : 'sm'} onClick={() => void decide('decline')} loading={busy === 'decline'} disabledReason={busy === 'approve' ? t('invites.lettingIn', { name: r.playerName }) : undefined}>
           {t('invites.sayNo')}
         </Button>
-        <Button size={phone ? 'lg' : 'sm'} onClick={() => void decide('approve')} loading={busy === 'approve'} disabled={!!busy}>
+        <Button size={phone ? 'lg' : 'sm'} onClick={() => void decide('approve')} loading={busy === 'approve'} disabledReason={busy === 'decline' ? t('invites.sayingNo', { name: r.playerName }) : undefined}>
           {t('invites.letIn')}
         </Button>
       </div>

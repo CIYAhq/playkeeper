@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { CheckIcon, ChevronRightIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
 import { del, get, post, put } from '@/api/client'
 import type { CreatedTeamInvite, Grant, ProjectRole, Scope, TeamInvite, TeamMember, TeamResponse } from '@/api/types'
@@ -18,6 +18,7 @@ import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { can, projectRoles, roleHint, roleName, scopeText } from '@/lib/access'
 import { relativeTime, timeUntil } from '@/lib/format'
+import { usePending } from '@/lib/optimistic'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -172,6 +173,7 @@ export function ConfirmAdminNotice({ member, onConfirmed }: { member: TeamMember
   return (
     <Notice
       title={t('team.confirmTitle', { name: member.username })}
+      className="animate-enter"
       action={
         <Button size="sm" loading={busy} onClick={() => void confirm()}>
           <ShieldCheckIcon />
@@ -212,23 +214,31 @@ function memberLine(m: TeamMember): string {
   return parts.join(t('common.dot'))
 }
 
-function roleChoices(team: TeamResponse, current: ProjectRole) {
-  return projectRoles.map((r) => ({ value: r, label: roleName(r), hint: roleHint(r), disabled: r !== current && !team.grantableRoles.includes(r) }))
+/** A role only the owner may give (Admin, when an admin signs in); the role someone has now stays pickable. */
+function ownerOnly(team: TeamResponse, role: ProjectRole, current: ProjectRole): boolean {
+  return role !== current && !team.grantableRoles.includes(role)
 }
 
-function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void }) {
-  const [busy, setBusy] = useState(false)
-  async function setRole(role: ProjectRole) {
-    setBusy(true)
+function roleChoices(team: TeamResponse, current: ProjectRole) {
+  return projectRoles.map((r) => ({ value: r, label: roleName(r), hint: roleHint(r), disabled: ownerOnly(team, r, current), reason: t('team.ownerOnly') }))
+}
+
+/** A row's role, showing a new pick at once while it saves; a refused pick goes back and says why. */
+function useRole(saved: ProjectRole, save: (role: ProjectRole) => Promise<unknown>, reload: () => Promise<void>) {
+  const pending = usePending<{ role: ProjectRole }>()
+  async function pick(role: ProjectRole, done?: string) {
     try {
-      await put(`/api/team/members/${m.id}`, { role, servers: m.servers } satisfies Grant)
-      toastManager.add({ title: t('team.roleToast', { name: m.username, role: roleName(role) }), type: 'success' })
+      await pending.run({ role }, () => save(role), reload)
+      if (done) toastManager.add({ title: done, type: 'success' })
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
     }
-    await onChanged()
-    setBusy(false)
   }
+  return { role: pending.changes.at(-1)?.role ?? saved, pick }
+}
+
+function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove }: { member: TeamMember; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onConfirm: (m: TeamMember) => Promise<void>; onRemove: (m: TeamMember) => void }) {
+  const { role, pick } = useRole(m.role, (r) => put(`/api/team/members/${m.id}`, { role: r, servers: m.servers } satisfies Grant), onChanged)
   return (
     <li className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
       <span className="flex min-w-0 items-center gap-3">
@@ -242,7 +252,7 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove }: 
       {m.owner ? (
         <span className="text-right text-[13px] font-semibold">{t('team.ownerAdmin')}</span>
       ) : m.canEdit ? (
-        <ChoiceSelect value={m.role} onChange={(r) => void setRole(r)} options={roleChoices(team, m.role)} label={t('team.roleFor', { name: m.username })} className="w-full min-w-0" disabled={busy} />
+        <ChoiceSelect value={role} onChange={(r) => void pick(r, t('team.roleToast', { name: m.username, role: roleName(r) }))} options={roleChoices(team, m.role)} label={t('team.roleFor', { name: m.username })} className="w-full min-w-0" />
       ) : (
         <span className="text-[13px]">{roleName(m.role)}</span>
       )}
@@ -281,19 +291,9 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove }: 
 }
 
 function InviteRow({ invite: inv, team, onChanged, onEdit, onTurnOff }: { invite: TeamInvite; team: TeamResponse; onChanged: () => Promise<void>; onEdit: (e: Editing) => void; onTurnOff: (inv: TeamInvite) => Promise<void> }) {
-  const [busy, setBusy] = useState(false)
   const name = inviteName(inv)
-  const role = inv.role ?? 'viewer'
-  async function setRole(next: ProjectRole) {
-    setBusy(true)
-    try {
-      await put(`/api/team/invites/${inv.id}`, { role: next, servers: inv.servers ?? {} } satisfies Grant)
-    } catch (e) {
-      toastManager.add({ title: errorText(e), type: 'error' })
-    }
-    await onChanged()
-    setBusy(false)
-  }
+  const saved = inv.role ?? 'viewer'
+  const { role, pick } = useRole(saved, (r) => put(`/api/team/invites/${inv.id}`, { role: r, servers: inv.servers ?? {} } satisfies Grant), onChanged)
   return (
     <li className="grid min-h-[60px] grid-cols-[minmax(0,1fr)_160px_160px_28px] items-center gap-3 border-t border-border py-2 first:border-t-0">
       <span className="flex min-w-0 items-center gap-3">
@@ -305,7 +305,7 @@ function InviteRow({ invite: inv, team, onChanged, onEdit, onTurnOff }: { invite
       </span>
       <span className="truncate text-[13px] text-muted-foreground">{scopeText(inv.servers ?? {}, team.servers)}</span>
       {inv.canEdit ? (
-        <ChoiceSelect value={role} onChange={(r) => void setRole(r)} options={roleChoices(team, role)} label={t('team.roleFor', { name })} className="w-full min-w-0" disabled={busy} />
+        <ChoiceSelect value={role} onChange={(r) => void pick(r)} options={roleChoices(team, saved)} label={t('team.roleFor', { name })} className="w-full min-w-0" />
       ) : (
         <span className="text-[13px]">{roleName(role)}</span>
       )}
@@ -447,7 +447,8 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
       : editing.kind === 'invite'
         ? { role: editing.invite.role ?? 'viewer', servers: editing.invite.servers ?? {} }
         : { role: team.grantableRoles.includes('moderator') ? 'moderator' : (team.grantableRoles[0] ?? 'viewer'), servers: team.servers[0] ? { servers: [team.servers[0].id] } : { all: true } }
-  const mayAll = !!ws.me.access.servers.all
+  const allWhy = ws.me.access.servers.all ? undefined : t('team.allNotYours')
+  const allWhyId = useId()
   const [role, setRole] = useState<ProjectRole>(start.role)
   const [mode, setMode] = useState<'all' | 'some'>(start.servers.all ? 'all' : 'some')
   const [picked, setPicked] = useState<string[]>(start.servers.servers ?? [])
@@ -550,7 +551,7 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
           <legend className="mb-1.5 text-[13px] font-semibold">{t('team.role')}</legend>
           <CardGroup value={role} onChange={setRole} label={t('team.role')} className="flex flex-col gap-2">
             {projectRoles.map((r) => (
-              <ChoiceCard key={r} value={r} radio="start" disabled={r !== start.role && !team.grantableRoles.includes(r)} className="gap-3 px-3.5 py-3">
+              <ChoiceCard key={r} value={r} radio="start" disabled={ownerOnly(team, r, start.role)} reason={t('team.ownerOnly')} className="gap-3 px-3.5 py-3">
                 <span className="block text-[13px] font-semibold">{roleName(r)}</span>
                 <span className="block text-xs text-muted-foreground">{roleHint(r)}</span>
               </ChoiceCard>
@@ -560,9 +561,14 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
         <fieldset className="flex flex-col">
           <legend className="mb-2 text-[13px] font-semibold">{t('team.servers')}</legend>
           <RadioGroupPrimitive value={mode} onValueChange={(v) => setMode(v as 'all' | 'some')} aria-label={t('team.servers')} className="flex flex-col gap-3">
-            <label className="flex items-center gap-2.5 text-[13px] max-sm:text-[15px]">
-              <Radio value="all" disabled={!mayAll} />
+            <label className="flex items-center gap-2.5 text-[13px] max-sm:text-[15px]" title={allWhy}>
+              <Radio value="all" disabled={!!allWhy} aria-describedby={allWhy ? allWhyId : undefined} />
               {t('scope.all')}
+              {allWhy && (
+                <span id={allWhyId} className="sr-only">
+                  {allWhy}
+                </span>
+              )}
             </label>
             <label className="flex items-center gap-2.5 text-[13px] max-sm:text-[15px]">
               <Radio value="some" />
@@ -607,7 +613,7 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
           <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabled={!valid}>
+          <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={valid ? undefined : t('team.pickServer')}>
             {editing.kind === 'add' ? <LinkIcon /> : null}
             {editing.kind === 'add' ? t('invites.create') : t('common.save')}
           </Button>

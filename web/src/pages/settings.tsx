@@ -74,7 +74,7 @@ function SettingsSection({ current, children }: { current: 'team' | 'discord'; c
               {...linkProps(s.route)}
               aria-current={s === here ? 'page' : undefined}
               className={cn(
-                'flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+                'flex h-8 items-center rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
                 s === here && 'bg-muted text-foreground',
               )}
             >

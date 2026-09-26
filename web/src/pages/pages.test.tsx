@@ -641,8 +641,10 @@ describe('Invite page', () => {
     expect(text).toContain('Java Edition 26.1.2 · 2 playing now')
     expect(text).toContain('Needs Minecraft: Java Edition 26.1.2.')
     expect(button('Add me to Survival').disabled).toBe(true)
+    expect(button('Add me to Survival').title).toBe('Type your Minecraft name first.')
     await typeInto('#join-name', 'mara_k')
     expect(page()).toContain('Looking up mara_k…')
+    expect(button('Add me to Survival').title).toBe('Looking up mara_k…')
     await wait(500)
     expect(client.post).toHaveBeenCalledWith('/api/public/join/lookup', { code, name: 'mara_k' })
     expect(page()).toContain('Is this you?')
@@ -665,6 +667,7 @@ describe('Invite page', () => {
     expect(page()).toContain('No Minecraft: Java Edition account is called mara_kk. Check the spelling.')
     expect(document.querySelector('#join-name')?.getAttribute('aria-invalid')).toBe('true')
     expect(button('Ask to join Survival').disabled).toBe(true)
+    expect(button('Ask to join Survival').title).toBe('No Minecraft: Java Edition account is called mara_kk.')
     await typeInto('#join-name', 'mara_k')
     await wait(500)
     expect(page()).not.toContain('No Minecraft: Java Edition account')
@@ -688,11 +691,13 @@ describe('Invite page', () => {
     expect(text).toContain(`${formatDate('2026-10-02T12:00:00Z')}, for one person`)
     expect(text).toContain('This link works once.')
     expect(button('Join as Moderator').disabled).toBe(true)
+    expect(button('Join as Moderator').title).toBe('Fill in the fields above first.')
     await typeInto('#join-username', 'siya')
     await typeInto('#join-password', 'correct horse battery')
     await typeInto('#join-again', 'correct horse batterz')
     expect(page()).toContain('The passwords don’t match.')
     expect(button('Join as Moderator').disabled).toBe(true)
+    expect(button('Join as Moderator').title).toBe('The passwords don’t match.')
     await typeInto('#join-again', 'correct horse battery')
     expect(page()).not.toContain('The passwords don’t match.')
     await click(button('Join as Moderator'))
@@ -794,6 +799,34 @@ describe('Team', () => {
     await click(button('Confirm Admin rights'))
     expect(client.post).toHaveBeenCalledWith('/api/team/members/3/confirm-admin')
   })
+
+  it('tells an admin why Admin, all servers or no servers can’t be given', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [{ id: 2, username: 'mara', owner: false, you: true, role: 'admin', servers: { servers: ['abcdefghjk'] }, twoFactor: true, addedAt: hoursAgo(49), canEdit: false }],
+      invites: [],
+      grantableRoles: ['moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    await render(<TeamSection />, workspace({ me: member('admin', everything, { servers: { servers: ['abcdefghjk'] }, twoFactor: true }) }))
+    await click(button('Add a team member'))
+    const choice = (start: string) => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith(start))
+    const why = (el: Element | null | undefined) => document.getElementById(el?.getAttribute('aria-describedby') ?? '')?.textContent
+    const admin = choice('Admin')?.querySelector('[data-slot="radio"]')
+    const all = choice('All servers')?.querySelector('[data-slot="radio"]')
+    expect(admin?.hasAttribute('data-disabled')).toBe(true)
+    expect(why(admin)).toBe('Only the owner can give this role.')
+    expect(all?.hasAttribute('data-disabled')).toBe(true)
+    expect(why(all)).toBe('You can give only the servers you can use.')
+    expect(button('Create link').disabled).toBe(false)
+    const survival = choice('Survival')
+    if (!survival) throw new Error('no checkbox for Survival')
+    await click(survival)
+    expect(button('Create link').disabled).toBe(true)
+    expect(button('Create link').title).toBe('Pick at least one server.')
+  })
 })
 
 describe('Discord', () => {
@@ -805,6 +838,7 @@ describe('Discord', () => {
     expect(text).toContain('Alerts and live status in your Discord.')
     expect(text).toContain('Keep the link private.')
     expect(button('Connect').disabled).toBe(true)
+    expect(button('Connect').title).toBe('Paste the webhook link first.')
     const url = 'https://discord.com/api/webhooks/000000000000000000/redacted-for-tests'
     await typeInto('input[type="url"]', url)
     await click(button('Connect'))

@@ -17,7 +17,7 @@ import { formatClock, formatDate, formatDuration, relativeTime } from '@/lib/for
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { playerAction, tz } from './players'
+import { listLocked, playerAction, tz } from './players'
 
 const shownSessions = { desktop: 4, phone: 3 }
 
@@ -100,6 +100,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
   const [banning, setBanning] = useState(false)
   const manage = can(ws.me, 'players.manage')
   const up = !ws.stale && s.phase === 'online'
+  const blocked = listLocked(s, ws.stale)
   const p = profile.data
   const refresh = () => void profile.refresh()
 
@@ -197,7 +198,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
         {manage && (
           <ul className="overflow-hidden rounded-3xl border border-border bg-white">
             <li className={cn(!p.banned && 'border-b border-border')}>
-              <button type="button" onClick={opToggle} disabled={!up} className="flex min-h-16 w-full items-center gap-3 px-4 py-2 text-left disabled:opacity-50">
+              <button type="button" onClick={opToggle} disabled={!!blocked} title={blocked} className="flex min-h-16 w-full items-center gap-3 px-4 py-2 text-left disabled:opacity-50">
                 <span className="min-w-0 flex-1">
                   <span className="block text-base">{p.operator ? t('players.removeOp') : t('players.makeOp')}</span>
                   <span className="block text-[13px] text-muted-foreground">{p.operator ? t('players.removeOpHint') : t('players.makeOpHint')}</span>
@@ -207,7 +208,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
             </li>
             {!p.banned && (
               <li>
-                <button type="button" onClick={() => setBanning(true)} disabled={!up} className="flex min-h-14 w-full items-center px-4 py-2 text-left text-base text-destructive-foreground disabled:opacity-50">
+                <button type="button" onClick={() => setBanning(true)} disabled={!!blocked} title={blocked} className="flex min-h-14 w-full items-center px-4 py-2 text-left text-base text-destructive-foreground disabled:opacity-50">
                   {t('profile.ban', { server: s.name })}
                 </button>
               </li>
@@ -252,7 +253,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
               </>
             )}
             <Menu>
-              <MenuTrigger render={<Button variant="ghost" size="icon" aria-label={t('players.menuFor', { name: p.name })} disabled={!up} />}>
+              <MenuTrigger disabled={!!blocked} render={<Button variant="ghost" size="icon" aria-label={t('players.menuFor', { name: p.name })} disabledReason={blocked} />}>
                 <EllipsisIcon />
               </MenuTrigger>
               <MenuPopup align="end" className="min-w-56">
@@ -323,7 +324,7 @@ function PlaytimeChart({ profile: p }: { profile: PlayerProfile }) {
           {p.days.map((d, i) => (
             <div key={d.date} title={t('profile.dayPlaytime', { day: dayLabel(d, i), time: formatDuration(d.playtimeSeconds) })} className="flex h-full min-w-0 flex-1 items-end">
               {d.playtimeSeconds > 0 ? (
-                <div className={cn('w-full rounded-t-[3px] transition-[height] duration-300', i === last ? 'bg-primary/80' : 'bg-primary/40')} style={{ height: `${Math.max(4, (d.playtimeSeconds / max) * 100)}%` }} />
+                <div className={cn('w-full rounded-t-[3px] transition-[height] duration-(--motion-slow) ease-standard', i === last ? 'bg-primary/80' : 'bg-primary/40')} style={{ height: `${Math.max(4, (d.playtimeSeconds / max) * 100)}%` }} />
               ) : (
                 <div className="h-[2px] w-full rounded-full bg-primary/25" />
               )}
@@ -460,7 +461,7 @@ function MessageDialog({ server, name, open, onOpenChange }: { server: ServerSta
             <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabled={!text.trim()}>
+            <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={text.trim() ? undefined : t('profile.typeFirst')}>
               <SendIcon />
               {t('profile.send')}
             </Button>

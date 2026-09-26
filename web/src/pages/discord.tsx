@@ -149,7 +149,7 @@ function ConnectCard({ onConnected }: { onConnected: (s: DiscordSettings) => Pro
             spellCheck={false}
           />
         </InputGroup>
-        <Button type="submit" loading={busy} disabled={!url.trim()} className="max-sm:h-11">
+        <Button type="submit" loading={busy} disabledReason={url.trim() ? undefined : t('discord.pasteFirst')} className="max-sm:h-11">
           {t('discord.connect')}
         </Button>
       </form>
@@ -282,7 +282,7 @@ function LiveStatusCard({ settings: s, onSave }: { settings: DiscordSettings; on
         <Switch id="live-status" checked={s.liveStatus} onCheckedChange={(v) => void onSave({ alerts: s.alerts, liveStatus: v })} />
       </div>
       <p className="mt-2.5 text-xs text-muted-foreground">{t('discord.previewLabel')}</p>
-      <LivePreview className={cn('mt-2 transition-opacity', !s.liveStatus && 'opacity-60')} />
+      <LivePreview className={cn('mt-2 transition-opacity duration-(--motion-standard) ease-standard', !s.liveStatus && 'opacity-60')} />
     </Card>
   )
 }

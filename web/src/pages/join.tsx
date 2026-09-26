@@ -146,7 +146,7 @@ function JoinShell({ step, children }: { step?: number; children: ReactNode }) {
 function JoinCard({ className, children, ...rest }: { className?: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('w-full max-w-[460px] rounded-4xl border border-border bg-card p-6 shadow-popup animate-in fade-in-0 slide-in-from-bottom-1 duration-300 max-sm:rounded-3xl max-sm:p-4 max-sm:pt-5 max-sm:shadow-none', className)}
+      className={cn('w-full max-w-[460px] animate-page rounded-4xl border border-border bg-card p-6 shadow-popup max-sm:rounded-3xl max-sm:p-4 max-sm:pt-5 max-sm:shadow-none', className)}
       {...rest}
     >
       {children}
@@ -174,7 +174,7 @@ function JoinSkeleton() {
 /** One line under a field or above the main button: what went wrong and what to do. */
 function Problem({ error, id }: { error: ApiError; id?: string }) {
   return (
-    <p id={id} className="text-[13px] leading-5 animate-in fade-in-0" role="alert">
+    <p id={id} className="animate-fade text-[13px] leading-5" role="alert">
       <span className="text-destructive-foreground">{error.message}</span>
       {error.hint && <span className="text-muted-foreground"> {error.hint}</span>}
     </p>
@@ -210,6 +210,24 @@ function useLookup(code: string, typed: string, onRefused: (e: ApiError) => void
   }, [code, name, valid, onRefused])
   if (!valid) return { status: 'idle' }
   return lookup.status !== 'idle' && lookup.name === name ? lookup : { status: 'checking', name }
+}
+
+/** Why the join button waits: no name yet, a name Minecraft can't have, the lookup, or what it found wrong. */
+function lookupReason(typed: string, lookup: Lookup): string | undefined {
+  switch (lookup.status) {
+    case 'idle':
+      return typed.trim() ? t('players.nameRule') : t('join.nameFirst')
+    case 'checking':
+      return t('join.lookingUp', { name: lookup.name })
+    case 'failed':
+      return lookup.error.message
+    case 'found':
+      return undefined
+    default: {
+      const unreachable: never = lookup
+      return unreachable
+    }
+  }
 }
 
 function FriendJoin({ code, preview, onRefused }: { code: string; preview: PlayerPreview; onRefused: (e: ApiError) => void }) {
@@ -286,7 +304,7 @@ function FriendJoin({ code, preview, onRefused }: { code: string; preview: Playe
           {problem ? (
             <Problem error={problem} id="join-name-problem" />
           ) : lookup.status === 'found' ? (
-            <div className="flex items-center gap-3 rounded-2xl bg-warm p-2.5 animate-in fade-in-0 slide-in-from-top-1 max-sm:p-3">
+            <div className="flex animate-enter items-center gap-3 rounded-2xl bg-warm p-2.5 max-sm:p-3">
               <Face candidate={lookup.candidate} size={40} />
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold max-sm:text-[15px]">{t('join.isThisYou')}</p>
@@ -304,7 +322,7 @@ function FriendJoin({ code, preview, onRefused }: { code: string; preview: Playe
             </div>
           ) : null}
         </div>
-        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={lookup.status !== 'found'} className="w-full sm:h-10">
+        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={lookupReason(name, lookup)} className="w-full sm:h-10">
           {preview.approval === 'after_yes' ? t('join.askToJoin', { server: preview.server }) : t('join.addMe', { server: preview.server })}
         </Button>
       </form>
@@ -471,13 +489,13 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
             />
           </InputGroup>
           {mismatch && (
-            <p id="join-again-problem" className="text-[13px] text-destructive-foreground animate-in fade-in-0" role="alert">
+            <p id="join-again-problem" className="animate-fade text-[13px] text-destructive-foreground" role="alert">
               {t('join.mismatch')}
             </p>
           )}
         </div>
         {otherProblem && <Problem error={otherProblem} />}
-        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={!ready} className="w-full sm:h-10">
+        <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={ready ? undefined : again && again !== password ? t('join.mismatch') : t('reason.fillIn')} className="w-full sm:h-10">
           {t('join.joinAs', { role })}
         </Button>
       </form>
@@ -512,7 +530,7 @@ function AdminStep({ me, password, onSignedIn }: { me: Me; password: string; onS
         </div>
         {phone && <p className="mt-3 text-sm text-muted-foreground">{t('join.adminBody')}</p>}
         <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4 max-sm:mt-5 max-sm:flex-col-reverse max-sm:items-stretch max-sm:gap-2 max-sm:border-t-0 max-sm:pt-0">
-          <Button variant="ghost" size={phone ? 'touch' : 'default'} className="text-muted-foreground" disabled={busy} onClick={() => onSignedIn(me)}>
+          <Button variant="ghost" size={phone ? 'touch' : 'default'} className="text-muted-foreground" disabledReason={busy ? t('join.openingSetup') : undefined} onClick={() => onSignedIn(me)}>
             {t('join.adminLater')}
           </Button>
           <Button size={phone ? 'touch' : 'default'} loading={busy} onClick={() => void setUp()}>

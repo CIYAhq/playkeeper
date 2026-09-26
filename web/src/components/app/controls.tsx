@@ -14,10 +14,17 @@ export interface Choice<T extends string> {
   hint?: string
   marker?: ReactNode
   disabled?: boolean
+  /** Why a disabled option can't be chosen. */
+  reason?: string
 }
 
 export function useIsPhone(): boolean {
   return useMediaQuery('max-sm')
+}
+
+/** An option's second line: why it can't be chosen, else its hint. Disabled options take no pointer, so a title alone would go unseen. */
+function secondLine<T extends string>(o: Choice<T>): string | undefined {
+  return (o.disabled && o.reason) || o.hint
 }
 
 /**
@@ -72,6 +79,7 @@ export function ChoiceSelect<T extends string>({
                   aria-selected={o.value === value}
                   key={o.value}
                   disabled={o.disabled}
+                  title={o.disabled ? o.reason : undefined}
                   onClick={() => {
                     onChange(o.value)
                     setOpen(false)
@@ -80,7 +88,7 @@ export function ChoiceSelect<T extends string>({
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-base">{o.label}</span>
-                    {o.hint && <span className="block text-[13px] text-muted-foreground">{o.hint}</span>}
+                    {secondLine(o) && <span className="block text-[13px] text-muted-foreground">{secondLine(o)}</span>}
                   </span>
                   {o.value === value && <CheckIcon className="size-5 text-primary" aria-hidden="true" />}
                 </button>
@@ -98,13 +106,13 @@ export function ChoiceSelect<T extends string>({
       </SelectTrigger>
       <SelectPopup alignItemWithTrigger={false}>
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value} disabled={o.disabled} className="py-1.5">
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled} title={o.disabled ? o.reason : undefined} className="py-1.5">
             <span className="flex flex-col">
               <span className="flex items-center gap-2">
                 {o.label}
                 {o.marker}
               </span>
-              {o.hint && <span className="text-xs text-muted-foreground">{o.hint}</span>}
+              {secondLine(o) && <span className="text-xs text-muted-foreground">{secondLine(o)}</span>}
             </span>
           </SelectItem>
         ))}
