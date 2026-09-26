@@ -129,7 +129,8 @@ type Options struct {
 	// resource pack links (tests); nil means the system's.
 	CertRoots *x509.CertPool
 	// PortHolder names the process listening on a host TCP port, for a
-	// start that failed over a taken port (default: read from /proc).
+	// start that failed over a taken port no Docker container publishes
+	// (default: read from /proc).
 	PortHolder func(port int) (name string, pid int, ok bool)
 }
 

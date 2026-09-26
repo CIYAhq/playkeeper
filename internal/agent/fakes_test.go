@@ -51,6 +51,34 @@ type fakeDocker struct {
 	// started and stopped, when set, hear of a server container starting
 	// or stopping cleanly, as a plugin would.
 	started, stopped func(c *fakeContainer)
+	// others are containers Playkeeper didn't make, as Docker lists them
+	// after the agent's own.
+	others []fakeListed
+}
+
+// fakeListed is a container in Docker's list that the fake doesn't run.
+type fakeListed struct {
+	name    string
+	labels  map[string]string
+	running bool
+	ports   []fakePort
+}
+
+type fakePort struct {
+	public int
+	proto  string
+}
+
+// listedPorts is what Docker's list shows of published ports: none for a
+// container that isn't running.
+func listedPorts(running bool, ports []fakePort) []map[string]any {
+	out := []map[string]any{}
+	for _, p := range ports {
+		if running {
+			out = append(out, map[string]any{"IP": "0.0.0.0", "PrivatePort": 25565, "PublicPort": p.public, "Type": p.proto})
+		}
+	}
+	return out
 }
 
 type fakeLine struct {
@@ -243,10 +271,27 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "POST" && path == "/containers/create":
 		fd.create(w, r)
 	case r.Method == "GET" && path == "/containers/json":
+		all := r.URL.Query().Get("all") == "1"
 		fd.mu.Lock()
 		var list []map[string]any
 		for _, c := range fd.byName {
-			list = append(list, map[string]any{"Id": c.id, "Names": []string{"/" + c.name}, "Image": c.cfg.Image, "State": map[bool]string{true: "running", false: "exited"}[c.running], "Labels": c.cfg.Labels})
+			if !all && !c.running {
+				continue
+			}
+			var ports []fakePort
+			for key, bindings := range c.cfg.HostConfig.PortBindings {
+				_, proto, _ := strings.Cut(key, "/")
+				for _, b := range bindings {
+					p, _ := strconv.Atoi(b.HostPort)
+					ports = append(ports, fakePort{p, proto})
+				}
+			}
+			list = append(list, map[string]any{"Id": c.id, "Names": []string{"/" + c.name}, "Image": c.cfg.Image, "State": map[bool]string{true: "running", false: "exited"}[c.running], "Labels": c.cfg.Labels, "Ports": listedPorts(c.running, ports)})
+		}
+		for i, o := range fd.others {
+			if all || o.running {
+				list = append(list, map[string]any{"Id": fmt.Sprintf("o%063d", i), "Names": []string{"/" + o.name}, "Image": "busybox", "State": map[bool]string{true: "running", false: "exited"}[o.running], "Labels": o.labels, "Ports": listedPorts(o.running, o.ports)})
+			}
 		}
 		fd.mu.Unlock()
 		jsonOut(w, 200, list)

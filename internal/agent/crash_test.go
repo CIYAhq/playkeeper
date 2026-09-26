@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -251,6 +252,86 @@ func TestPortCrashNamesTheProgramHoldingThePort(t *testing.T) {
 	mu.Unlock()
 	if c := start(); c.Kind != "port_in_use" || c.Params["holder"] != nil || c.Params["holder_pid"] != nil {
 		t.Fatalf("a holder the agent can't see: got %s with %v", c.Kind, c.Params)
+	}
+}
+
+// A start Docker refused because another container publishes the game port
+// names that container, from Docker's list of running containers, and then
+// doesn't look for a program. A container on another port or on the same
+// port over UDP is passed over; one Playkeeper made, or one with a name
+// Docker wouldn't give, is left unnamed; with no running container on the
+// port, the program holding it is looked for as before.
+func TestPortCrashNamesTheDockerContainerHoldingThePort(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.crashBackoff = []time.Duration{time.Hour}
+	var mu sync.Mutex
+	asked := 0
+	e.portHolder = func(int) (string, int, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked++
+		return "java", 48211, true
+	}
+	e.start()
+	e.create()
+	run := func(verb string) *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", verb, code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	port := e.srv().gamePort
+	start := func(others ...fakeListed) *api.Crash {
+		t.Helper()
+		e.fd.mu.Lock()
+		e.fd.others = others
+		e.fd.mu.Unlock()
+		if op := run("start"); op.Status != api.OpFailed {
+			t.Fatalf("start: %+v", op)
+		}
+		return e.waitCrash()
+	}
+	lookedFor := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return asked
+	}
+	run("stop")
+	e.fd.mu.Lock()
+	e.fd.startErr = "driver failed programming external connectivity on endpoint pk: Bind for 0.0.0.0:" + strconv.Itoa(port) + " failed: port is already allocated"
+	e.fd.mu.Unlock()
+
+	c := start(
+		fakeListed{name: "web", running: true, ports: []fakePort{{port + 1, "tcp"}}},
+		fakeListed{name: "voice", running: true, ports: []fakePort{{port, "udp"}}},
+		fakeListed{name: "old-minecraft", running: true, ports: []fakePort{{port, "tcp"}, {port, "udp"}}},
+	)
+	if c.Kind != "port_in_use" || c.Params["holder_container"] != "old-minecraft" || c.Params["holder"] != nil {
+		t.Fatalf("got %s with %v", c.Kind, c.Params)
+	}
+	if n := lookedFor(); n != 0 {
+		t.Errorf("looked for a program %d time(s) where a container publishes the port", n)
+	}
+	for _, other := range []fakeListed{
+		{name: "playkeeper-mc-zyxwvutsrq", labels: map[string]string{labelManaged: "true"}, running: true, ports: []fakePort{{port, "tcp"}}},
+		{name: "old minecraft", running: true, ports: []fakePort{{port, "tcp"}}},
+	} {
+		if c := start(other); c.Kind != "port_in_use" || c.Params["holder_container"] != nil || c.Params["holder"] != nil {
+			t.Fatalf("container %q: got %s with %v", other.name, c.Kind, c.Params)
+		}
+	}
+	if n := lookedFor(); n != 0 {
+		t.Errorf("looked for a program %d time(s) where a container publishes the port", n)
+	}
+	c = start(fakeListed{name: "stopped-minecraft", ports: []fakePort{{port, "tcp"}}})
+	if c.Kind != "port_in_use" || c.Params["holder_container"] != nil || c.Params["holder"] != "java" || c.Params["holder_pid"] != 48211 {
+		t.Fatalf("no running container on the port: got %s with %v", c.Kind, c.Params)
+	}
+	if n := lookedFor(); n != 1 {
+		t.Errorf("looked for a program %d time(s), want once", n)
 	}
 }
 
