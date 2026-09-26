@@ -253,10 +253,9 @@ func (s *Service) limitReached(ctx context.Context, q queryer, key, name string)
 		Hint:    "Release it first to choose another one."}
 }
 
-// networkFull refuses a name claimed from addr when addr's network already
+// networkFull refuses a name in the network nw (see network) when nw already
 // holds as many names that are not released, other than except, as allowed.
-func (s *Service) networkFull(ctx context.Context, q queryer, addr netip.Addr, except string) error {
-	nw := network(addr)
+func (s *Service) networkFull(ctx context.Context, q queryer, nw, except string) error {
 	var n int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM names WHERE network = ? AND name != ? AND state != ?`, nw, except, names.StateReleased).Scan(&n); err != nil {
 		return err
@@ -293,7 +292,7 @@ func (s *Service) claim(w http.ResponseWriter, r *http.Request, c *call) error {
 		if err := s.limitReached(ctx, s.db, c.key, name); err != nil {
 			return err
 		}
-		if err := s.networkFull(ctx, s.db, c.addr, name); err != nil {
+		if err := s.networkFull(ctx, s.db, network(c.addr), name); err != nil {
 			return err
 		}
 	} else if answered, err = s.recheck(ctx, row, c.addr); err != nil {
@@ -338,7 +337,7 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call, answere
 		if err := s.limitReached(ctx, q, c.key, name); err != nil {
 			return err
 		}
-		if err := s.networkFull(ctx, q, c.addr, name); err != nil {
+		if err := s.networkFull(ctx, q, network(c.addr), name); err != nil {
 			return err
 		}
 		now := s.now().Unix()
@@ -370,6 +369,8 @@ func (s *Service) commitClaim(ctx context.Context, name string, c *call, answere
 // its address did not answer comes back only when answered: addr just
 // answered the liveness check (see recheck). A lapsed name gets
 // minFailedChecks new checks before it can lapse for not answering again.
+// A name that moves to another network counts against that one, so the
+// move is refused when it already holds as many names as allowed.
 func (s *Service) setAddress(ctx context.Context, q queryer, row *nameRow, addr netip.Addr, clearOther, answered bool) error {
 	v4, v6 := row.IPv4, row.IPv6
 	if addr.Is4() {
@@ -383,6 +384,17 @@ func (s *Service) setAddress(ctx context.Context, q queryer, row *nameRow, addr 
 			v4 = ""
 		}
 	}
+	// A name from before networks were recorded was in that of its address.
+	was := row.Network
+	if was == "" {
+		was = nameNetwork("", row.IPv4, row.IPv6)
+	}
+	nw := nameNetwork(was, v4, v6)
+	if nw != was {
+		if err := s.networkFull(ctx, q, nw, row.Name); err != nil {
+			return err
+		}
+	}
 	bump := 0
 	if v4 != row.IPv4 || v6 != row.IPv6 || row.State != names.StateActive {
 		bump = 1
@@ -392,10 +404,10 @@ func (s *Service) setAddress(ctx context.Context, q queryer, row *nameRow, addr 
 	if answered {
 		answeredAt = now
 	}
-	res, err := q.ExecContext(ctx, `UPDATE names SET ipv4 = ?, ipv6 = ?, state = ?, lapsed_at = 0, lapse_reason = '', refreshed_at = ?, version = version + ?,
+	res, err := q.ExecContext(ctx, `UPDATE names SET ipv4 = ?, ipv6 = ?, network = ?, state = ?, lapsed_at = 0, lapse_reason = '', refreshed_at = ?, version = version + ?,
 		failed_checks = CASE WHEN ? > 0 OR state = ? THEN 0 ELSE failed_checks END, alive_at = max(alive_at, ?), checked_at = max(checked_at, ?)
 		WHERE name = ? AND key = ? AND (state != ? OR lapse_reason != ? OR ? > 0)`,
-		v4, v6, names.StateActive, now, bump,
+		v4, v6, nw, names.StateActive, now, bump,
 		answeredAt, names.StateLapsed, answeredAt, answeredAt,
 		row.Name, row.Key, names.StateLapsed, names.LapseNoAnswer, answeredAt)
 	if err != nil {
@@ -497,7 +509,11 @@ func (s *Service) refresh(w http.ResponseWriter, r *http.Request, c *call) error
 	if err != nil {
 		return err
 	}
-	if err := s.setAddress(r.Context(), s.db, row, c.addr, req.ClearOther, answered); err != nil {
+	// In one transaction, so two names can't both take a network's last
+	// place.
+	if err := s.writeTx(r.Context(), func(q queryer) error {
+		return s.setAddress(r.Context(), q, row, c.addr, req.ClearOther, answered)
+	}); err != nil {
 		return err
 	}
 	return s.respond(w, r, row.Name)
@@ -741,8 +757,8 @@ func (s *Service) serverAddressesAllowed(row *nameRow, port int) error {
 }
 
 // serversFull refuses another server address under row's name when its
-// install, or the network the name was claimed from, already has as many
-// as allowed. The label itself is not counted, so a port can always change.
+// install, or the network the name counts against, already has as many as
+// allowed. The label itself is not counted, so a port can always change.
 func (s *Service) serversFull(ctx context.Context, q queryer, row *nameRow, label string) error {
 	var byKey, byNetwork int
 	err := q.QueryRowContext(ctx, `SELECT coalesce(sum(n.key = ?), 0), coalesce(sum(n.network = ?), 0)

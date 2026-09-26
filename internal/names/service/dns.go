@@ -303,7 +303,7 @@ func (s *Service) sync(ctx context.Context, name string) error {
 // syncDetached runs sync with its own deadline, so a client that hangs up
 // does not leave a change half made.
 func (s *Service) syncDetached(ctx context.Context, name string) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), names.SyncWait)
 	defer cancel()
 	_ = s.sync(ctx, name)
 }

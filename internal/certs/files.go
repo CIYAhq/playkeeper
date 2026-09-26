@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -224,6 +225,86 @@ func writeFile(r *os.Root, name string, data []byte, mode os.FileMode, owner *Ow
 		d.Close()
 	}
 	return nil
+}
+
+// orderSuffix follows the certificate's first name in the name of the file
+// an order is kept in.
+const orderSuffix = ".order"
+
+// keptOrder is the file an order is kept in from just before it is
+// finalized until its certificate is saved, so that an attempt that fails
+// in between leaves the next one the certificate of that order: asking for
+// another would count against the certificate authority's limits.
+type keptOrder struct {
+	dir  *os.Root
+	file string
+}
+
+// orderFile is what a kept order's file holds.
+type orderFile struct {
+	URL     string    `json:"url"`
+	Expires time.Time `json:"expires"`
+	// Key is the private key the certificate is asked for, in SEC 1 form.
+	Key []byte `json:"key"`
+}
+
+// keep saves the order at url, which the certificate authority considers
+// invalid after expires, with the key the certificate is asked for.
+func (k *keptOrder) keep(url string, expires time.Time, key *ecdsa.PrivateKey) error {
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(orderFile{URL: url, Expires: expires, Key: der})
+	if err != nil {
+		return err
+	}
+	return writeFile(k.dir, k.file, b, 0o600, nil)
+}
+
+// load reads the kept order; the error is fs.ErrNotExist when there is none.
+func (k *keptOrder) load() (orderFile, *ecdsa.PrivateKey, error) {
+	var saved orderFile
+	f, err := k.dir.OpenFile(k.file, os.O_RDONLY|noFollow, 0)
+	if err != nil {
+		return saved, nil, err
+	}
+	defer f.Close()
+	b, err := readRegular(f)
+	if err != nil {
+		return saved, nil, err
+	}
+	if err := json.Unmarshal(b, &saved); err != nil {
+		return saved, nil, err
+	}
+	if saved.URL == "" {
+		return saved, nil, errors.New("no order URL")
+	}
+	key, err := x509.ParseECPrivateKey(saved.Key)
+	return saved, key, err
+}
+
+// drop deletes the kept order. Failing to is harmless: the next attempt
+// drops an order that can give no certificate, and fetches the one already
+// saved again from an order that can.
+func (k *keptOrder) drop() {
+	k.dir.Remove(k.file)
+}
+
+// Forget deletes what Issue saves in dir for a certificate whose first name
+// is name: the certificate, and the order kept until it is saved.
+func Forget(dir, name string) error {
+	n, err := NormalizeName(name)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, file := range []string{n + ".pem", n + orderSuffix} {
+		if err := os.Remove(filepath.Join(dir, file)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // loadAccountKey reads the ACME account key from path, creating a new ECDSA
