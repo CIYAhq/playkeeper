@@ -675,6 +675,14 @@ control "a restored world is given to the game without following links" internal
   'if d.Type()&fs.ModeSymlink != 0 {' \
   'if false {' \
   ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
+control "CurseForge's modpack logos load through the icon proxy" internal/addons/addons.go \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost}' \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost}' \
+  ./internal/addons '^TestIconsComeOnlyFromTheSourcesHosts$'
+control "icons come from no CurseForge host but its logos'" internal/addons/addons.go \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost}' \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost, "edge.forgecdn.net"}' \
+  ./internal/addons '^TestIconsComeOnlyFromTheSourcesHosts$'
 control "add-on files: opening a named pipe does not wait" internal/addons/files.go \
   'os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)' \
   'os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
@@ -1335,6 +1343,10 @@ control "names service owns only records with the name's marker" internal/names/
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || reservedName(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
+control "names service checks a zone it couldn't check at startup before the first change" internal/names/service/dns.go \
+  'if s.zoneOK.Load() {' \
+  'if true || s.zoneOK.Load() {' \
+  ./internal/names/service '^TestStartupWithoutCloudflareChecksTheZoneBeforeTheFirstChange$'
 control "names service never owns records of reserved names" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
@@ -1854,6 +1866,10 @@ control "refused server addresses are asked for again only when due" internal/ag
   'if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {' \
   'if st.Free.ServersFailed > 0 && !now.Before(st.Free.ServersRetry) || st.Free.ServersWait != "" {' \
   ./internal/agent '^TestServerAddressesWaitForTheNamesService$'
+control "the HTTP-01 responder stops listening when its last check is released" internal/certs/http01.go \
+  'if h.pending == 0 && h.srv != nil {' \
+  'if false && h.pending == 0 && h.srv != nil {' \
+  ./internal/certs '^TestHTTP01ListensWhilePending$'
 control "resource pack links: HTTPS only with a certificate players' games trust" internal/certs/store.go \
   'if _, err := e.cert.Leaf.Verify(opts); err != nil {' \
   'if _, err := e.cert.Leaf.Verify(opts); err != nil && at.IsZero() {' \
@@ -2685,6 +2701,18 @@ control "the map counts squaremap the Plugins or Mods tab manages as its own fil
   'if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {' \
   'if i := slices.IndexFunc(installed, isSquaremap); false && i >= 0 {' \
   ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "turning the map on doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  '	if err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  '	if false && err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
+control "turning the map off doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  '	if err != nil {
+		return restartUnchecked("squaremap is removed",' \
+  '	if false && err != nil {
+		return restartUnchecked("squaremap is removed",' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
 control "a sparse member of a tar or tar.gz is refused" internal/worldimport/archive.go \
   '		if sparse(h) {' \
   '		if false && sparse(h) {' \
