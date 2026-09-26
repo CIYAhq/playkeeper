@@ -23,6 +23,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -107,6 +108,9 @@ func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*
 		if errors.As(err, &refused) {
 			return nil, err
 		}
+		if gamefiles.KindOf(err) != "" {
+			return nil, gameFileError(err, notBackedUp)
+		}
 		return nil, fmt.Errorf("writing the archive failed: %w", err)
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
@@ -145,17 +149,27 @@ func (s *server) withRefusalHint(err error) error {
 	return &apiError{Msg: strings.ToUpper(msg[:1]) + msg[1:], Hint: hint}
 }
 
+// notBackedUp starts the error when a file Playkeeper won't read stops a
+// backup.
+const notBackedUp = "The world could not be backed up."
+
 // archiveRefusal is the refusal an archive of the world would get, with what
 // to do, found before the server stops for it, so players are not
-// disconnected for nothing. unchanged, like "Nothing was replaced.", starts
-// the hint. Anything else Check runs into is left to createArchive.
+// disconnected for nothing: a file a restore would refuse, or a
+// server.properties Playkeeper won't read. unchanged, like "Nothing was
+// replaced.", starts the hint. Anything else Check runs into is left to
+// createArchive.
 func (s *server) archiveRefusal(unchanged string) error {
 	var refused *backup.RefusedError
 	err := backup.Check(s.dataDir(), archiveLimits())
-	if !errors.As(err, &refused) {
+	switch {
+	case errors.As(err, &refused):
+		err = s.withRefusalHint(err)
+	case gamefiles.KindOf(err) != "":
+		err = gameFileError(err, notBackedUp)
+	default:
 		return nil
 	}
-	err = s.withRefusalHint(err)
 	if e, ok := err.(*apiError); ok && unchanged != "" {
 		e.Hint = unchanged + " " + e.Hint
 	}
