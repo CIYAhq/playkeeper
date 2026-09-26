@@ -797,6 +797,14 @@ control "the Disk space page counts every server busy for an unreadable swap jou
   'return j.concerns(s.id)' \
   'return j != nil && j.concerns(s.id)' \
   ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the World tab keeps the world copies of a restore that isn't over" internal/agent/backups.go \
+  'if s.restoreUnsettled() {' \
+  'if false && s.restoreUnsettled() {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
+control "the World tab keeps every server's world copies for an unreadable swap journal" internal/agent/backuprules.go \
+  'if j.concerns(s.id) {' \
+  'if j != nil && j.concerns(s.id) {' \
+  ./internal/agent '^TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver$'
 control "a swap journal whose restore is gone keeps every rollback archive" internal/agent/backuprules.go \
   'if op != nil {
 			add(op)
