@@ -8,7 +8,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,8 +50,18 @@ func (s *server) backupRules() (retention.Settings, *time.Location, bool) {
 // unsettledSwaps reads the swap journals in the restore stages, by stage
 // name. A restore isn't over while its stage keeps one: it may still put the
 // previous world back. A journal that can't be read is nil, and is logged.
-func (a *Agent) unsettledSwaps() map[string]*swapJournal {
-	entries, _ := os.ReadDir(a.cfg.StagingDir())
+// So is a staging folder that can't be read: then any server's restore may
+// not be over, and the error says why. A missing one holds no stages.
+func (a *Agent) unsettledSwaps() (map[string]*swapJournal, error) {
+	dir := a.cfg.StagingDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if prev, seen := a.unreadableSwaps.Swap("", err.Error()); !seen || prev != err.Error() {
+			a.log.Warn("the restore staging folder can't be read, so every server keeps its rollback archives and world copies until it can", "dir", dir, "err", err)
+		}
+		return nil, err
+	}
+	a.unreadableSwaps.Delete("")
 	out := map[string]*swapJournal{}
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -68,7 +80,7 @@ func (a *Agent) unsettledSwaps() map[string]*swapJournal {
 			out[e.Name()] = j
 		}
 	}
-	return out
+	return out, nil
 }
 
 // concerns says whether the swap journal may be the server's. One that can't
@@ -78,21 +90,27 @@ func (j *swapJournal) concerns(serverID string) bool {
 }
 
 // restoreUnsettled says whether a restore of the server may not be over: a
-// stage keeps a swap journal that may be its own.
-func (s *server) restoreUnsettled() bool {
-	for _, j := range s.unsettledSwaps() {
+// stage keeps a swap journal that may be its own. When the staging folder
+// can't be read, any may, and the error says why.
+func (s *server) restoreUnsettled() (bool, error) {
+	swaps, err := s.unsettledSwaps()
+	if err != nil {
+		return true, err
+	}
+	for _, j := range swaps {
 		if j.concerns(s.id) {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // rollbacksNeeded names the rollback archives of the server's restores that
 // aren't over, the one running and those whose stage keeps a swap journal,
 // as the unfinished restore that may still need them. A journal that can't
 // be read, or whose restore is no longer on record, may need any of them, so
-// it keeps every rollback archive in list.
+// it keeps every rollback archive in list, as does a staging folder that
+// can't be read.
 func (s *server) rollbacksNeeded(list []api.Backup) map[string]string {
 	needed := map[string]string{}
 	add := func(op *api.Operation) {
@@ -103,7 +121,11 @@ func (s *server) rollbacksNeeded(list []api.Backup) map[string]string {
 	if op := s.currentOp(); op != nil {
 		add(op)
 	}
-	for _, j := range s.unsettledSwaps() {
+	swaps, err := s.unsettledSwaps()
+	if err != nil {
+		swaps = map[string]*swapJournal{"": nil} // as a journal that can't be read
+	}
+	for _, j := range swaps {
 		if !j.concerns(s.id) {
 			continue
 		}

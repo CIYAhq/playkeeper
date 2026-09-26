@@ -451,6 +451,8 @@ function UsageCard({ report, machine, phone, scanning, onScan }: { report: DiskR
 function Ways({ report, names, phone, busy, locked, onOpen }: { report: DiskReport; names: Map<string, string>; phone: boolean; busy: string | undefined; locked: string | undefined; onOpen: (way: DiskWay) => void }) {
   const ways = report.ways
   const rows = useListPresence(ways, (w) => w.id)
+  // Why nothing of any server is offered: the agent can't tell which restores aren't over.
+  const held = report.problems?.find((p) => p.code === 'restores_unknown')?.text
   if (phone) {
     return (
       <section aria-labelledby="disk-ways">
@@ -472,6 +474,7 @@ function Ways({ report, names, phone, busy, locked, onOpen }: { report: DiskRepo
         ) : (
           <p className="mt-2 px-4 text-[15px] text-muted-foreground">{t('disk.waysNone')}</p>
         )}
+        {held && <p className="mt-2 px-4 text-[13px] text-muted-foreground">{held}</p>}
       </section>
     )
   }
@@ -481,6 +484,7 @@ function Ways({ report, names, phone, busy, locked, onOpen }: { report: DiskRepo
         {t('disk.ways')}
       </h2>
       <p className="mt-0.5 text-xs text-muted-foreground">{ways.length ? t('disk.waysTotal', { size: sizeText(report.freeable) }) : t('disk.waysNone')}</p>
+      {held && <p className="mt-1 text-xs text-muted-foreground">{held}</p>}
       {rows.length > 0 && (
         <ul className="mt-3 overflow-hidden rounded-2xl border border-border bg-white">
           {rows.map(({ key, item: w, state }) => (
