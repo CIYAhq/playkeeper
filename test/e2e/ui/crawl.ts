@@ -1,6 +1,6 @@
 import type { ElementHandle, Page, Request } from '@playwright/test'
-import { installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
-import { installFakes, type ApiCall } from './fakes'
+import { breakControl, installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
+import { installFakes, type ApiCall, type View } from './fakes'
 
 // Presses every control a person can reach and checks that each one visibly
 // does something. See clickthrough.spec.ts for the rules.
@@ -21,6 +21,8 @@ export const failing: Status[] = ['dead', 'broken', 'disabled without a reason',
 export interface Result {
   viewport: string
   route: string
+  /** The faked state the page was crawled in (fakes.ts), when it isn't the live one. */
+  view?: View
   /** The controls pressed to reach the state this control was found in. */
   via: string[]
   key: string
@@ -32,8 +34,15 @@ export interface Result {
 
 export interface CrawlReport {
   results: Result[]
-  /** Time spent on each page, states that could not be reached again, pages without a heading. */
+  /** Time spent on each page, controls that went away before their turn, pages without a heading. */
   notes: string[]
+  /** States the crawl found but could not get back to, so their controls went unpressed. */
+  unreached: string[]
+}
+
+/** A page as the report names it: its route, and the faked state it was crawled in. */
+export function where(route: string, view: View = 'live'): string {
+  return view === 'live' ? route : `${route} (${view})`
 }
 
 const FILL = 'fill in the form'
@@ -91,7 +100,14 @@ function isSelected(state: string | null): boolean {
 export class Crawler {
   readonly results: Result[] = []
   readonly notes: string[] = []
+  readonly unreached: string[] = []
+  /** What the panel's reads show (fakes.ts); crawl() sets it. */
+  private view: View = 'live'
   private readonly tested = new Map<string, Tested>()
+  /** States explored in any crawl so far: their controls have all been pressed, so a later page or view needn't open them again. */
+  private readonly signatures = new Set<string>()
+  /** Set while a negative control presses a control it broke, whose failure isn't the crawl's. */
+  private quiet = false
   private calls: ApiCall[] = []
   private unfaked: string[] = []
   private reqs: Req[] = []
@@ -115,7 +131,7 @@ export class Crawler {
   ) {}
 
   async init() {
-    const { calls, unfaked } = await installFakes(this.page, this.baseURL)
+    const { calls, unfaked } = await installFakes(this.page, this.baseURL, () => this.view)
     this.calls = calls
     this.unfaked = unfaked
     await this.page.addInitScript(installPageHelpers)
@@ -263,11 +279,15 @@ export class Crawler {
       if (!el) continue
       const hint = await el.evaluate((input) => {
         const i = input as HTMLInputElement
-        const label = i.labels ? [...i.labels].map((l) => l.textContent).join(' ') : ''
-        return { type: i.type, text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max }
+        const labels = i.labels ? [...i.labels] : []
+        const label = labels.map((l) => l.textContent).join(' ')
+        // A typed confirmation says what to type in bold: "Type <b>replace world</b> to confirm."
+        const phrase = /confirm/i.test(label) ? (labels.map((l) => l.querySelector('strong, b')?.textContent?.trim()).find(Boolean) ?? '') : ''
+        return { type: i.type, text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max, phrase }
       })
       let value = 'Sample'
-      if (hint.type === 'password') value = 'sample-password-2026'
+      if (hint.phrase) value = hint.phrase
+      else if (hint.type === 'password') value = 'sample-password-2026'
       else if (hint.type === 'number') value = hint.min || '1'
       else if (/minecraft|player|username|friend/.test(hint.text)) value = 'Pixel_Pia'
       else if (/command/.test(hint.text)) value = 'list'
@@ -284,7 +304,12 @@ export class Crawler {
       try {
         if (info?.role === 'slider') {
           await h.focus()
+          const value = () => h.evaluate((el) => (el as HTMLInputElement).value)
+          const was = await value()
           await this.page.keyboard.press('ArrowRight')
+          await this.page.waitForTimeout(100)
+          // A slider at its highest value can only go down.
+          if ((await value()) === was) await this.page.keyboard.press('ArrowLeft')
         } else {
           await h.click({ timeout: 4000 })
           if (info?.editable) await this.page.keyboard.press('ArrowDown')
@@ -351,9 +376,9 @@ export class Crawler {
   }
 
   private record(route: string, via: string[], c: ControlInfo, status: Status, effects: string[] = [], problems: string[] = [], reason?: string): Result {
-    const r: Result = { viewport: this.viewport, route, via, key: c.key, status, effects, problems, reason }
+    const r: Result = { viewport: this.viewport, route, view: this.view === 'live' ? undefined : this.view, via, key: c.key, status, effects, problems, reason }
     this.results.push(r)
-    this.log(`${failing.includes(status) ? '✗' : '✓'} [${this.viewport}] ${route}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}`)
+    if (!this.quiet) this.log(`${failing.includes(status) ? '✗' : '✓'} [${this.viewport}] ${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}`)
     return r
   }
 
@@ -401,7 +426,9 @@ export class Crawler {
     let status: Status = 'works'
     if (problems.length) status = 'broken'
     else if (!effects.length) status = c.selected && (after === null || after.target === null || isSelected(after.target)) ? 'stays selected' : 'dead'
-    const opened = !!after && after.layers.length > before.layers.length && after.url === before.url
+    // A menu item that opens a dialog, or a dialog that goes on to its next step, replaces the top layer.
+    const replaced = !!after && after.layers.length > 0 && after.layers.length === before.layers.length && after.layers.at(-1) !== before.layers.at(-1)
+    const opened = !!after && after.url === before.url && (after.layers.length > before.layers.length || replaced)
     let revealed = false
     if (!opened && after && after.url === before.url && after.layers.join('|') === before.layers.join('|')) {
       const now = await this.controls()
@@ -432,20 +459,50 @@ export class Crawler {
     return !!now && sameState(state.base, now)
   }
 
-  /** Crawls every state reachable from a route. */
-  async crawl(route: string) {
+  /**
+   * Crawls every state reachable from a route, with the panel's reads showing
+   * `view`. A control already pressed in another view isn't pressed again.
+   */
+  async crawl(route: string, view: View = 'live') {
+    this.view = view
     const started = Date.now()
     const count = this.results.length
     const loads = this.loads
     await this.explore(route)
-    this.notes.push(`[${this.viewport}] ${route}: ${this.results.length - count} controls in ${Math.round((Date.now() - started) / 1000)} s, ${this.loads - loads} page loads`)
-    for (const p of this.unheaded) this.notes.push(`[${this.viewport}] ${p}: no page heading (h1) after 20 s`)
+    this.notes.push(`[${this.viewport}] ${where(route, view)}: ${this.results.length - count} controls in ${Math.round((Date.now() - started) / 1000)} s, ${this.loads - loads} page loads`)
+    for (const p of this.unheaded) this.notes.push(`[${this.viewport}] ${where(p, view)}: no page heading (h1) after 20 s`)
     this.unheaded.clear()
+  }
+
+  /**
+   * A negative control: presses a control the crawl found again, in the same
+   * state, with the control made to do nothing when pressed (or, with
+   * `unexplained`, a disabled control stripped of its reason). The verdict
+   * must be a failing one, or the crawl can't tell a broken control there
+   * from a working one. The result isn't added to the crawl's results.
+   */
+  async breakAndPress(found: Result, how: 'does nothing' | 'unexplained' = 'does nothing'): Promise<Result | string> {
+    this.view = found.view ?? 'live'
+    const sabotage = await this.page.addInitScript(breakControl, { key: found.key, how })
+    try {
+      const state = await this.reach(found.route, found.via)
+      if (!state) return `could not reach ${where(found.route, found.view)}${found.via.length ? ` › ${found.via.join(' › ')}` : ''} again`
+      const c = (await this.controls()).find((x) => x.key === found.key)
+      if (!c) return `${found.key} wasn't there again`
+      const count = this.results.length
+      this.quiet = true
+      const t = await this.test(found.route, found.via, c, state)
+      this.results.splice(count)
+      return t.result
+    } finally {
+      this.quiet = false
+      await sabotage.dispose()
+    }
   }
 
   private async explore(route: string) {
     const queue: string[][] = [[]]
-    const signatures = new Set<string>()
+    const signatures = this.signatures
     const queued = new Set<string>()
     const explored = new Set<string>()
     const enqueue = (path: string[], leadsTo?: string) => {
@@ -458,32 +515,33 @@ export class Crawler {
       const path = queue.shift() as string[]
       let state = await this.reach(route, path)
       if (!state) {
-        this.notes.push(`[${this.viewport}] ${route}: could not reach ${path.join(' › ')} again`)
+        this.unreached.push(`[${this.viewport}] ${where(route, this.view)}: could not reach ${path.join(' › ') || 'the page'} again`)
         continue
       }
       const sig = signature(state.base)
-      if (signatures.has(sig)) continue
+      // The page itself is gone through every time, since the menus and dialogs it opens may hold different controls in another view.
+      if (signatures.has(sig) && path.length > 0) continue
       signatures.add(sig)
       const list = await this.controls()
       const endsWithReveal = path.length > 0 && path.at(-1) !== FILL && !!this.tested.get(path.at(-1) as string)?.revealed
+      // Counted in the state itself: by the end of the loop a dialog with the form may have closed.
+      const fillable = path.at(-1) !== FILL && list.some((c) => c.disabled) ? await this.eval(() => window.__pk.fillable(), 0) : 0
       let dirty = false
-      let anyDisabled = false
       for (const c of list) {
-        if (c.disabled) anyDisabled = true
         const done = this.tested.get(c.key)
         const again = !!done && !c.disabled && ((done.opened && !explored.has(c.key)) || (done.revealed && endsWithReveal && path.length < this.maxDepth))
         if (done && !again) continue
         if (dirty) {
           state = await this.reach(route, path)
           if (!state) {
-            this.notes.push(`[${this.viewport}] ${route}: could not reach ${path.join(' › ') || 'the page'} again`)
+            this.unreached.push(`[${this.viewport}] ${where(route, this.view)}: could not reach ${path.join(' › ') || 'the page'} again`)
             break
           }
           dirty = false
         }
         const fresh = (await this.controls()).find((x) => x.key === c.key)
         if (!fresh) {
-          if (!done) this.notes.push(`[${this.viewport}] ${route}${path.length ? ` › ${path.join(' › ')}` : ''}: ${c.key} went away before it was pressed`)
+          if (!done) this.notes.push(`[${this.viewport}] ${where(route, this.view)}${path.length ? ` › ${path.join(' › ')}` : ''}: ${c.key} went away before it was pressed`)
           continue
         }
         const t = await this.test(route, path, fresh, state)
@@ -499,10 +557,7 @@ export class Crawler {
         }
         dirty = !(await this.restore(state))
       }
-      if (anyDisabled && path.at(-1) !== FILL) {
-        const fillable = await this.eval(() => window.__pk.fillable(), 0)
-        if (fillable > 0) enqueue([...path, FILL])
-      }
+      if (fillable > 0) enqueue([...path, FILL])
     }
   }
 }
@@ -514,9 +569,9 @@ export function failureList(results: Result[]): string {
   const lines: string[] = [`${bad.length} control${bad.length === 1 ? '' : 's'} failed:`]
   let last = ''
   for (const r of bad) {
-    const where = `${r.viewport} ${r.route}${r.via.length ? ` › ${r.via.join(' › ')}` : ''}`
-    if (where !== last) lines.push(`\n  ${where}`)
-    last = where
+    const at = `${r.viewport} ${where(r.route, r.view)}${r.via.length ? ` › ${r.via.join(' › ')}` : ''}`
+    if (at !== last) lines.push(`\n  ${at}`)
+    last = at
     const why = r.status === 'dead' ? 'pressing it did nothing visible' : r.status === 'broken' ? r.problems.join('; ') : r.status === 'could not press' ? r.problems.join('; ') : r.status === 'disabled without a reason' ? 'disabled, but nothing says why' : 'has no accessible name'
     lines.push(`    ✗ ${r.key}: ${why}`)
   }

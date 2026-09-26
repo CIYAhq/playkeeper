@@ -158,8 +158,15 @@
 @keyframes page {
   from {
     opacity: 0;
-    translate: 0 6px;
+    top: 6px;
   }
+}
+/* Pages rise with `top`, not `translate`: a translated page is the containing
+   block of the phone's fixed action bar, which would then sit at the page's
+   bottom edge until the animation ends and jump into place. */
+.animate-page {
+  position: relative;
+  top: 0;
 }
 
 @layer base {

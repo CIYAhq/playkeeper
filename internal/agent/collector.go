@@ -109,7 +109,10 @@ func (s *server) followLoop(ctx context.Context) {
 			}
 			attached = runStart
 		}
-		scanner, err := s.docker.ContainerLogs(ctx, c.ID, docker.LogsOptions{Follow: true, Since: since})
+		// A run that had stopped is read without following, so every line
+		// of this attach is that run's; if the container starts again
+		// meanwhile, the next attach reads the new run as its own.
+		scanner, err := s.docker.ContainerLogs(ctx, c.ID, docker.LogsOptions{Follow: c.State.Running, Since: since})
 		if err != nil {
 			sleepCtx(ctx, 2*time.Second)
 			continue
@@ -231,9 +234,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		}
 	case minecraft.EventReady:
 		s.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
-		// A run that has stopped is not coming up, whatever it logged first; a
-		// line after its end is from the container's next run.
-		if current && (ended.IsZero() || ts.After(ended)) {
+		// A run that had stopped when the follower attached is not coming up,
+		// whatever it logged, even a line Docker stamped after its end.
+		if current && ended.IsZero() {
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
 			s.crashed, s.crash = false, nil
