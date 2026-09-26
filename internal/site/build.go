@@ -410,6 +410,11 @@ func (s *Site) funcs() template.FuncMap {
 			return a, nil
 		},
 		"hasAsset": func(name string) bool { _, ok := s.assets[name]; return ok },
+		// imageSrcset writes a preload's imagesrcset, which html/template
+		// would take for a single URL (its name has "src" in it).
+		"imageSrcset": func(v any) template.HTMLAttr {
+			return template.HTMLAttr(`imagesrcset="` + template.HTMLEscapeString(fmt.Sprint(v)) + `"`)
+		},
 		// shot is a screenshot: shots/<name>.webp, and @2x beside it for
 		// sharp screens when there is one.
 		"shot": func(name string) (map[string]any, error) {

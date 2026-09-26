@@ -526,7 +526,7 @@ main:focus { outline: none; }
 .page-hero-center { text-align: center; }
 .page-hero-center .crumbs ol { justify-content: center; }
 .h1-page { font-size: 56px; letter-spacing: -0.045em; line-height: 1.04; margin: 0 auto 18px; }
-.page-hero-center .h1-page { max-width: 820px; }
+.page-hero-center .h1-page { max-width: 900px; }
 .page-hero-center .lead { max-width: 780px; margin: 0 auto 28px; font-size: 19px; }
 .page-hero-center .hero-actions { justify-content: center; }
 .hero-cta { display: flex; justify-content: center; align-items: center; gap: 12px; }
@@ -1041,3 +1041,22 @@ main:focus { outline: none; }
   .art-joined { margin: -20px 0 0 auto; width: fit-content; }
   .alt-art-ptero .art-terminal { width: auto; margin: -40px 0 0; }
 }
+
+/* ---------- The landing page's product loop (landing.js) ---------- */
+
+.product.is-moving .loop-frame { opacity: 0; transition: opacity 0.5s var(--ease); }
+.product.is-moving .loop-frame.is-on { opacity: 1; }
+.loop-cursor { position: absolute; z-index: 5; left: 70%; top: 86%; width: 24px; height: 24px; background: url("@/img/cursor.svg") no-repeat center / contain; opacity: 0; pointer-events: none; transition: left 1s var(--ease), top 1s var(--ease), opacity 0.3s, transform 0.1s; }
+.product.is-moving .loop-cursor { opacity: 1; }
+.product.is-moving .loop-cursor.away { opacity: 0; }
+.loop-cursor.to-type { left: 30.5%; top: 58%; }
+.loop-cursor.to-copy { left: 80%; top: 11%; }
+.loop-cursor.press { transform: scale(0.84); }
+.product.is-moving .moment { opacity: 0; transform: translateX(12px); transition: opacity 0.32s var(--ease-out), transform 0.32s var(--ease-out); }
+.product.is-moving .moment.is-in { opacity: 1; transform: none; }
+.product.is-moving .moment.is-out { opacity: 0; transform: none; transition: opacity 0.2s ease-out; }
+.product-pip { transition: transform 0.18s var(--ease); }
+.product-pip.is-landing { opacity: 0; transform: translateY(-40px); }
+.product-pip.is-landed { transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s; }
+.product-pip.is-waving { animation: pip-wave 1.2s var(--ease) 1; }
+.product-pip.is-ducking { transform: translateY(14px) scaleY(0.88); }

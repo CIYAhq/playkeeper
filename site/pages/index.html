@@ -30,6 +30,7 @@ preload: loop-overview
           <div class="browser-view">
             {{template "shot" (dict "Name" "loop-new-server" "Alt" "" "Class" "loop-frame f1")}}
             {{template "shot" (dict "Name" "loop-setting-up" "Alt" "" "Class" "loop-frame f2")}}
+            {{template "shot" (dict "Name" "loop-setting-up-2" "Alt" "" "Class" "loop-frame f2b")}}
             {{template "shot" (dict "Name" "loop-overview" "Alt" "The Survival server's Overview in the Playkeeper dashboard: its join address, who's playing, how it's running and the players over the last day." "Class" "loop-frame f3" "Eager" true)}}
             <span class="loop-cursor" aria-hidden="true"></span>
           </div>
@@ -118,7 +119,7 @@ preload: loop-overview
     </div>
     <div class="grid-4 feature-grid">
       {{range $f := list
-        (dict "Page" "/features/mods-and-modpacks" "Demo" "/demo/servers/cobblemon/mods" "Title" "Plugins, mods and modpacks" "Text" (printf "%s server types, add-ons in one click." (countWord typeCount)) "Shot" "feat-modpacks" "Alt" "New server on a phone, starting from a modpack.")
+        (dict "Page" "/features/mods-and-modpacks" "Demo" "/demo/servers/cobblemon/mods" "Title" "Plugins, mods and modpacks" "Text" (printf "%s server types, add-ons in one click." (countWord typeCount)) "Shot" "feat-types" "Alt" "New server on a phone: picking what the server runs.")
         (dict "Page" "/features/free-address" "Demo" "/demo/machines/q7m2vk9xpd/settings" "Title" "A free address" "Text" "Friends join at yourname.playkeeper.io." "Shot" "feat-address" "Alt" "Machine settings on a phone, picking a free playkeeper.io name.")
         (dict "Page" "/features/backups" "Demo" "/demo/servers/survival/world" "Title" "Backups" "Text" "Players stay online while it copies." "Shot" "feat-backups" "Alt" "A server's World tab on a phone, with Back up now and its backups.")
         (dict "Page" "/features/crash-and-lag-help" "Demo" "/demo/servers/cobblemon" "Title" "Crash and lag help" "Text" "What went wrong, and what to do." "Shot" "feat-crash" "Alt" "A crashed server's Overview on a phone, explaining it ran out of memory.")

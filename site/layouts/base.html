@@ -25,7 +25,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate" type="application/atom+xml" title="Playkeeper blog" href="/blog/feed.xml">
 <link rel="stylesheet" href="{{asset "css/site.css"}}">
-{{with .Page.Preload}}{{$s := shot .}}<link rel="preload" as="image" href="{{$s.Src}}"{{with $s.Srcset}} imagesrcset="{{.}}"{{end}} fetchpriority="high">
+{{with .Page.Preload}}{{$s := shot .}}<link rel="preload" as="image" href="{{$s.Src}}"{{with $s.Srcset}} {{imageSrcset .}}{{end}} fetchpriority="high">
 {{end}}<script src="{{asset "js/site.js"}}" defer></script>
 {{range .Page.Scripts}}<script src="{{asset .}}" defer></script>
 {{end}}{{with .Head}}<script type="application/ld+json">{{.}}</script>

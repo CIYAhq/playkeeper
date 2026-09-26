@@ -65,7 +65,7 @@
 {{define "browser"}}
 <figure class="browser{{with .Class}} {{.}}{{end}}">
   <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span class="browser-url">{{template "icon" "lock"}}{{.URL}}</span></div>
-  <div class="browser-view">{{template "shot" .}}</div>
+  <div class="browser-view">{{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}</div>
   {{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}
 </figure>
 {{end}}
@@ -75,7 +75,7 @@
 <div class="phone{{with .Class}} {{.}}{{end}}">
   <div class="phone-screen">
     <div class="phone-status" aria-hidden="true"><span>9:41</span>{{template "icon" "status"}}</div>
-    {{template "shot" .}}
+    {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}
   </div>
 </div>
 {{end}}
@@ -83,7 +83,7 @@
 {{/* card: a screenshot crop in a white card, cropped to one readable part. */}}
 {{define "cardshot"}}
 <figure class="cardshot{{with .Class}} {{.}}{{end}}">
-  {{template "shot" .}}
+  {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}
   {{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}
 </figure>
 {{end}}
