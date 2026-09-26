@@ -12,7 +12,8 @@ import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/c
 import { Skeleton } from '@/components/ui/skeleton'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatBytes, formatCompact, formatMB, relativeTime } from '@/lib/format'
+import { compactCount } from '@/lib/addons'
+import { formatBytes, formatMB, relativeTime } from '@/lib/format'
 import { linkPath } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -186,7 +187,7 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
   const version = card.minecraftVersions[0] ?? ''
   const memory = card.memoryMB ? formatMB(card.memoryMB) : ''
   const facts = phone
-    ? [[typeName(type), version].filter(Boolean).join(' '), memory && t('modpacks.needsPhone', { memory }), formatCompact(card.downloads)]
+    ? [[typeName(type), version].filter(Boolean).join(' '), memory && t('modpacks.needsPhone', { memory }), compactCount(card.downloads)]
     : [version && t('server.minecraft', { version }), card.mods ? t('modpacks.mods', { count: card.mods }) : '']
   return (
     <div className={cn('flex items-center rounded-2xl border transition-[box-shadow,border-color,background-color]', selected ? 'border-primary/55 bg-selected shadow-selected' : 'border-border bg-card hover:border-input', card.unavailable && 'opacity-60')}>
@@ -210,7 +211,7 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
         {!phone && (
           <span className="shrink-0 pl-3 text-right">
             {memory && <span className="block text-[13px] font-semibold">{t('modpacks.needs', { memory })}</span>}
-            <span className="block text-xs text-muted-foreground">{t('modpacks.downloads', { count: formatCompact(card.downloads) })}</span>
+            <span className="block text-xs text-muted-foreground">{t('modpacks.downloads', { count: compactCount(card.downloads) })}</span>
           </span>
         )}
       </button>

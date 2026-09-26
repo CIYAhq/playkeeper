@@ -460,7 +460,7 @@ function Console({ server: s }: { server: ServerStatus }) {
         {form}
         <p className="text-xs text-muted-foreground">{t('console.help')}</p>
       </div>
-      <Card className="self-start max-xl:hidden">
+      <Card className="max-xl:hidden">
         <CardTitle>{t('console.quick')}</CardTitle>
         <ul className="mt-3 flex flex-col gap-2">
           {quick.map((q) => (

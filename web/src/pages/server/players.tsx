@@ -445,7 +445,7 @@ function EmptyPlayers({ server: s, address, form, phone }: { server: ServerStatu
       <h2 className="mt-5 text-title font-extrabold tracking-[-0.015em] max-sm:text-[22px]">{t('players.emptyTitle')}</h2>
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('players.emptyBody')}</p>
       <div className="mt-5 w-full max-w-[420px] text-left">
-        <AddPlayer server={s} form={form} placeholder={t('players.emptyPlaceholder')} big />
+        <AddPlayer server={s} form={form} placeholder={phone ? t('players.namePlaceholderShort') : t('players.emptyPlaceholder')} iconButton={phone} big />
       </div>
       <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
         {t('players.theirAddress')}

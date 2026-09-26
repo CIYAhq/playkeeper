@@ -1993,6 +1993,7 @@ export const en = {
   'template.packs.both': { one: '{name} and 1 data pack', other: '{name} and {count} data packs' },
   'template.packs.data': { one: '1 data pack', other: '{count} data packs' },
   'template.drop': 'Drop a template file here',
+  'template.chooseFile': 'Choose a template file',
   'template.reading': 'Reading the template…',
   'template.readError': 'Couldn’t read this template',
   'template.checkAgain': 'Check it again, then continue.',

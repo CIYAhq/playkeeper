@@ -159,7 +159,7 @@ export function RunningPage({ server: s }: { server: ServerStatus }) {
       ) : (
         <LineChart
           className="mt-3"
-          plotClassName={phone ? 'h-[58px]' : 'h-[88px]'}
+          plotClassName={phone ? 'h-[58px]' : 'h-[115px]'}
           values={c.values}
           max={c.axis.max}
           bad={c.isBad}
