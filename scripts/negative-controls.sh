@@ -3005,6 +3005,26 @@ control "the last use of a link goes to one friend" internal/panel/friends.go \
   'AND (max_uses = 0 OR uses < max_uses)' \
   'AND (max_uses = 0 OR 1)' \
   ./internal/panel '^TestTheLastUseGoesToOneFriend$' 3
+control "a server has at most 20 friend links that work" internal/panel/friends.go \
+  'if working >= invites.MaxWorkingPlayerInvites {' \
+  'if false && working >= invites.MaxWorkingPlayerInvites {' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
+control "a friend link turned off makes room for another" internal/panel/friends.go \
+  'AND server_id = ? AND revoked_at = 0
+			AND (expires_at' \
+  'AND server_id = ?
+			AND (expires_at' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
+control "an expired friend link makes room for another" internal/panel/friends.go \
+  'revoked_at = 0
+			AND (expires_at = 0 OR expires_at > ?)' \
+  'revoked_at = 0
+			AND (expires_at = 0 OR expires_at > ? OR 1)' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
+control "a used-up friend link makes room for another" internal/panel/friends.go \
+  '			AND (expires_at = 0 OR expires_at > ?) AND (max_uses = 0 OR uses < max_uses)' \
+  '			AND (expires_at = 0 OR expires_at > ?) AND (max_uses = 0 OR uses <= max_uses)' \
+  ./internal/panel '^TestFriendLinksThatWorkAreCappedPerServer$'
 control "one join request per player" internal/panel/join.go \
   'if waiting > 0 {' \
   'if false && waiting > 0 {' \
