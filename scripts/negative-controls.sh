@@ -3527,6 +3527,20 @@ control "a copy queue that can't be read is an error" internal/agent/backuprules
 	}
 	defer rows.Close()' \
   ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_copy_queue_can.t_be_read$'
+control "the catalog sizes memory for what the server runs, not always vanilla" internal/agent/handlers.go \
+  'Sizing: memorySizing(a.catalogWorkload(forServer, typ, mods), opts),' \
+  'Sizing: memorySizing(sizing.Vanilla, opts),' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a new server from a pack is sized by the pack's mods" internal/agent/handlers.go \
+  'if mods >= 0 {
+		return sizing.WorkloadFor(mods, 0)' \
+  'if false && mods >= 0 {
+		return sizing.WorkloadFor(mods, 0)' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "an existing server's plugins count as plugins and its mods as mods" internal/agent/handlers.go \
+  'if addonDir(*sc) == "plugins" {' \
+  'if addonDir(*sc) != "plugins" {' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

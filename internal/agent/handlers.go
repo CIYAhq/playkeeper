@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
@@ -74,12 +75,37 @@ func (a *Agent) hMachine(w http.ResponseWriter, r *http.Request) {
 // catalogInfo is what a server can choose: for a new server when forServer
 // is empty, or for an existing one's settings.
 func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
-	return a.catalogFor(ctx, forServer, "")
+	return a.catalogFor(ctx, forServer, "", -1)
+}
+
+// catalogWorkload is what the sizing guide sizes a catalog's memory options
+// for, by sizing.WorkloadFor: an existing server by the plugins or mods in
+// its folder, a new server from a pack by the pack's mods (mods, or -1 when
+// there's no pack or it didn't say), and any other new server by what its
+// type runs, a mod loader as a handful of mods.
+func (a *Agent) catalogWorkload(forServer, typ string, mods int) sizing.Workload {
+	if s := a.serverByID(forServer); s != nil {
+		if sc, _ := s.serverConfig(); sc != nil {
+			n := len(s.addons(*sc))
+			if addonDir(*sc) == "plugins" {
+				return sizing.WorkloadFor(0, n)
+			}
+			return sizing.WorkloadFor(n, 0)
+		}
+	}
+	if mods >= 0 {
+		return sizing.WorkloadFor(mods, 0)
+	}
+	if t, err := addons.TargetFor(typ); err == nil && t.Kind == "mod" {
+		return sizing.AddOns
+	}
+	return sizing.Vanilla
 }
 
 // catalogFor is catalogInfo with the versions of one server type: typ, or
-// the server's own type, or Paper.
-func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catalog {
+// the server's own type, or Paper. mods is the number of mods a new server's
+// pack brings, or -1.
+func (a *Agent) catalogFor(ctx context.Context, forServer, typ string, mods int) api.Catalog {
 	if typ == "" {
 		typ = api.TypePaper
 		if s := a.serverByID(forServer); s != nil {
@@ -97,7 +123,7 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catal
 		Type: typ, Types: serverTypes(), Versions: []api.CatalogEntry{},
 		MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max,
 		SystemReserveMB: minecraft.HostReserveMB, MemoryFreeMB: max, Servers: []api.ServerMemory{}, Image: minecraft.ImageTag,
-		Sizing: memorySizing(sizing.Vanilla, opts),
+		Sizing: memorySizing(a.catalogWorkload(forServer, typ, mods), opts),
 	}
 	for _, s := range a.serverList() {
 		sc, _ := s.serverConfig()
@@ -164,7 +190,16 @@ func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
-	writeJSON(w, http.StatusOK, a.catalogFor(r.Context(), forServer, typ))
+	mods := -1
+	if v := r.URL.Query().Get("mods"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 100000 {
+			writeError(w, errInvalid("A pack's number of mods must be a whole number."))
+			return
+		}
+		mods = n
+	}
+	writeJSON(w, http.StatusOK, a.catalogFor(r.Context(), forServer, typ, mods))
 }
 
 // Status assembles the server's desired and observed state. Nothing here is
