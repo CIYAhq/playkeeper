@@ -832,6 +832,12 @@ const (
 	followerGrace = 20 * time.Second
 )
 
+// stoppedCleanly reports whether the run that ended logged a clean shutdown.
+// A crashing server logs "Stopping server" too, after the error, so that
+// alone isn't one. The reconcile loop and Discord's live status both go by
+// this. The caller holds s.mu.
+func (s *server) stoppedCleanly() bool { return s.sawStopping && !s.sawCrash }
+
 func (s *server) reconcile(ctx context.Context) {
 	if s.busy() {
 		return
@@ -865,8 +871,7 @@ func (s *server) reconcile(ctx context.Context) {
 	handled := ok && last.Equal(fin)
 	ended := s.followEnded[c.ID]
 	intentional := s.intentional[c.ID]
-	// A crashing server logs "Stopping server" too, after the error.
-	graceful := s.sawStopping && !s.sawCrash
+	graceful := s.stoppedCleanly()
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()

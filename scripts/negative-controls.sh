@@ -187,8 +187,8 @@ control "nether and end folders missing beside the world don't void a chunk coun
   'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
-  'graceful := s.sawStopping && !s.sawCrash' \
-  'graceful := s.sawStopping' \
+  'return s.sawStopping && !s.sawCrash' \
+  'return s.sawStopping' \
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
 control "a log line Docker sends again changes nothing" internal/agent/collector.go \
   'if mark.next(c.ID, runStart, l) {' \
@@ -1799,9 +1799,13 @@ control "Discord shows a crash the reconcile loop has yet to count" internal/age
   'crashed := s.crashed || false && err == nil && !busy && s.pendingCrash(c)' \
   ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
 control "a clean shutdown the reconcile loop has yet to handle is not a crash" internal/agent/discord.go \
-  '&& !s.intentional[c.ID] && !s.sawStopping' \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
   '&& !s.intentional[c.ID]' \
   ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "the live status tells a clean stop from a crash as the reconcile loop does" internal/agent/discord.go \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
+  '&& !s.intentional[c.ID] && !s.sawStopping' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash_that_logged_a_shutdown,_before_the_reconcile_loop_sees_it$'
 control "Discord hears a server come online" internal/agent/collector.go \
   '} else if fresh {' \
   '} else if false && fresh {' \
