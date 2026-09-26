@@ -199,6 +199,10 @@ webcontrol "the activity says a previous world was put back after Playkeeper res
   "return t('activity.putBack', { server })" \
   "return t('activity.restored', { server })" \
   web/src/lib/lib.test.ts 'what Playkeeper did after it restarted'
+webcontrol "a long activity line shortens instead of widening the page" web/src/components/app/activity.tsx \
+  '<span className="w-0 flex-1 truncate">' \
+  '<span className="min-w-0 flex-1 truncate">' \
+  web/src/pages/pages.test.tsx 'long activity line'
 control "one admin from concurrent setups" internal/panel/auth.go \
   'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
   'SELECT ?, ?, ?, ?' \
