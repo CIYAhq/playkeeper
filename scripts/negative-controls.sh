@@ -658,6 +658,21 @@ control "a remove-and-start keeps the crash until its start goes ahead" internal
   'op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
   'if req.Start { s.forgetCrashes() }; op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
   ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
+control "a start refused for a restore keeps the crash" internal/agent/handlers.go \
+  '	h.askedFor = true
+' \
+  '	h.askedFor = true
+	s.forgetCrashes()
+' \
+  ./internal/agent '^TestAStartForgetsTheCrashOnlyOnceItGoesAhead$'
+control "a start that goes ahead forgets the crash" internal/agent/lifecycle.go \
+  '	if h.askedFor {
+		s.forgetCrashes()
+	}' \
+  '	if false {
+		s.forgetCrashes()
+	}' \
+  ./internal/agent '^TestAStartForgetsTheCrashOnlyOnceItGoesAhead$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
@@ -3081,17 +3096,21 @@ control "each mod keeps more memory outside the heap" internal/minecraft/catalog
   'overhead = max(overhead, min(base+modOverheadMB*0, budgetMB/2))' \
   ./internal/minecraft '^TestHeapForModLoaders$'
 control "a start sizes a mod loader's heap for the mods it has" internal/agent/lifecycle.go \
-  'if err := s.sizeHeap(ctx, &sc); err != nil {' \
+  'if err := s.sizeHeap(&sc); err != nil {' \
   'if false {' \
   ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
 control "the container runs the heap sized for its mods" internal/agent/lifecycle.go \
   '"MEMORY="+strconv.Itoa(heapMB(sc))+"M",' \
   '"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",' \
   ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
-control "a start leaves a running mod loader and its heap alone" internal/agent/heap.go \
-  'if _, running, err := s.containerRunning(ctx); err == nil && running {' \
-  'if _, running, err := s.containerRunning(ctx); err == nil && running && false {' \
-  ./internal/agent '^TestAStartLeavesARunningModLoaderAndItsHeapAlone$'
+control "a start leaves a running mod loader and its heap alone" internal/agent/lifecycle.go \
+  'if !(err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash) {' \
+  'if true {' \
+  ./internal/agent '^(TestAStartLeavesARunningModLoaderAndItsHeapAlone|TestAStartSizesTheHeapOfEveryContainerItMakes)$'
+control "a start sizes the heap of a running mod loader it recreates" internal/agent/lifecycle.go \
+  'if !(err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash) {' \
+  'if !(err == nil && c.State.Running) {' \
+  ./internal/agent '^TestAStartSizesTheHeapOfEveryContainerItMakes$'
 control "a save with the same memory budget leaves the heap alone" internal/agent/handlers.go \
   'memoryChanged = true
 			sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))
@@ -3755,8 +3774,10 @@ control "a joined machine's servers still show when their record can't be writte
   'return nil' \
   ./internal/panel '^TestAJoinedMachinesServersShowWhenTheirRecordCantBeWritten$'
 control "a joined machine's server whose record isn't saved goes to no machine, not the dashboard's own" internal/panel/workspace.go \
-  'if joinedListed && !s.listings.has(local.ID, serverID) {' \
-  'if false && joinedListed && !s.listings.has(local.ID, serverID) {' \
+  'case joinedListed:
+		return machine{}, errServerMachine' \
+  'case false && joinedListed:
+		return machine{}, errServerMachine' \
   ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
 control "a failed claim never shows another machine's server" internal/panel/machines.go \
   'case rec.machineID != m.ID:
@@ -3764,6 +3785,94 @@ control "a failed claim never shows another machine's server" internal/panel/mac
   'case false && rec.machineID != m.ID:
 			continue' \
   ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
+control "every change on a joined machine names who makes it" internal/panel/server.go \
+  'return machinelink.WithActor(ctx, actor)' \
+  'return ctx' \
+  ./internal/panel '^TestEveryChangeOnAMachineNamesWhoMakesIt$'
+control "a join request's alert names its server for the dashboard's agent" internal/panel/friends.go \
+  'ServerName: serverName,' \
+  '' \
+  ./internal/panel '^TestEveryChangeOnAMachineNamesWhoMakesIt$'
+control "the dashboard's agent posts a joined machine's join request" internal/agent/discord.go \
+  'if err != nil || !reServerID.MatchString(req.ServerID) {' \
+  'if true || err != nil || !reServerID.MatchString(req.ServerID) {' \
+  ./internal/agent '^TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName$'
+control "a joined machine's server name is checked before it's posted" internal/agent/discord.go \
+  'name, err := validName(req.ServerName)' \
+  'name, err := req.ServerName, error(nil)' \
+  ./internal/agent '^TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName$'
+control "a listing claimed after its machine was removed changes nothing" internal/panel/machines.go \
+  'case revoked != 0:
+			return errMachineGone' \
+  'case false && revoked != 0:
+			return errMachineGone' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a server made while a listing was on its way keeps its record" internal/panel/machines.go \
+  'WHERE machine_id = ? AND seen_at <= ?' \
+  'WHERE machine_id = ? AND seen_at <= ? + 1e15' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a removed machine's server goes to no machine, not the dashboard's own" internal/panel/workspace.go \
+  'case recorded:
+		return machine{}, errNotFound' \
+  'case false && recorded:
+		return machine{}, errNotFound' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
+  'case owner != m.ID && !ownerActive:' \
+  'case false && owner != m.ID && !ownerActive:' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "every server in the list has its own slug" internal/panel/workspace.go \
+  'uniqueSlugs(out)' \
+  '' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "a duplicate's number skips slugs another server has" internal/panel/workspace.go \
+  'if next := fmt.Sprintf("%s-%d", slug, i); !taken[next] {' \
+  'if next := fmt.Sprintf("%s-%d", slug, i); true {' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "a joined machine that can't answer holds up no team change" internal/panel/join.go \
+  'all, _, err := s.allServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]serverRef, 0, len(all))
+	for _, sv := range all {
+		id, _ := sv["id"].(string)
+		name, _ := sv["name"].(string)
+		out = append(out, serverRef{ID: id, Name: name})
+	}
+	return out, nil' \
+  'list, err := s.machines()
+	if err != nil {
+		return nil, err
+	}
+	var out []serverRef
+	for _, m := range list {
+		var servers []serverRef
+		if _, err := m.agent.Do(ctx, "GET", "/v1/servers", nil, nil, &servers); err != nil {
+			return nil, err
+		}
+		out = append(out, servers...)
+	}
+	return out, nil' \
+  ./internal/panel '^TestAMachineThatCantAnswerHoldsUpNoTeamChange$'
+control "taking a member's rights away never waits for a machine" internal/panel/team.go \
+  'case !invites.Narrows(t.Account, req.Role, req.Servers):' \
+  'case true:' \
+  ./internal/panel '^TestAMachineThatCantAnswerHoldsUpNoTeamChange$'
+control "an away machine's servers are never shown as none when they can't be read" internal/panel/workspace.go \
+  'known, err := s.lastKnownServers(m)
+			if err != nil {' \
+  'known, err := s.lastKnownServers(m)
+			if false && err != nil {' \
+  ./internal/panel '^TestAnAwayMachinesServersAreNeverShownAsNone$'
+control "a removed machine's servers show nowhere as servers" internal/panel/workspace.go \
+  'WHERE revoked_at = 0 ORDER BY kind != ?, created_at, id' \
+  'WHERE revoked_at >= 0 ORDER BY kind != ?, created_at, id' \
+  ./internal/panel '^TestARemovedMachinesServersShowNowhere$'
+control "a server made on a machine doesn't take a removed machine's server" internal/panel/machines.go \
+  'INSERT OR IGNORE INTO server_machines(server_id, machine_id, seen_at) VALUES(?,?,?)' \
+  'INSERT OR REPLACE INTO server_machines(server_id, machine_id, seen_at) VALUES(?,?,?)' \
+  ./internal/panel '^TestARemovedMachinesServersShowNowhere$'
 
 # Forge: every file its installer writes is checked against Forge's own
 # hashes, its builds and heap follow Forge's lists and a mod loader's needs,

@@ -548,6 +548,96 @@ func TestAStartThatDoesNotGoAheadKeepsTheCrash(t *testing.T) {
 	}
 }
 
+// A Start someone asks for starts the crash policy over only once it goes
+// ahead. One refused for a restore that isn't finished, for the world folder
+// a restore left missing, for another job or during an update keeps the
+// crash card, the crash count and the wait before the next automatic start;
+// one that goes ahead forgets them.
+func TestAStartForgetsTheCrashOnlyOnceItGoesAhead(t *testing.T) {
+	stopped := func(t *testing.T, e *agentEnv) {
+		e.create()
+		if op := e.runOp("POST", "/stop"); op.Status != api.OpSucceeded {
+			t.Fatalf("stop: %+v", op)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		// setup says whether the start is accepted as an operation (true) or
+		// refused before it (409).
+		setup func(t *testing.T, e *agentEnv) (accepted bool)
+		// errorKind is how an accepted start fails; "" for one that goes ahead.
+		errorKind string
+		kept      bool
+	}{
+		{"a restore that isn't finished", func(t *testing.T, e *agentEnv) bool {
+			_, aside := restoreLeftUnsettled(t, e)
+			e.failConfigSaves()
+			if err := os.Rename(aside, e.dataDir()); err != nil {
+				t.Fatal(err)
+			}
+			return true
+		}, codeRestoreUnsettled, true},
+		{"the world folder a restore left missing", func(t *testing.T, e *agentEnv) bool {
+			restoreLeftUnsettled(t, e)
+			return true
+		}, "world_missing", true},
+		{"another job", func(t *testing.T, e *agentEnv) bool {
+			e.create()
+			release, ok := e.srv().holdOpLock()
+			if !ok {
+				t.Fatal("the operation lock is taken")
+			}
+			t.Cleanup(release)
+			return false
+		}, "", true},
+		{"an update", func(t *testing.T, e *agentEnv) bool {
+			stopped(t, e)
+			e.a.upd.mu.Lock()
+			e.a.upd.installing = "0.4.1"
+			e.a.upd.mu.Unlock()
+			return false
+		}, "", true},
+		{"nothing: the start goes ahead", func(t *testing.T, e *agentEnv) bool {
+			stopped(t, e)
+			return true
+		}, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) {
+				e.tweak = func(o *Options) { o.ReconcileInterval = time.Hour }
+			})
+			e.withSources()
+			accepted := tc.setup(t, e)
+			s := e.srv()
+			crash, next := &api.Crash{Kind: "heap_out_of_memory", Title: "Your Paper server ran out of memory"}, time.Now().Add(time.Hour)
+			s.mu.Lock()
+			s.crash, s.crashes, s.crashed, s.nextAutoRestart = crash, []time.Time{time.Now()}, true, next
+			s.mu.Unlock()
+
+			code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+			switch {
+			case accepted && code == 202:
+				op := e.waitOp(out["id"].(string))
+				if tc.errorKind == "" && op.Status != api.OpSucceeded || tc.errorKind != "" && (op.Status != api.OpFailed || op.Detail["errorKind"] != tc.errorKind) {
+					t.Fatalf("the start: %+v, want error kind %q", op, tc.errorKind)
+				}
+			case !accepted && code == 409:
+			default:
+				t.Fatalf("start: %d %v", code, out)
+			}
+			s.mu.Lock()
+			c, n, at := s.crash, len(s.crashes), s.nextAutoRestart
+			s.mu.Unlock()
+			if tc.kept && (c != crash || n != 1 || !at.Equal(next)) {
+				t.Fatalf("after the refused start: crash %v, %d counted, next automatic start %v; want them kept", c, n, at)
+			}
+			if !tc.kept && (c != nil || n != 0 || !at.IsZero()) {
+				t.Fatalf("after the start: crash %v, %d counted, next automatic start %v; want them forgotten", c, n, at)
+			}
+		})
+	}
+}
+
 // Removing an add-on takes a jar file name, only for a jar directly in the
 // server's plugin folder and never through a symlink, and moves it aside
 // where the owner can find it.

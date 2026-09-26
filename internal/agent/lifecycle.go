@@ -38,6 +38,9 @@ type opHandle struct {
 	cancel      context.CancelFunc
 	cancellable bool
 	cancelled   bool
+	// askedFor is set by a start someone asked for (startNow): startServer
+	// starts the crash policy over once the start is past every refusal.
+	askedFor bool
 }
 
 // allowCancel lets the operation be cancelled until it commits.
@@ -662,6 +665,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		markRestoreRefusal(h, err)
 		return err
 	}
+	if h.askedFor {
+		s.forgetCrashes()
+	}
 	if err := s.ensureOriginalSaved(h, sc); err != nil {
 		return err
 	}
@@ -689,16 +695,19 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
-	if err := s.sizeHeap(ctx, &sc); err != nil {
-		return err
-	}
 	if err := s.writeMapConfig(); err != nil {
 		return err
 	}
-	pastFiles = true
 	name := s.containerName()
 	c, err := s.docker.ContainerInspect(ctx, name)
 	spec, hash := s.containerSpec(sc, false, c.Config.Env)
+	if !(err == nil && c.State.Running && c.Config.Labels[labelSpec] == hash) {
+		if err := s.sizeHeap(&sc); err != nil {
+			return err
+		}
+		spec, hash = s.containerSpec(sc, false, c.Config.Env)
+	}
+	pastFiles = true
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
 		return &apiError{Msg: "A container named " + name + " exists but was not created by Playkeeper.", Hint: "Playkeeper will not touch it. Rename or remove that container, then press Start."}

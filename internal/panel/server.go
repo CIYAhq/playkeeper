@@ -1169,6 +1169,13 @@ func (s *Server) forwardThen(method, pattern string, then func(machine, *session
 	return s.forwardTo(method, pattern, false, then)
 }
 
+// asActor is ctx for requests to a machine's agent made on actor's behalf. A
+// machine link refuses a change that names no actor, so every request that
+// changes something on a machine goes with one.
+func asActor(ctx context.Context, actor string) context.Context {
+	return machinelink.WithActor(ctx, actor)
+}
+
 // forwardTo is forward, also stamping panelHost when withHost is set and
 // calling then (if set) after a request that succeeded. What the panel stamps
 // replaces anything the browser sent under the same name.
@@ -1178,7 +1185,7 @@ func (s *Server) forwardTo(method, pattern string, withHost bool, then func(mach
 		if !ok {
 			return
 		}
-		ctx := machinelink.WithActor(r.Context(), sess.User.Username)
+		ctx := asActor(r.Context(), sess.User.Username)
 		path := agentPath(pattern, r)
 		// The host the dashboard was opened with is its own machine's
 		// address: a joined machine would point its name at the dashboard.

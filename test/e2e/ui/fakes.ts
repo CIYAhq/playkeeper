@@ -1315,9 +1315,9 @@ function server(view: View, s: Json): Json {
       return { ...s, operation: { id: 'fake-op-busy', serverId: s.id, kind: 'backup', status: 'running', phase: 'copying', actor: 'admin', startedAt: ago(20) } }
     case 'empty lists':
       return { ...s, players: s.players ? { ...(s.players as Json), online: 0, names: [] } : undefined }
-    case 'live':
     case 'asleep':
       return { ...stopped(s), desired: 'running', phase: 'asleep', sleep: { enabled: true, idleMinutes: 30, asleepSince: ago(40 * 60), listening: true } }
+    case 'live':
     case 'no servers':
     case 'update available':
     case 'space to free':
