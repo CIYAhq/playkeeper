@@ -88,6 +88,16 @@ func TestPackClientRefusesPrivateAddresses(t *testing.T) {
 	}
 }
 
+// Through a proxy, the dialer would check the proxy's address instead of
+// the pack host's. A Transport's nil Proxy means none, whatever
+// HTTPS_PROXY says.
+func TestPackClientUsesNoProxy(t *testing.T) {
+	tr, ok := PackClient().Transport.(httpsOnly).rt.(*http.Transport)
+	if !ok || tr.Proxy != nil {
+		t.Fatalf("the pack client's transport must not use a proxy: %+v", tr)
+	}
+}
+
 func TestPackClientRefusesPlainHTTP(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(counting(&hits))
