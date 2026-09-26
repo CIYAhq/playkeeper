@@ -736,6 +736,65 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 	}
 }
 
+// A start that fails leaves nothing answering for a sleeping server, which
+// isn't asleep any more: the start left it stopped. Wake up now and Start
+// both start it this way.
+func TestAFailedStartLeavesNothingAnsweringForTheServer(t *testing.T) {
+	cases := []struct {
+		name string
+		// fail makes the start fail, and returns what undoes it.
+		fail func(e *agentEnv) func()
+	}{
+		{name: "the image can't be pulled", fail: func(e *agentEnv) func() {
+			e.fd.mu.Lock()
+			e.fd.down = "/images/"
+			e.fd.mu.Unlock()
+			return func() {
+				e.fd.mu.Lock()
+				e.fd.down = ""
+				e.fd.mu.Unlock()
+			}
+		}},
+		{name: "the server software changed", fail: func(e *agentEnv) func() {
+			s := e.srv()
+			sc, _ := s.serverConfig()
+			if err := os.WriteFile(s.jarPath(*sc), []byte("tampered"), 0o644); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {}
+		}},
+		{name: "the container can't start", fail: func(e *agentEnv) func() {
+			e.fd.mu.Lock()
+			e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+			e.fd.mu.Unlock()
+			return func() {
+				e.fd.mu.Lock()
+				e.fd.startErr = ""
+				e.fd.mu.Unlock()
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			e.putToSleep()
+			undo := c.fail(e)
+			op := e.runOp("POST", "/start")
+			undo()
+			s := e.srv()
+			s.auto.mu.Lock()
+			m := s.auto.standIn
+			s.auto.mu.Unlock()
+			desired, listening := s.desired(), m != nil && m.Listening()
+			open := e.countRows(`SELECT COUNT(*) FROM sleep_periods WHERE end_ts IS NULL`)
+			if op.Status != api.OpFailed || desired != api.DesiredStopped || listening || open != 0 {
+				t.Fatalf("after the failed start (%s): desired %s, stand-in listening %v, %d sleep periods open; want it stopped with nothing answering", op.Error, desired, listening, open)
+			}
+		})
+	}
+}
+
 // A running map pre-generation keeps an empty server awake, as an operation
 // does, so it sleeps once the task is paused or over. Until Chunky reports
 // on the task, as after the agent starts, the task runs unless it was
