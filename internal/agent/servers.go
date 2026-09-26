@@ -68,6 +68,7 @@ type server struct {
 	runStartedAt    time.Time
 	sawStopping     bool
 	sawCrash        bool
+	crashLineAt     time.Time // when this run first logged that the server gave up
 	lastError       string
 	lastErrorHint   string
 	refusal         *api.FileRefusal

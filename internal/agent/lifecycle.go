@@ -707,7 +707,7 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 	reported := ""
 	for {
 		s.mu.Lock()
-		phase, lastErr, hint := s.runPhase, s.lastError, s.lastErrorHint
+		phase, lastErr, hint, gaveUp := s.runPhase, s.lastError, s.lastErrorHint, s.crashLineAt
 		s.mu.Unlock()
 		if phase == api.PhaseOnline {
 			h.phase(string(api.PhaseOnline))
@@ -718,6 +718,15 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 			h.phase(reported)
 		}
 		c, err := s.docker.ContainerInspect(ctx, id)
+		// Forge logs that the server failed to start when a mod fails in its
+		// setup, then keeps running without ever starting.
+		if err == nil && c.State.Running && !gaveUp.IsZero() && s.now().Sub(gaveUp) >= hungStartWait {
+			s.log.Warn("the server gave up starting but kept running; stopping it", "server", s.id)
+			if err := s.docker.ContainerStop(ctx, id, 10*time.Second); err != nil && !docker.IsNotFound(err) {
+				return s.dockerErr(err)
+			}
+			c, err = s.docker.ContainerInspect(ctx, id)
+		}
 		if err == nil && !c.State.Running {
 			// This start reports the exit; the reconcile loop must not count
 			// it a second time as a crash.
@@ -748,6 +757,10 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 		}
 	}
 }
+
+// hungStartWait is how long a start waits for a server that logged it gave
+// up to exit on its own; tests shorten it.
+var hungStartWait = 20 * time.Second
 
 // waitOnline waits until the server is online. startServer returns at once
 // for a container that was already running, which after an agent restart may
@@ -822,7 +835,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping, s.sawCrash = false, false
+	s.sawStopping, s.sawCrash, s.crashLineAt = false, false, time.Time{}
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }

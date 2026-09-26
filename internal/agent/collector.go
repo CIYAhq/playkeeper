@@ -184,7 +184,7 @@ func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
 		return
 	}
 	s.runStartedAt = runStart
-	s.sawStopping, s.sawCrash = false, false
+	s.sawStopping, s.sawCrash, s.crashLineAt = false, false, time.Time{}
 	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
 		s.runPhase = api.PhaseStartingContainer
 	}
@@ -295,6 +295,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		if current {
 			s.mu.Lock()
 			s.sawCrash = true
+			if s.crashLineAt.IsZero() {
+				s.crashLineAt = s.now()
+			}
 			s.mu.Unlock()
 		}
 	case minecraft.EventOOM:
