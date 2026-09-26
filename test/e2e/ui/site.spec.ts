@@ -80,3 +80,53 @@ test("the Pterodactyl page's hero on a phone: its terminal under the words, and 
   expect(terminal!.y, 'the terminal starts below the hero link').toBeGreaterThanOrEqual(link!.y + link!.height)
   await ctx.close()
 })
+
+/** Where the header's Install left the visitor: the page, its hash and state, and whether install instructions are in view. */
+async function afterInstall(page: Page, click = true) {
+  if (click) await page.locator('header .btn-install').first().click()
+  await page.waitForLoadState('networkidle')
+  await page.waitForTimeout(700)
+  return page.evaluate(() => {
+    const own = document.getElementById('install')
+    const box = own && !own.closest('[hidden]') ? own.getBoundingClientRect() : null
+    return {
+      path: location.pathname,
+      hash: location.hash,
+      state: document.body.getAttribute('data-state'),
+      inView: !!box && box.width > 0 && box.height > 0 && box.top < window.innerHeight && box.bottom > 0,
+    }
+  })
+}
+
+type Landing = Awaited<ReturnType<typeof afterInstall>>
+
+/** Install worked: install instructions in view, and on a share page with a template, the template still there. */
+function landed(o: Landing, from: 'empty' | 'template', hash = ''): boolean {
+  return o.inView && (from === 'empty' ? o.path === '/' : o.path === '/t' && o.state === 'ready' && o.hash === hash)
+}
+
+for (const size of sizes) {
+  test(`the share page's Install lands on install instructions you can see, at ${size.name} size`, async ({ browser, baseURL }) => {
+    const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile })
+    const page = await ctx.newPage()
+    // No template, as with a bad or cut-off link: the landing page's install command.
+    await page.goto('/t', { waitUntil: 'networkidle' })
+    expect(landed(await afterInstall(page), 'empty'), 'Install on /t with no template').toBe(true)
+    // A template: the share page's own install command, with the template kept.
+    const hash = '#' + fs.readFileSync('../../../internal/templates/testdata/share-link.txt', 'utf8').trim().split('#')[1]
+    await page.goto('/t' + hash, { waitUntil: 'networkidle' })
+    expect(landed(await afterInstall(page), 'template', hash), 'Install on /t with a template').toBe(true)
+    // Negative controls, the old #install link: on the empty page it reads
+    // "install" as a template and says the link is damaged; with a template,
+    // it replaces the template the same way. The check catches both.
+    await page.goto('/t', { waitUntil: 'networkidle' })
+    await page.evaluate(() => document.querySelectorAll('[data-install-link]').forEach((a) => a.setAttribute('href', '#install')))
+    const oldEmpty = await afterInstall(page)
+    expect(oldEmpty.state, 'the old link on the empty page').toBe('damaged')
+    expect(landed(oldEmpty, 'empty'), 'the check catches the old link on the empty page').toBe(false)
+    await page.goto('/t' + hash, { waitUntil: 'networkidle' })
+    await page.evaluate(() => { location.hash = '#install' })
+    expect(landed(await afterInstall(page, false), 'template', hash), 'the check catches the old link replacing the template').toBe(false)
+    await ctx.close()
+  })
+}

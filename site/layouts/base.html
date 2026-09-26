@@ -46,8 +46,10 @@
 {{end}}
 
 {{/* Where the header's Install goes: the page's own install command when it
-     has one, else the install docs. */}}
-{{define "install-href"}}{{if or (ne .Page.Closing "none") (eq .Page.Path "/t")}}#install{{else}}/docs/install{{end}}{{end}}
+     has one, else the install docs. The share page's address holds its
+     template after #, so its Install goes to the landing page's, and js/t.js
+     scrolls to the page's own while it shows. */}}
+{{define "install-href"}}{{if eq .Page.Path "/t"}}/#install{{else if ne .Page.Closing "none"}}#install{{else}}/docs/install{{end}}{{end}}
 
 {{define "header"}}
 <header class="site-header" data-header>
@@ -73,7 +75,7 @@
     <div class="header-actions">
       <a class="nav-link nav-demo" href="/demo/">Live demo</a>
       <a class="btn btn-outline btn-star" href="{{.Settings.Repo}}"{{if ne .Page.Path "/t"}} data-stars="{{.Settings.StarsFrom}}"{{end}}>{{template "icon" "star"}}<span>Star on GitHub</span><span class="star-count" data-star-count hidden></span></a>
-      <a class="btn btn-primary btn-install" href="{{template "install-href" .}}">{{template "icon" "download"}}<span>Install</span></a>
+      <a class="btn btn-primary btn-install" href="{{template "install-href" .}}" data-install-link>{{template "icon" "download"}}<span>Install</span></a>
       <button type="button" class="menu-button" popovertarget="phone-menu" aria-label="Menu">{{template "icon" "menu"}}</button>
     </div>
   </div>
@@ -95,7 +97,7 @@
       <a class="phone-nav-link" href="/demo/">Live demo</a>
       <a class="phone-nav-link" href="{{.Settings.Repo}}">Star on GitHub</a>
     </nav>
-    <a class="btn btn-primary btn-block" href="{{template "install-href" .}}" data-close-menu>{{template "icon" "download"}}<span>Install</span></a>
+    <a class="btn btn-primary btn-block" href="{{template "install-href" .}}" data-close-menu data-install-link>{{template "icon" "download"}}<span>Install</span></a>
   </div>
 </header>
 {{end}}
