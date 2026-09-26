@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Crawler, failing, failureList, type CrawlReport } from './crawl'
+import type { View } from './fakes'
 import { login, outDir } from './helpers'
 
 // Every control works. The click-through opens every page of the seeded
@@ -13,6 +14,12 @@ import { login, outDir } from './helpers'
 // closed, the control's own state changed, focus moved, the page scrolled,
 // something was copied, a toast appeared or a request went out. It fills in
 // forms first, typing the phrase a typed confirmation asks for.
+//
+// A fresh install has one running server with players and backups, so the
+// pages that change are crawled again in states it isn't in, laid over the
+// panel's real answers (View in fakes.ts): the server stopped, crashed and
+// busy, no players or backups, no servers at all (Home's empty page and
+// /welcome), a Playkeeper update to install, and first-run setup.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. There is no list of exceptions: a control that should do nothing
@@ -45,6 +52,26 @@ function summary(report: CrawlReport): string {
   return [...counts].map(([s, n]) => `${n} ${s}`).join(', ')
 }
 
+interface Crawl {
+  route: string
+  view: View
+}
+
+/** After the live pages: the pages each faked state changes, for the first server in `live`. */
+function fakedCrawls(live: string[], phone: boolean): Crawl[] {
+  const first = live.find((r) => /^\/servers\/(?!new$)[^/]+$/.test(r))
+  const byView: [View, string[]][] = [
+    ['stopped', first ? ['/', first, `${first}/console`, `${first}/settings`] : []],
+    ['crashed', first ? ['/', first] : []],
+    // A phone's server header has no Restart or Stop to disable.
+    ['busy', first ? [...(phone ? [] : [first]), `${first}/world`] : []],
+    ['empty lists', first ? [`${first}/players`, `${first}/world`] : []],
+    ['no servers', ['/', '/welcome']],
+    ['update available', phone ? ['/settings', '/more'] : ['/settings']],
+  ]
+  return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
+}
+
 for (const [name, size] of Object.entries(sizes)) {
   test(`every control does something on ${name}`, async ({ browser, baseURL }) => {
     const base = baseURL ?? ''
@@ -56,7 +83,7 @@ for (const [name, size] of Object.entries(sizes)) {
     const outPage = await signedOut.newPage()
     const outCrawler = new Crawler(outPage, name, base, log)
     await outCrawler.init()
-    await outCrawler.crawl('/login')
+    for (const c of [{ route: '/login', view: 'live' }, { route: '/setup', view: 'first run' }] satisfies Crawl[]) await outCrawler.crawl(c.route, c.view)
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
     await signedOut.close()
@@ -66,7 +93,8 @@ for (const [name, size] of Object.entries(sizes)) {
     await login(page)
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
-    for (const route of await routes(page, name === 'phone')) await crawler.crawl(route)
+    const live = await routes(page, name === 'phone')
+    for (const c of [...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, name === 'phone')]) await crawler.crawl(c.route, c.view)
     report.results.push(...crawler.results)
     report.notes.push(...crawler.notes)
     await context.close()
