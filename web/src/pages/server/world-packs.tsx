@@ -643,7 +643,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
         )}
       </section>
 
-      <PhoneActionBar>
+      <PhoneActionBar label={t('packs.phoneTitle')}>
         <Button variant="outline" size="touch" className="w-full" onClick={dataPicker.open} loading={data.uploading} disabledReason={gate.blocked}>
           <UploadIcon />
           {t('packs.addData')}

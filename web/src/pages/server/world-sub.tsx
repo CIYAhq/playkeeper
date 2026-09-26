@@ -106,12 +106,12 @@ export function ZipDropZone({ label, onFile, busy, disabledReason, tall, classNa
  * rises in with a transform, which would pin a fixed bar to the moving page
  * instead of the screen.
  */
-export function PhoneActionBar({ children }: { children: ReactNode }) {
+export function PhoneActionBar({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <div className="h-20 shrink-0" aria-hidden="true" />
       {createPortal(
-        <div data-slot="phone-action-bar" className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex animate-fade gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur">
+        <div data-slot="phone-action-bar" role="group" aria-label={label} className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex animate-fade gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur">
           {children}
         </div>,
         document.body,

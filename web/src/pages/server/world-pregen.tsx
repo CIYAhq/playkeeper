@@ -316,7 +316,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
         </label>
         {chunky}
         {otherJob && <p className="px-1 text-[13px] text-muted-foreground">{note}</p>}
-        <PhoneActionBar>{startButton}</PhoneActionBar>
+        <PhoneActionBar label={t('pregen.phoneTitle')}>{startButton}</PhoneActionBar>
       </div>
     )
   }
@@ -424,7 +424,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
           {reading}
         </Card>
         {pauses && <p className="px-1 text-[13px] text-muted-foreground">{pauses}</p>}
-        {actions && <PhoneActionBar>{actions}</PhoneActionBar>}
+        {actions && <PhoneActionBar label={t('pregen.phoneTitle')}>{actions}</PhoneActionBar>}
       </div>
     )
   }
