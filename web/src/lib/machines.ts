@@ -67,6 +67,11 @@ export function agentDownOn(m: MachineView | undefined, ownAgentDown: boolean): 
   return m.link?.state === 'connected' && m.error?.code === 'agent_unavailable'
 }
 
+/** Whether nothing can be asked of a joined machine right now: it's away, or its agent doesn't answer. The dashboard's own machine never counts. */
+export function outOfReach(m: MachineView | undefined): boolean {
+  return isAway(m) || (m?.kind === 'remote' && agentDownOn(m, false))
+}
+
 /**
  * Whether a server's status is live, or why not: its machine is away, or
  * that machine's agent doesn't answer. since is when it was last heard.

@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
-import { awayOf, isStale, reachOf } from '@/lib/machines'
+import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone, whyNot } from '@/lib/phase'
 import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
@@ -58,8 +58,8 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     )
   }
   if (!server) return <NotFound />
-  const reach = reachOf(server, ws).state
-  const settingUp = !isStale(server, ws.stale) && reach === 'live' && isSettingUp(server)
+  const reach = reachOf(server, ws)
+  const settingUp = !isStale(server, ws.stale) && reach.state === 'live' && isSettingUp(server)
   let body: ReactNode
   switch (tab) {
     case 'overview':
@@ -83,8 +83,8 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     }
   }
   if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
-  // Nothing on the other tabs can load from a machine that's away, so they show what Overview says about it.
-  if (reach === 'away' && tab !== 'overview') body = <Overview server={server} />
+  // Nothing on the other tabs can load from a joined machine that's away or whose agent doesn't answer, so they show what Overview says about it.
+  if (reach.state !== 'live' && outOfReach(reach.machine) && tab !== 'overview') body = <Overview server={server} />
   return (
     <>
       {phone ? (

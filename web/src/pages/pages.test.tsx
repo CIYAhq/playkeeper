@@ -497,6 +497,31 @@ describe('Machines and AI agents', () => {
     }
   })
 
+  it('shows the not-answering view on every tab while a joined machine’s agent doesn’t answer, and asks it nothing', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      error: { error: 'The agent on home-server isn’t answering.', code: 'agent_unavailable' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, lastKnownAt: new Date(Date.now() - 120_000).toISOString() })
+    const ws = workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] })
+    const asked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes(cobblemon.id) || p.includes(home.id))
+    for (const tab of ['overview', 'console', 'players', 'world', 'settings'] as const) {
+      vi.mocked(client.get).mockClear()
+      const text = await render(<ServerPage slug="cobblemon" tab={tab} />, ws)
+      expect(text, tab).toContain('Playkeeper can’t see your servers right now')
+      expect(text, tab).toContain('Fix it on home-server')
+      expect(asked(), `${tab} asks home-server`).toEqual([])
+    }
+    vi.mocked(client.get).mockClear()
+    await render(<HomePage />, ws)
+    expect(asked(), 'Home asks home-server for its activity').toEqual([])
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${machine.id}/activity`))).toBe(true)
+  })
+
   it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {
     const home: MachineView = {
       id: 'h2345abcde',

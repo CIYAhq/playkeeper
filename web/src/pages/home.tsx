@@ -17,7 +17,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, joinAddress, sameDay } from '@/lib/format'
-import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, reachOf } from '@/lib/machines'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, outOfReach, reachOf } from '@/lib/machines'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
@@ -31,7 +31,7 @@ export function HomePage() {
   const servers = ws.servers
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
-  const reachable = ws.machines.filter((m) => !isAway(m)).map((m) => m.id)
+  const reachable = ws.machines.filter((m) => !outOfReach(m)).map((m) => m.id)
   const activity = usePoll<Activity[] | undefined>(() => (reachable.length ? recentActivity(reachable) : Promise.resolve(undefined)), 10000, reachable.join(' '))
   const grouped = ws.machines.length > 1
   const sections = useListPresence(grouped ? ws.machines : undefined, machineKey)
