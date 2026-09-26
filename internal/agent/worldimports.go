@@ -38,8 +38,13 @@ const (
 	maxWorldImports = 4
 	// maxImportFiles matches the archives worldimport combines in one import.
 	maxImportFiles = 16
-	// worldImportIdle is how long an upload nobody touches is kept.
+	// worldImportIdle is how long an upload nobody touches is kept once all
+	// its files have arrived.
 	worldImportIdle = 24 * time.Hour
+	// incompleteImportIdle is how long one still waiting for bytes is kept.
+	// A page that closed mid-upload may not have cancelled it, and it holds
+	// one of the uploads a machine keeps open and the space it announced.
+	incompleteImportIdle = time.Hour
 	// uploadIdle is how long an upload waits for its next bytes before it
 	// gives up, so a dropped connection frees the file for the next try.
 	uploadIdle = time.Minute
@@ -52,9 +57,11 @@ type importRegistry struct {
 	mu   sync.Mutex
 	byID map[string]*worldImport
 	// announce makes announcing files take turns, so each announce sees the
-	// allowance the others left. It is taken before mu and the imports'
-	// locks, never while holding one.
+	// allowance the others left, and space makes imports claim disk space
+	// in turn. Both are taken before mu and the imports' locks, never while
+	// holding one.
 	announce sync.Mutex
+	space    sync.Mutex
 }
 
 // worldImport is one upload of world archives, for a new server or to replace
@@ -73,6 +80,9 @@ type worldImport struct {
 	busy    string
 	touched time.Time
 	gone    bool
+	// reserved is the disk space the operation using the import claimed,
+	// until it releases the import.
+	reserved int64
 }
 
 type importFile struct {
@@ -128,8 +138,19 @@ func (imp *worldImport) claim(what string, now time.Time) error {
 
 func (imp *worldImport) release() {
 	imp.mu.Lock()
-	imp.busy = ""
+	imp.busy, imp.reserved = "", 0
 	imp.mu.Unlock()
+}
+
+// complete reports whether every file announced has arrived. The caller
+// holds imp.mu.
+func (imp *worldImport) complete() bool {
+	for _, f := range imp.files {
+		if f.received < f.size {
+			return false
+		}
+	}
+	return len(imp.files) > 0
 }
 
 func importBusy(busy string) error {
@@ -143,24 +164,45 @@ func importBusy(busy string) error {
 	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: msg, Hint: "Wait for it to finish, then try again."}
 }
 
-// newWorldImport opens an upload, first forgetting uploads nobody touched for
-// a day.
-func (a *Agent) newWorldImport(serverID string) (*worldImport, error) {
-	now := a.now()
+// staleImports forgets the uploads nobody touched for a while, other than
+// keep, and returns them for their files to be deleted: an hour for one
+// still waiting for bytes, a day for one that has them all. The caller
+// holds the registry's lock.
+func (a *Agent) staleImports(now time.Time, keep *worldImport) []*worldImport {
 	var stale []*worldImport
-	a.imports.mu.Lock()
-	if a.imports.byID == nil {
-		a.imports.byID = map[string]*worldImport{}
-	}
 	for id, imp := range a.imports.byID {
+		if imp == keep {
+			continue
+		}
 		imp.mu.Lock()
-		if imp.busy == "" && now.Sub(imp.touched) > worldImportIdle {
+		idle := worldImportIdle
+		if !imp.complete() {
+			idle = incompleteImportIdle
+		}
+		if imp.busy == "" && now.Sub(imp.touched) > idle {
 			imp.gone = true
 			delete(a.imports.byID, id)
 			stale = append(stale, imp)
 		}
 		imp.mu.Unlock()
 	}
+	return stale
+}
+
+func removeImports(list []*worldImport) {
+	for _, imp := range list {
+		os.RemoveAll(imp.dir)
+	}
+}
+
+// newWorldImport opens an upload, first forgetting the stale ones.
+func (a *Agent) newWorldImport(serverID string) (*worldImport, error) {
+	now := a.now()
+	a.imports.mu.Lock()
+	if a.imports.byID == nil {
+		a.imports.byID = map[string]*worldImport{}
+	}
+	stale := a.staleImports(now, nil)
 	full := len(a.imports.byID) >= maxWorldImports
 	var imp *worldImport
 	if !full {
@@ -169,9 +211,7 @@ func (a *Agent) newWorldImport(serverID string) (*worldImport, error) {
 		a.imports.byID[id] = imp
 	}
 	a.imports.mu.Unlock()
-	for _, s := range stale {
-		os.RemoveAll(s.dir)
-	}
+	removeImports(stale)
 	if full {
 		return nil, errConflict("Too many world uploads are open on this machine.", "Finish or cancel one, then try again.")
 	}
@@ -203,7 +243,7 @@ func (a *Agent) dropImport(imp *worldImport) {
 	}
 	a.imports.mu.Unlock()
 	imp.mu.Lock()
-	imp.gone = true
+	imp.gone, imp.reserved = true, 0
 	for _, f := range imp.files {
 		if f.stop != nil {
 			f.stop()
@@ -330,10 +370,14 @@ func (a *Agent) hWorldImportFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // announceFile adds a file to an upload if the upload allowance has room
-// for it.
+// for it once the stale uploads are forgotten.
 func (a *Agent) announceFile(imp *worldImport, name string, size int64) error {
 	a.imports.announce.Lock()
 	defer a.imports.announce.Unlock()
+	a.imports.mu.Lock()
+	stale := a.staleImports(a.now(), imp)
+	a.imports.mu.Unlock()
+	removeImports(stale)
 	if size > a.uploadAllowance() {
 		return &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: "The world is larger than the free disk space allows.", Hint: "Free disk space and try again."}
 	}
@@ -843,15 +887,36 @@ func (a *Agent) hWorldImportPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.WorldImportPreview{ID: imp.id, Preview: p, Versions: versions, VersionID: chosen.ID, KeepsOriginal: upgrades(p), MemoryMB: mem})
 }
 
-// importSpace refuses an import that needs more disk space than is free.
-func (a *Agent) importSpace(need int64) error {
-	free, _, err := a.opts.DiskUsage(a.cfg.StagingDir())
-	if err != nil || free >= need+minFreeAfterBackup {
-		return nil
+// reserveImportSpace claims need bytes of disk space for the operation imp
+// was claimed for, or refuses when the free space, less what the other
+// imports' operations claimed, can't spare them. Imports claim in turn, so
+// two never count the same free space; a claim lasts until the operation
+// releases or drops the import.
+func (a *Agent) reserveImportSpace(imp *worldImport, need int64) error {
+	a.imports.space.Lock()
+	defer a.imports.space.Unlock()
+	a.imports.mu.Lock()
+	var claimed int64
+	for _, o := range a.imports.byID {
+		o.mu.Lock()
+		claimed += o.reserved
+		o.mu.Unlock()
 	}
-	return &apiError{Status: http.StatusInsufficientStorage, Code: api.CodeInsufficientSpace,
-		Msg:  fmt.Sprintf("Importing this world needs about %s of free disk space; %s is free.", humanBytes(need+minFreeAfterBackup), humanBytes(free)),
-		Hint: "Free disk space and try again."}
+	a.imports.mu.Unlock()
+	free, _, err := a.opts.DiskUsage(a.cfg.StagingDir())
+	if err == nil && free-claimed < need+minFreeAfterBackup {
+		msg := fmt.Sprintf("Importing this world needs about %s of free disk space; %s is free.", humanBytes(need+minFreeAfterBackup), humanBytes(free))
+		hint := "Free disk space and try again."
+		if claimed > 0 {
+			msg = fmt.Sprintf("Importing this world needs about %s of free disk space; %s is free, and the imports under way need %s of it.", humanBytes(need+minFreeAfterBackup), humanBytes(free), humanBytes(claimed))
+			hint = "Try again once they finish, or free disk space."
+		}
+		return &apiError{Status: http.StatusInsufficientStorage, Code: api.CodeInsufficientSpace, Msg: msg, Hint: hint}
+	}
+	imp.mu.Lock()
+	imp.reserved = need
+	imp.mu.Unlock()
+	return nil
 }
 
 // hWorldImportApply replaces the server's world with the upload.
@@ -895,11 +960,12 @@ func (a *Agent) hWorldImportApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Type \"%s\" to confirm the import.", pv.ConfirmPhrase))
 		return
 	}
-	if err := a.importSpace(pv.Preview.SizeBytes + pv.CurrentWorld.SizeBytes); err != nil {
+	if err := imp.claim("applying", a.now()); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := imp.claim("applying", a.now()); err != nil {
+	if err := a.reserveImportSpace(imp, pv.Preview.SizeBytes+pv.CurrentWorld.SizeBytes); err != nil {
+		imp.release()
 		writeError(w, err)
 		return
 	}
@@ -967,11 +1033,12 @@ func (a *Agent) hWorldImportCreate(w http.ResponseWriter, r *http.Request) {
 	if keep {
 		need *= 2
 	}
-	if err := a.importSpace(need); err != nil {
+	if err := imp.claim("creating", a.now()); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := imp.claim("creating", a.now()); err != nil {
+	if err := a.reserveImportSpace(imp, need); err != nil {
+		imp.release()
 		writeError(w, err)
 		return
 	}
@@ -1027,16 +1094,27 @@ func (a *Agent) hWorldImportDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	// Checked and marked gone in one go, so no operation claims the upload
+	// between the check and the deleting of its files.
 	imp.mu.Lock()
 	busy := imp.busy
+	inUse := busy == "applying" || busy == "creating"
+	if !inUse {
+		imp.gone = true
+	}
 	imp.mu.Unlock()
-	if busy == "applying" || busy == "creating" {
+	if inUse {
 		writeError(w, importBusy(busy))
 		return
 	}
+	importCancelled(imp)
 	a.dropImport(imp)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// importCancelled runs between a cancel's check of an upload and the
+// deleting of its files; tests replace it to claim the upload there.
+var importCancelled = func(imp *worldImport) {}
 
 // gameplayFrom sets the game settings an imported world carries. The image
 // writes them into server.properties at every start, so they live in the
@@ -1196,7 +1274,7 @@ func (s *server) createFromWorld(ctx context.Context, h *opHandle, imp *worldImp
 		// before the copy is saved, whatever happens in between.
 		due = &originalDue{Config: *original, Note: fmt.Sprintf("%s as uploaded, before Minecraft %s upgraded it", worldLabel(p.World), sc.MinecraftVersion), Actor: actor}
 		if err := s.setOriginalDue(due); err != nil {
-			imp.release()
+			s.dropImport(imp)
 			return err
 		}
 	}
@@ -1220,8 +1298,10 @@ func (s *server) createFromWorld(ctx context.Context, h *opHandle, imp *worldImp
 				s.log.Warn("clear the copy of the world as uploaded that was due", "server", s.id, "err", cerr)
 			}
 		}
-		imp.release()
-		return &apiError{Msg: "Could not move the world into " + s.name() + ": " + err.Error(), Hint: "Delete this server and create it from the world again."}
+		// The dashboard has moved on to the new server and can't use the
+		// upload again, so it goes with what is left of its unpacked copy.
+		s.dropImport(imp)
+		return &apiError{Msg: "Could not move the world into " + s.name() + ": " + err.Error(), Hint: "Delete this server, then upload the world again to create it."}
 	}
 	extra := ""
 	if due != nil {
@@ -1445,6 +1525,7 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 			s.log.Warn("chown imported world", "err", err)
 		}
 	}
+	s.forgetDrawnMap()
 	sc := *prev
 	sc.Gameplay = gameplayFrom(p.Settings, prev.Gameplay)
 	if err := s.saveServerConfig(sc); err != nil {
@@ -1452,17 +1533,9 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 	}
 	_ = s.setDesired(api.DesiredRunning)
 	if startErr := s.startServer(ctx, h, sc); startErr != nil {
-		h.phase("reverting")
-		_ = s.stopServer(ctx, h)
-		if err := sw.undo(fmt.Errorf("the imported world did not start: %w", startErr)); err != nil {
-			return err
-		}
-		worldSafe = true
-		_ = s.saveServerConfig(*prev)
-		if err := s.startServer(ctx, h, *prev); err != nil {
-			return &apiError{Msg: "The imported world did not start (" + startErr.Error() + "). Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. The failed import was kept at " + sw.failedDir + " for inspection."}
-		}
-		return &apiError{Msg: "The imported world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed import was kept at " + sw.failedDir + " for inspection."}
+		var err error
+		worldSafe, err = s.revertImport(h, sw, *prev, startErr)
+		return err
 	}
 	worldSafe = true
 	os.RemoveAll(sw.asideDir)
@@ -1473,4 +1546,39 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 	}
 	s.importRecord(h, imp, p, actor, extra)
 	return nil
+}
+
+// revertImport puts the previous world back after the imported world did
+// not start, and starts it again, as revertRestore does for a restore. It
+// reports whether the previous world is back. It moves nothing while the
+// agent is stopping, or when stopping the server fails: the imported world
+// may still be running and would write into the previous one. Both copies
+// then stay where they are, and the error says where. It has its own time
+// limit, as the import's may be used up by then.
+func (s *server) revertImport(h *opHandle, sw *worldSwap, prev api.ServerConfig, startErr error) (bool, error) {
+	why := "The imported world did not start (" + startErr.Error() + ")."
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Minute)
+	defer cancel()
+	h.phase("reverting")
+	if err := s.stopServer(ctx, h); err != nil {
+		if s.stopping() {
+			return false, &apiError{
+				Msg:  "The Playkeeper agent stopped while the imported world was starting, so nothing was moved back: the imported world is in " + sw.live + " and the previous world at " + sw.asideDir + ".",
+				Hint: "Once the agent runs again, check the server. If the imported world is as it should be, delete " + sw.asideDir + ".",
+			}
+		}
+		return false, fmt.Errorf("%s Stopping it failed (%v), so nothing was moved: the imported world is in %s and the previous world at %s.", why, err, sw.live, sw.asideDir)
+	}
+	if err := sw.undo(fmt.Errorf("the imported world did not start: %w", startErr)); err != nil {
+		return false, err
+	}
+	_ = s.saveServerConfig(prev)
+	hint := "The failed import was kept at " + sw.failedDir + " for inspection."
+	if err := s.startServer(ctx, h, prev); err != nil {
+		if s.stopping() {
+			return true, &apiError{Msg: why + " Your previous world was put back and starts when the Playkeeper agent runs again.", Hint: hint}
+		}
+		return true, &apiError{Msg: why + " Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. " + hint}
+	}
+	return true, &apiError{Msg: why + " Your previous world was put back and is running.", Hint: hint}
 }
