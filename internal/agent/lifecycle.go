@@ -637,7 +637,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
 	if err := s.ensureDirs("press Start"); err != nil {
-		refusedForMissingWorld(h, err)
+		markRestoreRefusal(h, err)
+		return err
+	}
+	if err := s.startRefusal(h); err != nil {
+		markRestoreRefusal(h, err)
 		return err
 	}
 	if err := s.ensureImage(ctx, h, runtimeImage(sc.MinecraftVersion)); err != nil {
@@ -874,6 +878,7 @@ func (s *server) reconcile(ctx context.Context) {
 	if s.busy() {
 		return
 	}
+	s.settleWhenBack(ctx)
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil {
 		return

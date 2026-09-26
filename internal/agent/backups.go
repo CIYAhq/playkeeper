@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -333,7 +335,7 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, 
 	}
 	if m := s.worldMissing(); m != nil {
 		err := errWorldMissing(m, "back it up")
-		refusedForMissingWorld(h, err)
+		markRestoreRefusal(h, err)
 		return err
 	}
 	_, running, err := s.containerRunning(ctx)
@@ -598,7 +600,7 @@ func (a *Agent) pruneStages() {
 		if a.resuming(dir) {
 			continue
 		}
-		if err := a.settleSwap(dir); err != nil {
+		if err := a.settleSwap(dir, true); err != nil {
 			a.log.Warn("could not settle an interrupted restore, so its stage is kept", "stage", e.Name(), "err", err)
 			continue
 		}
@@ -715,8 +717,10 @@ func readSwapJournal(stageDir string) (*swapJournal, error) {
 // one that stopped while moving the worlds or undoing itself gets the
 // previous world and its settings back. A restore that was checking its
 // restored world keeps both copies, as its operation reported. It errors
-// while the stage may hold the only copy of the restored world.
-func (a *Agent) settleSwap(stageDir string) error {
+// while the stage may hold the only copy of the restored world. atStart is
+// set when the agent runs it as it starts, rather than once a world folder
+// someone moved back by hand is in place.
+func (a *Agent) settleSwap(stageDir string, atStart bool) error {
 	j, err := readSwapJournal(stageDir)
 	if err != nil || j == nil {
 		return err
@@ -746,7 +750,7 @@ func (a *Agent) settleSwap(stageDir string) error {
 		if err := s.putPreviousBack(j); err != nil {
 			return err
 		}
-		s.restoreSettled(j, movedBack)
+		s.restoreSettled(j, movedBack, atStart)
 		a.log.Info("put the previous world back after an interrupted restore", "server", s.id)
 		return nil
 	}
@@ -755,17 +759,23 @@ func (a *Agent) settleSwap(stageDir string) error {
 
 func (s *server) copyPath(name string) string { return filepath.Join(s.dir(), name) }
 
-// restoreSettled records what the start did for a restore that didn't
+// restoreSettled records what settling did for a restore that didn't
 // finish. Its record says the previous world is back instead of how putting
 // it back failed, and is over only now; the activity and the audit log say
-// so too. movedBack is false when someone had moved the world back by hand.
-func (s *server) restoreSettled(j *swapJournal, movedBack bool) {
+// so too. movedBack is false when someone had moved the world back by hand;
+// atStart is set when the agent settled it as it started.
+func (s *server) restoreSettled(j *swapJournal, movedBack, atStart bool) {
 	now := s.now().UTC()
-	back := "Playkeeper put your previous world back when it started again."
-	audited := "put the previous world back after the Playkeeper agent restarted"
+	back, audited := "Playkeeper put your previous world back", "put the previous world back"
 	if !movedBack {
-		back = "Your previous world was already back in place, and Playkeeper put its settings back when it started again."
-		audited = "put the previous world's settings back after the Playkeeper agent restarted; the world was already back in place"
+		back, audited = "Your previous world was already back in place, and Playkeeper put its settings back", "put the previous world's settings back"
+	}
+	if atStart {
+		back, audited = back+" when it started again", audited+" after the Playkeeper agent restarted"
+	}
+	back += "."
+	if !movedBack {
+		audited += "; the world was already back in place"
 	}
 	if op, err := s.loadOperation(j.OpID); err == nil && op.Status == api.OpFailed {
 		fixed := copyOp(op)
@@ -777,7 +787,9 @@ func (s *server) restoreSettled(j *swapJournal, movedBack bool) {
 		if failed := s.copyPath(j.Failed); dirExists(failed) {
 			fixed.Hint = "The failed restore was kept at " + failed + " for inspection."
 		}
-		fixed.Detail["settledAfterRestart"] = true
+		if atStart {
+			fixed.Detail["settledAfterRestart"] = true
+		}
 		fixed.FinishedAt = &now
 		s.saveOperation(fixed)
 	}
@@ -849,26 +861,27 @@ func errWorldMissing(m *api.WorldMissing, then string) error {
 		Hint: "Move that folder back to " + m.DataDir + ", then " + then + "."}
 }
 
-// refusedForMissingWorld notes in the operation's detail that err refused
-// it for a missing world folder, so the dashboard drops the failure once
-// the world is back.
-func refusedForMissingWorld(h *opHandle, err error) {
+// markRestoreRefusal notes in the operation's detail that err refused it
+// for the world folder a restore left missing, or for a restore that isn't
+// settled, so the dashboard drops the failure once that is over.
+func markRestoreRefusal(h *opHandle, err error) {
 	var ae *apiError
-	if h != nil && errors.As(err, &ae) && ae.Code == codeWorldMissing {
-		h.set("errorKind", codeWorldMissing)
+	if h != nil && errors.As(err, &ae) && (ae.Code == codeWorldMissing || ae.Code == codeRestoreUnsettled) {
+		h.set("errorKind", ae.Code)
 	}
 }
 
-// codeRestoreUnsettled is the error code for a restore refused while
-// another one's swap journal is kept, even with the world folder back.
+// codeRestoreUnsettled is the error code, and the operation's errorKind, of
+// something refused while a restore's swap journal is kept, even with the
+// world folder back.
 const codeRestoreUnsettled = "restore_unsettled"
 
 // restoreRefusal is why a restore of the server can't start now, or nil:
 // the world folder a restore left missing, or a restore whose journal is
-// kept because no agent start has settled it yet. Settling it puts that
-// restore's previous settings back, over whatever a newer restore brought.
-// A running operation, which may be the restore that keeps the journal, is
-// left to the caller's busy check. then ends the hint.
+// kept because it isn't settled yet. Settling it puts that restore's
+// previous settings back, over whatever a newer restore brought. A running
+// operation, which may be the restore that keeps the journal, is left to the
+// caller's busy check. then ends the hint.
 func (s *server) restoreRefusal(then string) error {
 	if m := s.worldMissing(); m != nil {
 		return errWorldMissing(m, then)
@@ -876,9 +889,150 @@ func (s *server) restoreRefusal(then string) error {
 	if !s.busy() && s.restoreUnsettled() {
 		return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,
 			Msg:  "A restore isn't finished, so another can't start until it is.",
-			Hint: "With the server stopped, restart the Playkeeper agent (sudo systemctl restart playkeeper-agent) so it can finish the restore, then " + then + "."}
+			Hint: s.unsettledHint(then)}
 	}
 	return nil
+}
+
+// startRefusal refuses to start the server while a restore of it keeps its
+// journal, other than the restore h runs: with the world folder back, the
+// server would run the previous world with the settings the restore left.
+// Start and the reconcile tick settle it first, so this refuses a start only
+// while settling fails, or in the moment before a tick. A journal that can't
+// be read doesn't hold the server back, as when the agent starts. The caller
+// holds the operation lock.
+func (s *server) startRefusal(h *opHandle) error {
+	for _, stage := range s.keptStages(h.op.ID) {
+		if !s.settled[stage] {
+			return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,
+				Msg:  "A restore isn't finished, so " + s.name() + " can't start until it is.",
+				Hint: s.unsettledHint("press Start")}
+		}
+	}
+	return nil
+}
+
+// keptStages names the restore stages whose swap journal is of a restore of
+// the server other than opID's, in order. A journal that can't be read
+// isn't counted.
+func (s *server) keptStages(opID string) []string {
+	var out []string
+	for stage, j := range s.unsettledSwaps() {
+		if j != nil && j.ServerID == s.id && j.OpID != opID {
+			out = append(out, stage)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// settleProblemNow says why a restore whose journal is kept isn't settled by
+// itself, if it isn't: a journal that can't be read, or why the last try to
+// settle it failed.
+func (s *server) settleProblemNow() string {
+	swaps := s.unsettledSwaps()
+	for _, stage := range slices.Sorted(maps.Keys(swaps)) {
+		if swaps[stage] != nil {
+			continue
+		}
+		if _, err := readSwapJournal(s.stageDir(stage)); err != nil {
+			return "the swap journal in " + s.stageDir(stage) + " can't be read (" + clause(err) + ")"
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.settleProblem
+}
+
+// unsettledHint says how a restore whose journal is kept gets settled, or
+// why it can't be, ending with then.
+func (s *server) unsettledHint(then string) string {
+	if problem := s.settleProblemNow(); problem != "" {
+		return "Playkeeper couldn't finish it: " + clause(errors.New(problem)) + "."
+	}
+	return "Playkeeper finishes it once the server is stopped, then " + then + "."
+}
+
+// settleKept settles the server's restores whose journals are kept, with
+// the code the agent runs as it starts: the previous world and its settings
+// go back in place, and the stage goes. The caller holds the operation lock
+// and has checked that the world folder is back; settleSwap refuses while
+// the server runs. A stage settled but not removed isn't settled again.
+func (s *server) settleKept() error {
+	for _, stage := range s.keptStages("") {
+		dir := s.stageDir(stage)
+		if !s.settled[stage] {
+			if err := s.settleSwap(dir, false); err != nil {
+				return err
+			}
+			s.settled[stage] = true
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			if _, serr := os.Stat(filepath.Join(dir, swapJournalFile)); serr == nil {
+				return fmt.Errorf("its stage %s can't be removed (%v)", dir, err)
+			}
+			s.log.Warn("could not remove a settled restore stage", "stage", stage, "err", err)
+		}
+		delete(s.settled, stage)
+	}
+	return nil
+}
+
+// noteSettleProblem keeps why settling failed for the status and refusals,
+// logging it once, or clears it after a success.
+func (s *server) noteSettleProblem(err error) {
+	problem := ""
+	if err != nil {
+		problem = err.Error()
+	}
+	s.mu.Lock()
+	prev := s.settleProblem
+	s.settleProblem = problem
+	s.mu.Unlock()
+	if problem != "" && problem != prev {
+		s.log.Warn("could not settle an interrupted restore, so its stage is kept", "err", err)
+	}
+}
+
+// settleDue says whether a restore of the server whose journal is kept can
+// be settled now: its world folder is back and the server is stopped. With
+// none kept, it forgets why settling last failed.
+func (s *server) settleDue(ctx context.Context) bool {
+	if len(s.keptStages("")) == 0 {
+		s.noteSettleProblem(nil)
+		return false
+	}
+	if !dirExists(s.dataDir()) {
+		return false
+	}
+	_, running, err := s.containerRunning(ctx)
+	return err == nil && !running
+}
+
+// settleWhenBack settles a restore whose journal is kept as soon as its
+// world folder is back and the server is stopped, without waiting for the
+// next agent start. It holds the operation lock only then, so no job starts
+// meanwhile and requests don't find the server busy on every tick.
+func (s *server) settleWhenBack(ctx context.Context) {
+	if !s.settleDue(ctx) {
+		return
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		return
+	}
+	defer release()
+	s.noteSettleProblem(s.settleKept())
+}
+
+// settleBeforeStart settles a restore whose journal is kept before a start
+// reads the settings, so a server started right after its world folder came
+// back runs with its previous settings, not the restored ones. The start's
+// operation holds the lock; startRefusal refuses the start if settling fails.
+func (s *server) settleBeforeStart(ctx context.Context) {
+	if s.settleDue(ctx) {
+		s.noteSettleProblem(s.settleKept())
+	}
 }
 
 // worldCopies lists the world folders restores left next to the live one,
@@ -953,8 +1107,7 @@ func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.restoreUnsettled() {
-		writeError(w, errConflict("A restore isn't finished, so this server's world copies are kept until it is.",
-			"Restart the Playkeeper agent (sudo systemctl restart playkeeper-agent) so it can finish the restore, then try again. If the copies are still kept, sudo journalctl -u playkeeper-agent says why."))
+		writeError(w, errConflict("A restore isn't finished, so this server's world copies are kept until it is.", s.unsettledHint("try again")))
 		return
 	}
 	if !dirExists(s.dataDir()) {

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 )
@@ -126,9 +127,8 @@ func TestTheDataPackListWaitsForTheMissingWorldFolder(t *testing.T) {
 }
 
 // No restore starts while another one's swap journal is kept, whether its
-// world folder is still missing or was moved back by hand: the agent start
-// that settles the kept one puts its previous settings back, over whatever a
-// newer restore brought.
+// world folder is still missing or was moved back by hand: settling the kept
+// one puts its previous settings back, over whatever a newer restore brought.
 func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
 	for _, state := range []struct {
 		name      string
@@ -157,6 +157,13 @@ func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
 				t.Fatalf("restore: %+v", op)
 			}
 			renameDir = os.Rename
+			// A job holding the server keeps the agent from settling the
+			// restore as soon as its world folder is back.
+			release, ok := e.srv().holdOpLock()
+			if !ok {
+				t.Fatal("the server is busy")
+			}
+			defer release()
 			if state.movedBack {
 				asides, _ := filepath.Glob(e.dataDir() + ".replaced-*")
 				if len(asides) != 1 {
@@ -167,7 +174,7 @@ func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
 				}
 			}
 			before := worldState(t, e)
-			if st := e.status(); (st.WorldMissing == nil) != state.movedBack || !st.RestoreUnsettled {
+			if st := e.status(); (st.WorldMissing == nil) != state.movedBack || st.RestoreUnsettled == nil {
 				t.Fatalf("status: world missing %+v, restore unsettled %v", st.WorldMissing, st.RestoreUnsettled)
 			}
 			for _, entry := range []struct {
@@ -208,40 +215,135 @@ func worldState(t *testing.T, e *agentEnv) string {
 	return worldHash(t, e.dataDir())
 }
 
-// A world moved back by hand is settled by the next agent start that finds
-// the server stopped: the restore's record says so and restores can start
-// again. A start that finds it running leaves the journal, as the refusal's
-// hint says.
-func TestAnAgentStartSettlesAWorldMovedBackByHandWithTheServerStopped(t *testing.T) {
-	e := newAgentEnv(t)
-	e.create()
-	id, phrase := e.backupAndStage()
-	failPuttingBack(t, e, id)
-	op := e.applyRestore(id, phrase)
-	if op.Status != api.OpFailed {
-		t.Fatalf("restore: %+v", op)
+// restoreLeftUnsettled has a restore's world fail to start and its undo fail
+// to put the previous world back, as a disk fault would: the world folder is
+// missing, the restored settings are in place and the journal is kept. It
+// returns the restore and where the previous world was set aside.
+func restoreLeftUnsettled(t *testing.T, e *agentEnv) (*api.Operation, string) {
+	t.Helper()
+	id, phrase, _, _ := e.restoreScenario()
+	live := e.dataDir()
+	renameDir = func(from, to string) error {
+		if to == live && strings.HasPrefix(from, live+".replaced-") {
+			return errors.New("injected rename failure")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { renameDir = os.Rename })
+	e.fd.mu.Lock()
+	e.fd.failBoots = 1
+	e.fd.mu.Unlock()
+	op := e.waitOp(e.startRestore(id, phrase))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "Putting the previous world back failed") {
+		t.Fatalf("want the undo to fail putting the previous world back: %+v", op)
 	}
 	renameDir = os.Rename
-	asides, _ := filepath.Glob(e.dataDir() + ".replaced-*")
+	asides, _ := filepath.Glob(live + ".replaced-*")
 	if len(asides) != 1 {
 		t.Fatalf("want the previous world's copy, got %v", asides)
 	}
-	if err := os.Rename(asides[0], e.dataDir()); err != nil {
+	if sc, _ := e.srv().serverConfig(); sc.MOTD == "Before the restore" {
+		t.Fatalf("the failed undo should leave the restored settings in place: %+v", sc)
+	}
+	return op, asides[0]
+}
+
+// A restore whose journal is kept is settled as soon as its world folder is
+// back and the server is stopped, with no agent restart: by the agent's next
+// reconcile tick, or by a start that comes first. The settings go back to
+// what they were before the restore, and its record and the audit log say
+// what happened.
+func TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart(t *testing.T) {
+	running := func(t *testing.T, e *agentEnv) func() {
+		set := func(on bool) {
+			e.fd.mu.Lock()
+			defer e.fd.mu.Unlock()
+			c := e.fd.byName[e.cname()]
+			if c == nil {
+				t.Fatal("no server container")
+			}
+			c.running = on
+		}
+		set(true)
+		return func() { set(false) }
+	}
+	busy := func(t *testing.T, e *agentEnv) func() {
+		release, ok := e.srv().holdOpLock()
+		if !ok {
+			t.Fatal("the server is busy")
+		}
+		return release
+	}
+	for _, c := range []struct {
+		name string
+		// hold keeps the restore unsettled until what it returns runs.
+		hold func(t *testing.T, e *agentEnv) func()
+		// start presses Start before any tick can settle it.
+		start bool
+	}{
+		{name: "by the next tick, with the server stopped"},
+		{name: "by the tick once a job holding the server is done", hold: busy},
+		{name: "by the tick once a server started outside Playkeeper stops", hold: running},
+		{name: "by a start before the next tick", start: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) {
+				if c.start {
+					e.tweak = func(o *Options) { o.ReconcileInterval = time.Hour }
+				}
+			})
+			op, aside := restoreLeftUnsettled(t, e)
+			var release func()
+			if c.hold != nil {
+				release = c.hold(t, e)
+			}
+			if err := os.Rename(aside, e.dataDir()); err != nil {
+				t.Fatal(err)
+			}
+			if c.hold != nil {
+				time.Sleep(300 * time.Millisecond)
+				if e.status().RestoreUnsettled == nil {
+					t.Fatal("the restore was settled while it had to wait")
+				}
+				release()
+			}
+			if c.start {
+				code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+				if code != 202 {
+					t.Fatalf("start: %d %v", code, out)
+				}
+				if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+					t.Fatalf("start: %+v", op)
+				}
+			}
+			e.waitFor("the restore to be settled", func() bool { return e.status().RestoreUnsettled == nil })
+			settled := e.opAtRest(op.ID)
+			if !strings.HasSuffix(settled.Error, " Your previous world was already back in place, and Playkeeper put its settings back.") {
+				t.Fatalf("the restore's record must say its settings were put back: %+v", settled)
+			}
+			if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.settled' AND actor = 'playkeeper' AND detail = 'put the previous world''s settings back; the world was already back in place'`); n != 1 {
+				t.Fatalf("want the settle audited once, got %d", n)
+			}
+			if sc, _ := e.srv().serverConfig(); sc.MOTD != "Before the restore" {
+				t.Fatalf("the settings must be the ones from before the restore: %+v", sc)
+			}
+		})
+	}
+}
+
+// A world moved back by hand while the agent is down is settled as it
+// starts, and its record and the audit log say only the settings were put
+// back.
+func TestAnAgentStartSettlesAWorldMovedBackByHand(t *testing.T) {
+	e := newAgentEnv(t)
+	op, aside := restoreLeftUnsettled(t, e)
+	e.stop()
+	if err := os.Rename(aside, e.dataDir()); err != nil {
 		t.Fatal(err)
 	}
-	for _, step := range []string{"/start", "/stop"} {
-		code, out := e.call("POST", e.sp(step), map[string]any{"actor": "admin"})
-		if code != 202 {
-			t.Fatalf("%s: %d %v", step, code, out)
-		}
-		if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
-			t.Fatalf("%s: %+v", step, op)
-		}
-		e.stop()
-		e.start()
-		if unsettled := e.status().RestoreUnsettled; unsettled != (step == "/start") {
-			t.Fatalf("after %s and an agent start, restore unsettled = %v", step, unsettled)
-		}
+	e.start()
+	if u := e.status().RestoreUnsettled; u != nil {
+		t.Fatalf("the agent start must settle the restore: %+v", u)
 	}
 	settled := e.opAtRest(op.ID)
 	if !strings.HasSuffix(settled.Error, " Your previous world was already back in place, and Playkeeper put its settings back when it started again.") {
@@ -250,10 +352,127 @@ func TestAnAgentStartSettlesAWorldMovedBackByHandWithTheServerStopped(t *testing
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.settled' AND detail = 'put the previous world''s settings back after the Playkeeper agent restarted; the world was already back in place'`); n != 1 {
 		t.Fatalf("want the audit log to say only the settings were put back, got %d such lines", n)
 	}
-	list, _ := e.srv().listBackups(`kind = 'manual'`)
-	if code, out := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"}); code != 200 {
-		t.Fatalf("a restore once the unfinished one is settled: %d %v", code, out)
+	if sc, _ := e.srv().serverConfig(); sc.MOTD != "Before the restore" {
+		t.Fatalf("the settings must be the ones from before the restore: %+v", sc)
 	}
+}
+
+// No job starts a server while a restore of it keeps its journal: with the
+// world folder back, the server would run the previous world with the
+// settings the restore left. Start and the reconcile tick settle it first;
+// another job starting the server in the moment before a tick is refused.
+func TestNoJobStartsAServerWhoseRestoreIsntSettled(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		// run has the job start the server and returns its operation.
+		run func(t *testing.T, e *agentEnv) *api.Operation
+	}{
+		{"a restart of a server started outside Playkeeper", func(t *testing.T, e *agentEnv) *api.Operation {
+			e.fd.mu.Lock()
+			e.fd.byName[e.cname()].running = true
+			e.fd.mu.Unlock()
+			return e.runOp("POST", "/restart")
+		}},
+		{"an automatic start", func(t *testing.T, e *agentEnv) *api.Operation {
+			e.srv().autoStart("recover")
+			var id string
+			e.waitFor("the automatic start", func() bool {
+				return e.a.db.QueryRow(`SELECT id FROM operations WHERE kind = 'recover'`).Scan(&id) == nil
+			})
+			return e.waitOp(id)
+		}},
+		{"pre-generating the map", func(t *testing.T, e *agentEnv) *api.Operation {
+			e.chunky()
+			code, out := e.call("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "pauseForPlayers": false, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("pre-generate: %d %v", code, out)
+			}
+			return e.waitOp(out["id"].(string))
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) {
+				e.tweak = func(o *Options) { o.ReconcileInterval = time.Hour }
+			})
+			e.withSources()
+			_, aside := restoreLeftUnsettled(t, e)
+			if err := os.Rename(aside, e.dataDir()); err != nil {
+				t.Fatal(err)
+			}
+			op := c.run(t, e)
+			if op.Status != api.OpFailed || op.Error != "A restore isn't finished, so "+e.srv().name()+" can't start until it is." ||
+				op.Hint != "Playkeeper finishes it once the server is stopped, then press Start." || op.Detail["errorKind"] != codeRestoreUnsettled {
+				t.Fatalf("the start must be refused until the restore is settled: %+v", op)
+			}
+			e.fd.mu.Lock()
+			running := e.fd.byName[e.cname()].running
+			e.fd.mu.Unlock()
+			if running {
+				t.Fatal("the server runs the previous world with the settings the restore left")
+			}
+		})
+	}
+}
+
+// A restore the agent can't settle says why, in the status and in a refused
+// start, and the tick after the cause is gone settles it.
+func TestARestoreThatCantBeSettledSaysWhy(t *testing.T) {
+	e := newAgentEnv(t)
+	_, aside := restoreLeftUnsettled(t, e)
+	e.failConfigSaves()
+	if err := os.Rename(aside, e.dataDir()); err != nil {
+		t.Fatal(err)
+	}
+	var problem string
+	e.waitFor("settling to fail", func() bool {
+		if u := e.status().RestoreUnsettled; u != nil {
+			problem = u.Problem
+		}
+		return problem != ""
+	})
+	if !strings.Contains(problem, "disk I/O error") || !strings.HasSuffix(problem, ".") {
+		t.Fatalf("the status must say why the restore isn't settled, as a sentence: %q", problem)
+	}
+	op := e.runOp("POST", "/start")
+	if op.Status != api.OpFailed || op.Error != "A restore isn't finished, so "+e.srv().name()+" can't start until it is." ||
+		!strings.HasPrefix(op.Hint, "Playkeeper couldn't finish it: ") || !strings.Contains(op.Hint, "disk I/O error") {
+		t.Fatalf("the start must be refused, saying why the restore isn't settled: %+v", op)
+	}
+	if _, err := e.a.db.Exec(`DROP TRIGGER fail_config`); err != nil {
+		t.Fatal(err)
+	}
+	e.waitFor("the restore to be settled", func() bool { return e.status().RestoreUnsettled == nil })
+	e.serverOp("/start")
+	if sc, _ := e.srv().serverConfig(); sc.MOTD != "Before the restore" {
+		t.Fatalf("the settings must be the ones from before the restore: %+v", sc)
+	}
+}
+
+// A swap journal that can't be read holds no server back, as when the agent
+// starts: whose restore it was is unknown. The status, and a restore refused
+// meanwhile, say it can't be read.
+func TestAnUnreadableSwapJournalHoldsNoServerBack(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.backupAndStage()
+	list, _ := e.srv().listBackups(`kind = 'manual'`)
+	e.serverOp("/stop")
+	stage := filepath.Join(e.cfg.StagingDir(), "unreadable")
+	if err := os.MkdirAll(stage, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, swapJournalFile), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	why := "the swap journal in " + stage + " can't be read (unreadable swap journal: unexpected end of JSON input)"
+	if u := e.status().RestoreUnsettled; u == nil || u.Problem != sentence(why) {
+		t.Fatalf("the status must say the journal can't be read: %+v", u)
+	}
+	code, out := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
+	if code != http.StatusConflict || out["code"] != codeRestoreUnsettled || out["hint"] != "Playkeeper couldn't finish it: "+why+"." {
+		t.Fatalf("a restore must be refused, saying the journal can't be read: %d %v", code, out)
+	}
+	e.serverOp("/start")
 }
 
 // A restore whose previous world the next start put back says so: its record

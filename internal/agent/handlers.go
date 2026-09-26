@@ -162,7 +162,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	st.LastOperation = s.lastFinishedOperation()
 	if st.Operation == nil && sc != nil {
 		st.WorldMissing = s.worldMissing()
-		st.RestoreUnsettled = s.restoreUnsettled()
+		if s.restoreUnsettled() {
+			st.RestoreUnsettled = &api.RestoreUnsettled{Problem: sentence(s.settleProblemNow())}
+		}
 	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	s.mu.Lock()
@@ -530,6 +532,7 @@ func (s *server) forgetCrashes() {
 // once the start goes ahead, so a refused request, or work before the start
 // that failed, keeps the crash that says why the server is down.
 func (s *server) startNow(ctx context.Context, h *opHandle) error {
+	s.settleBeforeStart(ctx)
 	if err := s.setDesired(api.DesiredRunning); err != nil {
 		return err
 	}
