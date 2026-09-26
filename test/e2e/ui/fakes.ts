@@ -36,6 +36,13 @@ interface FakeState {
   maps: Map<string, Record<string, unknown>>
   /** World uploads opened on the fakes. */
   imports: Map<string, WorldUpload>
+  /** Each server's plugins or mods added by hand that Modrinth knows, as the panel last listed them. */
+  identified: Map<string, IdentifiedFile[]>
+}
+
+interface IdentifiedFile {
+  fileName: string
+  addon?: Record<string, unknown>
 }
 
 interface UploadedFile {
@@ -162,6 +169,17 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)\/apply$/, (r, state) => ((r.body as { confirm?: string } | null)?.confirm ? op(state, 'restore') : invalid('Type the confirmation.'))],
   ['DELETE', /^\/api\/machines\/(\w+)\/restore\/([\w-]+)$/, () => ({ status: 200, body: {} })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/adopt$/,
+    (r, state) => {
+      const fileName = (r.body as { fileName?: unknown } | null)?.fileName
+      if (typeof fileName !== 'string' || !fileName || fileName.length > 255 || /[/\\]/.test(fileName) || !fileName.endsWith('.jar')) return invalid('That is not a file in the add-on folder.')
+      const found = state.identified.get(r.params[0] ?? '')?.find((f) => f.fileName === fileName)
+      if (!found?.addon) return { status: 409, body: { error: `Modrinth does not recognize ${fileName}, so Playkeeper cannot manage it.`, hint: 'It stays in the folder as it is.', code: 'conflict' } }
+      return { status: 200, body: found.addon }
+    },
+  ],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
   ['POST', /^\/api\/servers\/(\w+)\/map\/enable$/, (r, state) => op(state, 'map_enable', r.params[0])],
   ['POST', /^\/api\/servers\/(\w+)\/map\/disable$/, (r, state) => (typeof (r.body as { deleteMap?: unknown } | null)?.deleteMap === 'boolean' ? op(state, 'map_disable', r.params[0]) : invalid('Say whether to keep the drawn map.'))],
@@ -427,7 +445,7 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
-  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0, maps: new Map(), imports: new Map() }
+  const state: FakeState = { prefs: {}, backups: new Map(), update: {}, opSeq: 0, maps: new Map(), imports: new Map(), identified: new Map() }
   const origin = new URL(baseURL).origin
 
   // Links out of the dashboard open a stand-in page instead of the internet.
@@ -472,6 +490,8 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
         const map = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
+        const checks = /^\/api\/servers\/(\w+)\/addons\/checks$/.exec(path)
+        if (checks?.[1]) state.identified.set(checks[1], ((await res.json().catch(() => ({}))) as { identified?: IdentifiedFile[] }).identified ?? [])
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
       }
       // The page may have moved on and cancelled the request meanwhile.
