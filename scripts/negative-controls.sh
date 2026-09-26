@@ -116,6 +116,8 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case len(existing) == 0:' \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
+# Without the lock a start can slip in between the check and the write; the
+# sleep holds that gap open so the race shows in most runs, not one in three.
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
   'release, ok := s.holdOpLock()
 	if !ok {
@@ -124,14 +126,15 @@ control "start/stop no-op under the operation lock" internal/agent/handlers.go \
 	}
 	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
-  'release, ok := func() { }, !s.busy()
+  'release, ok := func() { }, true
 	if !ok {
 		writeError(w, s.busyError())
 		return
 	}
 	_, running, err := s.containerRunning(r.Context())
-	if err == nil && !running {' \
-  ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 5
+	if err == nil && !running {
+		time.Sleep(50 * time.Millisecond)' \
+  ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 8
 
 control "release manifest signature" internal/update/manifest.go \
   'if !verified {' \
@@ -562,6 +565,14 @@ control "add-on updates: only the confirmed plan is carried out" internal/agent/
   'Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress' \
   'Changed: req.Changed, OnProgress: progress' \
   ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "add-on details: a pre-release is never offered to install or update to" internal/agent/addons.go \
+  'd.Latest, d.Notes = nil, ""' \
+  'd.Notes = ""' \
+  ./internal/agent '^TestAddonDetailsOfferNoPrerelease$'
+control "add-on notices: only pre-releases doesn't say to allow them" internal/agent/addons.go \
+  'hint = onlyPrereleaseHint' \
+  'hint = n.Hint' \
+  ./internal/agent '^TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo$'
 control "add-on plans: the order Hangar lists dependencies in does not change the plan" internal/addons/resolve.go \
   'c.deps = append(c.deps, dd)
 	}
