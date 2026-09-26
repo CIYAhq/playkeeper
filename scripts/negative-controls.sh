@@ -117,19 +117,19 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
-  'release, ok := a.holdOpLock()
+  'release, ok := s.holdOpLock()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
-  'release, ok := func() { }, !a.busy()
+  'release, ok := func() { }, !s.busy()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
   ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 5
 
@@ -263,7 +263,7 @@ control "Minecraft never goes back to an older version" internal/agent/versions.
   '	case false:' \
   ./internal/agent '^TestVersionChangesNeverGoBack$'
 control "a version that does not start gets the world back" internal/agent/versions.go \
-  'if err := a.putBackupBack(b); err != nil {' \
+  'if err := s.putBackupBack(b); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestVersionThatDoesNotStartPutsTheWorldBack$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
@@ -348,8 +348,10 @@ control "the jar is hashed only up to a size no Paper jar reaches" internal/agen
   'const maxJarBytes = 1 << 62' \
   ./internal/agent '^TestAHugeSparseJarDoesNotHoldUpTheStart$'
 control "a backup reads the level name without following a link or waiting on a pipe" internal/backup/archive.go \
-  'b, err := readProperties(dataDir)' \
-  'b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
+  'func LevelName(dataDir string) string {
+	b, err := readProperties(dataDir)' \
+  'func LevelName(dataDir string) string {
+	b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
   ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
 control "a restored world is given to the game without following links" internal/agent/backups.go \
   'if d.Type()&fs.ModeSymlink != 0 {' \
@@ -392,8 +394,10 @@ control "an update refuses such a world before the server stops" internal/agent/
   'if err := s.archiveRefusal("Nothing was changed."); false && err != nil {' \
   ./internal/agent '^TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping$'
 control "the pre-stop check applies the archive limits" internal/backup/archive.go \
-  'if err := tally.add(rel, size); err != nil {' \
-  'if err := tally.add(rel, size); false && err != nil {' \
+  'if err := tally.add(rel, size); err != nil {
+			return refusal(rel, err)' \
+  'if err := tally.add(rel, size); false && err != nil {
+			return refusal(rel, err)' \
   ./internal/backup '^TestCheckRefusesWhatCreateRefuses$'
 control "a failed undo deletes neither copy of the world" internal/agent/backups.go \
   'if perr := putBack(failedAt, cause); perr != nil {' \
@@ -408,8 +412,10 @@ control "a restore the agent stops in is not undone" internal/agent/backups.go \
   'if false && err != nil && s.stopping() {' \
   ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^stops_while'
 control "an undo the agent stops in is finished by the next start" internal/agent/backups.go \
-  'if s.stopping() {' \
-  'if false && s.stopping() {' \
+  'if s.stopping() {
+			h.continues = true' \
+  'if false && s.stopping() {
+			h.continues = true' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$/^stops_while_the_previous_world_is_put_back$'
 control "the stage of a restore being finished is not pruned at start" internal/agent/backups.go \
   'if a.resuming(dir) {' \
