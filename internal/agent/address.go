@@ -942,6 +942,17 @@ func (a *Agent) expectedAddrs(st addressState) []netip.Addr {
 	return out
 }
 
+// addressViewWith is addressView answering a request that started op: a
+// quick operation may have finished before the answer is made, and the
+// dashboard follows op by its id either way.
+func (a *Agent) addressViewWith(op *api.Operation) api.Address {
+	v := a.addressView()
+	if v.Operation == nil {
+		v.Operation = op
+	}
+	return v
+}
+
 // addressView is the address as the dashboard shows it.
 func (a *Agent) addressView() api.Address {
 	st := a.address()
@@ -1101,8 +1112,8 @@ func (a *Agent) hAddressClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	a.startAddressOp("address.publish", actor, a.publishFree)
-	writeJSON(w, http.StatusOK, a.addressView())
+	op := a.startAddressOp("address.publish", actor, a.publishFree)
+	writeJSON(w, http.StatusOK, a.addressViewWith(op))
 }
 
 func (a *Agent) hAddressRefresh(w http.ResponseWriter, r *http.Request) {
@@ -1173,19 +1184,20 @@ func (a *Agent) addressAction(w http.ResponseWriter, r *http.Request, fn func(ct
 	ctx, cancel := detached(a.ctx)
 	defer cancel()
 	kind, err := fn(ctx, a.address(), actor)
+	var op *api.Operation
 	switch {
 	case err != nil:
 		release()
 		writeError(w, err)
 		return
 	case kind == "certificate.issue":
-		a.startAddressOp(kind, actor, a.issueCertificate)
+		op = a.startAddressOp(kind, actor, a.issueCertificate)
 	case kind == "address.publish":
-		a.startAddressOp(kind, actor, a.publishFree)
+		op = a.startAddressOp(kind, actor, a.publishFree)
 	default:
 		release()
 	}
-	writeJSON(w, http.StatusOK, a.addressView())
+	writeJSON(w, http.StatusOK, a.addressViewWith(op))
 }
 
 func (a *Agent) hAddressPlan(w http.ResponseWriter, r *http.Request) {
@@ -1272,11 +1284,12 @@ func (a *Agent) hAddressCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	var op *api.Operation
 	if check.Name.OK && a.certificateDue(a.address()) {
 		handed = true
-		a.startAddressOp("certificate.issue", actor, a.issueCertificate)
+		op = a.startAddressOp("certificate.issue", actor, a.issueCertificate)
 	}
-	writeJSON(w, http.StatusOK, a.addressView())
+	writeJSON(w, http.StatusOK, a.addressViewWith(op))
 }
 
 func (a *Agent) hAddressDelete(w http.ResponseWriter, r *http.Request) {
