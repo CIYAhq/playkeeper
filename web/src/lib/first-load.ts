@@ -19,10 +19,10 @@ export interface FirstLoad {
   gzipBytes: number
 }
 
-/** The most the sign-in page may load before it shows, and the most any page may. */
+/** The most the first screens (signing in, then Home) may load before they show, and the most any page may. */
 export const budget = {
-  signIn: { page: 'pages/login.tsx', bytes: 900_000, gzipBytes: 285_000 },
-  anyPage: { bytes: 1_250_000, gzipBytes: 390_000 },
+  firstScreens: { pages: ['pages/login.tsx', 'pages/home.tsx'], bytes: 900_000, gzipBytes: 285_000 },
+  anyPage: { bytes: 1_200_000, gzipBytes: 380_000 },
 }
 
 /**
@@ -79,10 +79,13 @@ const kB = (n: number) => `${(n / 1000).toLocaleString('en', { minimumFractionDi
 /** Each first load over the budget, in words. */
 export function overBudget(loads: FirstLoad[]): string[] {
   const problems: string[] = []
-  const signIn = loads.find((l) => l.page === budget.signIn.page)
-  if (!signIn) problems.push(`no first load for ${budget.signIn.page}`)
-  else if (signIn.bytes > budget.signIn.bytes || signIn.gzipBytes > budget.signIn.gzipBytes) {
-    problems.push(`the sign-in page loads ${kB(signIn.bytes)} (${kB(signIn.gzipBytes)} gzipped), over its ${kB(budget.signIn.bytes)} (${kB(budget.signIn.gzipBytes)})`)
+  const first = budget.firstScreens
+  for (const page of first.pages) {
+    const l = loads.find((x) => x.page === page)
+    if (!l) problems.push(`no first load for ${page}`)
+    else if (l.bytes > first.bytes || l.gzipBytes > first.gzipBytes) {
+      problems.push(`${page} loads ${kB(l.bytes)} (${kB(l.gzipBytes)} gzipped), over the first screens' ${kB(first.bytes)} (${kB(first.gzipBytes)})`)
+    }
   }
   for (const l of loads) {
     if (l.bytes > budget.anyPage.bytes || l.gzipBytes > budget.anyPage.gzipBytes) {
@@ -92,7 +95,7 @@ export function overBudget(loads: FirstLoad[]): string[] {
   return problems
 }
 
-/** The dashboard's build: names the sign-in page's and the biggest first loads, and fails when one is over the budget. */
+/** The dashboard's build: names the first screens' and the biggest first loads, and fails when one is over the budget. */
 export function firstLoadBudget(): Plugin {
   return {
     name: 'playkeeper-first-load',
@@ -103,7 +106,7 @@ export function firstLoadBudget(): Plugin {
         f.type === 'chunk' ? [{ ...f, pages: f.moduleIds.filter(lazyPage).map((id) => id.replace(/^.*\/src\//, '')) }] : [],
       )
       const loads = firstLoads(chunks)
-      for (const l of [...loads.filter((x) => x.page === budget.signIn.page), ...loads.slice(0, 3)]) {
+      for (const l of [...loads.filter((x) => budget.firstScreens.pages.includes(x.page)), ...loads.slice(0, 3)]) {
         this.info(`first load of ${l.page}: ${kB(l.bytes)}, ${kB(l.gzipBytes)} gzipped, ${l.files} files`)
       }
       const problems = overBudget(loads)
