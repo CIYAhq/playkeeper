@@ -1,5 +1,5 @@
 import type { ElementHandle, Page, Request } from '@playwright/test'
-import { installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
+import { breakControl, installPageHelpers, type ControlInfo, type Snapshot } from './crawl-page'
 import { installFakes, type ApiCall, type View } from './fakes'
 
 // Presses every control a person can reach and checks that each one visibly
@@ -34,8 +34,10 @@ export interface Result {
 
 export interface CrawlReport {
   results: Result[]
-  /** Time spent on each page, states that could not be reached again, pages without a heading. */
+  /** Time spent on each page, controls that went away before their turn, pages without a heading. */
   notes: string[]
+  /** States the crawl found but could not get back to, so their controls went unpressed. */
+  unreached: string[]
 }
 
 /** A page as the report names it: its route, and the faked state it was crawled in. */
@@ -98,11 +100,14 @@ function isSelected(state: string | null): boolean {
 export class Crawler {
   readonly results: Result[] = []
   readonly notes: string[] = []
+  readonly unreached: string[] = []
   /** What the panel's reads show (fakes.ts); crawl() sets it. */
   private view: View = 'live'
   private readonly tested = new Map<string, Tested>()
   /** States explored in any crawl so far: their controls have all been pressed, so a later page or view needn't open them again. */
   private readonly signatures = new Set<string>()
+  /** Set while a negative control presses a control it broke, whose failure isn't the crawl's. */
+  private quiet = false
   private calls: ApiCall[] = []
   private unfaked: string[] = []
   private reqs: Req[] = []
@@ -373,7 +378,7 @@ export class Crawler {
   private record(route: string, via: string[], c: ControlInfo, status: Status, effects: string[] = [], problems: string[] = [], reason?: string): Result {
     const r: Result = { viewport: this.viewport, route, view: this.view === 'live' ? undefined : this.view, via, key: c.key, status, effects, problems, reason }
     this.results.push(r)
-    this.log(`${failing.includes(status) ? '✗' : '✓'} [${this.viewport}] ${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}`)
+    if (!this.quiet) this.log(`${failing.includes(status) ? '✗' : '✓'} [${this.viewport}] ${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}`)
     return r
   }
 
@@ -467,6 +472,32 @@ export class Crawler {
     this.unheaded.clear()
   }
 
+  /**
+   * A negative control: presses a control the crawl found again, in the same
+   * state, with the control made to do nothing when pressed (or, with
+   * `unexplained`, a disabled control stripped of its reason). The verdict
+   * must be a failing one, or the crawl can't tell a broken control there
+   * from a working one. The result isn't added to the crawl's results.
+   */
+  async breakAndPress(found: Result, how: 'does nothing' | 'unexplained' = 'does nothing'): Promise<Result | string> {
+    this.view = found.view ?? 'live'
+    const sabotage = await this.page.addInitScript(breakControl, { key: found.key, how })
+    try {
+      const state = await this.reach(found.route, found.via)
+      if (!state) return `could not reach ${where(found.route, found.view)}${found.via.length ? ` › ${found.via.join(' › ')}` : ''} again`
+      const c = (await this.controls()).find((x) => x.key === found.key)
+      if (!c) return `${found.key} wasn't there again`
+      const count = this.results.length
+      this.quiet = true
+      const t = await this.test(found.route, found.via, c, state)
+      this.results.splice(count)
+      return t.result
+    } finally {
+      this.quiet = false
+      await sabotage.dispose()
+    }
+  }
+
   private async explore(route: string) {
     const queue: string[][] = [[]]
     const signatures = this.signatures
@@ -482,7 +513,7 @@ export class Crawler {
       const path = queue.shift() as string[]
       let state = await this.reach(route, path)
       if (!state) {
-        this.notes.push(`[${this.viewport}] ${where(route, this.view)}: could not reach ${path.join(' › ')} again`)
+        this.unreached.push(`[${this.viewport}] ${where(route, this.view)}: could not reach ${path.join(' › ') || 'the page'} again`)
         continue
       }
       const sig = signature(state.base)
@@ -500,7 +531,7 @@ export class Crawler {
         if (dirty) {
           state = await this.reach(route, path)
           if (!state) {
-            this.notes.push(`[${this.viewport}] ${where(route, this.view)}: could not reach ${path.join(' › ') || 'the page'} again`)
+            this.unreached.push(`[${this.viewport}] ${where(route, this.view)}: could not reach ${path.join(' › ') || 'the page'} again`)
             break
           }
           dirty = false

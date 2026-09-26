@@ -36,6 +36,10 @@ declare global {
     __pk: {
       controls(): ControlInfo[]
       element(key: string): Element | null
+      /** The control with this key, without making it the one pressed last. */
+      find(key: string): Element | null
+      /** The key of the control a press on `el` lands on. */
+      keyOf(el: Element): string | undefined
       snapshot(withTarget?: boolean): Snapshot
       animationsRunning(): number
       fillable(): number
@@ -288,6 +292,17 @@ export function installPageHelpers() {
     return target && (roleOf(target) === 'slider' ? target : proxyOf(target))
   }
 
+  function find(key: string): Element | null {
+    controls()
+    return list.find((x) => x.key === key)?.el ?? null
+  }
+
+  function keyOf(el: Element): string | undefined {
+    controls()
+    const inner = (hits: { key: string; el: Element }[]) => hits.reduce<{ key: string; el: Element } | undefined>((best, x) => (!best || best.el.contains(x.el) ? x : best), undefined)
+    return (inner(list.filter((x) => x.el.contains(el))) ?? inner(list.filter((x) => proxyOf(x.el)?.contains(el))))?.key
+  }
+
   function stateOf(el: Element): string {
     const attrs = ['aria-checked', 'aria-pressed', 'aria-expanded', 'aria-selected', 'aria-current', 'aria-disabled', 'aria-valuenow', 'aria-activedescendant', 'data-checked', 'data-unchecked', 'data-pressed', 'data-popup-open', 'data-panel-open', 'data-loading', 'data-state', 'data-open']
     const parts = attrs.map((a) => (el.hasAttribute(a) ? `${a}=${el.getAttribute(a)}` : '')).filter(Boolean)
@@ -354,5 +369,29 @@ export function installPageHelpers() {
     }).length
   }
 
-  window.__pk = { controls, element, snapshot, animationsRunning, fillable }
+  window.__pk = { controls, element, find, keyOf, snapshot, animationsRunning, fillable }
+}
+
+/**
+ * Also runs inside the page, for negative controls (Crawler.breakAndPress).
+ * 'does nothing': pressing the control with this key does nothing, like a
+ * button whose handler is missing. 'unexplained': the disabled control loses
+ * the description that says why.
+ */
+export function breakControl({ key, how }: { key: string; how: 'does nothing' | 'unexplained' }) {
+  if (how === 'does nothing') {
+    const stop = (e: Event) => {
+      if (e.target instanceof Element && window.__pk?.keyOf(e.target) === key) {
+        e.stopImmediatePropagation()
+        e.preventDefault()
+      }
+    }
+    for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown', 'keyup', 'touchstart', 'touchend']) window.addEventListener(type, stop, true)
+    return
+  }
+  const strip = () => {
+    const el = window.__pk?.find(key)
+    if (el) for (const a of ['aria-describedby', 'aria-description', 'title']) el.removeAttribute(a)
+  }
+  new MutationObserver(strip).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-describedby', 'aria-description', 'title'] })
 }
