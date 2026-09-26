@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/discord"
 )
 
 // The webhook the tests connect; the token is made up.
@@ -109,6 +111,29 @@ func (f *fakeHook) messages(want ...string) []hookRequest {
 func (f *fakeHook) waitMessage(e *agentEnv, want ...string) {
 	e.t.Helper()
 	e.waitFor("a Discord message with "+strings.Join(want, ", "), func() bool { return len(f.messages(want...)) > 0 })
+}
+
+// statusMessage is the live status message as last posted or edited.
+func (f *fakeHook) statusMessage() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.got) - 1; i >= 0; i-- {
+		if r := f.got[i]; r.Method == http.MethodPatch || r.Method == http.MethodPost && strings.Contains(r.Raw, `"flags":4096`) {
+			return r.Raw
+		}
+	}
+	return ""
+}
+
+// waitStatus fails the test unless the live status message shows want
+// within d.
+func (f *fakeHook) waitStatus(e *agentEnv, d time.Duration, want string) {
+	e.t.Helper()
+	for deadline := time.Now().Add(d); !strings.Contains(f.statusMessage(), want); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			e.t.Fatalf("the live status message did not show %q within %v: %s", want, d, f.statusMessage())
+		}
+	}
 }
 
 // newDiscordEnv is an agent that talks to the fake Discord.
@@ -253,6 +278,79 @@ func TestDiscordAlertsComeFromTheAgent(t *testing.T) {
 	f.waitMessage(e, "Back online")
 	// Alerts link to the server's page on the dashboard.
 	f.waitMessage(e, "https://play.example.com:"+fmt.Sprint(e.cfg.PanelPort)+"/servers/")
+}
+
+// The live status message shows the server as it is, not as the last sample
+// saw it: no sample runs here once the agent has started. Crashes, coming
+// back online and Playkeeper giving up restarting each show within seconds,
+// not after the minute between routine updates.
+func TestDiscordLiveStatusShowsCrashesWithinSeconds(t *testing.T) {
+	f := startFakeHook(t)
+	e := newAgentEnv(t)
+	e.stop()
+	// Playkeeper restarts the server four seconds after a crash, long enough
+	// for the crash to show first.
+	e.discordClient, e.sampleInterval, e.crashBackoff = f.client(), time.Hour, []time.Duration{4 * time.Second}
+	e.start()
+	e.create()
+	e.connectDiscord()
+	const within = 4 * time.Second
+	f.waitStatus(e, within, "** · Online")
+	for i := 1; i <= maxCrashes; i++ {
+		// A line after "Done", as a running server logs: the follower reads a
+		// stopped container's last line again, and a "Done" read again counts
+		// as a new start.
+		e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+		e.fd.crash(137)
+		f.waitStatus(e, within, "** · Crashed")
+		if i == maxCrashes {
+			break
+		}
+		e.waitFor("back online", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+		f.waitStatus(e, within, "** · Online")
+	}
+	e.waitFor("Playkeeper gave up restarting the server", func() bool {
+		return strings.Contains(e.status().LastError, "stopped restarting")
+	})
+	f.waitStatus(e, 0, "** · Crashed")
+}
+
+// An exit the reconcile loop has yet to handle shows in Discord as what the
+// loop will count it as, so a crash does not show as a stop first. The
+// reconcile loop does not run here once the agent has started.
+func TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.reconcileInterval = time.Hour
+	e.start()
+	e.create()
+	ctx := context.Background()
+	state := func() discord.State { return e.srv().discordStatus(ctx).State }
+	logRead := func() bool {
+		s := e.srv()
+		c, err := s.docker.ContainerInspect(ctx, s.containerName())
+		fin, _ := c.State.Finished()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return err == nil && !c.State.Running && !s.followEnded[c.ID].Before(fin)
+	}
+	if st := state(); st != discord.StateOnline {
+		t.Fatalf("online: %s", st)
+	}
+	e.fd.externalStop()
+	e.waitFor("the log read to its end", logRead)
+	if st := state(); st != discord.StateOffline {
+		t.Fatalf("a clean shutdown is not a crash: %s", st)
+	}
+	if code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"}); code != 202 {
+		t.Fatalf("start: %d %v", code, out)
+	}
+	e.waitFor("online again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
+	e.fd.crash(137)
+	e.waitFor("the crash shown", func() bool { return state() == discord.StateCrashed })
+	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`); n != 0 {
+		t.Fatalf("the reconcile loop counted the crash (%d), so this test shows nothing", n)
+	}
 }
 
 func TestBackupFailureIsPostedToDiscord(t *testing.T) {

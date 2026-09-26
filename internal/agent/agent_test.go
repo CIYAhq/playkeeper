@@ -55,6 +55,9 @@ type agentEnv struct {
 	live atomic.Pointer[Agent]
 	// discordClient, when set, is what the agent talks to Discord with.
 	discordClient *http.Client
+	// sampleInterval and reconcileInterval, when set, replace the tests'
+	// short ones.
+	sampleInterval, reconcileInterval time.Duration
 }
 
 // srv is the current server's runtime handle.
@@ -119,9 +122,16 @@ func (e *agentEnv) start() {
 	if backoff == nil {
 		backoff = []time.Duration{0}
 	}
+	sample, reconcile := 100*time.Millisecond, 50*time.Millisecond
+	if e.sampleInterval > 0 {
+		sample = e.sampleInterval
+	}
+	if e.reconcileInterval > 0 {
+		reconcile = e.reconcileInterval
+	}
 	a, err := New(Options{
 		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
-		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
+		SampleInterval: sample, ReconcileInterval: reconcile, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
 		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {

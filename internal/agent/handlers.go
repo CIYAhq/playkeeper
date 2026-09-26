@@ -144,25 +144,19 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.WorldBytes = &world
 	}
 	s.mu.Unlock()
-	fresh := func(t time.Time) bool { return s.now().Sub(t) < 3*s.opts.SampleInterval+5*time.Second }
+	fresh := s.fresh
+	st.Phase = observedPhase(c, err, sc != nil, runPhase, crashed, st.Operation)
 	running := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
-		st.Phase = api.PhaseDockerUnavailable
 		st.LastError = "Docker is not responding, so Playkeeper cannot see or control the server."
 		st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"
 		st.Refusal = refusal
 	case sc == nil:
-		st.Phase = api.PhaseNotCreated
 	case docker.IsNotFound(err):
-		st.Phase = api.PhaseStopped
 		st.Refusal = refusal
 	case c.State.Running:
 		running = true
-		st.Phase = runPhase
-		if st.Phase == "" || st.Phase == api.PhaseCrashed {
-			st.Phase = api.PhaseStartingContainer
-		}
 		st.PhaseDetail = detail
 		if t, ok := c.State.Started(); ok {
 			st.StartedAt = &t
@@ -170,10 +164,6 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		_, hash := s.containerSpec(*sc, false)
 		st.PendingRestart = c.Config.Labels[labelSpec] != hash
 	default:
-		st.Phase = api.PhaseStopped
-		if crashed {
-			st.Phase = api.PhaseCrashed
-		}
 		st.Refusal = refusal
 		code := c.State.ExitCode
 		st.ExitCode = &code
@@ -184,15 +174,8 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	if sc != nil && running && iconNewer(sc, st.StartedAt) {
 		st.PendingRestart = true
 	}
-	if st.Operation != nil {
-		switch api.Phase(st.Operation.Phase) {
-		case api.PhasePulling, api.PhaseDownloading, api.PhaseStartingContainer, api.PhaseStopping:
-			st.Phase = api.Phase(st.Operation.Phase)
-		}
-		if st.Operation.Phase == "verifying_download" {
-			st.Phase = api.PhaseDownloading
-			st.PhaseDetail = "Verifying checksum"
-		}
+	if st.Operation != nil && st.Operation.Phase == "verifying_download" {
+		st.PhaseDetail = "Verifying checksum"
 	}
 	if running && res != nil && fresh(res.At) {
 		st.Resources = res
@@ -217,6 +200,41 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	}
 	st.FirstSteps = s.firstSteps()
 	return st
+}
+
+// fresh reports whether a sample taken at t is recent enough to show.
+func (s *server) fresh(t time.Time) bool {
+	return s.now().Sub(t) < 3*s.opts.SampleInterval+5*time.Second
+}
+
+// observedPhase is the server's phase from its container c (err from
+// inspecting it), whether the server has been created, the phase its log
+// shows, whether its last run crashed and the operation in progress.
+func observedPhase(c docker.ContainerJSON, err error, created bool, logPhase api.Phase, crashed bool, op *api.Operation) api.Phase {
+	p := api.PhaseStopped
+	switch {
+	case err != nil && !docker.IsNotFound(err):
+		p = api.PhaseDockerUnavailable
+	case !created:
+		p = api.PhaseNotCreated
+	case docker.IsNotFound(err):
+	case c.State.Running:
+		p = logPhase
+		if p == "" || p == api.PhaseCrashed {
+			p = api.PhaseStartingContainer
+		}
+	case crashed:
+		p = api.PhaseCrashed
+	}
+	if op != nil {
+		switch api.Phase(op.Phase) {
+		case api.PhasePulling, api.PhaseDownloading, api.PhaseStartingContainer, api.PhaseStopping:
+			p = api.Phase(op.Phase)
+		case "verifying_download":
+			p = api.PhaseDownloading
+		}
+	}
+	return p
 }
 
 // firstSteps ticks off the "Get started" checklist from what has happened.

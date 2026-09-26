@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +73,90 @@ func TestBoardListsEveryServerInOneMessage(t *testing.T) {
 	h.UpdateBoard(b)
 	if next := h.sendDue(); !next.IsZero() || len(h.fake.take()) != 0 {
 		t.Error("an unchanged board is not sent again")
+	}
+}
+
+// setSurvival gives Survival the status st at t0+at and makes the requests
+// due then. It returns Survival's line in the last status update made, ""
+// when none was, and when the next update is due.
+func setSurvival(t *testing.T, h *harness, at time.Duration, st Status) (string, time.Time) {
+	t.Helper()
+	h.clock.Set(t0.Add(at))
+	b := threeServers()
+	b.Servers[0].Status = st
+	h.UpdateBoard(b)
+	next := h.sendDue()
+	reqs := h.fake.take()
+	if len(reqs) == 0 {
+		return "", next
+	}
+	line, _, _ := strings.Cut(reqs[len(reqs)-1].Msg.Embeds[0].Description, "\n")
+	return line, next
+}
+
+func TestStateChangesReachTheStatusMessageWithinSeconds(t *testing.T) {
+	h := newDashboardHarness(t, Settings{Webhook: testWebhook(t, ""), LiveStatus: true})
+	online := threeServers().Servers[0].Status
+	crashed, starting := Status{State: StateCrashed}, Status{State: StateStarting}
+	setSurvival(t, h, 0, online)
+
+	joined := online
+	joined.PlayersOnline, joined.Players = 4, append(slices.Clone(online.Players), "lena")
+	if line, next := setSurvival(t, h, 10*time.Second, joined); line != "" || !next.Equal(t0.Add(30*time.Second)) {
+		t.Fatalf("a player joining must wait for the status interval: sent %q, next update at %v", line, next)
+	}
+	if line, _ := setSurvival(t, h, 11*time.Second, crashed); line != "🔴 **Survival** · Crashed" {
+		t.Fatalf("a crash a second after the last update must show at once: %q", line)
+	}
+	if line, next := setSurvival(t, h, 12*time.Second, starting); line != "" || !next.Equal(t0.Add(13*time.Second)) {
+		t.Fatalf("a restart a second after the crash waits two seconds from it: sent %q, next update at %v", line, next)
+	}
+	if line, _ := setSurvival(t, h, 13*time.Second, starting); line != "🟠 **Survival** · Starting" {
+		t.Fatalf("restarting: %q", line)
+	}
+	if line, _ := setSurvival(t, h, 20*time.Second, joined); line != "🟢 **Survival** · Online · 4 of 10 · JunoFox, lena, mara\\_k, tobi2009" {
+		t.Fatalf("back online must show at once: %q", line)
+	}
+	// It crashes again a second later, and Playkeeper gives up restarting it.
+	if line, next := setSurvival(t, h, 21*time.Second, crashed); line != "" || !next.Equal(t0.Add(22*time.Second)) {
+		t.Fatalf("a crash a second after coming online waits two seconds from it: sent %q, next update at %v", line, next)
+	}
+	if line, _ := setSurvival(t, h, 22*time.Second, crashed); line != "🔴 **Survival** · Crashed" {
+		t.Fatalf("gave up restarting: %q", line)
+	}
+}
+
+func TestStateChangesStayInsideDiscordsRateLimits(t *testing.T) {
+	h := newDashboardHarness(t, Settings{Webhook: testWebhook(t, ""), LiveStatus: true})
+	online, crashed := threeServers().Servers[0].Status, Status{State: StateCrashed}
+	flip := func(st Status) Status {
+		if st.State == StateCrashed {
+			return online
+		}
+		return crashed
+	}
+	// A server that keeps crashing and coming back makes at most statusBurst
+	// updates in a status interval, 30 seconds here.
+	st := online
+	for i := range statusBurst {
+		if line, _ := setSurvival(t, h, time.Duration(i)*statusGap, st); line == "" {
+			t.Fatalf("update %d of %d was held back", i+1, statusBurst)
+		}
+		st = flip(st)
+	}
+	if line, next := setSurvival(t, h, statusBurst*statusGap, st); line != "" || !next.Equal(t0.Add(30*time.Second)) {
+		t.Fatalf("one update too many: sent %q, next update at %v, want %v", line, next, t0.Add(30*time.Second))
+	}
+	if line, _ := setSurvival(t, h, 30*time.Second, st); !strings.HasPrefix(line, "🟢 **Survival** · Online") {
+		t.Fatalf("once the oldest update is an interval old: %q", line)
+	}
+	// Discord's answer to slow down holds a state change back too.
+	h.fake.reply(fakeReply{Status: 429, Header: map[string]string{"Retry-After": "5"}, Body: `{"message": "You are being rate limited.", "retry_after": 5, "global": false}`})
+	if _, next := setSurvival(t, h, 33*time.Second, crashed); !next.Equal(t0.Add(38 * time.Second)) {
+		t.Fatalf("after a 429 asking for 5 seconds, the next update is at %v", next)
+	}
+	if line, _ := setSurvival(t, h, 38*time.Second, crashed); line != "🔴 **Survival** · Crashed" {
+		t.Fatalf("after the wait: %q", line)
 	}
 }
 

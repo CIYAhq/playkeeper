@@ -105,9 +105,19 @@ func (s BoardServer) line() string {
 	return strings.Join(parts, " · ")
 }
 
+// states is each server's state on the board, without who is playing.
+func (b Board) states() string {
+	var sb strings.Builder
+	for _, s := range b.Servers {
+		sb.WriteString(s.Server.ID + "\x00" + string(s.Status.State) + "\n")
+	}
+	return sb.String()
+}
+
 // UpdateBoard gives a Notifier that serves a whole dashboard the status of
 // every server. The live status message then lists them all, instead of
-// the one server UpdateStatus describes.
+// the one server UpdateStatus describes, and is updated as UpdateStatus
+// says.
 func (n *Notifier) UpdateBoard(b Board) {
 	list := make([]BoardServer, len(b.Servers))
 	for i, s := range b.Servers {

@@ -451,6 +451,26 @@ control "the agent checks the member name it posts to Discord" internal/agent/di
   'if invites.ValidUsername(req.Member) != nil {' \
   'if false && invites.ValidUsername(req.Member) != nil {' \
   ./internal/agent '^TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff$'
+control "a server's state change reaches the live status message within seconds" internal/discord/notifier.go \
+  'case states != n.shownStates:' \
+  'case false && states != n.shownStates:' \
+  ./internal/discord '^TestStateChangesReachTheStatusMessageWithinSeconds$'
+control "the burst guard on live status updates" internal/discord/notifier.go \
+  'due = later(due, later(n.statusAt.Add(statusGap), n.burstEnds()))' \
+  'due = later(due, n.statusAt.Add(statusGap))' \
+  ./internal/discord '^TestStateChangesStayInsideDiscordsRateLimits$'
+control "the agent looks at its servers for Discord as often as it reconciles" internal/agent/discord.go \
+  't := time.NewTicker(a.opts.ReconcileInterval)' \
+  't := time.NewTicker(a.opts.SampleInterval)' \
+  ./internal/agent '^TestDiscordLiveStatusShowsCrashesWithinSeconds$'
+control "Discord shows a crash the reconcile loop has yet to count" internal/agent/discord.go \
+  'crashed := s.crashed || err == nil && !busy && s.pendingCrash(c)' \
+  'crashed := s.crashed || false && err == nil && !busy && s.pendingCrash(c)' \
+  ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "a clean shutdown the reconcile loop has yet to handle is not a crash" internal/agent/discord.go \
+  '&& !s.intentional[c.ID] && !s.sawStopping' \
+  '&& !s.intentional[c.ID]' \
+  ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

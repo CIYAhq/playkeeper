@@ -11,7 +11,8 @@ import (
 )
 
 // DefaultStatusInterval is the least time between two updates of the live
-// status message.
+// status message that only change who is playing. A server coming online,
+// starting, stopping or crashing shows within seconds.
 const DefaultStatusInterval = time.Minute
 
 const (
@@ -29,6 +30,15 @@ const (
 	// editCooldown is the wait after Discord refuses edits to a status
 	// message older than an hour; its docs don't say how many it allows.
 	editCooldown = 10 * time.Minute
+	// statusGap is the least time between two updates of the live status
+	// message when a server's state changes, so a server that crashes and
+	// restarts at once costs one edit rather than a burst of them.
+	statusGap = 2 * time.Second
+	// statusBurst is the most updates of the live status message in one
+	// StatusInterval. A state change beyond that waits until the oldest of
+	// them is a StatusInterval old, well inside Discord's rate limits, which
+	// its answers enforce as well.
+	statusBurst = 10
 )
 
 // Options configure a Notifier.
@@ -41,7 +51,8 @@ type Options struct {
 	Now    func() time.Time
 	Logger *slog.Logger
 	// StatusInterval is the least time between two updates of the live
-	// status message; 0 means DefaultStatusInterval.
+	// status message that only change who is playing; 0 means
+	// DefaultStatusInterval.
 	StatusInterval time.Duration
 	// OnStatusMessage is called with the id of every live status message
 	// the Notifier posts, for the caller to store as
@@ -105,9 +116,13 @@ type Notifier struct {
 	status     Status
 	board      *Board
 	haveStatus bool
-	// shown identifies what the live status message shows (embed.key).
+	// shown identifies what the live status message shows (embed.key), and
+	// shownStates the servers' states in it (Board.states).
 	shown       string
+	shownStates string
 	statusAt    time.Time
+	// statusSent are the times of the last statusBurst status updates.
+	statusSent  []time.Time
 	statusTries int
 	statusRetry time.Time
 	editsAfter  time.Time
@@ -176,7 +191,8 @@ func (n *Notifier) Notify(e Event) {
 
 // UpdateStatus gives the Notifier the server's current status. When live
 // status is on, the status message is updated whenever what it shows
-// changes, at most once per StatusInterval.
+// changes: within seconds when the server's state changes, and at most once
+// per StatusInterval when only players come and go.
 func (n *Notifier) UpdateStatus(s Status) {
 	s.Players = slices.Clone(s.Players)
 	n.mu.Lock()
@@ -208,7 +224,8 @@ func (n *Notifier) SetSettings(s Settings) {
 		n.gen++
 		n.broken, n.delivery, n.quietUntil = nil, Delivery{}, map[string]time.Time{}
 		n.notBefore, n.alertTries, n.alertRetry = time.Time{}, 0, time.Time{}
-		n.shown, n.statusAt, n.statusTries, n.statusRetry, n.editsAfter = "", time.Time{}, 0, time.Time{}, time.Time{}
+		n.shown, n.shownStates, n.statusAt, n.statusSent = "", "", time.Time{}, nil
+		n.statusTries, n.statusRetry, n.editsAfter = 0, time.Time{}, time.Time{}
 		s.StatusMessageID = ""
 		if s.Webhook.IsZero() {
 			n.queue = nil
@@ -308,6 +325,7 @@ type job struct {
 	count     int
 	status    bool
 	key       string
+	states    string
 	messageID string
 }
 
@@ -401,9 +419,9 @@ func (n *Notifier) statusJob(w Webhook, now time.Time) (*job, time.Time) {
 	if !n.settings.LiveStatus || !n.haveStatus {
 		return nil, time.Time{}
 	}
-	e := n.status.embed(n.server)
+	e, states := n.status.embed(n.server), string(n.status.State)
 	if n.board != nil {
-		e = n.board.embed(n.server)
+		e, states = n.board.embed(n.server), n.board.states()
 	}
 	key := e.key()
 	if key == n.shown {
@@ -411,7 +429,11 @@ func (n *Notifier) statusJob(w Webhook, now time.Time) (*job, time.Time) {
 	}
 	id := n.settings.StatusMessageID
 	due := later(n.statusRetry, n.notBefore)
-	if !n.statusAt.IsZero() {
+	switch {
+	case n.statusAt.IsZero():
+	case states != n.shownStates:
+		due = later(due, later(n.statusAt.Add(statusGap), n.burstEnds()))
+	default:
 		due = later(due, n.statusAt.Add(n.interval))
 	}
 	if id != "" {
@@ -421,11 +443,20 @@ func (n *Notifier) statusJob(w Webhook, now time.Time) (*job, time.Time) {
 		return nil, due
 	}
 	e.Timestamp = now.UTC().Format(time.RFC3339)
-	j := &job{gen: n.gen, webhook: w, msg: newMessage(e), status: true, key: key, messageID: id}
+	j := &job{gen: n.gen, webhook: w, msg: newMessage(e), status: true, key: key, states: states, messageID: id}
 	if id == "" {
 		j.msg.Flags = flagSuppressNotifications
 	}
 	return j, time.Time{}
+}
+
+// burstEnds is when the live status message may next be updated without
+// going over statusBurst updates in a StatusInterval.
+func (n *Notifier) burstEnds() time.Time {
+	if len(n.statusSent) < statusBurst {
+		return time.Time{}
+	}
+	return n.statusSent[len(n.statusSent)-statusBurst].Add(n.interval)
 }
 
 // apply records the outcome of j and returns what to report once the lock
@@ -435,6 +466,9 @@ func (n *Notifier) apply(j *job, r result, now time.Time) (*string, *Delivery) {
 		return nil, nil
 	}
 	n.limit(r, now)
+	if j.status {
+		n.statusSent = append(n.statusSent[max(0, len(n.statusSent)-statusBurst+1):], now)
+	}
 	if r.err == nil && j.status && j.messageID == "" && r.messageID == "" {
 		r.err = &Error{
 			Code: CodeUnexpected,
@@ -449,7 +483,7 @@ func (n *Notifier) apply(j *job, r result, now time.Time) (*string, *Delivery) {
 			n.alertTries, n.alertRetry = 0, time.Time{}
 			return nil, d
 		}
-		n.shown, n.statusAt, n.statusTries, n.statusRetry = j.key, now, 0, time.Time{}
+		n.shown, n.shownStates, n.statusAt, n.statusTries, n.statusRetry = j.key, j.states, now, 0, time.Time{}
 		if j.messageID != "" {
 			return nil, d
 		}
@@ -464,7 +498,7 @@ func (n *Notifier) apply(j *job, r result, now time.Time) (*string, *Delivery) {
 		return nil, n.failed(e, now)
 	case e.Code == codeUnknownMessage:
 		n.log.Info("discord: the live status message was deleted; posting a new one", "webhook", j.webhook)
-		n.settings.StatusMessageID, n.shown, n.statusAt = "", "", time.Time{}
+		n.settings.StatusMessageID, n.shown, n.shownStates, n.statusAt = "", "", "", time.Time{}
 		return nil, nil
 	case e.Code == codeEditLimit:
 		n.log.Info("discord: Discord refuses more edits to the live status message for now", "webhook", j.webhook, "retry_in", editCooldown)
@@ -493,7 +527,7 @@ func (n *Notifier) apply(j *job, r result, now time.Time) (*string, *Delivery) {
 	case r.retry:
 		n.statusRetry = now.Add(n.interval)
 	default:
-		n.shown, n.statusAt = j.key, now
+		n.shown, n.shownStates, n.statusAt = j.key, j.states, now
 	}
 	return nil, n.failed(e, now)
 }

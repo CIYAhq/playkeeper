@@ -18,6 +18,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/discord"
+	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
@@ -194,45 +195,74 @@ func (s *server) alert(e discord.Event) {
 	s.disc.n.Notify(e)
 }
 
-// discordStatus is the server's line in the live status message, from the
-// latest sample.
-func (s *server) discordStatus() discord.Status {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	st := discord.Status{State: discord.StateOffline}
-	switch s.sampled {
-	case "online":
-		st.State = discord.StateOnline
-	case "starting":
-		st.State = discord.StateStarting
-	case "crashed":
-		st.State = discord.StateCrashed
+// discordStatus is the server's line in the live status message: its state
+// now, as the dashboard shows it, and who is playing as last sampled.
+func (s *server) discordStatus(ctx context.Context) discord.Status {
+	sc, _ := s.serverConfig()
+	busy := s.busy()
+	op := s.currentOp()
+	if op == nil {
+		op = s.machineOp()
 	}
-	if st.State == discord.StateOnline && s.players != nil {
-		st.PlayersOnline, st.MaxPlayers, st.Players = s.players.Online, s.players.Max, s.players.Names
+	c, err := s.docker.ContainerInspect(ctx, s.containerName())
+	s.mu.Lock()
+	crashed := s.crashed || err == nil && !busy && s.pendingCrash(c)
+	phase := observedPhase(c, err, sc != nil, s.runPhase, crashed, op)
+	players := s.players
+	s.mu.Unlock()
+	st := discord.Status{State: discord.StateOffline}
+	switch phase {
+	case api.PhaseOnline:
+		st.State = discord.StateOnline
+		if players != nil && s.fresh(players.At) {
+			st.PlayersOnline, st.MaxPlayers, st.Players = players.Online, players.Max, players.Names
+		}
+	case api.PhaseCrashed:
+		st.State = discord.StateCrashed
+	case api.PhasePulling, api.PhaseStartingContainer, api.PhaseDownloading, api.PhaseStarting, api.PhasePreparingWorld:
+		st.State = discord.StateStarting
+	case api.PhaseNotCreated, api.PhaseStopped, api.PhaseStopping, api.PhaseDockerUnavailable:
 	}
 	return st
 }
 
-func (a *Agent) discordBoard() discord.Board {
+// pendingCrash reports whether the server's container c exited in a way the
+// reconcile loop counts as a crash on its next pass, which may be seconds
+// away: the exit is not handled yet, its log has been read to the end, and
+// it came while the agent was running, unasked, without the server logging a
+// clean shutdown. The caller holds s.mu.
+func (s *server) pendingCrash(c docker.ContainerJSON) bool {
+	if c.State.Running {
+		return false
+	}
+	fin, _ := c.State.Finished()
+	if last, ok := s.handledExit[c.ID]; ok && last.Equal(fin) || s.followEnded[c.ID].Before(fin) {
+		return false
+	}
+	return !fin.Before(s.started) && !s.intentional[c.ID] && !s.sawStopping
+}
+
+func (a *Agent) discordBoard(ctx context.Context) discord.Board {
 	var b discord.Board
 	for _, s := range a.serverList() {
 		if sc, _ := s.serverConfig(); sc == nil {
 			continue
 		}
-		b.Servers = append(b.Servers, discord.BoardServer{Server: s.discordInfo(), Status: s.discordStatus()})
+		b.Servers = append(b.Servers, discord.BoardServer{Server: s.discordInfo(), Status: s.discordStatus(ctx)})
 	}
 	return b
 }
 
 // discordLoop keeps the live status message and the low disk alert current.
+// It looks at the servers as often as the reconcile loop does, so a server
+// that comes online, stops or crashes shows in Discord within seconds.
 func (a *Agent) discordLoop(ctx context.Context) {
-	t := time.NewTicker(a.opts.SampleInterval)
+	t := time.NewTicker(a.opts.ReconcileInterval)
 	defer t.Stop()
 	for {
 		if a.discordConnected() {
 			a.checkLowDisk()
-			a.disc.n.UpdateBoard(a.discordBoard())
+			a.disc.n.UpdateBoard(a.discordBoard(ctx))
 		}
 		select {
 		case <-ctx.Done():
