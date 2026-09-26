@@ -2820,7 +2820,6 @@ export const en = {
   'publicMap.offLead': 'Ask whoever shared it for a new link.',
   'new.from.world': 'A world',
   'new.from.worldShort': 'World',
-  'new.startFrom.world': 'World',
   'new.row.from': 'From',
   'new.row.world': 'World',
   'import.checked': 'Playkeeper checks it before anything changes.',

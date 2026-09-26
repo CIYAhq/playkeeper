@@ -372,18 +372,18 @@ export function NewServerPage({ machine }: { machine?: string }) {
           <div className={cn('flex flex-col', phone && from !== 'type' ? 'gap-4' : 'gap-6')}>
             {phone && from === 'modpack' ? (
               <div>
-                <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.modpackQuestion')}</h1>
+                <h1 className="text-[22px] leading-7 font-bold tracking-[-0.015em]">{t('new.modpackQuestion')}</h1>
                 <p className="mt-1 text-[15px] text-muted-foreground">{t('new.modpackHintPhone')}</p>
               </div>
             ) : phone && from === 'template' ? (
               <div>
-                <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.templateQuestion')}</h1>
+                <h1 className="text-[22px] leading-7 font-bold tracking-[-0.015em]">{t('new.templateQuestion')}</h1>
                 <p className="mt-1 text-[15px] text-muted-foreground">{t('new.templateHint')}</p>
               </div>
             ) : phone && world ? (
               <>
                 <div>
-                  <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('import.titlePhone')}</h1>
+                  <h1 className="text-[22px] leading-7 font-bold tracking-[-0.015em]">{t('import.titlePhone')}</h1>
                   <p className="mt-1 text-[15px] text-muted-foreground">{t('import.checkedPhone')}</p>
                 </div>
                 <GameCard phone />
@@ -391,7 +391,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
             ) : phone ? (
               <>
                 <div>
-                  <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.typeQuestion')}</h1>
+                  <h1 className="text-[22px] leading-7 font-bold tracking-[-0.015em]">{t('new.typeQuestion')}</h1>
                   <p className="mt-1 text-[15px] text-muted-foreground">{t('new.typeHint')}</p>
                 </div>
                 <GameCard phone />
@@ -484,7 +484,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.versionTitle')}</h2>
+                <h2 className={cn(phone ? 'text-[22px] leading-7 font-bold tracking-[-0.015em]' : 'text-lg font-bold')}>{t('new.versionTitle')}</h2>
                 <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.versionLead')}</p>
               </div>
               <div className={cn('flex items-center gap-2 text-[13px]', phone ? 'w-full justify-between' : 'rounded-full border border-border bg-muted py-1 pr-3 pl-1.5')}>
@@ -544,7 +544,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
         body = (
           <div className="flex flex-col gap-4">
             <div>
-              <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('style.question')}</h2>
+              <h2 className={cn(phone ? 'text-[22px] leading-7 font-bold tracking-[-0.015em]' : 'text-lg font-bold')}>{t('style.question')}</h2>
               <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('style.lead')}</p>
             </div>
             <StyleCards
@@ -568,7 +568,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
         body = (
           <div className="flex flex-col gap-4">
             <div>
-              <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
+              <h2 className={cn(phone ? 'text-[22px] leading-7 font-bold tracking-[-0.015em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
               {!noMemory && (
                 <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
                   {world
@@ -616,7 +616,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
         body = (
           <div className="flex flex-col gap-4">
             <div>
-              <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.nameTitle')}</h2>
+              <h2 className={cn(phone ? 'text-[22px] leading-7 font-bold tracking-[-0.015em]' : 'text-lg font-bold')}>{t('new.nameTitle')}</h2>
               <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('new.nameLead')}</p>
             </div>
             <label className="flex flex-col gap-1.5 text-[13px] font-medium">
@@ -778,7 +778,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       />
       <PageBody className="flex flex-col gap-5">
         <Stepper steps={stepTitles} current={step} label={t('new.steps')} skip={world ? 2 : undefined} />
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex min-w-0 flex-col">
             {stepBody}
             <div className="mt-6 flex items-center gap-3 border-t border-border pt-4">
@@ -789,7 +789,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
                 </Button>
               )}
               <span className="ml-auto text-xs text-muted-foreground">{nextHint}</span>
-              <Button onClick={next} disabledReason={blocked()} loading={busy || checkBusy}>
+              <Button size="lg" onClick={next} disabledReason={blocked()} loading={busy || checkBusy}>
                 {continueLabel}
                 <ArrowRightIcon />
               </Button>
@@ -809,9 +809,9 @@ export function NewServerPage({ machine }: { machine?: string }) {
 function GameCard({ phone }: { phone?: boolean }) {
   return (
     <CardGroup value="java" onChange={() => undefined} label={t('new.game')}>
-      <ChoiceCard value="java" className="items-center gap-3 p-3">
+      <ChoiceCard value="java" className="items-center gap-3 p-3 max-sm:has-[[data-checked]]:shadow-none">
         <span className="flex items-center gap-3">
-          <GameIcon size={phone ? 44 : 40} />
+          <GameIcon size={40} />
           <span>
             <span className="block text-sm font-semibold max-sm:text-base">{t('new.java')}</span>
             <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{phone ? t('new.javaHintPhone') : t('new.javaHint')}</span>
@@ -843,14 +843,14 @@ function Summary({ choices: c, step, port, version, machine, from, pack, plan, w
     ) : step >= 0 && value ? (
       <span className="font-semibold text-success-foreground">{value}</span>
     ) : (
-      <span className="text-muted-foreground">{t('common.notPicked')}</span>
+      <span className="text-muted-foreground/70">{t('common.notPicked')}</span>
     )
   const upNext = <span className="font-semibold text-success-foreground">{t('common.notPicked')}</span>
   const muted = (text: string) => <span className="text-muted-foreground tabular-nums">{text}</span>
   const rows: { label: string; value: ReactNode }[] = world
     ? [
         { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
-        { label: t('new.row.startFrom'), value: v(true, t('new.startFrom.world')) },
+        { label: t('new.row.startFrom'), value: v(true, t('new.from.world')) },
         { label: t('new.row.from'), value: v(step > 0, world.from) },
         {
           label: t('new.row.world'),
@@ -894,15 +894,15 @@ function Summary({ choices: c, step, port, version, machine, from, pack, plan, w
         ]
   if (step >= 3 && port) rows.push({ label: t('new.row.port'), value: <span className="text-muted-foreground">{t('new.portPicked', { port })}</span> })
   return (
-    <Card className="p-4">
+    <Card className="p-5">
       <div className="flex items-center gap-3">
-        <Pip pose="wave" size={44} />
+        <Pip pose="wave" size={56} />
         <div>
           <div className="text-[15px] font-semibold">{t('new.summary')}</div>
           <div className="text-xs text-muted-foreground">{t('new.onMachine', { machine })}</div>
         </div>
       </div>
-      <dl className="mt-4 flex flex-col gap-2.5 border-t border-border pt-4 text-xs">
+      <dl className="mt-4 flex flex-col gap-3 border-t border-border pt-4 text-xs">
         {rows.map((r) => (
           <div key={r.label} className="flex items-center justify-between gap-3">
             <dt className="text-muted-foreground">{r.label}</dt>
