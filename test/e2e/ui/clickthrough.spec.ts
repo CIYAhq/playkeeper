@@ -13,7 +13,9 @@ import { login, outDir } from './helpers'
 // scrolled, something was copied, a toast appeared or a request went out.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
-// downloaded. There is no list of exceptions: a control that should do nothing
+// downloaded. The only real write is one AI agent token, made before the
+// crawl so Settings › AI agents has a token to open and revoke (revoking goes
+// to the fakes too). There is no list of exceptions: a control that should do nothing
 // right now must be disabled and say why (aria-describedby or a title). The
 // selected tab or option of a group may stay selected. Each page gets a fresh
 // load before a control is pressed unless the page is provably unchanged.
@@ -27,14 +29,29 @@ const sizes = {
 
 async function routes(page: Page, phone: boolean): Promise<string[]> {
   const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string }[]
-  const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
+  const machines = (await (await page.request.get('/api/machines')).json()) as { id: string; kind: string }[]
   const out = ['/']
   for (const s of servers) for (const tab of ['', '/console', '/players', '/world', '/settings']) out.push(`/servers/${s.slug}${tab}`)
   out.push('/servers/new')
-  for (const m of machines) out.push(`/machines/${m.id}`)
-  out.push('/settings')
+  // A joined machine's page is in Settings › Machines; the dashboard's own has its own page.
+  for (const m of machines) out.push(m.kind === 'remote' ? `/settings/machines/${m.id}` : `/machines/${m.id}`)
+  out.push('/settings', '/settings/ai-agents', '/settings/machines')
   if (phone) out.push('/more')
   return out
+}
+
+const seedToken = 'Claude on my laptop'
+
+/** Makes the AI agent token the crawl opens, once; the other size's run may have made it already. */
+async function seedAiToken(page: Page) {
+  const tokens = (await (await page.request.get('/api/tokens')).json()) as { name: string }[]
+  if (tokens.some((tk) => tk.name === seedToken)) return
+  const { csrfToken } = (await (await page.request.get('/api/auth/me')).json()) as { csrfToken: string }
+  const res = await page.request.post('/api/tokens', {
+    data: { name: seedToken, role: 'viewer', allServers: true, servers: [], days: 30 },
+    headers: { 'X-Requested-With': 'playkeeper', 'X-CSRF-Token': csrfToken },
+  })
+  expect([201, 409], `POST /api/tokens answered ${res.status()}`).toContain(res.status())
 }
 
 function summary(report: CrawlReport): string {
@@ -62,6 +79,7 @@ for (const [name, size] of Object.entries(sizes)) {
     const context = await browser.newContext(options)
     const page = await context.newPage()
     await login(page)
+    await seedAiToken(page)
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
     for (const route of await routes(page, name === 'phone')) await crawler.crawl(route)
