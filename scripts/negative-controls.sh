@@ -311,6 +311,10 @@ control "the status says a restore isn't settled" internal/agent/handlers.go \
   'st.RestoreUnsettled = s.restoreUnsettled()' \
   'st.RestoreUnsettled = false' \
   ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "the audit log says a start put back only the settings of a world moved back by hand" internal/agent/backups.go \
+  'audited = "put the previous world'"'"'s settings back after the Playkeeper agent restarted; the world was already back in place"' \
+  'audited = "put the previous world back after the Playkeeper agent restarted"' \
+  ./internal/agent '^TestAnAgentStartSettlesAWorldMovedBackByHandWithTheServerStopped$'
 webcontrol "a restore says it waits for one that isn't finished" web/src/lib/phase.ts \
   "return worldMissingReason(st) ?? (st.restoreUnsettled ? t('reason.restoreUnsettled') : undefined)" \
   "return worldMissingReason(st)" \
