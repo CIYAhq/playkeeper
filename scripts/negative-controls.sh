@@ -4026,6 +4026,14 @@ webcontrol "free addresses: a certificate problem is the notice that shows" web/
   'certProblemText(a, now) && !a.names.unreachable ? (' \
   web/src/pages/machine-settings/address.test.tsx 'as the one notice'
 
+# Wave 9: the updater's sandbox (the 0.4.0 docs check).
+control "the updater can't write the rest of the host" internal/install/units.go \
+  'ProtectSystem=strict
+ReadWritePaths=/usr/local/bin /etc/systemd/system /etc/playkeeper /var/lib/playkeeper' \
+  'ProtectSystem=full
+ReadWritePaths=/usr/local/bin /etc/systemd/system /etc/playkeeper /var/lib/playkeeper' \
+  ./internal/install '^TestTheUpdaterWritesOnlyItsOwnPaths$'
+
 # Wave 9: fixes from the screen review of Waves 5-8.
 webcontrol "the players chart keeps its labels clear of now" web/src/components/app/players-chart.tsx \
   'if (count - index - 0.5 < count * nowReserve) return undefined' \
