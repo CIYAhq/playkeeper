@@ -180,6 +180,14 @@ control "a crash that logs Stopping server is still a crash" internal/agent/life
   'graceful := s.sawStopping && !s.sawCrash' \
   'graceful := s.sawStopping' \
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
+control "a log line Docker sends again changes nothing" internal/agent/collector.go \
+  'if mark.next(c.ID, runStart, l) {' \
+  'if mark.next(c.ID, runStart, l) || true {' \
+  ./internal/agent '^TestALineReadAgainKeepsTheGiveUpNotice$'
+control "a Done line from a run that has stopped is not a start" internal/agent/collector.go \
+  'if current && (ended.IsZero() || ts.After(ended)) {' \
+  'if current {' \
+  ./internal/agent '^TestADoneLineReadAfterTheExitWasJudgedChangesNothing$'
 control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
   'in.Console = s.runLog(ctx, id, runStart)' \
   'in.Console = s.runLog(ctx, id, runStart)[:0]' \
