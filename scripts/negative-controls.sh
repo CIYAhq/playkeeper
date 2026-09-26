@@ -7,11 +7,16 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$PATH" CGO_ENABLED=0
+export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
 wt="$(mktemp -d)/playkeeper"
 git -C "$root" worktree add --detach -q "$wt" HEAD
 trap 'git -C "$root" worktree remove --force "$wt"' EXIT
 cd "$wt"
+# The web controls run vitest with the checkout's own dependencies, which
+# scripts/setup.sh installs.
+if [ -d "$root/web/node_modules" ]; then
+  ln -s "$root/web/node_modules" web/node_modules
+fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
@@ -26,6 +31,26 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
     bad=1
   else
     echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
+  fi
+  git checkout -q -- "$file"
+}
+
+webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
+  local name=$1 file=$2 test=${5#web/} pattern=$6
+  if [ ! -d web/node_modules ]; then
+    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    bad=1
+    return
+  fi
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+    bad=1
+  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
+    echo "INVALID  $name: the mutated code does not run"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
   git checkout -q -- "$file"
 }
@@ -48,6 +73,22 @@ control "per-address sign-in and setup rate limit" internal/panel/server.go \
   'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); !ok {' \
   'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); false && !ok {' \
   ./internal/panel '^TestSignInAndSetupAreRateLimitedPerAddress$'
+control "previews don't spend the actions' rate limit" internal/panel/server.go \
+  'bucket = s.previews' \
+  'bucket = s.control' \
+  ./internal/panel '^TestPreviewsHaveTheirOwnRateLimit$'
+control "previews have a rate limit of their own" internal/panel/server.go \
+  'newLimiter(120, time.Minute, opts.Now)' \
+  'newLimiter(1000, time.Minute, opts.Now)' \
+  ./internal/panel '^TestPreviewsHaveTheirOwnRateLimit$'
+control "every preview bucket entry is a route" internal/panel/server.go \
+  '"POST /api/servers/{id}/backup-rules/estimate": true,' \
+  '"POST /api/servers/{id}/backup-rules/estimates": true,' \
+  ./internal/panel '^TestEveryPreviewRouteIsACheckedRoute$'
+webcontrol "a schedule preview that was refused leaves Save on" web/src/pages/server/schedules.tsx \
+  'if (!cancelled) setPreview(undefined)' \
+  "if (!cancelled) setPreview({ valid: false, nextRuns: [], error: { error: 'refused', code: 'rate_limited' } })" \
+  web/src/pages/server/schedules.test.tsx 'leaves Save on for a preview over the rate limit'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
   'if false && (err != nil || !a.allowed[uid]) {' \
@@ -3209,6 +3250,154 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 	s.auto.mu.Lock()
 	var c *uploadClaim' \
   ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+
+# Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
+# players exactly while the runner plans it.
+control "every change to a schedule drops its retry, as the planner does" internal/agent/schedules.go \
+  'if sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  'if !onlySwitch && sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  ./internal/agent '^TestAScheduleListsItsRetryOnlyWhileTheRunnerPlansIt$'
+webcontrol "the schedule list promises a retry only while it is the next run" web/src/pages/server/schedules.tsx \
+  'if (!at || !s.nextRun || new Date(s.nextRun).getTime() !== new Date(at).getTime()) return undefined' \
+  'if (!at) return undefined' \
+  web/src/pages/server/schedules.test.tsx 'list a retry the agent no longer plans'
+
+# Wave 7 before Bugbot: a schedule changed from a dashboard in another time
+# zone keeps its moments.
+control "the automatic backups keep their time zone while they keep their time" internal/agent/backuprules.go \
+  '	} else if tz != "" {' \
+  '	}
+	if tz != "" {' \
+  ./internal/agent '^TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime$'
+webcontrol "the schedule dialog keeps the saved time zone while the time and days stay" web/src/pages/server/schedules.tsx \
+  'const kept = existing && opened && opened.often === form.often && opened.at === form.at ? existing.timing : undefined' \
+  'const kept = undefined' \
+  web/src/pages/server/schedules.test.tsx 'every day, in another zone'
+webcontrol "the schedule dialog shows the time on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const here = shownIn(s.timing, timeZone)' \
+  "const here = { at: s.timing.at ?? '', days: s.timing.days }" \
+  web/src/pages/server/schedules.test.tsx 'saves a new time in the viewer'
+webcontrol "the schedule list names the days on the viewer's clock" web/src/pages/server/schedules.tsx \
+  'const days = weekdays.filter((d) => here.days?.includes(d))' \
+  'const days = weekdays.filter((d) => timing.days?.includes(d))' \
+  web/src/pages/server/schedules.test.tsx 'days that fall on others'
+
+# Wave 7 before Bugbot: a new key reaches the copy being made and the copies
+# waiting, and stopping a copy for it isn't a failed try.
+control "a new key stops the copy being made" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy,_with_another_backup_waiting$'
+control "a new key starts the uploader again" internal/agent/offsite.go \
+  '	s.stopUpload()
+	s.kickOffsite()
+	s.audit(actor, "offsite.key_rotated"' \
+  '	s.stopUpload()
+	s.audit(actor, "offsite.key_rotated"' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+control "a copy picked after a new key isn't encrypted to the old one" internal/agent/offsite.go \
+  'if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  'if row, err := s.loadOffsite(); err != nil || false && row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^while_the_next_copy_is_picked$'
+control "a copy stopped for a new key isn't a failed try" internal/agent/offsite.go \
+  's.uploadFailed(job.ctx, b, job, err)' \
+  's.uploadFailed(ctx, b, job, err)' \
+  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+
+# Wave 7 before Bugbot: restoring a copy takes as long as the copy takes to
+# come, and every other operation keeps its deadline.
+control "a restore of a copy has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-recover": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_a_copy$'
+control "a restore from a recovery key has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-restore": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_from_a_recovery_key$'
+control "a server's other operations keep their deadline" internal/agent/lifecycle.go \
+  '	if noDeadline[kind] {' \
+  '	if true || noDeadline[kind] {' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_backup$'
+control "machine operations keep their deadline" internal/agent/agent.go \
+  'ctx, cancel := opContext(a.ctx, kind)' \
+  'ctx, cancel := context.WithCancel(a.ctx)' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_machine_operation$'
+
+# Wave 7 before Bugbot: restoring from a recovery key holds no server.
+control "a restore from a recovery key holds no server" internal/agent/agent.go \
+  '	if stagingOps[kind] {' \
+  '	if false && stagingOps[kind] {' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+control "what waits for a restore from a recovery key says what for" internal/agent/lifecycle.go \
+  '	"offsite-recover": "restoring a server from a recovery key",
+' \
+  '' \
+  ./internal/agent '^TestARestoreFromARecoveryKeyHoldsNoServer$'
+
+# Wave 7 before Bugbot: deleting a server asks before it deletes the only key
+# to its copies somewhere else.
+control "a delete that deletes the only key to the copies is refused" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); false && err != nil && !req.ForgetKey {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded$'
+control "a confirmed delete goes ahead without the key" internal/agent/handlers.go \
+  '	if err := s.keyNotSaved(); err != nil && !req.ForgetKey {' \
+  '	if err := s.keyNotSaved(); err != nil {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_never_downloaded,_and_the_delete_confirmed$'
+control "copies still being made count for the key" internal/agent/automation.go \
+  '	if copies == 0 && !row.enabled {' \
+  '	if copies == 0 {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^copies_on_but_none_made_yet'
+control "a downloaded key lets the delete go ahead" internal/agent/automation.go \
+  'if err != nil || !row.hasKeys || row.keySavedAt != nil {' \
+  'if err != nil || !row.hasKeys {' \
+  ./internal/agent '^TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies$/^a_copy_kept,_the_key_downloaded$'
+webcontrol "the delete dialog warns while the recovery key was never downloaded" web/src/pages/server/settings.tsx \
+  'return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)' \
+  'return false' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog waits for the box before deleting without the key" web/src/pages/server/settings.tsx \
+  ": keyRisk && !withoutKey ? t('settings.deleteKeyFirst') : undefined}" \
+  ': undefined}' \
+  web/src/pages/server/settings.test.tsx 'warns while the recovery key was never downloaded'
+webcontrol "the delete dialog confirms deleting without the key" web/src/pages/server/settings.tsx \
+  "keyRisk && withoutKey ? { confirm: typed.trim(), forgetKey: true } : { confirm: typed.trim() }" \
+  '{ confirm: typed.trim() }' \
+  web/src/pages/server/settings.test.tsx 'refusal when the page didn'
+
+# Wave 7 after Bugbot's finding on d0492a3a: a copy that was made is recorded
+# when the settings can't be read after it.
+control "a made copy is recorded when the settings can't be read after it" internal/agent/offsite.go \
+  'if lerr == nil && (!row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config)) {' \
+  'if lerr != nil || !row.enabled || offsiteIdentity(row.cfg.Config) != offsiteIdentity(at.cfg.Config) {' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings says where it was made" internal/agent/offsite.go \
+  '		row = at
+	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  '	}
+	s.copyDone(ctx, dest, row, b, cp)' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_settings_can't_be_read_once_it_is_made$"
+control "a copy recorded without its settings is logged" internal/agent/offsite.go \
+  "s.log.Warn(\"the settings for copies somewhere else can't be read; the copy just made is recorded with those it was made with\", \"server\", s.id, \"backup\", b.ID, \"err\", lerr)" \
+  '_ = lerr' \
+  ./internal/agent "^TestAMadeCopyIsRecordedUnlessTheSettingsReadAfterItChanged$/^the_keys_can't_be_read_once_it_is_made$"
+
+# Wave 7 after Bugbot's finding on d0492a3a: saving the settings for copies
+# never puts an old encryption key back.
+control "saving the settings for copies never writes the keys" internal/agent/offsite.go \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli())' \
+  '			private_key = excluded.private_key, ssh_public = excluded.ssh_public, updated_at = excluded.updated_at, keys = ?`,
+		s.id, boolInt(r.enabled), string(b), r.secret, r.password, r.privateKey, r.sshPublic, s.now().UnixMilli(), encodeKeys(r.keys))' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^a_save_of_the_settings_racing_a_new_key$'
+control "the first keys are stored only while there are none" internal/agent/offsite.go \
+  "UPDATE offsite SET keys = ? WHERE server_id = ? AND keys = ''" \
+  'UPDATE offsite SET keys = ? WHERE server_id = ?' \
+  ./internal/agent '^TestSavingCopySettingsNeverPutsAnOldKeyBack$/^first_keys_stored_while_another_request_stored_its_own$'
 
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't

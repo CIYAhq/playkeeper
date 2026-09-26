@@ -322,6 +322,9 @@ func sameJSON(a, b any) bool {
 	return string(ja) == string(jb)
 }
 
+// automaticTiming is the automatic backups' timing for everyHours. A time
+// kept from prev keeps prev's time zone, so it stays the same moment; tz,
+// the dashboard's, is for a time the timing starts afresh.
 func automaticTiming(everyHours int, prev schedule.Timing, tz string) schedule.Timing {
 	t := schedule.Timing{Kind: schedule.Interval, EveryHours: everyHours, At: "00:00", TimeZone: prev.TimeZone}
 	if everyHours == 24 {
@@ -329,8 +332,7 @@ func automaticTiming(everyHours int, prev schedule.Timing, tz string) schedule.T
 	}
 	if prev.Kind == t.Kind && prev.At != "" {
 		t.At = prev.At
-	}
-	if tz != "" {
+	} else if tz != "" {
 		t.TimeZone = tz
 	}
 	if t.TimeZone == "" {
