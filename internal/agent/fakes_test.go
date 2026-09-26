@@ -532,6 +532,13 @@ func (fr *fakeRCON) setOnline(names ...string) {
 	fr.mu.Unlock()
 }
 
+// letGo takes a kicked or banned player off the list of who is online.
+func (fr *fakeRCON) letGo(name string) {
+	fr.mu.Lock()
+	fr.online = slices.DeleteFunc(slices.Clone(fr.online), func(n string) bool { return strings.EqualFold(n, name) })
+	fr.mu.Unlock()
+}
+
 func (fr *fakeRCON) handle(c net.Conn) {
 	defer c.Close()
 	authed := false
@@ -599,11 +606,18 @@ func (fr *fakeRCON) handle(c net.Conn) {
 				}
 			case strings.HasPrefix(body, "ban "):
 				name, reason, _ := strings.Cut(strings.TrimPrefix(body, "ban "), " ")
+				fr.letGo(name)
 				reply(id, 0, "Banned "+name+": "+reason)
 			case strings.HasPrefix(body, "op "):
 				reply(id, 0, "Made "+strings.TrimPrefix(body, "op ")+" a server operator")
 			case strings.HasPrefix(body, "kick "):
-				reply(id, 0, "No player was found")
+				name, reason, _ := strings.Cut(strings.TrimPrefix(body, "kick "), " ")
+				if slices.ContainsFunc(online, func(n string) bool { return strings.EqualFold(n, name) }) {
+					fr.letGo(name)
+					reply(id, 0, "Kicked "+name+": "+reason)
+				} else {
+					reply(id, 0, "No player was found")
+				}
 			case strings.HasPrefix(body, "say "):
 				reply(id, 0, "")
 			default:

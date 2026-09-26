@@ -1,12 +1,16 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/api"
 )
 
 func (e *agentEnv) addSession(player string, start time.Time, end *time.Time, uncertain bool) {
@@ -164,6 +168,48 @@ func TestMessageBanAndAllowlistCommands(t *testing.T) {
 	code, out = e.call("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "actor": "admin"})
 	if code != 200 || out["added"] != false || out["message"] != "Player is already whitelisted" {
 		t.Fatalf("allowlist add again: %d %v", code, out)
+	}
+}
+
+func TestKickAndBanAnswerOnceThePlayerHasLeft(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	defer func(d time.Duration) { leaveWait = d }(leaveWait)
+	leaveWait = 5 * time.Second
+	for _, path := range []string{"/kick", "/ban"} {
+		e.rcon.setOnline("mara_k")
+		e.addSession("mara_k", e.a.now().Add(-time.Minute), nil, false)
+		start := time.Now()
+		code, out := e.call("POST", e.sp(path), map[string]any{"name": "Mara_K", "actor": "admin"})
+		if took := time.Since(start); code != 200 || took > 4*time.Second {
+			t.Fatalf("%s: %d %v after %v, want an answer once they left", path, code, out, took)
+		}
+		if _, out := e.call("GET", e.sp("/players/profile?name=mara_k&tz=UTC"), nil); out["online"] != false {
+			t.Fatalf("right after %s the profile says %v", path, out)
+		}
+	}
+
+	// A player whose session never closes holds the answer up for leaveWait at most.
+	leaveWait = 200 * time.Millisecond
+	e.rcon.setOnline("JunoFox")
+	e.addSession("JunoFox", e.a.now().Add(-time.Minute), nil, false)
+	start := time.Now()
+	(&server{Agent: e.a, id: e.sid}).letGo(context.Background(), "JunoFox")
+	if took := time.Since(start); took < 150*time.Millisecond || took > 2*time.Second {
+		t.Fatalf("waited %v for a player who stayed, want about %v", took, leaveWait)
+	}
+
+	// The last sample of who is online forgets them too, until the next one;
+	// a status ping's sample may name only some of them.
+	before := &api.PlayerSnapshot{Online: 3, Max: 10, Names: []string{"Mara_K", "JunoFox"}, Source: "status ping"}
+	s := &server{Agent: e.a, id: "elsewhere", players: before}
+	s.letGo(context.Background(), "mara_k")
+	if !slices.Equal(s.players.Names, []string{"JunoFox"}) || s.players.Online != 2 || len(before.Names) != 2 {
+		t.Fatalf("sample after a kick: %+v, was %+v", s.players, before)
+	}
+	s.letGo(context.Background(), "Tobi2009")
+	if !slices.Equal(s.players.Names, []string{"JunoFox"}) || s.players.Online != 2 {
+		t.Fatalf("sample after banning someone offline: %+v", s.players)
 	}
 }
 

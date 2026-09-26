@@ -2,10 +2,12 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -266,7 +268,42 @@ func (s *server) hBan(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.letGo(r.Context(), req.Name)
 	writeJSON(w, http.StatusOK, map[string]any{"message": out})
+}
+
+// leaveWait bounds how long a kick or ban waits for the server log to show
+// the player leaving.
+var leaveWait = 2 * time.Second
+
+// letGo follows a kick or ban, so whoever did it sees the player offline
+// straight away: it drops them from the last sample of who is online, and
+// waits up to leaveWait for the server log to close their session, which
+// happens a moment after the command.
+func (s *server) letGo(ctx context.Context, name string) {
+	s.mu.Lock()
+	if p := s.players; p != nil {
+		names := slices.DeleteFunc(slices.Clone(p.Names), func(n string) bool { return strings.EqualFold(n, name) })
+		if gone := len(p.Names) - len(names); gone > 0 {
+			snap := *p
+			snap.Names, snap.Online = names, max(0, p.Online-gone)
+			s.players = &snap
+		}
+	}
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, leaveWait)
+	defer cancel()
+	for {
+		var open int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE server_id = ? AND player = ? COLLATE NOCASE AND end_ts IS NULL`, s.id, name).Scan(&open); err != nil || open == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 // addToStoppedWhitelist writes a player into a stopped server's

@@ -179,5 +179,6 @@ func (s *server) hKick(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.letGo(r.Context(), req.Name)
 	writeJSON(w, http.StatusOK, map[string]any{"message": out})
 }
