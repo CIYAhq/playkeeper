@@ -834,8 +834,8 @@ describe('address', () => {
 // Found checking the restore path on a real server.
 describe('a restore that didn’t finish', () => {
   it('says in the activity what Playkeeper did after it restarted', () => {
-    expect(activityText({ ts: '', kind: 'restored_after_restart' }, 'Survival', 'siya')).toBe('Survival restored from a backup after Playkeeper restarted')
-    expect(activityText({ ts: '', kind: 'put_back' }, 'Survival', 'siya')).toBe('Survival’s previous world put back after Playkeeper restarted')
+    expect(activityText({ ts: '', kind: 'restored_after_restart' }, 'Survival', 'siya')).toBe('Survival restored after Playkeeper restarted')
+    expect(activityText({ ts: '', kind: 'put_back' }, 'Survival', 'siya')).toBe('Survival’s previous world put back')
   })
 
   it('won’t start a server whose world folder a restore left missing, and says why', () => {
