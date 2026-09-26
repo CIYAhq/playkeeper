@@ -39,12 +39,45 @@ func (s *server) saveCursor(c logCursor) {
 	_, _ = s.db.Exec(`UPDATE servers SET log_cursor = ? WHERE id = ?`, string(b), s.id)
 }
 
+// logMark is how far the follower has read one container run's log. Docker
+// sends lines again when the follower attaches again (since is inclusive, and
+// some versions resend the whole file after a rotation); a line read before
+// must not change the server's state twice, for example count as a new start
+// after a crash.
+type logMark struct {
+	container string
+	run       time.Time
+	ts        time.Time
+	raw       map[string]bool // the lines read at ts
+}
+
+// next records a line of the given run and reports whether it is new.
+func (m *logMark) next(container string, run time.Time, l docker.LogLine) bool {
+	if m.container != container || !m.run.Equal(run) {
+		*m = logMark{container: container, run: run}
+	}
+	switch {
+	case l.TS.IsZero():
+		return true
+	case l.TS.Before(m.ts):
+		return false
+	case l.TS.After(m.ts):
+		m.ts, m.raw = l.TS, map[string]bool{}
+	}
+	if m.raw[l.Raw] {
+		return false
+	}
+	m.raw[l.Raw] = true
+	return true
+}
+
 // followLoop tails the container log with Docker timestamps. The persisted
 // cursor plus per-line de-duplication means an agent restart replays missed
 // lines (events recorded with their true time) without double counting.
 func (s *server) followLoop(ctx context.Context) {
 	prefilled := false
 	var attached time.Time
+	var mark logMark
 	for ctx.Err() == nil {
 		c, err := s.docker.ContainerInspect(ctx, s.containerName())
 		if err != nil {
@@ -59,6 +92,10 @@ func (s *server) followLoop(ctx context.Context) {
 		s.attachRun(c, runStart)
 		fin, _ := c.State.Finished()
 		live := c.State.Running || fin.After(s.started)
+		var ended time.Time
+		if !c.State.Running {
+			ended = fin
+		}
 		cur := s.loadCursor()
 		since := time.Time{}
 		if cur.Container == c.ID {
@@ -85,7 +122,9 @@ func (s *server) followLoop(ctx context.Context) {
 			if err != nil {
 				break
 			}
-			s.ingest(c.ID, l, runStart, live)
+			if mark.next(c.ID, runStart, l) {
+				s.ingest(c.ID, l, runStart, live, ended)
+			}
 			if l.TS.After(last.TS) {
 				last.TS = l.TS
 			}
@@ -153,8 +192,9 @@ func dedupKey(container string, l docker.LogLine) string {
 }
 
 // ingest records a log line's events. live tells whether the run the follower
-// attached to was still going when the agent started.
-func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, live bool) {
+// attached to was still going when the agent started, and ended is when that
+// run stopped if it had stopped before the follower attached.
+func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, live bool, ended time.Time) {
 	ts := l.TS
 	if ts.IsZero() {
 		ts = s.now()
@@ -190,7 +230,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		}
 	case minecraft.EventReady:
 		s.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
-		if current {
+		// A run that has stopped is not coming up, whatever it logged first; a
+		// line after its end is from the container's next run.
+		if current && (ended.IsZero() || ts.After(ended)) {
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
 			s.crashed, s.crash = false, nil
