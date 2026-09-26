@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/diagnose"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
@@ -38,12 +39,45 @@ func (s *server) saveCursor(c logCursor) {
 	_, _ = s.db.Exec(`UPDATE servers SET log_cursor = ? WHERE id = ?`, string(b), s.id)
 }
 
+// logMark is how far the follower has read one container run's log. Docker
+// sends lines again when the follower attaches again (since is inclusive, and
+// some versions resend the whole file after a rotation); a line read before
+// must not change the server's state twice, for example count as a new start
+// after a crash.
+type logMark struct {
+	container string
+	run       time.Time
+	ts        time.Time
+	raw       map[string]bool // the lines read at ts
+}
+
+// next records a line of the given run and reports whether it is new.
+func (m *logMark) next(container string, run time.Time, l docker.LogLine) bool {
+	if m.container != container || !m.run.Equal(run) {
+		*m = logMark{container: container, run: run}
+	}
+	switch {
+	case l.TS.IsZero():
+		return true
+	case l.TS.Before(m.ts):
+		return false
+	case l.TS.After(m.ts):
+		m.ts, m.raw = l.TS, map[string]bool{}
+	}
+	if m.raw[l.Raw] {
+		return false
+	}
+	m.raw[l.Raw] = true
+	return true
+}
+
 // followLoop tails the container log with Docker timestamps. The persisted
 // cursor plus per-line de-duplication means an agent restart replays missed
 // lines (events recorded with their true time) without double counting.
 func (s *server) followLoop(ctx context.Context) {
 	prefilled := false
 	var attached time.Time
+	var mark logMark
 	for ctx.Err() == nil {
 		c, err := s.docker.ContainerInspect(ctx, s.containerName())
 		if err != nil {
@@ -58,6 +92,10 @@ func (s *server) followLoop(ctx context.Context) {
 		s.attachRun(c, runStart)
 		fin, _ := c.State.Finished()
 		live := c.State.Running || fin.After(s.started)
+		var ended time.Time
+		if !c.State.Running {
+			ended = fin
+		}
 		cur := s.loadCursor()
 		since := time.Time{}
 		if cur.Container == c.ID {
@@ -84,7 +122,9 @@ func (s *server) followLoop(ctx context.Context) {
 			if err != nil {
 				break
 			}
-			s.ingest(c.ID, l, runStart, live)
+			if mark.next(c.ID, runStart, l) {
+				s.ingest(c.ID, l, runStart, live, ended)
+			}
 			if l.TS.After(last.TS) {
 				last.TS = l.TS
 			}
@@ -140,7 +180,7 @@ func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
 		return
 	}
 	s.runStartedAt = runStart
-	s.sawStopping = false
+	s.sawStopping, s.sawCrash = false, false
 	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
 		s.runPhase = api.PhaseStartingContainer
 	}
@@ -152,8 +192,9 @@ func dedupKey(container string, l docker.LogLine) string {
 }
 
 // ingest records a log line's events. live tells whether the run the follower
-// attached to was still going when the agent started.
-func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, live bool) {
+// attached to was still going when the agent started, and ended is when that
+// run stopped if it had stopped before the follower attached.
+func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, live bool, ended time.Time) {
 	ts := l.TS
 	if ts.IsZero() {
 		ts = s.now()
@@ -190,10 +231,12 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		}
 	case minecraft.EventReady:
 		s.insertEvent(ts, "server_ready", "", "", "server_log", p.Detail+"s", key)
-		if current {
+		// A run that has stopped is not coming up, whatever it logged first; a
+		// line after its end is from the container's next run.
+		if current && (ended.IsZero() || ts.After(ended)) {
 			s.mu.Lock()
 			s.runPhase = api.PhaseOnline
-			s.crashed = false
+			s.crashed, s.crash = false, nil
 			s.lastError, s.lastErrorHint = "", ""
 			s.mu.Unlock()
 		}
@@ -225,6 +268,12 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 			s.mu.Lock()
 			s.lastError = "The server could not download or install its software: " + p.Detail
 			s.lastErrorHint = "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."
+			s.mu.Unlock()
+		}
+	case minecraft.EventCrashed:
+		if current {
+			s.mu.Lock()
+			s.sawCrash = true
 			s.mu.Unlock()
 		}
 	case minecraft.EventOOM:
@@ -384,6 +433,9 @@ func (s *server) measureWorld(now time.Time, level string) {
 	s.mu.Lock()
 	s.worldBytes, s.worldAt = total, now
 	s.mu.Unlock()
+	if n, ok := s.countChunks(level); ok {
+		s.recordChunks(now, n)
+	}
 }
 
 // worldSize adds up the files of the world's three dimensions.
@@ -424,6 +476,8 @@ type sampleRow struct {
 	mem      *int64
 	memLimit *int64
 	diskFree *int64
+	tps      *float64
+	mspt     *float64
 }
 
 func (s *server) sample(ctx context.Context) {
@@ -437,9 +491,11 @@ func (s *server) sample(ctx context.Context) {
 	sc, _ := s.serverConfig()
 	if sc != nil {
 		s.measureWorld(now, sc.LevelName)
+		s.readGCLog(now)
 	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	var snap *api.PlayerSnapshot
+	var ticks *diagnose.TickStats
 	reachable := false
 	switch {
 	case err != nil && !docker.IsNotFound(err):
@@ -481,10 +537,13 @@ func (s *server) sample(ctx context.Context) {
 					s.reconcileWithList(now, names)
 				}
 			}
-			if out, err := s.rconCommand("tps"); err == nil {
-				if tps, ok := minecraft.ParseTPS(out); ok {
-					res.TPS = &tps
+			if t, ok := s.readTicks(*sc); ok {
+				ticks = &t
+				row.tps = &t.TPS
+				if t.MSPT > 0 {
+					row.mspt = &t.MSPT
 				}
+				res.TPS, res.MSPT = row.tps, row.mspt
 			}
 			row.state = "online"
 		} else {
@@ -507,6 +566,17 @@ func (s *server) sample(ctx context.Context) {
 	if snap != nil && snap.Names == nil {
 		snap.Names = []string{}
 	}
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO samples(server_id, ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free, tps, mspt) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		s.id, now.UnixMilli(), row.state, row.online, row.max, row.cpu, row.mem, row.memLimit, row.diskFree, row.tps, row.mspt)
+	if err != nil {
+		s.log.Error("sample insert failed", "err", err)
+	}
+	// The diagnosis averages the stored samples, this one included.
+	if row.state == "online" {
+		res.Lag = string(s.updateLag(now, *sc, ticks, row.online).Status)
+	} else {
+		s.clearLag()
+	}
 	s.mu.Lock()
 	s.resources = res
 	s.players = snap
@@ -515,11 +585,6 @@ func (s *server) sample(ctx context.Context) {
 		s.reachableAt = now
 	}
 	s.mu.Unlock()
-	_, err = s.db.Exec(`INSERT OR REPLACE INTO samples(server_id, ts, state, players_online, players_max, cpu_pct, mem_bytes, mem_limit, disk_free) VALUES(?,?,?,?,?,?,?,?,?)`,
-		s.id, now.UnixMilli(), row.state, row.online, row.max, row.cpu, row.mem, row.memLimit, row.diskFree)
-	if err != nil {
-		s.log.Error("sample insert failed", "err", err)
-	}
 	s.setCollectingSince(now)
 	s.observeSleep(now, row.state, snap)
 }
@@ -545,37 +610,45 @@ func (a *Agent) setDockerOK(ok bool) {
 	a.mu.Unlock()
 }
 
-// rconCommand sends one console command over the private Docker bridge.
+// rconCommand sends one console command, waiting up to 10 seconds.
 func (s *server) rconCommand(cmd string) (string, error) {
-	return s.rconExec(s.ctx, cmd)
+	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+	defer cancel()
+	return s.rconExec(ctx, cmd)
 }
 
-// rconExec sends one console command, giving up when ctx ends. A command is
-// sent again on a fresh connection only if none of it was written, so the
-// server never runs it twice.
+// rconExec sends one console command over the private Docker bridge within
+// ctx's deadline. A connection found closed is replaced before the command
+// is written, but a command whose reply was lost is never sent again: the
+// server may have run it, and a second save-on would read as saving turned
+// back on by someone else, which throws a good backup away.
 func (s *server) rconExec(ctx context.Context, cmd string) (string, error) {
-	s.rconMu.Lock()
-	defer s.rconMu.Unlock()
+	select {
+	case s.rconLock <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-s.rconLock }()
 	for attempt := 0; ; attempt++ {
 		if s.rcon == nil {
 			if err := s.dialRCON(ctx); err != nil {
 				return "", err
 			}
 		}
-		out, err := s.rcon.Exec(ctx, cmd, 10*time.Second)
+		out, err := s.rcon.CommandContext(ctx, cmd)
 		if err == nil {
 			return out, nil
 		}
 		s.rcon.Close()
 		s.rcon = nil
-		if attempt == 1 || !errors.Is(err, minecraft.ErrUnsent) || ctx.Err() != nil {
+		if attempt > 0 || !errors.Is(err, minecraft.ErrNotSent) || ctx.Err() != nil {
 			return "", err
 		}
 	}
 }
 
-// rconConsole is the server's console for packages that drive it, such as
-// Chunky's pre-generation and data packs.
+// rconConsole is the server's console for packages that drive it: online
+// backups, the tick probes, Chunky's pre-generation and data packs.
 type rconConsole struct{ s *server }
 
 func (c rconConsole) Command(ctx context.Context, cmd string) (string, error) {
@@ -598,7 +671,9 @@ func (s *server) dialRCON(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	r, err := minecraft.DialRCONContext(ctx, s.opts.RCONAddr(n.IPAddress), pass, 5*time.Second)
+	dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	r, err := minecraft.DialRCONContext(dctx, s.opts.RCONAddr(n.IPAddress), pass)
 	if err != nil {
 		return err
 	}
@@ -608,12 +683,12 @@ func (s *server) dialRCON(ctx context.Context) error {
 }
 
 func (s *server) resetRCON() {
-	s.rconMu.Lock()
+	s.rconLock <- struct{}{}
 	if s.rcon != nil {
 		s.rcon.Close()
 		s.rcon = nil
 	}
-	s.rconMu.Unlock()
+	<-s.rconLock
 }
 
 // pruneLoop enforces retention for analytics, events, operations and audit.
@@ -643,6 +718,7 @@ func (a *Agent) prune() {
 		{`DELETE FROM sessions WHERE start_ts < ? AND end_ts IS NOT NULL`, []any{now.Add(-r.Events).UnixMilli()}},
 		{`DELETE FROM operations WHERE started_at < ? AND status != 'running'`, []any{now.Add(-r.Operations).UnixMilli()}},
 		{`DELETE FROM audit WHERE ts < ?`, []any{now.Add(-r.Audit).UnixMilli()}},
+		{`DELETE FROM gc_windows WHERE start < ?`, []any{now.Add(-gcKeep).UnixMilli()}},
 		{`DELETE FROM samples WHERE rowid NOT IN (SELECT rowid FROM samples ORDER BY ts DESC LIMIT ?)`, []any{r.MaxSamples}},
 		{`DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)`, []any{r.MaxEvents}},
 		{`DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT ?)`, []any{r.MaxAudit}},

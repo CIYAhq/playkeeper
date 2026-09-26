@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,8 +63,14 @@ func (h *opHandle) phase(p string) {
 }
 
 func (h *opHandle) set(key string, v any) {
+	h.setAll(map[string]any{key: v})
+}
+
+func (h *opHandle) setAll(kv map[string]any) {
 	unlock := h.mu()
-	h.op.Detail[key] = v
+	for k, v := range kv {
+		h.op.Detail[k] = v
+	}
 	snap := copyOp(h.op)
 	unlock()
 	h.save(snap)
@@ -107,6 +114,10 @@ var opLabels = map[string]string{
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
 	"addon-install": "installing add-ons", "addon-update": "updating add-ons", "pregen-start": "starting map pre-generation",
+	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
+	"remove-addon": "removing a plugin or mod",
+	// Wave 4.
+	"reinstall": "reinstalling its server software",
 	// Wave 7 (0.4.0)
 	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy", "offsite-check": "checking a copy",
 }
@@ -263,25 +274,38 @@ func (s *server) levelName(sc api.ServerConfig) string {
 // containerSpec is the complete, hardened definition of the server's
 // container. Its hash is stored as a label so any drift forces a recreate. A
 // v1 server's definition is exactly 0.2.0's while its settings are unchanged.
+//
+// Only the setup-only container downloads Paper. The server container runs
+// the jar that was verified against the pinned checksum, so a start never
+// re-downloads Paper. Other types run the files their verified install
+// recorded, the way its manifest says.
+//
 // current is the environment of the server's existing container, if any: a
 // stored resource pack offer whose settings can't be built keeps the pack
 // settings it has, so the server goes on offering what it did, the machine
 // keeps serving that pack, and the Packs page says what's wrong.
 func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []string) (docker.ContainerConfig, string) {
+	var typeEnv []string
+	switch {
+	case sc.Software != nil:
+		typeEnv = s.runEnv()
+	case setupOnly:
+		typeEnv = []string{"TYPE=PAPER", "PAPER_BUILD=" + strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE"}
+	default:
+		typeEnv = []string{"TYPE=CUSTOM", "CUSTOM_SERVER=/data/" + filepath.Base(s.jarPath(sc))}
+	}
+	return s.specWith(sc, typeEnv, setupOnly, current)
+}
+
+// specWith is the container definition with typeEnv, the part of the env
+// that depends on the server type. SKIP_DOWNLOAD_DEFAULTS stops the image
+// fetching unpinned default config files from a third-party repository.
+func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool, current []string) (docker.ContainerConfig, string) {
 	online := "TRUE"
 	if s.offline() {
 		online = "FALSE"
 	}
-	// Only the setup-only container downloads Paper. The server container runs
-	// the jar that was verified against the pinned checksum, so a start never
-	// re-downloads Paper. SKIP_DOWNLOAD_DEFAULTS stops the image fetching
-	// unpinned default config files from a third-party repository.
-	env := []string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}
-	if setupOnly {
-		env = append(env, "TYPE=PAPER", "PAPER_BUILD="+strconv.Itoa(sc.PaperBuild), "SETUP_ONLY=TRUE")
-	} else {
-		env = append(env, "TYPE=CUSTOM", "CUSTOM_SERVER=/data/"+filepath.Base(s.jarPath(sc)))
-	}
+	env := append([]string{"EULA=TRUE", "VERSION=" + sc.MinecraftVersion}, typeEnv...)
 	env = append(env,
 		"SKIP_DOWNLOAD_DEFAULTS=TRUE",
 		"MEMORY="+strconv.Itoa(minecraft.HeapMB(sc.MemoryMB))+"M",
@@ -303,7 +327,7 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
-	pack, err := resourcePackEnv(sc.ResourcePack)
+	pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))
 	if err != nil {
 		pack = keptPackEnv(current)
 	}
@@ -312,7 +336,7 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())
 	cfg := docker.ContainerConfig{
-		Image:       minecraft.Image,
+		Image:       runtimeImage(sc.MinecraftVersion),
 		Env:         env,
 		User:        fmt.Sprintf("%d:%d", s.cfg.GameUID, s.cfg.GameGID),
 		StopSignal:  "SIGTERM",
@@ -333,23 +357,46 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 	if !setupOnly {
 		cfg.ExposedPorts = map[string]struct{}{"25565/tcp": {}}
 		cfg.HostConfig.PortBindings = map[string][]docker.PortBinding{"25565/tcp": {{HostPort: strconv.Itoa(s.gamePort)}}}
+		// Voice chat's UDP port has the same number inside and out, as its
+		// settings say (openVoiceChat).
+		if p := sc.VoiceChatPort; p > 0 {
+			voice := strconv.Itoa(p) + "/udp"
+			cfg.ExposedPorts[voice] = struct{}{}
+			cfg.HostConfig.PortBindings[voice] = []docker.PortBinding{{HostPort: strconv.Itoa(p)}}
+		}
 	}
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)
 	hash := hex.EncodeToString(sum[:8])
 	cfg.Labels[labelSpec] = hash
+	if !setupOnly {
+		// The GC log stays out of the hash, so adding it never restarts a
+		// running server; startServer recreates a stopped container without
+		// it, so it applies from the server's next start.
+		cfg.Env = append(cfg.Env, "JVM_OPTS="+gcLogFlag)
+		cfg.Labels[labelGCLog] = gcLogVersion
+	}
 	return cfg, hash
 }
 
-func (a *Agent) ensureImage(ctx context.Context, h *opHandle) error {
-	if _, err := a.docker.ImageInspect(ctx, minecraft.Image); err == nil {
+// runtimeImage is the pinned image a server of Minecraft version mc runs
+// in: the one with the Java that version was made for.
+func runtimeImage(mc string) string {
+	if img, _, ok := minecraft.ImageFor(minecraft.JavaFor(mc)); ok {
+		return img
+	}
+	return minecraft.Image
+}
+
+func (a *Agent) ensureImage(ctx context.Context, h *opHandle, image string) error {
+	if _, err := a.docker.ImageInspect(ctx, image); err == nil {
 		return nil
 	} else if !docker.IsNotFound(err) {
 		return a.dockerErr(err)
 	}
 	h.phase(string(api.PhasePulling))
 	var last time.Time
-	err := a.docker.ImagePull(ctx, minecraft.Image, func(p docker.PullProgress) {
+	err := a.docker.ImagePull(ctx, image, func(p docker.PullProgress) {
 		if time.Since(last) > time.Second {
 			last = time.Now()
 			h.set("pull", p.Status)
@@ -395,6 +442,17 @@ func (s *server) ensureDirs() error {
 		if err := os.Chown(data, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 			return err
 		}
+	}
+	// Java refuses to start when its GC log's folder is missing. The game
+	// owns data/, so whatever already stands at logs is left alone, and
+	// Lchown never follows a symlink swapped in after Mkdir.
+	logs := filepath.Join(data, "logs")
+	if err := os.Mkdir(logs, 0o750); err == nil && os.Geteuid() == 0 {
+		if err := os.Lchown(logs, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+			return err
+		}
+	} else if err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
 	}
 	return s.ensureRCONSecret()
 }
@@ -489,63 +547,59 @@ func (s *server) jarSHA256(ctx context.Context, sc api.ServerConfig) (string, er
 // ensureServerSoftware downloads Paper with a setup-only container (the
 // server does not run) and verifies the jar against the checksum PaperMC's
 // Fill v3 API published for the build, before the server is ever started
-// with it.
+// with it. A verified jar that changed since is not replaced on its own: the
+// server stays off until the user reinstalls.
 func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.ServerConfig) error {
 	want, err := jarChecksum(*sc)
 	if err != nil {
 		return &apiError{Msg: "The server's software cannot be verified: " + err.Error() + ".", Hint: "Choose a version under Settings, or restore a backup."}
 	}
 	jar := s.jarPath(*sc)
-	if sum, err := s.jarSHA256(ctx, *sc); err == nil && sum == want {
+	sum, err := s.jarSHA256(ctx, *sc)
+	if gamefiles.KindOf(err) == gamefiles.KindTooLarge {
+		// Too large to be the software Playkeeper installed, so it's a
+		// different file, found without reading all of it.
+		sum, err = "", nil
+	}
+	switch {
+	case gamefiles.KindOf(err) != "":
+		return gameFileError(err, "The server software could not be checked, so it was not run.")
+	case err == nil && sum == want:
+		s.clearSoftwareChanged()
 		return nil
+	case err == nil && sc.JarVerifiedAt != nil:
+		var changed *time.Time
+		if fi, err := os.Lstat(jar); err == nil {
+			t := fi.ModTime().UTC()
+			changed = &t
+		}
+		return s.softwareChangedError(&api.SoftwareChange{File: filepath.Base(jar), Algorithm: "sha256", Recorded: want, Found: sum,
+			InstalledAt: sc.JarVerifiedAt, ChangedAt: changed, DetectedAt: s.now().UTC(), Software: softwareLabel(*sc)})
+	case err == nil:
+		// Left by a download that never finished: the image would keep it.
+		if err := os.Remove(jar); err != nil {
+			return err
+		}
 	}
 	h.phase(string(api.PhaseDownloading))
 	s.setRunPhase(api.PhaseDownloading, "")
-	setupName := s.containerName() + "-setup"
-	_ = s.docker.ContainerRemove(ctx, setupName, true)
+	if sc.JarVerifiedAt != nil {
+		sc.JarVerifiedAt = nil
+		if err := s.saveServerConfig(*sc); err != nil {
+			return err
+		}
+	}
 	spec, _ := s.containerSpec(*sc, true, nil)
-	id, err := s.docker.ContainerCreate(ctx, setupName, spec)
+	tail, code, err := s.runSetupContainer(ctx, h, spec)
 	if err != nil {
-		return s.dockerErr(err)
+		return err
 	}
-	defer s.docker.ContainerRemove(context.Background(), id, true)
-	if err := s.docker.ContainerStart(ctx, id); err != nil {
-		return s.dockerErr(err)
-	}
-	var tail []string
-	logs, err := s.docker.ContainerLogs(ctx, id, docker.LogsOptions{Follow: true})
-	if err == nil {
-		for {
-			l, err := logs.Next()
-			if err != nil {
-				break
-			}
-			text := minecraft.CleanLine(l.Text)
-			s.console.append(l.TS, text)
-			tail = append(tail, text)
-			if len(tail) > 8 {
-				tail = tail[1:]
-			}
-		}
-		logs.Close()
-	}
-	var c docker.ContainerJSON
-	for i := 0; i < 60; i++ {
-		c, err = s.docker.ContainerInspect(ctx, id)
-		if err != nil || !c.State.Running {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if err != nil {
-		return s.dockerErr(err)
-	}
-	if c.State.ExitCode != 0 {
-		return &apiError{Msg: "Downloading the Minecraft server software failed (exit code " + strconv.Itoa(c.State.ExitCode) + "): " + lastNonEmpty(tail),
+	if code != 0 {
+		return &apiError{Msg: "Downloading the Minecraft server software failed (exit code " + strconv.Itoa(code) + "): " + lastNonEmpty(tail),
 			Hint: "Check that this host can reach fill.papermc.io and piston-data.mojang.com, then press Start again."}
 	}
 	h.phase("verifying_download")
-	sum, err := s.jarSHA256(ctx, *sc)
+	sum, err = s.jarSHA256(ctx, *sc)
 	if gamefiles.KindOf(err) != "" {
 		return gameFileError(err, "The server software could not be checked, so it was not run.")
 	}
@@ -562,6 +616,7 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 	if err := s.saveServerConfig(*sc); err != nil {
 		return err
 	}
+	s.clearSoftwareChanged()
 	s.recordEvent(now, "server_software_verified", "", "playkeeper", filepath.Base(jar)+" sha256 "+sum)
 	s.log.Info("server software verified", "server", s.id, "jar", filepath.Base(jar), "sha256", sum)
 	return nil
@@ -584,17 +639,29 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
-	if err := s.ensureImage(ctx, h); err != nil {
+	if err := s.ensureImage(ctx, h, runtimeImage(sc.MinecraftVersion)); err != nil {
 		return err
 	}
 	if err := s.ensureNetwork(ctx); err != nil {
 		return err
 	}
-	if err := s.ensureServerSoftware(ctx, h, &sc); err != nil {
+	if sc.Modpack != nil && sc.Modpack.Pending {
+		if err := s.installPendingPack(ctx, h, &sc); err != nil {
+			return err
+		}
+	}
+	if err := s.ensureSoftware(ctx, h, &sc); err != nil {
 		return err
 	}
-	if err := s.ensureTelemetryOff(); err != nil {
-		return err
+	if sc.Template != nil && sc.Template.Pending {
+		if err := s.installPendingTemplate(ctx, h, &sc); err != nil {
+			return err
+		}
+	}
+	if takesPlugins(sc) {
+		if err := s.ensureTelemetryOff(); err != nil {
+			return err
+		}
 	}
 	pastFiles = true
 	name := s.containerName()
@@ -610,7 +677,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 		fallthrough
-	case err == nil && c.Config.Labels[labelSpec] != hash:
+	case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion):
 		if err := s.docker.ContainerRemove(ctx, c.ID, true); err != nil && !docker.IsNotFound(err) {
 			return s.dockerErr(err)
 		}
@@ -620,6 +687,11 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	}
 	id := c.ID
 	if id == "" || docker.IsNotFound(err) {
+		// A modpack can move the server to another Minecraft version, and so
+		// to another Java, after the image was pulled above.
+		if err := s.ensureImage(ctx, h, spec.Image); err != nil {
+			return err
+		}
 		id, err = s.docker.ContainerCreate(ctx, name, spec)
 		if err != nil {
 			return s.dockerErr(err)
@@ -633,6 +705,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		// A container whose start failed (for example on a busy port) can keep
 		// broken network state; discard it so the next start creates it fresh.
 		_ = s.docker.ContainerRemove(context.Background(), id, true)
+		s.explainCrash("", docker.ContainerState{}, true, err)
 		return classifyStartError(err, s.gamePort)
 	}
 	s.mu.Lock()
@@ -674,6 +747,7 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 			if fin, ok := c.State.Finished(); ok {
 				s.markExitHandled(id, fin)
 			}
+			s.explainCrash(id, c.State, true, nil)
 			msg := fmt.Sprintf("The server stopped while starting (exit code %d).", c.State.ExitCode)
 			if lastErr != "" {
 				msg += " " + lastErr
@@ -768,7 +842,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping = false
+	s.sawStopping, s.sawCrash = false, false
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }
@@ -806,6 +880,9 @@ func (s *server) reconcile(ctx context.Context) {
 	desired := s.desired()
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if err != nil {
+		if docker.IsNotFound(err) {
+			s.resumeSaving(ctx, c, false)
+		}
 		s.mu.Lock()
 		due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
@@ -814,6 +891,7 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 		return
 	}
+	s.resumeSaving(ctx, c, c.State.Running)
 	if c.State.Running {
 		return
 	}
@@ -824,7 +902,8 @@ func (s *server) reconcile(ctx context.Context) {
 	handled := ok && last.Equal(fin)
 	ended := s.followEnded[c.ID]
 	intentional := s.intentional[c.ID]
-	graceful := s.sawStopping
+	// A crashing server logs "Stopping server" too, after the error.
+	graceful := s.sawStopping && !s.sawCrash
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()
@@ -884,6 +963,7 @@ func (s *server) reconcile(ctx context.Context) {
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
 		s.recordCrash(fin, c.State)
+		s.explainCrash(c.ID, c.State, false, nil)
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
 			due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)

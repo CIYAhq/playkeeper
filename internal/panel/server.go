@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 	"github.com/CIYAhq/playkeeper/internal/portshare"
@@ -116,6 +118,9 @@ const (
 	publicMutation           // login/setup: same-origin + X-Requested-With, no session yet
 	needSession
 	needSessionCSRF
+	// pendingSession is the second sign-in step: publicMutation's checks
+	// plus a password-checked second-step cookie, which is not a session.
+	pendingSession
 )
 
 // Route is one panel API route; tests iterate Routes() to check that every
@@ -130,7 +135,9 @@ type Route struct {
 }
 
 // Mutating reports whether the route changes state (and so needs CSRF).
-func (rt Route) Mutating() bool { return rt.Level == needSessionCSRF || rt.Level == publicMutation }
+func (rt Route) Mutating() bool {
+	return rt.Level == needSessionCSRF || rt.Level == publicMutation || rt.Level == pendingSession
+}
 
 // NeedsSession reports whether the route requires a signed-in admin.
 func (rt Route) NeedsSession() bool { return rt.Level == needSession || rt.Level == needSessionCSRF }
@@ -153,15 +160,30 @@ func (s *Server) Routes() []Route {
 	mm := func(method, p, agentPath string, act action) Route {
 		return Route{method, p, needSessionCSRF, act, s.machineProxy(method, agentPath)}
 	}
+	ag := func(p, agentPath string) Route {
+		return Route{"GET", p, needSession, actView, s.addressProxy("GET", agentPath)}
+	}
+	am := func(p, agentPath string) Route {
+		return Route{"POST", p, needSessionCSRF, actManageMachine, s.addressProxy("POST", agentPath)}
+	}
 	return []Route{
 		{"GET", "/api/health", public, "", s.hHealth},
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
 		{"POST", "/api/setup", publicMutation, "", s.hSetup},
 		{"POST", "/api/auth/login", publicMutation, "", s.hLogin},
+		{"POST", "/api/auth/second-factor", pendingSession, "", s.hSecondFactor},
+		{"POST", "/api/auth/second-factor/cancel", pendingSession, "", s.hSecondFactorCancel},
 		view("/api/auth/me", s.hMe),
 		{"POST", "/api/auth/logout", needSessionCSRF, actView, s.hLogout},
 		{"POST", "/api/auth/logout-all", needSessionCSRF, actManageAccount, s.hLogoutAll},
 		{"POST", "/api/auth/password", needSessionCSRF, actManageAccount, s.hPassword},
+		view("/api/auth/2fa", s.h2FAStatus),
+		{"POST", "/api/auth/2fa/setup", needSessionCSRF, actManageAccount, s.h2FASetupStart},
+		view("/api/auth/2fa/setup", s.h2FASetupShow),
+		{"DELETE", "/api/auth/2fa/setup", needSessionCSRF, actManageAccount, s.h2FASetupCancel},
+		{"POST", "/api/auth/2fa/confirm", needSessionCSRF, actManageAccount, s.h2FAConfirm},
+		{"POST", "/api/auth/2fa/disable", needSessionCSRF, actManageAccount, s.h2FADisable},
+		{"POST", "/api/auth/2fa/recovery-codes", needSessionCSRF, actManageAccount, s.h2FARecoveryCodes},
 		view("/api/me/prefs", s.hPrefs),
 		{"POST", "/api/me/prefs", needSessionCSRF, actView, s.hPrefsSet},
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
@@ -174,6 +196,15 @@ func (s *Server) Routes() []Route {
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		mm("POST", "/api/machines/{mid}/update/apply", "/v1/update/apply", actManageMachine),
+		ag("/api/machines/{mid}/address", "/v1/address"),
+		mg("/api/machines/{mid}/address/available", "/v1/address/available"),
+		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
+		am("/api/machines/{mid}/address/claim", "/v1/address/claim"),
+		am("/api/machines/{mid}/address/refresh", "/v1/address/refresh"),
+		am("/api/machines/{mid}/address/release", "/v1/address/release"),
+		am("/api/machines/{mid}/address/check", "/v1/address/check"),
+		am("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
+		mm("DELETE", "/api/machines/{mid}/address", "/v1/address", actManageMachine),
 		mm("POST", "/api/machines/{mid}/servers", "/v1/servers", actManageServers),
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		mg("/api/machines/{mid}/restore/{rid}", "/v1/restore/{rid}"),
@@ -200,6 +231,10 @@ func (s *Server) Routes() []Route {
 		sm("DELETE", "/api/servers/{id}/operators/{name}", "/v1/servers/{id}/operators/{name}"),
 		sm("POST", "/api/servers/{id}/kick", "/v1/servers/{id}/kick"),
 		sg("/api/servers/{id}/metrics", "/v1/servers/{id}/metrics"),
+		sg("/api/servers/{id}/running", "/v1/servers/{id}/running"),
+		sg("/api/servers/{id}/memory", "/v1/servers/{id}/memory"),
+		sm("POST", "/api/servers/{id}/saving/resume", "/v1/servers/{id}/saving/resume"),
+		sm("POST", "/api/servers/{id}/addons/remove-file", "/v1/servers/{id}/addons/remove-file"),
 		sg("/api/servers/{id}/players/sessions", "/v1/servers/{id}/players/sessions"),
 		sg("/api/servers/{id}/players/summary", "/v1/servers/{id}/players/summary"),
 		sg("/api/servers/{id}/events", "/v1/servers/{id}/events"),
@@ -220,6 +255,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/addons", "/v1/servers/{id}/addons"),
 		sg("/api/servers/{id}/addons/checks", "/v1/servers/{id}/addons/checks"),
 		sg("/api/servers/{id}/addons/search", "/v1/servers/{id}/addons/search"),
+		sg("/api/servers/{id}/addons/curated", "/v1/servers/{id}/addons/curated"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}", "/v1/servers/{id}/addons/project/{source}/{project}"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}/removal", "/v1/servers/{id}/addons/project/{source}/{project}/removal"),
 		view("/api/servers/{id}/addons/icon", s.hAddonIcon),
@@ -245,6 +281,30 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/resourcepack/settings", "/v1/servers/{id}/resourcepack/settings"),
 		sm("DELETE", "/api/servers/{id}/resourcepack", "/v1/servers/{id}/resourcepack"),
 		view("/api/servers/{id}/resourcepack/icon", s.rawGet("/v1/servers/{id}/resourcepack/icon", "image/png")),
+
+		// Wave 4: every server type.
+		mg("/api/machines/{mid}/catalog/builds", "/v1/catalog/builds"),
+		sm("POST", "/api/servers/{id}/software/reinstall", "/v1/servers/{id}/software/reinstall"),
+		// Wave 4: modpacks.
+		mg("/api/machines/{mid}/modpacks", "/v1/modpacks"),
+		mg("/api/machines/{mid}/modpacks/{source}/{project}", "/v1/modpacks/{source}/{project}"),
+		mg("/api/machines/{mid}/modpacks/{source}/{project}/versions/{version}/preview", "/v1/modpacks/{source}/{project}/versions/{version}/preview"),
+		view("/api/machines/{mid}/modpacks/icon", s.hAddonIcon),
+		// Wave 4: add-on sources. The CurseForge key is the machine's, so only
+		// those who may manage the machine change it.
+		mg("/api/machines/{mid}/addon-sources", "/v1/addon-sources"),
+		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
+		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
+		// Wave 4: templates.
+		{"GET", "/api/servers/{id}/template", needSession, actView, s.templateExport},
+		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),
+		{"POST", "/api/machines/{mid}/templates/plan", needSessionCSRF, actManageServers, s.rawUpload("/v1/templates/plan", "text/plain")},
+		// Wave 4: sharing the pack with friends; the public page is in
+		// publicRoutes.
+		sg("/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		sm("POST", "/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		view("/api/servers/{id}/mods/share.mrpack", s.hPackShareFile),
+
 		// Wave 7: schedules, sleep, backup rules and copies somewhere else, disk space.
 		sg("/api/servers/{id}/schedules", "/v1/servers/{id}/schedules"),
 		sm("POST", "/api/servers/{id}/schedules", "/v1/servers/{id}/schedules"),
@@ -309,6 +369,18 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				return
 			}
 			rt.handler(w, r, nil)
+		case pendingSession:
+			if !s.sameOrigin(r) || r.Header.Get("X-Requested-With") != "playkeeper" {
+				writeErr(w, http.StatusForbidden, api.CodeForbidden, "Cross-site request refused.", "")
+				return
+			}
+			p, err := s.pendingFrom(r)
+			if err != nil {
+				clearPendingCookie(w)
+				writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Please sign in again.", "")
+				return
+			}
+			rt.handler(w, r, &p)
 		case needSession, needSessionCSRF:
 			sess, err := s.sessionFrom(r)
 			if err != nil {
@@ -377,9 +449,24 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
-		h.Set("Strict-Transport-Security", "max-age=31536000")
+		h.Set("Strict-Transport-Security", hsts(r.Host))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hsts is the Strict-Transport-Security value for a request's host.
+// Browsers ignore it for IP addresses, so the dashboard's IP address always
+// stays reachable. On a name it lasts a day: if the name's certificate ever
+// lapses, the browser refuses the self-signed fallback for at most a day
+// after the last visit, instead of a year.
+func hsts(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if _, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		return "max-age=31536000"
+	}
+	return "max-age=86400"
 }
 
 type statusWriter struct {
@@ -445,6 +532,22 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// limitKey is the sign-in limiter's key for a client address: an IPv6
+// client counts by its /64, since one host can send from every address in
+// it.
+func limitKey(host string) string {
+	a, err := netip.ParseAddr(host)
+	if err != nil {
+		return "ip:" + host
+	}
+	if a = a.Unmap(); a.Is6() {
+		if p, err := a.Prefix(64); err == nil {
+			return "net:" + p.String()
+		}
+	}
+	return "ip:" + a.String()
+}
+
 // --- public routes ---
 
 func (s *Server) hHealth(w http.ResponseWriter, r *http.Request, _ *session) {
@@ -457,7 +560,7 @@ func (s *Server) hSetupStatus(w http.ResponseWriter, r *http.Request, _ *session
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"needsSetup": n == 0})
+	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version})
 }
 
 type credentials struct {
@@ -467,7 +570,7 @@ type credentials struct {
 }
 
 func (s *Server) rateLimitIP(w http.ResponseWriter, r *http.Request) bool {
-	if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); !ok {
+	if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 		writeErr(w, http.StatusTooManyRequests, api.CodeRateLimited, "Too many attempts. Try again in a few minutes.", "")
 		return false
@@ -551,6 +654,12 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request, _ *session) {
 		return
 	}
 	s.locks.succeed(key)
+	if started, err := s.secondFactorNeeded(w, u); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start the second sign-in step.", "")
+		return
+	} else if started {
+		return
+	}
 	token, sess, err := s.newSession(u)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start a session.", "")
@@ -568,13 +677,18 @@ func (s *Server) userByName(name string) (user, error) {
 }
 
 func (s *Server) meBody(sess session) map[string]any {
-	return map[string]any{
+	body := map[string]any{
 		"user":               map[string]string{"username": sess.User.Username, "role": sess.User.Role},
 		"csrfToken":          sess.CSRF,
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
 		"version":            version.Version,
 	}
+	var changed int64
+	if s.db.QueryRow(`SELECT password_changed_at FROM users WHERE id = ?`, sess.User.ID).Scan(&changed) == nil {
+		body["passwordChangedAt"] = msTime(changed)
+	}
+	return body
 }
 
 func (s *Server) hMe(w http.ResponseWriter, r *http.Request, sess *session) {
@@ -623,6 +737,7 @@ func (s *Server) hPassword(w http.ResponseWriter, r *http.Request, sess *session
 		return
 	}
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND id_hash != ?`, sess.User.ID, sess.IDHash)
+	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE user_id = ?`, sess.User.ID)
 	s.audit(sess.User.Username, "password.change", "panel", "succeeded", "other sessions signed out")
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -644,6 +759,7 @@ func (s *Server) ResetAdmin(username, password string) error {
 		return errors.New("no such user: " + username)
 	}
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE username = ?)`, username)
+	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE user_id = (SELECT id FROM users WHERE username = ?)`, username)
 	s.audit("root@host", "password.reset", username, "succeeded", "reset from the server command line")
 	return nil
 }
@@ -701,7 +817,7 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 
 // --- agent proxy ---
 
-var pathKeys = []string{"id", "name", "bid", "rid", "op", "sid", "source", "project"}
+var pathKeys = []string{"id", "name", "bid", "rid", "op", "sid", "source", "project", "version"}
 
 func agentPath(pattern string, r *http.Request) string {
 	out := pattern
@@ -743,14 +859,37 @@ func (s *Server) serverProxy(method, pattern string) func(http.ResponseWriter, *
 	return s.forward(method, pattern)
 }
 
+// templateExport forwards a template export with the signed-in account as
+// the template's author, whatever the request says.
+func (s *Server) templateExport(w http.ResponseWriter, r *http.Request, sess *session) {
+	q := r.URL.Query()
+	q.Set("author", sess.User.Username)
+	r.URL.RawQuery = q.Encode()
+	s.forward("GET", "/v1/servers/{id}/template")(w, r, sess)
+}
+
 func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
 	return s.forward(method, pattern)
+}
+
+// addressProxy forwards an address route with panelHost, the host the
+// dashboard was opened with, in the query or body. The agent keeps it when
+// it is a public IP address: behind NAT that address is on no network
+// interface, and an own domain's A record needs it.
+func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forwardTo(method, pattern, true)
 }
 
 // forward sends the request to its machine's agent. GETs pass the query on;
 // JSON bodies get the signed-in account stamped as actor (the agent checks
 // every field and rejects unknown ones); DELETEs pass the actor in the query.
 func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forwardTo(method, pattern, false)
+}
+
+// forwardTo is forward, also stamping panelHost when withHost is set. What
+// the panel stamps replaces anything the browser sent under the same name.
+func (s *Server) forwardTo(method, pattern string, withHost bool) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {
@@ -762,7 +901,11 @@ func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http
 		var err error
 		switch method {
 		case "GET":
-			status, err = m.agent.Do(r.Context(), "GET", path, r.URL.Query(), nil, &raw)
+			q := r.URL.Query()
+			if withHost {
+				q.Set("panelHost", r.Host)
+			}
+			status, err = m.agent.Do(r.Context(), "GET", path, q, nil, &raw)
 		case "DELETE":
 			status, err = m.agent.Do(r.Context(), "DELETE", path, url.Values{"actor": {sess.User.Username}}, nil, &raw)
 		default:
@@ -777,6 +920,9 @@ func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http
 					writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
 					return
 				}
+			}
+			if withHost {
+				body["panelHost"] = r.Host
 			}
 			body["actor"] = sess.User.Username
 			status, err = m.agent.Do(r.Context(), method, path, nil, body, &raw)
@@ -934,14 +1080,30 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
+// tlsConfig serves the certificate the agent saved for the name a browser
+// asks for (the machine's address), and the self-signed one otherwise: for
+// the IP address, the installer's check on localhost, and a name whose
+// certificate lapsed. New and renewed certificates are picked up without a
+// restart.
+func (s *Server) tlsConfig() (*tls.Config, error) {
+	certFile, keyFile := filepath.Join(s.cfg.TLSDir(), "cert.pem"), filepath.Join(s.cfg.TLSDir(), "key.pem")
+	if _, err := EnsureSelfSignedCert(s.cfg.TLSDir(), s.now()); err != nil {
+		return nil, err
+	}
+	store, err := certs.NewStore(certs.StoreOptions{Dir: s.cfg.CertsDir(), FallbackCert: certFile, FallbackKey: keyFile, Now: s.now})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := store.Loaded(); err != nil {
+		s.log.Warn("a saved certificate cannot be used; the self-signed one is served instead", "err", err)
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: store.GetCertificate}, nil
+}
+
 // ListenAndServeTLS serves the panel over HTTPS until ctx ends, and on the
 // same port the plain-HTTP resource pack downloads of players' games.
 func (s *Server) ListenAndServeTLS(ctx context.Context) error {
-	certFile, keyFile := filepath.Join(s.cfg.TLSDir(), "cert.pem"), filepath.Join(s.cfg.TLSDir(), "key.pem")
-	if _, err := EnsureSelfSignedCert(s.cfg.TLSDir(), s.now()); err != nil {
-		return err
-	}
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	tc, err := s.tlsConfig()
 	if err != nil {
 		return err
 	}
@@ -950,19 +1112,20 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.serveAlive(ctx, tc)
 	s.log.Info("panel listening", "addr", "https://"+addr)
-	return s.serve(ctx, ln, cert)
+	return s.serve(ctx, ln, tc)
 }
 
 // serve answers on ln until ctx ends: HTTPS for the panel, and plain HTTP
 // for players' games, which refuse the panel's self-signed certificate.
-func (s *Server) serve(ctx context.Context, ln net.Listener, cert tls.Certificate) error {
+func (s *Server) serve(ctx context.Context, ln net.Listener, tc *tls.Config) error {
 	split := portshare.Split(ln, portshare.Options{})
 	defer split.Close()
 	errLog := slog.NewLogLogger(s.log.Handler(), slog.LevelDebug)
 	secure := &http.Server{
 		Handler:           s.Handler(),
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}},
+		TLSConfig:         tc,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          errLog,

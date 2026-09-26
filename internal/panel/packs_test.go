@@ -243,8 +243,8 @@ func TestMembersCannotChangeAddonsOrPacks(t *testing.T) {
 			t.Errorf("a member may look at %s: %d", rt.Pattern, r.status)
 		}
 	}
-	if n != 28 {
-		t.Errorf("checked %d add-on, pre-generation and pack routes, want 28", n)
+	if n != 30 {
+		t.Errorf("checked %d add-on, pre-generation and pack routes, want 30", n)
 	}
 	e.agent.mu.Lock()
 	defer e.agent.mu.Unlock()

@@ -34,12 +34,12 @@ type apiError struct {
 	Msg    string
 	Hint   string
 	Op     *api.Operation
+	Params map[string]any
 	Err    error
-	// Wave 7 (0.4.0): the form field at fault, a stable reason code and its
-	// values (see api.Error).
+	// Wave 7 (0.4.0): the form field at fault and a stable reason code, with
+	// its values in Params (see api.Error).
 	Field  string
 	Reason string
-	Params map[string]any
 }
 
 func (e *apiError) Error() string { return e.Msg }

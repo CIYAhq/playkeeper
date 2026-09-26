@@ -2,7 +2,10 @@
 // browser UI. web/src/api/types.ts mirrors these shapes; keep them in sync.
 package api
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Phase is the user-visible lifecycle phase of a Minecraft server.
 type Phase string
@@ -62,6 +65,10 @@ type ServerStatus struct {
 	CrashCount      int             `json:"crashCount"`
 	Resources       *Resources      `json:"resources,omitempty"`
 	LastBackup      *Backup         `json:"lastBackup,omitempty"`
+	// JoinAddress is the server's address under the machine's name, such as
+	// survival.alex.playkeeper.io, once its DNS records work; empty until
+	// then, when players use the IP address and port.
+	JoinAddress string `json:"joinAddress,omitempty"`
 	// WorldBytes is the world's size on disk (all its dimensions), measured
 	// every few minutes.
 	WorldBytes      *int64     `json:"worldBytes,omitempty"`
@@ -71,6 +78,16 @@ type ServerStatus struct {
 	// Refusal is the file that stopped the server's last start, while the
 	// server stays stopped.
 	Refusal *FileRefusal `json:"refusal,omitempty"`
+	// SavingPausedSince is when a backup left world saving off, shown while
+	// no operation runs: progress since then is lost if the server stops
+	// unexpectedly. Playkeeper keeps trying to turn saving back on.
+	SavingPausedSince *time.Time `json:"savingPausedSince,omitempty"`
+	// Crash is why the server last stopped unexpectedly or could not start,
+	// shown while it is stopped and no operation runs.
+	Crash *Crash `json:"crash,omitempty"`
+	// SoftwareChanged is set when the server's software no longer matches
+	// what Playkeeper installed, so it was not started.
+	SoftwareChanged *SoftwareChange `json:"softwareChanged,omitempty"`
 	// Wave 7 (0.4.0): sleep when nobody's playing.
 	Sleep *SleepStatus `json:"sleep,omitempty"`
 }
@@ -85,6 +102,41 @@ type FileRefusal struct {
 	Params  map[string]string `json:"params"`
 	Message string            `json:"message"`
 	Hint    string            `json:"hint,omitempty"`
+}
+
+// Crash explains a run that ended unexpectedly: a crash, or a start that
+// failed. It is kept until the server is online again or someone stops or
+// starts it.
+type Crash struct {
+	At time.Time `json:"at"`
+	// Start: the server did not come up, rather than stopping while it ran.
+	Start       bool                `json:"start"`
+	Kind        string              `json:"kind"`
+	Params      map[string]any      `json:"params,omitempty"`
+	Certain     bool                `json:"certain"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Fixes       []DiagnosisAction   `json:"fixes"`
+	// Lines are the last lines before it stopped, oldest first, redacted.
+	Lines []CrashLine `json:"lines"`
+	// RoomMB is how much more memory the machine could give the server.
+	RoomMB int `json:"roomMB"`
+}
+
+// CrashLine is a console line shown with a crash.
+type CrashLine struct {
+	Time  string `json:"time,omitempty"`  // as the server printed it, e.g. "18:52:40"
+	Level string `json:"level,omitempty"` // WARN, ERROR or FATAL; "" for INFO
+	Text  string `json:"text"`
+}
+
+// RemoveAddonRequest moves a plugin or mod jar out of a stopped server, and
+// starts it afterwards when Start is set.
+type RemoveAddonRequest struct {
+	Actor string `json:"actor"`
+	Jar   string `json:"jar"`
+	Start bool   `json:"start,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -203,8 +255,13 @@ type PlayerSnapshot struct {
 type Resources struct {
 	CPUPercent *float64 `json:"cpuPercent,omitempty"`
 	// TPS is the server's ticks per second over the last minute (20 is full
-	// speed), from Paper's tps command.
-	TPS            *float64  `json:"tps,omitempty"`
+	// speed) and MSPT the milliseconds a tick took (50 fits 20 a second),
+	// from the tick commands its type and version understand.
+	TPS  *float64 `json:"tps,omitempty"`
+	MSPT *float64 `json:"mspt,omitempty"`
+	// Lag is the status of Running: smooth, a_bit_behind, lagging, frozen or
+	// unknown.
+	Lag            string    `json:"lag,omitempty"`
 	MemBytes       *int64    `json:"memBytes,omitempty"`
 	MemLimitBytes  *int64    `json:"memLimitBytes,omitempty"`
 	DiskFreeBytes  *int64    `json:"diskFreeBytes,omitempty"`
@@ -248,6 +305,17 @@ type ServerConfig struct {
 	// offer with an empty SHA1 clears the pack from server.properties at the
 	// next start; nil leaves server.properties alone.
 	ResourcePack *ResourcePackOffer `json:"resourcePack,omitempty"`
+	// Software pins the exact software of a type other than Paper: the
+	// Minecraft version and the type's build. JarVerifiedAt is when its
+	// install was last verified.
+	Software *SoftwarePin `json:"software,omitempty"`
+	// Modpack is the pack the server was created from (wave 4).
+	Modpack *ServerModpack `json:"modpack,omitempty"`
+	// Template is the template the server was created from (wave 4).
+	Template *ServerTemplate `json:"template,omitempty"`
+	// VoiceChatPort is the UDP port voice chat has on this server, published
+	// from its container with the same number (wave 4); 0 without voice chat.
+	VoiceChatPort int `json:"voiceChatPort,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -264,6 +332,18 @@ type CreateServerRequest struct {
 	PlayStyle          string    `json:"playStyle,omitempty"`
 	Gameplay           *Gameplay `json:"gameplay,omitempty"`
 	Actor              string    `json:"actor"`
+	// Build is the build of a type's software to pin (a Purpur build, a
+	// Fabric or Quilt loader, a NeoForge version); empty takes the one the
+	// catalog recommends. Paper and Vanilla have none.
+	Build string `json:"build,omitempty"`
+	// Modpack creates the server from a pack (wave 4), which decides the
+	// type, versions and build: Type, VersionID and Build stay empty.
+	Modpack *ModpackRef `json:"modpack,omitempty"`
+	// Template creates the server from a template planned on this machine
+	// (wave 4), which decides the type, version, build and settings: Type,
+	// VersionID, Build, Modpack, PlayStyle, Gameplay, MOTD and MaxPlayers
+	// stay empty.
+	Template *TemplateRef `json:"template,omitempty"`
 }
 
 type SettingsRequest struct {
@@ -356,6 +436,12 @@ type CatalogEntry struct {
 	Experimental bool   `json:"experimental"`
 	// Supported is false for versions PaperMC no longer updates.
 	Supported bool `json:"supported"`
+	// ReleasedAt is when Mojang released the Minecraft version.
+	ReleasedAt *time.Time `json:"releasedAt,omitempty"`
+	// Software is the pin for a type other than Paper, with the build the
+	// catalog recommends; Build names that build.
+	Software *SoftwarePin `json:"software,omitempty"`
+	Build    string       `json:"build,omitempty"`
 }
 
 // ServerType is one kind of server software and whether it can be chosen yet.
@@ -363,6 +449,10 @@ type ServerType struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Available bool   `json:"available"`
+	// Check is how the type's downloads are verified: full, weak_hash
+	// (Purpur's MD5) or recorded_outputs (NeoForge's installer builds files
+	// nobody publishes a hash for).
+	Check string `json:"check,omitempty"`
 }
 
 // ServerMemory is one server's share of the machine's memory.
@@ -392,6 +482,10 @@ type Catalog struct {
 	Servers             []ServerMemory `json:"servers"`
 	SuggestedPort       int            `json:"suggestedPort,omitempty"`
 	Image               string         `json:"image"`
+
+	// LatestRelease is the newest Minecraft release Mojang lists, whether
+	// or not the type offers it yet.
+	LatestRelease string `json:"latestRelease,omitempty"`
 }
 
 type PreflightCheck struct {
@@ -446,10 +540,95 @@ type MetricsBucket struct {
 	PlayersMax *int      `json:"playersMax"`
 	CPUAvg     *float64  `json:"cpuAvg"`
 	MemAvg     *int64    `json:"memAvg"`
+	TPSAvg     *float64  `json:"tpsAvg"`
+	MSPTAvg    *float64  `json:"msptAvg"`
 	// Coverage is the fraction of expected samples actually collected.
 	Coverage float64 `json:"coverage"`
 	// State is online, offline (server not running), or no_data (collector gap).
 	State string `json:"state"`
+}
+
+// DiagnosisEvidence is one observation a diagnosis rests on. Kind and Params
+// are for translation; Text is the English wording.
+type DiagnosisEvidence struct {
+	Kind   string         `json:"kind"`
+	Params map[string]any `json:"params,omitempty"`
+	Text   string         `json:"text"`
+}
+
+// DiagnosisAction is something the user can do about a finding; Params name
+// its target, such as the memory budget to switch to.
+type DiagnosisAction struct {
+	Kind        string         `json:"kind"`
+	Params      map[string]any `json:"params,omitempty"`
+	Title       string         `json:"title"`
+	Recommended bool           `json:"recommended,omitempty"`
+}
+
+// LagCause is one likely reason a server falls behind. Score (1–100) is how
+// strongly the evidence points at it.
+type LagCause struct {
+	Kind        string              `json:"kind"`
+	Params      map[string]any      `json:"params,omitempty"`
+	Score       int                 `json:"score"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Actions     []DiagnosisAction   `json:"actions"`
+}
+
+// Running is "How it's running": how the server ticked over the last
+// WindowMinutes and, when it fell behind, the likely causes, most likely
+// first.
+type Running struct {
+	Status        string              `json:"status"` // smooth | a_bit_behind | lagging | frozen | unknown
+	Params        map[string]any      `json:"params,omitempty"`
+	Title         string              `json:"title"`
+	Explanation   string              `json:"explanation"`
+	Evidence      []DiagnosisEvidence `json:"evidence"`
+	Causes        []LagCause          `json:"causes"`
+	WindowMinutes int                 `json:"windowMinutes"`
+	At            *time.Time          `json:"at,omitempty"`
+	// BehindSince is when the current stretch below full speed began.
+	BehindSince *time.Time `json:"behindSince,omitempty"`
+	Players     *int       `json:"players,omitempty"`
+}
+
+// MemoryAdvice is whether a server's memory budget fits the heap it had in
+// use after garbage collection in the last 14 days.
+type MemoryAdvice struct {
+	Verdict     string              `json:"verdict"` // lower | raise | keep | not_enough_data
+	Params      map[string]any      `json:"params,omitempty"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Actions     []DiagnosisAction   `json:"actions"`
+	BudgetMB    int                 `json:"budgetMB"`
+	HeapMB      int                 `json:"heapMB"`
+	// RecommendedMB is the budget to keep, lower or raise to; 0 without one.
+	RecommendedMB int `json:"recommendedMB,omitempty"`
+	// FromNextStart: the server runs in a container made before memory was
+	// measured, so measuring starts at its next start.
+	FromNextStart bool `json:"fromNextStart,omitempty"`
+	// Days are the last 14 days in the time zone asked for, oldest first.
+	Days    []MemoryDay    `json:"days"`
+	Options []MemoryOption `json:"options"`
+}
+
+type MemoryDay struct {
+	Date string `json:"date"` // YYYY-MM-DD
+	// PeakMB is the most heap in use after a collection that day; 0 unmeasured.
+	PeakMB int `json:"peakMB"`
+}
+
+// MemoryOption is a budget the server could have.
+type MemoryOption struct {
+	MemoryMB int  `json:"memoryMB"`
+	HeapMB   int  `json:"heapMB"`
+	Fits     bool `json:"fits"` // the machine has room for it
+	// Fit is too_tight, little_room, room_to_grow or more_than_needed, and
+	// empty until there is enough history to judge.
+	Fit string `json:"fit,omitempty"`
 }
 
 type Gap struct {
@@ -533,18 +712,25 @@ type Event struct {
 }
 
 type Backup struct {
-	ID               string     `json:"id"`
-	ServerID         string     `json:"serverId"`
-	Kind             string     `json:"kind"` // manual | scheduled | rollback
-	CreatedAt        time.Time  `json:"createdAt"`
-	FileName         string     `json:"fileName"`
-	SizeBytes        int64      `json:"sizeBytes"`
-	SHA256           string     `json:"sha256"`
-	Location         string     `json:"location"` // on-host
-	Verified         *bool      `json:"verified,omitempty"`
-	VerifiedAt       *time.Time `json:"verifiedAt,omitempty"`
-	VerifyError      string     `json:"verifyError,omitempty"`
-	DowntimeMs       int64      `json:"downtimeMs"`
+	ID          string     `json:"id"`
+	ServerID    string     `json:"serverId"`
+	Kind        string     `json:"kind"` // manual | scheduled | rollback
+	CreatedAt   time.Time  `json:"createdAt"`
+	FileName    string     `json:"fileName"`
+	SizeBytes   int64      `json:"sizeBytes"`
+	SHA256      string     `json:"sha256"`
+	Location    string     `json:"location"` // on-host
+	Verified    *bool      `json:"verified,omitempty"`
+	VerifiedAt  *time.Time `json:"verifiedAt,omitempty"`
+	VerifyError string     `json:"verifyError,omitempty"`
+	DowntimeMs  int64      `json:"downtimeMs"`
+	// Method is how the archive was made: online_copy or online_in_place
+	// (players stayed online) or stopped (the server wasn't running).
+	Method string `json:"method,omitempty"`
+	// SavingPausedMs is how long world saving was paused; DurationMs is the
+	// whole backup, from the space check to the archive in place.
+	SavingPausedMs   int64      `json:"savingPausedMs"`
+	DurationMs       int64      `json:"durationMs"`
 	MinecraftVersion string     `json:"minecraftVersion"`
 	LevelName        string     `json:"levelName"`
 	FileCount        int        `json:"fileCount"`
@@ -556,6 +742,9 @@ type Backup struct {
 type BackupRequest struct {
 	Actor string `json:"actor"`
 	Note  string `json:"note,omitempty"`
+	// Stopped backs a running server up with it stopped, for a console that
+	// can't pause saving (a plugin changed the commands, or it timed out).
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 type ManifestSummary struct {
@@ -569,6 +758,9 @@ type ManifestSummary struct {
 	TotalBytes        int64             `json:"totalBytes"`
 	SourceInstall     string            `json:"sourceInstall"`
 	Settings          map[string]string `json:"settings"`
+	// Type and Build are the backup's server software when it is not Paper.
+	Type  string `json:"type,omitempty"`
+	Build string `json:"build,omitempty"`
 }
 
 type CurrentWorld struct {
@@ -625,6 +817,15 @@ type Health struct {
 	OK      bool   `json:"ok"`
 	Version string `json:"version"`
 	Docker  bool   `json:"docker"`
+}
+
+// SetupStatus is what the dashboard shows before anyone signs in, so it
+// holds nothing that isn't public anyway: the machine's name is in the
+// panel's self-signed certificate and the version in /api/health.
+type SetupStatus struct {
+	NeedsSetup bool   `json:"needsSetup"`
+	Machine    string `json:"machine,omitempty"`
+	Version    string `json:"version"`
 }
 
 // Add-ons are a server's plugins (Paper) or mods, installed from Modrinth
@@ -696,7 +897,8 @@ type AddonFile struct {
 	Size     int64  `json:"size"`
 	// Status is managed (Playkeeper installed it, unchanged since),
 	// modified (changed since), identified (added by hand, and Modrinth
-	// knows it) or unknown (added by hand).
+	// knows it), unknown (added by hand) or pack (the server's modpack put
+	// it there, AddonFromPack).
 	Status string `json:"status"`
 	// Addon is the record of a managed or modified file, or what Modrinth
 	// knows an identified file as.
@@ -709,10 +911,16 @@ type AddonFile struct {
 	Pending bool `json:"pending,omitempty"`
 }
 
+// AddonFromPack is the status of a file the server's modpack put in the
+// add-on folder: the pack keeps it, not the add-on library.
+const AddonFromPack = "pack"
+
 // Addons is what is in a server's add-on folder.
 type Addons struct {
 	Target AddonTarget `json:"target"`
-	Files  []AddonFile `json:"files"`
+	// Modpack is the pack the server runs, once its files are in place.
+	Modpack *ServerModpack `json:"modpack,omitempty"`
+	Files   []AddonFile    `json:"files"`
 	// Missing are add-ons Playkeeper installed whose file is gone.
 	Missing  []Addon       `json:"missing"`
 	Warnings []AddonNotice `json:"warnings"`
@@ -813,6 +1021,33 @@ type AddonDetails struct {
 	// PlanError says why it can't be installed.
 	Plan      *AddonPlan   `json:"plan,omitempty"`
 	PlanError *AddonNotice `json:"planError,omitempty"`
+	// Ports are the ports the add-on needs of its own, with the numbers
+	// Playkeeper would open (wave 4).
+	Ports []AddonPort `json:"ports,omitempty"`
+}
+
+// AddonPort is a port an add-on listens on, such as voice chat's: opened on
+// the machine when the add-on is installed, closed when it is removed.
+type AddonPort struct {
+	Protocol string `json:"protocol"` // udp or tcp
+	Port     int    `json:"port"`
+}
+
+// CuratedAddons are the add-ons Playkeeper picked by hand that have a
+// version for the server's type and Minecraft version (wave 4).
+type CuratedAddons struct {
+	Picks []CuratedAddon `json:"picks"`
+}
+
+// CuratedAddon is one of them.
+type CuratedAddon struct {
+	// ID names the pick across releases: voice-chat, rollback, pregenerate…
+	ID   string    `json:"id"`
+	Card AddonCard `json:"card"`
+	// Permission links to where the author allows this use, for a project
+	// whose licence does not.
+	Permission string      `json:"permission,omitempty"`
+	Ports      []AddonPort `json:"ports,omitempty"`
 }
 
 // AddonProgress is one file of an add-on install or update: the "files" of
@@ -834,7 +1069,14 @@ type AddonInstallRequest struct {
 	// Fingerprint is the plan the user confirmed, AddonDetails.Plan; the
 	// install is refused without it, or when the plan has changed since.
 	Fingerprint string `json:"fingerprint"`
-	Actor       string `json:"actor"`
+	// OpenPorts says the owner agreed to open the ports the add-on needs,
+	// such as voice chat's UDP port; an add-on that needs one is refused
+	// without it.
+	OpenPorts bool   `json:"openPorts,omitempty"`
+	Actor     string `json:"actor"`
+	// Start starts a stopped server once the add-on is in place, for a fix
+	// on the crash screen.
+	Start bool `json:"start,omitempty"`
 }
 
 // AddonUpdatePlanRequest asks what an update would do, for the user to
@@ -856,6 +1098,9 @@ type AddonUpdateRequest struct {
 	// without it, or when the plan has changed since.
 	Fingerprint string `json:"fingerprint"`
 	Actor       string `json:"actor"`
+	// Start starts a stopped server once the update is in place, for a fix
+	// on the crash screen.
+	Start bool `json:"start,omitempty"`
 }
 
 // AddonRemovePreview is what removing an add-on would involve.
@@ -1035,12 +1280,14 @@ type Error struct {
 	Code      string     `json:"code"`
 	Hint      string     `json:"hint,omitempty"`
 	Operation *Operation `json:"operation,omitempty"`
-	// Wave 7 (0.4.0): Field is the form field at fault, Reason a stable code
-	// for the problem and Params its values, so the dashboard can show its
-	// own translation next to the field.
-	Field  string         `json:"field,omitempty"`
-	Reason string         `json:"reason,omitempty"`
+	// Params carries the values a translated message needs, such as
+	// retryAfterSeconds.
 	Params map[string]any `json:"params,omitempty"`
+	// Wave 7 (0.4.0): Field is the form field at fault and Reason a stable
+	// code for the problem, with its values in Params, so the dashboard can
+	// show its own translation next to the field.
+	Field  string `json:"field,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 const (
@@ -1057,7 +1304,12 @@ const (
 	CodeInternal          = "internal"
 	CodeAgentUnavailable  = "agent_unavailable"
 	CodeInsufficientSpace = "insufficient_space"
-	CodeIconInvalid       = "icon_invalid"
+	// CodeNamesUnreachable: the free address service could not be reached.
+	CodeNamesUnreachable = "names_unreachable"
+	// CodeRetryLater: the certificate authority refuses attempts until
+	// params.retryAt.
+	CodeRetryLater  = "retry_later"
+	CodeIconInvalid = "icon_invalid"
 )
 
 // WorldCopy is a world folder a restore left next to the live one: the
@@ -1073,3 +1325,571 @@ const (
 	WorldCopyPrevious      = "previous"
 	WorldCopyFailedRestore = "failed_restore"
 )
+
+// Kinds of machine address.
+const (
+	AddressNone       = ""
+	AddressPlaykeeper = "playkeeper"
+	AddressOwn        = "own"
+)
+
+// Address is how people reach a machine by name instead of its IP address:
+// a free playkeeper.io address or the admin's own domain. Each server's join
+// address and the dashboard's certificate follow from it.
+type Address struct {
+	// Kind is AddressNone, AddressPlaykeeper or AddressOwn.
+	Kind string `json:"kind"`
+	// Host is the machine's name, such as alex.playkeeper.io or
+	// play.example.com.
+	Host  string     `json:"host,omitempty"`
+	Since *time.Time `json:"since,omitempty"`
+	// IP is the machine's public address as far as Playkeeper can tell (the
+	// one the dashboard was opened with, or a network interface's). It keeps
+	// working next to any name.
+	IP        string `json:"ip,omitempty"`
+	PanelPort int    `json:"panelPort"`
+	// Base is the domain free addresses live under.
+	Base string `json:"base"`
+	// Servers are the servers' join addresses, in display order.
+	Servers []JoinAddress `json:"servers"`
+	// Free is the free address as the names service last described it.
+	Free *FreeAddress `json:"free,omitempty"`
+	// Records are the DNS records the own domain needs; Check is the last
+	// look at them.
+	Records []DNSRecord   `json:"records,omitempty"`
+	Check   *AddressCheck `json:"check,omitempty"`
+	// Certificate is the dashboard's certificate for Host.
+	Certificate *CertificateStatus `json:"certificate,omitempty"`
+	Names       NamesService       `json:"names"`
+	// TermsAccepted is when an admin accepted Let's Encrypt's terms.
+	TermsAccepted *time.Time `json:"termsAccepted,omitempty"`
+	// Operation is the address's work in progress: publishing a free
+	// address or getting a certificate.
+	Operation *Operation `json:"operation,omitempty"`
+}
+
+// JoinAddress is what players type to join one server.
+type JoinAddress struct {
+	ServerID string `json:"serverId"`
+	Name     string `json:"name"`
+	Port     int    `json:"port"`
+	// Label is the server's part of its address: "survival" in
+	// survival.alex.playkeeper.io.
+	Label string `json:"label"`
+	// Address is the friendly address, empty without a machine name. Direct
+	// is the IP address with the port, which always works.
+	Address string `json:"address,omitempty"`
+	Direct  string `json:"direct,omitempty"`
+	// Published: Address works (a free address's records are published, or
+	// the last check found an own domain's).
+	Published bool `json:"published"`
+}
+
+// FreeAddress is a free playkeeper.io address at the names service.
+type FreeAddress struct {
+	Name string `json:"name"`
+	// State is "active", "lapsed" (its records were removed, for the
+	// reason in LapseReason) or "released".
+	State string `json:"state"`
+	// LapseReason is "not_refreshed" (the machine did not refresh the name
+	// for a month) or "no_answer" (the names service could not reach the
+	// dashboard on port 8443 for a week).
+	LapseReason string `json:"lapseReason,omitempty"`
+	// ServersWait is why the servers have no address under the name yet:
+	// "server_address_not_yet" until ServersFrom, a few days after the
+	// claim, or "not_answering" until the names service has reached the
+	// dashboard on port 8443. Players join at the name with the server's
+	// port meanwhile.
+	ServersWait string     `json:"serversWait,omitempty"`
+	ServersFrom *time.Time `json:"serversFrom,omitempty"`
+	// DNS is "ok" once the name's own records are published, else
+	// "pending".
+	DNS         string    `json:"dns"`
+	IPv4        string    `json:"ipv4,omitempty"`
+	IPv6        string    `json:"ipv6,omitempty"`
+	ClaimedAt   time.Time `json:"claimedAt"`
+	RefreshedAt time.Time `json:"refreshedAt"`
+	// StoppedAt is when a lapsed name stopped pointing at the machine.
+	StoppedAt *time.Time `json:"stoppedAt,omitempty"`
+	// CheckedAt is when the names service last answered about it.
+	CheckedAt time.Time `json:"checkedAt"`
+	// HoldDays is how long a released name is held from others.
+	HoldDays int `json:"holdDays"`
+}
+
+// NamesService is the service behind free addresses.
+type NamesService struct {
+	URL string `json:"url"`
+	// Unreachable: the last request could not reach it; Error says how.
+	Unreachable bool       `json:"unreachable,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	CheckedAt   *time.Time `json:"checkedAt,omitempty"`
+}
+
+// NameAvailability says whether a free address can be claimed.
+type NameAvailability struct {
+	Name      string `json:"name"`
+	Address   string `json:"address,omitempty"`
+	Available bool   `json:"available"`
+	// Code and Params say why not: invalid_name, name_reserved, name_taken
+	// or name_held (params.until is a Unix time).
+	Code    string         `json:"code,omitempty"`
+	Message string         `json:"message,omitempty"`
+	Params  map[string]any `json:"params,omitempty"`
+	// Suggestions are similar names that are free right now.
+	Suggestions []string `json:"suggestions,omitempty"`
+}
+
+// DNSRecord is a record to create where the own domain's DNS is managed.
+type DNSRecord struct {
+	// ServerID is the server an SRV record is for.
+	ServerID string    `json:"serverId,omitempty"`
+	Type     string    `json:"type"`
+	Name     string    `json:"name"`
+	Value    string    `json:"value"`
+	TTL      int       `json:"ttl"`
+	SRV      *SRVParts `json:"srv,omitempty"`
+}
+
+// SRVParts are an SRV record's fields, for DNS providers that ask for them
+// one by one.
+type SRVParts struct {
+	Service  string `json:"service"`
+	Protocol string `json:"protocol"`
+	Host     string `json:"host"`
+	Priority int    `json:"priority"`
+	Weight   int    `json:"weight"`
+	Port     int    `json:"port"`
+	Target   string `json:"target"`
+}
+
+// Note is something to show about a name or a certificate. Code, with
+// Params, is what the UI translates; Message and Hint are the English text.
+type Note struct {
+	Code    string            `json:"code"`
+	Params  map[string]string `json:"params,omitempty"`
+	Message string            `json:"message"`
+	Hint    string            `json:"hint,omitempty"`
+}
+
+// AddressCheck is a look at the own domain's records, as players and Let's
+// Encrypt see them.
+type AddressCheck struct {
+	At      time.Time     `json:"at"`
+	Name    NameCheck     `json:"name"`
+	Records []RecordCheck `json:"records,omitempty"`
+	// Ready: the name points here and every SRV record is right.
+	Ready bool `json:"ready"`
+}
+
+// NameCheck is where the own domain points, compared with this machine.
+type NameCheck struct {
+	Note
+	Name    string       `json:"name"`
+	OK      bool         `json:"ok"`
+	Records []AddrRecord `json:"records,omitempty"`
+}
+
+// AddrRecord is an A or AAAA record found for a name.
+type AddrRecord struct {
+	Type string `json:"type"`
+	Addr string `json:"addr"`
+	// Here: the address is this machine's.
+	Here bool   `json:"here"`
+	Kind string `json:"kind,omitempty"`
+}
+
+// RecordCheck is the state of one SRV record.
+type RecordCheck struct {
+	Note
+	Record DNSRecord `json:"record"`
+	OK     bool      `json:"ok"`
+	Found  []string  `json:"found,omitempty"`
+}
+
+// CertificateStatus is the dashboard's certificate for the machine's name,
+// and how getting or renewing it went.
+type CertificateStatus struct {
+	Names []string `json:"names"`
+	// Challenge is how Let's Encrypt checks the name: "http-01" (port 80)
+	// or "dns-01" (a record the names service publishes).
+	Challenge   string              `json:"challenge"`
+	NotBefore   *time.Time          `json:"notBefore,omitempty"`
+	NotAfter    *time.Time          `json:"notAfter,omitempty"`
+	RenewAt     *time.Time          `json:"renewAt,omitempty"`
+	Issuer      string              `json:"issuer,omitempty"`
+	LastAttempt *time.Time          `json:"lastAttempt,omitempty"`
+	NextAttempt *time.Time          `json:"nextAttempt,omitempty"`
+	Failures    int                 `json:"failures,omitempty"`
+	Problem     *CertificateProblem `json:"problem,omitempty"`
+}
+
+// CertificateProblem is why the last attempt failed.
+type CertificateProblem struct {
+	Note
+	// RetryAt is the earliest time another attempt can succeed.
+	RetryAt     *time.Time `json:"retryAt,omitempty"`
+	NeedsAction bool       `json:"needsAction,omitempty"`
+	// Detail is the certificate authority's or the system's own words.
+	Detail string `json:"detail,omitempty"`
+}
+
+// AddressPlan is what a domain would need, before it is saved.
+type AddressPlan struct {
+	Domain  string        `json:"domain"`
+	Records []DNSRecord   `json:"records"`
+	Servers []JoinAddress `json:"servers"`
+}
+
+// Address requests. PanelHost is the host the dashboard was opened with;
+// the panel adds it, as it adds the actor.
+type AddressClaimRequest struct {
+	Name        string `json:"name"`
+	AcceptTerms bool   `json:"acceptTerms"`
+	PanelHost   string `json:"panelHost"`
+	Actor       string `json:"actor"`
+}
+
+type AddressCheckRequest struct {
+	Domain      string `json:"domain"`
+	AcceptTerms bool   `json:"acceptTerms"`
+	PanelHost   string `json:"panelHost"`
+	Actor       string `json:"actor"`
+}
+
+type AddressActionRequest struct {
+	AcceptTerms bool   `json:"acceptTerms"`
+	PanelHost   string `json:"panelHost"`
+	Actor       string `json:"actor"`
+}
+
+// Wave 4: every server type.
+
+// CodeUpstream is an error from a download site Playkeeper reads (Mojang,
+// Fabric, Modrinth and the others): unreachable, or answering with
+// something Playkeeper refuses to use.
+const CodeUpstream = "upstream_unavailable"
+
+// CodePlanChanged refuses a create from a template whose confirmed plan
+// Playkeeper no longer has, or that would now do something else.
+const CodePlanChanged = "plan_changed"
+
+// Wave 4: add-on sources.
+
+// CodeKeyRefused refuses a CurseForge API key that CurseForge doesn't
+// accept, or that can't be one.
+const CodeKeyRefused = "curseforge_key_refused"
+
+// AddonSources is Settings › Add-on sources: where the machine finds
+// plugins, mods and modpacks. Modrinth and Hangar are built in and always on.
+type AddonSources struct {
+	CurseForge CurseForgeSource `json:"curseforge"`
+}
+
+// CurseForgeSource is CurseForge on the machine.
+type CurseForgeSource struct {
+	// Key is where the key in use comes from: none, build (the key this
+	// release carries), file (the owner's own) or disabled (an empty key file
+	// turns CurseForge off).
+	Key string `json:"key"`
+	// Ending is the last four characters of the owner's own key.
+	Ending string `json:"ending,omitempty"`
+	// Problem says why the owner's key file can't be used; it never holds
+	// the key.
+	Problem string `json:"problem,omitempty"`
+}
+
+// CurseForgeKeyRequest saves the owner's own CurseForge API key.
+type CurseForgeKeyRequest struct {
+	Key   string `json:"key"`
+	Actor string `json:"actor"`
+}
+
+// SoftwarePin is the exact software of a server type other than Paper. It
+// mirrors software.Pin field for field; only its own type's build is set.
+type SoftwarePin struct {
+	Type             string `json:"type"`
+	MinecraftVersion string `json:"minecraftVersion"`
+	PurpurBuild      int    `json:"purpurBuild,omitempty"`
+	FabricLoader     string `json:"fabricLoader,omitempty"`
+	QuiltLoader      string `json:"quiltLoader,omitempty"`
+	NeoForgeVersion  string `json:"neoforgeVersion,omitempty"`
+}
+
+// SoftwareBuild is one build of a type's software for a Minecraft version:
+// a Purpur build, a Fabric or Quilt loader, or a NeoForge version.
+type SoftwareBuild struct {
+	Version     string `json:"version"`
+	Channel     string `json:"channel"`
+	Recommended bool   `json:"recommended"`
+}
+
+// SoftwareBuilds lists a type's builds for one Minecraft version, newest
+// first.
+type SoftwareBuilds struct {
+	Type             string          `json:"type"`
+	MinecraftVersion string          `json:"minecraftVersion"`
+	Builds           []SoftwareBuild `json:"builds"`
+	CheckedAt        time.Time       `json:"checkedAt"`
+}
+
+// SoftwareChange says which of a server's software files no longer matches
+// what Playkeeper installed and recorded. Hashes are lowercase hex; Found is
+// empty when the file is missing.
+type SoftwareChange struct {
+	File        string     `json:"file"`
+	Algorithm   string     `json:"algorithm"`
+	Recorded    string     `json:"recorded"`
+	Found       string     `json:"found,omitempty"`
+	InstalledAt *time.Time `json:"installedAt,omitempty"`
+	ChangedAt   *time.Time `json:"changedAt,omitempty"`
+	DetectedAt  time.Time  `json:"detectedAt"`
+	// Software is what a reinstall downloads again: "Paper 26.1.2 build 41".
+	Software string `json:"software"`
+}
+
+// Wave 4: modpacks.
+
+// ModpackCard is a pack in the create flow's list.
+type ModpackCard struct {
+	Source            string    `json:"source"`
+	ProjectID         string    `json:"projectId"`
+	Slug              string    `json:"slug"`
+	Name              string    `json:"name"`
+	Author            string    `json:"author,omitempty"`
+	Summary           string    `json:"summary"`
+	Downloads         int64     `json:"downloads"`
+	IconURL           string    `json:"iconUrl,omitempty"`
+	Updated           time.Time `json:"updated"`
+	PageURL           string    `json:"pageUrl"`
+	Types             []string  `json:"types"`
+	MinecraftVersions []string  `json:"minecraftVersions"`
+	// Mods counts the mods the pack's newest version bundles, and MemoryMB
+	// is the memory Playkeeper suggests for that many; both are 0 when the
+	// source doesn't say.
+	Mods     int `json:"mods,omitempty"`
+	MemoryMB int `json:"memoryMB,omitempty"`
+	// Unavailable says why Playkeeper can't install the pack at all.
+	Unavailable *AddonNotice `json:"unavailable,omitempty"`
+}
+
+// ModpackResults is one page of packs from one source.
+type ModpackResults struct {
+	Cards  []ModpackCard `json:"cards"`
+	Total  int           `json:"total"`
+	Offset int           `json:"offset"`
+	Limit  int           `json:"limit"`
+	// Sources are where packs can come from on this machine: modrinth, and
+	// curseforge once there's a key.
+	Sources []string `json:"sources"`
+}
+
+// ModpackVersion is one version of a pack.
+type ModpackVersion struct {
+	ID               string       `json:"id"`
+	Number           string       `json:"number"`
+	Name             string       `json:"name,omitempty"`
+	Channel          string       `json:"channel"`
+	Published        time.Time    `json:"published"`
+	Size             int64        `json:"size"`
+	Type             string       `json:"type,omitempty"`
+	MinecraftVersion string       `json:"minecraftVersion,omitempty"`
+	Mods             int          `json:"mods,omitempty"`
+	Unsupported      *AddonNotice `json:"unsupported,omitempty"`
+}
+
+// ModpackDetail is a pack's details sheet.
+type ModpackDetail struct {
+	ModpackCard
+	SourceURL string `json:"sourceUrl,omitempty"`
+	IssuesURL string `json:"issuesUrl,omitempty"`
+	WikiURL   string `json:"wikiUrl,omitempty"`
+	// Headline is the mod the pack is built around ("Cobblemon"), when its
+	// title names one it bundles.
+	Headline string           `json:"headline,omitempty"`
+	Versions []ModpackVersion `json:"versions"`
+	// Newest is the id of the version a new server gets; empty when
+	// Playkeeper can install none.
+	Newest string `json:"newest,omitempty"`
+}
+
+// ModpackPreview is what a pack version needs and puts on a new server, read
+// from the pack itself.
+type ModpackPreview struct {
+	Type             string `json:"type"`
+	MinecraftVersion string `json:"minecraftVersion"`
+	// LoaderVersion is the Fabric Loader, Quilt Loader or NeoForge version;
+	// empty for vanilla packs.
+	LoaderVersion string `json:"loaderVersion,omitempty"`
+	// Java is set when the pack's Minecraft version runs on an older Java
+	// than the newest versions, as its loader and mods need: the server
+	// gets the runtime image with that Java.
+	Java int `json:"java,omitempty"`
+	// Files counts the files the pack puts on the server; DownloadSize is
+	// what downloading them takes.
+	Files        int           `json:"files"`
+	DownloadSize int64         `json:"downloadSize"`
+	Ready        bool          `json:"ready"`
+	Blockers     []AddonNotice `json:"blockers"`
+	Warnings     []AddonNotice `json:"warnings"`
+	Manual       []AddonNotice `json:"manual"`
+}
+
+// ModpackRef names a pack version to create a server from.
+type ModpackRef struct {
+	Source    string `json:"source"`
+	ProjectID string `json:"projectId"`
+	VersionID string `json:"versionId"`
+}
+
+// ServerModpack is the pack a server runs.
+type ServerModpack struct {
+	Source        string `json:"source"`
+	ProjectID     string `json:"projectId"`
+	VersionID     string `json:"versionId"`
+	Name          string `json:"name"`
+	VersionNumber string `json:"versionNumber"`
+	PageURL       string `json:"pageUrl,omitempty"`
+	IconURL       string `json:"iconUrl,omitempty"`
+	// Mods counts the pack's mods on the server.
+	Mods int `json:"mods,omitempty"`
+	// Pending is set until the pack's files are in place; the next start
+	// puts them there.
+	Pending bool `json:"pending,omitempty"`
+}
+
+// Wave 4: templates.
+
+// TemplateRef names a template planned on this machine by the fingerprint
+// of the plan the user confirmed (TemplatePlan.Fingerprint).
+type TemplateRef struct {
+	Fingerprint string `json:"fingerprint"`
+}
+
+// ServerTemplate is the template a server was created from.
+type ServerTemplate struct {
+	Name string `json:"name"`
+	// Pending is set until the template's add-ons are on the server; the
+	// next start installs the rest.
+	Pending bool `json:"pending,omitempty"`
+	// Skipped are the template's add-ons and data packs that could not be
+	// installed, each with params["name"]; POST …/template/retry tries them
+	// again.
+	Skipped []AddonNotice `json:"skipped,omitempty"`
+}
+
+// TemplateSettings are the settings a template carries.
+type TemplateSettings struct {
+	Difficulty   string `json:"difficulty,omitempty"`
+	PVP          *bool  `json:"pvp,omitempty"`
+	GameMode     string `json:"gameMode,omitempty"`
+	Hardcore     *bool  `json:"hardcore,omitempty"`
+	ViewDistance int    `json:"viewDistance,omitempty"`
+	LevelType    string `json:"levelType,omitempty"`
+	MaxPlayers   int    `json:"maxPlayers,omitempty"`
+	MOTD         string `json:"motd,omitempty"`
+	PlayStyle    string `json:"playStyle,omitempty"`
+	MemoryMB     int    `json:"memoryMB,omitempty"`
+}
+
+// TemplateAddon is a plugin, mod or modpack a template names.
+type TemplateAddon struct {
+	Source string `json:"source"`
+	Name   string `json:"name"`
+	// VersionNumber is the pinned version; empty means the newest that fits.
+	VersionNumber string `json:"versionNumber,omitempty"`
+}
+
+// TemplateContents is what a template carries.
+type TemplateContents struct {
+	Name string `json:"name"`
+	// Author and Created say who made the template and on which day
+	// (YYYY-MM-DD); templates made before either was recorded have neither.
+	Author           string           `json:"author,omitempty"`
+	Created          string           `json:"created,omitempty"`
+	Type             string           `json:"type"`
+	MinecraftVersion string           `json:"minecraftVersion"`
+	Build            string           `json:"build,omitempty"`
+	Settings         TemplateSettings `json:"settings"`
+	Addons           []TemplateAddon  `json:"addons"`
+	Modpack          *TemplateAddon   `json:"modpack,omitempty"`
+	ResourcePacks    int              `json:"resourcePacks"`
+	DataPacks        int              `json:"dataPacks"`
+	// Packs names the packs, the resource pack first.
+	Packs []string `json:"packs"`
+}
+
+// TemplateExport is a server's setup as a template, with the export
+// dialog's choices applied.
+type TemplateExport struct {
+	FileName string `json:"fileName"`
+	// File is the template file's text.
+	File string `json:"file"`
+	// Link is empty when the template is too large for one; LinkLong is set
+	// when it's long enough for some chats to cut it.
+	Link     string           `json:"link"`
+	LinkLong bool             `json:"linkLong,omitempty"`
+	Contents TemplateContents `json:"contents"`
+	// Available is what the template carries with every part included, so
+	// the dialog's rows keep their details while a part is left out.
+	Available TemplateContents `json:"available"`
+	// PacksHere counts the server's packs, with those that can't travel.
+	PacksHere int           `json:"packsHere"`
+	LeftOut   []AddonNotice `json:"leftOut"`
+	Notes     []AddonNotice `json:"notes"`
+}
+
+// TemplatePlan is what a template would create on this machine.
+type TemplatePlan struct {
+	Contents TemplateContents `json:"contents"`
+	// Type, VersionID, MinecraftVersion and Build are what the new server
+	// runs, which can differ from what the template names.
+	Type             string        `json:"type"`
+	VersionID        string        `json:"versionId,omitempty"`
+	MinecraftVersion string        `json:"minecraftVersion,omitempty"`
+	Build            string        `json:"build,omitempty"`
+	Experimental     bool          `json:"experimental,omitempty"`
+	MemoryMB         int           `json:"memoryMB"`
+	Skipped          []AddonNotice `json:"skipped"`
+	Warnings         []AddonNotice `json:"warnings"`
+	Blockers         []AddonNotice `json:"blockers"`
+	Ready            bool          `json:"ready"`
+	Fingerprint      string        `json:"fingerprint"`
+}
+
+// Wave 4: sharing a modded server's pack with friends.
+
+// PackShare is a modded server's friends' share, for the Mods tab and the
+// share sheet. Share is internal/modpacks/share's Share without its index.
+type PackShare struct {
+	// Public is whether the friends' page answers, and Token its link's
+	// token while it does.
+	Public     bool            `json:"public"`
+	Token      string          `json:"token,omitempty"`
+	File       string          `json:"file"`
+	Size       int64           `json:"size"`
+	LoaderName string          `json:"loaderName"`
+	Share      json.RawMessage `json:"share"`
+}
+
+// PackShareRequest turns a server's friends' page on or off. Turning it on
+// makes a new link; turning it off forgets the old one.
+type PackShareRequest struct {
+	Public bool   `json:"public"`
+	Actor  string `json:"actor"`
+}
+
+// PackLink is what the agent tells the panel about a link that opens a
+// friends' page: the server and its share. Share is the whole
+// internal/modpacks/share Share, server-only mods included, so the panel
+// never sends it on.
+type PackLink struct {
+	Server   string `json:"server"`
+	Slug     string `json:"slug"`
+	GamePort int    `json:"gamePort"`
+	// JoinAddress is the server's address under the machine's name once it
+	// works; the page falls back to the host it was opened at, with GamePort.
+	JoinAddress string          `json:"joinAddress,omitempty"`
+	HasIcon     bool            `json:"hasIcon"`
+	Share       json.RawMessage `json:"share"`
+}

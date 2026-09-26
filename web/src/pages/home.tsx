@@ -10,14 +10,15 @@ import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, Playe
 import { EmptySteps } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
+import { SignInNotice } from '@/components/app/sign-in-notice'
 import { InlineSkeleton, LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatBytes, formatMB, formatPercent, formatSpan, joinAddress } from '@/lib/format'
-import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
+import { formatBytes, formatMB, formatPercent, formatSpan, serverJoinAddress } from '@/lib/format'
+import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -79,7 +80,7 @@ export function HomePage() {
     <>
       <PageHeader title={t('home.title')} subtitle={subtitle} actions={newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
-        <MachineNotice />
+        <HomeNotice />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
           <NewServerCard />
@@ -100,11 +101,12 @@ export function HomePage() {
   )
 }
 
-/** One line about the machine when something needs attention: the agent, or disk space. */
-function MachineNotice() {
+/** At most one notice: the agent not answering, what to know after signing in, or disk space. */
+function HomeNotice() {
   const ws = useWorkspace()
   const disk = ws.machine?.live?.diskWarning
   if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.body', { machine: ws.machineName })}</Notice>
+  if (ws.signInNotice) return <SignInNotice />
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   return null
 }
@@ -149,7 +151,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
       </span>
     )
   }
-  const tone = phaseTone(s.phase)
+  const tone = statusTone(s)
   switch (tone) {
     case 'online': {
       const names = s.players?.names ?? []
@@ -170,7 +172,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
         <>
           <span className="flex items-center gap-2 text-[13px] text-destructive-foreground">
             <CircleAlertIcon className="size-4" aria-hidden="true" />
-            {t('card.crashed')}
+            {couldntStart(s) ? t('status.couldntStart') : t('card.crashed')}
           </span>
           {!s.operation && <StartButton server={s} label={t('server.startAgain')} />}
         </>
@@ -201,7 +203,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
 
 function ServerCard({ server: s, update }: { server: ServerStatus; update?: CatalogEntry }) {
   const { stale } = useWorkspace()
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = serverJoinAddress(s)
   const stopped = phaseTone(s.phase) !== 'online'
   return (
     <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">

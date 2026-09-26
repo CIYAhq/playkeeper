@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -41,7 +42,9 @@ type agentEnv struct {
 	a    *Agent
 	ts   *httptest.Server
 	fill *fakeFill
-	mu   sync.Mutex
+	// up stands in for Mojang and the other upstreams of the server types.
+	up *fakeUpstream
+	mu sync.Mutex
 	// clockOffset moves the agent's clock and crashBackoff, when set, replaces
 	// the zero backoff (both taken at start); diskFree, when set, is the free
 	// space the agent measures.
@@ -52,17 +55,24 @@ type agentEnv struct {
 	// stagedVersion is what a downloaded binary reports.
 	updateKeys    []ed25519.PublicKey
 	stagedVersion string
+	// procStat, when set, replaces reading /proc/stat.
+	procStat func() ([]byte, error)
 	// addons, when set, is the add-on library the agent uses.
 	addons *addons.Library
 	// pregenResumeAfter, when set, is how long the server must be empty
 	// before a task paused for players continues.
 	pregenResumeAfter time.Duration
+	// portHolder, when set, names the program on a taken port; otherwise
+	// none is found.
+	portHolder func(port int) (string, int, bool)
 	// sid is the server most helpers act on: the one create made last.
 	sid string
 	// live is the running agent, for the fake RCON's password check.
 	live atomic.Pointer[Agent]
-	// skew moves the running agent's clock (nanoseconds), for wave 7's
-	// countdowns.
+	// tweak changes the options each start builds.
+	tweak func(o *Options)
+	// skew moves the running agent's clock (nanoseconds), as time passing
+	// would.
 	skew atomic.Int64
 	// warnings is what the agent logged at warning level or above.
 	warnings logBuffer
@@ -106,13 +116,18 @@ func (e *agentEnv) binaryVersion(string) (string, error) {
 	return e.stagedVersion, nil
 }
 
-func newAgentEnv(t *testing.T) *agentEnv {
+func newAgentEnv(t *testing.T) *agentEnv { return newAgentEnvWith(t, nil) }
+
+// newAgentEnvWith is newAgentEnv with setup run before the agent starts.
+func newAgentEnvWith(t *testing.T, setup func(e *agentEnv)) *agentEnv {
 	t.Helper()
 	dir := t.TempDir()
 	e := &agentEnv{t: t, dir: dir}
 	e.fd = startFakeDocker(t, filepath.Join(dir, "docker.sock"))
 	sum := sha256.Sum256(e.fd.jarContent)
 	e.fill = startFakeFill(t, hex.EncodeToString(sum[:]))
+	e.up = startFakeUpstream(t)
+	e.up.serveMojang()
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = filepath.Join(dir, "agent.sock")
@@ -120,9 +135,26 @@ func newAgentEnv(t *testing.T) *agentEnv {
 	cfg.GameUID, cfg.GameGID = os.Getuid(), os.Getgid()
 	cfg.InstallID = "test-install-0001"
 	cfg.Dev = true
+	// Nothing in these tests reaches the real names service.
+	cfg.NamesURL = closedURL(t)
 	e.cfg = cfg
+	if setup != nil {
+		setup(e)
+	}
 	e.start()
 	return e
+}
+
+// closedURL is a local http:// address nothing listens on.
+func closedURL(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return "http://" + addr
 }
 
 func (e *agentEnv) start() {
@@ -148,21 +180,34 @@ func (e *agentEnv) start() {
 	if backoff == nil {
 		backoff = []time.Duration{0}
 	}
-	a, err := New(Options{
+	holder := e.portHolder
+	if holder == nil {
+		holder = func(int) (string, int, bool) { return "", 0, false }
+	}
+	opts := Options{
 		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(&e.warnings, &slog.HandlerOptions{Level: slog.LevelWarn})), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
 		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
-		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
+		HostMemoryMB: func() int { return 4096 }, ProcStat: e.procStat, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {
 				return free, 100 << 30, nil
 			}
 			return 50 << 30, 100 << 30, nil
 		},
-		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false },
+		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false }, UDPPortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 		Addons: e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
-	})
+		UpstreamClient: e.up.client(), PackClient: e.up.client(),
+		// No public DNS and no certificate authority in these tests.
+		Resolver: &fakeResolver{}, Issue: noCA, AddressInterval: -1, PublishPoll: 10 * time.Millisecond,
+		PublicAddrs: func() []netip.Addr { return []netip.Addr{testIP} },
+		PortHolder:  holder,
+	}
+	if e.tweak != nil {
+		e.tweak(&opts)
+	}
+	a, err := New(opts)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -296,6 +341,27 @@ func (e *agentEnv) waitExitRead() {
 	})
 }
 
+// waitReread waits until the log follower has read the stopped container's
+// log once more after reaching its end, as it does every two seconds; Docker
+// sends the last line again each time.
+func (e *agentEnv) waitReread() {
+	e.t.Helper()
+	e.waitExitRead()
+	s := e.srv()
+	c, err := e.a.docker.ContainerInspect(context.Background(), s.containerName())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	s.mu.Lock()
+	first := s.followEnded[c.ID]
+	s.mu.Unlock()
+	e.waitFor("the follower to read the log again", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.followEnded[c.ID].After(first)
+	})
+}
+
 func (e *agentEnv) onlineIdle() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() }
 
 // cname and dataDir are the current (v2) server's container name and world
@@ -394,7 +460,10 @@ func TestInvalidInputsAndUnknownVerbsAreRejected(t *testing.T) {
 		{"control char MOTD", "POST", "/v1/servers", create(map[string]any{"motd": "a\nb"}), 400},
 		{"control char name", "POST", "/v1/servers", create(map[string]any{"name": "a\nb"}), 400},
 		{"name too long", "POST", "/v1/servers", create(map[string]any{"name": strings.Repeat("a", 33)}), 400},
-		{"type not available yet", "POST", "/v1/servers", create(map[string]any{"type": "fabric"}), 400},
+		{"unknown type", "POST", "/v1/servers", create(map[string]any{"type": "forge"}), 400},
+		{"another type's version", "POST", "/v1/servers", create(map[string]any{"type": "vanilla"}), 400},
+		{"a build for Paper", "POST", "/v1/servers", create(map[string]any{"build": "41"}), 400},
+		{"a build for Vanilla", "POST", "/v1/servers", create(map[string]any{"type": "vanilla", "versionId": "vanilla-26.2", "build": "1"}), 400},
 		{"unknown play style", "POST", "/v1/servers", create(map[string]any{"playStyle": "chaos"}), 400},
 		{"unknown difficulty", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"difficulty": "insane"}}), 400},
 		{"view distance too far", "POST", "/v1/servers", create(map[string]any{"gameplay": map[string]any{"viewDistance": 99}}), 400},
@@ -1224,6 +1293,31 @@ func TestJarChecksumMismatchIsNeverRun(t *testing.T) {
 	}
 }
 
+func TestSetupStillRunningWhenItsOutputEndsFails(t *testing.T) {
+	old := setupExitWait
+	setupExitWait = time.Second
+	t.Cleanup(func() { setupExitWait = old })
+	e := newAgentEnv(t)
+	e.fd.setupHangs = true
+	code, out := e.startCreate(nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "still running") {
+		t.Fatalf("a setup container that hasn't finished must not count as done: %+v", op)
+	}
+	if e.fd.containerCount(e.cname()+"-setup") != 0 {
+		t.Fatal("the setup container must be stopped and removed")
+	}
+	e.fd.mu.Lock()
+	_, created := e.fd.byName[e.cname()]
+	e.fd.mu.Unlock()
+	if created {
+		t.Fatal("the server container must not be created from an unfinished setup")
+	}
+}
+
 func TestPortCollisionHasActionableError(t *testing.T) {
 	e := newAgentEnv(t)
 	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
@@ -1462,7 +1556,13 @@ func TestConsoleBufferIsBounded(t *testing.T) {
 // restore, returning the restore id and its confirmation phrase.
 func (e *agentEnv) backupAndStage() (string, string) {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	return e.backupWithAndStage(map[string]any{"actor": "admin"})
+}
+
+// backupWithAndStage is backupAndStage with the backup request's body.
+func (e *agentEnv) backupWithAndStage(body map[string]any) (string, string) {
+	e.t.Helper()
+	code, out := e.call("POST", e.sp("/backups"), body)
 	if code != 202 {
 		e.t.Fatalf("backup: %d %v", code, out)
 	}
@@ -2147,6 +2247,27 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 		if !v {
 			t.Errorf("missing audit row %s", k)
 		}
+	}
+}
+
+// A console command whose reply is lost may have run, so it is never sent
+// again; the next command gets a new connection.
+func TestLostConsoleRepliesAreNeverResent(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	const give = "give PkBotFriend diamond 64"
+	e.rcon.mu.Lock()
+	e.rcon.lose = func(cmd string) bool { return cmd == give }
+	e.rcon.mu.Unlock()
+	if code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": give}); code != 502 {
+		t.Fatalf("a lost reply must be reported: %d %v", code, out)
+	}
+	if n := e.rcon.count(give); n != 1 {
+		t.Fatalf("the command reached the server %d times, want once", n)
+	}
+	code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": "list"})
+	if code != 200 || !strings.Contains(out["output"].(string), "players online") {
+		t.Fatalf("the next command must work on a new connection: %d %v", code, out)
 	}
 }
 

@@ -167,6 +167,43 @@ func TestAPlantedPipeStopsTheStartAndTheStatusSaysWhy(t *testing.T) {
 	}
 }
 
+// The agent's own restart after a crash is refused over a planted link or
+// named pipe like any start, and the refusal replaces the crash helper's
+// explanation of the run, so the status explains the last start once, by
+// the file.
+func TestARefusedRestartReplacesTheCrash(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	config := filepath.Join(e.dataDir(), "plugins", "bStats", "config.yml")
+	for _, c := range []struct {
+		code   string
+		plant  func() error
+		params map[string]string
+	}{
+		{"link", func() error { return os.Symlink(filepath.Join(e.hostFiles(), "panel.db"), config) }, map[string]string{"path": "plugins/bStats/config.yml"}},
+		{"special_file", func() error { return syscall.Mkfifo(config, 0o640) }, map[string]string{"path": "plugins/bStats/config.yml", "type": "named_pipe"}},
+	} {
+		if err := os.Remove(config); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.plant(); err != nil {
+			t.Fatal(err)
+		}
+		e.fd.crash(1)
+		var st api.ServerStatus
+		e.waitFor("the restart after the crash refused", func() bool { st = e.status(); return st.Refusal != nil && st.Operation == nil })
+		if r := st.Refusal; r.Code != c.code || !maps.Equal(r.Params, c.params) || st.Crash != nil {
+			t.Fatalf("the status after a restart refused a %s: refusal %+v, crash %+v", c.code, r, st.Crash)
+		}
+		if err := os.Remove(config); err != nil {
+			t.Fatal(err)
+		}
+		if op := e.act("start"); op.Status != api.OpSucceeded {
+			t.Fatalf("start once the %s is gone: %+v", c.code, op)
+		}
+	}
+}
+
 // A start that fails before it gets to the server's files keeps the refusal
 // of the start before it, since the planted file may still be there, and the
 // status carries it while Docker isn't answering. Only a start that gets past
@@ -313,9 +350,150 @@ func TestGameFilesAreReadWithoutFollowingLinks(t *testing.T) {
 	}
 }
 
+// Crash reports, Java's error report and the add-on folder belong to the
+// game too. The crash helper reads the newest report of the run and only its
+// first megabyte, never through a link, and a named pipe in place of a report
+// or of a folder it lists does not make it wait: a pipe at crash-reports or
+// plugins used to hold a failed start or the reconcile loop forever.
+func TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting(t *testing.T) {
+	e := crashEnv(t)
+	host := e.hostFiles()
+	data := e.dataDir()
+	s := e.srv()
+	since := time.Now().Add(-time.Minute)
+	report := func() (string, string) { text, name := s.newestCrashReport(since); return name, text }
+	link := func(to, at string) {
+		t.Helper()
+		if err := os.RemoveAll(at); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(to, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pipe := func(at string) {
+		t.Helper()
+		if err := os.RemoveAll(at); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(at, 0o640); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if f, err := os.OpenFile(at, os.O_RDWR|syscall.O_NONBLOCK, 0); err == nil {
+				os.Remove(at)
+				f.Close()
+			}
+		})
+	}
+
+	jvm := "#\n# A fatal error has been detected by the Java Runtime Environment:\n#\n#  SIGSEGV (0xb) at pc=0x00007f3a2c4d5e6f, pid=87, tid=112\n"
+	writeGameFile(t, filepath.Join(data, "hs_err_pid12.log"), "# an earlier run\n", since.Add(-48*time.Hour))
+	writeGameFile(t, filepath.Join(data, "hs_err_pid87.log"), jvm, time.Time{})
+	if name, text := report(); name != "hs_err_pid87.log" || text != jvm {
+		t.Fatalf("Java's report of the run: %s %q", name, text)
+	}
+	if text, name := s.newestCrashReport(time.Time{}); name != "" || text != "" {
+		t.Fatalf("a start that failed before the server ran has no report, got %s", name)
+	}
+	reports := filepath.Join(data, "crash-reports")
+	mc := "---- Minecraft Crash Report ----\nDescription: Exception in server tick loop\n"
+	writeGameFile(t, filepath.Join(reports, "crash-2026-09-25_21.40.12-server.txt"), mc+strings.Repeat("x", 2*crashReportLimit), time.Time{})
+	if name, text := report(); name != "crash-2026-09-25_21.40.12-server.txt" || !strings.HasPrefix(text, mc) || len(text) != crashReportLimit {
+		t.Fatalf("Minecraft's report comes first, cut at %d bytes: %s, %d bytes", crashReportLimit, name, len(text))
+	}
+
+	writeGameFile(t, filepath.Join(host, "reports", "crash-2026-09-25_21.41.00-server.txt"), "Description: PanelSecret\n", time.Time{})
+	writeGameFile(t, filepath.Join(data, "world", "hs_err_pid88.log"), jvm, time.Time{})
+	link(filepath.Join(host, "reports"), reports)
+	link(filepath.Join(host, "panel.db"), filepath.Join(data, "hs_err_pid87.log"))
+	link("world/hs_err_pid88.log", filepath.Join(data, "hs_err_pid88.log"))
+	if name, text := report(); name != "" || text != "" {
+		t.Fatalf("a report was read through a link: %s %q", name, text)
+	}
+
+	pipe(reports)
+	pipe(filepath.Join(data, "hs_err_pid89.log"))
+	pipe(filepath.Join(data, "plugins"))
+	done := make(chan string, 1)
+	go func() {
+		name, _ := report()
+		done <- fmt.Sprintf("report %q, %d add-ons", name, len(s.addons(api.ServerConfig{})))
+	}()
+	select {
+	case got := <-done:
+		if got != `report "", 0 add-ons` {
+			t.Fatalf("with named pipes: %s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the crash helper waited on a named pipe")
+	}
+	e.fd.crash(1)
+	if c := e.waitCrash(); c.Kind != "unknown" {
+		t.Fatalf("a crash with named pipes in the server's files: %s %s", c.Kind, c.Explanation)
+	}
+}
+
+// A plugin or mod can put a link to one of Playkeeper's own files where a
+// modpack's suggested settings go (security review H4). Installing the pack
+// stops with a message naming server.properties; the file the link leads to
+// is neither copied into the server's files nor written, and nothing of the
+// pack is installed. Once the link is gone the pack's settings are saved.
+func TestPackSettingsAreNotReadOrWrittenThroughALink(t *testing.T) {
+	e := newAgentEnv(t)
+	p := e.up.servePackWith(map[string][]byte{"overrides/server.properties": []byte(packProperties)})
+	e.up.remove(p.modURLs[1])
+	_, out := e.startCreate(packCreate)
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("the first start, with a mod missing: %+v", op)
+	}
+	e.up.serve(p.modURLs[1], p.mods[p.modURLs[1]])
+	host := e.hostFiles()
+	props := filepath.Join(e.dataDir(), "server.properties")
+	if err := os.RemoveAll(props); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(host, "link.key"), props); err != nil {
+		t.Fatal(err)
+	}
+	before := tree(t, host)
+	time.Sleep(20 * time.Millisecond)
+	op := e.act("start")
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "server.properties in the server's files is a link") {
+		t.Fatalf("installing the pack with a link at server.properties: %+v", op)
+	}
+	if r := e.status().Refusal; r == nil || r.Code != "link" || r.Params["path"] != "server.properties" {
+		t.Fatalf("the status after the refused install: %+v", r)
+	}
+	if after := tree(t, host); !maps.Equal(after, before) {
+		t.Fatalf("the link at server.properties changed what it leads to:\n%v\nwas\n%v", after, before)
+	}
+	if target, err := os.Readlink(props); err != nil || target != filepath.Join(host, "link.key") {
+		t.Fatalf("the link was replaced: %q %v", target, err)
+	}
+	if _, err := os.Stat(filepath.Join(e.dataDir(), "mods")); !os.IsNotExist(err) {
+		t.Fatalf("mods were installed before the settings were saved: %v", err)
+	}
+	if sc, _ := e.srv().serverConfig(); sc.Modpack == nil || !sc.Modpack.Pending {
+		t.Fatalf("the pack is still to install: %+v", sc.Modpack)
+	}
+
+	if err := os.Remove(props); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.act("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start once the link is gone: %+v", op)
+	}
+	b, err := os.ReadFile(props)
+	if err != nil || !strings.Contains(string(b), "allow-flight=true\n") || strings.Contains(string(b), "difficulty=hard") {
+		t.Fatalf("server.properties after the install: %q %v", b, err)
+	}
+}
+
 // A plugin can truncate the server's jar to a terabyte of holes. The start
-// does not spend hours hashing it: it is too large to be Paper, so it is
-// downloaded and checked again.
+// doesn't spend hours hashing it: it's too large to be the software
+// Playkeeper installed, so the start stops at once and says the software
+// changed, like any other change to it, and Reinstall puts it back.
 func TestAHugeSparseJarDoesNotHoldUpTheStart(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
@@ -329,11 +507,21 @@ func TestAHugeSparseJarDoesNotHoldUpTheStart(t *testing.T) {
 	if err := os.Truncate(jars[0], 1<<40); err != nil {
 		t.Fatal(err)
 	}
-	if op := e.act("start"); op.Status != api.OpSucceeded {
+	began := time.Now()
+	if op := e.act("start"); op.Status != api.OpFailed || !strings.Contains(op.Error, "doesn't match what Playkeeper installed") {
 		t.Fatalf("start with a huge sparse jar: %+v", op)
 	}
+	if d := time.Since(began); d > 30*time.Second {
+		t.Fatalf("the start spent %s on a huge sparse jar", d)
+	}
+	if fi, err := os.Stat(jars[0]); err != nil || fi.Size() != 1<<40 {
+		t.Fatalf("the changed jar was replaced on its own: %v %v", fi, err)
+	}
+	if op := e.runOp("POST", "/software/reinstall"); op.Status != api.OpSucceeded {
+		t.Fatalf("reinstall: %+v", op)
+	}
 	if fi, err := os.Stat(jars[0]); err != nil || fi.Size() != int64(len(e.fd.jarContent)) {
-		t.Fatalf("the jar was not downloaded again: %v %v", fi, err)
+		t.Fatalf("reinstall did not put the jar back: %v %v", fi, err)
 	}
 }
 

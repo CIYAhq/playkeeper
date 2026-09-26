@@ -15,8 +15,10 @@ import { login, outDir } from './helpers'
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. There is no list of exceptions: a control that should do nothing
 // right now must be disabled and say why (aria-describedby or a title). The
-// selected tab or option of a group may stay selected. Each page gets a fresh
-// load before a control is pressed unless the page is provably unchanged.
+// selected tab or option of a group may stay selected. A link another app
+// opens (an authenticator's otpauth:, mailto:, tel:) counts as working, since
+// a headless browser has no app to open. Each page gets a fresh load before a
+// control is pressed unless the page is provably unchanged.
 
 test.describe.configure({ mode: 'parallel' })
 
@@ -29,7 +31,7 @@ const sizes = {
 const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
 
 async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string; type?: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
   for (const s of servers) {
@@ -40,8 +42,18 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     if (phone) out.push(`/servers/${s.slug}/world/backup-rules/copies`, `/servers/${s.slug}/settings/schedules`)
   }
   out.push('/servers/new')
-  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/disk`)
-  out.push('/settings', '/recover')
+  // The add-on library with Playkeeper's picks, for the first server that
+  // has one (each library takes minutes), and a template someone shared.
+  const library = servers.find((s) => addonTabs[s.type ?? ''])
+  if (library) out.push(`/servers/${library.slug}${addonTabs[library.type ?? '']}/browse`)
+  const first = servers[0]
+  if (first) {
+    const exported = (await (await page.request.get(`/api/servers/${first.id}/template`)).json()) as { link?: string }
+    const payload = exported.link?.split('#')[1]
+    if (payload) out.push(`/servers/new#template=${payload}`)
+  }
+  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`, `/machines/${m.id}/disk`)
+  out.push('/settings', '/account', '/account/two-factor', '/recover')
   if (phone) out.push('/more')
   return out
 }
@@ -64,6 +76,8 @@ for (const [name, size] of Object.entries(sizes)) {
     const outCrawler = new Crawler(outPage, name, base, log)
     await outCrawler.init()
     await outCrawler.crawl('/login')
+    // A friends' pack link that opens nothing: the page every unavailable link gets.
+    await outCrawler.crawl('/packs/Pk0Unknown0Link0Abcdef')
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
     await signedOut.close()

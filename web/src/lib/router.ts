@@ -20,16 +20,22 @@ export type Route =
   | { name: 'setup' }
   | { name: 'welcome' }
   | { name: 'new-server' }
-  | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub }
+  // page is a page under Overview: "How it's running".
+  | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running' }
   | { name: 'machine'; id: string; sub?: MachineSub }
+  | { name: 'machine-settings'; id: string }
   | { name: 'settings' }
+  | { name: 'account'; section?: 'two-factor' }
   | { name: 'more' }
   // Wave 7: bring a server back from its copies with its recovery key.
   | { name: 'recover' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
+  // A friends' pack page, public; token is "" for a link that can't be one.
+  | { name: 'pack'; token: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
+const rePackToken = /^[A-Za-z0-9]{22}$/
 
 export function parse(pathname: string): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
@@ -45,6 +51,8 @@ export function parse(pathname: string): Route {
       return { name: 'welcome' }
     case 'settings':
       return { name: 'settings' }
+    case 'account':
+      return second === 'two-factor' && !third ? { name: 'account', section: 'two-factor' } : { name: 'account' }
     case 'more':
       return { name: 'more' }
     case 'recover':
@@ -56,6 +64,7 @@ export function parse(pathname: string): Route {
     case 'servers':
       if (second === 'new' && !third) return { name: 'new-server' }
       if (second && reSlug.test(second)) {
+        if (third === 'running' && parts.length === 3) return { name: 'server', slug: second, tab: 'overview', page: 'running' }
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
         const rest = parts.slice(3).join('/')
@@ -65,9 +74,14 @@ export function parse(pathname: string): Route {
       }
       return { name: 'home' }
     case 'machines':
-      if (second && /^[a-z2-9]{10}$/.test(second) && !third) return { name: 'machine', id: second }
-      if (second && /^[a-z2-9]{10}$/.test(second) && third === 'disk' && parts.length === 3) return { name: 'machine', id: second, sub: 'disk' }
+      if (second && /^[a-z2-9]{10}$/.test(second)) {
+        if (!third) return { name: 'machine', id: second }
+        if (third === 'settings' && parts.length === 3) return { name: 'machine-settings', id: second }
+        if (third === 'disk' && parts.length === 3) return { name: 'machine', id: second, sub: 'disk' }
+      }
       return { name: 'home' }
+    case 'packs':
+      return { name: 'pack', token: second && rePackToken.test(second) && !third ? second : '' }
   }
   return { name: 'home' }
 }
@@ -85,20 +99,27 @@ export function href(route: Route): string {
     case 'new-server':
       return '/servers/new'
     case 'server': {
+      if (route.page === 'running') return `/servers/${route.slug}/running`
       const path = route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
       const sub = route.sub && serverSubs[route.tab]?.[route.sub]
       return sub ? `${path}/${sub}` : path
     }
     case 'machine':
       return route.sub ? `/machines/${route.id}/${route.sub}` : `/machines/${route.id}`
+    case 'machine-settings':
+      return `/machines/${route.id}/settings`
     case 'settings':
       return '/settings'
+    case 'account':
+      return route.section ? `/account/${route.section}` : '/account'
     case 'more':
       return '/more'
     case 'recover':
       return '/recover'
     case 'legacy':
       return `/${route.tab}`
+    case 'pack':
+      return `/packs/${route.token}`
     default: {
       const unreachable: never = route
       return unreachable

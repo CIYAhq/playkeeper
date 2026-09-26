@@ -76,8 +76,9 @@ func packOrigin(r *http.Request) packs.Origin {
 }
 
 // hResourcePackUpload offers an uploaded resource pack to a server's
-// players. Their games refuse the panel's self-signed certificate, so they
-// download it over plain HTTP from the address the dashboard was opened at.
+// players. They download it from the address the dashboard was opened at:
+// their games refuse the panel's self-signed certificate, so over plain
+// HTTP unless the agent finds a publicly trusted one for that host.
 func (s *Server) hResourcePackUpload(w http.ResponseWriter, r *http.Request, sess *session) {
 	m, ok := s.target(w, r)
 	if !ok {

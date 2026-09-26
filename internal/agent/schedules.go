@@ -222,7 +222,7 @@ func (ss scheduleServer) Run(ctx context.Context, op schedule.Operation) (string
 		}()
 		h.set("scheduleId", op.ScheduleID)
 		if op.Kind == schedule.OpBackup {
-			return s.backupOp(ctx, h, op.Actor, op.Note)
+			return s.backupOp(ctx, h, op.Actor, op.Note, false)
 		}
 		if err := s.stopServer(ctx, h); err != nil {
 			return err

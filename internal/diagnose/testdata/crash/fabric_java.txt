@@ -1,0 +1,10 @@
+[12:00:00] [main/INFO]: Loading Minecraft 1.21.9 with Fabric Loader 0.17.2
+[12:00:00] [main/ERROR]: Incompatible mods found!
+net.fabricmc.loader.impl.FormattedException: Some of your mods are incompatible with the game or each other!
+A potential solution has been determined, this may resolve your problem:
+	 - Replace 'OpenJDK 64-Bit Server VM' (java) 25 with version 26 or later.
+More details:
+	 - Mod 'Sodium' (sodium) 0.7.1+mc1.21.9 requires version 26 or later of 'OpenJDK 64-Bit Server VM' (java), but only the wrong version is present: 25!
+	at net.fabricmc.loader.impl.FormattedException.ofLocalized(FormattedException.java:51) ~[fabric-loader-0.17.2.jar:?]
+	at net.fabricmc.loader.impl.FabricLoaderImpl.load(FabricLoaderImpl.java:204) ~[fabric-loader-0.17.2.jar:?]
+	at net.fabricmc.loader.impl.launch.knot.Knot.init(Knot.java:146) ~[fabric-loader-0.17.2.jar:?]

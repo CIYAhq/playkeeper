@@ -3,6 +3,7 @@ import type { Operation, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { failureLine } from '@/lib/crash'
 import { formatMs } from '@/lib/format'
 import { opLabel } from '@/lib/phase'
 import { href, navigate } from '@/lib/router'
@@ -13,11 +14,11 @@ export const jobsOnScreen = new Set<string>()
 /** Where a "copy is ready" toast sends the admin: the World tab picks the restore up again. */
 export const restoreCopyHash = '#restore-copy'
 
-function finished(op: Operation, server: ServerStatus) {
+function finished(op: Operation, server: ServerStatus, machine: string) {
   if (jobsOnScreen.has(op.id)) return
   const name = server.name
   if (op.status === 'failed') {
-    toastManager.add({ title: t('op.failed', { what: opLabel(op, name) }), description: op.error, type: 'error', timeout: 10_000 })
+    toastManager.add({ title: t('op.failed', { what: opLabel(op, name) }), description: failureLine(op, server, machine), type: 'error', timeout: 10_000 })
     return
   }
   if (op.status === 'cancelled') {
@@ -55,7 +56,7 @@ function finished(op: Operation, server: ServerStatus) {
 
 /** Long jobs run in the background; say when one finishes, wherever the admin is. */
 export function useJobToasts() {
-  const { servers } = useWorkspace()
+  const { servers, machineName } = useWorkspace()
   const running = useRef(new Map<string, { op: Operation; server: ServerStatus }>())
   useEffect(() => {
     if (!servers) return
@@ -63,7 +64,7 @@ export function useJobToasts() {
     for (const s of servers) {
       seen.add(s.id)
       const was = running.current.get(s.id)
-      if (was && s.operation?.id !== was.op.id && s.lastOperation?.id === was.op.id) finished(s.lastOperation, s)
+      if (was && s.operation?.id !== was.op.id && s.lastOperation?.id === was.op.id) finished(s.lastOperation, s, machineName)
       if (s.operation) running.current.set(s.id, { op: s.operation, server: s })
       else running.current.delete(s.id)
     }
@@ -72,5 +73,5 @@ export function useJobToasts() {
       running.current.delete(id)
       if (was.op.kind === 'delete') toastManager.add({ title: t('settings.deletedToast', { server: was.server.name }), type: 'success' })
     }
-  }, [servers])
+  }, [servers, machineName])
 }

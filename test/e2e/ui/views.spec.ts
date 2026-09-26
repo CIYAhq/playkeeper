@@ -22,6 +22,7 @@ test('every page, desktop and narrow, with no serious accessibility violations',
   const pages = [
     { route: '/', name: 'home', heading: 'Home' },
     { route: `/servers/${s.slug}`, name: 'overview', heading: s.name },
+    { route: `/servers/${s.slug}/running`, name: 'running', heading: s.name },
     { route: `/servers/${s.slug}/console`, name: 'console', heading: s.name },
     { route: `/servers/${s.slug}/players`, name: 'players', heading: s.name },
     { route: `/servers/${s.slug}/world`, name: 'world', heading: s.name },
@@ -37,16 +38,18 @@ test('every page, desktop and narrow, with no serious accessibility violations',
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: new RegExp(`^${s.name}`) })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Server pages' }).getByRole('link')).toHaveText(['Overview', 'Console', 'Players', 'World', 'Plugins', 'Settings'])
 
+  // On phones a server's Settings open from More, and How it's running from
+  // the Overview, each with a plain back header instead of the server's.
+  // Plugins opens from More under its own heading.
+  const phoneHeader: Record<string, string> = { 'server-settings': 'In the game', running: 'How it’s running' }
   for (const vp of viewports) {
     await page.setViewportSize({ width: vp.width, height: vp.height })
     const list = vp.name === 'narrow' ? [...pages, { route: '/more', name: 'more', heading: 'More' }] : pages
     for (const v of list) {
       await page.goto(v.route)
-      // On phones a server's Settings and Plugins open from More with a plain header.
-      const heading =
-        vp.name === 'narrow' && v.name === 'server-settings'
-          ? page.getByRole('heading', { name: 'In the game' }).or(page.getByText('In the game')).first()
-          : page.getByRole('heading', { name: vp.name === 'narrow' && v.name === 'plugins' ? 'Plugins' : v.heading, level: 1 })
+      const plain = vp.name === 'narrow' ? phoneHeader[v.name] : undefined
+      const title = vp.name === 'narrow' && v.name === 'plugins' ? 'Plugins' : v.heading
+      const heading = plain ? page.getByRole('heading', { name: plain }).or(page.getByText(plain)).first() : page.getByRole('heading', { name: title, level: 1 })
       await expect(heading).toBeVisible()
       await page.waitForTimeout(2500)
       await shot(page, `${prefix}-${v.name}-${vp.name}`)
@@ -58,6 +61,29 @@ test('every page, desktop and narrow, with no serious accessibility violations',
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/players')
   await expect(page).toHaveURL(new RegExp(`/servers/${s.slug}/players$`))
+})
+
+// Runs after the host A scenario, which made one backup with players online
+// and one with the server stopped, and left the server running.
+test('backups with players online, how it’s running and the memory advice', async ({ page }) => {
+  await login(page)
+  const s = await firstServer(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  await page.goto(`/servers/${s.slug}/world`)
+  await expect(page.getByText(/^Players stay online\./)).toBeVisible()
+  await expect(page.getByText(/^Manual · no downtime · [\d,]+ files$/).first()).toBeVisible()
+  await expect(page.getByText(/^Manual · [\d.,]+ s offline · [\d,]+ files$/).first()).toBeVisible()
+  await expect(page.getByText('World saving is paused')).toBeHidden()
+
+  await page.goto(`/servers/${s.slug}`)
+  await page.getByRole('link', { name: 'How it’s running' }).click()
+  await expect(page).toHaveURL(new RegExp(`/servers/${s.slug}/running$`))
+  await expect(page.locator('#main').getByRole('heading', { level: 2 }).first()).toHaveText(/^(Running smoothly|A bit behind|Lagging|Not measured yet)/)
+  for (const title of ['Tick rate', 'Tick time', 'Memory', 'CPU']) await expect(page.getByRole('heading', { name: title, level: 3 })).toBeVisible()
+
+  await page.goto(`/servers/${s.slug}/settings#memory`)
+  await expect(page.locator('#memory').getByText(/^(Suggests a size after|Starts measuring at its next restart)/)).toBeVisible()
 })
 
 test('keyboard: skip link, server pages, the command palette traps focus and Esc closes it', async ({ page }) => {

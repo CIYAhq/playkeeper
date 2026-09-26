@@ -1,0 +1,50 @@
+[03:21:05 INFO]: Steve issued server command: /shop reload
+[03:21:17 ERROR]: --- DO NOT REPORT THIS TO PAPER - THIS IS NOT A BUG OR A CRASH  - 1.21.4-232-12ab34c (MC: 1.21.4) ---
+[03:21:17 ERROR]: The server has not responded for 10 seconds! Creating thread dump
+[03:21:17 ERROR]: ------------------------------
+[03:21:17 ERROR]: Server thread dump (Look for plugins here before reporting to Paper!):
+[03:21:17 ERROR]: ------------------------------
+[03:21:17 ERROR]: Current Thread: Server thread
+[03:21:17 ERROR]: 	PID: 38 | Suspended: false | Native: false | State: RUNNABLE
+[03:21:17 ERROR]: 	Stack:
+[03:21:17 ERROR]: 		EssentialsX-2.21.0.jar//com.earth2me.essentials.UserMap.getUser(UserMap.java:120)
+[03:21:17 ERROR]: 		net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:1572)
+[03:21:17 ERROR]: ------------------------------
+[03:21:17 ERROR]: --- DO NOT REPORT THIS TO PAPER - THIS IS NOT A BUG OR A CRASH ---
+[03:22:17 ERROR]: ------------------------------
+[03:22:17 ERROR]: The server has stopped responding! This is (probably) not a Paper bug.
+[03:22:17 ERROR]: If you see a plugin in the Server thread dump below, then please report it to that author
+[03:22:17 ERROR]: 	 *Especially* if it looks like HTTP or MySQL operations are occurring
+[03:22:17 ERROR]: If you see a world save or edit, then it means you did far more than your server can handle at once
+[03:22:17 ERROR]: 	 If this is the case, consider increasing timeout-time in spigot.yml but note that this will replace the crash with LARGE lag spikes
+[03:22:17 ERROR]: If you are unsure or still think this is a Paper bug, please report this to https://github.com/PaperMC/Paper/issues
+[03:22:17 ERROR]: Be sure to include ALL relevant console errors and Minecraft crash reports
+[03:22:17 ERROR]: Paper version: 1.21.4-232-main@12ab34c (2025-05-01T12:00:00Z) (Implementing API version 1.21.4-R0.1-SNAPSHOT)
+[03:22:17 ERROR]: ------------------------------
+[03:22:17 ERROR]: Server thread dump (Look for plugins here before reporting to Paper!):
+[03:22:17 ERROR]: ------------------------------
+[03:22:17 ERROR]: Current Thread: Server thread
+[03:22:17 ERROR]: 	PID: 38 | Suspended: false | Native: true | State: RUNNABLE
+[03:22:17 ERROR]: 	Stack:
+[03:22:17 ERROR]: 		java.base@25.0.1/sun.nio.ch.Net.poll(Native Method)
+[03:22:17 ERROR]: 		java.base@25.0.1/sun.nio.ch.NioSocketImpl.park(NioSocketImpl.java:191)
+[03:22:17 ERROR]: 		java.base@25.0.1/java.net.Socket$SocketInputStream.read(Socket.java:1099)
+[03:22:17 ERROR]: 		SlowShop-3.2.1.jar//com.example.slowshop.PriceFeed.fetch(PriceFeed.java:88)
+[03:22:17 ERROR]: 		SlowShop-3.2.1.jar//com.example.slowshop.ShopTask.run(ShopTask.java:41)
+[03:22:17 ERROR]: 		org.bukkit.craftbukkit.scheduler.CraftTask.run(CraftTask.java:78)
+[03:22:17 ERROR]: 		org.bukkit.craftbukkit.scheduler.CraftScheduler.mainThreadHeartbeat(CraftScheduler.java:474)
+[03:22:17 ERROR]: 		net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1725)
+[03:22:17 ERROR]: 		net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:1572)
+[03:22:17 ERROR]: 		net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:1285)
+[03:22:17 ERROR]: 		net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:326)
+[03:22:17 ERROR]: 		java.base@25.0.1/java.lang.Thread.run(Thread.java:1583)
+[03:22:17 ERROR]: ------------------------------
+[03:22:17 ERROR]: Entire Thread Dump:
+[03:22:17 ERROR]: ------------------------------
+[03:22:17 ERROR]: Current Thread: Craft Scheduler Thread - 7 - Essentials
+[03:22:17 ERROR]: 	PID: 71 | Suspended: false | Native: false | State: TIMED_WAITING
+[03:22:17 ERROR]: 	Stack:
+[03:22:17 ERROR]: 		java.base@25.0.1/jdk.internal.misc.Unsafe.park(Native Method)
+[03:22:17 ERROR]: 		EssentialsX-2.21.0.jar//com.earth2me.essentials.Backup.run(Backup.java:65)
+[03:22:17 ERROR]: ------------------------------
+[03:22:21 INFO]: Stopping server

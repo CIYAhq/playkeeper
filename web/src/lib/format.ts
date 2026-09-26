@@ -4,6 +4,11 @@ function num(v: number, digits = 0): string {
   return new Intl.NumberFormat(formatLocale(), { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v)
 }
 
+/** The browser's IANA time zone, for routes that count local days. */
+export function localTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+}
+
 /** A memory budget in MB, like "4 GB", "1.5 GB" or "768 MB". */
 export function formatMB(mb: number): string {
   if (mb >= 1024) return t('unit.gb', { value: num(mb / 1024, 1) })
@@ -62,6 +67,15 @@ export function relativeTime(iso: string | undefined, now: number = Date.now()):
   return t('time.daysAgo', { count: Math.floor(diff / 86400) })
 }
 
+/** A countdown: "0:48", "44:12" or "1:04:12". */
+export function formatCountdown(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`
+}
+
 // toLocaleTimeString builds a new formatter on every call, which the console
 // pays for every line; a formatter per locale formats the same text.
 const clocks = new Map<string, Intl.DateTimeFormat>()
@@ -91,12 +105,17 @@ export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short' })
 }
 
+/** A date with its year, like "24 Dec 2026". */
+export function formatLongDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 export function formatDateTime(iso: string | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString(formatLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-function sameDay(a: Date, b: Date): boolean {
+export function sameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
@@ -121,4 +140,24 @@ export function formatList(items: string[]): string {
 export function joinAddress(hostname: string, gamePort: number): string {
   const host = hostname.includes(':') && !hostname.startsWith('[') ? `[${hostname}]` : hostname
   return gamePort === 25565 ? host : `${host}:${gamePort}`
+}
+
+/** A server's join address: its friendly name once that works, else the panel's host with the port. */
+export function serverJoinAddress(s: { joinAddress?: string; gamePort: number }, hostname: string = window.location.hostname): string {
+  return s.joinAddress || joinAddress(hostname, s.gamePort)
+}
+
+/** How long ago, for things that change rarely: "just now", "5 days ago", "3 weeks ago", "4 months ago". */
+export function relativeAge(iso: string | undefined, now: number = Date.now()): string {
+  if (!iso) return t('time.never')
+  const days = Math.floor((now - new Date(iso).getTime()) / 86_400_000)
+  if (days < 14) return relativeTime(iso, now)
+  if (days < 60) return t('time.weeksAgo', { count: Math.floor(days / 7) })
+  if (days < 730) return t('time.monthsAgo', { count: Math.floor(days / 30) })
+  return t('time.yearsAgo', { count: Math.floor(days / 365) })
+}
+
+/** A big count for lists: "3.1M", "640K". */
+export function formatCompact(n: number): string {
+  return new Intl.NumberFormat(formatLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 }
