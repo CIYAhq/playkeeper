@@ -3451,7 +3451,7 @@ control "the Disk space page counts every server busy while the staging folder c
   '' \
   ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
 control "the Disk space page says the staging folder can't be read" internal/agent/disk.go \
-  'diskusage.Problem{Code: diskRestoresUnknown' \
+  'diskusage.Problem{Code: diskusage.CodeRestoresUnknown' \
   'diskusage.Problem{Code: "other"' \
   ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^Disk_space$'
 control "the World tab keeps every world copy while the staging folder can't be read" internal/agent/backuprules.go \

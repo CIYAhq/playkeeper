@@ -1131,7 +1131,7 @@ func TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed(t *testing.T) {
 		}
 		problems, _ := out["problems"].([]any)
 		for _, p := range problems {
-			if p, _ := p.(map[string]any); p["code"] == diskRestoresUnknown {
+			if p, _ := p.(map[string]any); p["code"] == diskusage.CodeRestoresUnknown {
 				return fmt.Sprint(p["text"])
 			}
 		}
