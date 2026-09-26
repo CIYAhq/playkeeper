@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"os"
 	"path"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -392,13 +390,8 @@ func TestDocsComeFromTheRepository(t *testing.T) {
 	docs := built["/docs"]
 	for _, g := range docGroups {
 		for _, e := range g.Entries {
-			for _, target := range append([]DocTarget{{e.Page, e.Anchor}}, e.Or...) {
-				if _, ok := built["/docs/"+target.Page]; ok {
-					if !strings.Contains(docs, ">"+template.HTMLEscapeString(e.Label)+"<") {
-						t.Errorf("the docs landing doesn't list %q", e.Label)
-					}
-					break
-				}
+			if _, ok := built["/docs/"+e.Page]; ok && !strings.Contains(docs, ">"+template.HTMLEscapeString(e.Label)+"<") {
+				t.Errorf("the docs landing doesn't list %q", e.Label)
 			}
 		}
 	}
@@ -419,43 +412,6 @@ func TestDocsComeFromTheRepository(t *testing.T) {
 	}
 	if !strings.Contains(built["/docs/install"], "curl -fsSL https://playkeeper.io/install | sudo sh") {
 		t.Error("the install docs don't have the one-line install")
-	}
-}
-
-// readme is this repository with README.md replaced.
-type readme struct {
-	fs.FS
-	md string
-}
-
-func (r readme) Open(name string) (fs.File, error) {
-	if name == "README.md" {
-		return fstest.MapFS{name: {Data: []byte(r.md)}}.Open(name)
-	}
-	return r.FS.Open(name)
-}
-
-// A docs entry that README.md covers inside another section points there,
-// and at its own page once README.md gives it a section.
-func TestDocsEntriesFollowTheReadme(t *testing.T) {
-	md, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(md), "\n## Addresses\n") {
-		t.Skip("README.md has its own Addresses section")
-	}
-	for _, c := range []struct{ md, want string }{
-		{string(md), `href="/docs/install#a-name-instead-of-the-ip"`},
-		{string(md) + "\n## Addresses\n\nA free name or your own domain.\n", `href="/docs/addresses"`},
-	} {
-		o, err := Build(Options{Root: readme{os.DirFS("../.."), c.md}, Settings: Default, Now: time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if docs := pages(o)["/docs"]; !strings.Contains(docs, c.want) {
-			t.Errorf("the docs landing's Addresses doesn't link %s", c.want)
-		}
 	}
 }
 
@@ -775,6 +731,22 @@ func TestDocsNameRealMakeTargets(t *testing.T) {
 		for _, m := range reMake.FindAllStringSubmatch(string(b), -1) {
 			if !targets[m[1]] {
 				t.Errorf("%s names make %s, which the Makefile doesn't have", name, m[1])
+			}
+		}
+	}
+}
+
+// Bold lead-ins get their anchors in tight lists as in paragraphs: README.md
+// lists its parts, and the docs landing links to them.
+func TestLeadInsInListsGetAnchors(t *testing.T) {
+	for _, md := range []string{"- **Backups:** one\n- **Schedules:** two\n", "- **Backups:** one\n\n- **Schedules:** two\n", "**Backups:** one\n\n**Schedules:** two\n"} {
+		html, err := renderMarkdown(md, "README.md", map[string]string{}, map[string]string{}, Default)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"backups", "schedules"} {
+			if !strings.Contains(html, ` id="`+id+`"`) {
+				t.Errorf("%q has no anchor #%s: %s", md, id, html)
 			}
 		}
 	}

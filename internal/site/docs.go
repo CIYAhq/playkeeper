@@ -38,7 +38,7 @@ var docPages = []DocPage{
 	{"add-ons", "Plugins, mods and the world", "Plugins, mods, voice chat, friends' mod packs, pre-generation, resource and data packs and the live map.", "README.md", "Plugins, mods and the world"},
 	{"keep-it-running", "Keep it running", "Backups, backup rules, off-site copies, schedules, sleep, crash and lag help and disk space.", "README.md", "Keep it running"},
 	{"friends-and-team", "Friends and your team", "Invite links, player pages, team roles, Discord and two-factor sign-in.", "README.md", "Friends and your team"},
-	{"addresses", "Addresses", "A free yourname.playkeeper.io name or your own domain, with a real certificate.", "README.md", "Addresses"},
+	{"addresses", "A name for your VPS", "A free yourname.playkeeper.io name or your own domain, with a real certificate.", "README.md", "A name for your VPS"},
 	{"machines-and-ai-agents", "More machines and AI agents", "Servers on a second VPS or a home server, and running them from an AI agent over MCP.", "README.md", "More machines and AI agents"},
 	{"updates", "Update, upgrade and uninstall", "Signed updates that roll back, upgrading older versions, uninstalling, and the command line.", "README.md", "Update, upgrade and uninstall"},
 	{"recovery", "Recover or move a world", "Restore a backup on this machine or a new one, and move a world between machines.", "docs/RECOVERY.md", ""},
@@ -50,17 +50,11 @@ var docPages = []DocPage{
 // DocEntry is one entry point on the docs landing and in the docs nav.
 type DocEntry struct {
 	Label, Blurb string
-	// Page and Anchor say where it goes: /docs/<Page>#<Anchor>. Or lists
-	// where else the same thing is written, tried in order when Page isn't
-	// built, as when README.md covers it inside another section.
+	// Page and Anchor say where it goes: /docs/<Page>#<Anchor>.
 	Page, Anchor string
-	Or           []DocTarget
 	// URL is where it went, once built.
 	URL string
 }
-
-// DocTarget is a docs page and, optionally, an anchor on it.
-type DocTarget struct{ Page, Anchor string }
 
 // DocGroup is a group of entries, like "Get started".
 type DocGroup struct {
@@ -73,20 +67,20 @@ var docGroups = []DocGroup{
 		{Label: "Requirements", Blurb: "Ubuntu 24.04 on x86_64, 2 CPU cores, 3 GB of memory, 5 GB of disk.", Page: "install", Anchor: "you-need"},
 		{Label: "Install", Blurb: "One command, and every change it makes.", Page: "install"},
 		{Label: "Open the ports", Blurb: "8443, 25565 and the rest, in your provider's firewall.", Page: "troubleshooting", Anchor: "friends-cant-join"},
-		{Label: "Your first server", Blurb: "New server picks a version and memory for you.", Page: "servers", Or: []DocTarget{{"install", "more-servers"}}},
+		{Label: "Your first server", Blurb: "New server picks a version and memory for you.", Page: "servers"},
 	}},
 	{Title: "Everyday", Icon: "everyday", Entries: []DocEntry{
-		{Label: "Addresses", Blurb: "The free name, your own domain, join addresses", Page: "addresses", Or: []DocTarget{{"install", "a-name-instead-of-the-ip"}}},
-		{Label: "Add-ons", Blurb: "Plugins, mods and modpacks", Page: "add-ons", Or: []DocTarget{{"install", "plugins-and-mods"}}},
-		{Label: "Backups and recovery", Blurb: "Backup rules, off-site copies, the recovery key", Page: "keep-it-running", Anchor: "backups", Or: []DocTarget{{"install", "backups"}}},
+		{Label: "Addresses", Blurb: "The free name, your own domain, join addresses", Page: "addresses"},
+		{Label: "Add-ons", Blurb: "Plugins, mods and modpacks", Page: "add-ons"},
+		{Label: "Backups and recovery", Blurb: "Backup rules, off-site copies, the recovery key", Page: "keep-it-running", Anchor: "backups"},
 		{Label: "Team and Discord", Blurb: "Roles, invites and alerts", Page: "friends-and-team"},
 		{Label: "Schedules and sleep", Blurb: "Restarts, backups and sleeping when nobody plays", Page: "keep-it-running", Anchor: "schedules"},
 	}},
 	{Title: "Advanced", Icon: "advanced", Entries: []DocEntry{
 		{Label: "More machines", Blurb: "A second VPS or a home server", Page: "machines-and-ai-agents", Anchor: "servers-on-more-machines"},
 		{Label: "AI agents", Blurb: "Claude, Cursor or any MCP client", Page: "machines-and-ai-agents", Anchor: "ai-agents"},
-		{Label: "Updates", Blurb: "Signed, and they roll back if they fail", Page: "updates", Anchor: "update-playkeeper", Or: []DocTarget{{"install", "update-playkeeper"}}},
-		{Label: "Uninstall", Blurb: "Remove Playkeeper, keep your worlds", Page: "updates", Anchor: "uninstall", Or: []DocTarget{{"install", "uninstall"}}},
+		{Label: "Updates", Blurb: "Signed, and they roll back if they fail", Page: "updates", Anchor: "update-playkeeper"},
+		{Label: "Uninstall", Blurb: "Remove Playkeeper, keep your worlds", Page: "updates", Anchor: "uninstall"},
 		{Label: "Commands", Blurb: "The playkeeper command line", Page: "updates", Anchor: "other-commands"},
 	}},
 	{Title: "Troubleshooting", Icon: "troubleshooting", Entries: []DocEntry{
@@ -202,21 +196,18 @@ func buildDocs(root fs.FS, s Settings) (*docsBuild, error) {
 		kept := g
 		kept.Entries = nil
 		for _, e := range g.Entries {
-			for _, t := range append([]DocTarget{{e.Page, e.Anchor}}, e.Or...) {
-				p, ok := built[t.Page]
-				if !ok {
-					continue
-				}
-				if t.Anchor != "" && !strings.Contains(string(p.body), ` id="`+t.Anchor+`"`) {
-					return nil, fmt.Errorf("the docs entry %q points at #%s, which %s no longer has; update docGroups in internal/site/docs.go", e.Label, t.Anchor, p.docs.Source)
-				}
-				e.URL = p.Path
-				if t.Anchor != "" {
-					e.URL += "#" + t.Anchor
-				}
-				kept.Entries = append(kept.Entries, e)
-				break
+			p, ok := built[e.Page]
+			if !ok {
+				continue
 			}
+			if e.Anchor != "" && !strings.Contains(string(p.body), ` id="`+e.Anchor+`"`) {
+				return nil, fmt.Errorf("the docs entry %q points at #%s, which %s no longer has; update docGroups in internal/site/docs.go", e.Label, e.Anchor, p.docs.Source)
+			}
+			e.URL = p.Path
+			if e.Anchor != "" {
+				e.URL += "#" + e.Anchor
+			}
+			kept.Entries = append(kept.Entries, e)
 		}
 		if len(kept.Entries) > 0 {
 			out.groups = append(out.groups, kept)
@@ -369,8 +360,9 @@ func (a *anchorer) Transform(doc *ast.Document, reader text.Reader, _ parser.Con
 			if id, ok := n.AttributeString("id"); ok {
 				taken[string(id.([]byte))] = true
 			}
-		case *ast.Paragraph:
-			target := ast.Node(n)
+		case *ast.Paragraph, *ast.TextBlock:
+			// A tight list's items hold a TextBlock, a loose one's a Paragraph.
+			target := n
 			if li, ok := n.Parent().(*ast.ListItem); ok && li.FirstChild() == n {
 				target = li
 			}
@@ -383,9 +375,9 @@ func (a *anchorer) Transform(doc *ast.Document, reader text.Reader, _ parser.Con
 	})
 }
 
-// leadIn is the anchor of a paragraph that starts with bold text ending in a
-// colon, like "**Backup rules:**".
-func leadIn(p *ast.Paragraph, src []byte) string {
+// leadIn is the anchor of a paragraph or list item that starts with bold text
+// ending in a colon, like "**Backup rules:**".
+func leadIn(p ast.Node, src []byte) string {
 	em, ok := p.FirstChild().(*ast.Emphasis)
 	if !ok || em.Level != 2 {
 		return ""
