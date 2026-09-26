@@ -438,6 +438,9 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 					t.Errorf("explanation %q lacks %q", d.Explanation, s)
 				}
 			}
+			if tt.in.ServerType == "forge" && strings.Contains(d.Title+" "+d.Explanation, "NeoForge") {
+				t.Errorf("crash help on a Forge server names NeoForge: %s %s", d.Title, d.Explanation)
+			}
 			ev := evidenceText(d)
 			for _, s := range tt.evidence {
 				if !strings.Contains(ev, s) {
