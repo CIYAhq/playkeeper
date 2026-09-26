@@ -1242,7 +1242,8 @@ const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous',
  * people play; friends invited to it, one waiting for a yes, a team and
  * Discord connected; its map being drawn and shared, or waiting for a restart
  * to start; or, signed out, an account with two-factor sign-in, whose right
- * password leads to the second step.
+ * password leads to the second step, or the links friends get: a friend link,
+ * a friends' pack and a shared map (sharedLinks).
  */
 export type View =
   | 'live'
@@ -1262,6 +1263,7 @@ export type View =
   | 'map on'
   | 'map restart'
   | 'second step'
+  | 'shared links'
 
 type Json = Record<string, unknown>
 
@@ -1329,6 +1331,7 @@ function server(view: View, s: Json): Json {
     case 'map on':
     case 'map restart':
     case 'second step':
+    case 'shared links':
       return s
     default: {
       const unreachable: never = view
@@ -1498,18 +1501,72 @@ function mapRead(view: 'map on' | 'map restart', body: Json): Json {
   return { ...on, state: 'ready', message: 'The map is up to date', progress: undefined, areas: 4800, bytes: 190_000_000, lastDrawn: ago(10 * 60), public: true, publicPlayers: true, path: '/map/Fk3dEf6hIj9lMn2pQr5tUv', link: undefined }
 }
 
-/** The map's worlds, players and tiles in the 'map on' view, which the real panel refuses while its map is off. */
+/** The map's worlds, players and tiles in the 'map on' view, which the real panel refuses while its map is off, and on the shared map of the 'shared links' view. */
 function mapAnswer(path: string): Reply | undefined {
-  if (/^\/api\/servers\/\w+\/map\/worlds$/.test(path)) {
+  const rest = /^\/api\/(?:servers\/\w+\/map|public\/map\/\w+)\/(.+)$/.exec(path)?.[1] ?? ''
+  if (rest === 'worlds') {
     const world = (name: string, dimension: string, label: string) => ({ name, dimension, label, spawn: { x: 0, z: 0 }, zoom: { max: 3, default: 2, extra: 1 }, refreshSeconds: 60 })
     return { status: 200, body: { worlds: [world('world', 'overworld', 'Overworld'), world('world_nether', 'nether', 'Nether'), world('world_the_end', 'end', 'The End')], tileSize: 256 } }
   }
-  if (/^\/api\/servers\/\w+\/map\/players$/.test(path)) {
+  if (rest === 'players') {
     // Far from spawn, so finding them moves the map onto tiles it hasn't loaded.
     return { status: 200, body: { players: [{ name: 'Pixel_Pia', uuid: '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f', world: 'world', dimension: 'overworld', x: 3200, z: -2100, place: { kind: 'exploring', text: 'Exploring' } }], updatedAt: new Date().toISOString() } }
   }
   // Nothing is drawn yet: a tile nobody has explored is a 404 the map leaves blank.
-  if (/^\/api\/servers\/\w+\/map\/tiles\//.test(path)) return { status: 404, body: { error: 'Not drawn yet.', code: 'not_found' }, expected: true }
+  if (rest.startsWith('tiles/')) return { status: 404, body: { error: 'Not drawn yet.', code: 'not_found' }, expected: true }
+  return undefined
+}
+
+/** The links of the 'shared links' view, in the shapes the panel makes them: a friend link, a friends' pack page and a shared map. */
+export const sharedLinks = { join: 'Fk7Friday0Crew0Link0Ab', pack: 'Pk7Friends0Pack0Link0A', map: 'Fk3dEf6hIj9lMn2pQr5tUv' }
+
+/** A modded server's friends' pack page, as GET /packs/<token>/page answers it: a Modrinth pack, a mod added to it, and two mods friends get themselves. */
+function sharedPackPage(): Json {
+  const text = (key: string, english: string, params?: Record<string, string>) => ({ key, text: english, params })
+  const needed = text('share.need.required', 'Friends need it')
+  const optional = text('share.need.optional', 'Optional for friends')
+  const file = 'cobblemon.mrpack'
+  const launcher = (id: string, name: string, site: string, steps: string[]) => ({ id, name, site, steps: steps.map((k) => text(`share.launcher.${id.replace('-', '_')}.${k}`, '', { file })) })
+  return {
+    server: 'Cobblemon',
+    minecraftVersion: '26.1.2',
+    loader: 'fabric',
+    loaderName: 'Fabric',
+    loaderVersion: '0.17.2',
+    pack: { name: 'Cobblemon Modpack', version: '26.1.2-5', source: 'modrinth', page: 'https://modrinth.com/modpack/cobblemon-fabric', need: 'required', label: needed },
+    notice: text('share.notice.pack_one', 'Friends need the pack plus Waystones', { pack: 'Cobblemon Modpack', mod: 'Waystones' }),
+    steps: [],
+    launchers: [launcher('modrinth-app', 'Modrinth App', 'https://modrinth.com/app', ['add', 'pick', 'play']), launcher('prism', 'Prism Launcher', 'https://prismlauncher.org', ['add', 'pick', 'launch'])],
+    mods: [
+      { name: 'Balm', version: '21.0.20', from: 'user', need: 'required', label: needed, inFile: true, neededBy: 'Waystones' },
+      { name: 'Chunky', version: '1.4.40', from: 'user', need: 'optional', label: optional, inFile: true },
+      { name: 'Emote Wheel', version: '1.2', from: 'user', need: 'required', label: needed, inFile: false },
+      { name: 'Waystones', version: '21.1.4', from: 'user', need: 'required', label: needed, inFile: true },
+      { name: 'Cobblemon', version: '1.7.1', from: 'pack', need: 'required', label: needed, inFile: true },
+      { name: 'Sodium', version: '0.9.2', from: 'pack', need: 'optional', label: optional, inFile: true },
+      { name: 'Trainer HUD', from: 'pack', need: 'required', label: needed, inFile: false },
+    ],
+    yourself: [
+      { name: 'Emote Wheel', path: 'mods/emote-wheel-1.2.jar', page: 'https://www.curseforge.com/minecraft/mc-mods/emote-wheel', need: 'required', reason: text('share.yourself.curseforge', 'Emote Wheel comes from CurseForge.', { name: 'Emote Wheel', folder: 'mods' }) },
+      { name: 'Trainer HUD', path: 'mods/trainer-hud.jar', page: 'https://modrinth.com/modpack/cobblemon-fabric', need: 'required', reason: text('share.yourself.inside_pack', 'Trainer HUD only comes inside the pack.', { name: 'Trainer HUD', pack: 'Cobblemon Modpack', folder: 'mods' }) },
+    ],
+    download: { url: `/packs/${sharedLinks.pack}/${file}`, name: file, size: 38_912, type: 'application/x-modrinth-modpack+zip' },
+    address: 'cobblemon.example.playkeeper.io',
+    hasIcon: false,
+  }
+}
+
+/** What the panel would answer the pages behind sharedLinks, which it has no record of; anything else goes to the panel. */
+function sharedAnswer(method: string, path: string, body: unknown): Reply | undefined {
+  if (method === 'POST' && path === '/api/public/join/preview') {
+    if ((body as { code?: unknown } | undefined)?.code !== sharedLinks.join) return undefined
+    return { status: 200, body: { kind: 'player', inviter: '', server: 'Survival', version: '26.1.2', online: true, playing: 3, approval: 'right_away' } }
+  }
+  if (method !== 'GET') return undefined
+  const map = `/api/public/map/${sharedLinks.map}`
+  if (path === map) return { status: 200, body: { name: 'Survival', players: true } }
+  if (path.startsWith(`${map}/`)) return mapAnswer(path)
+  if (path === `/packs/${sharedLinks.pack}/page`) return { status: 200, body: sharedPackPage() }
   return undefined
 }
 
@@ -1684,7 +1741,7 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 }
 
 /** Writes made before signing in finishes, which have no security token yet: the panel checks the origin and the header instead. */
-const signedOutWrites = new Set(['/api/auth/login', '/api/setup', '/api/auth/second-factor', '/api/auth/second-factor/cancel'])
+const signedOutWrites = new Set(['/api/auth/login', '/api/setup', '/api/auth/second-factor', '/api/auth/second-factor/cancel', '/api/public/join/preview'])
 
 /** Writes that only work out what another write would do and change nothing, so they're answered like reads: add-on update plans from the fixtures, the rest by the real panel. */
 const plans = [
@@ -1695,6 +1752,8 @@ const plans = [
   // Wave 7: a schedule's next runs and what backup rules would keep.
   /^\/api\/servers\/\w+\/schedules\/preview$/,
   /^\/api\/servers\/\w+\/backup-rules\/estimate$/,
+  // Wave 5: what an invite link opens, before anyone joins.
+  /^\/api\/public\/join\/preview$/,
 ]
 
 /** The panel's refusal of a write without its CSRF headers; signing in and setting up come before there's a token. */
@@ -1770,7 +1829,14 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     // Planning changes nothing, so it's answered like a read once it passes the panel's CSRF check.
     const planning = method === 'POST' && plans.some((re) => re.test(path)) && !csrfRefusal(path, request.headers())
     if (method === 'GET' || method === 'HEAD' || planning) {
-      const made = view() === 'in use' ? inUseAnswer(method, path, planning ? request.postDataJSON() : undefined) : view() === 'map on' && method === 'GET' ? mapAnswer(path) : undefined
+      const made =
+        view() === 'in use'
+          ? inUseAnswer(method, path, planning ? request.postDataJSON() : undefined)
+          : view() === 'map on' && method === 'GET'
+            ? mapAnswer(path)
+            : view() === 'shared links'
+              ? sharedAnswer(method, path, planning ? posted(request) : undefined)
+              : undefined
       if (made) {
         calls.push({ method, path, status: made.status, faked: true, expected: made.expected, at })
         await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
@@ -1932,6 +1998,15 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     const error = reply.status >= 400 ? String((reply.body as { error?: string } | undefined)?.error ?? '') : undefined
     calls.push({ method, path, status: reply.status, faked: true, error, expected: reply.expected, at })
     await route.fulfill({ status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers }, body: reply.status === 204 ? '' : (reply.raw ?? JSON.stringify(reply.body ?? {})) })
+  })
+
+  // A friends' pack page reads its pack from outside /api.
+  await page.route(`${origin}/packs/*/page`, async (route: Route, request: Request) => {
+    const path = new URL(request.url()).pathname
+    const made = view() === 'shared links' ? sharedAnswer(request.method(), path, undefined) : undefined
+    if (!made) return route.fallback()
+    calls.push({ method: request.method(), path, status: made.status, faked: true, at: Date.now() })
+    await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
   })
   return { calls, unfaked, unrecorded }
 }
