@@ -264,3 +264,130 @@ func TestANewKeyReachesTheCopyBeingMade(t *testing.T) {
 		allWith(e, store, 0, key)
 	})
 }
+
+// slowDest hands over its copy of a real backup only after takes, as a home
+// NAS on a slow link does, and stops when the download is cancelled.
+type slowDest struct {
+	archiveDest
+	takes time.Duration
+}
+
+func (d *slowDest) Download(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+	t := time.NewTimer(d.takes)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return offsite.Archive{}, ctx.Err()
+	case <-t.C:
+	}
+	return d.archiveDest.Download(ctx, dl)
+}
+
+// A restore of a copy, on this machine or from a recovery key on a new one,
+// takes as long as the copy takes to come: the download's stall timeout and
+// Cancel stop it, not the operations' deadline. Other operations keep it.
+func TestRestoresFromCopiesOutlastTheOperationDeadline(t *testing.T) {
+	const takes = 1500 * time.Millisecond
+	// shortDeadline shortens the deadline once the test's setup is done.
+	shortDeadline := func(t *testing.T) {
+		prev := opTimeout
+		opTimeout = 300 * time.Millisecond
+		t.Cleanup(func() { opTimeout = prev })
+	}
+	withSlow := func(t *testing.T) (*agentEnv, *slowDest, string) {
+		dest := &slowDest{archiveDest: archiveDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}, takes: takes}
+		prev := openOffsite
+		openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+		t.Cleanup(func() { openOffsite = prev })
+		e := newAgentEnv(t)
+		e.create()
+		b, err := e.srv().getBackup(e.backup())
+		if err != nil {
+			t.Fatal(err)
+		}
+		dest.path = e.a.backupPath(b.FileName)
+		return e, dest, b.FileName
+	}
+	outlasts := func(t *testing.T, e *agentEnv, id string) {
+		t.Helper()
+		began := time.Now()
+		op := e.waitOp(id)
+		if op.Status != "succeeded" || op.Detail["restoreId"] == nil || time.Since(began) < takes-100*time.Millisecond {
+			t.Fatalf("a restore whose copy takes %s: %+v after %s", takes, op, time.Since(began))
+		}
+	}
+	cutShort := func(t *testing.T, e *agentEnv, id string) {
+		t.Helper()
+		if op := e.waitOp(id); op.Status != "failed" || !strings.Contains(op.Error, "deadline") {
+			t.Fatalf("an operation that outlasts the deadline: %+v", op)
+		}
+	}
+	outlast := func(ctx context.Context, _ *opHandle) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(takes):
+			return nil
+		}
+	}
+
+	t.Run("restoring a copy", func(t *testing.T) {
+		e, _, file := withSlow(t)
+		s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
+		if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
+			t.Fatalf("turn on: %d %v", code, out)
+		}
+		e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE file_name = ?`, file) == 1 })
+		shortDeadline(t)
+		code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": offsite.CopyName(file)})
+		if code != http.StatusAccepted {
+			t.Fatalf("restore: %d %v", code, out)
+		}
+		outlasts(t, e, out["id"].(string))
+	})
+
+	t.Run("restoring from a recovery key", func(t *testing.T) {
+		e, dest, file := withSlow(t)
+		dest.mu.Lock()
+		dest.stored[offsite.CopyName(file)] = offsite.Copy{Name: offsite.CopyName(file), Archive: file, Size: 4096}
+		dest.mu.Unlock()
+		keys, err := offsite.NewKeys(e.a.now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		rf, err := keys.RecoveryFileFor("Survival", "playkeeper/survival/", e.a.now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		shortDeadline(t)
+		code, out := e.call("POST", "/v1/offsite/recover/restore", map[string]any{"actor": "admin", "recoveryKey": rf.Content.Reveal(), "name": offsite.CopyName(file),
+			"config":    map[string]any{"type": "s3", "s3": map[string]any{"provider": "b2", "endpoint": "s3.eu-central-003.backblazeb2.com", "bucket": "siya-minecraft", "accessKeyId": "003a8f91c2"}},
+			"secretKey": "wJalrXUtnFEMI-example-secret"})
+		if code != http.StatusAccepted {
+			t.Fatalf("restore from the recovery key: %d %v", code, out)
+		}
+		outlasts(t, e, out["id"].(string))
+	})
+
+	t.Run("a backup", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		shortDeadline(t)
+		op, err := e.srv().beginOp("backup", "admin", outlast)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cutShort(t, e, op.ID)
+	})
+
+	t.Run("a machine operation", func(t *testing.T) {
+		e := newAgentEnv(t)
+		e.create()
+		shortDeadline(t)
+		op, err := e.a.beginMachineOp("disk-cleanup", "admin", outlast)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cutShort(t, e, op.ID)
+	})
+}

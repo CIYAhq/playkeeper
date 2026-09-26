@@ -579,7 +579,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 		defer a.wg.Done()
 		defer func() { <-a.mopLock }()
 		defer release()
-		ctx, cancel := context.WithTimeout(a.ctx, 45*time.Minute)
+		ctx, cancel := opContext(a.ctx, kind)
 		defer cancel()
 		err := runOp(ctx, h, fn)
 		a.mopMu.Lock()

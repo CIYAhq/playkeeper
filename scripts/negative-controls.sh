@@ -3121,6 +3121,25 @@ control "a copy stopped for a new key isn't a failed try" internal/agent/offsite
   's.uploadFailed(ctx, b, job, err)' \
   ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
 
+# Wave 7 before Bugbot: restoring a copy takes as long as the copy takes to
+# come, and every other operation keeps its deadline.
+control "a restore of a copy has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-recover": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_a_copy$'
+control "a restore from a recovery key has no fixed deadline" internal/agent/lifecycle.go \
+  'var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}' \
+  'var noDeadline = map[string]bool{"offsite-restore": true}' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^restoring_from_a_recovery_key$'
+control "a server's other operations keep their deadline" internal/agent/lifecycle.go \
+  '	if noDeadline[kind] {' \
+  '	if true || noDeadline[kind] {' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_backup$'
+control "machine operations keep their deadline" internal/agent/agent.go \
+  'ctx, cancel := opContext(a.ctx, kind)' \
+  'ctx, cancel := context.WithCancel(a.ctx)' \
+  ./internal/agent '^TestRestoresFromCopiesOutlastTheOperationDeadline$/^a_machine_operation$'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.

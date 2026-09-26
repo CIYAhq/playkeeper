@@ -182,6 +182,23 @@ func (s *server) startOp(kind, actor string, fn func(ctx context.Context, h *opH
 	return s.launchOp(&api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}, fn)
 }
 
+// opTimeout is how long an operation may run, but for those in noDeadline.
+var opTimeout = 45 * time.Minute
+
+// noDeadline are the operations a fixed deadline would cut short: a copy
+// can take hours to download over a slow link. The download's stall timeout
+// stops them when the copy stops coming, and a restore from a copy can be
+// cancelled.
+var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}
+
+// opContext is the context an operation of kind runs in.
+func opContext(parent context.Context, kind string) (context.Context, context.CancelFunc) {
+	if noDeadline[kind] {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, opTimeout)
+}
+
 // launchOp runs fn as op, a new operation or one a previous agent process
 // left running, like startOp.
 func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
@@ -189,7 +206,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		op.Detail = map[string]any{}
 	}
 	kind := op.Kind
-	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
+	ctx, cancel := opContext(s.ctx, kind)
 	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }, cancel: cancel}
 	s.opMu.Lock()
 	s.op, s.opH = op, h
