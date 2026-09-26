@@ -27,6 +27,9 @@ function secondLine<T extends string>(o: Choice<T>): string | undefined {
   return (o.disabled && o.reason) || o.hint
 }
 
+/** A ChoiceSelect stacked in a form: full width, and outlined like the fields around it on phones. */
+export const fieldSelectClass = 'w-full justify-between max-sm:border max-sm:border-input max-sm:bg-background max-sm:px-3 max-sm:shadow-xs/5'
+
 /**
  * A select: a popup list on desktop, a bottom sheet with large rows on
  * phones. Each option can carry a second line. Like Button, a

@@ -4,7 +4,7 @@ import { del, get, post } from '@/api/client'
 import type { AgentActivity, ApiToken, MachineLinkInfo, NewToken, TokenRole } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, CopyButton, SectionLabel } from '@/components/app/bits'
-import { ChoiceSelect, useIsPhone, type Choice } from '@/components/app/controls'
+import { ChoiceSelect, fieldSelectClass, useIsPhone, type Choice } from '@/components/app/controls'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -20,7 +20,7 @@ import { t } from '@/i18n'
 import { tokenRoles } from '@/lib/access'
 import { formatDate, formatWhen, relativeTime } from '@/lib/format'
 import { presenceProps, useListPresence } from '@/lib/presence'
-import { agentPhrase, elideSecret, mcpAddress, mcpSnippet, runsOutText, tokenDays, tokenExpired, tokenRoleHint, tokenRoleText, tokenServersText, type TokenDays } from '@/lib/tokens'
+import { agentPhrase, elideSecret, mcpAddress, mcpSnippet, runsOutText, tokenDays, tokenExpired, tokenRoleText, tokenServersText, type TokenDays } from '@/lib/tokens'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
@@ -130,7 +130,7 @@ function TokenTable({ tokens, error, onRevoke }: { tokens: ApiToken[] | undefine
       <table className="w-full text-[13px]">
         <thead className="bg-muted text-left text-xs text-muted-foreground">
           <tr className="h-9">
-            <th className="px-3 font-medium">{t('ai.col.name')}</th>
+            <th className="w-[43%] px-3 font-medium">{t('ai.col.name')}</th>
             <th className="px-3 font-medium">{t('ai.col.canDo')}</th>
             <th className="px-3 font-medium">{t('ai.col.servers')}</th>
             <th className="px-3 font-medium">{t('ai.col.runsOut')}</th>
@@ -220,7 +220,7 @@ function SkeletonRow({ first }: { first?: boolean }) {
   )
 }
 
-const latelyRow = 'grid min-h-10 grid-cols-[180px_minmax(0,1fr)_auto] items-center gap-4 border-t border-border py-2 text-[13px] first:border-t-0'
+const latelyRow = 'grid min-h-9 grid-cols-[156px_minmax(0,1fr)_auto] items-center gap-4 border-t border-border py-2 text-[13px] first:border-t-0'
 
 function Lately({ items, error }: { items: AgentActivity[] | undefined; error?: string }) {
   const rows = useListPresence(items?.slice(0, 8), latelyKey)
@@ -480,7 +480,7 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
     }
   }
 
-  const roleChoices: Choice<TokenRole>[] = roles.map((r) => ({ value: r, label: tokenRoleText(r), hint: tokenRoleHint(r) }))
+  const roleChoices: Choice<TokenRole>[] = roles.map((r) => ({ value: r, label: tokenRoleText(r) }))
   const scopeChoices: Choice<'all' | 'some'>[] = [
     { value: 'all', label: t('ai.allServers') },
     { value: 'some', label: t('ai.someServers'), disabled: servers.length === 0, hint: servers.length === 0 ? t('ai.noServersYet') : undefined },
@@ -495,7 +495,7 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
         if (!o) window.setTimeout(reset, 250)
       }}
     >
-      <DialogPopup className="sm:max-w-[520px]" showCloseButton={false}>
+      <DialogPopup className={made ? 'sm:max-w-[600px]' : 'sm:max-w-[520px]'} showCloseButton={false}>
         {made ? (
           <CreatedToken made={made} address={address} onDone={() => onOpenChange(false)} />
         ) : (
@@ -511,11 +511,11 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="token-role">{t('ai.canDo')}</Label>
-                <ChoiceSelect id="token-role" value={role} onChange={setRole} options={roleChoices} label={t('ai.canDo')} className="w-full justify-between" />
+                <ChoiceSelect id="token-role" value={role} onChange={setRole} options={roleChoices} label={t('ai.canDo')} className={fieldSelectClass} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="token-scope">{t('ai.servers')}</Label>
-                <ChoiceSelect id="token-scope" value={scope} onChange={setScope} options={scopeChoices} label={t('ai.servers')} className="w-full justify-between" />
+                <ChoiceSelect id="token-scope" value={scope} onChange={setScope} options={scopeChoices} label={t('ai.servers')} className={fieldSelectClass} />
                 {scope === 'some' && (
                   <fieldset className="mt-1 flex animate-enter flex-col gap-2 rounded-2xl border border-border p-3">
                     <legend className="sr-only">{t('ai.pickServers')}</legend>
@@ -530,7 +530,7 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="token-days">{t('ai.runsOut')}</Label>
-                <ChoiceSelect id="token-days" value={String(days)} onChange={(d) => setDays(Number(d) as TokenDays)} options={dayChoices} label={t('ai.runsOut')} className="w-full justify-between" />
+                <ChoiceSelect id="token-days" value={String(days)} onChange={(d) => setDays(Number(d) as TokenDays)} options={dayChoices} label={t('ai.runsOut')} className={fieldSelectClass} />
               </div>
               {error && (
                 <p className="text-[13px] text-destructive-foreground" role="alert">
@@ -589,7 +589,7 @@ function CreatedToken({ made, address, onDone }: { made: NewToken; address: stri
           </div>
         </div>
       </DialogPanel>
-      <DialogFooter variant="bare" className="border-t border-border pt-4">
+      <DialogFooter variant="bare" className="mx-6 border-t border-border px-0 pt-4 sm:justify-start">
         <Button variant="outline" onClick={onDone}>
           {t('ai.done')}
         </Button>
