@@ -28,6 +28,10 @@ func jsonNames(t reflect.Type) map[string]bool {
 		f := t.Field(i)
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		switch {
+		case f.Anonymous && name == "" && f.Type.Kind() == reflect.Struct:
+			for n := range jsonNames(f.Type) {
+				names[n] = true
+			}
 		case !f.IsExported() || name == "-":
 		case name == "":
 			names[f.Name] = true
@@ -62,6 +66,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"Address": Address{}, "AddressCheck": AddressCheck{}, "AddressPlan": AddressPlan{}, "AddrRecord": AddrRecord{},
 		"CertificateStatus": CertificateStatus{}, "DNSRecord": DNSRecord{}, "FreeAddress": FreeAddress{}, "JoinAddress": JoinAddress{},
 		"NameAvailability": NameAvailability{}, "NamesService": NamesService{}, "Note": Note{}, "SRVParts": SRVParts{},
+		"NameCheck": NameCheck{}, "RecordCheck": RecordCheck{}, "CertificateProblem": CertificateProblem{},
 		"Challenge": twofactor.Challenge{}, "SignInNotice": twofactor.Notice{}, "TwoFactorSetup": twofactor.Setup{}, "TwoFactorStatus": twofactor.Status{},
 		"Crash": Crash{}, "CrashLine": CrashLine{}, "DiagnosisAction": DiagnosisAction{}, "DiagnosisEvidence": DiagnosisEvidence{}, "FileRefusal": FileRefusal{},
 		"LagCause": LagCause{}, "MemoryAdvice": MemoryAdvice{}, "MemoryDay": MemoryDay{}, "MemoryOption": MemoryOption{}, "Running": Running{},
@@ -71,7 +76,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"ModpackCard": ModpackCard{}, "ModpackResults": ModpackResults{}, "ModpackVersion": ModpackVersion{}, "ModpackPreview": ModpackPreview{},
 		"ModpackRef": ModpackRef{}, "ServerModpack": ServerModpack{}, "ServerTemplate": ServerTemplate{}, "TemplateSettings": TemplateSettings{},
 		"TemplateAddon": TemplateAddon{}, "TemplateContents": TemplateContents{}, "TemplateExport": TemplateExport{}, "TemplatePlan": TemplatePlan{},
-		"PackShare":    PackShare{},
+		"PackShare": PackShare{}, "ModpackDetail": ModpackDetail{},
 		"ApiErrorBody": Error{}, "DiscordDelivery": DiscordDelivery{}, "DiscordSettings": DiscordSettings{}, "Phrase": Phrase{},
 		"PlayerDay": PlayerDay{}, "PlayerProfile": PlayerProfile{},
 	}
@@ -80,7 +85,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 	// An interface may be declared more than once: TypeScript merges the
 	// declarations, and each one's fields are checked.
 	found := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?ms)^export interface (\w+) \{\n(.*?)^\}`).FindAllStringSubmatch(string(src), -1) {
+	for _, m := range regexp.MustCompile(`(?ms)^export interface (\w+)(?: extends [\w, ]+)? \{\n(.*?)^\}`).FindAllStringSubmatch(string(src), -1) {
 		v, ok := sent[m[1]]
 		if !ok {
 			continue
