@@ -2,7 +2,7 @@
 
 Checked 2026-09-25 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
 
-The full licence texts of everything below that is compiled into the binary, and the terms of the logos the web UI shows, are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes and the dashboard links to from Settings. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date, and `make package` refuses to package a binary that links a module missing from it.
+The full licence texts of everything below that is compiled into the binary, and the terms of the logos the web UI shows, are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes and the dashboard links to from Settings. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date or while the tables below leave out a Go module or npm package it lists, or give it another version, and `make package` refuses to package a binary that links a module missing from it.
 
 ## Compiled into the `playkeeper` binary
 
