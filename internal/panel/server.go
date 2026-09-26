@@ -229,6 +229,7 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/offsite/copies/{name}/check", "/v1/servers/{id}/offsite/copies/{name}/check"),
 		{"DELETE", "/api/servers/{id}/offsite/copies/{name}", needSessionCSRF, actManageBackupCopies, s.serverProxy("DELETE", "/v1/servers/{id}/offsite/copies/{name}")},
 		sm("POST", "/api/servers/{id}/offsite/restore", "/v1/servers/{id}/offsite/restore"),
+		sm("POST", "/api/servers/{id}/offsite/restore/cancel", "/v1/servers/{id}/offsite/restore/cancel"),
 		mm("POST", "/api/machines/{mid}/offsite/recover", "/v1/offsite/recover", actRecoveryKey),
 		mm("POST", "/api/machines/{mid}/offsite/recover/restore", "/v1/offsite/recover/restore", actRecoveryKey),
 		mg("/api/machines/{mid}/disk", "/v1/disk"),

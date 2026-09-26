@@ -57,6 +57,7 @@ type server struct {
 	opLock chan struct{}
 	opMu   sync.Mutex
 	op     *api.Operation
+	opH    *opHandle
 
 	mu              sync.Mutex
 	runPhase        api.Phase

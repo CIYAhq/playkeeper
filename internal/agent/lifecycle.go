@@ -29,6 +29,28 @@ type opHandle struct {
 	// update handed to the updater): it stays running until its result is
 	// recorded.
 	continues bool
+	// cancel ends the operation's context. cancellable is set by an operation
+	// that can stop without changing anything, until it commits; cancelled
+	// records that it was asked to. The caller holds mu for both.
+	cancel      context.CancelFunc
+	cancellable bool
+	cancelled   bool
+}
+
+// allowCancel lets the operation be cancelled until it commits.
+func (h *opHandle) allowCancel() {
+	unlock := h.mu()
+	h.cancellable = true
+	unlock()
+}
+
+// commit ends the part of the operation that can be cancelled. It is false
+// when a cancel came first; the operation then undoes what it did.
+func (h *opHandle) commit() bool {
+	unlock := h.mu()
+	defer unlock()
+	h.cancellable = false
+	return !h.cancelled
 }
 
 func (h *opHandle) phase(p string) {
@@ -138,32 +160,48 @@ func (s *server) beginOp(kind, actor string, fn func(ctx context.Context, h *opH
 // operation lock, which the operation releases when fn returns.
 func (s *server) startOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) *api.Operation {
 	op := &api.Operation{ID: newID(), ServerID: s.id, Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: s.now().UTC(), Detail: map[string]any{}}
+	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
+	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }, cancel: cancel}
 	s.opMu.Lock()
-	s.op = op
+	s.op, s.opH = op, h
 	snap := copyOp(op)
 	s.opMu.Unlock()
 	s.saveOperation(snap)
-	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		defer func() { <-s.opLock }()
-		ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
 		defer cancel()
 		err := runOp(ctx, h, fn)
 		s.opMu.Lock()
 		done := finishOp(op, h, err, s.now().UTC())
-		s.op = nil
+		s.op, s.opH = nil, nil
 		s.opMu.Unlock()
 		s.saveOperation(&done)
 		if done.Status != api.OpRunning {
 			s.audit(actor, kind, "server", done.Status, done.Error)
 		}
-		if err != nil {
+		if done.Status == api.OpFailed {
 			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
 		}
 	}()
 	return snap
+}
+
+// cancelOp cancels the running operation id, of the given kind, while it can
+// still stop without changing anything.
+func (s *server) cancelOp(kind, id string) (*api.Operation, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	if s.op == nil || s.op.ID != id || s.op.Kind != kind {
+		return nil, errConflict("That isn't running any more.", "")
+	}
+	if !s.opH.cancellable {
+		return nil, errConflict("It's too late to cancel: it's nearly done.", "Wait a moment for it to finish.")
+	}
+	s.opH.cancelled = true
+	s.opH.cancel()
+	return copyOp(s.op), nil
 }
 
 func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opHandle) error) (err error) {
@@ -178,6 +216,9 @@ func runOp(ctx context.Context, h *opHandle, fn func(ctx context.Context, h *opH
 // finishOp records how an operation ended; the caller holds its mutex.
 func finishOp(op *api.Operation, h *opHandle, err error, fin time.Time) api.Operation {
 	switch {
+	case h.cancelled:
+		op.FinishedAt = &fin
+		op.Status = api.OpCancelled
 	case err != nil:
 		op.FinishedAt = &fin
 		op.Status = api.OpFailed

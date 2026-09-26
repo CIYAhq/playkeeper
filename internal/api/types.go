@@ -333,6 +333,8 @@ const (
 	OpRunning   = "running"
 	OpSucceeded = "succeeded"
 	OpFailed    = "failed"
+	// OpCancelled is an operation stopped on request before it changed anything.
+	OpCancelled = "cancelled"
 )
 
 type CatalogEntry struct {

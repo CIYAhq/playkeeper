@@ -26,6 +26,7 @@ func TestWaveSevenRoutesReachTheAgent(t *testing.T) {
 		{"POST", srv + "/offsite/new-key", "POST /v1/servers/" + sampleServer + "/offsite/new-key"},
 		{"POST", srv + "/offsite/copies/survival-1.tar.zst.age/check", "POST /v1/servers/" + sampleServer + "/offsite/copies/survival-1.tar.zst.age/check"},
 		{"DELETE", srv + "/offsite/copies/survival-1.tar.zst.age", "DELETE /v1/servers/" + sampleServer + "/offsite/copies/survival-1.tar.zst.age"},
+		{"POST", srv + "/offsite/restore/cancel", "POST /v1/servers/" + sampleServer + "/offsite/restore/cancel"},
 		{"POST", "/api/machines/" + ms[0].ID + "/offsite/recover", "POST /v1/offsite/recover"},
 		{"POST", "/api/machines/" + ms[0].ID + "/offsite/recover/restore", "POST /v1/offsite/recover/restore"},
 		{"GET", "/api/machines/" + ms[0].ID + "/disk?tz=Europe%2FBerlin", "GET /v1/disk"},
@@ -96,7 +97,7 @@ func TestMembersCannotTouchBackupCopiesOrTheRecoveryKey(t *testing.T) {
 		{"POST", srv + "/schedules"}, {"DELETE", srv + "/schedules/qrstuvwxyz"}, {"POST", srv + "/sleep"}, {"POST", srv + "/backup-rules"},
 		{"POST", srv + "/backup-rules/estimate"}, {"POST", srv + "/offsite"}, {"POST", srv + "/offsite/test"}, {"POST", srv + "/offsite/ssh-key"}, {"POST", srv + "/offsite/retry"},
 		{"GET", srv + "/offsite/recovery-key"}, {"POST", srv + "/offsite/new-key"}, {"POST", srv + "/offsite/restore"},
-		{"POST", srv + "/offsite/copies/survival-1.tar.zst.age/check"}, {"DELETE", srv + "/offsite/copies/survival-1.tar.zst.age"},
+		{"POST", srv + "/offsite/copies/survival-1.tar.zst.age/check"}, {"DELETE", srv + "/offsite/copies/survival-1.tar.zst.age"}, {"POST", srv + "/offsite/restore/cancel"},
 		{"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/disk/clean"},
 		{"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/offsite/recover"}, {"POST", "/api/machines/" + url.PathEscape(ms[0].ID) + "/offsite/recover/restore"},
 	}

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -1013,6 +1014,7 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := s.beginOp("offsite-restore", actor, func(ctx context.Context, h *opHandle) error {
+		h.allowCancel()
 		h.set("name", offsite.CopyName(archive))
 		dir := filepath.Join(s.cfg.StagingDir(), randomSecret(8))
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -1029,14 +1031,20 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		defer f.Close()
-		p, err := s.stageArchive(f, "copy "+got.Name, s.uploadLimit(), s)
+		p, err := s.stageArchive(ctxReader{ctx, f}, "copy "+got.Name, s.uploadLimit(), s)
 		if err != nil {
-			s.audit(actor, "restore.staged", archive, "refused", err.Error())
+			if ctx.Err() == nil {
+				s.audit(actor, "restore.staged", archive, "refused", err.Error())
+			}
 			return err
 		}
 		if dl.ArchiveSHA256 != "" && !strings.EqualFold(p.SHA256, dl.ArchiveSHA256) {
 			os.RemoveAll(s.stageDir(p.ID))
 			return &apiError{Status: http.StatusUnprocessableEntity, Code: api.CodeInvalid, Msg: "The backup inside the copy doesn't match its record.", Hint: "Nothing was changed. Restore another copy."}
+		}
+		if !h.commit() {
+			os.RemoveAll(s.stageDir(p.ID))
+			return context.Canceled
 		}
 		s.audit(actor, "restore.staged", archive, "validated", "sha256 "+p.SHA256)
 		h.set("restoreId", p.ID)
@@ -1047,6 +1055,45 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// hOffsiteRestoreCancel stops a restore from a copy before it hands over
+// what it staged: the download so far is deleted and nothing else changes.
+func (s *server) hOffsiteRestoreCancel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actor       string `json:"actor"`
+		OperationID string `json:"operationId"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	op, err := s.cancelOp("offsite-restore", req.OperationID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	name, _ := op.Detail["name"].(string)
+	s.audit(actor, "offsite.restore_cancelled", "server", "succeeded", name)
+	writeJSON(w, http.StatusAccepted, op)
+}
+
+// ctxReader stops a copy when its context ends.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 // copyArchive is the backup's file name inside a copy's name, if it is one.

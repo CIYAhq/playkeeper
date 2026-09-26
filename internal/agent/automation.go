@@ -175,6 +175,7 @@ func (a *Agent) automationRoutes() []Route {
 		{"POST", "/v1/servers/{id}/offsite/copies/{name}/check", srv((*server).hOffsiteCheck)},
 		{"DELETE", "/v1/servers/{id}/offsite/copies/{name}", srv((*server).hOffsiteCopyDelete)},
 		{"POST", "/v1/servers/{id}/offsite/restore", srv((*server).hOffsiteRestore)},
+		{"POST", "/v1/servers/{id}/offsite/restore/cancel", srv((*server).hOffsiteRestoreCancel)},
 		{"POST", "/v1/offsite/recover", a.hRecoverList},
 		{"POST", "/v1/offsite/recover/restore", a.hRecoverRestore},
 		{"GET", "/v1/disk", a.hDisk},

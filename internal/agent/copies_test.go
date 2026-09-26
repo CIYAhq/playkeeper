@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
@@ -190,5 +193,98 @@ func TestACopyIsCheckedAgainOrDeletedFromItsRow(t *testing.T) {
 	}
 	if code, _ := e.call("POST", copyPath+"/check", map[string]any{"actor": "admin"}); code != http.StatusNotFound {
 		t.Fatalf("checking a deleted copy: %d", code)
+	}
+}
+
+func TestCancellingARestoreFromACopyLeavesTheServerAsItWas(t *testing.T) {
+	dest := &fetchDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}
+	e, _, file := withCopies(t, dest)
+	name := offsite.CopyName(file)
+	e.waitFor("the server to be online and idle", e.onlineIdle)
+	container := func() string {
+		e.fd.mu.Lock()
+		defer e.fd.mu.Unlock()
+		c := e.fd.byName[e.cname()]
+		return fmt.Sprintf("%s running=%v started=%v", c.id, c.running, c.started)
+	}
+	files, box, backups := tree(t, e.dataDir()), container(), e.countRows(`SELECT COUNT(*) FROM backups`)
+
+	// The download stops halfway, leaving what it fetched so far.
+	downloading := make(chan string, 1)
+	dest.answer(func(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+		part := filepath.Join(dl.Dir, dl.Name+".part")
+		if err := os.WriteFile(part, make([]byte, 1<<20), 0o600); err != nil {
+			return offsite.Archive{}, err
+		}
+		downloading <- part
+		<-ctx.Done()
+		return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
+	})
+	code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore: %d %v", code, out)
+	}
+	id := out["id"].(string)
+	var part string
+	select {
+	case part = <-downloading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the download never started")
+	}
+
+	if code, _ := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": "qrstuvwxyz"}); code != http.StatusConflict {
+		t.Fatalf("cancelling an operation that isn't running: %d", code)
+	}
+	if code, _ := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"operationId": id}); code != http.StatusBadRequest {
+		t.Fatalf("cancelling with nobody named: %d", code)
+	}
+	code, out = e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": id})
+	if code != http.StatusAccepted || out["id"] != id {
+		t.Fatalf("cancel: %d %v", code, out)
+	}
+	if op := e.waitOp(id); op.Status != api.OpCancelled || op.Error != "" || op.Detail["restoreId"] != nil {
+		t.Fatalf("the cancelled restore: %+v", op)
+	}
+
+	if _, err := os.Stat(part); !os.IsNotExist(err) {
+		t.Fatalf("the partial download is still there: %v", err)
+	}
+	if left := e.staged(); len(left) != 0 {
+		t.Fatalf("staging still holds %v", left)
+	}
+	if !maps.Equal(tree(t, e.dataDir()), files) {
+		t.Fatal("cancelling touched the server's files")
+	}
+	if got := container(); got != box {
+		t.Fatalf("the container went from %s to %s", box, got)
+	}
+	if st := e.status(); st.Phase != api.PhaseOnline || st.Operation != nil {
+		t.Fatalf("after cancelling: %s, %+v", st.Phase, st.Operation)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM backups`); n != backups {
+		t.Fatalf("%d backups, there were %d", n, backups)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.restore_cancelled' AND actor = 'admin' AND detail = ?`, name); n != 1 {
+		t.Fatalf("audited the cancel %d times", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite-restore' AND result = 'cancelled'`); n != 1 {
+		t.Fatalf("audited %d cancelled restores", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.staged'`); n != 0 {
+		t.Fatalf("audited %d staged restores", n)
+	}
+
+	// The next restore runs to the end; once it has, there's nothing to cancel.
+	dest.answer(fromBackup(e.a.backupPath(file)))
+	code, out = e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	if code != http.StatusAccepted {
+		t.Fatalf("restore again: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded || op.Detail["restoreId"] == nil {
+		t.Fatalf("the second restore: %+v", op)
+	}
+	if code, _ := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": op.ID}); code != http.StatusConflict {
+		t.Fatalf("cancelling a finished restore: %d", code)
 	}
 }
