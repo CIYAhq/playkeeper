@@ -52,7 +52,7 @@ export function LoginPage({ onDone }: { onDone: (m: Me) => void }) {
           </div>
           <PasswordField id="login-password" label={t('login.password')} value={password} onChange={setPassword} autoComplete="current-password" />
           {error && (
-            <p className="text-[13px] text-destructive-foreground" role="alert">
+            <p className="animate-enter text-[13px] text-destructive-foreground" role="alert">
               {error}
             </p>
           )}

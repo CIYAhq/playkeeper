@@ -49,6 +49,8 @@ export function NewServerPage() {
   const phone = useIsPhone()
   const { catalog, error, reload } = useCatalog(ws.machine?.id, { fresh: true })
   const [step, setStep] = useState(0)
+  // The first step comes in with the page; later ones animate in themselves.
+  const [stepped, setStepped] = useState(false)
   const [c, setC] = useState<CreateChoices>()
   const [nameEdited, setNameEdited] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -100,8 +102,12 @@ export function NewServerPage() {
     }
   }
 
-  const next = () => (step === 4 ? void create() : setStep((s) => s + 1))
-  const back = () => setStep((s) => Math.max(0, s - 1))
+  const go = (to: number) => {
+    setStepped(true)
+    setStep(to)
+  }
+  const next = () => (step === 4 ? void create() : go(step + 1))
+  const back = () => go(Math.max(0, step - 1))
   const stepTitles = stepKeys.map((k) => t(k))
 
   let body: ReactNode
@@ -182,7 +188,7 @@ export function NewServerPage() {
                   <TypeLogo type={c.type} size={phone ? 28 : 22} />
                   {t('new.versions', { type: typeName(c.type) })}
                 </span>
-                <button type="button" onClick={() => setStep(0)} className="font-semibold text-primary hover:underline max-sm:text-[15px] max-sm:text-success-strong">
+                <button type="button" onClick={() => go(0)} className="font-semibold text-primary hover:underline max-sm:text-[15px] max-sm:text-success-strong">
                   {t('new.changeType')}
                 </button>
               </div>
@@ -298,6 +304,11 @@ export function NewServerPage() {
     }
   }
 
+  const stepBody = (
+    <div key={step} className={cn(stepped && 'animate-page')}>
+      {body}
+    </div>
+  )
   const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} />
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
@@ -355,10 +366,10 @@ export function NewServerPage() {
         </header>
         <div className="mb-5 flex gap-1.5" aria-hidden="true">
           {stepTitles.map((s, i) => (
-            <span key={s} className={cn('h-1 flex-1 rounded-full', i <= step ? 'bg-primary' : 'bg-foreground/10')} />
+            <span key={s} className={cn('h-1 flex-1 rounded-full transition-colors duration-(--motion-slow) ease-standard', i <= step ? 'bg-primary' : 'bg-foreground/10')} />
           ))}
         </div>
-        {body}
+        {stepBody}
         <div className="mt-6">{restoreLink}</div>
         <PhoneActions>
           <Button size="touch" onClick={next} disabledReason={blocked()} loading={busy}>
@@ -396,7 +407,7 @@ export function NewServerPage() {
         <Stepper steps={stepTitles} current={step} label={t('new.steps')} />
         <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
           <div className="flex min-w-0 flex-col">
-            {body}
+            {stepBody}
             <div className="mt-6 flex items-center gap-3 border-t border-border pt-4">
               {step > 0 && (
                 <Button variant="ghost" onClick={back}>
