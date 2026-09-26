@@ -1246,7 +1246,7 @@ func (s *server) createFromWorld(ctx context.Context, h *opHandle, imp *worldImp
 		// before the copy is saved, whatever happens in between.
 		due = &originalDue{Config: *original, Note: fmt.Sprintf("%s as uploaded, before Minecraft %s upgraded it", worldLabel(p.World), sc.MinecraftVersion), Actor: actor}
 		if err := s.setOriginalDue(due); err != nil {
-			imp.release()
+			s.dropImport(imp)
 			return err
 		}
 	}
@@ -1270,8 +1270,10 @@ func (s *server) createFromWorld(ctx context.Context, h *opHandle, imp *worldImp
 				s.log.Warn("clear the copy of the world as uploaded that was due", "server", s.id, "err", cerr)
 			}
 		}
-		imp.release()
-		return &apiError{Msg: "Could not move the world into " + s.name() + ": " + err.Error(), Hint: "Delete this server and create it from the world again."}
+		// The dashboard has moved on to the new server and can't use the
+		// upload again, so it goes with what is left of its unpacked copy.
+		s.dropImport(imp)
+		return &apiError{Msg: "Could not move the world into " + s.name() + ": " + err.Error(), Hint: "Delete this server, then upload the world again to create it."}
 	}
 	extra := ""
 	if due != nil {

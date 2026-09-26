@@ -2775,6 +2775,12 @@ control "an import the agent stopped during says so" internal/agent/worldimports
   '		if false {
 			return false, &apiError{' \
   ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "a create that can't move the world in drops the upload" internal/agent/worldimports.go \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		s.dropImport(imp)' \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		imp.release()' \
+  ./internal/agent '^TestACreateThatCantMoveTheWorldInDropsTheUpload$'
 control "turning the map off stops squaremap before deleting what it drew" internal/agent/maps.go \
   '		if running {
 			h.phase("stopping")

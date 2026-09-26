@@ -1131,6 +1131,45 @@ func TestAnImportedWorldMovesBackOnlyOnceTheServerStopped(t *testing.T) {
 	}
 }
 
+// A server made from an upload that can't move the world in drops the
+// upload and what is left of its unpacked copy: the dashboard has moved on
+// to the new server and can't use the upload again.
+func TestACreateThatCantMoveTheWorldInDropsTheUpload(t *testing.T) {
+	for _, k := range []int{0, 1} {
+		t.Run(fmt.Sprintf("moving entry %d fails", k), func(t *testing.T) {
+			e := newAgentEnv(t)
+			archive, _ := singleplayerUpload(t)
+			imp := e.uploadWorld("/v1/world-imports", "Survival-2024.zip", archive)
+			dir := filepath.Join(e.cfg.StagingDir(), "import-"+imp)
+			n := 0
+			renameDir = func(from, to string) error {
+				if strings.HasPrefix(from, filepath.Join(dir, "data")+string(filepath.Separator)) {
+					n++
+					if n == k+1 {
+						return errors.New("injected: the disk is gone")
+					}
+				}
+				return os.Rename(from, to)
+			}
+			t.Cleanup(func() { renameDir = os.Rename })
+			code, out := e.call("POST", importPath(imp, "/create"), map[string]any{"name": "Survival", "memoryMB": 1536, "acceptEula": true, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("create: %d %v", code, out)
+			}
+			e.sid = out["serverId"].(string)
+			if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "Could not move the world into") || !strings.Contains(op.Hint, "upload the world again") {
+				t.Fatalf("a create that can't move the world in: %+v", op)
+			}
+			if exists(dir) {
+				t.Fatal("the upload and its unpacked copy were left in the staging folder")
+			}
+			if code, out := e.call("GET", importPath(imp, ""), nil); code != 404 {
+				t.Fatalf("the upload after the failed create: %d %v", code, out)
+			}
+		})
+	}
+}
+
 // Uploads live in the staging folder, which the agent clears when it starts.
 func TestAgentRestartForgetsWorldUploads(t *testing.T) {
 	e := newAgentEnv(t)
