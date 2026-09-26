@@ -429,7 +429,7 @@ func (s *Server) askToJoin(w http.ResponseWriter, r *http.Request, c joinCall, i
 	}
 	if asked {
 		s.audit(inv.Actor(), "invite.redeem", p.Name, "succeeded", "asked to join")
-		s.notifyJoinRequest(r.Context(), m, jr, inv.Actor())
+		s.notifyJoinRequest(r.Context(), srv.Name, jr, inv.Actor())
 	}
 	info, err := invites.Wait(srv, p, "")
 	s.answerJoin(w, info, err)

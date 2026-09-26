@@ -3221,6 +3221,22 @@ control "a failed claim never shows another machine's server" internal/panel/mac
   'case false && rec.machineID != m.ID:
 			continue' \
   ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
+control "every change on a joined machine names who makes it" internal/panel/server.go \
+  'return machinelink.WithActor(ctx, actor)' \
+  'return ctx' \
+  ./internal/panel '^TestEveryChangeOnAMachineNamesWhoMakesIt$'
+control "a join request's alert names its server for the dashboard's agent" internal/panel/friends.go \
+  'ServerName: serverName,' \
+  '' \
+  ./internal/panel '^TestEveryChangeOnAMachineNamesWhoMakesIt$'
+control "the dashboard's agent posts a joined machine's join request" internal/agent/discord.go \
+  'if err != nil || !reServerID.MatchString(req.ServerID) {' \
+  'if true || err != nil || !reServerID.MatchString(req.ServerID) {' \
+  ./internal/agent '^TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName$'
+control "a joined machine's server name is checked before it's posted" internal/agent/discord.go \
+  'name, err := validName(req.ServerName)' \
+  'name, err := req.ServerName, error(nil)' \
+  ./internal/agent '^TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,6 +28,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
+	"github.com/CIYAhq/playkeeper/internal/mojang"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -233,6 +235,24 @@ func (rl *runningLink) ended(t *testing.T) error {
 		t.Fatal("the link is still running")
 		return nil
 	}
+}
+
+// joinMachine joins ra to the dashboard as home-server over a real link and
+// returns its machine id once it's connected. The dashboard needs a domain.
+func (e *env) joinMachine(t *testing.T, cookie, csrf string, ra *remoteAgent) string {
+	t.Helper()
+	addr := e.sharePort(t)
+	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
+	code, _ := e.joinCode(t, cookie, csrf, `{"name":"home-server","dial":"name"}`)["code"].(string)
+	id := newIdentity(t)
+	d, err := machinelink.Join(context.Background(), machinelink.JoinOptions{Address: addr, Code: code, Fingerprint: fp, Identity: id,
+		Name: "home-server", Version: version.Version, Now: e.clock.now})
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	e.runLink(t, d, id, ra)
+	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
+	return d.MachineID
 }
 
 // auditHas reports whether the panel's audit log has a row with these
@@ -626,6 +646,88 @@ func TestAMachineCantFillTheDatabaseWithServers(t *testing.T) {
 	e.srv.db.QueryRow(`SELECT COUNT(*) FROM server_machines WHERE machine_id = ?`, alpha.ID).Scan(&n)
 	if n != maxMachineServers || !strings.Contains(e.logs.String(), "more servers than the dashboard keeps") {
 		t.Fatalf("rows kept: %d", n)
+	}
+}
+
+// Every change the dashboard makes on a machine names who makes it, since a
+// joined machine's link refuses one that doesn't. A join request's Discord
+// alert goes to the dashboard's own agent, which holds the Discord settings,
+// with the server's name.
+func TestEveryChangeOnAMachineNamesWhoMakesIt(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	ra := newRemoteAgent()
+	rid := e.joinMachine(t, cookie, csrf, ra)
+	var list []map[string]any
+	if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk rstuvwxyzq" {
+		t.Fatalf("servers: %d %v", r, list)
+	}
+	local, err := e.srv.machineByID(e.localMachine(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := e.srv.machineByID(rid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered := func(r resp) error {
+		if r.status/100 != 2 {
+			return fmt.Errorf("%d %v", r.status, r.body)
+		}
+		return nil
+	}
+	const imp, invite = "0123456789abcdef", "invite:abcdefghjkmn"
+	for _, on := range []struct {
+		m      machine
+		server string
+	}{{local, "abcdefghjk"}, {joined, "rstuvwxyzq"}} {
+		type change struct {
+			name, key, actor string
+			do               func() error
+		}
+		changes := []change{
+			{"adding a player, as an invite link and an approved join request do", "POST /v1/servers/" + on.server + "/whitelist", invite, func() error {
+				_, err := e.srv.addToWhitelist(context.Background(), on.m, on.server, mojang.Profile{ID: "5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f", Name: "PixelPia"}, invite)
+				return err
+			}},
+			{"taking a player off the allowlist", "DELETE /v1/servers/" + on.server + "/whitelist/Steve", "admin", func() error {
+				return answered(e.do(t, "DELETE", "/api/servers/"+on.server+"/whitelist/Steve", ``, auth(cookie, csrf)))
+			}},
+		}
+		for _, step := range []string{"inspect", "preview", "apply", "create"} {
+			changes = append(changes, change{"the world import's " + step, "POST /v1/world-imports/" + imp + "/" + step, "admin", func() error {
+				return answered(e.do(t, "POST", "/api/machines/"+on.m.ID+"/world-imports/"+imp+"/"+step, `{}`, auth(cookie, csrf)))
+			}})
+		}
+		for _, c := range changes {
+			t.Run(on.m.Kind+", "+c.name, func(t *testing.T) {
+				if err := c.do(); err != nil {
+					t.Fatal(err)
+				}
+				if on.m.Kind == localKind {
+					if !e.sawLocally(c.key) {
+						t.Fatalf("the dashboard's agent never got %s", c.key)
+					}
+				} else if actor, ok := ra.saw(c.key); !ok || actor != c.actor {
+					t.Fatalf("the joined machine got %s: %v, from %q", c.key, ok, actor)
+				}
+			})
+		}
+	}
+
+	e.srv.notifyJoinRequest(context.Background(), "Cobblemon", invites.JoinRequest{ServerID: "rstuvwxyzq", PlayerName: "PixelPia"}, invite)
+	e.agent.mu.Lock()
+	body := e.agent.lastBody["POST /v1/discord/notify"]
+	e.agent.mu.Unlock()
+	var alert api.DiscordNotifyRequest
+	if err := json.Unmarshal([]byte(body), &alert); err != nil || alert.Kind != api.DiscordJoinRequested || alert.ServerID != "rstuvwxyzq" ||
+		alert.ServerName != "Cobblemon" || alert.Player != "PixelPia" || alert.Actor != invite {
+		t.Fatalf("the dashboard's agent got the join request's alert as %q", body)
+	}
+	if _, ok := ra.saw("POST /v1/discord/notify"); ok {
+		t.Fatal("the joined machine, which has no Discord settings, got the alert")
 	}
 }
 
