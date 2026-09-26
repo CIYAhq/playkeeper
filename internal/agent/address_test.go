@@ -1745,11 +1745,19 @@ func TestOwnDomainChecksTheNameBeforeHTTP01(t *testing.T) {
 	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "alex", "actor": "admin"}); code != 409 {
 		t.Fatalf("claiming a free name while using a domain: %d %v", code, out)
 	}
+	// An order kept by an attempt that failed after asking for the
+	// certificate goes with it.
+	if err := os.WriteFile(filepath.Join(e.cfg.CertsDir(), "play.example.com.order"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if code := e.callInto("DELETE", "/v1/address?actor=admin", nil, &v); code != 200 || v.Kind != api.AddressNone {
 		t.Fatalf("stop using the domain: %d %+v", code, v)
 	}
 	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "play.example.com.pem")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the domain's certificate is still served: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "play.example.com.order")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the domain's kept order is still there: %v", err)
 	}
 	if !slices.Contains(e.auditActions(), "address.remove succeeded") {
 		t.Fatalf("audit: %v", e.auditActions())
