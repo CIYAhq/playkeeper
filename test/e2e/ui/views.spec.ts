@@ -145,6 +145,45 @@ test('keyboard: restore preview and typed confirmation are reachable', async ({ 
   await expect(dialog).toBeHidden()
 })
 
+test('the new-schedule dialog is as wide as its design and shows the whole time', async ({ page }) => {
+  await login(page)
+  const s = await firstServer(page)
+  for (const vp of viewports) {
+    await page.setViewportSize({ width: vp.width, height: vp.height })
+    await page.goto(`/servers/${s.slug}/settings${vp.name === 'narrow' ? '/schedules' : ''}`)
+    await page.getByRole('button', { name: 'New schedule' }).first().click()
+    const dialog = page.getByRole('dialog', { name: /^New schedule for/ })
+    await expect(dialog).toBeVisible()
+    if (vp.name === 'desktop') await expect.poll(async () => Math.round((await dialog.boundingBox())?.width ?? 0), { message: 'dialog width' }).toBe(560)
+
+    const lines = await dialog.getByRole('radiogroup', { name: 'What should happen?' }).evaluate((group) =>
+      [...group.querySelectorAll('label')].map((card) => {
+        const text = [...card.querySelectorAll('span')].find((x) => x.children.length === 0 && x.textContent?.trim())
+        const range = document.createRange()
+        range.selectNodeContents(text ?? card)
+        const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)))
+        return `${text?.textContent}: ${tops.size} line${tops.size === 1 ? '' : 's'}`
+      }),
+    )
+    expect(lines, `kinds at ${vp.name}`).toEqual(['Restart: 1 line', 'Back up: 1 line', 'Run a command: 1 line'])
+
+    // The browser sizes a time field to its locale's format, 12- or 24-hour;
+    // a copy of the field left to its own width is the width the time needs.
+    const time = await dialog.getByLabel('At', { exact: true }).evaluate((input) => {
+      const field = input.closest('[data-slot=input-control]') as HTMLElement
+      const own = field.cloneNode(true) as HTMLElement
+      own.style.cssText = 'position: absolute; visibility: hidden; width: max-content; min-width: 0'
+      document.body.append(own)
+      const need = own.getBoundingClientRect().width
+      own.remove()
+      return { have: field.getBoundingClientRect().width, need }
+    })
+    expect(time.have + 0.5, `time field at ${vp.name}: ${time.have.toFixed(1)}px for a time that needs ${time.need.toFixed(1)}px`).toBeGreaterThanOrEqual(time.need)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toBeHidden()
+  }
+})
+
 test('reduced motion disables animation', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await login(page)
