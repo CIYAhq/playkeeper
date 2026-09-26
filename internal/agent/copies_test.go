@@ -234,9 +234,10 @@ func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
 	}
 }
 
-// While a copy is being downloaded, as a restore does, the backup rules
-// delete no copies where copies go, so a copy they no longer keep isn't
-// deleted from under the download. The next copy's pruning deletes it.
+// While a copy is being downloaded, as a restore or a check does, the backup
+// rules delete no copies where copies go, so a copy they no longer keep
+// isn't deleted from under the download. The next copy's pruning deletes
+// it.
 func TestPruningLeavesACopyThatIsBeingDownloaded(t *testing.T) {
 	cases := []struct {
 		name string
@@ -264,6 +265,30 @@ func TestPruningLeavesACopyThatIsBeingDownloaded(t *testing.T) {
 			}
 			return func() {
 				if code, out := e.call("POST", e.sp("/offsite/restore/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusAccepted {
+					e.t.Fatalf("cancel: %d %v", code, out)
+				}
+				e.waitOp(id)
+			}
+		}},
+		{name: "a check is downloading it", download: func(e *agentEnv, dest *fetchDest, name string) func() {
+			downloading := make(chan struct{}, 1)
+			dest.answer(func(ctx context.Context, dl offsite.Download) (offsite.Archive, error) {
+				downloading <- struct{}{}
+				<-ctx.Done()
+				return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
+			})
+			code, out := e.call("POST", e.sp("/offsite/copies/"+name+"/check"), map[string]any{"actor": "admin"})
+			if code != http.StatusAccepted {
+				e.t.Fatalf("check: %d %v", code, out)
+			}
+			id := out["id"].(string)
+			select {
+			case <-downloading:
+			case <-time.After(10 * time.Second):
+				e.t.Fatal("the download never started")
+			}
+			return func() {
+				if code, out := e.call("POST", e.sp("/offsite/check/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusAccepted {
 					e.t.Fatalf("cancel: %d %v", code, out)
 				}
 				e.waitOp(id)

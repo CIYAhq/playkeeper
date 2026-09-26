@@ -196,9 +196,9 @@ var opTimeout = 45 * time.Minute
 
 // noDeadline are the operations a fixed deadline would cut short: a copy
 // can take hours to download over a slow link. The download's stall timeout
-// stops them when the copy stops coming, and a restore from a copy can be
-// cancelled.
-var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}
+// stops them when the copy stops coming, and restoring or checking a copy
+// can be cancelled.
+var noDeadline = map[string]bool{"offsite-restore": true, "offsite-check": true, "offsite-recover": true}
 
 // opContext is the context an operation of kind runs in.
 func opContext(parent context.Context, kind string) (context.Context, context.CancelFunc) {

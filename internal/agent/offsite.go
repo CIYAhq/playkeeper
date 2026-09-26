@@ -1326,7 +1326,8 @@ func copyAtFault(err error) bool {
 }
 
 // hOffsiteCheck downloads a copy, decrypts it and checks it against its
-// record as a restore would, then deletes the download. Nothing else changes.
+// record as a restore would, then deletes the download. Nothing else
+// changes. It can be cancelled until it records what it found.
 func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Actor string `json:"actor"`
@@ -1356,6 +1357,7 @@ func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := s.beginOp("offsite-check", actor, func(ctx context.Context, h *opHandle) error {
+		h.allowCancel()
 		name := offsite.CopyName(archive)
 		h.set("name", name)
 		dir := filepath.Join(s.cfg.StagingDir(), randomSecret(8))
@@ -1364,6 +1366,9 @@ func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 		}
 		defer os.RemoveAll(dir)
 		got, _, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		if !h.commit() {
+			return context.Canceled
+		}
 		switch {
 		case err == nil:
 			s.noteCopyCheck(archive, func(cp *copyRecord) {
@@ -1383,6 +1388,32 @@ func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	writeJSON(w, http.StatusAccepted, op)
+}
+
+// hOffsiteCheckCancel stops a check of a copy before it records what it
+// found: the download so far is deleted and nothing else changes.
+func (s *server) hOffsiteCheckCancel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actor       string `json:"actor"`
+		OperationID string `json:"operationId"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	op, err := s.cancelOp("offsite-check", req.OperationID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	name, _ := op.Detail["name"].(string)
+	s.audit(actor, "offsite.check_cancelled", "server", "succeeded", name)
 	writeJSON(w, http.StatusAccepted, op)
 }
 

@@ -667,9 +667,10 @@ func (d *slowDest) Download(ctx context.Context, dl offsite.Download) (offsite.A
 }
 
 // A restore of a copy, on this machine or from a recovery key on a new one,
-// takes as long as the copy takes to come: the download's stall timeout and
-// Cancel stop it, not the operations' deadline. Other operations keep it.
-func TestRestoresFromCopiesOutlastTheOperationDeadline(t *testing.T) {
+// and a check of a copy take as long as the copy takes to come: the
+// download's stall timeout and Cancel stop them, not the operations'
+// deadline. Other operations keep it.
+func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 	const takes = 1500 * time.Millisecond
 	// shortDeadline shortens the deadline once the test's setup is done.
 	shortDeadline := func(t *testing.T) {
@@ -714,19 +715,76 @@ func TestRestoresFromCopiesOutlastTheOperationDeadline(t *testing.T) {
 		}
 	}
 
-	t.Run("restoring a copy", func(t *testing.T) {
-		e, _, file := withSlow(t)
+	copied := func(t *testing.T, e *agentEnv, file string) {
+		t.Helper()
 		s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
 		if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
 			t.Fatalf("turn on: %d %v", code, out)
 		}
 		e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE file_name = ?`, file) == 1 })
+	}
+
+	t.Run("restoring a copy", func(t *testing.T) {
+		e, _, file := withSlow(t)
+		copied(t, e, file)
 		shortDeadline(t)
 		code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": offsite.CopyName(file)})
 		if code != http.StatusAccepted {
 			t.Fatalf("restore: %d %v", code, out)
 		}
 		outlasts(t, e, out["id"].(string))
+	})
+
+	t.Run("checking a copy", func(t *testing.T) {
+		e, _, file := withSlow(t)
+		copied(t, e, file)
+		shortDeadline(t)
+		began := time.Now()
+		code, out := e.call("POST", e.sp("/offsite/copies/"+offsite.CopyName(file)+"/check"), map[string]any{"actor": "admin"})
+		if code != http.StatusAccepted {
+			t.Fatalf("check: %d %v", code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || time.Since(began) < takes-100*time.Millisecond {
+			t.Fatalf("a check whose copy takes %s: %+v after %s", takes, op, time.Since(began))
+		}
+		if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copy_checked' AND result = 'succeeded'`); n != 1 {
+			t.Fatalf("audited %d checks", n)
+		}
+	})
+
+	t.Run("a check cancelled while it downloads", func(t *testing.T) {
+		e, _, file := withSlow(t)
+		copied(t, e, file)
+		shortDeadline(t)
+		name := offsite.CopyName(file)
+		before, _ := e.srv().copyRecord(file)
+		code, out := e.call("POST", e.sp("/offsite/copies/"+name+"/check"), map[string]any{"actor": "admin"})
+		if code != http.StatusAccepted {
+			t.Fatalf("check: %d %v", code, out)
+		}
+		id := out["id"].(string)
+		e.waitFor("the download", func() bool { op := e.srv().currentOp(); return op != nil && op.Phase == "downloading" })
+		if code, out := e.call("POST", e.sp("/offsite/check/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusAccepted || out["id"] != id {
+			t.Fatalf("cancel: %d %v", code, out)
+		}
+		if op := e.waitOp(id); op.Status != api.OpCancelled || op.Error != "" {
+			t.Fatalf("the cancelled check: %+v", op)
+		}
+		if after, _ := e.srv().copyRecord(file); after != before {
+			t.Fatalf("the cancelled check changed the copy's record from %+v to %+v", before, after)
+		}
+		if left := e.staged(); len(left) != 0 {
+			t.Fatalf("staging still holds %v", left)
+		}
+		if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copy_checked'`); n != 0 {
+			t.Fatalf("audited %d checks", n)
+		}
+		if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.check_cancelled' AND actor = 'admin' AND detail = ?`, name); n != 1 {
+			t.Fatalf("audited the cancel %d times", n)
+		}
+		if code, _ := e.call("POST", e.sp("/offsite/check/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusConflict {
+			t.Fatalf("cancelling a finished check: %d", code)
+		}
 	})
 
 	t.Run("restoring from a recovery key", func(t *testing.T) {
