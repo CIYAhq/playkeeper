@@ -802,6 +802,20 @@ export interface ModpackResults {
   sources: ModpackSource[]
 }
 
+/** Settings › Add-on sources. Modrinth and Hangar are built in and always on. */
+export interface AddonSources {
+  curseforge: CurseForgeSource
+}
+
+export interface CurseForgeSource {
+  /** Where the key in use comes from: the release's own (build), the owner's (file), an empty key file (disabled), or none. */
+  key: 'none' | 'build' | 'file' | 'disabled'
+  /** The last four characters of the owner's key. */
+  ending?: string
+  /** Why the owner's key file can't be used. */
+  problem?: string
+}
+
 export interface ModpackVersion {
   id: string
   number: string

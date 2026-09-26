@@ -3,8 +3,9 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Backup, Catalog, MachineView, Me, ModpackDetail, ModpackResults, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
+import type { AddonSources, Backup, Catalog, MachineView, Me, ModpackDetail, ModpackResults, Operation, PlayersSummary, Preflight, RestorePreview, ServerConfig, ServerStatus, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
+import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { ModpackPicker } from '@/components/app/modpacks'
@@ -428,6 +429,81 @@ describe('Templates', () => {
     await toggle('Plugins')
     expect(vi.mocked(client.get)).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/template?addons=off')
     expect(document.body.textContent).not.toContain('Pin exact versions')
+  })
+})
+
+describe('Add-on sources', () => {
+  const none: AddonSources = { curseforge: { key: 'none' } }
+  const keyField = () => document.querySelector<HTMLInputElement>('input[aria-label="CurseForge API key"]')
+  async function paste(value: string) {
+    const input = keyField()
+    if (!input) throw new Error('no key field')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+
+  it('lands on its own section, with Modrinth and Hangar built in and CurseForge asking for a key', async () => {
+    answer({ '/addon-sources': none })
+    const text = await render(<AddonSourcesCard />)
+    expect(document.getElementById('addon-sources')).not.toBeNull()
+    expect(text).toContain('ModrinthOnBuilt in')
+    expect(text).toContain('HangarOnBuilt in')
+    expect(text).toContain('CurseForgeNeeds a key')
+    for (const step of ['Sign in at console.curseforge.com', 'Open API keys and copy yours', 'Paste it here', 'The key stays on this machine.']) expect(text).toContain(step)
+    expect(keyField()?.type).toBe('password')
+    expect(button('Save key')?.disabled).toBe(true)
+    expect(button('Save key')?.title).toBe('Paste a key first.')
+  })
+
+  it('says when CurseForge refuses the key, and keeps nothing', async () => {
+    answer({ '/addon-sources': none })
+    await render(<AddonSourcesCard />)
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'curseforge_key_refused', error: 'That key didn’t work. Copy it again from console.curseforge.com.' }))
+    await paste('made-up-key-000000000000')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => {})
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/addon-sources/curseforge', { key: 'made-up-key-000000000000' })
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('That key didn’t work. Copy it again from console.curseforge.com.')
+    expect(keyField()?.getAttribute('aria-invalid')).toBe('true')
+    expect(document.body.textContent).not.toContain('Key ending')
+  })
+
+  it('shows a saved key by its ending, with Replace key and Remove', async () => {
+    answer({ '/addon-sources': none })
+    await render(<AddonSourcesCard />)
+    vi.mocked(client.post).mockResolvedValueOnce({ curseforge: { key: 'file', ending: '3f9a' } })
+    await paste(' pasted-key-0123456789abc3f9a ')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => {})
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('CurseForgeOnKey ending 3f9a')
+    expect(text).not.toContain('pasted-key')
+    expect(button('Replace key')).toBeDefined()
+    expect(button('Remove')).toBeDefined()
+    expect(keyField()).toBeNull()
+    await click('Replace key')
+    expect(keyField()).not.toBeNull()
+    expect(button('Cancel')).toBeDefined()
+  })
+
+  it('shows a key the release carries as on and built in, with nothing to change', async () => {
+    answer({ '/addon-sources': { curseforge: { key: 'build' } } })
+    const text = await render(<AddonSourcesCard />)
+    expect(text).toContain('CurseForgeOnBuilt in')
+    expect(keyField()).toBeNull()
+    expect(button('Remove')).toBeUndefined()
+  })
+
+  it('lets only the owner change the key', async () => {
+    answer({ '/addon-sources': { curseforge: { key: 'file', ending: '3f9a' } } })
+    await render(<AddonSourcesCard />, workspace({ me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    for (const label of ['Replace key', 'Remove']) {
+      expect(button(label)?.disabled).toBe(true)
+      expect(button(label)?.title).toBe('Only the owner can change this.')
+    }
   })
 })
 

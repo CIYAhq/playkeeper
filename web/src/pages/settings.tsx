@@ -3,6 +3,7 @@ import { CircleArrowUpIcon, ExternalLinkIcon, LogOutIcon, RefreshCwIcon } from '
 import { get, post } from '@/api/client'
 import type { AuditEntry, UpdateInfo } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
+import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader, roleLabel } from '@/components/app/shell'
@@ -30,6 +31,7 @@ export function GlobalSettingsPage() {
       <PageBody className="flex max-w-[860px] flex-col gap-4">
         <AccountCard />
         <PlaykeeperCard />
+        <AddonSourcesCard />
         <AuditCard />
         <Card as="section" aria-labelledby="about-title">
           <CardTitle id="about-title">{t('global.about')}</CardTitle>
