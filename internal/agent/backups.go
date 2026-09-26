@@ -762,8 +762,10 @@ func (s *server) copyPath(name string) string { return filepath.Join(s.dir(), na
 func (s *server) restoreSettled(j *swapJournal, movedBack bool) {
 	now := s.now().UTC()
 	back := "Playkeeper put your previous world back when it started again."
+	audited := "put the previous world back after the Playkeeper agent restarted"
 	if !movedBack {
 		back = "Your previous world was already back in place, and Playkeeper put its settings back when it started again."
+		audited = "put the previous world's settings back after the Playkeeper agent restarted; the world was already back in place"
 	}
 	if op, err := s.loadOperation(j.OpID); err == nil && op.Status == api.OpFailed {
 		fixed := copyOp(op)
@@ -780,7 +782,7 @@ func (s *server) restoreSettled(j *swapJournal, movedBack bool) {
 		s.saveOperation(fixed)
 	}
 	s.recordEvent(now, "world_put_back", "", "playkeeper", j.Detail)
-	s.audit("playkeeper", "restore.settled", shortSum(j.SHA256), "succeeded", "put the previous world back after the Playkeeper agent restarted")
+	s.audit("playkeeper", "restore.settled", shortSum(j.SHA256), "succeeded", audited)
 }
 
 // putPreviousBack moves the previous world back into the live directory, a

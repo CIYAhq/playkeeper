@@ -247,6 +247,9 @@ func TestAnAgentStartSettlesAWorldMovedBackByHandWithTheServerStopped(t *testing
 	if !strings.HasSuffix(settled.Error, " Your previous world was already back in place, and Playkeeper put its settings back when it started again.") {
 		t.Fatalf("the restore's record must say the start put its settings back: %+v", settled)
 	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.settled' AND detail = 'put the previous world''s settings back after the Playkeeper agent restarted; the world was already back in place'`); n != 1 {
+		t.Fatalf("want the audit log to say only the settings were put back, got %d such lines", n)
+	}
 	list, _ := e.srv().listBackups(`kind = 'manual'`)
 	if code, out := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"}); code != 200 {
 		t.Fatalf("a restore once the unfinished one is settled: %d %v", code, out)
