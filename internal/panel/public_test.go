@@ -246,6 +246,61 @@ func TestActivePacksAsksTheAgentSparingly(t *testing.T) {
 	check(sumA, false, 4, "a pack dropped from a stale list")
 }
 
+func TestListedPacksDontWaitForTheAgent(t *testing.T) {
+	clk := &clock{t: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
+	var mu sync.Mutex
+	list, answer := []string{sumA}, make(chan struct{})
+	close(answer)
+	ap := &activePacks{now: clk.now, fetch: func(ctx context.Context) ([]string, error) {
+		mu.Lock()
+		l, a := slices.Clone(list), answer
+		mu.Unlock()
+		select {
+		case <-a:
+			return l, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}
+	if !ap.has(sumA) {
+		t.Fatal("the first request was refused")
+	}
+
+	// A server starts offering pack B, and the agent is slow to say so.
+	hold := make(chan struct{})
+	mu.Lock()
+	list, answer = []string{sumA, sumB}, hold
+	mu.Unlock()
+	clk.add(activeRetry)
+	newPack := make(chan bool)
+	go func() { newPack <- ap.has(sumB) }()
+	for deadline := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+		ap.mu.Lock()
+		asking := ap.renewing != nil
+		ap.mu.Unlock()
+		if asking {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the agent was never asked about pack B")
+		}
+	}
+	listed := make(chan bool)
+	go func() { listed <- ap.has(sumA) }()
+	select {
+	case ok := <-listed:
+		if !ok {
+			t.Fatal("pack A was refused while the agent was asked about pack B")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pack A waited for the agent's answer about pack B")
+	}
+	close(hold)
+	if !<-newPack {
+		t.Fatal("pack B was refused once the agent answered")
+	}
+}
+
 func TestAddressKeyIgnoresHeadersAndGroupsIPv6(t *testing.T) {
 	for remote, want := range map[string]string{
 		"192.0.2.10:52000":               "192.0.2.10",

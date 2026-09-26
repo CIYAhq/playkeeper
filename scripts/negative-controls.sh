@@ -532,6 +532,10 @@ control "public routes: only successful answers may be cached" internal/panel/pu
   'if w.cache != "" && (status < 300 || status == http.StatusNotModified) {' \
   'if w.cache != "" {' \
   ./internal/panel '^TestPublicRoutesCacheOnlyWhatTheyMay$'
+control "resource packs: a listed pack doesn't wait while the agent is asked about another" internal/panel/packs.go \
+  'if wait == nil || known && !started {' \
+  'if wait == nil || known && !started && false {' \
+  ./internal/panel '^TestListedPacksDontWaitForTheAgent$'
 control "add-on installs: a confirmed plan is required" internal/agent/addons.go \
   'if err := confirmedPlan(req.Fingerprint); err != nil {' \
   'if err := confirmedPlan(req.Fingerprint); false && err != nil {' \
