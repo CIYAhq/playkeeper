@@ -3119,7 +3119,7 @@ export const en = {
   'backupRules.totalCopies': { one: 'About {count} copy · roughly {size}', other: 'About {count} copies · roughly {size}' },
   'backupRules.totalCopiesOn': { one: 'About {count} copy · roughly {size} on {place}', other: 'About {count} copies · roughly {size} on {place}' },
   'backupRules.keepsAll': 'Keeps every backup, so they take more space over time',
-  'backupRules.autoOff': 'Automatic backups are off, so there’s nothing to count yet',
+  'backupRules.autoOff': 'Automatic backups are off',
   'backupRules.change': 'Change rules',
   'backupRules.editTitle': 'Change backup rules',
   'backupRules.on': 'On {place}',

@@ -88,7 +88,7 @@ export function BackupRulesPage({ server: s, copies }: { server: ServerStatus; c
     <>
       <BackLink server={s} />
       <h1 className="sr-only">{t('backupRules.title')}</h1>
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,46fr)_minmax(0,54fr)]">
         <div className="flex flex-col gap-4">
           {rules.data ? (
             <>
@@ -169,9 +169,9 @@ function KeepCard({ server: s, view, onChange }: { server: ServerStatus; view: B
   const { name: machine } = useServerMachine(s)
   const e = view.onHost
   return (
-    <Card>
+    <Card className="flex-1">
       <CardTitle>{t('backupRules.keep')}</CardTitle>
-      <ul className="mt-2 divide-y divide-border">
+      <ul className="mt-2 mb-3 divide-y divide-border">
         {e.rows.map((r) => (
           <li key={r.rule} className="flex items-center justify-between gap-4 py-2.5 text-[13px]">
             <span>{ruleLabel(r)}</span>
@@ -179,7 +179,7 @@ function KeepCard({ server: s, view, onChange }: { server: ServerStatus; view: B
           </li>
         ))}
       </ul>
-      <div className="mt-3 flex items-center justify-between gap-4 border-t border-border pt-4">
+      <div className="mt-auto flex items-center justify-between gap-4 border-t border-border pt-4">
         <span className="text-[13px] font-medium">{totalText(e, 'backups', machine)}</span>
         {can(ws.me, 'servers.manage') && (
           <Button size="sm" variant="outline" onClick={onChange}>
@@ -246,7 +246,7 @@ function RuleField({ label, unit, value, max, onChange, phone, disabled }: { lab
     <div className={cn('flex items-center justify-between gap-3', phone ? 'min-h-[60px] border-b border-border py-2 last:border-b-0' : 'py-1.5')}>
       <span className={phone ? 'text-base' : 'text-[13px]'}>{label}</span>
       <NumberField className="w-auto shrink-0" value={value} onValueChange={(n) => onChange(Math.max(0, Math.min(max, n ?? 0)))} min={0} max={max} step={1} size={phone ? 'lg' : 'sm'} disabled={disabled}>
-        <NumberFieldGroup className={phone ? 'w-[156px]' : 'w-[148px]'}>
+        <NumberFieldGroup className={phone ? 'w-[168px]' : 'w-[148px]'}>
           <NumberFieldDecrement aria-label={t('common.decrease')} title={value <= 0 ? t('reason.atMin', { min: 0 }) : undefined} />
           <span className="flex min-w-0 flex-1 items-center justify-center gap-1 border-x border-input">
             <NumberFieldInput className={cn('w-7 shrink-0 grow-0 px-0 text-right font-semibold tabular-nums in-data-[size=sm]:px-0', phone && 'w-8 text-base')} aria-label={label} />
@@ -294,7 +294,7 @@ function RulesDialog({ server: s, view, onClose, onSaved }: { server: ServerStat
           <SwitchLine checked={!!d.draft.includeManual} onChange={(c) => d.setDraft((r) => ({ ...r, includeManual: c }))} title={t('backupRules.includeManual')} hint={t(d.draft.includeManual ? 'backupRules.includeManualOn' : 'backupRules.includeManualOff')} />
           <SwitchLine checked={!!d.draft.deleteOnlyCopies} onChange={(c) => d.setDraft((r) => ({ ...r, deleteOnlyCopies: c }))} title={t('backupRules.onlyCopies')} hint={t(d.draft.deleteOnlyCopies ? 'backupRules.onlyCopiesOn' : 'backupRules.onlyCopiesOff')} />
         </DialogPanel>
-        <DialogFooter className="items-center sm:justify-between">
+        <DialogFooter variant="bare" className="items-center border-t border-border sm:justify-between">
           <p className="text-xs text-muted-foreground">{t('backupRules.zeroOff')}</p>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>
