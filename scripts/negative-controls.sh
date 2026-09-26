@@ -2685,6 +2685,22 @@ control "the map counts squaremap the Plugins or Mods tab manages as its own fil
   'if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {' \
   'if i := slices.IndexFunc(installed, isSquaremap); false && i >= 0 {' \
   ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "a sparse member of a tar or tar.gz is refused" internal/worldimport/archive.go \
+  '		if sparse(h) {' \
+  '		if false && sparse(h) {' \
+  ./internal/worldimport '^TestExpansionLimitsHoldForEveryFormat$'
+control "staging stops a zip file past its own allowance" internal/worldimport/stage.go \
+  'own := &readCap{n: entryAllowance(e.csize, in.lim.MaxRatio), err: arc.err}' \
+  'own := &readCap{n: 1 << 62, err: arc.err}' \
+  ./internal/worldimport '^TestStagingCountsWhatItWrites$'
+control "staging stops an archive past its ratio allowance" internal/worldimport/stage.go \
+  'arc := &readCap{n: ratioAllowance(info.Bytes, in.lim.MaxRatio), err: ratioError(info.Name, in.lim.MaxRatio)}' \
+  'arc := &readCap{n: 1 << 62, err: ratioError(info.Name, in.lim.MaxRatio)}' \
+  ./internal/worldimport '^TestStagingCountsWhatItWrites$'
+control "staging counts what it writes against MaxTotalBytes" internal/worldimport/stage.go \
+  'if w.b.left -= int64(len(p)); w.b.left < 0 {' \
+  'if w.b.left -= int64(len(p)); false && w.b.left < 0 {' \
+  ./internal/worldimport '^TestStagingCountsWhatItWrites$'
 control "the first render follows every run that comes online, however it started" internal/agent/collector.go \
   '			if take {
 				s.mapRunOnline(runStart)
