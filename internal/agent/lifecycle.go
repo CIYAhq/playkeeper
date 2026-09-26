@@ -56,6 +56,14 @@ func (h *opHandle) commit() bool {
 	return !h.cancelled
 }
 
+// callOff ends the operation as cancelled: before changing anything, it
+// found it had nothing to do.
+func (h *opHandle) callOff() {
+	unlock := h.mu()
+	h.cancelled = true
+	unlock()
+}
+
 func (h *opHandle) phase(p string) {
 	unlock := h.mu()
 	h.op.Phase = p
@@ -119,9 +127,10 @@ var opLabels = map[string]string{
 	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
 	"remove-addon": "removing a plugin or mod",
 	// Wave 4.
-	"reinstall": "reinstalling its server software",
+	"reinstall": "reinstalling its server software", "template-retry": "installing its template's add-ons",
 	// Wave 7 (0.4.0)
 	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy", "offsite-check": "checking a copy",
+	"offsite-recover": "restoring a server from a recovery key",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -1125,9 +1134,11 @@ func (s *server) countFailedStart(err error) bool {
 // startFailed is called when a start the user asked for did not bring the
 // server up. The error's hint tells them to fix the cause and press Start, so
 // nothing retries in the background; a container that is still running (a
-// slow start that timed out) keeps the desired state running.
+// slow start that timed out) keeps the desired state running. Either way the
+// server isn't asleep, so the stand-in stops answering in its place.
 func (s *server) startFailed(ctx context.Context) {
 	if _, running, err := s.containerRunning(ctx); err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 	}
+	s.leaveSleep()
 }

@@ -891,8 +891,8 @@ func (s *server) hWorldCopies(w http.ResponseWriter, r *http.Request) {
 
 // hWorldCopyDelete discards one world copy. Nothing is discarded while the
 // live world folder is missing, because a copy may then be the only world,
-// nor while a restore of the server isn't over, because it may still put a
-// copy back.
+// nor while a restore of the server may not be over, because it may still
+// put a copy back.
 func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 	actor, err := validActor(r.URL.Query().Get("actor"))
 	if err != nil {
@@ -915,7 +915,12 @@ func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotFound("World copy"))
 		return
 	}
-	if s.restoreUnsettled() {
+	if unsettled, err := s.restoreUnsettled(); err != nil {
+		dir := s.cfg.StagingDir()
+		writeError(w, errConflict("Playkeeper can't read its restore staging folder, so this server's world copies are kept until it can: a restore may still need one.",
+			"Make sure the Playkeeper agent can read "+dir+" (sudo ls -ld "+dir+"), then try again. sudo journalctl -u playkeeper-agent says why it can't."))
+		return
+	} else if unsettled {
 		writeError(w, errConflict("A restore isn't finished, so this server's world copies are kept until it is.",
 			"Restart the Playkeeper agent (sudo systemctl restart playkeeper-agent) so it can finish the restore, then try again. If the copies are still kept, sudo journalctl -u playkeeper-agent says why."))
 		return

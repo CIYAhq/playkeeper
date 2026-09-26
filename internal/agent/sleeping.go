@@ -37,6 +37,10 @@ const (
 	sleepPeriodAge = 90 * 24 * time.Hour
 )
 
+// sleepLooks runs as the sleep operation looks again before it stops the
+// server; tests act there.
+var sleepLooks = func() {}
+
 func (s *server) sleepSettings() sleep.Settings {
 	s.auto.mu.Lock()
 	if set := s.auto.sleepSet; set != nil {
@@ -78,18 +82,18 @@ func (s *server) standIn() (*sleep.Manager, error) {
 	return m, nil
 }
 
-// mayWake admits the players who may join anyway. With the allowlist on,
-// that is those on it and operators; with it off, anyone who isn't banned.
-// If server.properties or the ban list can't be read, the allowlist rule
-// holds. Names from the stand-in are only claims.
+// mayWake admits the players who may join anyway: nobody banned, and then
+// with the allowlist on those on it and operators, with it off anyone. If
+// server.properties or the ban list can't be read, the allowlist rule holds.
+// Names from the stand-in are only claims.
 func (s *server) mayWake(player string) bool {
-	if allowlistOff(readProperties(s.dataDir())) {
-		if banned, err := s.bannedNames(); err == nil {
-			for _, name := range banned {
-				if strings.EqualFold(name, player) {
-					return false
-				}
+	if banned, err := s.bannedNames(); err == nil {
+		for _, name := range banned {
+			if strings.EqualFold(name, player) {
+				return false
 			}
+		}
+		if allowlistOff(readProperties(s.dataDir())) {
 			return true
 		}
 	}
@@ -175,14 +179,21 @@ func (s *server) observeSleep(now time.Time, state string, snap *api.PlayerSnaps
 	}
 }
 
-// fallAsleep checks the player list one last time and starts the sleep
-// operation.
-func (s *server) fallAsleep(set sleep.Settings) {
+// nobodyOn asks the server who is on, and is true only when it answers that
+// nobody is.
+func (s *server) nobodyOn() bool {
 	out, err := s.rconCommand("list")
 	if err != nil {
-		return
+		return false
 	}
-	if n, _, _, ok := minecraft.ParseList(out); !ok || n > 0 {
+	n, _, _, ok := minecraft.ParseList(out)
+	return ok && n == 0
+}
+
+// fallAsleep checks the player list and starts the sleep operation, which
+// looks again before it stops the server.
+func (s *server) fallAsleep(set sleep.Settings) {
+	if !s.nobodyOn() {
 		return
 	}
 	m, err := s.standIn()
@@ -206,7 +217,22 @@ func (s *server) fallAsleep(set sleep.Settings) {
 	}
 }
 
+// sleepOp puts the server to sleep, unless since the sleep watch decided
+// someone joined, a map pre-generation or a scheduled restart's countdown
+// began, the server stopped being meant to run or set stopped being its
+// sleep setting: then the operation is called off and the server stays
+// awake. Saving the setting takes the operation lock too, so the setting
+// can't change between this look and the stop.
 func (s *server) sleepOp(ctx context.Context, h *opHandle, m *sleep.Manager, set sleep.Settings) error {
+	sleepLooks()
+	if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {
+		h.callOff()
+		return nil
+	}
+	if s.desired() != api.DesiredRunning || s.sleepSettings() != set {
+		h.callOff()
+		return nil
+	}
 	if err := s.setDesired(api.DesiredSleeping); err != nil {
 		return err
 	}
@@ -285,8 +311,12 @@ func (s *server) wakeOp(player string) func(ctx context.Context, h *opHandle) er
 		if err != nil {
 			// After a failed wake the stand-in is back on the game port, so
 			// the server sleeps again unless its container is known to be
-			// running. If Docker can't say, the sleep loop looks again.
-			if _, running, rerr := s.containerRunning(context.WithoutCancel(ctx)); rerr != nil || !running {
+			// running. If Docker can't say, the sleep loop looks again. A
+			// start that stopped the server for good, as when its software
+			// changed, leaves it stopped, with nothing answering for it.
+			if d := s.desired(); d != api.DesiredRunning && d != api.DesiredSleeping {
+				s.leaveSleep()
+			} else if _, running, rerr := s.containerRunning(context.WithoutCancel(ctx)); rerr != nil || !running {
 				_ = s.setDesired(api.DesiredSleeping)
 				s.startSleepPeriod(s.now().UTC())
 			}
@@ -481,8 +511,9 @@ type sleepRequest struct {
 	IdleMinutes int    `json:"idleMinutes,omitempty"`
 }
 
-// hSleepSet saves the setting. Turning it off wakes a sleeping server, so
-// then nothing changes unless the server can start now.
+// hSleepSet saves the setting while no other operation runs. Turning it off
+// wakes a sleeping server, so then nothing changes unless the server can
+// start now.
 func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 	var req sleepRequest
 	if err := decode(r, &req); err != nil {
@@ -499,34 +530,47 @@ func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, automationError(err))
 		return
 	}
+	op, err := s.saveSleep(set, actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	resp := map[string]any{}
-	if !set.Enabled && s.desired() == api.DesiredSleeping {
-		op, err := s.beginOp("start", actor, func(ctx context.Context, h *opHandle) error {
-			if err := s.setDesired(api.DesiredRunning); err != nil {
-				return err
-			}
-			cur, _ := s.serverConfig()
-			if cur == nil {
-				return errNotCreated()
-			}
-			if err := s.startServer(ctx, h, *cur); err != nil {
-				// Sleep is off, so nothing answers in the server's place.
-				s.leaveSleep()
-				s.startFailed(ctx)
-				return err
-			}
-			return nil
-		})
-		if err != nil {
-			writeError(w, err)
-			return
-		}
+	if op != nil {
 		resp["operation"] = op
+	}
+	detail := "off"
+	if set.Enabled {
+		detail = fmt.Sprintf("after %d minutes with nobody on", int(set.Idle().Minutes()))
+	}
+	s.audit(actor, "sleep.changed", "server", "succeeded", detail)
+	resp["sleep"] = s.sleepStatus(s.desired())
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// saveSleep saves the setting, then starts a sleeping server when it turns
+// sleep off. It holds the operation lock, so no sleep or wake runs while it
+// looks and saves; the start takes the lock over.
+func (s *server) saveSleep(set sleep.Settings, actor string) (*api.Operation, error) {
+	release, ok := s.holdOpLock()
+	if !ok {
+		return nil, s.busyError()
+	}
+	handedOver := false
+	defer func() {
+		if !handedOver {
+			release()
+		}
+	}()
+	wake := !set.Enabled && s.desired() == api.DesiredSleeping
+	if wake {
+		if err := s.machineBusy(); err != nil {
+			return nil, err
+		}
 	}
 	b, _ := json.Marshal(set)
 	if _, err := s.db.Exec(`UPDATE servers SET sleep = ? WHERE id = ?`, string(b), s.id); err != nil {
-		writeError(w, err)
-		return
+		return nil, err
 	}
 	s.auto.mu.Lock()
 	s.auto.sleepSet = &set
@@ -535,13 +579,24 @@ func (s *server) hSleepSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auto.decision = sleep.Decision{}
 	s.auto.mu.Unlock()
-	detail := "off"
-	if set.Enabled {
-		detail = fmt.Sprintf("after %d minutes with nobody on", int(set.Idle().Minutes()))
+	if !wake {
+		return nil, nil
 	}
-	s.audit(actor, "sleep.changed", "server", "succeeded", detail)
-	resp["sleep"] = s.sleepStatus(s.desired())
-	writeJSON(w, http.StatusOK, resp)
+	handedOver = true
+	return s.startOp("start", actor, func(ctx context.Context, h *opHandle) error {
+		if err := s.setDesired(api.DesiredRunning); err != nil {
+			return err
+		}
+		cur, _ := s.serverConfig()
+		if cur == nil {
+			return errNotCreated()
+		}
+		if err := s.startServer(ctx, h, *cur); err != nil {
+			s.startFailed(ctx)
+			return err
+		}
+		return nil
+	}), nil
 }
 
 // sleepingMemoryMB is the memory sleeping servers gave back for now.

@@ -576,6 +576,61 @@ func TestTheMapUsesSquaremapThePluginsTabInstalled(t *testing.T) {
 	}
 }
 
+// A map change that can't find out whether the server is running doesn't
+// claim to be live. With Docker not answering the look at the container,
+// turning the map on or off does its part, then fails saying to restart and
+// leaves the server as it was; a map turned on then waits for that restart.
+func TestAMapChangeThatCantCheckTheServerSaysToRestart(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup func(e *agentEnv)
+		path  string
+		body  map[string]any
+		says  string
+		after func(e *agentEnv)
+	}{
+		{name: "turning the map on", setup: func(*agentEnv) {}, path: "/map/enable", body: map[string]any{}, says: "squaremap is installed, but",
+			after: func(e *agentEnv) {
+				if m := e.mapInfo(); !m.Enabled || m.State != string(webmap.StateNeedsRestart) {
+					e.t.Fatalf("the map once Docker answers again: %+v", m)
+				}
+			}},
+		{name: "turning the map off", setup: func(e *agentEnv) {
+			if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+				e.t.Fatalf("enable: %+v", op)
+			}
+			e.waitFor("online", e.onlineIdle)
+		}, path: "/map/disable", body: map[string]any{"deleteMap": false}, says: "squaremap is removed, but",
+			after: func(e *agentEnv) {
+				if _, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile)); !errors.Is(err, fs.ErrNotExist) || e.countRows(`SELECT COUNT(*) FROM maps`) != 0 {
+					e.t.Fatalf("the map after turning it off: %v", err)
+				}
+			}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e, _, _ := newMapEnv(t)
+			e.create()
+			c.setup(e)
+			started := e.startedAt()
+			down := func(prefix string) {
+				e.fd.mu.Lock()
+				e.fd.down = prefix
+				e.fd.mu.Unlock()
+			}
+			down("/containers/" + e.cname() + "/json")
+			op := e.mapOp(c.path, c.body)
+			down("")
+			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, c.says) || !strings.Contains(op.Hint, "Restart the server") {
+				t.Fatalf("%s with Docker not answering: %+v", c.name, op)
+			}
+			if !e.startedAt().Equal(started) {
+				t.Fatal("the server restarted")
+			}
+			c.after(e)
+		})
+	}
+}
+
 // The map owns only what it installed. A Fabric API the Mods tab installed
 // first stays when the map is turned off, and so does one the map installed
 // that a mod added since needs, which the Mods tab then takes over.

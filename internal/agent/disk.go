@@ -25,6 +25,11 @@ import (
 // diskCacheFor is how long a scan answers the page before it scans again.
 const diskCacheFor = 15 * time.Second
 
+// diskRestoresUnknown is the code of the report's problem when the staging
+// folder can't be read, which the Disk space page shows as why nothing of
+// any server is offered.
+const diskRestoresUnknown = "restores_unknown"
+
 type diskCache struct {
 	scan sync.Mutex // one scan at a time
 	mu   sync.Mutex
@@ -43,11 +48,18 @@ func (a *Agent) forgetDiskScan() {
 // backups each server's rules would delete. A restore that isn't over keeps
 // its stage, and its server counts as busy, so neither the stage nor the
 // world copies it may put back are offered. A swap journal that can't be
-// read may be any server's, so every server counts as busy.
+// read may be any server's, so every server counts as busy, as when the
+// staging folder can't be read; the report then says why.
 func (a *Agent) diskLayout(ctx context.Context) diskusage.Layout {
 	l := diskusage.Layout{BackupsDir: a.cfg.BackupsDir(), StagingDir: a.cfg.StagingDir(), DiskDir: a.cfg.DataDir}
 	var journals []*swapJournal
-	for stage, j := range a.unsettledSwaps() {
+	swaps, err := a.unsettledSwaps()
+	if err != nil {
+		journals = append(journals, nil)
+		l.Problems = append(l.Problems, diskusage.Problem{Code: diskRestoresUnknown, Path: l.StagingDir,
+			Text: "Playkeeper can't read its restore staging folder (" + err.Error() + "), so it can't tell whether a restore still needs a server's world copies or backups. Nothing of any server is offered until it can."})
+	}
+	for stage, j := range swaps {
 		l.ActiveStages = append(l.ActiveStages, stage)
 		journals = append(journals, j)
 	}

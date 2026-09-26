@@ -91,6 +91,9 @@ func newScan(ctx context.Context, o Options) *scan {
 
 func (s *scan) run(l Layout) *Report {
 	s.rep = Report{ScannedAt: s.now, Servers: []ServerUsage{}, Candidates: []Candidate{}, Ways: []Way{}}
+	for _, p := range l.Problems {
+		s.problem(p.Code, p.Path, p.Text)
+	}
 	s.measureDisk(l)
 	anyBusy := slices.ContainsFunc(l.Servers, func(sv Server) bool { return sv.Busy })
 	owned := make(map[string]*owner, len(l.Servers))

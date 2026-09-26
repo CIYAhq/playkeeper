@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { en } from './en'
-import { interpolate, message, t, type Plural } from '.'
+import { interpolate, message, t, type MessageKey, type Plural } from '.'
 import { rich } from './rich'
 
 describe('t', () => {
@@ -79,5 +79,17 @@ describe('the English catalog', () => {
 
   it('falls back to English for a missing key', () => {
     expect(message('brand.name')).toBe('Playkeeper')
+  })
+
+  it('says what skipping a scheduled job for players spares them', () => {
+    // A scheduled backup never stops the server: it pauses world saving, or is refused.
+    const rows: [key: MessageKey, says: string, never: RegExp][] = [
+      ['schedules.skipBackupHint', 'Players stay online', /stops|restarts|goes offline/],
+      ['schedules.skipHint', 'Tries again an hour later instead.', /backs up/],
+    ]
+    for (const [key, says, never] of rows) {
+      expect(t(key), key).toContain(says)
+      expect(t(key), key).not.toMatch(never)
+    }
   })
 })
