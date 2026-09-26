@@ -689,6 +689,88 @@ func TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp(t *testing.T) {
 	}
 }
 
+// A joined machine whose record can't be saved never shows another
+// machine's server, and shows a server no machine has as unsaved. Every
+// action and AI agent's tool for a server goes to the machine the record
+// gives it, or to none, and never to the dashboard's own agent.
+func TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere(t *testing.T) {
+	fail := func(on string) string {
+		return `CREATE TRIGGER record_fails BEFORE ` + on + ` ON server_machines BEGIN SELECT RAISE(ABORT, 'database is locked'); END`
+	}
+	const own, others, unowned = "xxxxxxxxxx", "zzzzzzzzzz", "nnnnnnnnnn"
+	for _, tc := range []struct {
+		name, breaks string
+		later        time.Duration
+		unsaved      string            // the servers alpha shows as unsaved
+		goesTo       map[string]string // "alpha", "beta" or "no lookup", by server
+	}{
+		{"the unowned server's insert fails", fail("INSERT"), 0, unowned,
+			map[string]string{own: "alpha", others: "beta", unowned: "no lookup"}},
+		{"its own server's status update fails", fail("UPDATE"), lastKnownAfter + time.Second, unowned,
+			map[string]string{own: "alpha", others: "beta", unowned: "no lookup"}},
+		{"forgetting a server it stopped listing fails", fail("DELETE"), 0, unowned,
+			map[string]string{own: "alpha", others: "beta", unowned: "no lookup"}},
+		{"the record can't be read either", `ALTER TABLE server_machines RENAME TO server_machines_gone`, 0, own + " " + unowned,
+			map[string]string{own: "no lookup", others: "no lookup", unowned: "no lookup"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cookie, csrf := e.setup(t)
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			e.srv.claimServers(alpha, serverList(own, "yyyyyyyyyy"))
+			e.srv.claimServers(beta, serverList(others))
+			e.clock.add(tc.later)
+			if _, err := e.srv.db.Exec(tc.breaks); err != nil {
+				t.Fatal(err)
+			}
+			got := e.srv.claimServers(alpha, serverList(own, others, unowned))
+			var unsaved []string
+			for _, sv := range got {
+				if sv["unsaved"] == true {
+					unsaved = append(unsaved, fmt.Sprint(sv["id"]))
+				}
+			}
+			if ids(got) != own+" "+unowned || strings.Join(unsaved, " ") != tc.unsaved {
+				t.Fatalf("alpha shows %q with %q unsaved, want %q with %q unsaved", ids(got), unsaved, own+" "+unowned, tc.unsaved)
+			}
+			if !strings.Contains(e.logs.String(), "record server machines") {
+				t.Fatal("the failed record isn't logged")
+			}
+			machines := map[string]machine{"alpha": alpha, "beta": beta}
+			for server, want := range tc.goesTo {
+				for _, action := range []string{"start", "stop", "restart"} {
+					r := e.do(t, "POST", "/api/servers/"+server+"/"+action, `{}`, auth(cookie, csrf))
+					if e.sawLocally("POST /v1/servers/" + server + "/" + action) {
+						t.Fatalf("%s %s reached the dashboard's own agent", action, server)
+					}
+					// alpha and beta never connect here, so a request that reaches one is refused as not connected.
+					wantCode := machinelink.CodeNotConnected
+					if want == "no lookup" {
+						wantCode = api.CodeInternal
+					}
+					if r.status != http.StatusServiceUnavailable || r.body["code"] != wantCode {
+						t.Fatalf("%s %s: %d %v, want 503 %s", action, server, r.status, r.body, wantCode)
+					}
+				}
+				agent, err := (mcpBackend{e.srv}).Agent(context.Background(), server)
+				var te *mcp.ToolError
+				switch {
+				case want == "no lookup":
+					if !errors.As(err, &te) || te.Kind != api.CodeInternal {
+						t.Fatalf("an AI agent's tool for %s: %v", server, err)
+					}
+				case err != nil || any(agent) == any(e.srv.agent):
+					t.Fatalf("an AI agent's tool for %s goes to the dashboard's own agent or none: %v", server, err)
+				default:
+					if m, err := e.srv.machineForServer(server); err != nil || m.ID != machines[want].ID {
+						t.Fatalf("%s goes to %v %v, want %s", server, m.ID, err, want)
+					}
+				}
+			}
+		})
+	}
+}
+
 // When the record of a joined machine's servers can't be written, the list
 // shows the servers the machine just answered with, and the failure is
 // logged.

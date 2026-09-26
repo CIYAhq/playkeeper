@@ -106,6 +106,8 @@ type Server struct {
 
 	public      *publicGroup
 	activePacks *activePacks
+	// listings are the servers each machine last listed.
+	listings listings
 }
 
 func New(opts Options) (*Server, error) {

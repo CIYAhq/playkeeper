@@ -3084,9 +3084,19 @@ control "a failed lookup of a server's machine sends its requests to no machine,
 	if false && err != nil && !isNoRows(err) {' \
   ./internal/panel '^TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp$'
 control "a joined machine's servers still show when their record can't be written" internal/panel/machines.go \
-  'return listedServers(servers)' \
+  'return s.unsavedServers(m, servers)' \
   'return nil' \
   ./internal/panel '^TestAJoinedMachinesServersShowWhenTheirRecordCantBeWritten$'
+control "a joined machine's server whose record isn't saved goes to no machine, not the dashboard's own" internal/panel/workspace.go \
+  'if joinedListed && !s.listings.has(local.ID, serverID) {' \
+  'if false && joinedListed && !s.listings.has(local.ID, serverID) {' \
+  ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
+control "a failed claim never shows another machine's server" internal/panel/machines.go \
+  'case rec.machineID != m.ID:
+			continue' \
+  'case false && rec.machineID != m.ID:
+			continue' \
+  ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
