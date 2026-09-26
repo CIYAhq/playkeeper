@@ -315,7 +315,7 @@ describe('New server on a joined machine', () => {
     vi.mocked(client.post).mockImplementation((() => Promise.resolve({ id: 'op1', kind: 'create', status: 'running', serverId: 's2345abcde' } as Operation)) as typeof client.post)
   })
 
-  it.each([
+  for (const tc of [
     {
       name: 'makes the server there while it’s connected, and keeps the machine once the flow starts',
       steps: async () => {
@@ -360,9 +360,11 @@ describe('New server on a joined machine', () => {
       },
       posts: ['/api/machines/r2345abcde/servers'],
     },
-  ])('$name', async ({ steps, posts }) => {
-    await steps()
-    expect(posted()).toEqual(posts)
-    expect(asked().filter((p) => p.includes(machine.id))).toEqual([])
-  })
+  ]) {
+    it(tc.name, async () => {
+      await tc.steps()
+      expect(posted()).toEqual(tc.posts)
+      expect(asked().filter((p) => p.includes(machine.id))).toEqual([])
+    })
+  }
 })

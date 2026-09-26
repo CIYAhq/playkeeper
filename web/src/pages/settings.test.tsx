@@ -67,7 +67,7 @@ afterEach(async () => {
 })
 
 describe('Audit log', () => {
-  it.each([
+  for (const tc of [
     {
       name: 'rows numbered alike on the dashboard and two machines each show, with their machine',
       machines: [local, remote],
@@ -80,15 +80,17 @@ describe('Audit log', () => {
       rows: [row({ source: 'panel', action: 'login' }), row({ machineId: local.id, action: 'backup.created' })],
       shown: [['login', ''], ['backup.created', '']],
     },
-  ])('$name', async ({ machines, rows, shown }) => {
-    const errors = vi.spyOn(console, 'error')
-    vi.mocked(client.get).mockImplementation(((path: string) => (path === '/api/audit' ? Promise.resolve(rows) : new Promise(() => {}))) as typeof client.get)
-    const r = createRoot(document.body.appendChild(document.createElement('div')))
-    root = r
-    await act(async () => r.render(<WorkspaceContext.Provider value={workspace(machines)}>{<GlobalSettingsPage page={{ name: 'settings' }} />}</WorkspaceContext.Provider>))
-    await act(async () => {})
-    const cells = [...document.querySelectorAll('#audit tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent ?? ''))
-    expect(cells.map((c) => [c[2], c[3]])).toEqual(shown)
-    expect(errors.mock.calls.filter((args) => args.join(' ').includes('same key'))).toEqual([])
-  })
+  ]) {
+    it(tc.name, async () => {
+      const errors = vi.spyOn(console, 'error')
+      vi.mocked(client.get).mockImplementation(((path: string) => (path === '/api/audit' ? Promise.resolve(tc.rows) : new Promise(() => {}))) as typeof client.get)
+      const r = createRoot(document.body.appendChild(document.createElement('div')))
+      root = r
+      await act(async () => r.render(<WorkspaceContext.Provider value={workspace(tc.machines)}>{<GlobalSettingsPage page={{ name: 'settings' }} />}</WorkspaceContext.Provider>))
+      await act(async () => {})
+      const cells = [...document.querySelectorAll('#audit tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent ?? ''))
+      expect(cells.map((c) => [c[2], c[3]])).toEqual(tc.shown)
+      expect(errors.mock.calls.filter((args) => args.join(' ').includes('same key'))).toEqual([])
+    })
+  }
 })
