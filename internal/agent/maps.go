@@ -139,11 +139,38 @@ func (m *mapRecord) sharePath() string {
 	return "/map/" + m.shareToken
 }
 
-// mapFilesPresent reports whether every add-on file the map installed is
-// still in the server's plugins or mods folder.
+// isSquaremap reports whether rec is squaremap, from either site.
+func isSquaremap(rec addons.Installed) bool {
+	return rec.Source == addons.Modrinth && rec.ProjectID == webmap.ModrinthProjectID ||
+		rec.Source == addons.Hangar && rec.ProjectID == webmap.HangarProjectID
+}
+
+// mapFiles are the add-on records the map needs the files of: what the map
+// installed, and squaremap from the Plugins or Mods tab when that tab
+// manages it, which the map then uses and leaves to the tab.
+func (s *server) mapFiles(rec *mapRecord) ([]addons.Installed, error) {
+	if slices.ContainsFunc(rec.addons, isSquaremap) {
+		return rec.addons, nil
+	}
+	installed, err := s.installedAddons()
+	if err != nil {
+		return nil, err
+	}
+	if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {
+		return append(slices.Clone(rec.addons), installed[i]), nil
+	}
+	return rec.addons, nil
+}
+
+// mapFilesPresent reports whether squaremap and every other add-on file the
+// map needs are in the server's plugins or mods folder.
 func (s *server) mapFilesPresent(rec *mapRecord) bool {
 	l, err := webmap.LayoutFor(s.serverType(nil))
-	if err != nil || len(rec.addons) == 0 {
+	if err != nil {
+		return false
+	}
+	files, err := s.mapFiles(rec)
+	if err != nil || !slices.ContainsFunc(files, isSquaremap) {
 		return false
 	}
 	root, err := os.OpenRoot(s.dataDir())
@@ -151,7 +178,7 @@ func (s *server) mapFilesPresent(rec *mapRecord) bool {
 		return false
 	}
 	defer root.Close()
-	for _, a := range rec.addons {
+	for _, a := range files {
 		if a.FileName == "" || a.FileName == "." || a.FileName == ".." || strings.ContainsAny(a.FileName, `/\`) {
 			return false
 		}
@@ -364,7 +391,8 @@ func (s *server) mapInfo(ctx context.Context) (api.MapInfo, error) {
 		info.Enabled = true
 		info.Public, info.PublicPlayers = rec.public, rec.publicPlayers
 		info.RestartWhenEmpty = rec.restartWhenEmpty != ""
-		info.PluginVersion = pluginVersion(rec.addons)
+		files, _ := s.mapFiles(rec)
+		info.PluginVersion = pluginVersion(files)
 	}
 	return info, nil
 }
@@ -656,25 +684,38 @@ func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webma
 		}
 	}
 	// What the Plugins or Mods tab manages already counts as there, so the
-	// map owns only what it adds.
+	// map owns only what it adds; squaremap that tab installed stays the
+	// tab's, and the map uses it.
 	installed, err := s.installedAddons()
 	if err != nil {
 		return err
 	}
-	res, err := s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
-	if err != nil {
-		return addonError(err)
+	var added []addons.Installed
+	if !slices.ContainsFunc(installed, isSquaremap) {
+		res, err := s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
+		if err != nil {
+			return addonError(err)
+		}
+		added = res.Installed
 	}
 	now := s.now().UTC()
-	rec := &mapRecord{addons: res.Installed, installedAt: now}
+	rec := &mapRecord{addons: added, installedAt: now}
+	if len(added) == 0 && !s.mapFilesPresent(rec) {
+		tab := "Plugins"
+		if l.Folder == "mods" {
+			tab = "Mods"
+		}
+		return errConflict("squaremap is on the "+tab+" tab, but its file is gone.", "Install it again or remove it on the "+tab+" tab, then turn the map on.")
+	}
 	if err := s.saveMap(rec); err != nil {
-		if rerr := s.removeMapAddons(ctx, srv, res.Installed, false); rerr != nil {
+		if rerr := s.removeMapAddons(ctx, srv, added, false); rerr != nil {
 			s.log.Warn("could not remove squaremap after failing to record it", "server", s.id, "err", rerr)
 		}
 		return err
 	}
 	s.forgetMapLive()
-	ver := pluginVersion(res.Installed)
+	files, _ := s.mapFiles(rec)
+	ver := pluginVersion(files)
 	h.set("plugin", webmap.PluginName)
 	h.set("version", ver)
 	detail := strings.TrimSpace(webmap.PluginName + " " + ver)
