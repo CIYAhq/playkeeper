@@ -40,7 +40,9 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{"[21:40:12 ERROR]: The server has stopped responding! This is (probably) not a Paper bug.", EventCrashed, ""},
 		{"[12:00:00] [Server Watchdog/FATAL]: A single server tick took 60.00 seconds (should be max 0.05)", EventCrashed, ""},
 		{"[12:00:00] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server", EventCrashed, ""},
-		// Real lines from a Forge 65.1.0 server for Minecraft 26.2.
+		// Real lines from Forge 65.1.0 for Minecraft 26.2 and Forge 61.1.1 for 1.21.11.
+		{"[13:43:58] [Server thread/INFO] [minecraft/MinecraftServer]: pkbotfriend joined the game", EventJoin, "pkbotfriend"},
+		{"[13:44:29] [Server thread/INFO] [minecraft/MinecraftServer]: pkbotfriend left the game", EventLeave, "pkbotfriend"},
 		{`[12:50:11] [Server thread/INFO] [minecraft/DedicatedServer]: Done (2.885s)! For help, type "help"`, EventReady, ""},
 		{"[12:50:08] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 26.2", EventStarting, ""},
 		{"[13:10:24] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt", EventCrashed, ""},
