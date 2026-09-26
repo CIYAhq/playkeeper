@@ -624,6 +624,13 @@ describe('Settings › Memory', () => {
     expect(document.querySelector('[role="img"]')).toBeNull()
   })
 
+  it('counts fewer friends for a mod loader until it can suggest a size', async () => {
+    const early: MemoryAdvice = { ...keep, verdict: 'not_enough_data', params: { days: 1, min_days: 3, min_span_days: 7, span_days: 1 }, recommendedMB: undefined, options: options.map((o) => ({ ...o, fit: undefined })) }
+    answer({ '/memory': early })
+    const text = await render(<ServerSettingsPage server={server({ type: 'neoforge' })} />)
+    expect(text).toContain('Suggests a size after 3 days of play. Until then, 4 GB suits up to 4 friends.')
+  })
+
   it('keeps the section in the address current in the nav while the one above it is still in view', async () => {
     const observers: { cb: IntersectionObserverCallback; els: Element[] }[] = []
     vi.stubGlobal(
@@ -1109,6 +1116,18 @@ describe('Templates', () => {
     await toggle('I accept the Minecraft End User License Agreement')
     await click('Create and start Survival with friends')
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
+  })
+
+  it('sizes a mod loader template’s memory for its type and mods', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValue({ ...plan, type: 'quilt', versionId: 'quilt-26.1.2', contents: { ...contents, type: 'quilt' } })
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    await click('Continue to memory')
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Room for about 4 players')
+    expect(text).toContain('Java gets 2.2 GB of it')
   })
 
   it('says who made a template and when, when it says both', async () => {

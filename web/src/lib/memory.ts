@@ -51,7 +51,7 @@ export function memoryProgress(a: MemoryAdvice): { day: number; of: number } | u
 }
 
 /** The line under Settings › Memory's budget: what the last 14 days say about it. */
-export function memoryAdviceLine(a: MemoryAdvice, machine: string): string {
+export function memoryAdviceLine(a: MemoryAdvice, machine: string, type?: string): string {
   const p = a.params
   const count = num(p, 'days') ?? 0
   const peakMB = num(p, 'peak_mb')
@@ -74,7 +74,7 @@ export function memoryAdviceLine(a: MemoryAdvice, machine: string): string {
       return to ? t('settings.memoryRaise', { count, to: formatMB(to) }) : t('settings.memoryRaiseNoRoom', { count, machine })
     }
     case 'not_enough_data': {
-      const until = { memory, players: playersFor(a.budgetMB) }
+      const until = { memory, count: playersFor(a.budgetMB, type) }
       const minDays = num(p, 'min_days') ?? 3
       if (!count && a.fromNextStart) return t('settings.memoryFromRestart', until)
       if (count >= minDays) return t('settings.memoryAfterWeek', until)
@@ -105,11 +105,11 @@ const recommendedText: Record<MemoryFit, MessageKey> = {
  * The line under a budget in Settings › Memory's list: whether the machine
  * has room for it, then how it would fit, or who it suits until then.
  */
-export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefined, machine: string): string {
+export function memoryOptionHint(o: MemoryOption, advice: MemoryAdvice | undefined, machine: string, type?: string): string {
   if (!o.fits) return t('settings.memoryNoRoom', { machine })
   if (advice?.recommendedMB === o.memoryMB) return o.fit ? t(recommendedText[o.fit]) : t('settings.memoryRecommended')
   if (o.fit) return t(fitText[o.fit])
-  return t('settings.memoryFriends', { count: playersFor(o.memoryMB) })
+  return t('settings.memoryFriends', { count: playersFor(o.memoryMB, type) })
 }
 
 /**

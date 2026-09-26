@@ -33,12 +33,22 @@ export function memoryForStyle(options: number[], wantMB: number): number {
   return fits.length ? Math.max(...fits) : Math.min(...options)
 }
 
-/** About how many players a memory budget suits, for the memory step. */
-export function playersFor(memoryMB: number): number {
-  if (memoryMB >= 8192) return 30
-  if (memoryMB >= 6144) return 20
-  if (memoryMB >= 4096) return 10
-  if (memoryMB >= 3072) return 6
-  if (memoryMB >= 2048) return 4
-  return 2
+/**
+ * What a mod loader and its mods take of a budget before its players, over
+ * what Paper takes: the loader's memory outside the heap and the heap its
+ * mods fill. A Quilt server with two mods at 2 GB was killed when one player
+ * joined.
+ */
+const moddedMB: Record<string, number> = { fabric: 1024, quilt: 1024, neoforge: 2048 }
+
+/** About how many players a memory budget suits on a server of the type, for the memory step. */
+export function playersFor(memoryMB: number, type = 'paper'): number {
+  const mb = memoryMB - (moddedMB[type] ?? 0)
+  if (mb >= 8192) return 30
+  if (mb >= 6144) return 20
+  if (mb >= 4096) return 10
+  if (mb >= 3072) return 6
+  if (mb >= 2048) return 4
+  if (mb >= 1024) return 2
+  return 1
 }

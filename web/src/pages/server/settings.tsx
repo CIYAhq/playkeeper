@@ -211,11 +211,11 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     }
   }
 
-  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, ws.machineName), disabled: !o.fits }))
+  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, ws.machineName, s.type), disabled: !o.fits }))
   const progress = advice && memoryProgress(advice)
   const memoryHint = advice ? (
     <>
-      {memoryAdviceLine(advice, ws.machineName)}
+      {memoryAdviceLine(advice, ws.machineName, s.type)}
       {advice.verdict !== 'not_enough_data' && advice.days.length > 0 && <MemoryDays advice={advice} />}
       {progress && (
         <div className="mt-2 flex items-center gap-3">

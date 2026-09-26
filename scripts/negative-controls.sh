@@ -1693,6 +1693,22 @@ webcontrol "a create that never started can be deleted from its card" web/src/pa
   'onClick={() => setDeleting(true)}' \
   'onClick={() => setDeleting(false)}' \
   web/src/pages/pages.test.tsx 'create never started'
+webcontrol "a mod loader suits fewer players at the same memory" web/src/lib/styles.ts \
+  'const mb = memoryMB - (moddedMB[type] ?? 0)' \
+  'const mb = memoryMB' \
+  web/src/lib/lib.test.ts 'fewer players on a mod loader'
+webcontrol "the dashboard gives a mod loader the heap the agent gives it" web/src/components/app/create.tsx \
+  'if (base !== undefined) overhead =' \
+  'if (base === -1) overhead =' \
+  web/src/lib/lib.test.ts 'how much of it Java gets'
+webcontrol "the memory step counts for the type and mods the new server runs" web/src/pages/new-server.tsx \
+  '<MemoryReadout memoryMB={c.memoryMB} type={runsType} mods={runsMods}' \
+  '<MemoryReadout memoryMB={c.memoryMB}' \
+  web/src/pages/pages.test.tsx 'memory for its type and mods'
+webcontrol "Settings › Memory counts friends for the server's type" web/src/pages/server/settings.tsx \
+  '{memoryAdviceLine(advice, ws.machineName, s.type)}' \
+  '{memoryAdviceLine(advice, ws.machineName)}' \
+  web/src/pages/pages.test.tsx 'fewer friends for a mod loader'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

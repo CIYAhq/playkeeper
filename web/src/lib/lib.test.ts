@@ -17,7 +17,7 @@ import { href, parse, type Route } from './router'
 import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadline, tickRateAxis, tickTimeAxis, timeLabels } from './running'
 import { newerStable, softwareLabel, softwareName } from './servers'
 import { addonKind, formatReleased, shortHash } from './software'
-import { memoryForStyle } from './styles'
+import { memoryForStyle, playersFor } from './styles'
 import { addonsLine, afterSignIn, leftOutAddons, madeBy, packsLine, pinned, settingNames, settingsSummary, signInPath, templateFromHash } from './templates'
 import { upgradeTargets } from './versions'
 
@@ -129,6 +129,21 @@ describe('memory', () => {
   it('matches the agent on how much of it Java gets', () => {
     expect(heapMB(4096)).toBe(3072)
     expect(heapMB(1536)).toBe(1024)
+    expect(heapMB(2048, 'purpur', 40)).toBe(1536)
+    // The Quilt server a player's join got killed: 2 GB, Chunky and Fabric API.
+    expect(heapMB(2048, 'quilt', 2)).toBe(2048 - 780)
+    expect(heapMB(2048, 'fabric', 17)).toBe(2048 - 870)
+    expect(heapMB(2048, 'neoforge')).toBe(1024)
+    expect(heapMB(3072, 'neoforge', 1)).toBe(3072 - 1030)
+    expect(heapMB(4096, 'fabric', 12)).toBe(3072)
+    expect(heapMB(6144, 'neoforge', 150)).toBe(6144 - 1924)
+  })
+
+  it('counts fewer players on a mod loader, whose mods take memory first', () => {
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb))).toEqual([2, 4, 6, 10, 20, 30])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, 'vanilla'))).toEqual([2, 4, 6, 10, 20, 30])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, 'quilt'))).toEqual([1, 2, 4, 6, 10, 20])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, 'neoforge'))).toEqual([1, 1, 2, 4, 10, 20])
   })
 })
 
@@ -713,6 +728,8 @@ describe('memory advice', () => {
     expect(memoryAdviceLine(early({ days: 1 }), 'my-vps')).toBe('Suggests a size after 3 days of play. Until then, 4 GB suits up to 10 friends.')
     expect(memoryAdviceLine(early({ days: 4 }), 'my-vps')).toBe('Suggests a size after a week. Until then, 4 GB suits up to 10 friends.')
     expect(memoryAdviceLine(early({ days: 0 }, { fromNextStart: true, budgetMB: 2048 }), 'my-vps')).toBe('Starts measuring at its next restart. Until then, 2 GB suits up to 4 friends.')
+    expect(memoryAdviceLine(early({ days: 0 }, { fromNextStart: true, budgetMB: 2048 }), 'my-vps', 'neoforge')).toBe('Starts measuring at its next restart. Until then, 2 GB suits 1 friend.')
+    expect(memoryAdviceLine(early({ days: 4 }), 'my-vps', 'fabric')).toBe('Suggests a size after a week. Until then, 4 GB suits up to 6 friends.')
   })
 
   it('says how each budget would fit, and which one it recommends', () => {
@@ -725,6 +742,7 @@ describe('memory advice', () => {
     expect(hint({ memoryMB: 6144, fit: 'more_than_needed' })).toBe('More than it uses')
     expect(hint({ memoryMB: 8192, fit: 'more_than_needed', fits: false })).toBe('Not enough free on my-vps')
     expect(hint({ memoryMB: 6144 }, undefined)).toBe('Up to 20 friends')
+    expect(memoryOptionHint({ memoryMB: 6144, heapMB: 0, fits: true }, undefined, 'my-vps', 'neoforge')).toBe('Up to 10 friends')
   })
 
   it('always offers the budget the server has', () => {
