@@ -833,6 +833,7 @@ export const en = {
   'packs.offeredBefore': 'Until it’s fixed, players get what {server} offered before.',
   'packs.rowProblem': '{name} can’t be offered',
   'packs.localHost': 'Players can’t download packs from {host}. Open the dashboard at the address players join with.',
+  'packs.joinedMachine': 'Resource packs work only on the dashboard’s machine for now.',
   'packs.dataPacks': 'Data packs',
   'packs.uploadData': 'Upload data pack',
   'packs.addData': 'Add a data pack',
