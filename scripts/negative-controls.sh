@@ -1343,6 +1343,10 @@ control "names service owns only records with the name's marker" internal/names/
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || reservedName(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
+control "names service checks a zone it couldn't check at startup before the first change" internal/names/service/dns.go \
+  'if s.zoneOK.Load() {' \
+  'if true || s.zoneOK.Load() {' \
+  ./internal/names/service '^TestStartupWithoutCloudflareChecksTheZoneBeforeTheFirstChange$'
 control "names service never owns records of reserved names" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
@@ -1862,6 +1866,10 @@ control "refused server addresses are asked for again only when due" internal/ag
   'if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {' \
   'if st.Free.ServersFailed > 0 && !now.Before(st.Free.ServersRetry) || st.Free.ServersWait != "" {' \
   ./internal/agent '^TestServerAddressesWaitForTheNamesService$'
+control "the HTTP-01 responder stops listening when its last check is released" internal/certs/http01.go \
+  'if h.pending == 0 && h.srv != nil {' \
+  'if false && h.pending == 0 && h.srv != nil {' \
+  ./internal/certs '^TestHTTP01ListensWhilePending$'
 control "resource pack links: HTTPS only with a certificate players' games trust" internal/certs/store.go \
   'if _, err := e.cert.Leaf.Verify(opts); err != nil {' \
   'if _, err := e.cert.Leaf.Verify(opts); err != nil && at.IsZero() {' \
