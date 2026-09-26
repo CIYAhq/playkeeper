@@ -21,8 +21,9 @@ var (
 	playStyles   = []string{"friends", "creative", "hardcore", "solo"}
 	channels     = []string{"release", "beta", "alpha"}
 	// nonModTypes are the known types that cannot run a modpack; types
-	// this Playkeeper does not know yet may.
-	nonModTypes = []string{"paper", "purpur", "vanilla"}
+	// this Playkeeper does not know yet may. Vanilla runs packs without a
+	// mod loader.
+	nonModTypes = []string{"paper", "purpur"}
 )
 
 // settingLabels name the settings in messages, by JSON name.

@@ -298,6 +298,11 @@ func TestPlanTypes(t *testing.T) {
 			msg: "The modpack Adrenaserver is made for Minecraft 1.21.1, which this Playkeeper cannot create for Fabric servers."},
 		{name: "modpack at its version", template: func(t *testing.T) *Template { return fixture(t, "fabric-modpack.json") },
 			catalog: withType(paperCatalog(), "fabric", "1.21.8", "1.21.1"), typ: TypeChoice{ID: "fabric", Name: "Fabric"}, version: "fabric-1.21.1", addons: 1},
+		{name: "a Vanilla modpack runs on Vanilla", template: func(t *testing.T) *Template {
+			tp := fixture(t, "fabric-modpack.json")
+			tp.Server.Type, tp.Addons = "vanilla", nil
+			return tp
+		}, catalog: withType(paperCatalog(), "vanilla", "1.21.1"), typ: TypeChoice{ID: "vanilla", Name: "Vanilla"}, version: "vanilla-1.21.1"},
 		{name: "versions that could not be listed", template: paperTemplate, catalog: unlisted,
 			typ: TypeChoice{ID: "paper", Name: "Paper"}, blockers: []Kind{KindVersionsUnavailable}, addons: 3,
 			msg: "Playkeeper could not list the versions of Paper: PaperMC's API did not answer."},

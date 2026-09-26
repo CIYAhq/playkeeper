@@ -234,6 +234,15 @@ func TestValidateAccepts(t *testing.T) {
 	}
 }
 
+func TestVanillaTemplateCarriesAModpack(t *testing.T) {
+	tp := fixture(t, "fabric-modpack.json")
+	tp.Server.Type, tp.Addons = "vanilla", nil
+	if err := tp.Validate(); err != nil {
+		t.Fatalf("a pack without a mod loader runs on Vanilla: %v", err)
+	}
+	roundTrip(t, tp)
+}
+
 func TestMarshalFileWithoutIndentWhenLarge(t *testing.T) {
 	tp := fixture(t, "paper-server.json")
 	tp.Addons = manyAddons(MaxAddons)

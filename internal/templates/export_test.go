@@ -369,6 +369,12 @@ func TestExportLeavesOut(t *testing.T) {
 			}},
 		{name: "modpack on a Paper server", fabric: true, edit: func(s *Setup) { s.Type = "paper" },
 			leftOut: []Kind{KindLeftOutModpack}},
+		{name: "modpack on a Vanilla server", fabric: true, edit: func(s *Setup) { s.Type, s.Addons, s.Modpack.Includes = "vanilla", nil, nil },
+			notes: []Kind{KindNoteWorld, KindNotePlayers}, check: func(t *testing.T, tp *Template, r *Report) {
+				if tp.Server.Type != "vanilla" || tp.Modpack == nil || tp.Modpack.Project != "H9OFWiay" {
+					t.Errorf("got %+v on %s: a Vanilla server's pack travels", tp.Modpack, tp.Server.Type)
+				}
+			}},
 		{name: "incomplete modpack record", fabric: true, edit: func(s *Setup) { s.Modpack.Pin.Hash = "" },
 			leftOut: []Kind{KindLeftOutModpack}},
 
