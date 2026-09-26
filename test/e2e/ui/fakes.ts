@@ -697,9 +697,10 @@ const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous',
  * click-through reaches the controls only they show: its servers stopped,
  * crashed (out of memory, as the agent reports it) or busy with a backup;
  * no players, sessions or backups; no servers at all; a newer Playkeeper to
- * update to; or a panel that still needs its admin account.
+ * update to; space to free on the machine's disk; or a panel that still
+ * needs its admin account.
  */
-export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'first run'
+export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'space to free' | 'first run'
 
 type Json = Record<string, unknown>
 
@@ -722,6 +723,7 @@ function server(view: View, s: Json): Json {
     case 'live':
     case 'no servers':
     case 'update available':
+    case 'space to free':
     case 'first run':
       return s
     default: {
@@ -733,6 +735,41 @@ function server(view: View, s: Json): Json {
 
 /** The version the 'update available' view offers. */
 export const newerRelease = '0.3.2'
+
+/**
+ * What a disk scan finds on a machine that has run for a while: two backups
+ * beyond the keep rules, two old logs and the server folder a restore set
+ * aside (the World tab's leftover world). A fresh install has none of them,
+ * so its Disk space page has nothing to free.
+ */
+function spaceToFree(report: Json): Json | undefined {
+  const server = (report.servers as { id: string; name: string }[] | undefined)?.[0]
+  if (!server) return undefined
+  const root = String((report.disk as Json | null | undefined)?.dir ?? '/var/lib/playkeeper')
+  let seq = 0
+  const item = (reason: string, kind: string, path: string, bytes: number, modifiedAt: string, params: Record<string, string>, text: string) => ({ id: (++seq).toString(16).padStart(32, '0'), serverId: server.id, kind, reason, risk: reason === 'old_log' ? 'low' : 'medium', path, bytes, files: 1, modifiedAt, params, text })
+  const backup = (days: number, bytes: number) => {
+    const at = ago(days * 86_400)
+    const id = `${at.slice(0, 19).replace(/[-:]/g, '').replace('T', '-')}-${(0x5bbf38 + days).toString(16)}`
+    return { ...item('pruned_backup', 'backups', `${root}/backups/playkeeper-${id}.tar.gz`, bytes, at, { backupId: id, createdAt: at }, 'A backup the backup rules would delete.'), backupId: id }
+  }
+  const log = (days: number, bytes: number) => {
+    const at = ago(days * 86_400)
+    const file = `${at.slice(0, 10)}-1.log.gz`
+    return item('old_log', 'logs', `${root}/servers/${server.id}/data/logs/${file}`, bytes, at, { file, date: at.slice(0, 10) }, 'A server log. Old logs only help to look into past problems.')
+  }
+  const backups = [backup(31, 412_000_000), backup(38, 409_000_000)]
+  const logs = [log(37, 9_400_000), log(45, 8_100_000)]
+  const setAside = [item('leftover_copy', 'leftovers', `${root}/servers/${server.id}/${leftoverWorld.name}`, leftoverWorld.sizeBytes, leftoverWorld.createdAt, { why: 'replaced', date: leftoverWorld.createdAt.slice(0, 10) }, 'The server’s files from before a restore.')]
+  const from = `From ${server.name}`
+  const way = (id: string, action: string, cs: { id: string; bytes: number }[], title: string, text: string, params?: Record<string, string>) => ({ id, action, bytes: cs.reduce((n, c) => n + c.bytes, 0), candidateIds: cs.map((c) => c.id), serverIds: [server.id], params, title, text })
+  const ways = [
+    way('old_backups', 'review', backups, 'Backups beyond your keep rules', '2 old backups. The newest stay.', { count: '2' }),
+    way('old_logs', 'delete', logs, 'Logs older than 30 days', from, { days: '30' }),
+    way('set_aside', 'review', setAside, 'Server folders set aside by restores and updates', from),
+  ]
+  return { ...report, candidates: [...backups, ...logs, ...setAside], ways, freeable: ways.reduce((n, w) => n + w.bytes, 0) }
+}
 
 /** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
 function lay(view: View, path: string, body: unknown): unknown {
@@ -751,6 +788,7 @@ function lay(view: View, path: string, body: unknown): unknown {
     if (path === '/api/machines' && Array.isArray(body)) return body.map((m: Json) => (m.live ? { ...m, live: { ...(m.live as Json), updateAvailable: newerRelease } } : m))
     if (/^\/api\/machines\/\w+\/update$/.test(path)) return { ...(body as Json), supported: true, available: true, latest: newerRelease, notes: '- Backups finish sooner\n- The phone’s Settings tab has a heading again', releaseDate: ago(2 * 86_400) }
   }
+  if (view === 'space to free' && /^\/api\/machines\/\w+\/disk$/.test(path)) return spaceToFree(body as Json)
   return undefined
 }
 

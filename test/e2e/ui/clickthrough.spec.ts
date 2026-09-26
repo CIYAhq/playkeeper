@@ -19,7 +19,8 @@ import { login, outDir } from './helpers'
 // pages that change are crawled again in states it isn't in, laid over the
 // panel's real answers (View in fakes.ts): the server stopped, crashed and
 // busy, no players or backups, no servers at all (Home's empty page and
-// /welcome), a Playkeeper update to install, and first-run setup.
+// /welcome), a Playkeeper update to install, space to free on the machine's
+// disk, and first-run setup.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. There is no list of exceptions: a control that should do nothing
@@ -90,6 +91,7 @@ interface Crawl {
 /** After the live pages: the pages each faked state changes, for the first server in `live`. */
 function fakedCrawls(live: string[], phone: boolean): Crawl[] {
   const first = live.find((r) => /^\/servers\/(?!new$)[^/]+$/.test(r))
+  const disk = live.find((r) => /^\/machines\/[^/]+\/disk$/.test(r))
   const byView: [View, string[]][] = [
     ['stopped', first ? ['/', first, `${first}/console`, `${first}/settings`] : []],
     ['crashed', first ? ['/', first] : []],
@@ -98,6 +100,7 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['empty lists', first ? [`${first}/players`, `${first}/world`] : []],
     ['no servers', ['/', '/welcome']],
     ['update available', phone ? ['/settings', '/more'] : ['/settings']],
+    ['space to free', disk ? [disk] : []],
   ]
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }
@@ -117,7 +120,10 @@ function pageOf(c: { route: string; view?: View }): string {
  * it is broken. A page's count leaves out controls pressed on an earlier
  * page, such as the sidebar. A page that isn't listed needs one. A dev build
  * (make dev) can't update itself, so its /settings has no "Check for updates"
- * and one control fewer than an installed panel's.
+ * and one control fewer than an installed panel's. A fresh install has
+ * nothing to free on the Disk space page, whose way back to the machine is
+ * pressed on the machine's other pages first, so its controls count in the
+ * space to free view.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -132,6 +138,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 36,
     '/machines/*': 3,
     '/machines/*/settings': 6,
+    '/machines/*/disk': 0,
     '/settings': 2,
     '/account': 7,
     '/account/two-factor': 4,
@@ -148,6 +155,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/ (no servers)': 1,
     '/welcome (no servers)': 11,
     '/settings (update available)': 5,
+    '/machines/*/disk (space to free)': 11,
   },
   phone: {
     '/login': 3,
@@ -161,6 +169,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/new': 29,
     '/machines/*': 1,
     '/machines/*/settings': 6,
+    '/machines/*/disk': 0,
     '/settings': 1,
     '/account': 6,
     '/account/two-factor': 1,
@@ -178,6 +187,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/welcome (no servers)': 15,
     '/settings (update available)': 3,
     '/more (update available)': 1,
+    '/machines/*/disk (space to free)': 14,
   },
 }
 
@@ -193,10 +203,10 @@ interface Place {
 }
 
 /**
- * Places the click-through didn't reach before 0.3.1's audit. In each, one
- * control must come out as `status`, and a negative control breaks it and
- * presses it again (a disabled one loses its reason instead): the crawl must
- * then report it.
+ * Places the click-through didn't reach before 0.3.1's audit, and the Disk
+ * space page's clean-up. In each, one control must come out as `status`,
+ * and a negative control breaks it and presses it again (a disabled one
+ * loses its reason instead): the crawl must then report it.
  */
 const places: Place[] = [
   { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
@@ -214,6 +224,7 @@ const places: Place[] = [
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
+  { what: 'deleting old backups on the Disk space page', sizes: ['desktop', 'phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
   { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
 ]
 
