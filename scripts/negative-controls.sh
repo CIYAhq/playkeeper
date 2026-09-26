@@ -2693,6 +2693,18 @@ control "the map counts squaremap the Plugins or Mods tab manages as its own fil
   'if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {' \
   'if i := slices.IndexFunc(installed, isSquaremap); false && i >= 0 {' \
   ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "turning the map on doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  '	if err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  '	if false && err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
+control "turning the map off doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  '	if err != nil {
+		return restartUnchecked("squaremap is removed",' \
+  '	if false && err != nil {
+		return restartUnchecked("squaremap is removed",' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
 control "a sparse member of a tar or tar.gz is refused" internal/worldimport/archive.go \
   '		if sparse(h) {' \
   '		if false && sparse(h) {' \
