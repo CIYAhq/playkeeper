@@ -625,11 +625,18 @@ func TestTurningTheMapOffStopsSquaremapFirst(t *testing.T) {
 					t.Fatalf("stop: %d %v", code, out)
 				}
 			}
-			// squaremap draws tiles until the server stops.
+			// A server that started with squaremap's jar keeps drawing tiles
+			// until it stops, whatever happens to the file.
 			tile := filepath.Join(folder, "web", "tiles", "minecraft_overworld", "3", "9_9.png")
+			var loaded atomic.Bool
+			loaded.Store(!c.stopped)
 			e.fd.mu.Lock()
+			e.fd.started = func(*fakeContainer) {
+				_, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile))
+				loaded.Store(err == nil)
+			}
 			e.fd.stopped = func(*fakeContainer) {
-				if _, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile)); err == nil {
+				if loaded.Load() {
 					os.MkdirAll(filepath.Dir(tile), 0o755)
 					os.WriteFile(tile, []byte("\x89PNG drawn"), 0o644)
 				}
@@ -637,7 +644,7 @@ func TestTurningTheMapOffStopsSquaremapFirst(t *testing.T) {
 			e.fd.mu.Unlock()
 			t.Cleanup(func() {
 				e.fd.mu.Lock()
-				e.fd.stopped = nil
+				e.fd.started, e.fd.stopped = nil, nil
 				e.fd.mu.Unlock()
 			})
 			started := time.Time{}
