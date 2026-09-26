@@ -968,7 +968,7 @@ control "a restore gives voice chat back its UDP port" internal/agent/backups.go
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
 control "voice chat never gets a port held for another server" internal/agent/curated.go \
   'if holder != id {' \
-  'if false {' \
+  'if false && holder != id {' \
   ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
 control "a restore holds voice chat's port until the restored settings are saved" internal/agent/backups.go \
   '	defer releasePort()' \
