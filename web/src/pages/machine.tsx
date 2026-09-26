@@ -4,7 +4,9 @@ import { useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, Dot, MeterRow, Progress } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
+import { LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, formatPercent } from '@/lib/format'
 import { phaseLabel, phaseTone } from '@/lib/phase'
@@ -16,10 +18,19 @@ export function MachinePage({ id }: { id: string }) {
   const phone = useIsPhone()
   const m = ws.machines.find((x) => x.id === id) ?? (ws.machine?.id === id ? ws.machine : undefined)
   const { catalog } = useCatalog(m?.id)
-  if (!m) {
+  if (!m && ws.machines.length) {
     return (
       <PageBody>
-        <p className="text-sm text-muted-foreground">{ws.machines.length ? t('machine.notFound') : t('common.loading')}</p>
+        <p className="text-sm text-muted-foreground">{t('machine.notFound')}</p>
+      </PageBody>
+    )
+  }
+  if (!m) {
+    return (
+      <PageBody className="grid gap-4 lg:grid-cols-2">
+        <LoadingLabel />
+        <Skeleton className="h-64 rounded-3xl" />
+        <Skeleton className="h-64 rounded-3xl" />
       </PageBody>
     )
   }
@@ -61,8 +72,10 @@ export function MachinePage({ id }: { id: string }) {
                 <Progress value={diskUsed ?? 0} className="mt-1.5" label={t('machine.disk')} />
               </a>
             </div>
+          ) : ws.agentDown ? (
+            <p className="mt-3 text-[13px] text-muted-foreground">{t('nav.notAnswering')}</p>
           ) : (
-            <p className="mt-3 text-[13px] text-muted-foreground">{ws.agentDown ? t('nav.notAnswering') : t('common.loading')}</p>
+            <MeterSkeleton className="mt-4" />
           )}
           <div className="mt-auto flex flex-wrap justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
             <span>{t('machine.sampled')}</span>

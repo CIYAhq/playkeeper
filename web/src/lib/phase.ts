@@ -81,6 +81,39 @@ export function controls(st: ServerStatus) {
   }
 }
 
+/** "Backing up Survival. Try again when it's done." while a job runs; undefined otherwise. */
+export function busyReason(st: ServerStatus): string | undefined {
+  return st.operation ? t('reason.busy', { what: opLabel(st.operation, st.name) }) : undefined
+}
+
+export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change'
+
+/** Why an action can't run on a server right now, in a few plain words; undefined when it can. */
+export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): string | undefined {
+  if (stale) return t('reason.noAgent')
+  if (st.phase === 'docker_unavailable') return t('status.docker')
+  if (!st.exists) return t('reason.notCreated', { server: st.name })
+  const busy = busyReason(st)
+  if (busy) return busy
+  const c = controls(st)
+  const settling = phaseTone(st.phase) === 'busy' ? t('reason.busy', { what: t(st.phase === 'stopping' ? 'op.stop' : 'op.start', { server: st.name }) }) : undefined
+  switch (action) {
+    case 'start':
+      return c.canStart ? undefined : (settling ?? t('reason.running', { server: st.name }))
+    case 'stop':
+      return c.canStop ? undefined : (settling ?? t('reason.stopped', { server: st.name }))
+    case 'restart':
+    case 'command':
+      return st.phase === 'online' ? undefined : (settling ?? t('reason.startFirst', { server: st.name }))
+    case 'change':
+      return undefined
+    default: {
+      const unreachable: never = action
+      return unreachable
+    }
+  }
+}
+
 const opKeys: Record<string, MessageKey> = {
   create: 'op.create',
   start: 'op.start',

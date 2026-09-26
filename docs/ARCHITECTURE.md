@@ -21,6 +21,7 @@ All of it is one Go binary with the TypeScript/React UI compiled in; the process
 
 - Preflight existing listeners, services, resources and file paths before changing a host. Never assume ownership of a running Crafty or systemd Minecraft world. Keep an install manifest and a reversible uninstall path that does not destroy user worlds.
 - Bootstrap auth locally; HTTPS, CSRF protections, session expiration, rate limiting and administrative authorization on control actions. Neither Docker nor RCON is externally available. Audit privileged actions, not secret values.
+- A server's data folder is the game's, and its plugins and mods can put links, named pipes or huge files there. The agent reads and writes files there through `internal/gamefiles`, which refuses them and says which file is in the way.
 - Define desired vs observed state and idempotent start/stop/restart, per server. Handle agent disconnect, simultaneous operations, crash and reboot coherently.
 - Bound log/event retention. Prefer real player event logs with deduplication and session-gap handling; add a Paper plugin only if observed sources are insufficient. Avoid storing player IPs unless essential and documented.
 - Consistent world backup can require a graceful stop. Record archive manifest/integrity and storage location; a local archive alone must be labelled on-host only. Protect restore with explicit preview, validation and rollback archive. A backup can also be restored as a new server.

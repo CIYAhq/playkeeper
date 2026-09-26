@@ -777,9 +777,19 @@ func chownTree(root string, uid, gid int) error {
 	if os.Geteuid() != 0 {
 		return nil
 	}
+	return giveTree(root, uid, gid)
+}
+
+// giveTree gives every file and folder under root to uid:gid with the
+// game's modes. A link is given as it is: os.Chmod would change what it
+// leads to.
+func giveTree(root string, uid, gid int) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return os.Lchown(p, uid, gid)
 		}
 		mode := os.FileMode(0o640)
 		if d.IsDir() {

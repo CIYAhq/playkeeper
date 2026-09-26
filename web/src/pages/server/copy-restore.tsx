@@ -12,6 +12,7 @@ import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, Dial
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatPercent } from '@/lib/format'
+import { presenceProps, type Presence } from '@/lib/presence'
 import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -76,10 +77,10 @@ export function phoneStored(row: StoredRow, place: string): string | undefined {
 const kindLabel = (kind: string) => (kind === 'manual' ? t('world.manual') : t('world.rollback'))
 
 /** A backup that is only in the copies: it can be fetched back, nothing else. */
-export function CopyRow({ row, place, onRestore }: { row: Extract<StoredRow, { kind: 'there' }>; place: string; onRestore: () => void }) {
+export function CopyRow({ row, state = 'staying', place, onRestore }: { row: Extract<StoredRow, { kind: 'there' }>; state?: Presence; place: string; onRestore: () => void }) {
   const c = row.copy
   return (
-    <tr className="h-12 border-t border-border">
+    <tr {...presenceProps(state)} className="h-12 border-t border-border">
       <td className="px-3 py-2">
         <span className="block font-semibold">{formatDay(c.createdAt)}</span>
         <span className="block text-xs text-muted-foreground">{kindLabel(c.kind)}</span>

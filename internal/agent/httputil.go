@@ -34,6 +34,7 @@ type apiError struct {
 	Msg    string
 	Hint   string
 	Op     *api.Operation
+	Err    error
 	// Wave 7 (0.4.0): the form field at fault, a stable reason code and its
 	// values (see api.Error).
 	Field  string
@@ -42,6 +43,8 @@ type apiError struct {
 }
 
 func (e *apiError) Error() string { return e.Msg }
+
+func (e *apiError) Unwrap() error { return e.Err }
 
 func errInvalid(format string, args ...any) *apiError {
 	return &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: fmt.Sprintf(format, args...)}

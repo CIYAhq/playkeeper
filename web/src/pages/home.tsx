@@ -10,7 +10,9 @@ import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, Playe
 import { EmptySteps } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
+import { InlineSkeleton, LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
@@ -29,7 +31,7 @@ export function HomePage() {
   const servers = ws.servers
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
-  const activity = usePoll(() => (machine ? get<Activity[]>(machineApi(machine.id, '/activity?limit=5')) : Promise.resolve([])), 10000, machine?.id ?? '')
+  const activity = usePoll<Activity[] | undefined>(() => (machine ? get<Activity[]>(machineApi(machine.id, '/activity?limit=5')) : Promise.resolve(undefined)), 10000, machine?.id ?? '')
 
   const newButton = (
     <Button render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -71,17 +73,15 @@ export function HomePage() {
     )
   }
 
-  const players = playersOnline(servers)
-  const subtitle = servers ? `${t('home.servers', { count: servers.length, machine: ws.machineName })}${t('common.dot')}${t('home.playing', { count: players })}` : undefined
+  const count = servers && t('home.servers', { count: servers.length, machine: ws.machineName })
+  const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers) })}`
   return (
     <>
       <PageHeader title={t('home.title')} subtitle={subtitle} actions={newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
         <MachineNotice />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {(servers ?? []).map((s) => (
-            <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
-          ))}
+          {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
           <NewServerCard />
         </div>
         <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
@@ -104,7 +104,7 @@ export function HomePage() {
 function MachineNotice() {
   const ws = useWorkspace()
   const disk = ws.machine?.live?.diskWarning
-  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.note')}</Notice>
+  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.body', { machine: ws.machineName })}</Notice>
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   return null
 }
@@ -236,6 +236,27 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
   )
 }
 
+/** A server card while the list loads, in the same box as the real one. */
+function ServerCardSkeleton() {
+  return (
+    <div className="flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card">
+      <LoadingLabel />
+      <div className="flex items-start gap-3">
+        <Skeleton className="size-10 rounded-xl" />
+        <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+        <Skeleton className="h-[26px] w-20 rounded-full" />
+      </div>
+      <div className="flex h-11 items-center">
+        <Skeleton className="h-3 w-32" />
+      </div>
+      <Skeleton className="h-10 rounded-lg" />
+    </div>
+  )
+}
+
 function NewServerCard() {
   const ws = useWorkspace()
   const live = ws.machine?.live
@@ -271,8 +292,10 @@ function MachineCard() {
           <MeterRow label={t('home.cpu')} value={formatPercent(live.cpuPercent)} percent={live.cpuPercent} />
           <MeterRow label={t('home.disk')} value={t('home.diskFree', { free: formatBytes(live.diskFreeBytes) })} percent={diskUsed} />
         </div>
+      ) : ws.agentDown ? (
+        <p className="mt-3 flex-1 text-[13px] text-muted-foreground">{t('nav.notAnswering')}</p>
       ) : (
-        <p className="mt-3 flex-1 text-[13px] text-muted-foreground">{ws.agentDown ? t('nav.notAnswering') : t('common.loading')}</p>
+        <MeterSkeleton className="mt-4" />
       )}
       {m && (
         <a {...linkProps({ name: 'machine', id: m.id })} className="mt-auto inline-flex items-center gap-1 self-start pt-4 text-xs font-medium text-primary hover:underline">
