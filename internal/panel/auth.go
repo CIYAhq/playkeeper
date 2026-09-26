@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -271,10 +272,15 @@ func (s *Server) authenticate(username, password string) (user, bool) {
 }
 
 func (s *Server) newSession(u user) (token string, sess session, err error) {
+	return s.newSessionIn(context.Background(), s.db, u)
+}
+
+// newSessionIn is newSession through q, which may hold a transaction.
+func (s *Server) newSessionIn(ctx context.Context, q querier, u user) (token string, sess session, err error) {
 	token = randomToken(32)
 	now := s.now()
 	sess = session{IDHash: tokenHash(token), User: u, CSRF: randomToken(32), CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(s.opts.AbsoluteTimeout)}
-	_, err = s.db.Exec(`INSERT INTO sessions(id_hash, user_id, csrf, created_at, last_seen, expires_at) VALUES(?,?,?,?,?,?)`,
+	_, err = q.ExecContext(ctx, `INSERT INTO sessions(id_hash, user_id, csrf, created_at, last_seen, expires_at) VALUES(?,?,?,?,?,?)`,
 		sess.IDHash, u.ID, sess.CSRF, now.UnixMilli(), now.UnixMilli(), sess.ExpiresAt.UnixMilli())
 	return token, sess, err
 }

@@ -61,6 +61,10 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
+// Pending reports whether the service stored the change but Cloudflare has
+// not published it yet; the service keeps trying, so waiting may be enough.
+func (e *Error) Pending() bool { return e.Code == CodeDNSPending }
+
 // ErrorBody is the JSON the service answers a refused request with.
 type ErrorBody struct {
 	Error  string         `json:"error"`
