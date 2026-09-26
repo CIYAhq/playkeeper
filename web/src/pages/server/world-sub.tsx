@@ -59,11 +59,11 @@ export function useZipPicker(onFile: (file: File) => void) {
   return { open: () => ref.current?.click(), input }
 }
 
-/** A dashed area that takes a dropped .zip, or opens the file chooser when clicked. */
-export function ZipDropZone({ label, onFile, busy, disabled, tall, className }: { label: ReactNode; onFile: (file: File) => void; busy?: boolean; disabled?: boolean; tall?: boolean; className?: string }) {
+/** A dashed area that takes a dropped .zip, or opens the file chooser when clicked; `disabledReason` holds it back and says why. */
+export function ZipDropZone({ label, onFile, busy, disabledReason, tall, className }: { label: ReactNode; onFile: (file: File) => void; busy?: boolean; disabledReason?: string; tall?: boolean; className?: string }) {
   const [over, setOver] = useState(false)
   const picker = useZipPicker(onFile)
-  const off = disabled || busy
+  const off = !!disabledReason || busy
   function drop(e: DragEvent) {
     e.preventDefault()
     setOver(false)
@@ -84,8 +84,10 @@ export function ZipDropZone({ label, onFile, busy, disabled, tall, className }: 
         type="button"
         onClick={picker.open}
         disabled={off}
+        title={disabledReason}
         className={cn(
-          'flex h-full w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-input bg-warm px-6 text-center text-[13px] font-medium outline-none not-disabled:hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground',
+          'flex h-full w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-input bg-warm px-6 text-center text-[13px] font-medium outline-none not-disabled:hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring disabled:text-muted-foreground',
+          disabledReason ? 'disabled:cursor-not-allowed' : 'disabled:cursor-default',
           tall ? 'min-h-[88px] flex-col gap-3 py-6' : 'py-5',
           over && 'border-primary bg-selected',
         )}

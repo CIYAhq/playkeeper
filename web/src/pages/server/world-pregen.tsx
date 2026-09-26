@@ -15,12 +15,13 @@ import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatBytes, formatPercent } from '@/lib/format'
-import { opLabel } from '@/lib/phase'
+import { opLabel, whyNot } from '@/lib/phase'
 import { usePoll, type Poll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { PhoneActionBar, WorldSubHeader } from './world-sub'
 
 const presetNames: Record<PregenPresetId, MessageKey> = { small: 'pregen.small', medium: 'pregen.medium', large: 'pregen.large', huge: 'pregen.huge' }
+const actingKeys: Record<'pause' | 'continue' | 'cancel', MessageKey> = { pause: 'pregen.pausing', continue: 'pregen.resuming', cancel: 'pregen.cancelling' }
 const modServers = new Set(['fabric', 'quilt', 'neoforge'])
 
 /** A length of time, rounded the way people say it: minutes, half hours under ten hours, hours, then days. */
@@ -239,7 +240,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   const [busy, setBusy] = useState(false)
   const chosen = pg.presets.find((p) => p.id === preset)
   const otherJob = s.operation && s.operation.kind !== 'pregen-start' ? s.operation : undefined
-  const blocked = ws.stale || !s.exists || !!otherJob || !chosen?.fits
+  const blocked = whyNot({ ...s, operation: otherJob }, 'change', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
 
   async function start() {
     setBusy(true)
@@ -274,7 +275,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   )
   const failed = pg.error && <Notice tone="error" title={t('pregen.failed')}>{pg.error}</Notice>
   const startButton = (
-    <Button size={phone ? 'touch' : 'default'} className={phone ? 'w-full' : undefined} onClick={start} loading={busy} disabled={blocked}>
+    <Button size={phone ? 'touch' : 'default'} className={phone ? 'w-full' : undefined} onClick={start} loading={busy} disabledReason={blocked}>
       <PlayIcon />
       {t('pregen.start')}
     </Button>
@@ -299,7 +300,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
           </SectionLabel>
           <CardGroup value={preset} onChange={setPreset} label={t('pregen.howFar')} className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
             {pg.presets.map((p) => (
-              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60">
+              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60" title={p.fits ? undefined : t('pregen.noRoom')}>
                 <span className="min-w-0 flex-1">
                   {name(p)}
                   <span className="block text-[13px] text-muted-foreground">{[t('pregen.blocks', { radius: p.radius }), estimate(p)].join(t('common.dot'))}</span>
@@ -328,7 +329,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
       <p className="mt-5 text-[13px] font-semibold">{t('pregen.howFar')}</p>
       <CardGroup value={preset} onChange={setPreset} label={t('pregen.howFar')} className="mt-2.5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {pg.presets.map((p) => (
-          <ChoiceCard key={p.id} value={p.id} disabled={!p.fits} className="items-start px-4 py-3.5">
+          <ChoiceCard key={p.id} value={p.id} disabled={!p.fits} reason={t('pregen.noRoom')} className="items-start px-4 py-3.5">
             {name(p)}
             <span className="mt-2 block text-[13px] font-semibold tabular-nums">{t('pregen.blocks', { radius: p.radius })}</span>
             <span className="mt-0.5 block text-xs text-muted-foreground">{estimate(p)}</span>
@@ -380,13 +381,14 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
   const status = paused ? pausedText(pg, s.name) : pg.etaSeconds >= 0 ? t('pregen.left', { time: longTime(pg.etaSeconds) }) : undefined
   const resume = paused && pg.pausedBy !== 'server'
   const size = phone ? 'touch' : 'default'
+  const blocked = ws.stale ? t('reason.noAgent') : acting ? t('reason.busy', { what: t(actingKeys[acting]) }) : undefined
   const actions = !starting && (
     <>
-      <Button variant="outline" size={size} className={phone ? 'flex-1' : undefined} onClick={() => void act(resume ? 'continue' : 'pause')} loading={acting === 'continue' || acting === 'pause'} disabled={ws.stale || !!acting}>
+      <Button variant="outline" size={size} className={phone ? 'flex-1' : undefined} onClick={() => void act(resume ? 'continue' : 'pause')} loading={acting === 'continue' || acting === 'pause'} disabledReason={blocked}>
         {resume ? <PlayIcon /> : <PauseIcon />}
         {resume ? t('pregen.resume') : t('pregen.pause')}
       </Button>
-      <Button variant="ghost" size={size} className={phone ? 'flex-1' : undefined} onClick={() => void act('cancel')} loading={acting === 'cancel'} disabled={ws.stale || !!acting}>
+      <Button variant="ghost" size={size} className={phone ? 'flex-1' : undefined} onClick={() => void act('cancel')} loading={acting === 'cancel'} disabledReason={blocked}>
         {t('common.cancel')}
       </Button>
     </>

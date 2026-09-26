@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, relativeTime } from '@/lib/format'
-import { opLabel } from '@/lib/phase'
+import { opLabel, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll, type Poll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -241,17 +241,17 @@ type ResourceActions = ReturnType<typeof useResourcePackActions>
 type DataActions = ReturnType<typeof useDataPackActions>
 
 interface Gate {
-  /** Nothing can change while the agent is out of reach or another job runs. */
-  blocked: boolean
+  /** Why nothing can change right now, such as the agent being out of reach or another job running. */
+  blocked?: string
   here: string
-  /** Players' games couldn't download a pack from the address this page is open at. */
-  local: boolean
+  /** Why players' games couldn't download a pack from the address this page is open at. */
+  local?: string
 }
 
 function useGate(s: ServerStatus): Gate {
   const ws = useWorkspace()
   const here = window.location.hostname
-  return { blocked: ws.stale || !!s.operation, here, local: isLocalHost(here) }
+  return { blocked: whyNot(s, 'change', ws.stale), here, local: isLocalHost(here) ? t('packs.localHost', { host: here }) : undefined }
 }
 
 interface PacksProps {
@@ -351,9 +351,9 @@ function ResourcePackCard({ server: s, rp, res }: PacksProps) {
         )}
         {view === 'error' && rp.error && <LoadError className="mt-4" error={rp.error} onRetry={rp.refresh} />}
         {offer && <OfferDetails server={s} offer={offer} res={res} gate={gate} />}
-        {view === 'empty' && <ZipDropZone tall label={t('packs.drop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabled={gate.blocked || gate.local} className="mt-4" />}
+        {view === 'empty' && <ZipDropZone tall label={t('packs.drop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabledReason={gate.blocked ?? gate.local} className="mt-4" />}
       </div>
-      {gate.local && rp.data && <p className="mt-3 text-xs text-warning-foreground">{t('packs.localHost', { host: gate.here })}</p>}
+      {gate.local && rp.data && <p className="mt-3 text-xs text-warning-foreground">{gate.local}</p>}
       <Footnote server={s} className="mt-auto pt-4 text-xs text-muted-foreground">
         {rp.data?.pending ? t('packs.appliesOnRestart', { server: s.name }) : t('packs.appliesOnJoin')}
       </Footnote>
@@ -373,20 +373,20 @@ function OfferDetails({ server: s, offer, res, gate }: { server: ServerStatus; o
           <p className="text-xs text-muted-foreground">{t('packs.added', { size: formatBytes(offer.size), time: relativeTime(offer.addedAt) })}</p>
           {other && <p className="truncate text-xs text-muted-foreground">{t('packs.servedFrom', { host: other })}</p>}
         </div>
-        <Button variant="destructive-outline" size="sm" onClick={() => void res.remove()} loading={res.removing} disabled={gate.blocked}>
+        <Button variant="destructive-outline" size="sm" onClick={() => void res.remove()} loading={res.removing} disabledReason={gate.blocked}>
           <Trash2Icon />
           {t('common.remove')}
         </Button>
       </div>
-      <label className="mt-4 flex cursor-pointer items-center gap-3 self-start text-[13px] font-semibold">
-        <Switch checked={res.draft?.required ?? offer.required} onCheckedChange={(on) => res.change(offer, { required: on })} disabled={gate.blocked} />
+      <label className="mt-4 flex cursor-pointer items-center gap-3 self-start text-[13px] font-semibold" title={gate.blocked}>
+        <Switch checked={res.draft?.required ?? offer.required} onCheckedChange={(on) => res.change(offer, { required: on })} disabled={!!gate.blocked} />
         {t('packs.mustAccept')}
       </label>
       <label htmlFor={promptId} className="mt-4 self-start text-xs font-semibold">
         {t('packs.prompt')}
       </label>
-      <PromptInput key={`${offer.sha1}:${offer.prompt ?? ''}`} id={promptId} offer={offer} onSave={(prompt) => res.change(offer, { prompt })} disabled={gate.blocked} className="mt-1.5" />
-      <ZipDropZone label={t('packs.replaceDrop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabled={gate.blocked || gate.local} className="mt-4" />
+      <PromptInput key={`${offer.sha1}:${offer.prompt ?? ''}`} id={promptId} offer={offer} onSave={(prompt) => res.change(offer, { prompt })} disabled={!!gate.blocked} className="mt-1.5" />
+      <ZipDropZone label={t('packs.replaceDrop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabledReason={gate.blocked ?? gate.local} className="mt-4" />
     </>
   )
 }
@@ -426,7 +426,7 @@ function DataPacksCard({ server: s, dp, data }: PacksProps) {
     <Card>
       <div className="flex min-h-7 items-center gap-3">
         <CardTitle className="flex-1">{t('packs.dataPacks')}</CardTitle>
-        <Button variant="outline" size="sm" onClick={picker.open} loading={data.uploading} disabled={gate.blocked}>
+        <Button variant="outline" size="sm" onClick={picker.open} loading={data.uploading} disabledReason={gate.blocked}>
           <UploadIcon />
           {t('packs.uploadData')}
         </Button>
@@ -471,12 +471,12 @@ function DataPackRow({ server: s, pack: p, state, live, data, gate, phone }: { s
         {!phone && p.description && <p className="truncate text-xs text-muted-foreground">{p.description}</p>}
       </div>
       {pending && <Spinner />}
-      {live && on !== undefined && <Switch checked={on} onCheckedChange={(v) => data.toggle(p, v)} disabled={gate.blocked} aria-label={title} />}
+      {live && on !== undefined && <Switch checked={on} onCheckedChange={(v) => data.toggle(p, v)} disabled={!!gate.blocked} title={gate.blocked} aria-label={title} />}
       {p.folder ? (
         <span className="size-8 shrink-0 sm:size-7" aria-hidden="true" />
       ) : (
         <Menu>
-          <MenuTrigger render={<Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={t('packs.menuFor', { name: title })} disabled={gate.blocked} />}>
+          <MenuTrigger disabled={!!gate.blocked} render={<Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={t('packs.menuFor', { name: title })} disabledReason={gate.blocked} />}>
             <EllipsisIcon />
           </MenuTrigger>
           <MenuPopup align="end">
@@ -504,9 +504,10 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
   const prompt = res.draft?.prompt ?? offer?.prompt ?? ''
   const row = 'flex w-full items-center gap-3 px-4 text-left active:bg-accent/60 disabled:opacity-64 [&>svg]:size-5 [&>svg]:shrink-0'
   const card = 'mt-2 overflow-hidden rounded-3xl border border-border bg-white'
+  const uploadBlocked = gate.blocked ?? gate.local
 
   const upload = (
-    <button type="button" className={cn(row, 'min-h-[52px] text-primary')} disabled={gate.blocked || gate.local || res.uploading} onClick={resPicker.open}>
+    <button type="button" className={cn(row, 'min-h-[52px] text-primary')} disabled={!!uploadBlocked || res.uploading} title={uploadBlocked} onClick={resPicker.open}>
       {res.uploading ? <Spinner className="size-5" /> : <UploadIcon aria-hidden="true" />}
       <span className="text-base">{res.uploading ? t('world.uploading') : offer ? t('packs.replace') : t('packs.chooseResource')}</span>
     </button>
@@ -541,16 +542,17 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
                   </span>
                 </li>
                 <li>
-                  <label className={cn(row, 'min-h-[52px] cursor-pointer')}>
+                  <label className={cn(row, 'min-h-[52px] cursor-pointer')} title={gate.blocked}>
                     <span className="min-w-0 flex-1 text-base">{t('packs.mustAccept')}</span>
-                    <Switch checked={res.draft?.required ?? offer.required} onCheckedChange={(on) => res.change(offer, { required: on })} disabled={gate.blocked} />
+                    <Switch checked={res.draft?.required ?? offer.required} onCheckedChange={(on) => res.change(offer, { required: on })} disabled={!!gate.blocked} />
                   </label>
                 </li>
                 <li>
                   <button
                     type="button"
                     className={cn(row, 'min-h-14 py-2')}
-                    disabled={gate.blocked}
+                    disabled={!!gate.blocked}
+                    title={gate.blocked}
                     onClick={() => {
                       setText(prompt)
                       setEditing(true)
@@ -565,7 +567,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
                 </li>
                 <li>{upload}</li>
                 <li>
-                  <button type="button" className={cn(row, 'min-h-[52px] text-destructive-foreground')} disabled={gate.blocked || res.removing} onClick={() => void res.remove()}>
+                  <button type="button" className={cn(row, 'min-h-[52px] text-destructive-foreground')} disabled={!!gate.blocked || res.removing} title={gate.blocked} onClick={() => void res.remove()}>
                     {res.removing ? <Spinner className="size-5" /> : <Trash2Icon aria-hidden="true" />}
                     <span className="text-base">{t('packs.removeResource')}</span>
                   </button>
@@ -575,7 +577,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
             {!offer && <li>{upload}</li>}
           </ul>
         )}
-        {gate.local && rp.data && <p className="px-4 pt-2 text-[13px] text-warning-foreground">{t('packs.localHost', { host: gate.here })}</p>}
+        {gate.local && rp.data && <p className="px-4 pt-2 text-[13px] text-warning-foreground">{gate.local}</p>}
         <Footnote server={s} className="px-4 pt-2 text-[13px] text-muted-foreground">
           {rp.data?.pending ? t('packs.appliesOnRestart', { server: s.name }) : t('packs.appliesOnJoin')}
         </Footnote>
@@ -614,7 +616,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
       </section>
 
       <PhoneActionBar>
-        <Button variant="outline" size="touch" className="w-full" onClick={dataPicker.open} loading={data.uploading} disabled={gate.blocked}>
+        <Button variant="outline" size="touch" className="w-full" onClick={dataPicker.open} loading={data.uploading} disabledReason={gate.blocked}>
           <UploadIcon />
           {t('packs.addData')}
         </Button>

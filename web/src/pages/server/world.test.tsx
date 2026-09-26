@@ -223,6 +223,15 @@ describe('Pre-generate page', () => {
     const operation = { id: 'backup-1', kind: 'backup', status: 'running' as const, phase: 'archiving', actor: 'siya', startedAt: new Date().toISOString() }
     await render(<PregenPage server={server({ operation })} />)
     expect(button('Start').disabled).toBe(true)
+    expect(button('Start').title).toBe('Backing up Survival. Try again when it’s done.')
+  })
+
+  it('says why a size that doesn’t fit can’t be started', async () => {
+    answer({ '/pregen': pregen({ presets: pregen().presets.map((p) => ({ ...p, fits: p.id === 'small' })) }) })
+    await render(<PregenPage server={server()} />)
+    expect(document.querySelector('[role="radio"][aria-checked="true"]')?.closest('label')?.textContent).toContain('Small')
+    expect(button('Start').title).toBe('')
+    expect(document.querySelector('label[title="Not enough free disk"]')?.textContent).toContain('Medium')
   })
 
   it('follows a running task with its progress', async () => {
@@ -238,6 +247,15 @@ describe('Pre-generate page', () => {
     expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/pregen/pause')
     await click(button('Cancel'))
     expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/pregen/cancel')
+  })
+
+  it('holds the other button back while pausing', async () => {
+    answer({ '/pregen': pregen({ state: 'running', preset: 'medium', radius: 2000, chunks: 26_460, total: 63_001, percent: 42, etaSeconds: 5400, installed: true }) })
+    await render(<PregenPage server={server()} />)
+    vi.mocked(client.post).mockImplementationOnce(() => new Promise(() => {}))
+    await click(button('Pause'))
+    expect(button('Cancel').disabled).toBe(true)
+    expect(button('Cancel').title).toBe('Pausing. Try again when it’s done.')
   })
 
   it('says who a paused task waits for, and resumes it', async () => {
@@ -414,6 +432,22 @@ describe('Packs page', () => {
     const text = await render(<PacksPage server={server()} />)
     expect(text).toContain('Players can’t download packs from localhost. Open the dashboard at the address players join with.')
     expect(button('Drop a resource pack .zip here, or choose a file').disabled).toBe(true)
+    expect(button('Drop a resource pack .zip here, or choose a file').title).toBe('Players can’t download packs from localhost. Open the dashboard at the address players join with.')
+  })
+
+  it('says why nothing can change while another job runs', async () => {
+    answer({ '/resourcepack': { offer, pending: false } satisfies ResourcePack, '/datapacks': dataPacks() })
+    const operation = { id: 'backup-1', kind: 'backup', status: 'running' as const, phase: 'archiving', actor: 'siya', startedAt: new Date().toISOString() }
+    await render(<PacksPage server={server({ operation })} />)
+    const why = 'Backing up Survival. Try again when it’s done.'
+    for (const label of ['Upload data pack', 'Remove', 'Drop a .zip to replace it', 'Actions for Graves']) {
+      expect(button(label).disabled, label).toBe(true)
+      expect(button(label).title, label).toBe(why)
+    }
+    const graves = document.querySelector<HTMLElement>('[role="switch"][aria-label="Graves"]')
+    expect(graves?.getAttribute('title')).toBe(why)
+    expect(graves?.hasAttribute('data-disabled')).toBe(true)
+    expect(document.querySelector('label [role="switch"]')?.closest('label')?.getAttribute('title')).toBe(why)
   })
 })
 
