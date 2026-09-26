@@ -742,9 +742,11 @@ func (a *Agent) settleSwap(stageDir string) error {
 		if _, running, err := s.containerRunning(ctx); err != nil || running {
 			return fmt.Errorf("the server must be stopped to put the previous world back (running %v, %v)", running, err)
 		}
+		movedBack := dirExists(s.copyPath(j.Aside))
 		if err := s.putPreviousBack(j); err != nil {
 			return err
 		}
+		s.restoreSettled(j, movedBack)
 		a.log.Info("put the previous world back after an interrupted restore", "server", s.id)
 		return nil
 	}
@@ -752,6 +754,34 @@ func (a *Agent) settleSwap(stageDir string) error {
 }
 
 func (s *server) copyPath(name string) string { return filepath.Join(s.dir(), name) }
+
+// restoreSettled records what the start did for a restore that didn't
+// finish. Its record says the previous world is back instead of how putting
+// it back failed, and is over only now; the activity and the audit log say
+// so too. movedBack is false when someone had moved the world back by hand.
+func (s *server) restoreSettled(j *swapJournal, movedBack bool) {
+	now := s.now().UTC()
+	back := "Playkeeper put your previous world back when it started again."
+	if !movedBack {
+		back = "Your previous world was already back in place, and Playkeeper put its settings back when it started again."
+	}
+	if op, err := s.loadOperation(j.OpID); err == nil && op.Status == api.OpFailed {
+		fixed := copyOp(op)
+		why := j.Why
+		if why == "" {
+			why = "The restore did not finish."
+		}
+		fixed.Error, fixed.Hint = why+" "+back, ""
+		if failed := s.copyPath(j.Failed); dirExists(failed) {
+			fixed.Hint = "The failed restore was kept at " + failed + " for inspection."
+		}
+		fixed.Detail["settledAfterRestart"] = true
+		fixed.FinishedAt = &now
+		s.saveOperation(fixed)
+	}
+	s.recordEvent(now, "world_put_back", "", "playkeeper", j.Detail)
+	s.audit("playkeeper", "restore.settled", shortSum(j.SHA256), "succeeded", "put the previous world back after the Playkeeper agent restarted")
+}
 
 // putPreviousBack moves the previous world back into the live directory, a
 // restored world in the way to the failed-restore copy, and saves the

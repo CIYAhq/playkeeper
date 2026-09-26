@@ -401,6 +401,8 @@ var (
 		"server_version_changed": "version", "server_stopped_externally": "stopped_outside",
 		// Wave 7 (0.4.0)
 		"server_fell_asleep": "fell_asleep", "server_woke_up": "woke_up",
+		// A previous world a start put back after a restore that didn't finish.
+		"world_put_back": "put_back",
 	}
 	activityAudit = map[string]string{
 		"whitelist.add": "allowlisted", "whitelist.remove": "unlisted", "operator.add": "operator", "operator.remove": "deoperator",

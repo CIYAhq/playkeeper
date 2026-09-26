@@ -67,3 +67,47 @@ func TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack(t *testing.T) {
 		t.Fatalf("the previous world is back, but the status still says it's missing: %+v", m)
 	}
 }
+
+// A restore whose previous world the next start put back says so: its record
+// no longer says putting it back failed, the activity has a line for it, and
+// the audit log has what the start did.
+func TestARestoreSettledAtStartSaysSo(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	id, phrase := e.backupAndStage()
+	previous := worldHash(t, e.dataDir())
+	failPuttingBack(t, e, id)
+	op := e.applyRestore(id, phrase)
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "putting the previous world back also failed") {
+		t.Fatalf("restore: %+v", op)
+	}
+	renameDir = os.Rename
+	e.stop()
+	e.start()
+	if got := worldHash(t, e.dataDir()); got != previous {
+		t.Fatal("the previous world is not back in place")
+	}
+	settled := e.opAtRest(op.ID)
+	if settled.Status != api.OpFailed || strings.Contains(settled.Error, "also failed") ||
+		!strings.HasSuffix(settled.Error, " Playkeeper put your previous world back when it started again.") ||
+		!strings.Contains(settled.Hint, ".failed-restore-") || settled.Detail["settledAfterRestart"] != true {
+		t.Fatalf("the restore's record must say the previous world is back: %+v", settled)
+	}
+	if settled.FinishedAt == nil || !settled.FinishedAt.After(*op.FinishedAt) {
+		t.Fatalf("the restore is over only once the previous world is back: %v, failed at %v", settled.FinishedAt, op.FinishedAt)
+	}
+	acts, err := e.a.Activity(e.sid, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range acts {
+		found = found || a.Kind == "put_back"
+	}
+	if !found {
+		t.Fatalf("the activity has no line for the previous world put back: %+v", acts)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.settled' AND result = 'succeeded'`); n != 1 {
+		t.Fatalf("want what the start did audited once, got %d", n)
+	}
+}
