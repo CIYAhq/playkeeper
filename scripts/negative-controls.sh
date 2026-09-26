@@ -2953,8 +2953,8 @@ control "a refused scheduled backup sends the backup-failed alert" internal/agen
 # an empty server awake, and a backup dropped from a full copy queue discards
 # what it left at the destination.
 control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
-  'Busy: s.busy() || s.pregenRunning(),' \
-  'Busy: s.busy(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
+  'Busy: s.busy() || s.scheduleWorking(),' \
   ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
 control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
   'return st == pregen.StateRunning' \
